@@ -13,9 +13,13 @@ import {
   type CodexDelegationCreateRequest,
   type CodexDelegationEventAppendRequest,
   type CodexDelegationEventResponse,
+  type CodexDelegationGetRequest,
   type CodexDelegationRejected,
   type CodexDelegationResponse,
   type CodexDelegationStatusUpdateRequest,
+  type InstalledSkillReplaceRequest,
+  type InstalledSkillReplaceResponse,
+  type MemoryRpcRequest,
   type RpcError,
   type RpcMethod,
   type ScheduleRpcRequest,
@@ -97,6 +101,15 @@ export async function createCodexDelegation(
   return response.payload_json as CodexDelegationResponse
 }
 
+export async function getCodexDelegation(
+  rpcClient: RuntimeRpcClient,
+  request: CodexDelegationGetRequest
+): Promise<CodexDelegationResponse | CodexDelegationRejected> {
+  const response = await rpcClient.request(rpcMethods.codexDelegationGet, request, request.request_id)
+  if ('code' in response) return codexRejected(response, request)
+  return response.payload_json as CodexDelegationResponse
+}
+
 export async function appendCodexDelegationEvent(
   rpcClient: RuntimeRpcClient,
   request: CodexDelegationEventAppendRequest
@@ -151,6 +164,21 @@ export async function requestScheduleRpc(
 }
 
 /**
+ * Sends a Memory RPC and converts control-plane errors into tool failures.
+ */
+export async function requestMemoryRpc(
+  rpcClient: RuntimeRpcClient,
+  method: RpcMethod,
+  request: MemoryRpcRequest
+): Promise<JsonObject> {
+  const response = await rpcClient.request(method, request as never, request.request_id)
+  if ('code' in response) {
+    throw new Error(`memory RPC failed: ${response.code} ${response.message ?? ''}`.trim())
+  }
+  return (response.payload_json ?? {}) as JsonObject
+}
+
+/**
  * Reads the DB-backed overlay for an enabled skill.
  *
  * Skill source files live on worker storage, but per-agent additions are
@@ -182,6 +210,20 @@ export async function replaceSkillOverlay(
     throw new Error(`skill overlay replace RPC failed: ${response.code} ${response.message ?? ''}`.trim())
   }
   return response.payload_json as SkillOverlayResponse
+}
+
+/**
+ * Replaces the agent-installed skill registry from worker filesystem observations.
+ */
+export async function replaceInstalledSkillObservations(
+  rpcClient: RuntimeRpcClient,
+  request: InstalledSkillReplaceRequest
+): Promise<InstalledSkillReplaceResponse> {
+  const response = await rpcClient.request(rpcMethods.skillsInstalledReplace, request, request.request_id)
+  if ('code' in response) {
+    throw new Error(`installed skill registry RPC failed: ${response.code} ${response.message ?? ''}`.trim())
+  }
+  return response.payload_json as InstalledSkillReplaceResponse
 }
 
 /**

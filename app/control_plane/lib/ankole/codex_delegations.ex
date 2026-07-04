@@ -11,6 +11,7 @@ defmodule Ankole.CodexDelegations do
 
   alias Ecto.Adapters.SQL
 
+  alias Ankole.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.CodexDelegations.Schemas.Delegation
   alias Ankole.CodexDelegations.Schemas.Event
   alias Ankole.Principals
@@ -67,9 +68,14 @@ defmodule Ankole.CodexDelegations do
              %Delegation{} = delegation <-
                get_delegation_for_agent(repo, delegation_id, agent_uid, lock: "FOR UPDATE"),
              attrs <- normalize_keys(attrs),
+             :ok <- enforce_terminal_guard(delegation, attrs),
              :ok <- enforce_running_limit(repo, delegation, attrs) do
           delegation
-          |> Delegation.changeset(lifecycle_timestamps(attrs, delegation))
+          |> Delegation.changeset(
+            attrs
+            |> preserve_metadata(delegation)
+            |> lifecycle_timestamps(delegation)
+          )
           |> repo.update()
         else
           nil -> {:error, :delegation_not_found}
@@ -102,13 +108,41 @@ defmodule Ankole.CodexDelegations do
         |> Map.put("redaction", merge_redaction(Map.get(attrs, "redaction"), redaction))
         |> Map.put_new("occurred_at", now())
 
-      %Event{}
-      |> Event.changeset(event_attrs)
-      |> Repo.insert()
+      event_changeset = Event.changeset(%Event{}, event_attrs)
+
+      case Repo.insert(event_changeset) do
+        {:ok, %Event{} = event} ->
+          {:ok, event}
+
+        {:error, %Ecto.Changeset{} = changeset} ->
+          handle_append_conflict(changeset, delegation.id, Map.get(event_attrs, "seq"))
+      end
     else
       nil -> {:error, :delegation_not_found}
       {:error, _reason} = error -> error
     end
+  end
+
+  defp handle_append_conflict(changeset, delegation_id, seq) do
+    if delegation_seq_conflict?(changeset) do
+      case Repo.get_by(Event, delegation_id: delegation_id, seq: seq) do
+        %Event{} = event -> {:ok, event}
+        nil -> {:error, changeset}
+      end
+    else
+      {:error, changeset}
+    end
+  end
+
+  defp delegation_seq_conflict?(%Ecto.Changeset{errors: errors}) do
+    Enum.any?(errors, fn
+      {_field, {_message, opts}} ->
+        opts[:constraint] == :unique and
+          to_string(opts[:constraint_name]) == "codex_delegation_events_delegation_seq_index"
+
+      _error ->
+        false
+    end)
   end
 
   @doc """
@@ -142,6 +176,29 @@ defmodule Ankole.CodexDelegations do
   defp maybe_lock(query, nil), do: query
   defp maybe_lock(query, "FOR UPDATE"), do: lock(query, "FOR UPDATE")
 
+  @doc """
+  Fetches one delegation with its latest trajectory sequence.
+  """
+  @spec get_delegation_summary_for_agent(String.t(), String.t()) ::
+          {:ok, %{delegation: Delegation.t(), last_event_seq: integer() | nil}} | {:error, term()}
+  def get_delegation_summary_for_agent(delegation_id, agent_uid)
+      when is_binary(delegation_id) and is_binary(agent_uid) do
+    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
+         %Delegation{} = delegation <- get_delegation_for_agent(delegation_id, agent_uid) do
+      last_event_seq =
+        Repo.one(
+          from event in Event,
+            where: event.delegation_id == ^delegation.id,
+            select: max(event.seq)
+        )
+
+      {:ok, %{delegation: delegation, last_event_seq: last_event_seq}}
+    else
+      nil -> {:error, :delegation_not_found}
+      {:error, _reason} = error -> error
+    end
+  end
+
   defp lock_agent_slots(repo, agent_uid) do
     lock_key = "codex_delegations:running_slots:#{agent_uid}"
 
@@ -166,6 +223,24 @@ defmodule Ankole.CodexDelegations do
 
       true ->
         {:error, {:codex_agent_running_limit_exceeded, @max_running_per_agent}}
+    end
+  end
+
+  defp enforce_terminal_guard(%Delegation{status: status}, attrs)
+       when status in @terminal_statuses do
+    case Map.get(attrs, "status") do
+      nil -> :ok
+      ^status -> :ok
+      _status -> {:error, :codex_delegation_terminal}
+    end
+  end
+
+  defp enforce_terminal_guard(%Delegation{}, _attrs), do: :ok
+
+  defp preserve_metadata(attrs, %Delegation{metadata: metadata}) do
+    case Map.get(attrs, "metadata") do
+      %{} = next_metadata -> Map.put(attrs, "metadata", Map.merge(metadata || %{}, next_metadata))
+      _value -> attrs
     end
   end
 
@@ -205,6 +280,45 @@ defmodule Ankole.CodexDelegations do
       _status ->
         attrs
     end
+  end
+
+  @doc """
+  Fails Codex delegations whose owner worker route has gone stale.
+  """
+  @spec fail_stale_worker_delegations(module(), DateTime.t()) ::
+          {:ok, non_neg_integer()} | {:error, term()}
+  def fail_stale_worker_delegations(repo, %DateTime{} = now) do
+    stale_delegations =
+      repo.all(
+        from delegation in Delegation,
+          join: worker in AgentComputerWorker,
+          on: fragment("?->>? = ?", delegation.metadata, "worker_route", worker.transport_route),
+          where: delegation.status in ^@running_statuses,
+          where: worker.status in ["stale", "stopped"],
+          select: {delegation, worker.transport_route, worker.status}
+      )
+
+    stale_delegations
+    |> Enum.reduce_while({:ok, 0}, fn {delegation, worker_route, worker_status}, {:ok, count} ->
+      error = %{
+        "code" => "owner_worker_stale",
+        "reason" => "Codex delegation owner worker is no longer live",
+        "worker_route" => worker_route,
+        "worker_status" => worker_status
+      }
+
+      attrs = %{
+        "status" => "failed",
+        "started_at" => delegation.started_at || now,
+        "completed_at" => now,
+        "error" => error
+      }
+
+      case delegation |> Delegation.changeset(attrs) |> repo.update() do
+        {:ok, _delegation} -> {:cont, {:ok, count + 1}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
   end
 
   defp redact_payload(payload) when is_map(payload) do

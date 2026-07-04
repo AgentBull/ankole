@@ -45,6 +45,9 @@ export declare function unifiedTextDiff(before: string, after: string, contextLi
 /** Computes the non-cryptographic XXH3 128-bit observation fingerprint. */
 export declare function xxh3File128Hex(path: string): string
 
+/** Computes the non-cryptographic XXH3 128-bit fingerprint for a UTF-8 string. */
+export declare function xxh3String128Hex(input: string): string
+
 /**
  * Compresses one worker-file lane block into a self-contained zstd frame.
  *

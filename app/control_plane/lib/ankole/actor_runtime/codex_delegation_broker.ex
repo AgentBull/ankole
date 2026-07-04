@@ -10,15 +10,18 @@ defmodule Ankole.ActorRuntime.CodexDelegationBroker do
   alias Ankole.CodexDelegations.Schemas.Delegation
   alias Ankole.CodexDelegations.Schemas.Event
 
+  @terminal_statuses ~w(succeeded failed stopped timeout)
+
   @doc """
   Handles `codex.delegation.create`.
   """
   @spec handle_create(map(), String.t()) :: {:ok, map()} | {:error, map()}
-  def handle_create(request, _route) when is_map(request) do
+  def handle_create(request, route) when is_map(request) do
     request_id = text(request, "request_id") || "codex-delegation-create-#{Ecto.UUID.generate()}"
 
     request
     |> Map.put_new("status", "queued")
+    |> put_worker_route_metadata(route)
     |> CodexDelegations.create_delegation()
     |> case do
       {:ok, %Delegation{} = delegation} ->
@@ -31,6 +34,33 @@ defmodule Ankole.ActorRuntime.CodexDelegationBroker do
 
   def handle_create(_request, _route),
     do: {:error, error_payload("", "", :invalid_codex_delegation_create_request)}
+
+  @doc """
+  Handles `codex.delegation.get`.
+  """
+  @spec handle_get(map(), String.t()) :: {:ok, map()} | {:error, map()}
+  def handle_get(request, _route) when is_map(request) do
+    request_id = text(request, "request_id") || "codex-delegation-get-#{Ecto.UUID.generate()}"
+    delegation_id = text(request, "delegation_id")
+    agent_uid = text(request, "agent_uid") || ""
+
+    case CodexDelegations.get_delegation_summary_for_agent(delegation_id || "", agent_uid) do
+      {:ok, %{delegation: %Delegation{} = delegation, last_event_seq: last_event_seq}} ->
+        payload =
+          request_id
+          |> delegation_payload(delegation)
+          |> maybe_put("last_event_seq", last_event_seq)
+          |> maybe_put_result_ref(delegation)
+
+        {:ok, payload}
+
+      {:error, reason} ->
+        {:error, error_payload(request_id, agent_uid, reason)}
+    end
+  end
+
+  def handle_get(_request, _route),
+    do: {:error, error_payload("", "", :invalid_codex_delegation_get_request)}
 
   @doc """
   Handles `codex.delegation.event.append`.
@@ -57,7 +87,7 @@ defmodule Ankole.ActorRuntime.CodexDelegationBroker do
   Handles `codex.delegation.status.update`.
   """
   @spec handle_update_status(map(), String.t()) :: {:ok, map()} | {:error, map()}
-  def handle_update_status(request, _route) when is_map(request) do
+  def handle_update_status(request, route) when is_map(request) do
     request_id = text(request, "request_id") || "codex-delegation-update-#{Ecto.UUID.generate()}"
     delegation_id = text(request, "delegation_id")
     agent_uid = text(request, "agent_uid") || ""
@@ -65,6 +95,7 @@ defmodule Ankole.ActorRuntime.CodexDelegationBroker do
     attrs =
       request
       |> Map.take(~w(status codex_thread_id result error metadata started_at completed_at))
+      |> put_worker_route_metadata(route)
 
     case CodexDelegations.update_delegation(delegation_id || "", agent_uid, attrs) do
       {:ok, %Delegation{} = delegation} ->
@@ -84,6 +115,7 @@ defmodule Ankole.ActorRuntime.CodexDelegationBroker do
       "delegation_id" => delegation.id,
       "agent_uid" => delegation.agent_uid,
       "session_id" => delegation.session_id,
+      "workdir" => delegation.workdir,
       "status" => delegation.status,
       "codex_thread_id" => delegation.codex_thread_id,
       "queued_at" => iso8601(delegation.queued_at),
@@ -127,6 +159,30 @@ defmodule Ankole.ActorRuntime.CodexDelegationBroker do
 
   defp iso8601(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
   defp iso8601(_value), do: nil
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp maybe_put_result_ref(map, %Delegation{status: status, id: id})
+       when status in @terminal_statuses do
+    Map.put(map, "result_ref", %{"type" => "codex_delegation", "delegation_id" => id})
+  end
+
+  defp maybe_put_result_ref(map, %Delegation{}), do: map
+
+  defp put_worker_route_metadata(map, route) when is_map(map) and is_binary(route) do
+    metadata = map_value(map, "metadata")
+    Map.put(map, "metadata", Map.put(metadata, "worker_route", route))
+  end
+
+  defp put_worker_route_metadata(map, _route), do: map
+
+  defp map_value(map, key) do
+    case Map.get(map, key) || Map.get(map, String.to_atom(key)) do
+      value when is_map(value) -> value
+      _value -> %{}
+    end
+  end
 
   defp text(map, key) do
     case Map.get(map, key) || Map.get(map, String.to_atom(key)) do

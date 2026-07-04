@@ -16,6 +16,14 @@ type ScheduleToolDetails = JsonObject
 
 const JsonMap = z.record(z.string(), z.unknown())
 
+const CRON_DESCRIPTION = [
+  'Manage recurring schedules for this conversation: list, inspect, create, update, pause, resume, remove, manually run, or view run history.',
+  'Use this tool when the user asks about standing work, recurring tasks, monitors, routines, scheduled jobs, or cron-like follow-up in the current conversation.',
+  'Recurring schedules support kind=every and kind=cron only.',
+  'After add or update, summarize the saved schedule in the visible reply: name, schedule/timezone, delivery target, and whether quiet_success is enabled.',
+  'Use quiet_success=true for recurring monitors that should stay quiet on success and visibly report failures, blockers, or meaningful state changes.'
+].join('\n')
+
 const CheckBackLaterParams = z
   .object({
     reason: z.string().min(1).max(2000).describe('Why this checkback is being scheduled.'),
@@ -67,6 +75,8 @@ const CronParams = z.object({
   idempotency_key: z.string().optional(),
   limit: z.number().int().positive().max(100).optional()
 })
+
+const CronOriginReadActions = new Set<z.output<typeof CronParams>['action']>(['list', 'get', 'runs'])
 
 /**
  * Creates scheduling tools only when the turn runtime provides schedule RPC.
@@ -149,13 +159,13 @@ function defaultCheckBackIdempotencyKey(turnStart: TurnStart, params: z.output<t
 function createCronTool(opts: CreateScheduleToolsOptions): AgentTool<typeof CronParams, ScheduleToolDetails> {
   return {
     name: 'cron',
-    description:
-      'List, inspect, create, update, pause, resume, remove, or manually run recurring schedules for this conversation. Recurring schedules support kind=every and kind=cron only.',
+    description: CRON_DESCRIPTION,
     schema: CronParams,
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
     async execute(_toolCallId, params): Promise<AgentToolResult<ScheduleToolDetails>> {
+      rejectCronOriginMutation(params, opts.turnStart)
       const method = cronMethod(params.action)
       const baseRequest = {
         request_id: `schedule-cron-${params.action}-${crypto.randomUUID()}`,
@@ -170,6 +180,22 @@ function createCronTool(opts: CreateScheduleToolsOptions): AgentTool<typeof Cron
       return jsonToolResult(response)
     }
   }
+}
+
+/**
+ * Cron fires are already the result of one recurring schedule. Letting that
+ * callback create or mutate more cron schedules is an easy way for a model to
+ * accidentally build a self-replicating loop, so cron-origin turns are read-only.
+ */
+function rejectCronOriginMutation(params: z.output<typeof CronParams>, turnStart: TurnStart): void {
+  if (!isCronOriginTurn(turnStart) || CronOriginReadActions.has(params.action)) return
+  throw new Error(
+    `cron-origin turns may only list/get/runs cron schedules; action=${params.action} is denied to prevent recursive schedule mutation`
+  )
+}
+
+function isCronOriginTurn(turnStart: TurnStart): boolean {
+  return turnStart.request_context?.turn_mode === 'cron'
 }
 
 /**

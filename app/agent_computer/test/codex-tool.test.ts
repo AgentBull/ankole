@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'bun:test'
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CodexConfigOverrideKey, materializeCodexConfig, parseCodexConfigOverride } from '../src/tools/codex/config'
 import { createCodexDelegateTool } from '../src/tools/codex/codex-tool'
 import { CodexDelegationManager } from '../src/tools/codex/manager'
+import { CodexAppServerClient } from '../src/tools/codex/app-server-client'
 import { turnStartForTest, sleep } from './support/llm'
 import type {
   AIGatewayApiKeyRequest,
@@ -13,6 +14,7 @@ import type {
   AppConfigureResolveResponse,
   CodexDelegationCreateRequest,
   CodexDelegationEventAppendRequest,
+  CodexDelegationGetRequest,
   CodexDelegationRejected,
   CodexDelegationResponse,
   CodexDelegationStatusUpdateRequest
@@ -53,10 +55,12 @@ describe('@ankole/agent-computer Codex delegation', () => {
         aiGatewayKey: aiGatewayKey('agent-1')
       })
 
+      expect(subscriptionConfig.codexHome.startsWith(root)).toBe(false)
       expect(readFileSync(join(subscriptionConfig.codexHome, 'config.toml'), 'utf8')).toBe('model = "gpt-5-codex"\n')
       expect(readFileSync(join(subscriptionConfig.codexHome, 'auth.json'), 'utf8')).toContain('id-token')
       expect(subscriptionConfig.env.OPENAI_API_KEY).toBe('sk-subscription')
       expect(subscriptionConfig.env.ANKOLE_AIGATEWAY_API_KEY).toBeUndefined()
+      if (subscriptionConfig.cleanupRoot) rmSync(subscriptionConfig.cleanupRoot, { recursive: true, force: true })
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -102,7 +106,9 @@ describe('@ankole/agent-computer Codex delegation', () => {
       expect(statuses.filter(status => status === 'running')).toHaveLength(3)
       expect(statuses.filter(status => status === 'queued')).toHaveLength(1)
       expect(events.some(event => event.direction === 'queue' && event.event_type === 'queued')).toBe(true)
-      expect(statusUpdates.filter(update => update.status === 'running')).toHaveLength(3)
+      expect(
+        new Set(statusUpdates.filter(update => update.status === 'running').map(update => update.delegation_id)).size
+      ).toBe(3)
     } finally {
       await Promise.allSettled(
         Array.from({ length: 4 }, (_, index) => manager.stop(`delegation-${index + 1}`).catch(() => null))
@@ -152,6 +158,296 @@ describe('@ankole/agent-computer Codex delegation', () => {
       expect(events.some(event => event.direction === 'server_to_client' && event.event_type === 'json_rpc')).toBe(true)
       expect(events.some(event => event.direction === 'audit' && event.event_type === 'status_succeeded')).toBe(true)
       expect(statusUpdates.some(update => update.status === 'succeeded')).toBe(true)
+      expect(result.details.last_event_seq).toBeGreaterThanOrEqual(0)
+      expect(result.details.result_ref).toEqual({
+        type: 'codex_delegation',
+        delegation_id: result.details.delegation_id
+      })
+      await waitUntil(() => !existsSync(join(root, 'temp', 'codex', result.details.delegation_id)))
+    } finally {
+      if (previousBinary === undefined) {
+        delete process.env.ANKOLE_CODEX_BINARY
+      } else {
+        process.env.ANKOLE_CODEX_BINARY = previousBinary
+      }
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('reads delegation status from the control plane when local worker memory has no job', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-codex-status-db-'))
+    const events: CodexDelegationEventAppendRequest[] = []
+    const statusUpdates: CodexDelegationStatusUpdateRequest[] = []
+
+    try {
+      const tool = createCodexDelegateTool({
+        turnStart: turnStartForTest(),
+        workspaceRoot: root,
+        ...codexRequesters(events, statusUpdates, 'delegation-db'),
+        getCodexDelegationStatus: async (request: CodexDelegationGetRequest): Promise<CodexDelegationResponse> => ({
+          request_id: request.request_id,
+          delegation_id: request.delegation_id,
+          agent_uid: request.agent_uid,
+          session_id: 'session-1',
+          status: 'succeeded',
+          workdir: '/workspace/repo',
+          queued_at: new Date(0).toISOString(),
+          completed_at: new Date(1).toISOString(),
+          result: { output_text: 'db result' },
+          last_event_seq: 7,
+          result_ref: { type: 'codex_delegation', delegation_id: request.delegation_id }
+        })
+      })
+
+      const result = await tool.execute('tool-status-db', {
+        action: 'status',
+        delegation_id: 'delegation-db-1'
+      })
+
+      expect(result.details.status).toBe('succeeded')
+      expect(result.details.output_text).toBe('db result')
+      expect(result.details.last_event_seq).toBe(7)
+      expect(result.details.result_ref).toEqual({
+        type: 'codex_delegation',
+        delegation_id: 'delegation-db-1'
+      })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('fails a delegation promptly when the Codex app-server exits mid-turn', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-codex-exit-'))
+    const previousBinary = process.env.ANKOLE_CODEX_BINARY
+    const fakeCodex = join(root, 'fake-codex')
+    writeFakeCodex(fakeCodex, 20, { exitAfterTurnStart: true })
+    process.env.ANKOLE_CODEX_BINARY = fakeCodex
+
+    const events: CodexDelegationEventAppendRequest[] = []
+    const statusUpdates: CodexDelegationStatusUpdateRequest[] = []
+
+    try {
+      mkdirSync(join(root, 'repo'), { recursive: true })
+      const manager = new CodexDelegationManager()
+      const submitted = await manager.submit({
+        turnStart: turnStartForTest(),
+        workspaceRoot: root,
+        toolCallId: 'tool-exit',
+        request: {
+          prompt: 'Exit before completion.',
+          workdir: '/workspace/repo',
+          timeoutSeconds: 30
+        },
+        requesters: codexRequesters(events, statusUpdates, 'delegation-exit')
+      })
+
+      const result = await manager.wait(submitted.delegation_id)
+
+      expect(result.status).toBe('failed')
+      expect(result.error).toContain('codex app-server exited')
+      expect(statusUpdates.some(update => update.status === 'failed')).toBe(true)
+    } finally {
+      if (previousBinary === undefined) {
+        delete process.env.ANKOLE_CODEX_BINARY
+      } else {
+        process.env.ANKOLE_CODEX_BINARY = previousBinary
+      }
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('fails a delegation instead of leaking async errors when audit append is rejected', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-codex-audit-failure-'))
+    const previousBinary = process.env.ANKOLE_CODEX_BINARY
+    const fakeCodex = join(root, 'fake-codex')
+    writeFakeCodex(fakeCodex, 20)
+    process.env.ANKOLE_CODEX_BINARY = fakeCodex
+
+    const events: CodexDelegationEventAppendRequest[] = []
+    const statusUpdates: CodexDelegationStatusUpdateRequest[] = []
+
+    try {
+      mkdirSync(join(root, 'repo'), { recursive: true })
+      const manager = new CodexDelegationManager()
+      const submitted = await manager.submit({
+        turnStart: turnStartForTest(),
+        workspaceRoot: root,
+        toolCallId: 'tool-audit-failure',
+        request: {
+          prompt: 'Complete normally, but audit append fails.',
+          workdir: '/workspace/repo',
+          timeoutSeconds: 5
+        },
+        requesters: codexRequesters(events, statusUpdates, 'delegation-audit-failure', { rejectEventSeq: 2 })
+      })
+
+      const result = await manager.wait(submitted.delegation_id)
+
+      expect(result.status).toBe('failed')
+      expect(result.error).toContain('audit event rejected at seq 2')
+      expect(events.some(event => event.seq === 2)).toBe(true)
+      expect(statusUpdates.some(update => update.status === 'failed')).toBe(true)
+    } finally {
+      if (previousBinary === undefined) {
+        delete process.env.ANKOLE_CODEX_BINARY
+      } else {
+        process.env.ANKOLE_CODEX_BINARY = previousBinary
+      }
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('does not expose success locally when the final status update is rejected', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-codex-final-status-'))
+    const previousBinary = process.env.ANKOLE_CODEX_BINARY
+    const fakeCodex = join(root, 'fake-codex')
+    writeFakeCodex(fakeCodex, 20)
+    process.env.ANKOLE_CODEX_BINARY = fakeCodex
+
+    const events: CodexDelegationEventAppendRequest[] = []
+    const statusUpdates: CodexDelegationStatusUpdateRequest[] = []
+
+    try {
+      mkdirSync(join(root, 'repo'), { recursive: true })
+      const manager = new CodexDelegationManager()
+      const submitted = await manager.submit({
+        turnStart: turnStartForTest(),
+        workspaceRoot: root,
+        toolCallId: 'tool-final-status',
+        request: {
+          prompt: 'Complete normally, but terminal status update fails.',
+          workdir: '/workspace/repo',
+          timeoutSeconds: 5
+        },
+        requesters: codexRequesters(events, statusUpdates, 'delegation-final-status', {
+          rejectStatusUpdate: 'succeeded'
+        })
+      })
+
+      const result = await manager.wait(submitted.delegation_id)
+
+      expect(result.status).toBe('failed')
+      expect(result.error).toContain('Codex finalization failed')
+      expect(result.error).toContain('codex_status_rejected')
+      expect(statusUpdates.some(update => update.status === 'succeeded')).toBe(true)
+    } finally {
+      if (previousBinary === undefined) {
+        delete process.env.ANKOLE_CODEX_BINARY
+      } else {
+        process.env.ANKOLE_CODEX_BINARY = previousBinary
+      }
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('responds with method-not-found when a server request arrives without a handler', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-codex-no-request-handler-'))
+    const fakeCodex = join(root, 'fake-codex')
+    writeFakeCodex(fakeCodex, 20, { requestUserInput: true })
+    const audits: Array<{ direction: string; message: Record<string, unknown> }> = []
+    const client = new CodexAppServerClient({
+      command: fakeCodex,
+      cwd: root,
+      env: { PATH: process.env.PATH ?? '' },
+      audit: (direction, message) => audits.push({ direction, message })
+    })
+
+    try {
+      await client.initialize()
+      const threadStart = (await client.request('thread/start', {})) as { thread?: { id?: string } }
+      await client.request('turn/start', { threadId: threadStart.thread?.id, input: textInputForTest('ask') })
+      await waitUntil(() =>
+        audits.some(
+          audit =>
+            audit.direction === 'client_response' &&
+            typeof audit.message.error === 'object' &&
+            audit.message.error !== null
+        )
+      )
+    } finally {
+      await client.close()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('bridges requestUserInput into waiting_on_user and continues after steer', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-codex-user-input-'))
+    const previousBinary = process.env.ANKOLE_CODEX_BINARY
+    const fakeCodex = join(root, 'fake-codex')
+    writeFakeCodex(fakeCodex, 20, { requestUserInput: true })
+    process.env.ANKOLE_CODEX_BINARY = fakeCodex
+
+    const events: CodexDelegationEventAppendRequest[] = []
+    const statusUpdates: CodexDelegationStatusUpdateRequest[] = []
+
+    try {
+      mkdirSync(join(root, 'repo'), { recursive: true })
+      const manager = new CodexDelegationManager()
+      const submitted = await manager.submit({
+        turnStart: turnStartForTest(),
+        workspaceRoot: root,
+        toolCallId: 'tool-user-input',
+        request: {
+          prompt: 'Ask one question then continue.',
+          workdir: '/workspace/repo',
+          timeoutSeconds: 5
+        },
+        requesters: codexRequesters(events, statusUpdates, 'delegation-user-input')
+      })
+
+      const waiting = await manager.wait(submitted.delegation_id)
+      expect(waiting.status).toBe('waiting_on_user')
+      expect(waiting.waiting_on_user).toBeDefined()
+
+      const steered = await manager.steer(submitted.delegation_id, 'Use React state.')
+      expect(steered.status).toBe('running')
+
+      await waitUntil(() => manager.get(submitted.delegation_id)?.status === 'succeeded')
+      expect(manager.get(submitted.delegation_id)?.output_text).toContain('answered')
+      expect(events.some(event => event.event_type === 'request_user_input')).toBe(true)
+      expect(events.some(event => event.event_type === 'user_input_answered')).toBe(true)
+      expect(statusUpdates.some(update => update.status === 'waiting_on_user')).toBe(true)
+    } finally {
+      if (previousBinary === undefined) {
+        delete process.env.ANKOLE_CODEX_BINARY
+      } else {
+        process.env.ANKOLE_CODEX_BINARY = previousBinary
+      }
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects Codex approval requests and records the failure', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-codex-approval-'))
+    const previousBinary = process.env.ANKOLE_CODEX_BINARY
+    const fakeCodex = join(root, 'fake-codex')
+    writeFakeCodex(fakeCodex, 20, { requestApproval: true })
+    process.env.ANKOLE_CODEX_BINARY = fakeCodex
+
+    const events: CodexDelegationEventAppendRequest[] = []
+    const statusUpdates: CodexDelegationStatusUpdateRequest[] = []
+
+    try {
+      mkdirSync(join(root, 'repo'), { recursive: true })
+      const manager = new CodexDelegationManager()
+      const submitted = await manager.submit({
+        turnStart: turnStartForTest(),
+        workspaceRoot: root,
+        toolCallId: 'tool-approval',
+        request: {
+          prompt: 'Request approval.',
+          workdir: '/workspace/repo',
+          timeoutSeconds: 5
+        },
+        requesters: codexRequesters(events, statusUpdates, 'delegation-approval')
+      })
+
+      const result = await manager.wait(submitted.delegation_id)
+
+      expect(result.status).toBe('failed')
+      expect(result.error).toContain('approvals are disabled')
+      expect(events.some(event => event.event_type === 'approval_rejected')).toBe(true)
+      expect(statusUpdates.some(update => update.status === 'failed')).toBe(true)
     } finally {
       if (previousBinary === undefined) {
         delete process.env.ANKOLE_CODEX_BINARY
@@ -224,7 +520,7 @@ function codexRequesters(
   events: CodexDelegationEventAppendRequest[],
   statusUpdates: CodexDelegationStatusUpdateRequest[],
   delegationPrefix = 'delegation',
-  opts: { rejectRunningAttempts?: number } = {}
+  opts: { rejectRunningAttempts?: number; rejectEventSeq?: number; rejectStatusUpdate?: string } = {}
 ) {
   let nextDelegation = 1
   let rejectedRunningAttempts = 0
@@ -251,6 +547,9 @@ function codexRequesters(
     },
     appendCodexDelegationEvent: async (request: CodexDelegationEventAppendRequest) => {
       events.push(request)
+      if (request.seq === opts.rejectEventSeq) {
+        throw new Error(`audit event rejected at seq ${request.seq}`)
+      }
       return { request_id: request.request_id, event_id: `event-${request.seq}` }
     },
     updateCodexDelegationStatus: async (
@@ -269,6 +568,14 @@ function codexRequesters(
           message: 'per-agent Codex delegation running limit reached'
         }
       }
+      if (request.status === opts.rejectStatusUpdate) {
+        return {
+          request_id: request.request_id,
+          agent_uid: request.agent_uid,
+          code: 'codex_status_rejected',
+          message: `${request.status} status rejected`
+        }
+      }
       return {
         request_id: request.request_id,
         delegation_id: request.delegation_id,
@@ -281,13 +588,20 @@ function codexRequesters(
   }
 }
 
-function writeFakeCodex(path: string, completionDelayMs: number): void {
+function writeFakeCodex(
+  path: string,
+  completionDelayMs: number,
+  opts: { exitAfterTurnStart?: boolean; requestUserInput?: boolean; requestApproval?: boolean } = {}
+): void {
   writeFileSync(
     path,
     `#!/usr/bin/env bun
 let buffer = ''
 let nextTurn = 1
 const completionDelayMs = ${completionDelayMs}
+const opts = ${JSON.stringify(opts)}
+let pendingUserInput = false
+let pendingApproval = false
 function write(message) {
   process.stdout.write(JSON.stringify(message) + '\\n')
 }
@@ -304,10 +618,48 @@ function handle(message) {
   if (message.method === 'turn/start') {
     const turnId = 'turn-' + nextTurn++
     write({ id: message.id, result: { turn: { id: turnId, status: 'in_progress' } } })
+    if (opts.exitAfterTurnStart) {
+      setTimeout(() => process.exit(42), completionDelayMs)
+      return
+    }
+    if (opts.requestUserInput) {
+      setTimeout(() => {
+        pendingUserInput = true
+        write({
+          id: 'request-user-input-1',
+          method: 'item/tool/requestUserInput',
+          params: { questions: [{ id: 'direction', question: 'Which direction?', options: [] }] }
+        })
+      }, completionDelayMs)
+      return
+    }
+    if (opts.requestApproval) {
+      setTimeout(() => {
+        pendingApproval = true
+        write({
+          id: 'approval-1',
+          method: 'item/commandExecution/requestApproval',
+          params: { command: 'rm -rf /workspace' }
+        })
+      }, completionDelayMs)
+      return
+    }
     setTimeout(() => {
       write({ method: 'item/agentMessage/delta', params: { delta: 'done' } })
       write({ method: 'turn/completed', params: { turn: { id: turnId, status: 'completed' } } })
     }, completionDelayMs)
+    return
+  }
+  if (message.id === 'request-user-input-1' && pendingUserInput) {
+    pendingUserInput = false
+    setTimeout(() => {
+      write({ method: 'item/agentMessage/delta', params: { delta: 'answered' } })
+      write({ method: 'turn/completed', params: { turn: { id: 'turn-steered', status: 'completed' } } })
+    }, completionDelayMs)
+    return
+  }
+  if (message.id === 'approval-1' && pendingApproval) {
+    pendingApproval = false
     return
   }
   if (message.method === 'turn/interrupt') {
@@ -332,6 +684,10 @@ process.stdin.on('data', chunk => {
     { mode: 0o755 }
   )
   chmodSync(path, 0o755)
+}
+
+function textInputForTest(text: string): Array<Record<string, unknown>> {
+  return [{ type: 'text', text, text_elements: [] }]
 }
 
 async function waitUntil(predicate: () => boolean, timeoutMs = 3000): Promise<void> {

@@ -160,16 +160,8 @@ defmodule Ankole.E2E.Scenarios.Skill do
 
     assert {:ok, _result} = Library.sync_agent_skills(agent.uid)
 
-    disabled_skill =
-      Repo.get_by!(AgentSkill,
-        agent_uid: String.downcase(agent.uid),
-        skill_name: "nano-pdf"
-      )
-
     assert {:ok, %AgentSkill{enabled: false}} =
-             disabled_skill
-             |> AgentSkill.changeset(%{enabled: false})
-             |> Repo.update()
+             Library.set_agent_skill_enabled(agent.uid, "nano-pdf", false)
 
     assert {:ok, enabled_skills} = Library.enabled_skills_for_agent(agent.uid)
     refute Enum.any?(enabled_skills, &(&1["skill_name"] == "nano-pdf"))
@@ -205,5 +197,144 @@ defmodule Ankole.E2E.Scenarios.Skill do
 
     assert_actor_event_completed!(input.id)
     %{input: input, reply: reply}
+  end
+
+  @doc """
+  Verifies worker-scanned installed skills are registered before context resolve
+  and removed authoritatively after the worker directory is deleted.
+  """
+  def run_installed_skill_registry_loop(%{
+        fake_feishu: fake_feishu,
+        agent: agent,
+        container: container
+      }) do
+    skill_dir = "/workspace/shared/skills/agents/#{agent.uid}/e2e-installed"
+    docker_exec!(container, ["mkdir", "-p", skill_dir])
+
+    docker_write_text!(
+      container,
+      "#{skill_dir}/SKILL.md",
+      """
+      ---
+      name: e2e-installed
+      description: E2E installed skill.
+      default_enabled: true
+      category: custom
+      ---
+
+      # E2E Installed Skill
+
+      E2E_INSTALLED_SKILL_BODY
+      """
+    )
+
+    mention = lark_bot_mention()
+
+    assert :ok =
+             FakeFeishu.State.user_sends_message(fake_feishu.state,
+               event_id: "evt_installed_skill_1",
+               message_id: "om_installed_skill_1",
+               chat_id: "oc_chaos_skill",
+               chat_type: "p2p",
+               text:
+                 "@_user_1 Run CHAOS_INSTALLED_SKILL. Use skill_view for e2e-installed once, then reply exactly CHAOS_INSTALLED_SKILL_OK.",
+               mentions: [mention],
+               create_time_ms:
+                 DateTime.to_unix(DateTime.add(@base_time, 5_100, :millisecond), :millisecond)
+             )
+
+    input = actor_event_by_source_entry_id!(agent.uid, "om_installed_skill_1")
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+
+    assert {:ok, reply, _message} =
+             wait_for_completed_final_reply(container, input.id, deadline(90_000))
+
+    assert reply.text =~ "CHAOS_INSTALLED_SKILL_OK"
+
+    messages = ai_messages_for_actor_event(input.id)
+    skill_tool_results = tool_results(messages, "skill_view")
+
+    successful_results =
+      skill_tool_results
+      |> Enum.reject(&tool_result_error?/1)
+      |> Enum.map(& &1.result)
+
+    if successful_results == [] do
+      flunk("""
+      expected e2e-installed skill_view to succeed
+      tool_results=#{inspect(skill_tool_results, limit: :infinity, printable_limit: 4_000)}
+      messages=#{inspect(messages, limit: :infinity, printable_limit: 4_000)}
+      """)
+    end
+
+    assert [skill_result] = successful_results
+
+    assert inspect(skill_result) =~ "E2E_INSTALLED_SKILL_BODY"
+
+    assert %AgentSkill{source_kind: "installed"} =
+             Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "e2e-installed")
+
+    docker_exec!(container, ["rm", "-rf", skill_dir])
+
+    assert :ok =
+             FakeFeishu.State.user_sends_message(fake_feishu.state,
+               event_id: "evt_installed_skill_deleted_1",
+               message_id: "om_installed_skill_deleted_1",
+               chat_id: "oc_chaos_skill",
+               chat_type: "p2p",
+               text:
+                 "@_user_1 Run CHAOS_INSTALLED_SKILL_DELETED. Try skill_view for e2e-installed once, then reply exactly CHAOS_INSTALLED_SKILL_DELETED_OK.",
+               mentions: [mention],
+               create_time_ms:
+                 DateTime.to_unix(DateTime.add(@base_time, 5_110, :millisecond), :millisecond)
+             )
+
+    deleted_input = actor_event_by_source_entry_id!(agent.uid, "om_installed_skill_deleted_1")
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             process_ready_event_for_actor!(
+               deleted_input,
+               DateTime.add(deleted_input.available_at, 1, :second)
+             )
+
+    assert {:ok, deleted_reply, _message} =
+             wait_for_completed_final_reply(container, deleted_input.id, deadline(90_000))
+
+    assert deleted_reply.text =~ "CHAOS_INSTALLED_SKILL_DELETED_OK"
+
+    deleted_messages = ai_messages_for_actor_event(deleted_input.id)
+
+    assert Enum.any?(tool_results(deleted_messages, "skill_view"), fn call ->
+             tool_result_error?(call) and inspect(call.result) =~ "skill is not enabled"
+           end)
+
+    refute Repo.get_by(AgentSkill, agent_uid: agent.uid, skill_name: "e2e-installed")
+
+    assert_actor_event_completed!(input.id)
+    assert_actor_event_completed!(deleted_input.id)
+    %{input: input, reply: reply, deleted_input: deleted_input, deleted_reply: deleted_reply}
+  end
+
+  defp docker_exec!(container, args) do
+    {output, status} =
+      System.cmd(docker_path(), ["exec", container.name | args], stderr_to_stdout: true)
+
+    assert status == 0, output
+    output
+  end
+
+  defp docker_write_text!(container, path, text) do
+    script = "cat > #{shell_quote(path)} <<'EOF'\n#{text}\nEOF\n"
+    docker_exec!(container, ["sh", "-lc", script])
+  end
+
+  defp docker_path do
+    System.find_executable("docker") || flunk("docker executable was not found on PATH")
+  end
+
+  defp shell_quote(value) do
+    "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
   end
 end

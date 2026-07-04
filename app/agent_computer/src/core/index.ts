@@ -8,6 +8,7 @@ export { runTurnHandlers, runTextTurnLoop } from './turns/text_turn_loop'
 export type {
   AgentConversationContextRequester,
   AIGatewayApiKeyRequester,
+  InstalledSkillReplaceRequester,
   SkillOverlayReplaceRequester,
   SkillOverlayRequester,
   TextTurnLoopOptions,

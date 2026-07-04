@@ -536,6 +536,12 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
         "content" => [%{"type" => "output_text", "text" => "done", "annotations" => []}]
       },
       %{
+        "type" => "function_call",
+        "call_id" => "call_reply_attachment",
+        "name" => "reply_attachment",
+        "arguments" => "{}"
+      },
+      %{
         "type" => "function_call_output",
         "call_id" => "call_reply_attachment",
         "output" => %{

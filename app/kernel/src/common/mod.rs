@@ -7,6 +7,7 @@ mod error;
 mod ids;
 mod jwt;
 mod phone;
+mod token;
 mod zstd_block;
 
 pub use crypto::{aead_decrypt, aead_encrypt, derive_key, generate_key};
@@ -18,6 +19,7 @@ pub use error::{KernelError, KernelResult};
 pub use ids::{gen_uuid, gen_uuid_v7};
 pub use jwt::{jwt_sign, jwt_verify};
 pub use phone::phone_normalize_e164;
+pub use token::estimate_o200k_base_tokens;
 pub use zstd_block::{zstd_compress_block, zstd_decompress_block};
 
 #[cfg(test)]
@@ -70,6 +72,12 @@ mod tests {
         assert_eq!(generate_key().len(), 64);
         assert!(gen_uuid().contains('-'));
         assert!(gen_uuid_v7().contains("-7"));
+    }
+
+    #[test]
+    fn o200k_base_token_estimator_counts_known_text() {
+        assert_eq!(estimate_o200k_base_tokens("Hello world"), 2);
+        assert!(estimate_o200k_base_tokens("记忆系统") > 0);
     }
 
     #[test]

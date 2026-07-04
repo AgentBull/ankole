@@ -357,6 +357,14 @@ pub fn authz_match_resource_pattern(pattern: Term<'_>, resource: Term<'_>) -> Ni
     authz::pattern_matches(&pattern, &resource).map_err(error)
 }
 
+/// Estimates provider-neutral token budget with the o200k_base vocabulary.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn estimate_o200k_base_tokens(text: Term<'_>) -> NifResult<u64> {
+    let text = decode_string(text, "text")?;
+
+    Ok(common::estimate_o200k_base_tokens(&text))
+}
+
 /// Computes the non-cryptological XXH3 128-bit observation fingerprint.
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn xxh3_128_hex(input: Term<'_>) -> NifResult<String> {

@@ -204,11 +204,13 @@ defmodule Ankole.ActorRuntime.AIGatewayMainChainTest do
             "type" => "function_call_output",
             "call_id" => "call_reply_attachment",
             "output" =>
-              Ankole.JSON.encode!(%{
-                "tool" => "reply_attachment",
-                "ok" => true,
-                "attachments" => [attachment]
-              })
+              untrusted_tool_output(
+                Ankole.JSON.encode!(%{
+                  "tool" => "reply_attachment",
+                  "ok" => true,
+                  "attachments" => [attachment]
+                })
+              )
           }
         ]
       })
@@ -241,6 +243,124 @@ defmodule Ankole.ActorRuntime.AIGatewayMainChainTest do
 
     mirror = wait_for_final_mirror(final_committed.id)
     assert mirror.text == "CHAOS_REPLY_ATTACHMENT_OK"
+  end
+
+  test "reply_attachment tool result journal commits attachment outbox on final response" do
+    %{principal: agent} = agent_fixture()
+
+    Ankole.SignalsGatewayFixtures.binding_fixture(agent.uid, "mock", :ignore,
+      adapter: "mock-provider"
+    )
+
+    %{actor_event: actor_event} =
+      Ankole.SignalsGatewayFixtures.emit_addressed_actor_event(
+        agent.uid,
+        "mock",
+        Ankole.SignalsGatewayFixtures.group_entry(%{
+          source_event_id: "reply-attachment-journal-event",
+          signal_channel_id: "mock:chat:reply-attachment-journal",
+          source_entry_id: "human-reply-attachment-journal-1",
+          provider_thread_id: "mock-thread-reply-attachment-journal",
+          explicit: true,
+          text: "Create the chart and send it."
+        })
+      )
+
+    {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, actor_event.session_id)
+
+    {:ok, first_round} =
+      StatefulResponses.start_response_run(%{
+        agent_uid: agent.uid,
+        conversation_id: conversation.id,
+        actor_event_id: actor_event.id,
+        request_items: [
+          %{
+            "type" => "message",
+            "role" => "user",
+            "content" => "Create the chart and send it."
+          }
+        ]
+      })
+
+    assert {:ok, first_committed} =
+             StatefulResponses.commit_complete(first_round, [
+               %{
+                 "type" => "function_call",
+                 "call_id" => "call_reply_attachment_journal",
+                 "name" => "reply_attachment",
+                 "arguments" =>
+                   ~s({"path":"/workspace/user-files/charts/sales.png","name":"sales.png","mimeType":"image/png"})
+               }
+             ])
+
+    attachment = %{
+      "agent_computer_path" => "/workspace/user-files/charts/sales.png",
+      "user_files_relative_path" => "charts/sales.png",
+      "name" => "sales.png",
+      "mime_type" => "image/png",
+      "size" => 4096
+    }
+
+    assert {:ok, journal} =
+             StatefulResponses.record_tool_results(%{
+               agent_uid: agent.uid,
+               actor_event_id: actor_event.id,
+               previous_response_id: "resp_#{first_committed.id}",
+               request_items: [
+                 %{
+                   "type" => "function_call_output",
+                   "call_id" => "call_reply_attachment_journal",
+                   "output" =>
+                     untrusted_tool_output(
+                       Ankole.JSON.encode!(%{
+                         "tool" => "reply_attachment",
+                         "ok" => true,
+                         "attachments" => [attachment]
+                       })
+                     )
+                 }
+               ]
+             })
+
+    assert journal.metadata["tool_result_journal"] == true
+
+    {:ok, final_round} =
+      StatefulResponses.start_response_run(%{
+        agent_uid: agent.uid,
+        actor_event_id: actor_event.id,
+        previous_response_id: "resp_#{journal.id}",
+        request_items: []
+      })
+
+    assert {:ok, final_committed} =
+             StatefulResponses.commit_complete(final_round, [
+               %{
+                 "type" => "message",
+                 "role" => "assistant",
+                 "content" => [
+                   %{"type" => "output_text", "text" => "SALES_CHART_ATTACHED"}
+                 ]
+               }
+             ])
+
+    outbox =
+      Repo.get_by!(OutboxEntry,
+        agent_uid: agent.uid,
+        binding_name: "mock",
+        outbound_key: "ai-reply-attachment:#{final_committed.id}:0"
+      )
+
+    assert outbox.status == :created
+    assert outbox.operation == :reply
+    assert outbox.source_actor_event_id == actor_event.id
+    assert outbox.ai_message_id == final_committed.id
+    assert outbox.reply_to_source_entry_id == "human-reply-attachment-journal-1"
+    assert outbox.payload["text"] == "SALES_CHART_ATTACHED"
+    assert outbox.payload["attachments"] == [attachment]
+    refute Repo.get_by(OutboxEntry, outbound_key: "ai-reply-attachment:#{journal.id}:0")
+
+    mirror = wait_for_final_mirror(final_committed.id)
+    assert mirror.text == "SALES_CHART_ATTACHED"
   end
 
   defp use_mock_signal_provider_plugin(_context) do
@@ -317,4 +437,15 @@ defmodule Ankole.ActorRuntime.AIGatewayMainChainTest do
   end
 
   defp refute_final_mirror(_ai_message_id, 0), do: :ok
+
+  defp untrusted_tool_output(text) do
+    nonce = "test-nonce"
+
+    """
+    <ankole_untrusted_tool_output nonce="#{nonce}">
+    #{text}
+    </ankole_untrusted_tool_output nonce="#{nonce}">
+    """
+    |> String.trim()
+  end
 end

@@ -256,6 +256,12 @@ defmodule Ankole.AIGateway do
       history = compaction.history
       previous_response_id = compaction.previous_response_id
 
+      current_input =
+        Compaction.maybe_inject_memory_pre_compaction_nudge(
+          current_input,
+          compaction.run_metadata
+        )
+
       history_items = messages_to_response_items(history, runtime_input_modalities(runtime))
 
       # The request's own "input" is the current-round delta (user input or

@@ -39,6 +39,7 @@ export async function recognizeAmbientIntervention(
       conversationId: context.conversation?.id ?? turnStart.turn.actor.session_id,
       displayName: context.agent?.display_name ?? turnStart.turn.actor.agent_uid,
       mission: context.mission,
+      memoryNotes: (context.memory_notes ?? []).map(note => note.content),
       soul: context.soul ?? '',
       timezone: context.conversation?.timezone ?? 'UTC'
     }),
@@ -99,6 +100,7 @@ function ambientDecisionInput(input: AmbientRecognizerInput): Record<string, unk
     source_entry_id: input.turnStart.actor_event.source_entry_id,
     provider_thread_id: input.turnStart.actor_event.provider_thread_id,
     environment_info: input.environmentInfoLines ?? [],
+    memory_notes: (input.agentConversationContext.memory_notes ?? []).map(note => note.content),
     recent_history: recentHistory.length > 0 ? recentHistory : input.historyMessages,
     earlier_observed_messages: earlierObservedMessages
   }

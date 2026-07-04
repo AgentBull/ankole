@@ -115,9 +115,68 @@ describe('schedule tools', () => {
 
     expect(requests[0]!.idempotency_key).toBe('operator-cron-key')
   })
+
+  it('makes cron-origin turns read-only to prevent recursive schedule mutation', async () => {
+    const requests: ScheduleRpcRequest[] = []
+    const cron = createScheduleTools({
+      turnStart: turnStartForScheduleTool({ cronOrigin: true }),
+      requestScheduleRpc: async (_method: RpcMethod, request: ScheduleRpcRequest): Promise<JsonObject> => {
+        requests.push(request)
+        return { status: 'created' }
+      }
+    }).find(tool => tool.name === 'cron')
+
+    await expect(
+      cron!.execute('call_cron_origin_add', {
+        action: 'add',
+        name: 'recursive-cron',
+        schedule: {
+          kind: 'every',
+          every_ms: 60_000,
+          anchor_at: '2026-07-03T01:30:00Z'
+        }
+      })
+    ).rejects.toThrow('cron-origin turns may only list/get/runs cron schedules')
+
+    expect(requests).toHaveLength(0)
+  })
+
+  it('allows cron-origin turns to inspect schedules and run history', async () => {
+    const calls: Array<{ method: RpcMethod; request: ScheduleRpcRequest }> = []
+    const cron = createScheduleTools({
+      turnStart: turnStartForScheduleTool({ cronOrigin: true }),
+      requestScheduleRpc: async (method: RpcMethod, request: ScheduleRpcRequest): Promise<JsonObject> => {
+        calls.push({ method, request })
+        return { status: 'ok', runs: [] }
+      }
+    }).find(tool => tool.name === 'cron')
+
+    await cron!.execute('call_cron_origin_runs', {
+      action: 'runs',
+      cron_schedule_id: '00000000-0000-0000-0000-000000000999'
+    })
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.method).toBe(rpcMethods.scheduleCronRuns)
+    expect(calls[0]!.request.cron_schedule_id).toBe('00000000-0000-0000-0000-000000000999')
+  })
+
+  it('describes cron as conversational standing-work management with confirmation rules', () => {
+    const cron = createScheduleTools({
+      turnStart: turnStartForScheduleTool(),
+      requestScheduleRpc: async (): Promise<JsonObject> => ({ status: 'ok' })
+    }).find(tool => tool.name === 'cron')
+
+    expect(cron?.description).toContain('standing work')
+    expect(cron?.description).toContain('recurring tasks')
+    expect(cron?.description).toContain('After add or update')
+    expect(cron?.description).toContain('name, schedule/timezone, delivery target')
+    expect(cron?.description).toContain('quiet_success=true')
+    expect(cron?.description).toContain('visibly report failures')
+  })
 })
 
-function turnStartForScheduleTool(): TurnStart {
+function turnStartForScheduleTool(opts: { cronOrigin?: boolean } = {}): TurnStart {
   return {
     turn: {
       actor: { agent_uid: 'agent-1', session_id: 'session-1' },
@@ -136,6 +195,17 @@ function turnStartForScheduleTool(): TurnStart {
       provider_thread_id: 'thread-1',
       source_entry_id: 'entry-1',
       payload_json: {}
-    }
+    },
+    ...(opts.cronOrigin
+      ? {
+          request_context: {
+            turn_mode: 'cron',
+            schedule_origin: {
+              kind: 'cron_fire',
+              scheduled_event_id: 'scheduled-event-1'
+            }
+          }
+        }
+      : {})
   }
 }

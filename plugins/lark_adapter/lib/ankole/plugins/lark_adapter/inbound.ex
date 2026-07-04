@@ -840,14 +840,20 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
 
   defp action_value(_action), do: %{}
 
-  defp mention_prefixes(mentions), do: Enum.flat_map(mentions, &mention_prefix_values/1)
+  defp mention_prefixes(mentions) do
+    mentions
+    |> Enum.flat_map(&mention_prefix_values/1)
+    |> Enum.uniq()
+    # Lark mention keys can share prefixes. Longest-first stripping prevents
+    # "@_user_10 /retry" from being partially consumed as "@_user_1".
+    |> Enum.sort_by(&String.length/1, :desc)
+  end
 
   defp mention_prefix_values(mention) do
     key = optional_text(mention, "key")
 
     [key, at_prefixed_key(key), optional_text(mention, "name")]
     |> Enum.reject(&is_nil/1)
-    |> Enum.uniq()
   end
 
   defp at_prefixed_key("@" <> _rest), do: nil

@@ -26,6 +26,7 @@ defmodule Ankole.AIGateway.Compaction do
   @small_context_trigger_ratio 0.85
   @default_tail_rows 2
   @summarizer_max_output_tokens 2_048
+  @memory_pre_compaction_nudge_marker "ankole.memory.pre_compaction_nudge.v1"
   @opaque_ref_keys ~w(agent_computer_path blob_ref content_type file_id file_url filename id image_url media_type mime_type name path provider_file_id provider_ref provider_uri storage_ref uri url)
   @max_ref_chars 512
 
@@ -136,19 +137,39 @@ defmodule Ankole.AIGateway.Compaction do
     total_tokens = history_usage_tokens(history)
     threshold = threshold_spec(runtime, request)
 
-    if total_tokens <= threshold.tokens do
-      {:ok, unchanged(history, request)}
-    else
-      compact_history(
-        agent_uid,
-        conversation_id,
-        history,
-        request,
-        total_tokens,
-        threshold
-      )
+    cond do
+      total_tokens <= threshold.tokens ->
+        {:ok, unchanged(history, request)}
+
+      memory_pre_compaction_nudge_due?(history, total_tokens, threshold) ->
+        {:ok, memory_pre_compaction_nudge(history, request, total_tokens, threshold)}
+
+      true ->
+        compact_history(
+          agent_uid,
+          conversation_id,
+          history,
+          request,
+          total_tokens,
+          threshold
+        )
     end
   end
+
+  @doc """
+  Adds the one-time Memory pre-compaction nudge to normal model input when due.
+  """
+  @spec maybe_inject_memory_pre_compaction_nudge([map()], map()) :: [map()]
+  def maybe_inject_memory_pre_compaction_nudge(current_input, %{
+        "memory_pre_compaction_nudge" => %{"status" => "due"}
+      })
+      when is_list(current_input) do
+    [memory_pre_compaction_nudge_input() | current_input]
+  end
+
+  def maybe_inject_memory_pre_compaction_nudge(current_input, _run_metadata)
+      when is_list(current_input),
+      do: current_input
 
   @doc """
   Forces one manual compaction for a conversation's current visible chain.
@@ -261,6 +282,51 @@ defmodule Ankole.AIGateway.Compaction do
       previous_response_id: previous_response_id_for(history, request),
       compaction: nil,
       run_metadata: %{}
+    }
+  end
+
+  defp memory_pre_compaction_nudge(history, request, total_tokens, threshold) do
+    %{
+      history: history,
+      previous_response_id: previous_response_id_for(history, request),
+      compaction: nil,
+      run_metadata: %{
+        "memory_pre_compaction_nudge" => %{
+          "status" => "due",
+          "marker" => @memory_pre_compaction_nudge_marker,
+          "history_usage_tokens_before" => total_tokens,
+          "token_threshold" => threshold.tokens,
+          "context_length" => threshold.context_length,
+          "threshold" => threshold.threshold,
+          "max_threshold_tokens" => threshold.max_threshold_tokens
+        }
+      }
+    }
+  end
+
+  defp memory_pre_compaction_nudge_due?(history, total_tokens, threshold) do
+    total_tokens < threshold.effective_context_length and
+      not memory_pre_compaction_nudge_seen?(history)
+  end
+
+  defp memory_pre_compaction_nudge_seen?(history) do
+    Enum.any?(history, fn %Message{} = message ->
+      message
+      |> message_content_text()
+      |> String.contains?(@memory_pre_compaction_nudge_marker)
+    end)
+  end
+
+  defp memory_pre_compaction_nudge_input do
+    %{
+      "role" => "system",
+      "content" => [
+        %{
+          "type" => "input_text",
+          "text" =>
+            "[#{@memory_pre_compaction_nudge_marker}] Automatic compaction may run soon. Before continuing, use memory_note to save durable user preferences, decisions, identifiers, dates, or project facts from the current hot context that should survive future compaction. Skip saving if there are no durable facts."
+        }
+      ]
     }
   end
 

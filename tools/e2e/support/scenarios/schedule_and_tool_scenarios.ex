@@ -472,14 +472,30 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     assert [open_result] = successful_tool_results(messages, "browser_open")
     assert tool_detail(open_result, ["exitCode"]) == 0
     assert tool_detail(open_result, ["result", "ok"]) == true
-    assert tool_detail(open_result, ["result", "url"]) == "https://example.com"
 
-    assert tool_detail(open_result, ["result", "screenshot_path"]) =~ "/workspace/temp/browser/" or
+    assert normalize_url_for_assertion(tool_detail(open_result, ["result", "url"])) ==
+             "https://example.com"
+
+    screenshot_path = tool_detail(open_result, ["result", "screenshot_path"])
+
+    assert browser_screenshot_path?(screenshot_path) or
              tool_detail(open_result, ["result", "screenshot_unsupported"]) == true
 
     assert_actor_event_completed!(input.id)
     %{input: input, reply: reply}
   end
+
+  defp normalize_url_for_assertion(url) when is_binary(url), do: String.trim_trailing(url, "/")
+  defp normalize_url_for_assertion(url), do: url
+
+  defp browser_screenshot_path?(path) when is_binary(path) do
+    String.starts_with?(path, [
+      "/workspace/user-files/browser/",
+      "/workspace/temp/browser/"
+    ]) and String.ends_with?(path, ".png")
+  end
+
+  defp browser_screenshot_path?(_path), do: false
 
   def run_browser_run_tool_loop(%{fake_feishu: fake_feishu, agent: agent, container: container}) do
     mention = lark_bot_mention()

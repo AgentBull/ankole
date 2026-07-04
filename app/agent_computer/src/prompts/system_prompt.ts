@@ -18,6 +18,7 @@ export type BuildAgentSystemPromptOptions = {
   turnStart: TurnStart
   agentConversationContext?: AgentConversationContext
   currentChannel?: CurrentChannelContext
+  availableToolNames?: string[]
 }
 
 /**
@@ -56,8 +57,11 @@ export function buildAgentSystemPrompt(opts: BuildAgentSystemPromptOptions): str
     soul.trim(),
     missionSection(mission),
     runtimeContextSection(opts),
+    memoryNotesSection(opts),
+    memoryRecallSection(opts),
+    completionContractSection(),
     agentEnvironmentInfoPolicySection(),
-    toolsSection(),
+    toolsSection(opts),
     skillPrompt.trim()
   ]
     .filter(Boolean)
@@ -143,7 +147,7 @@ function scheduleOriginLines(opts: BuildAgentSystemPromptOptions): string[] {
 
   if (context.silent_success_allowed === true) {
     lines.push(
-      'This schedule-origin turn may finish quietly when no provider-visible update is useful. To do that, reply exactly <silent_success/> and nothing else.'
+      'This schedule-origin turn may finish quietly only when no provider-visible update is useful. To do that, reply exactly <silent_success/> and nothing else. If the scheduled check failed, is blocked, needs human action, or changed state in a way people should know, send a visible reply instead.'
     )
   }
   if (turnMode === 'cron') {
@@ -172,6 +176,50 @@ function agentRole(opts: BuildAgentSystemPromptOptions): string | undefined {
 }
 
 /**
+ * Renders current-channel curated notes injected by the control plane.
+ */
+function memoryNotesSection(opts: BuildAgentSystemPromptOptions): string {
+  const notes = opts.agentConversationContext?.memory_notes ?? []
+  if (notes.length === 0) return ''
+
+  return ['<memory_notes>', ...notes.map(note => `- ${note.content}`), '</memory_notes>'].join('\n')
+}
+
+/**
+ * States the retrieval policy for durable historical memory.
+ */
+function memoryRecallSection(opts: BuildAgentSystemPromptOptions): string {
+  const lines = [
+    toolAvailable(opts, 'memory_search')
+      ? 'Before answering questions about prior work, decisions, dates, people, preferences, or channel history, call memory_search first.'
+      : '',
+    toolAvailable(opts, 'memory_search')
+      ? 'If memory_search is unavailable, degraded, or inconclusive, say so plainly instead of guessing.'
+      : '',
+    toolAvailable(opts, 'memory_browse')
+      ? 'Use memory_browse when exact neighboring channel messages or an explicit time range matter.'
+      : ''
+  ].filter(Boolean)
+
+  return lines.length > 0 ? ['<memory_recall>', ...lines, '</memory_recall>'].join('\n') : ''
+}
+
+/**
+ * Outcome-first operating contract. Keep this short: tool-specific rules belong
+ * in tool descriptions, and task-specific workflow comes from the user or skill.
+ */
+function completionContractSection(): string {
+  return [
+    '<completion_contract>',
+    'Work toward the requested outcome, not a proxy such as merely using a tool, producing a plausible answer, or making a small local change.',
+    'Before finishing, verify the result with evidence appropriate to the task. If verification is impossible, say what remains unverified.',
+    'Stop when the requested outcome is satisfied. Ask a concise clarification only when required information is missing and a reasonable assumption would be unsafe.',
+    'Before notable tool use, briefly say what you are about to check or change; skip preambles for trivial or repetitive tool calls.',
+    '</completion_contract>'
+  ].join('\n')
+}
+
+/**
  * States how the model should treat the `<agent_environment_info>` block that
  * Ankole may prepend to a user-role message. This is a trust boundary: the
  * facts are system-injected observations about the agent's environment, useful
@@ -188,33 +236,78 @@ function agentEnvironmentInfoPolicySection(): string {
 /**
  * Renders the model-facing tool and computer policy block.
  */
-function toolsSection(): string {
+function toolsSection(opts: BuildAgentSystemPromptOptions): string {
+  const toolUsageLines = [
+    toolAvailable(opts, 'read_file') && toolAvailable(opts, 'patch')
+      ? 'Use `read_file` for paginated text reads and `patch` for targeted edits.'
+      : '',
+    toolAvailable(opts, 'patch')
+      ? "For `patch`, use replace mode for one precise edit and `mode='patch'` V4A for multi-file, multi-site, or larger edits."
+      : '',
+    toolAvailable(opts, 'command') ? 'Use `command` for stateless one-shot shell work.' : '',
+    toolAvailable(opts, 'interactive_terminal')
+      ? 'Use `interactive_terminal` for TTY/TUI programs, REPLs, and long-running interactive processes.'
+      : '',
+    toolAvailable(opts, 'codex_delegate')
+      ? 'Use `codex_delegate` when a nested coding agent should investigate, edit, test, or self-iterate on software work inside this same computer. Prefer it for substantial coding tasks where delegation plus independent verification is useful; inspect its result and rerun the relevant tests yourself before reporting completion.'
+      : '',
+    browserToolsAvailable(opts)
+      ? 'Use `browser_*` for rendered browser work inside the same computer. Browser sessions are persistent per execution scope through the configured CDP backend: local Chromium by default, or an operator-configured remote CDP service. Observe pages with `browser_snapshot`, use `browser_find` to search long rendered pages, then act on the latest element refs with tools such as `browser_click` and `browser_type`.'
+      : '',
+    toolAvailable(opts, 'check_back_later')
+      ? 'Use `check_back_later` for one delayed self-wakeup tied to the current provider route.'
+      : '',
+    toolAvailable(opts, 'cron')
+      ? 'Use `cron` for recurring schedules; it supports listing, adding, updating, pausing, resuming, removing, manual run, and run history. If the user asks what recurring work, standing tasks, monitors, routines, or scheduled jobs exist in this conversation, use `cron` with action=list.'
+      : '',
+    toolAvailable(opts, 'memory_note')
+      ? 'Use `memory_note` to save, list, update, or forget curated durable facts for this agent in the current channel. If the user asks what you remember about this channel, use `memory_note` with action=list. A channel can have at most 40 notes and each note can have at most 500 characters; when the limit is reached, list/update/forget/merge notes before saving another one.'
+      : '',
+    toolAvailable(opts, 'memory_search')
+      ? 'Use `memory_search` before answering about prior work, decisions, dates, people, preferences, or channel history.'
+      : '',
+    toolAvailable(opts, 'memory_browse') ? 'Use `memory_browse` for exact channel-history browsing.' : '',
+    toolAvailable(opts, 'skill_view') && toolAvailable(opts, 'skill_append')
+      ? "Use `skill_view` to load enabled skills and `skill_append` to append durable notes to this agent's DB-backed overlay for an enabled skill. When loaded skill content refers to relative paths, resolve them from that skill's `directory` attribute and run commands with absolute paths."
+      : ''
+  ].filter(Boolean)
+
+  const routingLines = [
+    toolAvailable(opts, 'command') && toolAvailable(opts, 'read_file')
+      ? 'Do not use command to read large files; use read_file.'
+      : '',
+    toolAvailable(opts, 'command') && toolAvailable(opts, 'patch')
+      ? 'Do not use command to edit files; use patch.'
+      : '',
+    'Do not invent tools that are not present in the tool list for this run.'
+  ].filter(Boolean)
+
   return `<tools>
 <about_computer>
 These tools operate on your Ankole Agent Computer: an agent-owned execution environment backed by a container. It exposes a stable /workspace view and is your place for files, commands, browser automation, skill overlays, and generated artifacts. It is not the user's personal device unless files or artifacts are explicitly exchanged.
 
 Current worker-image baseline: Python 3.12-compatible tooling via the agent Python environment, Bun 1.3.14 for JavaScript/TypeScript work, Chromium/CDP for browser automation, LibreOffice/Pandoc/Poppler/QPDF for document work, and common shell/dev utilities such as jq, bash, git, rg, and tmux. Verify exact versions with a quick command when the task depends on them.
 
-Persistence model: /workspace/user-files is durable shared filesystem storage for uploaded files, deliverables, browser artifacts, and per-agent environment/package deltas. Enabled skills are loaded only through skill_view; built-in skill files come from worker image assets, agent-installed skill files come from managed shared skill storage, and skill overlays are PG semantic state resolved through RuntimeFabric. SOUL, MISSION, and conversation state are also RuntimeFabric state, not files for the worker to edit directly. /workspace/temp is non-persistent scratch/runtime state. Recoverable interactive_terminal sessions are backed internally by tmux and also belong to this non-persistent runtime layer; use the interactive_terminal tool to start, send, capture, and kill them rather than calling tmux directly.
+Persistence model: /workspace/user-files is durable shared filesystem storage for uploaded files, deliverables, browser artifacts, and per-agent environment/package deltas. Enabled skill files come from worker image assets, agent-installed skill files come from managed shared skill storage, and skill overlays are PG semantic state resolved through RuntimeFabric. SOUL, MISSION, and conversation state are also RuntimeFabric state, not files for the worker to edit directly. /workspace/temp is non-persistent scratch/runtime state. Recoverable terminal sessions, when exposed by a tool, are backed internally by tmux and also belong to this non-persistent runtime layer.
 
-Use \`read_file\` for paginated text reads and \`patch\` for targeted edits.
-For \`patch\`, use replace mode for one precise edit and \`mode='patch'\` V4A for multi-file, multi-site, or larger edits.
-Use \`command\` for stateless one-shot shell work.
-Use \`interactive_terminal\` for TTY/TUI programs, REPLs, and long-running interactive processes.
-Use \`codex_delegate\` when a nested coding agent should investigate, edit, test, or self-iterate on software work inside this same computer. Prefer it for substantial coding tasks where delegation plus independent verification is useful; inspect its result and rerun the relevant tests yourself before reporting completion.
-Use \`browser_*\` for rendered browser work inside the same computer. Browser sessions are persistent per execution scope through the configured CDP backend: local Chromium by default, or an operator-configured remote CDP service. Observe pages with \`browser_snapshot\`, use \`browser_find\` to search long rendered pages, then act on the latest element refs with tools such as \`browser_click\` and \`browser_type\`.
-Use \`check_back_later\` for one delayed self-wakeup tied to the current provider route.
-Use \`cron\` for recurring schedules; it supports listing, adding, updating, pausing, resuming, removing, manual run, and run history.
-Use \`skill_view\` to load enabled skills and \`skill_append\` to append durable notes to this agent's DB-backed overlay for an enabled skill.
+${toolUsageLines.join('\n')}
 Treat the computer as a trusted Ankole work environment with useful isolation boundaries, not as a hardened security sandbox.
 </about_computer>
 
 <tool_routing_policy>
-Do not use command to read large files; use read_file.
-Do not use command to edit files; use patch.
-Do not invent tools that are not present in the tool list for this run.
+${routingLines.join('\n')}
 </tool_routing_policy>
 </tools>`
+}
+
+function toolAvailable(opts: BuildAgentSystemPromptOptions, name: string): boolean {
+  if (!opts.availableToolNames) return true
+  return opts.availableToolNames.includes(name)
+}
+
+function browserToolsAvailable(opts: BuildAgentSystemPromptOptions): boolean {
+  if (!opts.availableToolNames) return true
+  return opts.availableToolNames.some(name => name.startsWith('browser_'))
 }
 
 /**

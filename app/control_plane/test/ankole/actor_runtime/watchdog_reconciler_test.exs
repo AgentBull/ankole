@@ -1,6 +1,8 @@
 defmodule Ankole.ActorRuntime.WatchdogReconcilerTest do
   use Ankole.ActorRuntimeCase
 
+  alias Ankole.CodexDelegations
+
   describe "watchdog and startup reconciler" do
     test "watchdog supersedes stale unaccepted delivery and retries through another worker" do
       %{principal: agent} = agent_fixture()
@@ -193,6 +195,69 @@ defmodule Ankole.ActorRuntime.WatchdogReconcilerTest do
       assert current_actor_event_id == input.id
     end
 
+    test "watchdog fails Codex delegations owned by a stale worker route" do
+      %{principal: agent} = agent_fixture()
+      stale_route = unique_route()
+
+      :ok = Broker.register_local_worker(stale_route, self())
+      on_exit(fn -> Broker.unregister_local_worker(stale_route) end)
+
+      assert {:ok, stale_worker} = admit_worker(stale_route)
+
+      Repo.update_all(
+        from(worker in AgentComputerWorker, where: worker.worker_id == ^stale_worker.worker_id),
+        set: [last_worker_heartbeat_at: @base_time]
+      )
+
+      assert {:ok, create_envelope} =
+               RPCLane.handle_request(
+                 %{
+                   "request_id" => "codex-stale-create",
+                   "method" => "codex.delegation.create",
+                   "payload_json" => %{
+                     "agent_uid" => agent.uid,
+                     "session_id" => "session-codex-stale",
+                     "tool_call_id" => "tool-codex-stale"
+                   }
+                 },
+                 stale_route
+               )
+
+      delegation_id = rpc_payload(create_envelope)["delegation_id"]
+
+      assert {:ok, running_envelope} =
+               RPCLane.handle_request(
+                 %{
+                   "request_id" => "codex-stale-running",
+                   "method" => "codex.delegation.status.update",
+                   "payload_json" => %{
+                     "delegation_id" => delegation_id,
+                     "agent_uid" => agent.uid,
+                     "status" => "running"
+                   }
+                 },
+                 stale_route
+               )
+
+      assert rpc_payload(running_envelope)["status"] == "running"
+
+      assert CodexDelegations.get_delegation_for_agent(delegation_id, agent.uid).metadata[
+               "worker_route"
+             ] == stale_route
+
+      assert {:ok, %{stale_codex_delegations: 1}} =
+               ActorRuntime.watchdog_once(
+                 now: DateTime.add(@base_time, 120, :second),
+                 stale_after_seconds: 60
+               )
+
+      delegation = CodexDelegations.get_delegation_for_agent(delegation_id, agent.uid)
+      assert delegation.status == "failed"
+      assert delegation.error["code"] == "owner_worker_stale"
+      assert delegation.error["worker_route"] == stale_route
+      assert delegation.completed_at
+    end
+
     test "watchdog deletes stale worker projections after the v1 ttl" do
       route = unique_route()
       assert {:ok, worker} = admit_worker(route)
@@ -318,5 +383,10 @@ defmodule Ankole.ActorRuntime.WatchdogReconcilerTest do
       assert %Message{status: "error"} = wait_for_ai_message_status(input.id, "error")
       assert Repo.get!(ActorEvent, input.id).input_state == "open"
     end
+  end
+
+  defp rpc_payload(envelope) do
+    assert get_in(envelope, ["body", "type"]) == "rpc_response"
+    get_in(envelope, ["body", "rpc_response", "payload_json"])
   end
 end

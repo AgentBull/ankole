@@ -26,6 +26,10 @@ config :ankole, AnkoleWeb.Endpoint,
 
 config :ankole, AnkoleWeb.Assets, dev_server: "http://127.0.0.1:3035"
 
+config :ankole, Ankole.AIAgent.Library,
+  internal_skills_root: Path.expand("../../../internals/skills", __DIR__),
+  source_cache_ttl_ms: 0
+
 # ## SSL Support
 #
 # In order to use HTTPS in development, a self-signed

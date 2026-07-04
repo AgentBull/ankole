@@ -132,8 +132,10 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       type: 'response.tool_results.record',
       store: true,
       previous_response_id: 'resp_first',
-      input: [{ type: 'function_call_output', call_id: 'call_1', output: 'sunny' }]
+      input: [{ type: 'function_call_output', call_id: 'call_1' }]
     })
+    expect((sentPayloads[1]!.input as Array<Record<string, unknown>>)[0]!.output).toContain('sunny')
+    expectWrappedToolOutput((sentPayloads[1]!.input as Array<Record<string, unknown>>)[0]!.output)
     expect(sentPayloads[1]!.conversation).toBeUndefined()
     expect(JSON.stringify(sentPayloads[1]!.input)).not.toContain('what is the weather?')
     expect(sentPayloads[2]).toMatchObject({
@@ -447,8 +449,10 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
     expect(sentPayloads[1]).toMatchObject({
       type: 'response.tool_results.record',
       previous_response_id: 'resp_tool_bigint',
-      input: [{ type: 'function_call_output', call_id: 'call_bigint', output: '1' }]
+      input: [{ type: 'function_call_output', call_id: 'call_bigint' }]
     })
+    expect((sentPayloads[1]!.input as Array<Record<string, unknown>>)[0]!.output).toContain('1')
+    expectWrappedToolOutput((sentPayloads[1]!.input as Array<Record<string, unknown>>)[0]!.output)
     expect(sentPayloads[2]).toMatchObject({
       type: 'response.create',
       previous_response_id: 'resp_tool_bigint_results',
@@ -459,6 +463,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
   it('aborts runaway tool loops before executing another tool round', async () => {
     const sentPayloads: Record<string, unknown>[] = []
     let toolExecutions = 0
+    let recordCount = 0
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
@@ -473,10 +478,29 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
             sentPayloads.push(payload)
 
             if (payload.type === 'response.tool_results.record') {
-              return [toolResultsRecordedFrame('resp_loop_results_1')]
+              recordCount += 1
+              return [toolResultsRecordedFrame(`resp_loop_results_${recordCount}`)]
             }
 
             const index = sentPayloads.filter(sent => sent.type === 'response.create').length
+            if (index === 3) {
+              return [
+                {
+                  type: 'response.completed',
+                  response: {
+                    id: 'resp_loop_synthesis',
+                    status: 'completed',
+                    output: [
+                      {
+                        type: 'message',
+                        role: 'assistant',
+                        content: [{ type: 'output_text', text: 'summarized partial work' }]
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
 
             return [
               {
@@ -500,36 +524,44 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       }
     })
 
-    await expect(
-      runAgentLoop({
-        model,
-        messages: [{ role: 'user', content: 'loop forever' }],
-        stateful: {
-          actorEventId: '00000000-0000-0000-0000-000000000016',
-          conversationId: '16161616-1616-1616-1616-161616161616'
-        },
-        maxToolRounds: 1,
-        tools: [
-          {
-            name: 'loop',
-            description: 'Loop forever',
-            schema: z.object({}),
-            execute: async () => {
-              toolExecutions += 1
-              return { content: [{ type: 'text', text: 'again' }], details: {} }
-            }
+    const final = await runAgentLoop({
+      model,
+      messages: [{ role: 'user', content: 'loop forever' }],
+      stateful: {
+        actorEventId: '00000000-0000-0000-0000-000000000016',
+        conversationId: '16161616-1616-1616-1616-161616161616'
+      },
+      maxToolRounds: 1,
+      tools: [
+        {
+          name: 'loop',
+          description: 'Loop forever',
+          schema: z.object({}),
+          execute: async () => {
+            toolExecutions += 1
+            return { content: [{ type: 'text', text: 'again' }], details: {} }
           }
-        ]
-      })
-    ).rejects.toThrow('agent loop exceeded max tool rounds (1)')
+        }
+      ]
+    })
 
-    expect(sentPayloads).toHaveLength(3)
+    expect(final.content).toEqual([{ type: 'text', text: 'summarized partial work' }])
+    expect(final.stopReason).toBe('length')
+    expect(sentPayloads).toHaveLength(5)
     expect(sentPayloads[1]).toMatchObject({ type: 'response.tool_results.record' })
     expect(sentPayloads[2]).toMatchObject({
       type: 'response.create',
       previous_response_id: 'resp_loop_results_1',
       input: []
     })
+    expect(sentPayloads[3]).toMatchObject({ type: 'response.tool_results.record' })
+    expect(JSON.stringify(sentPayloads[3]!.input)).toContain('Tool call was not executed')
+    expect(sentPayloads[4]).toMatchObject({
+      type: 'response.create',
+      previous_response_id: 'resp_loop_results_2',
+      input: []
+    })
+    expect(sentPayloads[4]!.tools).toBeUndefined()
     expect(toolExecutions).toBe(1)
   })
 
@@ -625,8 +657,9 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
     expect(sentPayloads[1]).toMatchObject({
       type: 'response.tool_results.record',
       previous_response_id: 'resp_tool_before_steer',
-      input: [{ type: 'function_call_output', call_id: 'call_steer_boundary', output: 'tool complete' }]
+      input: [{ type: 'function_call_output', call_id: 'call_steer_boundary' }]
     })
+    expect((sentPayloads[1]!.input as Array<Record<string, unknown>>)[0]!.output).toContain('tool complete')
     expect(sentPayloads[2]).toMatchObject({
       type: 'response.create',
       previous_response_id: 'resp_tool_before_steer_results',
@@ -687,3 +720,9 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
     })
   })
 })
+
+function expectWrappedToolOutput(output: unknown): void {
+  expect(String(output)).toMatch(
+    /^<ankole_untrusted_tool_output nonce="[0-9a-f]{16}">\n[\s\S]*\n<\/ankole_untrusted_tool_output nonce="[0-9a-f]{16}">$/
+  )
+}

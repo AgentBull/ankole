@@ -1,4 +1,4 @@
-import type { ActorTurnRef } from './actor_lane'
+import type { ActorEventEnvelope, ActorTurnRef } from './actor_lane'
 import type { WorkerConfig } from '../worker/config'
 import type { JsonObject, RuntimeFabricEnvelope } from '../fabric/fabric'
 import type { ReliableEnvelopeSender } from '../fabric/sender'
@@ -8,8 +8,15 @@ export const rpcMethods = {
   agentConversationContextResolve: 'agent_conversation.context.resolve',
   appConfigureResolve: 'app_configure.resolve',
   codexDelegationCreate: 'codex.delegation.create',
+  codexDelegationGet: 'codex.delegation.get',
   codexDelegationEventAppend: 'codex.delegation.event.append',
   codexDelegationStatusUpdate: 'codex.delegation.status.update',
+  memoryNoteSave: 'memory_note.save',
+  memoryNoteUpdate: 'memory_note.update',
+  memoryNoteForget: 'memory_note.forget',
+  memoryNoteList: 'memory_note.list',
+  memorySearch: 'memory_search',
+  memoryBrowse: 'memory_browse',
   scheduleCheckBackLaterCreate: 'schedule.check_back_later.create',
   scheduleCronList: 'schedule.cron.list',
   scheduleCronGet: 'schedule.cron.get',
@@ -20,6 +27,7 @@ export const rpcMethods = {
   scheduleCronResume: 'schedule.cron.resume',
   scheduleCronRemove: 'schedule.cron.remove',
   scheduleCronRun: 'schedule.cron.run',
+  skillsInstalledReplace: 'skills.installed.replace',
   skillsOverlayResolve: 'skills.overlay.resolve',
   skillsOverlayReplace: 'skills.overlay.replace'
 } as const
@@ -75,18 +83,36 @@ export type AgentConversationContext = {
   }
   soul?: string
   mission?: string
+  memory_notes?: RuntimeMemoryNote[]
   skills?: RuntimeSkillSummary[]
   cache_key?: string
+}
+
+export type RuntimeMemoryNote = {
+  id: string
+  agent_uid?: string
+  channel_id?: string
+  content: string
+  source?: JsonObject
+  created_at?: string | null
+  updated_at?: string | null
 }
 
 export type AgentConversationContextRequest = {
   request_id: string
   turn: ActorTurnRef
+  actor_event?: ActorEventEnvelope
 }
 
 export type ScheduleRpcRequest = JsonObject & {
   request_id: string
   turn_ref: ActorTurnRef
+}
+
+export type MemoryRpcRequest = JsonObject & {
+  request_id: string
+  turn_ref: ActorTurnRef
+  actor_event: ActorEventEnvelope
 }
 
 export type SkillOverlayRequest = {
@@ -108,6 +134,33 @@ export type SkillOverlayResponse = {
   has_overlay: boolean
   overlay_json: JsonObject
   content_hash?: string
+}
+
+export type InstalledSkillObservation = {
+  skill_name: string
+  relative_path?: string
+  description: string
+  default_enabled?: boolean
+  metadata?: JsonObject
+  content_hash?: string
+  xxh3_128?: string
+  file_count?: number
+}
+
+export type InstalledSkillReplaceRequest = {
+  request_id: string
+  turn: ActorTurnRef
+  observations: InstalledSkillObservation[]
+}
+
+export type InstalledSkillReplaceResponse = {
+  request_id: string
+  agent_uid: string
+  session_id: string
+  changed: boolean
+  skills: number
+  files: number
+  content_hash: string
 }
 
 export type AIGatewayApiKeyRequest = {
@@ -169,6 +222,12 @@ export type CodexDelegationCreateRequest = {
   metadata?: JsonObject
 }
 
+export type CodexDelegationGetRequest = {
+  request_id: string
+  delegation_id: string
+  agent_uid: string
+}
+
 export type CodexDelegationResponse = {
   request_id: string
   delegation_id: string
@@ -176,12 +235,15 @@ export type CodexDelegationResponse = {
   session_id: string
   status: string
   codex_thread_id?: string
+  workdir?: string
   queued_at?: string
   started_at?: string
   completed_at?: string
   result?: JsonObject
   error?: JsonObject
   metadata?: JsonObject
+  last_event_seq?: number
+  result_ref?: JsonObject
 }
 
 export type CodexDelegationEventAppendRequest = {
@@ -227,8 +289,15 @@ export type RpcPayloadByMethod = {
   [rpcMethods.agentConversationContextResolve]: AgentConversationContextRequest
   [rpcMethods.appConfigureResolve]: AppConfigureResolveRequest
   [rpcMethods.codexDelegationCreate]: CodexDelegationCreateRequest
+  [rpcMethods.codexDelegationGet]: CodexDelegationGetRequest
   [rpcMethods.codexDelegationEventAppend]: CodexDelegationEventAppendRequest
   [rpcMethods.codexDelegationStatusUpdate]: CodexDelegationStatusUpdateRequest
+  [rpcMethods.memoryNoteSave]: MemoryRpcRequest
+  [rpcMethods.memoryNoteUpdate]: MemoryRpcRequest
+  [rpcMethods.memoryNoteForget]: MemoryRpcRequest
+  [rpcMethods.memoryNoteList]: MemoryRpcRequest
+  [rpcMethods.memorySearch]: MemoryRpcRequest
+  [rpcMethods.memoryBrowse]: MemoryRpcRequest
   [rpcMethods.scheduleCheckBackLaterCreate]: ScheduleRpcRequest
   [rpcMethods.scheduleCronList]: ScheduleRpcRequest
   [rpcMethods.scheduleCronGet]: ScheduleRpcRequest
@@ -239,6 +308,7 @@ export type RpcPayloadByMethod = {
   [rpcMethods.scheduleCronResume]: ScheduleRpcRequest
   [rpcMethods.scheduleCronRemove]: ScheduleRpcRequest
   [rpcMethods.scheduleCronRun]: ScheduleRpcRequest
+  [rpcMethods.skillsInstalledReplace]: InstalledSkillReplaceRequest
   [rpcMethods.skillsOverlayResolve]: SkillOverlayRequest
   [rpcMethods.skillsOverlayReplace]: SkillOverlayReplaceRequest
 }

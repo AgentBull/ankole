@@ -20,6 +20,8 @@ config :ankole, AnkoleWeb.Endpoint,
 
 config :ankole, AnkoleWeb.Assets, dev_server: "http://assets.test"
 
+config :ankole, Ankole.AIAgent.Library, source_cache_ttl_ms: 0
+
 # Print only warnings and errors during test
 config :logger, level: :warning
 

@@ -1,6 +1,13 @@
 import { existsSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { relative } from 'node:path'
+import {
+  SANDBOX_AGENT_INSTALLED_SKILLS_ROOT,
+  SANDBOX_BUILTIN_SKILLS_ROOT,
+  SANDBOX_INTERNAL_SKILLS_ROOT,
+  SANDBOX_USER_FILES_ROOT,
+  SANDBOX_WORKSPACE_ROOT
+} from '../../worker/sandbox_paths'
 
 export type BubblewrapMode = 'strong' | 'weak'
 
@@ -74,7 +81,7 @@ export function bubblewrapArgv(input: BubblewrapArgvInput, mode?: BubblewrapMode
     ...readOnlySystemBinds(),
     '--bind',
     input.workspaceRoot,
-    '/workspace',
+    SANDBOX_WORKSPACE_ROOT,
     ...runtimeWorkspaceBinds(),
     '--chdir',
     sandboxWorkspacePath(input.workspaceRoot, input.cwd),
@@ -104,7 +111,7 @@ function probeBubblewrapMode(mode: BubblewrapMode, workspaceRoot: string): Probe
         HOME: '/workspace',
         LANG: 'C.UTF-8',
         TERM: 'xterm-256color',
-        ANKOLE_WORKSPACE_ROOT: '/workspace'
+        ANKOLE_WORKSPACE_ROOT: SANDBOX_WORKSPACE_ROOT
       },
       commandArgv: ['/bin/sh', '-lc', 'test -r /proc/self/status && test -w /tmp']
     },
@@ -155,12 +162,12 @@ function runtimeWorkspaceBinds(): string[] {
   const binds: string[] = []
   const userFilesRoot = process.env.ANKOLE_USER_FILES_ROOT
   if (userFilesRoot && existsSync(userFilesRoot)) {
-    binds.push('--bind', userFilesRoot, '/workspace/shared/user-files')
+    binds.push('--bind', userFilesRoot, SANDBOX_USER_FILES_ROOT)
   }
 
   const installedSkillsRoot = process.env.ANKOLE_AGENT_INSTALLED_SKILLS_ROOT
   if (installedSkillsRoot && existsSync(installedSkillsRoot)) {
-    binds.push('--bind', installedSkillsRoot, '/workspace/shared/skills/agents')
+    binds.push('--bind', installedSkillsRoot, SANDBOX_AGENT_INSTALLED_SKILLS_ROOT)
   }
 
   const agentComputerDir = process.env.ANKOLE_AGENT_COMPUTER_BUN_WORKDIR
@@ -178,7 +185,13 @@ function runtimeWorkspaceBinds(): string[] {
   const builtinSkillsRoot = process.env.ANKOLE_BUILTIN_SKILLS_ROOT
   if (builtinSkillsRoot && existsSync(builtinSkillsRoot)) {
     pushDirs(binds, ['/repo', '/repo/app', '/repo/app/library'])
-    binds.push('--ro-bind', builtinSkillsRoot, '/repo/app/library/skills')
+    binds.push('--ro-bind', builtinSkillsRoot, SANDBOX_BUILTIN_SKILLS_ROOT)
+  }
+
+  const internalSkillsRoot = process.env.ANKOLE_INTERNAL_SKILLS_ROOT
+  if (internalSkillsRoot && existsSync(internalSkillsRoot)) {
+    pushDirs(binds, ['/repo', '/repo/internals'])
+    binds.push('--ro-bind', internalSkillsRoot, SANDBOX_INTERNAL_SKILLS_ROOT)
   }
 
   return binds

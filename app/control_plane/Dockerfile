@@ -74,6 +74,7 @@ WORKDIR /repo
 COPY tsconfig.json tsconfig.base.json ./
 COPY app/control_plane ./app/control_plane
 COPY app/kernel ./app/kernel
+COPY app/library ./app/library
 COPY app/webapps ./app/webapps
 COPY libs/feishu_openapi ./libs/feishu_openapi
 COPY libs/uikit ./libs/uikit
@@ -126,6 +127,7 @@ RUN useradd --system --home-dir /app --shell /usr/sbin/nologin ankole \
   && chown ankole:ankole /app
 
 COPY --from=build --chown=ankole:ankole /repo/app/control_plane/_build/prod/rel/ankole ./
+COPY --from=build --chown=ankole:ankole /repo/app/library ./app/library
 COPY --from=build --chown=ankole:ankole /repo/plugins ./plugins
 
 USER ankole
@@ -136,6 +138,7 @@ ENV LC_ALL=en_US.UTF-8
 ENV MIX_ENV=prod
 ENV PHX_SERVER=true
 ENV PORT=4000
+ENV ANKOLE_LIBRARY_ROOT=/app/app/library
 ENV ANKOLE_PLUGIN_PATHS=/app/plugins
 
 ENTRYPOINT ["tini", "-g", "--"]

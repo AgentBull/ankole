@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, rmSync } from 'node:fs'
 import { resolve, relative, join } from 'node:path'
 import type { JsonObject } from '../../fabric/fabric'
 import type {
@@ -10,6 +10,7 @@ import type {
   AppConfigureResolveResponse,
   CodexDelegationCreateRequest,
   CodexDelegationEventAppendRequest,
+  CodexDelegationGetRequest,
   CodexDelegationRejected,
   CodexDelegationResponse,
   CodexDelegationStatusUpdateRequest
@@ -53,6 +54,8 @@ export type CodexDelegationSnapshot = {
   output_text?: string
   error?: string
   waiting_on_user?: JsonObject
+  last_event_seq?: number
+  result_ref?: JsonObject
 }
 
 export type CodexRuntimeRequesters = {
@@ -65,6 +68,9 @@ export type CodexRuntimeRequesters = {
   ) => Promise<AppConfigureResolveResponse | AppConfigureResolveRejected>
   createCodexDelegation?: (
     request: CodexDelegationCreateRequest
+  ) => Promise<CodexDelegationResponse | CodexDelegationRejected>
+  getCodexDelegationStatus?: (
+    request: CodexDelegationGetRequest
   ) => Promise<CodexDelegationResponse | CodexDelegationRejected>
   appendCodexDelegationEvent?: (request: CodexDelegationEventAppendRequest) => Promise<unknown>
   updateCodexDelegationStatus?: (
@@ -108,6 +114,7 @@ type CodexJob = {
   error?: string
   pendingUserInput?: PendingUserInput
   client?: CodexAppServerClient
+  cleanupRoot?: string
   seq: number
   auditTail: Promise<void>
   auditError?: Error
@@ -252,10 +259,14 @@ export class CodexDelegationManager {
       const job = queue.shift()!
       running.add(job.delegationId)
       this.runningByAgent.set(agentUid, running)
-      void this.run(job).finally(() => {
-        running.delete(job.delegationId)
-        this.pump(agentUid)
-      })
+      void this.run(job)
+        .catch(error => {
+          this.recordAsyncError(job, error)
+        })
+        .finally(() => {
+          running.delete(job.delegationId)
+          this.pump(agentUid)
+        })
     }
   }
 
@@ -272,6 +283,10 @@ export class CodexDelegationManager {
       }
     } finally {
       if (terminalStatuses.has(job.status)) await job.client?.close()
+      if (terminalStatuses.has(job.status) && job.cleanupRoot) {
+        rmSync(job.cleanupRoot, { recursive: true, force: true })
+        job.cleanupRoot = undefined
+      }
       await this.flushAudit(job)
     }
   }
@@ -302,12 +317,14 @@ export class CodexDelegationManager {
   private async runCodex(job: CodexJob): Promise<void> {
     const override = await resolveConfigOverride(job)
     const aiGatewayKey = override?.mode === 'official_subscription' ? undefined : await resolveAIGatewayKey(job)
+    const modelOverride = override?.mode === 'official_subscription' ? undefined : 'coding'
     const materialized = materializeCodexConfig({
       workspaceRoot: job.workspaceRoot,
       delegationId: job.delegationId,
       override,
       aiGatewayKey
     })
+    job.cleanupRoot = materialized.cleanupRoot
 
     await this.audit(job, 'process', 'config_materialized', {
       mode: override?.mode ?? 'aigateway',
@@ -320,24 +337,36 @@ export class CodexDelegationManager {
       env: materialized.env,
       args: codexConfigCliOverrides(),
       audit: (direction, message) => this.enqueueAudit(job, direction, 'json_rpc', { message }),
+      onExit: error => this.handleClientExit(job, error),
       onNotification: message => this.handleNotification(job, message),
-      onServerRequest: (message, appServer) => this.handleServerRequest(job, message, appServer)
+      onServerRequest: async (message, appServer) => {
+        try {
+          await this.handleServerRequest(job, message, appServer)
+        } catch (error) {
+          this.recordAsyncError(job, error)
+          await this.finish(job, 'failed', {
+            error: error instanceof Error ? error.message : String(error)
+          })
+        }
+      }
     })
     job.client = client
 
     const timeout = setTimeout(() => {
-      void this.finish(job, 'timeout', { error: `Codex delegation timed out after ${job.timeoutSeconds}s` })
+      void this.finish(job, 'timeout', { error: `Codex delegation timed out after ${job.timeoutSeconds}s` }).catch(
+        error => this.recordAsyncError(job, error)
+      )
       job.abortController.abort(new DOMException('codex delegation timed out', 'TimeoutError'))
     }, job.timeoutSeconds * 1000)
 
     try {
       await client.initialize()
       const threadStart = (await client.request('thread/start', {
-        model: 'coding',
         cwd: job.workdir,
         approvalPolicy: 'never',
         sandbox: 'danger-full-access',
-        threadSource: 'ankole'
+        threadSource: 'ankole',
+        ...(modelOverride ? { model: modelOverride } : {})
       })) as JsonObject
 
       const thread = jsonObject(threadStart.thread)
@@ -351,7 +380,7 @@ export class CodexDelegationManager {
         cwd: job.workdir,
         approvalPolicy: 'never',
         sandboxPolicy: { type: 'dangerFullAccess' },
-        model: 'coding',
+        ...(modelOverride ? { model: modelOverride } : {}),
         ...(job.outputSchema ? { outputSchema: job.outputSchema } : {})
       })) as JsonObject
       const turn = jsonObject(turnStart.turn)
@@ -391,8 +420,17 @@ export class CodexDelegationManager {
       void this.finish(job, terminal, {
         codex_turn_status: status || 'unknown',
         output_text: job.outputText
-      })
+      }).catch(error => this.recordAsyncError(job, error))
     }
+  }
+
+  private handleClientExit(job: CodexJob, error: Error): void {
+    if (terminalStatuses.has(job.status)) return
+
+    void this.finish(job, 'failed', { error: error.message }).catch(finishError => {
+      this.recordAsyncError(job, finishError)
+      job.abortController.abort(error)
+    })
   }
 
   private async handleServerRequest(
@@ -441,14 +479,42 @@ export class CodexDelegationManager {
     job.status = status
     job.completedAtUnixMs = Date.now()
     if (typeof details.error === 'string') job.error = details.error
-    await this.audit(job, 'audit', `status_${status}`, details)
-    await this.updateStatus(job, {
-      status,
-      result: status === 'succeeded' ? { ...details, output_text: job.outputText } : {},
-      error: status === 'succeeded' ? {} : details,
-      ...(job.codexThreadId ? { codex_thread_id: job.codexThreadId } : {})
-    })
-    this.notify(job)
+
+    try {
+      this.enqueueAudit(job, 'audit', `status_${status}`, details)
+      await job.auditTail
+
+      const auditError = job.auditError
+      const finalStatus: CodexDelegationStatus = auditError && status === 'succeeded' ? 'failed' : status
+      const finalDetails =
+        auditError && status === 'succeeded'
+          ? {
+              error: `Codex audit failed: ${auditError.message}`,
+              codex_turn_status: details.codex_turn_status ?? 'unknown'
+            }
+          : details
+
+      if (finalStatus !== status) {
+        job.status = finalStatus
+        job.error = typeof finalDetails.error === 'string' ? finalDetails.error : job.error
+      }
+
+      await this.updateStatus(job, {
+        status: finalStatus,
+        result: finalStatus === 'succeeded' ? { ...details, output_text: job.outputText } : {},
+        error: finalStatus === 'succeeded' ? {} : finalDetails,
+        ...(job.codexThreadId ? { codex_thread_id: job.codexThreadId } : {})
+      })
+    } catch (error) {
+      const normalized = error instanceof Error ? error : new Error(String(error))
+      this.recordAsyncError(job, normalized)
+      if (status === 'succeeded') {
+        job.status = 'failed'
+        job.error = `Codex finalization failed: ${normalized.message}`
+      }
+    } finally {
+      this.notify(job)
+    }
   }
 
   private async updateStatus(
@@ -521,7 +587,12 @@ export class CodexDelegationManager {
 
   private async flushAudit(job: CodexJob): Promise<void> {
     await job.auditTail
-    if (job.auditError) throw job.auditError
+  }
+
+  private recordAsyncError(job: CodexJob, error: unknown): void {
+    const normalized = error instanceof Error ? error : new Error(String(error))
+    job.auditError ??= normalized
+    if (!job.error) job.error = normalized.message
   }
 
   private removeQueued(job: CodexJob): void {
@@ -616,7 +687,11 @@ function snapshot(job: CodexJob): CodexDelegationSnapshot {
     ...(job.completedAtUnixMs ? { completed_at_unix_ms: job.completedAtUnixMs } : {}),
     ...(job.outputText ? { output_text: job.outputText } : {}),
     ...(job.error ? { error: job.error } : {}),
-    ...(job.pendingUserInput ? { waiting_on_user: job.pendingUserInput.params } : {})
+    ...(job.pendingUserInput ? { waiting_on_user: job.pendingUserInput.params } : {}),
+    ...(job.seq > 0 ? { last_event_seq: job.seq - 1 } : {}),
+    ...(terminalStatuses.has(job.status)
+      ? { result_ref: { type: 'codex_delegation', delegation_id: job.delegationId } }
+      : {})
   }
 }
 

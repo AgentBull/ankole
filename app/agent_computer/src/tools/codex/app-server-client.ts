@@ -32,6 +32,7 @@ export type CodexAppServerClientOptions = {
   cwd: string
   env: Record<string, string>
   audit?: CodexAuditHandler
+  onExit?: (error: Error) => void
   onNotification?: CodexNotificationHandler
   onServerRequest?: CodexServerRequestHandler
 }
@@ -64,12 +65,16 @@ export class CodexAppServerClient {
     void this.proc.exited.then(
       code => {
         if (!this.closed) {
-          this.rejectPending(new Error(`codex app-server exited with code ${code ?? 'unknown'}`))
+          const error = new Error(`codex app-server exited with code ${code ?? 'unknown'}`)
+          this.rejectPending(error)
+          this.opts.onExit?.(error)
         }
       },
       error => {
         if (!this.closed) {
-          this.rejectPending(error instanceof Error ? error : new Error(String(error)))
+          const normalized = error instanceof Error ? error : new Error(String(error))
+          this.rejectPending(normalized)
+          this.opts.onExit?.(normalized)
         }
       }
     )
@@ -121,12 +126,16 @@ export class CodexAppServerClient {
     this.closed = true
 
     try {
-      await Promise.resolve(this.stdin?.end?.())
+      this.stdin?.end?.()
     } catch {
       // ignore close races; the process may already have exited.
     }
 
-    this.proc.kill()
+    try {
+      this.proc.kill()
+    } catch {
+      // ignore close races; the process may already have exited.
+    }
   }
 
   private async write(message: JsonRpcMessage, direction: 'client_to_server' | 'client_response' = 'client_to_server') {
@@ -173,7 +182,23 @@ export class CodexAppServerClient {
     }
 
     if (typeof rpc.method === 'string' && rpc.id !== undefined) {
-      void this.opts.onServerRequest?.(rpc, this)
+      const handler = this.opts.onServerRequest
+      if (!handler) {
+        void this.respondError(rpc.id, -32601, `Codex server request is not implemented: ${rpc.method}`).catch(error => {
+          this.opts.onNotification?.({
+            method: '$server_request_error',
+            params: { error: error instanceof Error ? error.message : String(error) }
+          })
+        })
+        return
+      }
+
+      void handler(rpc, this).catch(error => {
+        this.opts.onNotification?.({
+          method: '$server_request_error',
+          params: { error: error instanceof Error ? error.message : String(error) }
+        })
+      })
       return
     }
 

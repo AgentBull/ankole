@@ -106,7 +106,7 @@ Schedule（`design-docs/Schedule.md`）把时间变成 actor event。Principal �
 两种传输，一条规则：
 
 - **RuntimeFabric（ZeroMQ）** 只是实时传输：turn envelope、RPC、文件字节、心跳、背压。它永远不是持久事实来源。系统绝不能靠问 ZeroMQ“发生了什么”来恢复状态。
-- **PostgreSQL** 拥有所有崩溃之后仍然重要的事实：actor event、AI 消息日志、镜像、outbox 行、fence、配置。所有写入都由 Elixir 负责。
+- **PostgreSQL** 拥有所有崩溃之后仍然重要的事实：actor event、AI 消息日志、镜像、outbox 行、fence、配置、记忆。所有写入都由 Elixir 负责。
 
 ## 语言所有权
 
@@ -114,7 +114,7 @@ Schedule（`design-docs/Schedule.md`）把时间变成 actor event。Principal �
 
 | Runtime | 负责 | 不应该 |
 | --- | --- | --- |
-| **Elixir**（`app/control_plane`） | PostgreSQL 语义和 migration、supervision、setup/console/auth 界面、Principal/AuthZ facade、AppConfigure、SignalsGateway、ActorRuntime 调度和 fence、AIGateway provider 和有状态消息日志、terminal commit 权威、plugin registry | 把持久状态的归属推给 worker 或 kernel |
+| **Elixir**（`app/control_plane`） | PostgreSQL 语义和 migration、supervision、setup/console/auth 界面、Principal/AuthZ facade、AppConfigure、SignalsGateway、ActorRuntime 调度和 fence、AIGateway provider 和有状态消息日志、Memory、terminal commit 权威、plugin registry | 把持久状态的归属推给 worker 或 kernel |
 | **Rust kernel**（`app/kernel`） | Elixir/Bun 需要保持一致的确定性共享机制：crypto（AEAD、key derivation）、UUIDv7、JWT、phone normalization、xxh3、zstd block codec、AuthZ 和 signal filter 的 CEL 求值、protobuf envelope codec + 校验、ZeroMQ socket 所有权（ROUTER/DEALER/ZAP 线程） | 碰 PostgreSQL，持有产品生命周期状态，膨胀成领域 owner |
 | **Bun worker**（`app/agent_computer`） | Agent loop、tool、prompt、终端/浏览器状态、bubblewrap 沙箱、worker 本地文件系统、AIGateway client | 发明 control-plane 状态；任何必须跨重启存活的东西都要通过 RPC 或 AIGateway API 落到 PostgreSQL |
 
@@ -151,6 +151,12 @@ Kernel 从同一个 crate 编译两次：一次作为 Elixir 的 Rustler NIF（�
 
 拥有的表：`signal_gateway_bindings`、`signal_gateway_channels`、`signal_gateway_entries`、`signal_gateway_input_tombstones`、`signal_gateway_inbound_batches`、`signal_gateway_outbox`。
 
+### Memory：channel 记忆和历史召回
+
+`Ankole.Memory`（`lib/ankole/memory.ex`）。Layer A 是当前 channel 的人工策展短记忆，经 `memory_note` tool 写入 `memory_notes`，按 `{agent_uid, channel}` 限 40 条、单条 500 字符，并注入 addressed 与 ambient turn。Layer B 用 `signal_gateway_entries` 做 ground truth：Phase 1 提供 BM25 `memory_search` 与按时段 `memory_browse`；Phase 2 用 `memory_episodes` + embedding 增强排序，失败时降级回 BM25。
+
+拥有的表：`memory_notes`、`memory_episodes`、`memory_channel_cursors`。
+
 ### ActorRuntime：带 fence 的 worker turn 调度
 
 `Ankole.ActorRuntime`（`lib/ankole/actor_runtime/`）。它监督 session controller、`ActivationManager`（session 激活租约）、`WorkerPool`（已连接的 worker、容量）、`Reconciler` 和 `Watchdog`。每个 session 同一时间只有一个 ready 的 actor event 会变成一个 `turn_start` envelope（`turn_envelope.ex`），由 `transport/broker.ex` 通过 fabric 发出。每次 delivery 都带 fence（`ActorTurnRef`）：activation uid、actor epoch、actor event id、revision。Stale 的 worker echo 如果过不了相等性检查，就不能 commit 到新的 actor 状态。重试会创建新的 actor event，并带上 `retry_of_actor_event_id`；恢复不会复活一条流。
@@ -172,15 +178,23 @@ Wire 接口是 OpenAI Responses 形状：worker 连接 `GET /api/v1/ai-gateway/r
 
 Envelope 是 protobuf（`app/kernel/proto/ankole/runtime_fabric/v1/envelope.proto`），在任何 host 看到它们之前，先由 Rust 校验。四条 lane：CONTROL（`worker_ready`、心跳、容量、`turn_control`、关停）、TURN（`turn_start`、`mailbox_updated`、`turn_accepted`、`turn_error`、`turn_noop_completed`）、PROGRESS（`worker_progress`，只用于可观测性）、RPC（`rpc_request`/`rpc_response`/`rpc_error`）。另外还有一条 raw-frame 文件 lane（`ANKOLE_FILE/1`，2 MiB zstd 块、信用流控），在 control plane 和 worker 可见根 `user_files`、`agent_installed_skills` 之间搬运字节（`lib/ankole/actor_runtime/file_transfer_lane.ex` <-> `src/file_transfer_lane.ts`）。
 
-Worker->control-plane 的 RPC 方法注册在 `lib/ankole/actor_runtime/rpc_lane.ex`：`ai_gateway.api_key_for.create_or_find_by_agent`、`agent_conversation.context.resolve`、`skills.overlay.resolve` / `.replace`、`schedule.check_back_later.create`，以及 `schedule.cron.*` 系列。
+Worker->control-plane 的 RPC 方法注册在 `lib/ankole/actor_runtime/rpc_lane.ex`：`ai_gateway.api_key_for.create_or_find_by_agent`、`agent_conversation.context.resolve`、`skills.overlay.resolve` / `.replace`、`schedule.check_back_later.create`、`schedule.cron.*` 系列、`memory_note.*`、`memory_search`、`memory_browse`。
 
 ### Agent Computer：Bun worker
 
 `app/agent_computer/src/`。`main.ts` 解析 env（`WORKER_ID`、形如 `tcp://:worker_auth_key@host:port` 的 `RUNTIME_FABRIC_URL`），启动 DEALER，宣告 `worker_ready`，每 15 秒发一次心跳，并分发 envelope。一个 `turn_start` 会跑 `core/turns/` 里的 turn pipeline（文本 turn 是 `text_turn.ts`）：通过 RPC 拿会话上下文和 AIGateway API key，构造 system prompt（`src/prompts/`），组装 tool，然后驱动 `core/agent-loop.ts`：通过官方 `openai` SDK 加自定义 WebSocket 传输，发起有状态路径的 `response.create`（`core/llm.ts`），在本地执行返回的 tool call，再用 `previous_response_id` 把 `function_call_output` item 链回去；没有 tool call 时停止。Steering 通过 `mailbox_updated` 到达，并在轮次之间注入；`turn_control` 会中止。
 
-Model 可见的 tool 接口有意保持很窄（扩大前先看 `docs/TradeoffsAndKnownLimits.md`）：`todo`（`src/tools/todo-tool.ts`）；computer tool `command`、`interactive_terminal`、`read_file`、`patch`、`reply_attachment`（`src/tools/computer/`）；browser tool `browser_open`、`browser_run`、`browser_extract`、`browser_doctor`（`src/tools/browser/`）；schedule tool `check_back_later`、`cron`（`src/tools/schedule-tools.ts`）；skill tool `skill_view`、`skill_append`（`src/tools/library/`）。Shell 命令在 bubblewrap 里运行（优先 strong mode，启动时若为 weak mode 给警告，绝不无沙箱：`src/tools/computer/bubblewrap.ts`）。当前代码树没有 MCP 支持；如果以后加入，它应该作为另一个本地 tool 源，放在这个 worker 边界里。
+Model 可见的 tool 接口有意保持很窄（扩大前先看 `docs/TradeoffsAndKnownLimits.md`）：`todo`（`src/tools/todo/todo-tool.ts`）；computer tool `command`、`interactive_terminal`、`read_file`、`patch`、`reply_attachment`（`src/tools/computer/`）；browser tool `browser_open`、`browser_run`、`browser_extract`、`browser_doctor`（`src/tools/browser/`）；schedule tool `check_back_later`、`cron`（`src/tools/schedule/schedule-tools.ts`）；memory tool `memory_note`、`memory_search`、`memory_browse`（`src/tools/memory/`）；skill tool `skill_view`、`skill_append`（`src/tools/library/`）。Shell 命令在 bubblewrap 里运行（优先 strong mode，启动时若为 weak mode 给警告，绝不无沙箱：`src/tools/computer/bubblewrap.ts`）。当前代码树没有 MCP 支持；如果以后加入，它应该作为另一个本地 tool 源，放在这个 worker 边界里。
 
 按契约，worker 是无状态的：它持有 WebSocket、tool 本地状态和当前 turn；所有持久内容都是通过 RPC 或 AIGateway API 落到 PostgreSQL 的行。杀掉一个 worker，turn 会在别处重试。
+
+#### 用户可见的上下文边界
+
+Ankole 会持久保存 provider mirror 和 AI Gateway history，但单个 turn 不会拿到无限的原始群聊记录。
+
+- **Addressed 批**：相邻的 addressed 消息会先合并，再变成一条 `actor_events` 行。批次最多 8 条，普通文本软预算约 4,000 字符；长文本连续消息可以放宽到约 8,000 字符硬上限。如果精确的旧细节很重要，请在当前请求里重述，或让 agent 使用 memory/history tool 查。
+- **Ambient 回查**：开启 `may_intervene` 时，ambient recognizer 拿到的是有界的房间快照。相关 channel/thread 窗口里的 observed messages 最多 80 条；单独的 recent-history helper 最多 10 条。因此 ambient 判断是局部房间感知，不是全历史搜索。
+- **实际使用规则**：交代任务时请重述关键 ID、日期、约束和期望验收条件。持久记忆适合稳定事实，但当前 turn 最可靠的上下文仍然是用户在这一轮明确写出来的内容。
 
 ### Principal 和 AuthZ：身份与权限
 
@@ -202,7 +216,7 @@ Model 可见的 tool 接口有意保持很窄（扩大前先看 `docs/TradeoffsA
 
 ### Skill 和 library
 
-内置 skill 随 worker 镜像从 `app/library/skills/` 发货（每个都有 `SKILL.md` 加 asset）；agent 安装的 skill 是 shared skill 根目录下的真实文件，通过文件 lane 移动。PostgreSQL 持有 registry、enablement、overlay 和 observation（`Ankole.AIAgent.Library`，`lib/ankole/ai_agent/library/`）。Model 看到的是 `skill://enabled/...` 引用；`skill_view` 读 base 文件并合并数据库 overlay，`skill_append` 替换 overlay。不要合成假的 `/workspace/skills` 路径。
+内置 skill 随 worker 镜像从 `app/library/skills/` 发货（每个都有 `SKILL.md` 加 asset）；agent 安装的 skill 是 shared skill 根目录下的真实文件，通过文件 lane 移动。worker 每个进程对某 agent 的首个 turn、以及目录指纹变化后的 turn，都会在 resolve context 前发送 `skills.installed.replace` observation。PostgreSQL 持有 registry、enablement、overlay 和 observation（`Ankole.AIAgent.Library`，`lib/ankole/ai_agent/library/`）。Model 看到的是 `skill://enabled/...` 引用；`skill_view` 读 base 文件并合并数据库 overlay，`skill_append` 替换 overlay。不要合成假的 `/workspace/skills` 路径。
 
 ## 一条消息的生命周期，带代码指针
 
@@ -242,7 +256,7 @@ Canonical 定义在 `design-docs/SignalsGateway.md` 的 Identity Layers 部分�
 
 ## Data Model Essentials
 
-持久表（崩溃后的事实来源）：`principals`、`human_users`、`agents`、`external_identities`、`principal_groups`、`permission_grants`、`app_configure`、`signal_gateway_bindings`、`signal_gateway_channels`、`signal_gateway_entries`、`signal_gateway_outbox`、`actor_events`、`actor_cron_schedules`、`actor_scheduled_events`、`ai_gateway_conversations`、`ai_gateway_messages`、`ai_gateway_providers`，以及 skill library 表。
+持久表（崩溃后的事实来源）：`principals`、`human_users`、`agents`、`external_identities`、`principal_groups`、`permission_grants`、`app_configure`、`signal_gateway_bindings`、`signal_gateway_channels`、`signal_gateway_entries`、`signal_gateway_outbox`、`actor_events`、`actor_cron_schedules`、`actor_scheduled_events`、`ai_gateway_conversations`、`ai_gateway_messages`、`ai_gateway_providers`、`memory_notes`、`memory_episodes`、`memory_channel_cursors`，以及 skill library 表。
 
 运行时投影（UNLOGGED、可重建）：`actor_event_deliveries`、`actor_session_activations`、`actor_session_worker_assignments`、`agent_computer_workers`。
 
@@ -265,7 +279,7 @@ Canonical 定义在 `design-docs/SignalsGateway.md` 的 Identity Layers 部分�
 
 **新增运行时设置。** 在负责的子系统里声明 key（`AppConfigure.define/1`，或 plugin 的 `app_config_definitions/0`），标记 secret 需要加密，通过 `AppConfigure.get/2` 读取。不要为 operator 在运行时管理的东西新增环境变量。
 
-**新增内置 skill。** 在 `app/library/skills/<name>/` 下建目录，放 `SKILL.md` 和 asset；它会随 worker 镜像发货。Enablement 和 overlay 是 PostgreSQL 行（`Ankole.AIAgent.Library`）；`skill_view` / `skill_append` 无需其他改动即可工作。
+**新增内置 skill。** 在 `app/library/skills/<name>/` 下建目录，放 `SKILL.md` 和 asset；它会随 worker 镜像发货。Enablement 和 overlay 是 PostgreSQL 行（`Ankole.AIAgent.Library`）；`skill_view` / `skill_append` 无需其他改动即可工作。安装到 shared skill 根的 agent skill 还需要 worker 在 turn 前扫描并推送 observation，文件 lane 只负责移动字节。
 
 **新增 console API + UI。** 在 `lib/ankole_web/router.ex` 的 `:console_api` pipeline 下加 OpenAPI-spec'd controller（open_api_spex），重新生成 `app/webapps` 里有类型的 client（`openapi/` + TanStack Query hook），用 `libs/uikit` 组件构建 screen。生成的 client code 是构建产物，绝不要手改。
 
@@ -337,9 +351,10 @@ E2E harness（`tools/e2e/`）跑一个 fake 飞书平台，它用真实 WS 协�
 1. 本文。
 2. `design-docs/AIGateway.md`：如果你改 AI 侧，包括 provider、有状态消息日志、tool loop、compaction。
 3. `design-docs/SignalsGateway.md`：如果你改 IM/provider 侧，包括入口、batch、命令、流式送达、恢复。
-4. `design-docs/RuntimeFabric.md` 和 `design-docs/Schedule.md`：当你改传输或时间。
-5. `design-docs/Principal.md`、`design-docs/AuthZ.md`、`design-docs/AppConfiguration.md`、`design-docs/Plugins.md`、`design-docs/I18n.md`：按需查阅。
-6. `TradeoffsAndKnownLimits.md`：尽早读一遍。它记录了一些看起来像 gap 但已经定下来的决策：at-least-once 流式送达、两规则安全模型、派生续接、chars/4 预算、当前的非目标。
+4. `internals/docs/Memory.zh.md`：如果你改 channel 记忆、历史召回、BM25/vector 检索或 memory tools。
+5. `design-docs/RuntimeFabric.md` 和 `design-docs/Schedule.md`：当你改传输或时间。
+6. `design-docs/Principal.md`、`design-docs/AuthZ.md`、`design-docs/AppConfiguration.md`、`design-docs/Plugins.md`、`design-docs/I18n.md`：按需查阅。
+7. `TradeoffsAndKnownLimits.md`：尽早读一遍。它记录了一些看起来像 gap 但已经定下来的决策：at-least-once 流式送达、两规则安全模型、派生续接、chars/4 预算、当前的非目标。
 
 ## Design Doc Index
 
@@ -348,6 +363,7 @@ E2E harness（`tools/e2e/`）跑一个 fake 飞书平台，它用真实 WS 协�
 | `docs/README.md` | 任何内容：system map、code-level map、change guide、glossary |
 | `design-docs/AIGateway.md` | Provider、message log、tool loop、compaction |
 | `design-docs/SignalsGateway.md` | Ingress、mirror、outbox、delivery、命令 |
+| `internals/docs/Memory.zh.md` | Channel note、历史召回、BM25/vector search |
 | `design-docs/RuntimeFabric.md` | Envelope、lane、socket、文件传输 |
 | `design-docs/Schedule.md` | Checkback、cron、Oban 唤醒边 |
 | `design-docs/Principal.md`、`design-docs/AuthZ.md` | 身份、group、grant、CEL |

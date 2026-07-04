@@ -107,7 +107,7 @@ async function executeCodexDelegate(
       })
 
     case 'status':
-      return requireSnapshot(params.delegation_id)
+      return statusSnapshot(params.delegation_id, opts)
 
     case 'steer':
       return codexDelegationManager.steer(requiredDelegationId(params), requiredPrompt(params), params.answers)
@@ -128,11 +128,25 @@ function requiredDelegationId(params: CodexDelegateParams): string {
   return params.delegation_id
 }
 
-function requireSnapshot(delegationId?: string): CodexDelegationSnapshot {
+async function statusSnapshot(
+  delegationId: string | undefined,
+  opts: CodexDelegateToolOptions
+): Promise<CodexDelegationSnapshot> {
   if (!delegationId) throw new Error('status requires delegation_id')
   const snapshot = codexDelegationManager.get(delegationId)
-  if (!snapshot) throw new Error(`unknown Codex delegation: ${delegationId}`)
-  return snapshot
+  if (snapshot) return snapshot
+
+  const getStatus = opts.getCodexDelegationStatus
+  if (!getStatus) throw new Error(`unknown Codex delegation: ${delegationId}`)
+
+  const response = await getStatus({
+    request_id: `codex-status-read-${crypto.randomUUID()}`,
+    delegation_id: delegationId,
+    agent_uid: opts.turnStart.turn.actor.agent_uid
+  })
+  if ('code' in response) throw new Error(`Codex status rejected: ${response.code} ${response.message ?? ''}`)
+
+  return snapshotFromResponse(response)
 }
 
 function modelVisibleResult(snapshot: CodexDelegationSnapshot): string {
@@ -147,4 +161,50 @@ function modelVisibleResult(snapshot: CodexDelegationSnapshot): string {
   if (snapshot.output_text) lines.push(`output:\n${snapshot.output_text}`)
   if (snapshot.error) lines.push(`error: ${snapshot.error}`)
   return lines.join('\n')
+}
+
+function snapshotFromResponse(response: {
+  delegation_id: string
+  agent_uid: string
+  session_id: string
+  status: string
+  codex_thread_id?: string
+  workdir?: string
+  queued_at?: string
+  started_at?: string
+  completed_at?: string
+  result?: Record<string, unknown>
+  error?: Record<string, unknown>
+  last_event_seq?: number
+  result_ref?: Record<string, unknown>
+}): CodexDelegationSnapshot {
+  const error =
+    response.error && typeof response.error.error === 'string'
+      ? response.error.error
+      : response.error && Object.keys(response.error).length > 0
+        ? JSON.stringify(response.error)
+        : undefined
+  const outputText =
+    response.result && typeof response.result.output_text === 'string' ? response.result.output_text : undefined
+
+  return {
+    delegation_id: response.delegation_id,
+    agent_uid: response.agent_uid,
+    session_id: response.session_id,
+    status: response.status as CodexDelegationSnapshot['status'],
+    ...(response.codex_thread_id ? { codex_thread_id: response.codex_thread_id } : {}),
+    workdir: response.workdir ?? '/workspace',
+    queued_at_unix_ms: isoToUnixMs(response.queued_at),
+    ...(response.started_at ? { started_at_unix_ms: isoToUnixMs(response.started_at) } : {}),
+    ...(response.completed_at ? { completed_at_unix_ms: isoToUnixMs(response.completed_at) } : {}),
+    ...(outputText ? { output_text: outputText } : {}),
+    ...(error ? { error } : {}),
+    ...(response.last_event_seq !== undefined ? { last_event_seq: response.last_event_seq } : {}),
+    ...(response.result_ref ? { result_ref: response.result_ref } : {})
+  }
+}
+
+function isoToUnixMs(value: string | undefined): number {
+  const parsed = value ? Date.parse(value) : NaN
+  return Number.isFinite(parsed) ? parsed : 0
 }

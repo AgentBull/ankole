@@ -75,7 +75,7 @@ is always "the PostgreSQL rows, nothing else".
                                           upstream LLM providers
 ```
 
-Six pieces, one sentence each:
+Seven pieces, one sentence each:
 
 - **SignalsGateway** (Elixir) receives provider events, mirrors what the
   provider shows, decides what wakes an agent, and delivers replies back.
@@ -88,6 +88,9 @@ Six pieces, one sentence each:
   plus the stateful Responses log — model history, tool-loop state,
   compaction, and the terminal commit. Owns `ai_gateway_messages` and
   `ai_gateway_conversations`. Read `design-docs/AIGateway.md`.
+- **Memory** (Elixir + Bun tools) owns curated channel notes and historical
+  recall over provider mirrors. Owns `memory_notes`, `memory_episodes`, and
+  `memory_channel_cursors`. Read `internals/docs/Memory.zh.md`.
 - **RuntimeFabric** (Rust + ZeroMQ) is the live transport between the control
   plane and workers: turn envelopes, RPC, file bytes. It is never durable
   truth. Read `design-docs/RuntimeFabric.md`.
@@ -308,7 +311,8 @@ Worker->control-plane RPC methods are registered in
 `lib/ankole/actor_runtime/rpc_lane.ex`:
 `ai_gateway.api_key_for.create_or_find_by_agent`,
 `agent_conversation.context.resolve`, `skills.overlay.resolve` / `.replace`,
-`schedule.check_back_later.create`, and the `schedule.cron.*` family.
+`schedule.check_back_later.create`, the `schedule.cron.*` family,
+`memory_note.*`, `memory_search`, and `memory_browse`.
 
 ### Agent Computer — the Bun worker
 
@@ -328,12 +332,14 @@ aborts.
 
 The model-visible tool surface is deliberately narrow (see
 `docs/TradeoffsAndKnownLimits.md` before widening it): `todo`
-(`src/tools/todo-tool.ts`); the computer tools `command`,
+(`src/tools/todo/todo-tool.ts`); the computer tools `command`,
 `interactive_terminal`, `read_file`, `patch`, and `reply_attachment`
 (`src/tools/computer/`); the browser tools `browser_open`, `browser_run`,
 `browser_extract`, and `browser_doctor` (`src/tools/browser/`); the schedule
-tools `check_back_later` and `cron` (`src/tools/schedule-tools.ts`); and the
-skill tools `skill_view` and `skill_append` (`src/tools/library/`). Shell
+tools `check_back_later` and `cron` (`src/tools/schedule/schedule-tools.ts`); and the
+memory tools `memory_note`, `memory_search`, and `memory_browse`
+(`src/tools/memory/`); and the skill tools `skill_view` and `skill_append`
+(`src/tools/library/`). Shell
 commands run inside bubblewrap — strong mode preferred, weak mode with a
 startup warning, never unsandboxed (`src/tools/computer/bubblewrap.ts`).
 There is no MCP support in the current tree; if it arrives, it belongs at
@@ -342,6 +348,26 @@ this worker boundary as another local tool source.
 The worker is stateless by contract: it holds the WebSocket, tool-local
 state, and the current turn; everything durable is a PostgreSQL row reached
 via RPC or the AIGateway API. Kill a worker and the turn retries elsewhere.
+
+#### User-visible context limits
+
+Ankole keeps provider mirrors and AI Gateway history durable, but a single turn
+does not receive an unlimited raw room transcript.
+
+- **Addressed batches**: closely adjacent addressed messages are merged before
+  they become one `actor_events` row. The addressed batch stops at 8 entries or
+  about 4,000 text characters; a long-text continuation may extend the hard cap
+  to about 8,000 characters. If exact older details matter, restate them in the
+  current request or ask the agent to use memory/history tools.
+- **Ambient recall**: when `may_intervene` is enabled, the ambient recognizer
+  receives a bounded room snapshot. The snapshot is capped at 80 observed
+  messages from the relevant channel/thread window; the separate recent-history
+  helper is capped at 10 messages. Ambient decisions should therefore be treated
+  as local-room awareness, not full-history search.
+- **Practical rule**: repeat critical IDs, dates, constraints, and desired
+  success criteria when assigning work. Durable memory can help with stable
+  facts, but the safest current-turn context is still what the user states
+  explicitly in that turn.
 
 ### Principal and AuthZ — identity and permissions
 
@@ -407,8 +433,10 @@ and `cron` tools call); operators manage them through the console REST API.
 
 Built-in skills ship in the worker image from `app/library/skills/` (each a
 `SKILL.md` plus assets); agent-installed skills are real files under the
-shared skills root, moved over the file lane. PostgreSQL owns the registry,
-enablement, overlays, and observations (`Ankole.AIAgent.Library`,
+shared skills root, moved over the file lane. On each worker process' first
+turn for an agent, and again when that directory fingerprint changes, the
+worker sends `skills.installed.replace` observations before resolving context.
+PostgreSQL owns the registry, enablement, overlays, and observations (`Ankole.AIAgent.Library`,
 `lib/ankole/ai_agent/library/`). Models see `skill://enabled/...`
 references; `skill_view` reads the base file and merges the database
 overlay, `skill_append` replaces the overlay. Do not synthesize fake
@@ -514,7 +542,8 @@ Durable tables (crash truth): `principals`, `human_users`, `agents`,
 `app_configure`, `signal_gateway_bindings`, `signal_gateway_channels`, `signal_gateway_entries`,
 `signal_gateway_outbox`, `actor_events`, `actor_cron_schedules`,
 `actor_scheduled_events`, `ai_gateway_conversations`, `ai_gateway_messages`,
-`ai_gateway_providers`, plus the skill library tables.
+`ai_gateway_providers`, `memory_notes`, `memory_episodes`,
+`memory_channel_cursors`, plus the skill library tables.
 
 Runtime projections (UNLOGGED, rebuildable): `actor_event_deliveries`,
 `actor_session_activations`, `actor_session_worker_assignments`,
@@ -696,12 +725,14 @@ doc first, then the code.
    stateful message log, the tool loop, compaction.
 3. `design-docs/SignalsGateway.md` — if you work on the IM/provider side:
    ingress, batching, commands, streamed delivery, recovery.
-4. `design-docs/RuntimeFabric.md` and `design-docs/Schedule.md` — transport
+4. `internals/docs/Memory.zh.md` — if you work on channel memory, historical
+   recall, BM25/vector retrieval, or memory tools.
+5. `design-docs/RuntimeFabric.md` and `design-docs/Schedule.md` — transport
    and time, when you touch them.
-5. `design-docs/Principal.md`, `design-docs/AuthZ.md`,
+6. `design-docs/Principal.md`, `design-docs/AuthZ.md`,
    `design-docs/AppConfiguration.md`, `design-docs/Plugins.md`,
    `design-docs/I18n.md` — reference as needed.
-6. `TradeoffsAndKnownLimits.md` — read once early. It records the decisions
+7. `TradeoffsAndKnownLimits.md` — read once early. It records the decisions
    that look like gaps but are settled: at-least-once streamed delivery, the
    two-rule security model, derived continuation, chars/4 budgeting, and the
    current non-goals.
@@ -713,6 +744,7 @@ doc first, then the code.
 | `docs/README.md` | Anything — the system map, code-level map, change guide, and glossary |
 | `design-docs/AIGateway.md` | Providers, message log, tool loop, compaction |
 | `design-docs/SignalsGateway.md` | Ingress, mirrors, outbox, delivery, commands |
+| `internals/docs/Memory.zh.md` | Channel notes, historical recall, BM25/vector search |
 | `design-docs/RuntimeFabric.md` | Envelopes, lanes, sockets, file transfer |
 | `design-docs/Schedule.md` | Checkbacks, cron, Oban wake edge |
 | `design-docs/Principal.md`, `design-docs/AuthZ.md` | Identity, groups, grants, CEL |

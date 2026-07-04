@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { join, normalize, resolve } from 'node:path'
 import { readFile } from 'node:fs/promises'
 import { z } from 'zod'
@@ -35,6 +36,7 @@ export type SkillOverlayReplaceRequester = (request: SkillOverlayReplaceRequest)
 
 export interface SkillFileRoots {
   builtinSkillsRoot: string
+  internalSkillsRoot?: string
   agentInstalledSkillsRoot: string
 }
 
@@ -82,12 +84,13 @@ function createSkillViewTool(opts: CreateSkillToolsOptions): AgentTool<typeof Sk
       if (filePath === 'AGENT_APPEND.md') {
         throw new Error('skill overlays are DB-backed semantic data, not AGENT_APPEND.md files')
       }
-      const absolute = safeSkillPath(skillFilesystemRoot(skill, opts), filePath)
+      const skillRoot = skillFilesystemRoot(skill, opts)
+      const absolute = safeSkillPath(skillRoot, filePath)
       const content = await readFile(absolute, 'utf8')
       const rendered =
         filePath === 'SKILL.md'
-          ? await renderEffectiveSkill(params.name, content, opts)
-          : wrapSkillContent(params.name, skillLocation(params.name, filePath), content)
+          ? await renderEffectiveSkill(params.name, skillRoot, content, opts)
+          : wrapSkillContent(params.name, skillLocation(params.name, filePath), skillRoot, content)
       return {
         content: [{ type: 'text', text: rendered }],
         details: { name: params.name, path: filePath }
@@ -146,13 +149,18 @@ function createSkillAppendTool(opts: CreateSkillToolsOptions): AgentTool<typeof 
  * labeled `Agent-specific additions` separator so the model can tell base SOP from the
  * agent's own notes. When no overlay exists the base is returned as-is.
  */
-async function renderEffectiveSkill(name: string, content: string, opts: CreateSkillToolsOptions): Promise<string> {
+async function renderEffectiveSkill(
+  name: string,
+  directory: string,
+  content: string,
+  opts: CreateSkillToolsOptions
+): Promise<string> {
   const baseContent = stripSkillFrontmatter(content)
   const overlayContent = await overlayText(name, opts)
   const effectiveContent = overlayContent
     ? `${baseContent}\n\n---\nAgent-specific additions:\n\n${overlayContent}`
     : baseContent
-  return wrapSkillContent(name, skillLocation(name, 'SKILL.md'), effectiveContent)
+  return wrapSkillContent(name, skillLocation(name, 'SKILL.md'), directory, effectiveContent)
 }
 
 /**
@@ -209,6 +217,18 @@ function skillFilesystemRoot(skill: RuntimeSkillSummary, opts: CreateSkillToolsO
   const relativePath = normalizeSkillRelativePath(skill.relative_path || skill.skill_name)
   const sourceKind = skill.source_kind || 'builtin'
   if (sourceKind === 'builtin') {
+    if (skill.metadata?.skill_root === 'internal') {
+      if (!opts.skillRoots.internalSkillsRoot) {
+        throw new Error(`internal skill root is not configured for builtin skill: ${skill.skill_name}`)
+      }
+      return join(opts.skillRoots.internalSkillsRoot, relativePath)
+    }
+
+    if (skill.metadata?.skill_root !== 'library' && opts.skillRoots.internalSkillsRoot) {
+      const internalPath = join(opts.skillRoots.internalSkillsRoot, relativePath)
+      if (existsSync(internalPath)) return internalPath
+    }
+
     return join(opts.skillRoots.builtinSkillsRoot, relativePath)
   }
   if (sourceKind === 'installed') {
@@ -322,9 +342,9 @@ function stripSkillFrontmatter(content: string): string {
  * its own instructions or the user's words; `name`/`location` are attribute-escaped since
  * a skill name could otherwise break out of the tag.
  */
-function wrapSkillContent(name: string, location: string, content: string): string {
+function wrapSkillContent(name: string, location: string, directory: string, content: string): string {
   return [
-    `<skill name="${escapeAttribute(name)}" location="${escapeAttribute(location)}">`,
+    `<skill name="${escapeAttribute(name)}" location="${escapeAttribute(location)}" directory="${escapeAttribute(directory)}">`,
     '<external_content source="skill">',
     content,
     '</external_content>',

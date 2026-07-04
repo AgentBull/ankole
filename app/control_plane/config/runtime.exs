@@ -20,6 +20,27 @@ case Ankole.Config.Bootstrap.env_path_list("ANKOLE_PLUGIN_PATHS", nil) do
   paths -> config :ankole, Ankole.Plugins.Discovery, paths: paths
 end
 
+library_runtime_config =
+  []
+  |> then(fn config ->
+    case System.get_env("ANKOLE_LIBRARY_ROOT") do
+      nil -> config
+      "" -> config
+      root -> Keyword.put(config, :library_root, root)
+    end
+  end)
+  |> then(fn config ->
+    case System.get_env("ANKOLE_INTERNAL_SKILLS_ROOT") do
+      nil -> config
+      "" -> config
+      root -> Keyword.put(config, :internal_skills_root, root)
+    end
+  end)
+
+if library_runtime_config != [] do
+  config :ankole, Ankole.AIAgent.Library, library_runtime_config
+end
+
 # config/runtime.exs is executed for all environments, including
 # during releases. It is executed after compilation and before the
 # system starts, so it is typically used to load production configuration

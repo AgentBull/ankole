@@ -10,6 +10,7 @@ export type AmbientRecognizerSystemPromptInput = {
   channelLabel?: string
   conversationId: string
   displayName: string
+  memoryNotes?: string[]
   mission?: string
   soul: string
   timezone: string
@@ -32,6 +33,7 @@ export function buildAmbientRecognizerSystemPrompt(input: AmbientRecognizerSyste
     agentSoulSection(input.soul),
     missionSection(input.mission),
     runtimeContextSection(input),
+    memoryNotesSection(input.memoryNotes),
     [
       '<intervention_policy>',
       '"Ambient" means room messages observed by Ankole where the agent was not directly addressed.',
@@ -41,6 +43,7 @@ export function buildAmbientRecognizerSystemPrompt(input: AmbientRecognizerSyste
       'Return intervene=false when replying would be redundant, speculative, socially awkward, interruptive, or based only on stale context.',
       'Return intervene=false for casual chatter, acknowledgements, reactions, or messages already handled by someone else.',
       'Use only the current observed messages as the trigger. Recent transcript and earlier observed messages are supporting context, not standalone reasons to speak.',
+      'Current-channel memory notes are supporting context, not standalone reasons to speak.',
       'Use the structured output schema. Do not write markdown or prose outside the structured result.',
       '</intervention_policy>'
     ].join('\n')
@@ -93,6 +96,12 @@ function missionSection(mission: string | undefined): string {
   const content = mission?.trim()
   if (!content) return ''
   return ['<mission>', content, '</mission>'].join('\n')
+}
+
+function memoryNotesSection(memoryNotes: string[] | undefined): string {
+  if (!memoryNotes || memoryNotes.length === 0) return ''
+
+  return ['<memory_notes>', ...memoryNotes.map(note => `- ${note}`), '</memory_notes>'].join('\n')
 }
 
 /**

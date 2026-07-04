@@ -9,12 +9,12 @@ defmodule Ankole.AIAgent.Library.SourceReader do
 
   alias Ankole.Kernel, as: NativeKernel
 
-  @library_root Path.expand("../../../../../library", __DIR__)
-  @skills_root Path.join(@library_root, "skills")
-  @templates_root Path.join(@library_root, "templates")
+  @default_library_root Path.expand("../../../../../library", __DIR__)
+  @cache_key {__MODULE__, :builtin_skill_sources}
   @skill_file "SKILL.md"
   @soul_file "SOUL.md"
   @mission_file "MISSION.md"
+  @excluded_entries MapSet.new(~w(target node_modules __pycache__))
   # Used only if the bundled SOUL/MISSION templates are unreadable, so a fresh
   # agent still gets a usable (if minimal) persona rather than failing to seed.
   @fallback_soul "You are an Ankole AI colleague. Reply in plain text."
@@ -27,7 +27,14 @@ defmodule Ankole.AIAgent.Library.SourceReader do
   """
   @spec read_builtin_skill_sources() :: {:ok, [map()]} | {:error, term()}
   def read_builtin_skill_sources do
-    read_skill_sources(@skills_root, missing: :error)
+    roots = builtin_skill_roots()
+    ttl_ms = source_cache_ttl_ms()
+
+    if ttl_ms > 0 do
+      read_builtin_skill_sources_cached(roots, ttl_ms)
+    else
+      read_builtin_skill_sources_uncached(roots)
+    end
   end
 
   @doc """
@@ -109,7 +116,7 @@ defmodule Ankole.AIAgent.Library.SourceReader do
   """
   @spec load_default_soul_template() :: String.t()
   def load_default_soul_template do
-    @templates_root
+    templates_root()
     |> Path.join(@soul_file)
     |> File.read()
     |> case do
@@ -123,7 +130,7 @@ defmodule Ankole.AIAgent.Library.SourceReader do
   """
   @spec load_default_mission_template() :: String.t()
   def load_default_mission_template do
-    @templates_root
+    templates_root()
     |> Path.join(@mission_file)
     |> File.read()
     |> case do
@@ -151,7 +158,14 @@ defmodule Ankole.AIAgent.Library.SourceReader do
   @spec read_builtin_skill_file(String.t(), String.t()) ::
           {:ok, String.t()} | {:error, term()}
   def read_builtin_skill_file(skill_name, file_path) do
-    read_skill_file(@skills_root, skill_name, file_path)
+    builtin_skill_roots()
+    |> Enum.reverse()
+    |> Enum.reduce_while({:error, :skill_file_not_found}, fn source_root, _last_error ->
+      case read_skill_file(source_root.root, skill_name, file_path) do
+        {:ok, _content} = ok -> {:halt, ok}
+        {:error, _reason} = error -> {:cont, error}
+      end
+    end)
   end
 
   @doc """
@@ -174,12 +188,59 @@ defmodule Ankole.AIAgent.Library.SourceReader do
     NativeKernel.xxh3_128_hex(value)
   end
 
-  defp read_skill_sources(root, opts) do
+  defp read_builtin_skill_sources_cached(roots, ttl_ms) do
+    now_ms = System.monotonic_time(:millisecond)
+
+    case :persistent_term.get(@cache_key, nil) do
+      %{expires_at_ms: expires_at_ms, roots: cached_roots, result: {:ok, _sources} = result}
+      when cached_roots == roots and now_ms < expires_at_ms ->
+        result
+
+      _cache_miss ->
+        case read_builtin_skill_sources_uncached(roots) do
+          {:ok, _sources} = result ->
+            :persistent_term.put(@cache_key, %{
+              expires_at_ms: now_ms + ttl_ms,
+              roots: roots,
+              result: result
+            })
+
+            result
+
+          {:error, _reason} = error ->
+            error
+        end
+    end
+  end
+
+  defp read_builtin_skill_sources_uncached(roots) do
+    roots
+    |> Enum.reduce_while({:ok, %{}}, fn source_root, {:ok, by_name} ->
+      case read_skill_sources(source_root) do
+        {:ok, sources} ->
+          merged =
+            Enum.reduce(sources, by_name, fn source, acc ->
+              Map.put(acc, source.name, source)
+            end)
+
+          {:cont, {:ok, merged}}
+
+        {:error, _reason} = error ->
+          {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, by_name} -> {:ok, by_name |> Map.values() |> Enum.sort_by(& &1.name)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp read_skill_sources(%{root: root, missing: missing, label: label}) do
     root = Path.expand(root)
 
-    with {:ok, entries} <- list_skill_root(root, Keyword.fetch!(opts, :missing)) do
+    with {:ok, entries} <- list_skill_root(root, missing) do
       entries
-      |> Enum.map(&read_skill_source(root, &1))
+      |> Enum.map(&read_skill_source(root, label, &1))
       |> collect_results()
       |> case do
         {:ok, sources} -> {:ok, Enum.sort_by(sources, & &1.name)}
@@ -211,7 +272,7 @@ defmodule Ankole.AIAgent.Library.SourceReader do
     end)
   end
 
-  defp read_skill_source(parent_root, relative_path) do
+  defp read_skill_source(parent_root, root_label, relative_path) do
     root = Path.join(parent_root, relative_path)
     skill_path = Path.join(root, @skill_file)
 
@@ -224,6 +285,7 @@ defmodule Ankole.AIAgent.Library.SourceReader do
       source_hash =
         files
         |> Enum.flat_map(fn file -> [file.path, file.content_hash] end)
+        |> then(&[root_label | &1])
         |> stable_hash()
 
       {:ok,
@@ -237,6 +299,7 @@ defmodule Ankole.AIAgent.Library.SourceReader do
              "description" => metadata.description,
              "default_enabled" => metadata.default_enabled,
              "relative_path" => normalized_relative_path,
+             "skill_root" => root_label,
              "tags" => metadata.tags,
              "disable_model_invocation" => metadata.disable_model_invocation
            }
@@ -279,6 +342,9 @@ defmodule Ankole.AIAgent.Library.SourceReader do
         child = Path.join(root, child_relative)
 
         cond do
+          excluded_entry?(entry) ->
+            {:cont, {:ok, acc}}
+
           File.dir?(child) ->
             case read_text_files_recursive(root, child_relative) do
               {:ok, files} -> {:cont, {:ok, Enum.reverse(files, acc)}}
@@ -444,6 +510,49 @@ defmodule Ankole.AIAgent.Library.SourceReader do
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp stable_hash(parts) when is_list(parts), do: hash(Enum.join(parts, <<0>>))
+
+  defp builtin_skill_roots do
+    roots = [%{label: "library", root: skills_root(), missing: :error}]
+
+    case internal_skills_root() do
+      root when is_binary(root) and root != "" ->
+        roots ++ [%{label: "internal", root: root, missing: :empty}]
+
+      _root ->
+        roots
+    end
+  end
+
+  defp library_config do
+    Application.get_env(:ankole, Ankole.AIAgent.Library, [])
+  end
+
+  defp library_root do
+    library_config()
+    |> Keyword.get(:library_root, @default_library_root)
+    |> Path.expand()
+  end
+
+  defp skills_root, do: Path.join(library_root(), "skills")
+  defp templates_root, do: Path.join(library_root(), "templates")
+
+  defp internal_skills_root do
+    case Keyword.get(library_config(), :internal_skills_root) do
+      root when is_binary(root) and root != "" -> Path.expand(root)
+      _root -> nil
+    end
+  end
+
+  defp source_cache_ttl_ms do
+    case Keyword.get(library_config(), :source_cache_ttl_ms, 30_000) do
+      ttl when is_integer(ttl) and ttl > 0 -> ttl
+      _ttl -> 0
+    end
+  end
+
+  defp excluded_entry?(entry) do
+    String.starts_with?(entry, ".") or MapSet.member?(@excluded_entries, entry)
+  end
 
   defp collect_results(results) do
     Enum.reduce_while(results, {:ok, []}, fn

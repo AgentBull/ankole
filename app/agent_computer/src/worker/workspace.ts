@@ -26,6 +26,9 @@ export function verifyWorkerFilesystem(config: WorkerConfig): void {
   assertDirectory(config.agentInstalledSkillsRoot, 'ANKOLE_AGENT_INSTALLED_SKILLS_ROOT', true)
   assertDirectory(config.workspaceSessionsRoot, 'ANKOLE_WORKSPACE_SESSIONS_ROOT', true)
   assertDirectory(config.builtinSkillsRoot, 'ANKOLE_BUILTIN_SKILLS_ROOT', false)
+  if (config.internalSkillsRoot) {
+    assertDirectory(config.internalSkillsRoot, 'ANKOLE_INTERNAL_SKILLS_ROOT', false)
+  }
   assertExecutable('zstd')
   assertExecutable('codex')
   assertExecutable('gh')

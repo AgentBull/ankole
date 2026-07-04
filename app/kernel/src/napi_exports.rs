@@ -243,6 +243,12 @@ pub fn js_xxh3_file_128_hex(path: String) -> Result<String> {
     common::xxh3_128_file_hex(Path::new(&path)).map_err(napi_error)
 }
 
+/// Computes the non-cryptographic XXH3 128-bit fingerprint for a UTF-8 string.
+#[napi(js_name = "xxh3String128Hex")]
+pub fn js_xxh3_string_128_hex(input: String) -> String {
+    common::xxh3_128_hex(input.as_bytes())
+}
+
 /// Compresses one worker-file lane block into a self-contained zstd frame.
 ///
 /// Runs on a libuv worker thread so the JS event loop is not blocked while a

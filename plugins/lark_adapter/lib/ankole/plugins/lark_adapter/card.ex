@@ -45,6 +45,28 @@ defmodule Ankole.Plugins.LarkAdapter.Card do
   end
 
   @doc """
+  Splits rendered cards so each provider message carries at most one table.
+
+  Lark rejects some interactive cards with multiple table elements. The adapter
+  keeps the card schema intact and chunks only `body.elements`, preserving nearby
+  non-table elements with the table chunk that preceded them.
+  """
+  @spec split_by_table(map()) :: [map()]
+  def split_by_table(%{"body" => %{"elements" => elements}} = card) when is_list(elements) do
+    case table_count(elements) do
+      count when count <= 1 ->
+        [card]
+
+      _count ->
+        elements
+        |> table_chunks()
+        |> Enum.map(&put_in(card, ["body", "elements"], &1))
+    end
+  end
+
+  def split_by_table(card) when is_map(card), do: [card]
+
+  @doc """
   Encodes plain text into the JSON string expected by Lark text messages.
   """
   @spec text_content(String.t()) :: String.t()
@@ -181,6 +203,26 @@ defmodule Ankole.Plugins.LarkAdapter.Card do
   end
 
   defp progress_divider?(notice), do: fetch_value(notice, "show_divider") == true
+
+  defp table_count(elements), do: Enum.count(elements, &table_element?/1)
+
+  defp table_chunks(elements) do
+    {chunks, current, _has_table?} =
+      Enum.reduce(elements, {[], [], false}, fn element, {chunks, current, has_table?} ->
+        case table_element?(element) and has_table? do
+          true -> {[current | chunks], [element], true}
+          false -> {chunks, current ++ [element], has_table? or table_element?(element)}
+        end
+      end)
+
+    [current | chunks]
+    |> Enum.reverse()
+    |> Enum.reject(&(&1 == []))
+  end
+
+  defp table_element?(%{"tag" => "table"}), do: true
+  defp table_element?(%{tag: "table"}), do: true
+  defp table_element?(_element), do: false
 
   defp fact_elements(facts) do
     Enum.map(facts, fn fact ->

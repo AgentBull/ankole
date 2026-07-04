@@ -324,6 +324,35 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
     assert counters[:workspace_read_tool] == 2
   end
 
+  @tag :installed_skill_registry
+  @tag timeout: 240_000
+  @tag ownership_timeout: 240_000
+  test "installed skill registry syncs from the real Docker worker filesystem" do
+    ctx = start_worker_e2e_stack!(worker_prefix: "installed-skill-e2e")
+
+    installed_skill = run_installed_skill_registry_loop(ctx)
+
+    assert_lark_final_reply(
+      ctx.fake_feishu,
+      installed_skill.reply,
+      "CHAOS_INSTALLED_SKILL_OK",
+      :reply,
+      "om_installed_skill_1"
+    )
+
+    assert_lark_final_reply(
+      ctx.fake_feishu,
+      installed_skill.deleted_reply,
+      "CHAOS_INSTALLED_SKILL_DELETED_OK",
+      :reply,
+      "om_installed_skill_deleted_1"
+    )
+
+    counters = FakeOpenAIState.counters()
+    assert counters[:installed_skill_tool] == 2
+    assert counters[:installed_skill_deleted_tool] == 2
+  end
+
   defp refute_worker_projection_until(worker_id, process, deadline) do
     case Repo.get_by(AgentComputerWorker, worker_id: worker_id) do
       %AgentComputerWorker{} = worker ->

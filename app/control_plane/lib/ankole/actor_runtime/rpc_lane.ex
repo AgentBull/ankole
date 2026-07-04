@@ -10,8 +10,10 @@ defmodule Ankole.ActorRuntime.RPCLane do
   alias Ankole.ActorRuntime.AIGatewayApiKeyBroker
   alias Ankole.ActorRuntime.AppConfigureBroker
   alias Ankole.ActorRuntime.CodexDelegationBroker
+  alias Ankole.ActorRuntime.SkillRegistryBroker
   alias Ankole.ActorRuntime.SkillOverlayBroker
   alias Ankole.ActorRuntime.WorkerRouteAuth
+  alias Ankole.Memory.RPCBroker, as: MemoryRPCBroker
   alias Ankole.Schedule.RPCBroker
 
   @method_handlers %{
@@ -20,8 +22,27 @@ defmodule Ankole.ActorRuntime.RPCLane do
     "agent_conversation.context.resolve" => {AgentConversationContextBroker, :handle_request, []},
     "app_configure.resolve" => {AppConfigureBroker, :handle_request, []},
     "codex.delegation.create" => {CodexDelegationBroker, :handle_create, []},
+    "codex.delegation.get" => {CodexDelegationBroker, :handle_get, []},
     "codex.delegation.event.append" => {CodexDelegationBroker, :handle_append_event, []},
     "codex.delegation.status.update" => {CodexDelegationBroker, :handle_update_status, []},
+    "memory_note.save" =>
+      {MemoryRPCBroker, :handle_request,
+       ["memory_note.save", &WorkerRouteAuth.authorize_turn_route/3]},
+    "memory_note.update" =>
+      {MemoryRPCBroker, :handle_request,
+       ["memory_note.update", &WorkerRouteAuth.authorize_turn_route/3]},
+    "memory_note.forget" =>
+      {MemoryRPCBroker, :handle_request,
+       ["memory_note.forget", &WorkerRouteAuth.authorize_turn_route/3]},
+    "memory_note.list" =>
+      {MemoryRPCBroker, :handle_request,
+       ["memory_note.list", &WorkerRouteAuth.authorize_turn_route/3]},
+    "memory_search" =>
+      {MemoryRPCBroker, :handle_request,
+       ["memory_search", &WorkerRouteAuth.authorize_turn_route/3]},
+    "memory_browse" =>
+      {MemoryRPCBroker, :handle_request,
+       ["memory_browse", &WorkerRouteAuth.authorize_turn_route/3]},
     "schedule.check_back_later.create" =>
       {RPCBroker, :handle_request,
        ["check_back_later.create", &WorkerRouteAuth.authorize_turn_route/3]},
@@ -43,6 +64,7 @@ defmodule Ankole.ActorRuntime.RPCLane do
       {RPCBroker, :handle_request, ["cron.remove", &WorkerRouteAuth.authorize_turn_route/3]},
     "schedule.cron.run" =>
       {RPCBroker, :handle_request, ["cron.run", &WorkerRouteAuth.authorize_turn_route/3]},
+    "skills.installed.replace" => {SkillRegistryBroker, :handle_replace, []},
     "skills.overlay.resolve" => {SkillOverlayBroker, :handle_request, ["resolve"]},
     "skills.overlay.replace" => {SkillOverlayBroker, :handle_request, ["replace"]}
   }

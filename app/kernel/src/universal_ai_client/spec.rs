@@ -608,6 +608,48 @@ mod tests {
     }
 
     #[test]
+    fn response_context_preserves_codex_encrypted_reasoning_request_fields() {
+        let context = ResponseContext {
+            model: "gpt-test".to_string(),
+            request: json!({
+                "include": ["reasoning.encrypted_content"],
+                "input": [
+                    {
+                        "type": "reasoning",
+                        "id": "rs_previous",
+                        "encrypted_content": "encrypted-reasoning-payload"
+                    },
+                    {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": "continue"}]
+                    }
+                ],
+                "store": false
+            }),
+            provider_options: json!({}),
+            stream: Some(false),
+            include_model: true,
+        };
+
+        let provider_request = context.resolved_provider_request_object();
+
+        assert_eq!(
+            provider_request.get("include"),
+            Some(&json!(["reasoning.encrypted_content"]))
+        );
+        assert_eq!(
+            provider_request
+                .get("input")
+                .and_then(Value::as_array)
+                .and_then(|items| items.first())
+                .and_then(|item| item.get("encrypted_content")),
+            Some(&json!("encrypted-reasoning-payload"))
+        );
+        assert_eq!(provider_request.get("store"), Some(&json!(false)));
+    }
+
+    #[test]
     fn provider_request_projects_internal_compaction_items_as_user_text() {
         let context = ResponseContext {
             model: "gpt-test".to_string(),

@@ -1,5 +1,13 @@
 import { existsSync } from 'node:fs'
 import type { RuntimeFabricEnvelope } from '../fabric/fabric'
+import {
+  SANDBOX_AGENT_INSTALLED_SKILLS_ROOT,
+  SANDBOX_BUILTIN_SKILLS_ROOT,
+  SANDBOX_SHARED_FS_ROOT,
+  SANDBOX_USER_FILES_ROOT,
+  SANDBOX_WORKSPACE_ROOT,
+  SANDBOX_WORKSPACE_SESSIONS_ROOT
+} from './sandbox_paths'
 
 export type WorkerConfig = {
   endpoint: string
@@ -11,15 +19,10 @@ export type WorkerConfig = {
   userFilesRoot: string
   agentInstalledSkillsRoot: string
   builtinSkillsRoot: string
+  internalSkillsRoot?: string
   maxConcurrentTurns: number
 }
 
-const defaultWorkspaceRoot = '/workspace'
-const defaultWorkspaceSessionsRoot = '/workspace/.sessions'
-const defaultSharedFsRoot = '/workspace/shared'
-const defaultUserFilesRoot = '/workspace/shared/user-files'
-const defaultAgentInstalledSkillsRoot = '/workspace/shared/skills/agents'
-const defaultBuiltinSkillsRoot = '/repo/app/library/skills'
 const defaultMaxConcurrentTurns = 9
 const actorSpecificEnv = ['ANKOLE_AGENT_UID', 'ANKOLE_SESSION_ID', 'ANKOLE_ACTOR_EPOCH']
 const defaultContainerMarkerPath = '/etc/ankole-agent-computer-container'
@@ -46,12 +49,17 @@ export function parseWorkerEnv(env: Record<string, string | undefined> = Bun.env
   return {
     ...parseRuntimeFabricUrl(requiredEnv(env, 'RUNTIME_FABRIC_URL')),
     workerId: requiredEnv(env, 'WORKER_ID'),
-    workspaceRoot: optionalEnv(env, 'ANKOLE_WORKSPACE_ROOT', defaultWorkspaceRoot),
-    workspaceSessionsRoot: optionalEnv(env, 'ANKOLE_WORKSPACE_SESSIONS_ROOT', defaultWorkspaceSessionsRoot),
-    sharedFsRoot: optionalEnv(env, 'ANKOLE_SHARED_FS_ROOT', defaultSharedFsRoot),
-    userFilesRoot: optionalEnv(env, 'ANKOLE_USER_FILES_ROOT', defaultUserFilesRoot),
-    agentInstalledSkillsRoot: optionalEnv(env, 'ANKOLE_AGENT_INSTALLED_SKILLS_ROOT', defaultAgentInstalledSkillsRoot),
-    builtinSkillsRoot: optionalEnv(env, 'ANKOLE_BUILTIN_SKILLS_ROOT', defaultBuiltinSkillsRoot),
+    workspaceRoot: optionalEnv(env, 'ANKOLE_WORKSPACE_ROOT', SANDBOX_WORKSPACE_ROOT),
+    workspaceSessionsRoot: optionalEnv(env, 'ANKOLE_WORKSPACE_SESSIONS_ROOT', SANDBOX_WORKSPACE_SESSIONS_ROOT),
+    sharedFsRoot: optionalEnv(env, 'ANKOLE_SHARED_FS_ROOT', SANDBOX_SHARED_FS_ROOT),
+    userFilesRoot: optionalEnv(env, 'ANKOLE_USER_FILES_ROOT', SANDBOX_USER_FILES_ROOT),
+    agentInstalledSkillsRoot: optionalEnv(
+      env,
+      'ANKOLE_AGENT_INSTALLED_SKILLS_ROOT',
+      SANDBOX_AGENT_INSTALLED_SKILLS_ROOT
+    ),
+    builtinSkillsRoot: optionalEnv(env, 'ANKOLE_BUILTIN_SKILLS_ROOT', SANDBOX_BUILTIN_SKILLS_ROOT),
+    internalSkillsRoot: optionalEnv(env, 'ANKOLE_INTERNAL_SKILLS_ROOT'),
     maxConcurrentTurns: optionalPositiveIntegerEnv(env, 'ANKOLE_MAX_CONCURRENT_TURNS', defaultMaxConcurrentTurns)
   }
 }
@@ -78,7 +86,9 @@ function assertContainerRuntime(containerMarkerPath: string): void {
 /**
  * Reads an optional string environment variable.
  */
-function optionalEnv(env: Record<string, string | undefined>, key: string, fallback: string): string {
+function optionalEnv(env: Record<string, string | undefined>, key: string, fallback: string): string
+function optionalEnv(env: Record<string, string | undefined>, key: string, fallback?: undefined): string | undefined
+function optionalEnv(env: Record<string, string | undefined>, key: string, fallback?: string): string | undefined {
   const value = env[key]?.trim()
   return value ? value : fallback
 }

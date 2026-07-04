@@ -20,13 +20,16 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
     # order instead of "does the whole request contain X?" checks.
     request_text = inspect(request, limit: :infinity, printable_limit: :infinity)
     request_trigger = latest_request_trigger_text(request_text)
+    continuation_kind = latest_stateful_continuation_kind(request_text)
     latest_user_text = latest_user_text(request)
 
     prompt =
-      request_trigger ||
-        latest_chaos_marker_text(request) ||
+      latest_chaos_marker_text(request) ||
         latest_user_text ||
+        request_trigger ||
         request_text
+
+    prompt_trigger = latest_request_trigger_text(prompt)
 
     cond do
       structured_output_request?(request) and String.contains?(prompt, "CHAOS_AMBIENT_IGNORE") ->
@@ -63,6 +66,9 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
         :recalled_followup
 
       String.contains?(prompt, "CHAOS_REPLY_ATTACHMENT") ->
+        :reply_attachment
+
+      continuation_kind == :reply_attachment ->
         :reply_attachment
 
       String.contains?(prompt, "CHAOS_TODO_TOOL") ->
@@ -107,6 +113,12 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       String.contains?(prompt, "CHAOS_SKILL_DISABLED") ->
         :skill_disabled_tool
 
+      String.contains?(prompt, "CHAOS_INSTALLED_SKILL_DELETED") ->
+        :installed_skill_deleted_tool
+
+      String.contains?(prompt, "CHAOS_INSTALLED_SKILL") ->
+        :installed_skill_tool
+
       String.contains?(prompt, "CHAOS_READ_FILE") ->
         :read_file_tool
 
@@ -134,6 +146,12 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       String.contains?(prompt, "CHAOS_RECALL_SLOW") ->
         :slow_recall_stream
 
+      prompt_trigger == "CHAOS_CRON_TOOL" ->
+        :cron_tool
+
+      prompt_trigger == "CHAOS_CHECKBACK_TOOL" ->
+        :checkback_tool
+
       request_trigger == "CHAOS_CHECKBACK_WAKE_OK" and
           String.contains?(latest_user_text || "", "CHAOS_CHECKBACK_TOOL") ->
         :checkback_tool
@@ -141,6 +159,9 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       String.contains?(prompt, "CHAOS_CHECKBACK_WAKE_OK") and
           String.contains?(request_text, "Scheduled checkback wakeup.") ->
         :checkback_wakeup
+
+      continuation_kind == :checkback_tool ->
+        :checkback_tool
 
       String.contains?(prompt, "CHAOS_STEER_TOOL") ->
         :steer_tool
@@ -153,14 +174,16 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
           String.contains?(request_text, "Recurring schedule fire.") ->
         :cron_wakeup
 
+      continuation_kind == :cron_tool ->
+        :cron_tool
+
       String.contains?(prompt, "CHAOS_SLOW_STOP") ->
         :slow_stop_stream
 
-      String.contains?(prompt, "CHAOS_CHECKBACK_TOOL") or
-          request_trigger == "CHAOS_CHECKBACK_TOOL" ->
+      request_trigger == "CHAOS_CHECKBACK_TOOL" ->
         :checkback_tool
 
-      String.contains?(prompt, "CHAOS_CRON_TOOL") or request_trigger == "CHAOS_CRON_TOOL" ->
+      request_trigger == "CHAOS_CRON_TOOL" ->
         :cron_tool
 
       String.contains?(prompt, "CHAOS_AMBIENT_OK") ->
@@ -261,6 +284,8 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       {"CHAOS_SKILL_VIEW", "CHAOS_SKILL_VIEW"},
       {"CHAOS_SKILL_APPEND", "CHAOS_SKILL_APPEND"},
       {"CHAOS_SKILL_DISABLED", "CHAOS_SKILL_DISABLED"},
+      {"CHAOS_INSTALLED_SKILL_DELETED", "CHAOS_INSTALLED_SKILL_DELETED"},
+      {"CHAOS_INSTALLED_SKILL", "CHAOS_INSTALLED_SKILL"},
       {"CHAOS_READ_FILE", "CHAOS_READ_FILE"},
       {"CHAOS_PATCH_TOOL", "CHAOS_PATCH_TOOL"},
       {"CHAOS_WORKSPACE_WRITE", "CHAOS_WORKSPACE_WRITE"},
@@ -295,6 +320,28 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
     |> case do
       [] -> nil
       matches -> matches |> Enum.map(fn {index, _length} -> index end) |> Enum.max()
+    end
+  end
+
+  defp latest_stateful_continuation_kind(request_text) do
+    [
+      {:reply_attachment, "call_lark_chaos_reply_attachment_command"},
+      {:reply_attachment, "call_lark_chaos_reply_attachment"},
+      {:reply_attachment, "/workspace/user-files/reports/chaos-report.txt"},
+      {:reply_attachment, "chaos-report.txt"},
+      {:checkback_tool, "call_lark_chaos_checkback"},
+      {:checkback_tool, "lark-chaos-checkback-1"},
+      {:checkback_tool, "Lark chaos checkback"},
+      {:cron_tool, "call_lark_chaos_cron"},
+      {:cron_tool, "lark-chaos-cron-1"},
+      {:cron_tool, "lark-chaos-cron"}
+    ]
+    |> Enum.map(fn {kind, marker} -> {kind, last_index(request_text, marker)} end)
+    |> Enum.reject(fn {_kind, index} -> is_nil(index) end)
+    |> Enum.max_by(fn {_kind, index} -> index end, fn -> nil end)
+    |> case do
+      {kind, _index} -> kind
+      nil -> nil
     end
   end
 
@@ -351,6 +398,8 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
         "CHAOS_SKILL_VIEW",
         "CHAOS_SKILL_APPEND",
         "CHAOS_SKILL_DISABLED",
+        "CHAOS_INSTALLED_SKILL_DELETED",
+        "CHAOS_INSTALLED_SKILL",
         "CHAOS_READ_FILE",
         "CHAOS_PATCH_TOOL",
         "CHAOS_WORKSPACE_WRITE",
@@ -408,6 +457,8 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
   defp reply_for(:read_file_tool), do: "CHAOS_READ_FILE_OK"
   defp reply_for(:recalled_followup), do: "CHAOS_RECALLED_FOLLOWUP_SHOULD_NOT_RUN"
   defp reply_for(:reply_attachment), do: "CHAOS_REPLY_ATTACHMENT_OK"
+  defp reply_for(:installed_skill_deleted_tool), do: "CHAOS_INSTALLED_SKILL_DELETED_OK"
+  defp reply_for(:installed_skill_tool), do: "CHAOS_INSTALLED_SKILL_OK"
   defp reply_for(:skill_append_tool), do: "CHAOS_SKILL_APPEND_OK"
   defp reply_for(:skill_disabled_tool), do: "CHAOS_SKILL_DISABLED_OK"
   defp reply_for(:skill_view_all_tool), do: "CHAOS_SKILL_VIEW_ALL_OK"
@@ -446,7 +497,9 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
               :skill_view_tool,
               :skill_view_all_tool,
               :skill_append_tool,
-              :skill_disabled_tool
+              :skill_disabled_tool,
+              :installed_skill_tool,
+              :installed_skill_deleted_tool
             ],
        do: FakeOpenAISkillScenarios.tool_call_for(kind, count)
 
@@ -879,9 +932,17 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
     do: Enum.find_value(list, &find_background_id/1)
 
   defp find_background_id(binary) when is_binary(binary) do
-    case decode_embedded_json(binary) do
-      {:ok, decoded} -> find_background_id(decoded)
-      :error -> nil
+    binary = unwrap_untrusted_tool_output(binary) || String.trim(binary)
+
+    case background_id_from_text(binary) do
+      background_id when is_binary(background_id) ->
+        background_id
+
+      nil ->
+        case decode_embedded_json(binary) do
+          {:ok, decoded} -> find_background_id(decoded)
+          :error -> nil
+        end
     end
   end
 
@@ -897,6 +958,34 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       end
     else
       :error
+    end
+  end
+
+  defp background_id_from_text(value) do
+    case Regex.run(~r/(?:^|\n)background_id=([^\n]+)/, value) do
+      [_match, background_id] ->
+        case String.trim(background_id) do
+          "" -> nil
+          background_id -> background_id
+        end
+
+      _no_match ->
+        nil
+    end
+  end
+
+  defp unwrap_untrusted_tool_output(value) do
+    value = String.trim(value)
+    prefix = ~s(<ankole_untrusted_tool_output nonce=")
+
+    with true <- String.starts_with?(value, prefix),
+         rest <- String.replace_prefix(value, prefix, ""),
+         [nonce, body_with_suffix] <- String.split(rest, ~s(">\n), parts: 2),
+         suffix <- ~s(\n</ankole_untrusted_tool_output nonce="#{nonce}">),
+         true <- String.ends_with?(body_with_suffix, suffix) do
+      String.replace_suffix(body_with_suffix, suffix, "")
+    else
+      _not_wrapped -> nil
     end
   end
 end

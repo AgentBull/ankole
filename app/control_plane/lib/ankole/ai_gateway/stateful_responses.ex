@@ -40,6 +40,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
   @pubsub Ankole.PubSub
   @orphaned_generating_grace_seconds 300
   @history_chain_max_depth 10_000
+  @reply_attachment_chain_max_depth 500
 
   # ───────────────────────────────────────────────────────────────
   # Public API
@@ -1187,7 +1188,12 @@ defmodule Ankole.AIGateway.StatefulResponses do
     do: terminal_items
 
   defp commit_reply_attachment_outboxes_in_tx(repo, %Message{} = message, final_content) do
-    with {:ok, attachments} <- ReplyAttachment.attachments_from_response_items(final_content) do
+    source_items =
+      repo
+      |> reply_attachment_source_items(message, final_content)
+      |> dedupe_function_call_outputs_by_call_id()
+
+    with {:ok, attachments} <- ReplyAttachment.attachments_from_response_items(source_items) do
       case attachments do
         [] ->
           {:ok, []}
@@ -1211,6 +1217,59 @@ defmodule Ankole.AIGateway.StatefulResponses do
       end
     end
   end
+
+  defp reply_attachment_source_items(repo, %Message{} = message, final_content) do
+    case message.metadata["actor_event_id"] do
+      actor_event_id when is_binary(actor_event_id) ->
+        ancestor_items =
+          repo
+          |> chain_messages(
+            message.conversation_id,
+            message.id,
+            @reply_attachment_chain_max_depth
+          )
+          |> Enum.take_while(&same_actor_event_message?(&1, actor_event_id))
+          |> Enum.reject(&(&1.id == message.id))
+          |> Enum.reverse()
+          |> Enum.flat_map(&message_content_items/1)
+
+        ancestor_items ++ final_content
+
+      _missing_actor_event_id ->
+        final_content
+    end
+  end
+
+  defp same_actor_event_message?(
+         %Message{metadata: %{"actor_event_id" => message_actor_event_id}},
+         actor_event_id
+       ),
+       do: message_actor_event_id == actor_event_id
+
+  defp same_actor_event_message?(_message, _actor_event_id), do: false
+
+  defp message_content_items(%Message{content: content}) when is_list(content), do: content
+  defp message_content_items(_message), do: []
+
+  defp dedupe_function_call_outputs_by_call_id(items) when is_list(items) do
+    {deduped, _seen_call_ids} =
+      Enum.reduce(items, {[], MapSet.new()}, fn
+        %{"type" => "function_call_output", "call_id" => call_id} = item, {acc, seen}
+        when is_binary(call_id) ->
+          if MapSet.member?(seen, call_id) do
+            {acc, seen}
+          else
+            {[item | acc], MapSet.put(seen, call_id)}
+          end
+
+        item, {acc, seen} ->
+          {[item | acc], seen}
+      end)
+
+    Enum.reverse(deduped)
+  end
+
+  defp dedupe_function_call_outputs_by_call_id(items), do: items
 
   defp final_assistant_text(items) when is_list(items) do
     items
@@ -1415,8 +1474,8 @@ defmodule Ankole.AIGateway.StatefulResponses do
     walk_chain(messages_by_id, anchor_id, [], MapSet.new())
   end
 
-  defp chain_messages(repo, conversation_id, anchor_id) do
-    ids = chain_message_ids(repo, conversation_id, anchor_id)
+  defp chain_messages(repo, conversation_id, anchor_id, max_depth \\ @history_chain_max_depth) do
+    ids = chain_message_ids(repo, conversation_id, anchor_id, max_depth)
 
     if ids == [] do
       []
@@ -1436,7 +1495,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
     end
   end
 
-  defp chain_message_ids(repo, conversation_id, anchor_id) do
+  defp chain_message_ids(repo, conversation_id, anchor_id, max_depth) do
     result =
       SQL.query!(
         repo,
@@ -1463,7 +1522,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
         FROM chain
         ORDER BY depth ASC
         """,
-        [anchor_id, conversation_id, @history_chain_max_depth]
+        [anchor_id, conversation_id, max_depth]
       )
 
     Enum.map(result.rows, fn [id] -> id end)

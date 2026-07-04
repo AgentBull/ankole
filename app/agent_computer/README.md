@@ -120,6 +120,7 @@ ANKOLE_SHARED_FS_ROOT=/workspace/shared
 ANKOLE_USER_FILES_ROOT=/workspace/shared/user-files
 ANKOLE_AGENT_INSTALLED_SKILLS_ROOT=/workspace/shared/skills/agents
 ANKOLE_BUILTIN_SKILLS_ROOT=/repo/app/library/skills
+ANKOLE_INTERNAL_SKILLS_ROOT=/repo/internals/skills  # optional internal image only
 ANKOLE_AGENT_COMPUTER_BUN_WORKDIR=/repo/app/agent_computer
 ```
 
@@ -209,8 +210,11 @@ For each turn, `prepareTurnWorkspace` creates:
 /workspace/.sessions/<agent_uid>/<session_id>/user-files -> /workspace/shared/user-files
 ```
 
-Built-in skills are read from `/repo/app/library/skills`. Agent-installed
-skills are read from `/workspace/shared/skills/agents/<agent_uid>/...`. Skill
+Built-in skills are read from `/repo/app/library/skills`; internal images may
+also mount `/repo/internals/skills`. Agent-installed skills are read from
+`/workspace/shared/skills/agents/<agent_uid>/...`. Before context resolution,
+the worker scans that installed-skill directory and sends
+`skills.installed.replace` observations when the fingerprint changed. Skill
 overlays are database-backed semantic data accessed through RuntimeFabric RPC,
 not mutable files in the worker workspace.
 

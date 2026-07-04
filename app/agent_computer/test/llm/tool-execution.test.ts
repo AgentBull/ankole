@@ -132,6 +132,8 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
     const output = (sentPayloads[1]!.input as Array<Record<string, unknown>>)[0]!.output
     expect(output).toContain('Invalid arguments for tool lookup')
     expect(output).toContain('expected string')
+    expect(output).toContain('Analyze the error above and try a different approach.')
+    expectWrappedToolOutput(output)
     expect(sentPayloads[2]).toMatchObject({
       type: 'response.create',
       previous_response_id: 'resp_bad_args_results',
@@ -222,10 +224,15 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
     expect(sentPayloads[1]).toMatchObject({
       type: 'response.tool_results.record',
       input: [
-        { type: 'function_call_output', call_id: 'call_read_a', output: 'A' },
-        { type: 'function_call_output', call_id: 'call_read_b', output: 'B' }
+        { type: 'function_call_output', call_id: 'call_read_a' },
+        { type: 'function_call_output', call_id: 'call_read_b' }
       ]
     })
+    const outputs = sentPayloads[1]!.input as Array<Record<string, unknown>>
+    expect(outputs[0]!.output).toContain('A')
+    expect(outputs[1]!.output).toContain('B')
+    expectWrappedToolOutput(outputs[0]!.output)
+    expectWrappedToolOutput(outputs[1]!.output)
   })
 
   it('keeps mixed side-effecting tool batches sequential', async () => {
@@ -462,4 +469,101 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
       })
     ).rejects.toThrow('duplicate tool name: duplicate')
   })
+
+  it('nudges the model after the same hard tool failure repeats', async () => {
+    const sentPayloads: Record<string, unknown>[] = []
+    let recordCount = 0
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
+            const payload = JSON.parse(data) as Record<string, unknown>
+            sentPayloads.push(payload)
+
+            if (payload.type === 'response.tool_results.record') {
+              recordCount += 1
+              return [toolResultsRecordedFrame(`resp_repeated_failure_results_${recordCount}`)]
+            }
+
+            const createCount = sentPayloads.filter(sent => sent.type === 'response.create').length
+            if (createCount <= 2) {
+              return [
+                {
+                  type: 'response.completed',
+                  response: {
+                    id: `resp_repeated_failure_${createCount}`,
+                    status: 'completed',
+                    output: [
+                      {
+                        type: 'function_call',
+                        id: `fc_repeated_failure_${createCount}`,
+                        call_id: `call_repeated_failure_${createCount}`,
+                        name: 'lookup',
+                        arguments: '{"q":123,"request_id":"volatile"}'
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+
+            return [
+              {
+                type: 'response.completed',
+                response: {
+                  id: 'resp_after_repeated_failure_nudge',
+                  status: 'completed',
+                  output: [
+                    {
+                      type: 'message',
+                      role: 'assistant',
+                      content: [{ type: 'output_text', text: 'I changed route after repeated failure.' }]
+                    }
+                  ]
+                }
+              }
+            ]
+          })
+      }
+    })
+
+    const final = await runAgentLoop({
+      model,
+      messages: [{ role: 'user', content: 'look this up' }],
+      stateful: {
+        actorEventId: '00000000-0000-0000-0000-000000000020',
+        conversationId: '20202020-2020-2020-2020-202020202020'
+      },
+      tools: [
+        {
+          name: 'lookup',
+          description: 'Look up facts',
+          schema: z.object({ q: z.string() }),
+          execute: async () => {
+            throw new Error('should not run with invalid args')
+          }
+        }
+      ]
+    })
+
+    expect(final.content).toEqual([{ type: 'text', text: 'I changed route after repeated failure.' }])
+    const secondRecord = sentPayloads.find(
+      payload =>
+        payload.type === 'response.tool_results.record' && JSON.stringify(payload.input).includes('failed repeatedly')
+    )
+    expect(secondRecord).toBeDefined()
+    expect(JSON.stringify(secondRecord!.input)).toContain('failed_tool=lookup')
+  })
 })
+
+function expectWrappedToolOutput(output: unknown): void {
+  expect(String(output)).toMatch(
+    /^<ankole_untrusted_tool_output nonce="[0-9a-f]{16}">\n[\s\S]*\n<\/ankole_untrusted_tool_output nonce="[0-9a-f]{16}">$/
+  )
+}

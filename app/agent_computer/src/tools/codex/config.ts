@@ -1,4 +1,5 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { JsonObject } from '../../fabric/fabric'
 import type { AIGatewayApiKeyResponse } from '../../lanes/rpc_lane'
@@ -21,6 +22,7 @@ export type CodexConfigOverride =
 
 export type MaterializedCodexConfig = {
   codexHome: string
+  cleanupRoot?: string
   env: Record<string, string>
 }
 
@@ -44,7 +46,11 @@ export function materializeCodexConfig(input: {
   override: CodexConfigOverride | null
   aiGatewayKey?: AIGatewayApiKeyResponse
 }): MaterializedCodexConfig {
-  const codexHome = join(input.workspaceRoot, 'temp', 'codex', input.delegationId, 'home')
+  const cleanupRoot =
+    input.override?.mode === 'official_subscription'
+      ? join(tmpdir(), 'ankole-codex-official', safePathSegment(input.delegationId))
+      : join(input.workspaceRoot, 'temp', 'codex', safePathSegment(input.delegationId))
+  const codexHome = join(cleanupRoot, 'home')
   mkdirSync(codexHome, { recursive: true })
 
   const env: Record<string, string> = {
@@ -59,7 +65,7 @@ export function materializeCodexConfig(input: {
     writeConfigToml(codexHome, input.override.config_toml || officialSubscriptionDefaultConfig())
     writeAuthJson(codexHome, input.override.auth_json)
     Object.assign(env, input.override.env ?? {})
-    return { codexHome, env }
+    return { codexHome, cleanupRoot, env }
   }
 
   if (input.override?.mode === 'aigateway' && input.override.config_toml) {
@@ -72,7 +78,7 @@ export function materializeCodexConfig(input: {
   }
 
   if (input.aiGatewayKey) env.ANKOLE_AIGATEWAY_API_KEY = input.aiGatewayKey.api_key
-  return { codexHome, env }
+  return { codexHome, cleanupRoot, env }
 }
 
 export function codexConfigCliOverrides(): string[] {
@@ -129,6 +135,10 @@ function writeFile(path: string, content: string): void {
 
 function tomlString(value: string): string {
   return JSON.stringify(value)
+}
+
+function safePathSegment(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]/g, '_')
 }
 
 function isJsonObject(value: unknown): value is JsonObject {

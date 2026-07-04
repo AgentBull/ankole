@@ -111,8 +111,10 @@ defmodule Ankole.Schedule.RPCBroker do
          {:ok, cron_schedule_id} <- required_text(request, "cron_schedule_id"),
          {:ok, schedule} <- Schedule.get_cron_schedule(cron_schedule_id),
          :ok <- cron_belongs_to_turn(schedule, turn),
+         updates <- map_value(request, "updates") || %{},
+         :ok <- validate_cron_update_delivery_route(turn, schedule.binding_name, updates),
          {:ok, updated} <-
-           Schedule.update_cron_schedule(cron_schedule_id, map_value(request, "updates") || %{}) do
+           Schedule.update_cron_schedule(cron_schedule_id, updates) do
       {:ok, %{"status" => "updated", "schedule" => Schedule.cron_projection(updated)}}
     end
   end
@@ -216,9 +218,11 @@ defmodule Ankole.Schedule.RPCBroker do
     end
   end
 
-  defp cron_attrs(request, _turn, agent_uid, session_id) do
+  defp cron_attrs(request, turn, agent_uid, session_id) do
     with {:ok, idempotency_key} <- required_text(request, "idempotency_key"),
-         {:ok, binding_name} <- required_text(request, "binding_name") do
+         {:ok, binding_name} <- required_text(request, "binding_name"),
+         delivery <- map_value(request, "delivery"),
+         :ok <- validate_cron_delivery_route(turn, binding_name, delivery) do
       {:ok,
        %{
          "agent_uid" => agent_uid,
@@ -227,7 +231,7 @@ defmodule Ankole.Schedule.RPCBroker do
          "name" => text(request, "name"),
          "schedule" => map_value(request, "schedule"),
          "payload" => map_value(request, "payload") || %{},
-         "delivery" => map_value(request, "delivery"),
+         "delivery" => delivery,
          "idempotency_key" => idempotency_key,
          "failure_policy" => map_value(request, "failure_policy") || %{}
        }}
@@ -252,6 +256,30 @@ defmodule Ankole.Schedule.RPCBroker do
     with {:ok, source} <- turn_reply_source(turn),
          true <- reply_route_matches?(source, reply_route) do
       {:ok, source}
+    else
+      false -> {:error, :reply_route_not_in_turn}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp validate_cron_update_delivery_route(_turn, _binding_name, updates)
+       when not is_map(updates),
+       do: :ok
+
+  defp validate_cron_update_delivery_route(turn, binding_name, updates) do
+    case Map.has_key?(updates, "delivery") or Map.has_key?(updates, :delivery) do
+      true -> validate_cron_delivery_route(turn, binding_name, map_value(updates, "delivery"))
+      false -> :ok
+    end
+  end
+
+  defp validate_cron_delivery_route(_turn, _binding_name, delivery) when not is_map(delivery),
+    do: :ok
+
+  defp validate_cron_delivery_route(turn, binding_name, delivery) do
+    with {:ok, source} <- turn_reply_source(turn),
+         true <- cron_delivery_route_matches?(source, binding_name, delivery) do
+      :ok
     else
       false -> {:error, :reply_route_not_in_turn}
       {:error, _reason} = error -> error
@@ -287,6 +315,20 @@ defmodule Ankole.Schedule.RPCBroker do
       nullable_text(reply_route, "provider_thread_id") == source.provider_thread_id and
       nullable_text(reply_route, "source_entry_id") == source.source_entry_id
   end
+
+  defp cron_delivery_route_matches?(source, binding_name, delivery) do
+    text(delivery, "signal_channel_id") == source.signal_channel_id and
+      binding_name == source.binding_name and
+      cron_provider_thread_matches?(
+        source.provider_thread_id,
+        nullable_text(delivery, "provider_thread_id")
+      )
+  end
+
+  defp cron_provider_thread_matches?(_source_thread_id, nil), do: true
+
+  defp cron_provider_thread_matches?(source_thread_id, delivery_thread_id),
+    do: delivery_thread_id == source_thread_id
 
   defp cron_belongs_to_turn(schedule, turn) do
     {agent_uid, session_id} = actor_identity(turn)

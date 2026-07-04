@@ -1,6 +1,10 @@
 import type { TurnStart } from '../../lanes/actor_lane'
 import type { AgentConversationContext } from '../../lanes/rpc_lane'
+import { logWorkerEvent } from '../../worker/logging'
+import { scanInstalledSkills } from '../../worker/installed_skills'
 import type { TextTurnLoopOptions } from './turn_options'
+
+const installedSkillSyncMemo = new Map<string, string>()
 
 /**
  * Returns the already-resolved conversation context or asks the control plane.
@@ -13,6 +17,7 @@ export async function resolveAgentConversationContext(
   turnStart: TurnStart,
   opts: TextTurnLoopOptions
 ): Promise<AgentConversationContext> {
+  await syncInstalledSkillsBeforeContext(turnStart, opts)
   if (opts.agentConversationContext) return opts.agentConversationContext
   if (!opts.requestAgentConversationContext) {
     throw new Error('agent conversation context RPC is required')
@@ -20,6 +25,39 @@ export async function resolveAgentConversationContext(
 
   return await opts.requestAgentConversationContext({
     request_id: `agent-conversation-context-${crypto.randomUUID()}`,
-    turn: turnStart.turn
+    turn: turnStart.turn,
+    actor_event: turnStart.actor_event
   })
+}
+
+async function syncInstalledSkillsBeforeContext(turnStart: TurnStart, opts: TextTurnLoopOptions): Promise<void> {
+  if (!opts.agentInstalledSkillsRoot || !opts.replaceInstalledSkillObservations) return
+
+  const agentUid = turnStart.turn.actor.agent_uid
+
+  try {
+    const scan = await scanInstalledSkills(opts.agentInstalledSkillsRoot, agentUid)
+    for (const diagnostic of scan.diagnostics) {
+      logWorkerEvent('worker.installed_skill_diagnostic', { agent_uid: agentUid, diagnostic }, 'stderr')
+    }
+
+    if (installedSkillSyncMemo.get(agentUid) === scan.fingerprint) return
+
+    await opts.replaceInstalledSkillObservations({
+      request_id: `skills-installed-replace-${crypto.randomUUID()}`,
+      turn: turnStart.turn,
+      observations: scan.observations
+    })
+
+    installedSkillSyncMemo.set(agentUid, scan.fingerprint)
+  } catch (error) {
+    logWorkerEvent(
+      'worker.installed_skill_sync_failed',
+      {
+        agent_uid: agentUid,
+        error: error instanceof Error ? error.message : String(error)
+      },
+      'stderr'
+    )
+  }
 }

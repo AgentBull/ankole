@@ -41,6 +41,44 @@ mod tests {
     }
 
     #[test]
+    fn openai_responses_preserves_encrypted_reasoning_output_item() {
+        let mut resolver = ApiResolver::new(
+            ApiResolverKind::OpenaiResponses,
+            ResponseContext {
+                model: "gpt-test".to_string(),
+                request: json!({"input": "continue"}),
+                provider_options: json!({}),
+                stream: Some(false),
+                include_model: true,
+            },
+        );
+
+        let response = resolver
+            .normalize_body(
+                200,
+                json!({
+                    "id": "resp_reasoning",
+                    "status": "completed",
+                    "output": [
+                        {
+                            "type": "reasoning",
+                            "id": "rs_1",
+                            "encrypted_content": "encrypted-reasoning-payload",
+                            "summary": []
+                        }
+                    ],
+                    "usage": {}
+                }),
+            )
+            .unwrap();
+
+        assert_eq!(
+            response["output"][0]["encrypted_content"],
+            json!("encrypted-reasoning-payload")
+        );
+    }
+
+    #[test]
     fn openai_chat_accumulates_text_usage_and_terminal_response() {
         let mut resolver = ApiResolver::new(
             ApiResolverKind::OpenaiChatCompletions,

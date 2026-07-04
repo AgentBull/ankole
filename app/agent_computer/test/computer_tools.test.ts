@@ -203,6 +203,24 @@ describe('computer tools', () => {
     expect(text).toContain('partial output')
   })
 
+  it('refuses obvious system-root traversal commands before execution', async () => {
+    const computer = new FakeComputer()
+    let runCalled = false
+    computer.runImpl = async () => {
+      runCalled = true
+      return new FakeFinishedCommand(0)
+    }
+    const tool = createCommandTool(contextFor(computer))
+
+    const result = await tool.execute('call-1', { action: 'run', command: 'find / -maxdepth 2 -type f' })
+    const text = textOf(result)
+
+    expect(runCalled).toBe(false)
+    expect(result.details.exitCode).toBe(2)
+    expect(text).toContain('Refused command: find over the system root "/" is not allowed.')
+    expect(text).toContain('Narrow the command to /workspace')
+  })
+
   it('polls background status with incremental output', async () => {
     const computer = new FakeComputer()
     computer.backgroundStatusSnapshot = backgroundSnapshot('bg-1', async (_mode, opts) =>

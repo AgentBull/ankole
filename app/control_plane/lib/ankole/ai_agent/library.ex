@@ -139,6 +139,36 @@ defmodule Ankole.AIAgent.Library do
     do: {:error, :invalid_skill_observations}
 
   @doc """
+  Enables or disables one registered skill for an agent.
+
+  This is an operator/control-plane facade. The model-facing worker tools can
+  read and append enabled skill content, but they cannot toggle the registry.
+  """
+  @spec set_agent_skill_enabled(String.t(), String.t(), boolean(), keyword()) ::
+          {:ok, AgentSkill.t()} | {:error, term()}
+  def set_agent_skill_enabled(agent_uid, skill_name, enabled?, opts \\ [])
+
+  def set_agent_skill_enabled(agent_uid, skill_name, enabled?, opts) when is_boolean(enabled?) do
+    repo = Keyword.get(opts, :repo, Repo)
+
+    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
+         {:ok, _result} <- sync_agent_skills(agent_uid, opts),
+         {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name),
+         %AgentSkill{} = skill <-
+           repo.get_by(AgentSkill, agent_uid: agent_uid, skill_name: skill_name) do
+      skill
+      |> AgentSkill.changeset(%{enabled: enabled?})
+      |> repo.update()
+    else
+      nil -> {:error, :skill_not_found}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def set_agent_skill_enabled(_agent_uid, _skill_name, _enabled?, _opts),
+    do: {:error, :invalid_skill_enabled}
+
+  @doc """
   Seeds writable library state for a newly-created agent.
   """
   @spec seed_agent_library(String.t()) :: :ok | {:error, term()}

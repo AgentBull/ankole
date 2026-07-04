@@ -160,6 +160,55 @@ This is why `mailbox_updated`, worker progress, and live fabric delivery are not
 durable ownership signals by themselves. They are runtime signals around
 PostgreSQL-owned facts.
 
+## Memory V1
+
+Memory belongs to the channel/place where it was observed. Layer A curated
+notes are scoped to `{agent_uid, signal_channel_id}` and exposed only through
+the current-channel `memory_note` tool. The limits are intentional: at most 40
+notes per agent/channel and 500 characters per note. When the list is full, the
+agent must merge, update, or forget before saving another note.
+
+Historical recall uses `signal_gateway_entries` as ground truth. ParadeDB BM25
+requires a unique key field, so `signal_gateway_entries.document_id` is enforced
+unique before it can be used as `key_field='document_id'`. The document id stays
+derived from `{signal_channel_id, source_entry_id}`; the database constraint is
+the guarantee, not a comment in the projection code.
+
+Phase 1 is BM25 search plus browse and has no model-profile dependency. Phase 2
+adds channel episodes and embeddings, but only when `memory.recall.model_agent_uid`
+points at an existing agent with both `light` and `embedding` profiles. If that
+model owner is missing or incomplete, summary and embedding jobs report
+unavailable and do not advance cursors. Invalid summarizer output is retried,
+but after the worker exhausts its attempts the window is skipped, the cursor is
+advanced, and telemetry records the skipped window so a poison window cannot
+burn model calls forever. A valid episode whose embedding fails is kept with
+`embedding_state = 'failed'`; search degrades to BM25 and reports the vector-route
+degradation.
+
+Current-channel `memory_search` deliberately excludes hot context: entries from
+roughly the last 2 hours or latest 80 observed current-channel entries are left
+out because they should already be in the active turn context. Use
+`memory_browse` with an explicit time range when the caller needs exact recent
+transcript rows. Cross-channel search is limited to channels observed through
+`actor_events`, and non-DM current channels exclude `im_dm` sources.
+
+Episode scanning also skips channels whose entire unprocessed tail is still
+inside the young-tail guard. Those rows remain in `signal_gateway_entries` and
+become eligible once they age out or the backlog threshold is reached; this
+avoids low-volume channels producing empty summarizer jobs forever.
+
+Memory token budgeting uses the kernel `o200k_base` estimator from
+`tiktoken-rs`, independent of provider/model selection. This is separate from
+AIGateway compaction's older chars/4 tradeoff, except for the pre-compaction
+nudge that asks the normal agent/tool loop to persist durable facts via
+`memory_note` before automatic compaction proceeds.
+
+Layer A notes are intentionally injected into the system prompt for the current
+channel. That makes them powerful and also means a channel participant who can
+cause the agent to save a note can create durable prompt pressure. This is an
+accepted v1 tradeoff, mitigated by current-channel scope, the 40-note cap,
+explicit list/update/forget tools, and operator-visible persisted rows.
+
 ## Provider Configuration and Credentials
 
 Provider configuration can be durable control-plane state. Live provider

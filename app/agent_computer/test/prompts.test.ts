@@ -14,6 +14,21 @@ describe('@ankole/agent-computer prompts', () => {
       const prompt = buildAgentSystemPrompt({
         workspaceRoot: root,
         turnStart: start,
+        availableToolNames: [
+          'browser_click',
+          'browser_find',
+          'browser_snapshot',
+          'browser_type',
+          'check_back_later',
+          'codex_delegate',
+          'command',
+          'cron',
+          'interactive_terminal',
+          'patch',
+          'read_file',
+          'skill_append',
+          'skill_view'
+        ],
         agentConversationContext: {
           request_id: 'agent-conversation-context-1',
           agent_uid: 'agent-1',
@@ -44,7 +59,8 @@ describe('@ankole/agent-computer prompts', () => {
 
       expect(prompt.indexOf('You are ReleaseBot')).toBeLessThan(prompt.indexOf('Use restrained'))
       expect(prompt.indexOf('Use restrained')).toBeLessThan(prompt.indexOf('Your mission is:'))
-      expect(prompt.indexOf('<runtime_context>')).toBeLessThan(prompt.indexOf('<agent_environment_info_policy>'))
+      expect(prompt.indexOf('<runtime_context>')).toBeLessThan(prompt.indexOf('<completion_contract>'))
+      expect(prompt.indexOf('<completion_contract>')).toBeLessThan(prompt.indexOf('<agent_environment_info_policy>'))
       expect(prompt.indexOf('<agent_environment_info_policy>')).toBeLessThan(prompt.indexOf('<tools>'))
       expect(prompt.indexOf('<tools>')).toBeLessThan(prompt.indexOf('## Skills'))
       expect(prompt).toContain('Agent UID: agent-1')
@@ -81,9 +97,71 @@ describe('@ankole/agent-computer prompts', () => {
       expect(prompt).not.toContain('web_fetch')
       expect(prompt).not.toContain('terminal when')
       expect(prompt).not.toContain('process tool')
+      expect(prompt).toContain('Work toward the requested outcome')
+      expect(prompt).toContain('verify the result with evidence appropriate to the task')
+      expect(prompt).toContain('Before notable tool use, briefly say what you are about to check or change')
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
+  })
+
+  it('only renders conditional tool guidance for tools registered in this run', () => {
+    const start = turnStart()
+    const prompt = buildAgentSystemPrompt({
+      workspaceRoot: tmpdir(),
+      turnStart: start,
+      availableToolNames: ['command'],
+      agentConversationContext: {
+        request_id: 'agent-conversation-context-conditional-tools',
+        agent_uid: 'agent-1',
+        session_id: 'signal-channel:mock',
+        turn: start.turn,
+        agent: { display_name: 'ReleaseBot' },
+        conversation: {
+          id: 'conversation-1',
+          key: 'signal-channel:mock',
+          timezone: 'Asia/Shanghai'
+        },
+        soul: '',
+        mission: '',
+        skills: []
+      }
+    })
+
+    expect(prompt).toContain('Use `command` for stateless one-shot shell work.')
+    expect(prompt).not.toContain('<memory_recall>')
+    expect(toolReferencesInPrompt(prompt)).toEqual(['command'])
+    expect(prompt).not.toMatch(/\b(check_back_later|codex_delegate|cron|memory_search|memory_browse|skill_view)\b/)
+  })
+
+  it('routes conversation self-inspection to memory and cron tools when available', () => {
+    const start = turnStart()
+    const prompt = buildAgentSystemPrompt({
+      workspaceRoot: tmpdir(),
+      turnStart: start,
+      availableToolNames: ['cron', 'memory_note'],
+      agentConversationContext: {
+        request_id: 'agent-conversation-context-self-inspection',
+        agent_uid: 'agent-1',
+        session_id: 'signal-channel:mock',
+        turn: start.turn,
+        agent: { display_name: 'ReleaseBot' },
+        conversation: {
+          id: 'conversation-1',
+          key: 'signal-channel:mock',
+          timezone: 'Asia/Shanghai'
+        },
+        soul: '',
+        mission: '',
+        skills: []
+      }
+    })
+
+    expect(prompt).toContain('what recurring work, standing tasks, monitors, routines, or scheduled jobs exist')
+    expect(prompt).toContain('use `cron` with action=list')
+    expect(prompt).toContain('what you remember about this channel')
+    expect(prompt).toContain('use `memory_note` with action=list')
+    expect(prompt).not.toContain('<memory_recall>')
   })
 
   it('describes schedule-origin quiet success only when the control plane allows it', () => {
@@ -138,6 +216,7 @@ describe('@ankole/agent-computer prompts', () => {
     expect(prompt).toContain('Schedule turn mode: checkback_generation')
     expect(prompt).toContain('Schedule event ID: schedule-event-1')
     expect(prompt).toContain('<silent_success/>')
+    expect(prompt).toContain('If the scheduled check failed, is blocked, needs human action')
   })
 })
 
@@ -176,7 +255,10 @@ function toolReferencesInPrompt(prompt: string): string[] {
 
   return [
     ...new Set(
-      [...block!.matchAll(/`([a-z][a-z0-9_]*(?:_\*)?)`/g)].map(match => match[1]!).filter(name => !name.includes('__'))
+      [...block!.matchAll(/`([a-z][a-z0-9_]*(?:_\*)?)`/g)]
+        .map(match => match[1]!)
+        .filter(name => !name.includes('__'))
+        .filter(name => name !== 'directory')
     )
   ].sort()
 }

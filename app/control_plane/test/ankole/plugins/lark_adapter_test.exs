@@ -287,6 +287,31 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert input.payload["data"]["command"]["argsText"] == "12"
     end
 
+    test "message receive strips the longest matching mention placeholder first" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark", :ignore)
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+
+      event =
+        receive_event()
+        |> update_message(fn message ->
+          %{
+            message
+            | "message_id" => "om_long_mention_key",
+              "content" => ~s({"text":"@_user_10 /retry"}),
+              "mentions" => [
+                %{"key" => "_user_1", "name" => "Other Bot", "id" => %{"open_id" => "ou_other"}},
+                %{"key" => "_user_10", "name" => "Lark Bot", "id" => %{"open_id" => "ou_bot"}}
+              ]
+          }
+        end)
+
+      assert {:ok, [%{status: :accepted, actor_event: input}]} =
+               Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
+
+      assert input.type == "command.retry"
+    end
+
     test "bot and app senders are ignored before they can echo into actor event" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "lark", :ignore)
@@ -732,6 +757,46 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert String.length(first_text) == 4_000
       assert String.length(second_text) == 1
       assert first_text <> second_text == long_text
+    end
+
+    test "splits multi-table Lark cards into deterministic follow-up card posts" do
+      card = %{
+        "schema" => "2.0",
+        "body" => %{
+          "elements" => [
+            %{"tag" => "markdown", "content" => "Before"},
+            %{"tag" => "table", "rows" => [%{"cells" => []}]},
+            %{"tag" => "markdown", "content" => "Between"},
+            %{"tag" => "table", "rows" => [%{"cells" => []}]}
+          ]
+        }
+      }
+
+      assert {:ok, [first, second]} =
+               Outbox.requests_for_outbox(%OutboxEntry{
+                 operation: :card,
+                 signal_channel_id: "lark:oc_group",
+                 reply_to_source_entry_id: "om_1",
+                 payload: %{"card" => card},
+                 idempotency_key: "card-table-1",
+                 fallback_visible_text: "card fallback"
+               })
+
+      assert first.path == "im/v1/messages/:message_id/reply"
+      assert first.path_params == %{message_id: "om_1"}
+      assert first.body.uuid == "card-table-1"
+
+      assert second.path == "im/v1/messages"
+      assert second.query == [receive_id_type: "chat_id"]
+      assert second.body.receive_id == "oc_group"
+      assert second.body.uuid == "card-table-1:part:2"
+
+      assert {:ok, first_card} = Ankole.JSON.decode(first.body.content)
+      assert {:ok, second_card} = Ankole.JSON.decode(second.body.content)
+      assert first_card["body"]["elements"] |> Enum.count(&(&1["tag"] == "table")) == 1
+      assert second_card["body"]["elements"] |> Enum.count(&(&1["tag"] == "table")) == 1
+      assert get_in(first_card, ["body", "elements", Access.at(0), "content"]) == "Before"
+      assert get_in(second_card, ["body", "elements", Access.at(0), "tag"]) == "table"
     end
 
     test "renders control and progress notices as compact updateable cards" do

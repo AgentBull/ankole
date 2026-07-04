@@ -410,6 +410,56 @@ defmodule Ankole.ScheduleTest do
                  route
                )
 
+      cron_request = %{
+        "request_id" => "schedule-rpc-cron-ok",
+        "turn_ref" => turn_ref,
+        "binding_name" => source_event.binding_name,
+        "name" => "dashboard-route-cron",
+        "schedule" => %{
+          "kind" => "cron",
+          "expression" => "0 7 * * *",
+          "timezone" => "Asia/Shanghai"
+        },
+        "payload" => %{"task" => "dashboard-check"},
+        "delivery" => %{
+          "signal_channel_id" => source_event.signal_channel_id,
+          "provider_thread_id" => source_event.provider_thread_id
+        },
+        "idempotency_key" => "schedule-rpc-cron-1"
+      }
+
+      assert {:ok, %{"status" => "created", "schedule" => %{"id" => cron_schedule_id}}} =
+               schedule_rpc("cron.add", cron_request, route)
+
+      bad_cron_delivery = %{
+        "signal_channel_id" => "not-current-channel",
+        "provider_thread_id" => source_event.provider_thread_id
+      }
+
+      assert {:error, %{"code" => "reply_route_not_in_turn"}} =
+               schedule_rpc(
+                 "cron.add",
+                 %{
+                   cron_request
+                   | "request_id" => "schedule-rpc-cron-bad-route",
+                     "idempotency_key" => "schedule-rpc-cron-bad-route",
+                     "delivery" => bad_cron_delivery
+                 },
+                 route
+               )
+
+      assert {:error, %{"code" => "reply_route_not_in_turn"}} =
+               schedule_rpc(
+                 "cron.update",
+                 %{
+                   "request_id" => "schedule-rpc-cron-update-bad-route",
+                   "turn_ref" => turn_ref,
+                   "cron_schedule_id" => cron_schedule_id,
+                   "updates" => %{"delivery" => bad_cron_delivery}
+                 },
+                 route
+               )
+
       assert {:error, %{"code" => "worker_not_assigned_to_turn"}} =
                schedule_rpc(
                  "check_back_later.create",
@@ -507,6 +557,162 @@ defmodule Ankole.ScheduleTest do
       assert mirror.text == "Deployment finished cleanly."
       assert mirror.ai_message_id == committed.id
       assert mirror.metadata["actor_event_id"] == wake_input.id
+    end
+
+    test "mock IM dashboard cron story fires through Oban and posts service lines" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "mock-provider", :ignore, "mock-provider")
+
+      consumer =
+        MockInbound.chat_consumer(
+          mock_adapter_context(agent.uid, "mock-provider"),
+          %{},
+          now: @base_time
+        )
+
+      assert {:ok, [receive_result]} =
+               MockInbound.handle_message_receive(
+                 "message.receive",
+                 %{
+                   source_event_id: "mock-dashboard-cron-request",
+                   signal_channel_id: "mock:chat:dashboard",
+                   source_entry_id: "mock-dashboard-request-message",
+                   provider_thread_id: "mock-dashboard-thread",
+                   text:
+                     "Every morning at 7 check https://status.internal and post one line per service: green, or what's off and since when.",
+                   explicit: true,
+                   now: @base_time,
+                   provider_time: @base_time
+                 },
+                 [consumer]
+               )
+
+      %{actor_event: source_event} = maybe_finalize_test_inbound_batch(receive_result)
+
+      route = unique_route()
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{send_outcome: "sent_or_queued"}} =
+               process_ready_events_once(
+                 now: DateTime.add(@base_time, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_lane, envelope}
+      turn_start = envelope["body"]["turn_start"]
+      turn_ref = turn_start["turn"]
+
+      assert turn_ref["actor"]["session_id"] == source_event.session_id
+
+      assert {:ok, [_delivery]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{"turn" => turn_ref}
+               })
+
+      assert {:ok, %{"status" => "created", "schedule" => %{"id" => cron_schedule_id}}} =
+               schedule_rpc(
+                 "cron.add",
+                 %{
+                   "request_id" => "dashboard-cron-add",
+                   "turn_ref" => turn_ref,
+                   "binding_name" => "mock-provider",
+                   "name" => "dashboard-morning-check",
+                   "schedule" => %{
+                     "kind" => "cron",
+                     "expression" => "0 7 * * *",
+                     "timezone" => "Asia/Shanghai"
+                   },
+                   "payload" => %{
+                     "task" => "dashboard_status_check",
+                     "dashboard_url" => "https://status.internal",
+                     "services" => ["api", "billing", "search"],
+                     "report_format" =>
+                       "one line per service: green, or what's off and since when"
+                   },
+                   "delivery" => %{
+                     "signal_channel_id" => source_event.signal_channel_id,
+                     "provider_thread_id" => source_event.provider_thread_id
+                   },
+                   "idempotency_key" => "dashboard-cron-story"
+                 },
+                 route
+               )
+
+      scheduled_ack =
+        complete_turn_via_aigateway!(
+          turn_ref,
+          "Scheduled the dashboard check for 07:00 Asia/Shanghai."
+        )
+
+      assert wait_for_final_mirror(scheduled_ack.id).signal_channel_id == "mock:chat:dashboard"
+
+      [scheduled_event] = Schedule.list_cron_runs(cron_schedule_id, 10)
+      due_now = DateTime.add(DateTime.utc_now(:microsecond), -1, :second)
+
+      scheduled_event
+      |> ScheduledEvent.changeset(%{due_at: due_now})
+      |> Repo.update!()
+
+      assert :ok =
+               perform_job(Ankole.ActorRuntime.Jobs.FireScheduledEvent, %{
+                 "scheduled_event_id" => scheduled_event.id
+               })
+
+      fired_event = Repo.get!(ScheduledEvent, scheduled_event.id)
+      cron_input = Repo.get!(ActorEvent, fired_event.actor_event_id)
+
+      assert cron_input.type == "cron.fire"
+      assert cron_input.signal_channel_id == source_event.signal_channel_id
+      assert cron_input.source_entry_id == nil
+
+      assert get_in(cron_input.payload, [
+               "data",
+               "wake_payload",
+               "payload",
+               "dashboard_url"
+             ]) == "https://status.internal"
+
+      cron_envelope =
+        receive do
+          {:actor_lane, envelope} ->
+            envelope
+        after
+          250 ->
+            assert {:ok, %{send_outcome: "sent_or_queued"}} =
+                     process_ready_events_once(
+                       now: DateTime.add(DateTime.utc_now(:microsecond), 1, :second),
+                       lease_seconds: @long_lease_seconds
+                     )
+
+            assert_receive {:actor_lane, envelope}
+            envelope
+        end
+
+      cron_turn_start = cron_envelope["body"]["turn_start"]
+      cron_turn_ref = cron_turn_start["turn"]
+
+      assert cron_turn_start["request_context"]["turn_mode"] == "cron"
+
+      assert {:ok, [_delivery]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{"turn" => cron_turn_ref}
+               })
+
+      dashboard_report = """
+      api: green
+      billing: green
+      search: degraded since 2026-07-05 06:42 Asia/Shanghai
+      """
+
+      committed = complete_turn_via_aigateway!(cron_turn_ref, dashboard_report)
+      mirror = wait_for_final_mirror(committed.id)
+
+      assert mirror.signal_channel_id == "mock:chat:dashboard"
+      assert mirror.text == String.trim_trailing(dashboard_report)
+      assert mirror.ai_message_id == committed.id
+      assert mirror.metadata["actor_event_id"] == cron_input.id
     end
 
     test "checkback wakeup starts a checkback_generation turn that can finish silently" do

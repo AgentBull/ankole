@@ -30,6 +30,12 @@ defmodule Ankole.E2E.FakeOpenAISkillScenarios do
   def tool_call_for(:skill_disabled_tool, 1),
     do: skill_view_tool_call("nano-pdf", "call_lark_chaos_disabled_skill_view")
 
+  def tool_call_for(:installed_skill_tool, 1),
+    do: skill_view_tool_call("e2e-installed", "call_lark_chaos_installed_skill_view")
+
+  def tool_call_for(:installed_skill_deleted_tool, 1),
+    do: skill_view_tool_call("e2e-installed", "call_lark_chaos_installed_skill_deleted_view")
+
   def tool_call_for(_kind, _count), do: nil
 
   defp skill_view_tool_call(name, id \\ nil) do

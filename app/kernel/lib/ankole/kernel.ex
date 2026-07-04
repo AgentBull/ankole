@@ -198,6 +198,14 @@ defmodule Ankole.Kernel do
   def authz_match_resource_pattern(_pattern, _resource), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
+  Estimates token count with the provider-neutral `o200k_base` vocabulary.
+
+  This is a budgeting helper only; it does not infer or select a concrete model.
+  """
+  @spec estimate_o200k_base_tokens(String.t()) :: non_neg_integer()
+  def estimate_o200k_base_tokens(_text), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
   Computes a non-cryptographic XXH3 128-bit observation fingerprint.
 
   This is for file observations and change detection. It is not a security

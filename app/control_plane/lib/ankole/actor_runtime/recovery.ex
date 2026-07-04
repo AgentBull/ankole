@@ -3,6 +3,7 @@ defmodule Ankole.ActorRuntime.Recovery do
 
   alias Ankole.ActorRuntime.TurnLifecycle
   alias Ankole.ActorRuntime.WorkerAdmission
+  alias Ankole.CodexDelegations
   alias Ankole.Repo
 
   @doc """
@@ -31,6 +32,8 @@ defmodule Ankole.ActorRuntime.Recovery do
              TurnLifecycle.fail_expired_activations(repo, now, lease_grace_seconds),
            {:ok, projection_lost_turns} <-
              TurnLifecycle.reconcile_projection_lost_started_turns_in_tx(repo, now),
+           {:ok, stale_codex_delegations} <-
+             CodexDelegations.fail_stale_worker_delegations(repo, now),
            {deleted_stale_workers, _rows} <-
              WorkerAdmission.delete_expired_stale_workers(repo, now, stale_worker_ttl_seconds) do
         {:ok,
@@ -38,6 +41,7 @@ defmodule Ankole.ActorRuntime.Recovery do
            stale_workers: stale_workers,
            expired_activations: expired_activations,
            projection_lost_turns: projection_lost_turns,
+           stale_codex_delegations: stale_codex_delegations,
            deleted_stale_workers: deleted_stale_workers
          }}
       end

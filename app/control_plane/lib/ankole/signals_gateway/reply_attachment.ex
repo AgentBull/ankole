@@ -16,8 +16,10 @@ defmodule Ankole.SignalsGateway.ReplyAttachment do
   @doc "Extracts canonical reply attachments from durable Responses content items."
   @spec attachments_from_response_items(term()) :: {:ok, [attachment()]} | {:error, term()}
   def attachments_from_response_items(items) when is_list(items) do
+    reply_attachment_call_ids = reply_attachment_call_ids(items)
+
     Enum.reduce_while(items, {:ok, []}, fn item, {:ok, acc} ->
-      case attachments_from_response_item(item) do
+      case attachments_from_response_item(item, reply_attachment_call_ids) do
         {:ok, attachments} -> {:cont, {:ok, acc ++ attachments}}
         :ignore -> {:cont, {:ok, acc}}
         {:error, reason} -> {:halt, {:error, reason}}
@@ -58,24 +60,79 @@ defmodule Ankole.SignalsGateway.ReplyAttachment do
 
   def normalize_attachments(_attachments), do: {:error, :reply_attachment_attachments_not_list}
 
-  defp attachments_from_response_item(%{"type" => "function_call_output"} = item) do
+  defp reply_attachment_call_ids(items) do
+    items
+    |> Enum.reduce(MapSet.new(), fn
+      %{"type" => "function_call", "name" => @tool_name, "call_id" => call_id}, acc
+      when is_binary(call_id) ->
+        MapSet.put(acc, call_id)
+
+      _item, acc ->
+        acc
+    end)
+  end
+
+  defp attachments_from_response_item(
+         %{"type" => "function_call_output", "call_id" => call_id} = item,
+         reply_attachment_call_ids
+       )
+       when is_binary(call_id) do
+    if MapSet.member?(reply_attachment_call_ids, call_id) do
+      attachments_from_reply_attachment_output(item)
+    else
+      :ignore
+    end
+  end
+
+  defp attachments_from_response_item(_item, _reply_attachment_call_ids), do: :ignore
+
+  defp attachments_from_reply_attachment_output(item) do
     item
     |> Map.get("output")
     |> decode_tool_output()
     |> attachments_from_tool_output(item["call_id"])
   end
 
-  defp attachments_from_response_item(_item), do: :ignore
-
   defp decode_tool_output(output) when is_binary(output) do
-    case JSON.decode(output) do
-      {:ok, decoded} -> decoded
-      {:error, _reason} -> nil
-    end
+    output
+    |> String.trim()
+    |> decode_json_or_wrapped_tool_output()
   end
 
   defp decode_tool_output(output) when is_map(output), do: output
   defp decode_tool_output(_output), do: nil
+
+  defp decode_json_or_wrapped_tool_output(output) do
+    case JSON.decode(output) do
+      {:ok, decoded} ->
+        decoded
+
+      {:error, _reason} ->
+        case unwrap_untrusted_tool_output(output) do
+          {:ok, unwrapped} ->
+            unwrapped
+            |> String.trim()
+            |> decode_json_or_wrapped_tool_output()
+
+          :error ->
+            nil
+        end
+    end
+  end
+
+  defp unwrap_untrusted_tool_output(output) do
+    prefix = ~s(<ankole_untrusted_tool_output nonce=")
+
+    with true <- String.starts_with?(output, prefix),
+         rest <- String.replace_prefix(output, prefix, ""),
+         [nonce, body_with_suffix] <- String.split(rest, ~s(">\n), parts: 2),
+         suffix <- ~s(\n</ankole_untrusted_tool_output nonce="#{nonce}">),
+         true <- String.ends_with?(body_with_suffix, suffix) do
+      {:ok, String.replace_suffix(body_with_suffix, suffix, "")}
+    else
+      _not_wrapped -> :error
+    end
+  end
 
   defp attachments_from_tool_output(
          %{"tool" => @tool_name, "attachments" => attachments},

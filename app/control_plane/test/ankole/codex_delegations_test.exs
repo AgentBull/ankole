@@ -26,10 +26,15 @@ defmodule Ankole.CodexDelegationsTest do
     delegation_id = create_payload["delegation_id"]
     assert create_payload["status"] == "queued"
     assert create_payload["agent_uid"] == agent.uid
+    assert create_payload["metadata"]["worker_route"] == "trusted-worker-route"
 
     delegation = CodexDelegations.get_delegation_for_agent(delegation_id, agent.uid)
     assert delegation.session_id == "session-1"
-    assert delegation.metadata == %{"prompt_chars" => 42}
+
+    assert delegation.metadata == %{
+             "prompt_chars" => 42,
+             "worker_route" => "trusted-worker-route"
+           }
 
     assert {:ok, event_envelope} =
              RPCLane.handle_request(
@@ -54,6 +59,31 @@ defmodule Ankole.CodexDelegationsTest do
              )
 
     assert rpc_payload(event_envelope)["seq"] == 0
+    event_payload = rpc_payload(event_envelope)
+
+    assert {:ok, duplicate_event_envelope} =
+             RPCLane.handle_request(
+               %{
+                 "request_id" => "codex-event-1-retry",
+                 "method" => "codex.delegation.event.append",
+                 "payload_json" => %{
+                   "delegation_id" => delegation_id,
+                   "agent_uid" => agent.uid,
+                   "seq" => 0,
+                   "direction" => "client_to_server",
+                   "event_type" => "json_rpc",
+                   "payload" => %{
+                     "method" => "initialize",
+                     "headers" => %{"Authorization" => "Bearer secret-token"},
+                     "nested" => [%{"api_key" => "sk-secret"}],
+                     "visible" => true
+                   }
+                 }
+               },
+               "trusted-worker-route"
+             )
+
+    assert rpc_payload(duplicate_event_envelope)["event_id"] == event_payload["event_id"]
 
     [event] = CodexDelegations.list_events(delegation_id)
     assert event.payload["method"] == "initialize"
@@ -104,6 +134,47 @@ defmodule Ankole.CodexDelegationsTest do
     assert succeeded_payload["status"] == "succeeded"
     assert succeeded_payload["result"] == %{"output_text" => "done"}
     assert is_binary(succeeded_payload["completed_at"])
+
+    assert {:ok, get_envelope} =
+             RPCLane.handle_request(
+               %{
+                 "request_id" => "codex-get-1",
+                 "method" => "codex.delegation.get",
+                 "payload_json" => %{
+                   "delegation_id" => delegation_id,
+                   "agent_uid" => agent.uid
+                 }
+               },
+               "another-worker-route"
+             )
+
+    get_payload = rpc_payload(get_envelope)
+    assert get_payload["status"] == "succeeded"
+    assert get_payload["last_event_seq"] == 0
+
+    assert get_payload["result_ref"] == %{
+             "type" => "codex_delegation",
+             "delegation_id" => delegation_id
+           }
+
+    assert {:ok, terminal_regression_envelope} =
+             RPCLane.handle_request(
+               %{
+                 "request_id" => "codex-status-terminal-regression",
+                 "method" => "codex.delegation.status.update",
+                 "payload_json" => %{
+                   "delegation_id" => delegation_id,
+                   "agent_uid" => agent.uid,
+                   "status" => "running"
+                 }
+               },
+               "trusted-worker-route"
+             )
+
+    assert get_in(terminal_regression_envelope, ["body", "type"]) == "rpc_error"
+
+    assert get_in(terminal_regression_envelope, ["body", "rpc_error", "code"]) ==
+             "codex_delegation_terminal"
   end
 
   test "Codex delegation RPC returns a stable error for unknown delegation ids" do

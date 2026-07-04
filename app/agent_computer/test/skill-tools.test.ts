@@ -1,8 +1,54 @@
 import { describe, expect, it } from 'bun:test'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import { createSkillTools } from '../src/tools/library/skill-tools'
 import type { ActorTurnRef } from '../src/lanes/actor_lane'
 
 describe('@ankole/agent-computer skill tools', () => {
+  it('skill_view reads internal builtin skills and renders the skill directory attribute', async () => {
+    const root = join(tmpdir(), `ankole-skill-tools-${Date.now()}-${Math.random()}`)
+    const builtinRoot = join(root, 'library')
+    const internalRoot = join(root, 'internal')
+    try {
+      writeFileSyncWithParents(
+        join(builtinRoot, 'nano-pdf', 'SKILL.md'),
+        ['---', 'name: nano-pdf', 'description: Public PDF skill.', '---', '', '# Public nano-pdf', ''].join('\n')
+      )
+      writeFileSyncWithParents(
+        join(internalRoot, 'nano-pdf', 'SKILL.md'),
+        ['---', 'name: nano-pdf', 'description: Internal PDF skill.', '---', '', '# Internal nano-pdf', ''].join('\n')
+      )
+
+      const tools = createSkillTools('/workspace', {
+        enabledSkills: [
+          {
+            skill_name: 'nano-pdf',
+            source_kind: 'builtin',
+            relative_path: 'nano-pdf',
+            metadata: { skill_root: 'internal' }
+          }
+        ],
+        skillRoots: {
+          builtinSkillsRoot: builtinRoot,
+          internalSkillsRoot: internalRoot,
+          agentInstalledSkillsRoot: join(root, 'installed')
+        }
+      })
+
+      const tool = tools.find(candidate => candidate.name === 'skill_view')
+      expect(tool).toBeTruthy()
+
+      const result = await tool!.execute('call-1', { name: 'nano-pdf' })
+      const text = result.content[0]?.type === 'text' ? result.content[0].text : ''
+      expect(text).toContain('# Internal nano-pdf')
+      expect(text).not.toContain('# Public nano-pdf')
+      expect(text).toContain(`directory="${join(internalRoot, 'nano-pdf')}"`)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('skill_append appends notes to the existing skill overlay', async () => {
     const turn: ActorTurnRef = {
       actor: { agent_uid: 'agent-1', session_id: 'session-1' },
@@ -109,3 +155,8 @@ describe('@ankole/agent-computer skill tools', () => {
     })
   })
 })
+
+function writeFileSyncWithParents(path: string, content: string): void {
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, content)
+}

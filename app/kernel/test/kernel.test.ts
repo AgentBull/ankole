@@ -17,6 +17,7 @@ describe('@ankole/kernel', () => {
       'signalsGatewayValidateFilter',
       'unifiedTextDiff',
       'xxh3File128Hex',
+      'xxh3String128Hex',
       'zstdCompressBlock',
       'zstdDecompressBlock'
     ]) {
@@ -26,6 +27,10 @@ describe('@ankole/kernel', () => {
 
   it('generates TypeScript declarations during build', async () => {
     expect(await Bun.file(new URL('../index.d.ts', import.meta.url)).exists()).toBe(true)
+  })
+
+  it('computes string XXH3 fingerprints through the Bun bridge', () => {
+    expect(kernel.xxh3String128Hex('TestCase')).toBe('7b16fe7c3e492b87d9615265f0856cec')
   })
 
   it('computes unified text diff hunks through the Bun bridge', async () => {

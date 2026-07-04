@@ -182,18 +182,11 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
 
   def requests_for_outbox(%OutboxEntry{operation: :card} = outbox) do
     with {:ok, card} <- Card.render(outbox.payload) do
-      body = %{
-        receive_id: chat_id_from_channel(outbox.signal_channel_id),
-        msg_type: "interactive",
-        content: Card.message_content(card)
-      }
-
       {:ok,
-       [
-         message_request(:post, "im/v1/messages", outbox, body,
-           reply_to: outbox.reply_to_source_entry_id
-         )
-       ]}
+       card
+       |> Card.split_by_table()
+       |> Enum.with_index(1)
+       |> Enum.map(fn {card, index} -> card_message_request(outbox, card, index) end)}
     end
   end
 
@@ -383,6 +376,31 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
   defp chunk_idempotency_key(nil, _index), do: nil
   defp chunk_idempotency_key(key, 1), do: key
   defp chunk_idempotency_key(key, index), do: "#{key}:part:#{index}"
+
+  defp card_message_request(%OutboxEntry{} = outbox, card, index) do
+    chunk_outbox = %OutboxEntry{
+      outbox
+      | idempotency_key: chunk_idempotency_key(outbox.idempotency_key, index)
+    }
+
+    opts =
+      case index do
+        1 -> [reply_to: outbox.reply_to_source_entry_id]
+        _index -> []
+      end
+
+    message_request(
+      :post,
+      "im/v1/messages",
+      chunk_outbox,
+      %{
+        receive_id: chat_id_from_channel(outbox.signal_channel_id),
+        msg_type: "interactive",
+        content: Card.message_content(card)
+      },
+      opts
+    )
+  end
 
   defp text_body(%{fallback_visible_text: text}) when is_binary(text) do
     %{msg_type: "text", content: Card.text_content(text)}

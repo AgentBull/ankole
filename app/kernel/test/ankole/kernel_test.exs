@@ -344,6 +344,11 @@ defmodule Ankole.KernelTest do
     assert decision["deniedAction"] == "write"
   end
 
+  test "o200k_base token estimator is provider-neutral" do
+    assert NativeKernel.estimate_o200k_base_tokens("Hello world") == 2
+    assert NativeKernel.estimate_o200k_base_tokens("记忆系统") > 0
+  end
+
   test "fingerprint and phone helpers match expected behavior" do
     assert NativeKernel.xxh3_128_hex("TestCase") == "7b16fe7c3e492b87d9615265f0856cec"
     assert NativeKernel.phone_normalize_e164("+1 415 555 2671") == "+14155552671"

@@ -4,6 +4,7 @@ import { runAgentLoop } from '../agent-loop'
 import { buildAgentSystemPrompt } from '../../prompts/system_prompt'
 import { createComputerTools } from '../../tools/computer'
 import { createSkillTools } from '../../tools/library/skill-tools'
+import { createMemoryTools } from '../../tools/memory/memory-tools'
 import { createScheduleTools } from '../../tools/schedule/schedule-tools'
 import { createTodoTool, TodoStore } from '../../tools/todo/todo-tool'
 import { createWebTools } from '../../tools/web/web-tools'
@@ -106,11 +107,49 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       })
     )
 
+    const tools = [
+      createTodoTool(todoStore),
+      ...createComputerTools({
+        agentUid: turnStart.turn.actor.agent_uid,
+        conversationId: turnStart.turn.actor.session_id,
+        workspaceRoot: opts.workspaceRoot,
+        browserRemoteCdpConfig: browserRuntimeConfig.remoteCdpConfig,
+        localBrowserIdleTtlMs: browserRuntimeConfig.localBrowserIdleTtlMs
+      }),
+      ...createScheduleTools({
+        turnStart,
+        requestScheduleRpc: opts.requestScheduleRpc
+      }),
+      ...createMemoryTools({
+        turnStart,
+        requestMemoryRpc: opts.requestMemoryRpc
+      }),
+      ...webTools,
+      createCodexDelegateTool({
+        turnStart,
+        workspaceRoot: opts.workspaceRoot,
+        requestAIGatewayApiKey: opts.requestAIGatewayApiKey,
+        requestAppConfigure: opts.requestAppConfigure,
+        createCodexDelegation: opts.createCodexDelegation,
+        getCodexDelegationStatus: opts.getCodexDelegationStatus,
+        appendCodexDelegationEvent: opts.appendCodexDelegationEvent,
+        updateCodexDelegationStatus: opts.updateCodexDelegationStatus
+      }),
+      ...createSkillTools(opts.workspaceRoot, {
+        turn: turnStart.turn,
+        enabledSkills: agentConversationContext.skills ?? [],
+        skillRoots: skillRootsFromOptions(opts),
+        requestSkillOverlay: opts.requestSkillOverlay,
+        replaceSkillOverlay: opts.replaceSkillOverlay
+      })
+    ]
+
     const systemPrompt = buildAgentSystemPrompt({
       workspaceRoot: opts.workspaceRoot,
       turnStart,
       agentConversationContext,
-      currentChannel: currentChannelFromTurnStart(turnStart)
+      currentChannel: currentChannelFromTurnStart(turnStart),
+      availableToolNames: tools.map(tool => tool.name)
     })
 
     const latest = await runAgentLoop({
@@ -124,37 +163,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
         conversationId: aiGatewayConversationId,
         truncation: statefulTruncationFromActorEventPayload(actorEvent.payload_json)
       },
-      tools: [
-        createTodoTool(todoStore),
-        ...createComputerTools({
-          agentUid: turnStart.turn.actor.agent_uid,
-          conversationId: turnStart.turn.actor.session_id,
-          workspaceRoot: opts.workspaceRoot,
-          browserRemoteCdpConfig: browserRuntimeConfig.remoteCdpConfig,
-          localBrowserIdleTtlMs: browserRuntimeConfig.localBrowserIdleTtlMs
-        }),
-        ...createScheduleTools({
-          turnStart,
-          requestScheduleRpc: opts.requestScheduleRpc
-        }),
-        ...webTools,
-        createCodexDelegateTool({
-          turnStart,
-          workspaceRoot: opts.workspaceRoot,
-          requestAIGatewayApiKey: opts.requestAIGatewayApiKey,
-          requestAppConfigure: opts.requestAppConfigure,
-          createCodexDelegation: opts.createCodexDelegation,
-          appendCodexDelegationEvent: opts.appendCodexDelegationEvent,
-          updateCodexDelegationStatus: opts.updateCodexDelegationStatus
-        }),
-        ...createSkillTools(opts.workspaceRoot, {
-          turn: turnStart.turn,
-          enabledSkills: agentConversationContext.skills ?? [],
-          skillRoots: skillRootsFromOptions(opts),
-          requestSkillOverlay: opts.requestSkillOverlay,
-          replaceSkillOverlay: opts.replaceSkillOverlay
-        })
-      ],
+      tools,
       abortSignal: turnTimeout.signal,
       getSteeringMessages: async () => steeringMessages(turnStart, opts.pollSteering?.() ?? [])
     })

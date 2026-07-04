@@ -1,0 +1,7 @@
+export const SANDBOX_WORKSPACE_ROOT = '/workspace'
+export const SANDBOX_WORKSPACE_SESSIONS_ROOT = '/workspace/.sessions'
+export const SANDBOX_SHARED_FS_ROOT = '/workspace/shared'
+export const SANDBOX_USER_FILES_ROOT = '/workspace/shared/user-files'
+export const SANDBOX_AGENT_INSTALLED_SKILLS_ROOT = '/workspace/shared/skills/agents'
+export const SANDBOX_BUILTIN_SKILLS_ROOT = '/repo/app/library/skills'
+export const SANDBOX_INTERNAL_SKILLS_ROOT = '/repo/internals/skills'

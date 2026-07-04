@@ -31,6 +31,7 @@ defmodule Ankole.ActorRuntime.Supervisor do
     WorkerAuthKey.ensure!()
     :ok = WorkerBrowserConfig.ensure_registered()
     :ok = WorkerCodexConfig.ensure_registered()
+    :ok = Ankole.Memory.ensure_registered()
 
     runtime_opts = runtime_opts(opts)
 

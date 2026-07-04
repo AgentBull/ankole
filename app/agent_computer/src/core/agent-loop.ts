@@ -12,6 +12,7 @@
  * (StatefulResponses). The worker just executes tools and records results.
  */
 
+import { createHash, randomBytes } from 'node:crypto'
 import { withRetry } from '../common/async'
 import { safeJsonStringify } from '../common/json-utils'
 import {
@@ -40,6 +41,21 @@ import {
 const DEFAULT_MAX_TOOL_ROUNDS = 16
 const EMPTY_AFTER_TOOL_NUDGE_TEXT =
   'You just executed tool calls but returned an empty response. Please process the tool results above and continue with the task.'
+const TOOL_ROUND_LIMIT_SYNTHESIS_TEXT =
+  'The tool round limit has been reached. Do not call more tools. Synthesize the best final answer from the tool results and conversation state already available. Be explicit about anything left incomplete or unverified.'
+const TOOL_ROUND_LIMIT_TOOL_OUTPUT_TEXT =
+  'Tool call was not executed because the worker reached the maximum tool-round limit for this turn. Stop calling tools and synthesize a final answer from the information already available.'
+const TOOL_ERROR_RECOVERY_HINT = 'Analyze the error above and try a different approach.'
+const REPEATED_TOOL_FAILURE_NUDGE =
+  'The same tool call has failed repeatedly. Stop retrying the same tool with small variations; choose a different route, re-check the available context, or explain the remaining blocker.'
+const VOLATILE_TOOL_ARGUMENT_KEYS = new Set([
+  'idempotency_key',
+  'nonce',
+  'request_id',
+  'timestamp',
+  'tool_call_id',
+  'uuid'
+])
 
 /**
  * Runs the model/tool loop until the model returns a final assistant message.
@@ -55,6 +71,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AssistantMe
   let toolRounds = 0
   let sawToolResults = false
   let nudgedEmptyAfterTools = false
+  const repeatedFailureState: RepeatedToolFailureState = { count: 0 }
   const maxToolRounds = config.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS
   const toolByName = config.tools?.length ? agentToolMap(config.tools) : undefined
   const responseWebSocketSession = config.model.responseWebSocket
@@ -128,13 +145,25 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AssistantMe
 
       toolRounds += 1
       if (toolRounds > maxToolRounds) {
-        throw new Error(`agent loop exceeded max tool rounds (${maxToolRounds})`)
+        const synthesized = await synthesizeAfterToolRoundLimit({
+          config,
+          maxToolRounds,
+          responseWebSocketSession,
+          stateful,
+          toolCalls: latestAssistant.toolCalls
+        })
+        stateful = synthesized.stateful
+        latestAssistant = synthesized.message
+        break
       }
 
       const toolCalls = latestAssistant.toolCalls
       const executedToolCalls = await executeToolCalls(toolCalls, toolByName, config)
       const toolResults = executedToolCalls.map(result => result.resultMsg)
-      const toolFollowUpMessages = executedToolCalls.flatMap(result => result.followUpMessages)
+      const toolFollowUpMessages = [
+        ...executedToolCalls.flatMap(result => result.followUpMessages),
+        ...repeatedToolFailureNudges(executedToolCalls, repeatedFailureState)
+      ]
 
       const toolJournalMessages: Message[] = [...toolResults, ...toolFollowUpMessages]
       if (toolJournalMessages.length > 0) sawToolResults = true
@@ -232,6 +261,109 @@ function retryableTerminalModelError(message: AssistantMessage): Error | undefin
 interface ExecutedToolCall {
   resultMsg: ToolResultMessage
   followUpMessages: UserMessage[]
+  failure?: {
+    key: string
+    toolName: string
+  }
+}
+
+interface RepeatedToolFailureState {
+  key?: string
+  count: number
+}
+
+interface ToolLimitSynthesisInput {
+  config: AgentLoopConfig
+  maxToolRounds: number
+  responseWebSocketSession: ReturnType<typeof createResponseWebSocketSession> | undefined
+  stateful: AgentLoopConfig['stateful']
+  toolCalls: ToolCall[]
+}
+
+/**
+ * Converts a runaway tool request into one no-tools synthesis turn.
+ *
+ * In stateful Responses mode the model has just emitted function calls. Before
+ * asking it to summarize, the worker records synthetic function_call_output
+ * items for those calls so the provider-side transcript is structurally closed.
+ */
+async function synthesizeAfterToolRoundLimit(input: ToolLimitSynthesisInput): Promise<{
+  message: AssistantMessage
+  stateful: AgentLoopConfig['stateful']
+}> {
+  let stateful = input.stateful
+  let pendingMessages: Message[] = [
+    ...input.toolCalls.map(toolCall => toolRoundLimitResult(toolCall, input.maxToolRounds)),
+    { role: 'user' as const, content: TOOL_ROUND_LIMIT_SYNTHESIS_TEXT }
+  ]
+
+  if (input.toolCalls.length > 0 && stateful.previousResponseId && input.responseWebSocketSession) {
+    const recorded = await withRetry(
+      () =>
+        recordToolResults(input.config.model, {
+          messages: pendingMessages,
+          stateful,
+          abortSignal: input.config.abortSignal,
+          responseWebSocketSession: input.responseWebSocketSession
+        }),
+      {
+        maxAttempts: 2,
+        signal: input.config.abortSignal,
+        isRetryable: isLocallyRetryableLlmError
+      }
+    )
+
+    stateful = {
+      ...stateful,
+      conversationId: undefined,
+      previousResponseId: recorded.responseId
+    }
+    pendingMessages = []
+  }
+
+  const result = await withRetry(
+    () =>
+      callModel(input.config.model, {
+        instructions: input.config.systemPrompt,
+        messages: pendingMessages,
+        maxOutputTokens: input.config.maxTokens,
+        temperature: input.config.temperature,
+        abortSignal: input.config.abortSignal,
+        onTextDelta: input.config.onTextDelta,
+        stateful,
+        responseWebSocketSession: input.responseWebSocketSession
+      }),
+    {
+      maxAttempts: 2,
+      signal: input.config.abortSignal,
+      isRetryable: isLocallyRetryableLlmError
+    }
+  )
+
+  if (result.responseId) {
+    stateful = {
+      ...stateful,
+      conversationId: undefined,
+      previousResponseId: result.responseId
+    }
+  }
+
+  return {
+    // There is no public "interrupted" stop reason in the worker type. Marking
+    // this as length preserves that the answer came from a bounded partial run.
+    message: result.message.stopReason === 'stop' ? { ...result.message, stopReason: 'length' } : result.message,
+    stateful
+  }
+}
+
+function toolRoundLimitResult(toolCall: ToolCall, maxToolRounds: number): ToolResultMessage {
+  return {
+    role: 'tool',
+    toolCallId: toolCall.id,
+    result: wrapUntrustedToolOutput(
+      `${TOOL_ROUND_LIMIT_TOOL_OUTPUT_TEXT}\nmax_tool_rounds=${maxToolRounds}\ntool=${toolCall.name}`
+    )
+  }
 }
 
 /**
@@ -287,13 +419,18 @@ async function executeToolCall(
 ): Promise<ExecutedToolCall> {
   const tool = toolByName?.get(toolCall.name)
   if (!tool) {
+    const message = `Unknown tool: ${toolCall.name}`
     return {
       resultMsg: {
         role: 'tool',
         toolCallId: toolCall.id,
-        result: JSON.stringify({ error: `Unknown tool: ${toolCall.name}` })
+        result: wrapUntrustedToolOutput(formatToolError(message))
       },
-      followUpMessages: []
+      followUpMessages: [],
+      failure: {
+        key: toolCallFailureKey(toolCall, 'unknown_tool', toolCall.arguments),
+        toolName: toolCall.name
+      }
     }
   }
 
@@ -301,19 +438,25 @@ async function executeToolCall(
   try {
     parsedArgs = validateToolArguments(toolCall.arguments, tool.schema)
   } catch (error) {
+    const message = `Invalid arguments for tool ${toolCall.name}: ${errorMessage(error)}`
     return {
       resultMsg: {
         role: 'tool',
         toolCallId: toolCall.id,
-        result: JSON.stringify({ error: `Invalid arguments for tool ${toolCall.name}: ${errorMessage(error)}` })
+        result: wrapUntrustedToolOutput(formatToolError(message))
       },
-      followUpMessages: []
+      followUpMessages: [],
+      failure: {
+        key: toolCallFailureKey(toolCall, 'invalid_arguments', toolCall.arguments),
+        toolName: toolCall.name
+      }
     }
   }
 
   let toolResult: AgentToolResult<unknown>
   let resultText = ''
   let followUpMessages: UserMessage[] = []
+  let failure: ExecutedToolCall['failure']
 
   try {
     toolResult = await tool.execute(toolCall.id, parsedArgs as never, config.abortSignal)
@@ -321,21 +464,108 @@ async function executeToolCall(
     resultText = processed.outputText
     followUpMessages = processed.followUpMessages
   } catch (e) {
+    const message = `Error: ${e instanceof Error ? e.message : String(e)}`
     toolResult = {
-      content: [{ type: 'text', text: `Error: ${e instanceof Error ? e.message : String(e)}` }],
+      content: [{ type: 'text', text: message }],
       details: { error: String(e) }
     }
-    resultText = contentText(toolResult.content)
+    resultText = formatToolError(message)
+    failure = {
+      key: toolCallFailureKey(toolCall, 'runtime_error', parsedArgs),
+      toolName: toolCall.name
+    }
   }
 
   return {
     resultMsg: {
       role: 'tool',
       toolCallId: toolCall.id,
-      result: resultText || safeJsonStringify(toolResult.details)
+      result: wrapUntrustedToolOutput(resultText || safeJsonStringify(toolResult.details))
     },
-    followUpMessages
+    followUpMessages,
+    failure
   }
+}
+
+function formatToolError(message: string): string {
+  return `${message}\n${TOOL_ERROR_RECOVERY_HINT}`
+}
+
+/**
+ * Adds a nonce-bearing trust boundary around tool text before it is stored back
+ * into the model transcript. A malicious page/file/command output can include a
+ * fake closing delimiter, but it cannot predict the per-call nonce.
+ */
+function wrapUntrustedToolOutput(text: string): string {
+  const nonce = randomBytes(8).toString('hex')
+  return `<ankole_untrusted_tool_output nonce="${nonce}">\n${text}\n</ankole_untrusted_tool_output nonce="${nonce}">`
+}
+
+function repeatedToolFailureNudges(results: ExecutedToolCall[], state: RepeatedToolFailureState): UserMessage[] {
+  const nudges: UserMessage[] = []
+  for (const result of results) {
+    if (!result.failure) {
+      state.key = undefined
+      state.count = 0
+      continue
+    }
+
+    if (state.key === result.failure.key) {
+      state.count += 1
+    } else {
+      state.key = result.failure.key
+      state.count = 1
+    }
+
+    if (state.count === 2) {
+      nudges.push({
+        role: 'user',
+        content: `${REPEATED_TOOL_FAILURE_NUDGE}\nfailed_tool=${result.failure.toolName}`
+      })
+    }
+  }
+  return nudges
+}
+
+function toolCallFailureKey(toolCall: ToolCall, kind: string, args: unknown): string {
+  const stableInput = {
+    kind,
+    name: toolCall.name,
+    arguments: scrubVolatileToolArguments(parseToolArguments(args))
+  }
+  return createHash('sha256').update(stableJson(stableInput)).digest('hex').slice(0, 16)
+}
+
+function parseToolArguments(args: unknown): unknown {
+  if (typeof args !== 'string') return args
+  try {
+    return JSON.parse(args)
+  } catch {
+    return args
+  }
+}
+
+function scrubVolatileToolArguments(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(scrubVolatileToolArguments)
+  if (!value || typeof value !== 'object') return value
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => !VOLATILE_TOOL_ARGUMENT_KEYS.has(key))
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => [key, scrubVolatileToolArguments(entry)])
+  )
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`)
+      .join(',')}}`
+  }
+  return JSON.stringify(value) ?? 'null'
 }
 
 /**

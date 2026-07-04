@@ -447,6 +447,13 @@ Supported roots are worker filesystem roots, not S3 buckets:
 - `user_files`: worker-visible user files;
 - `agent_installed_skills`: worker-visible installed skill files.
 
+File-lane writes only move bytes. They do not make an installed skill visible by
+themselves. Before resolving `agent_conversation.context.resolve` for a turn,
+the worker scans `/workspace/shared/skills/agents/<agent_uid>` and sends an
+authoritative `skills.installed.replace` RPC with observations. The control
+plane records those rows in `agent_skills`; deletion is represented by the
+worker's next empty or reduced observation set.
+
 The S3 comparison is only a product metaphor: the control plane can ask the
 worker to read or write file-like objects. It is not a technical decision to
 introduce S3 object keys, buckets, storage classes, presigned URLs, or a generic

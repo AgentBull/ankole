@@ -10,6 +10,10 @@ const ForegroundCommandTimeoutMaxSeconds = Math.max(
   Math.floor((TEXT_TURN_TIMEOUT_MS - TOOL_TIMEOUT_MARGIN_MS) / 1000)
 )
 const BackgroundCommandTimeoutMaxSeconds = 1800
+const SYSTEM_ROOT_TRAVERSAL_COMMANDS = new Set(['du', 'find', 'tree'])
+const RECURSIVE_LIST_COMMANDS = new Set(['ls'])
+const RECURSIVE_SEARCH_COMMANDS = new Set(['grep', 'egrep', 'fgrep', 'ag'])
+const RECURSIVE_BY_DEFAULT_SEARCH_COMMANDS = new Set(['rg'])
 
 const CommandParams = z
   .object({
@@ -126,6 +130,14 @@ export function createCommandTool(context: ComputerToolContext): AgentTool<typeo
         return backgroundResult(snapshot, { incremental: action === 'status' })
       }
 
+      const rootTraversalRefusal = systemRootTraversalRefusal(params.command!)
+      if (rootTraversalRefusal) {
+        return {
+          content: [{ type: 'text', text: rootTraversalRefusal }],
+          details: { exitCode: 2 }
+        }
+      }
+
       // `-lc` runs a login shell so any profile sourced inside the sandbox is applied. The sandbox
       // starts from bubblewrap `--clearenv`: only a fixed set of vars (PATH/HOME/LANG/TERM/
       // ANKOLE_WORKSPACE_ROOT, plus validated caller env) is injected, so this is the sandbox
@@ -169,6 +181,144 @@ export function createCommandTool(context: ComputerToolContext): AgentTool<typeo
       }
     }
   }
+}
+
+/**
+ * Rejects obvious filesystem-wide scans before they reach the sandbox.
+ *
+ * This is deliberately conservative: it is not a full shell parser and only
+ * blocks commands that plainly point common recursive walkers/searchers at `/`.
+ * Workspace scans (`/workspace`, `.`, relative paths) still run through the
+ * normal command path and keep the existing timeout/output truncation behavior.
+ */
+function systemRootTraversalRefusal(command: string): string | undefined {
+  for (const segment of shellCommandSegments(command)) {
+    const words = unwrapCommandWords(shellWords(segment))
+    const commandName = commandBasename(words[0])
+    if (!commandName) continue
+
+    const args = words.slice(1)
+    if (!hasSystemRootPathArg(args)) continue
+
+    if (SYSTEM_ROOT_TRAVERSAL_COMMANDS.has(commandName)) {
+      return formatSystemRootTraversalRefusal(commandName)
+    }
+    if (RECURSIVE_LIST_COMMANDS.has(commandName) && hasRecursiveFlag(args)) {
+      return formatSystemRootTraversalRefusal(commandName)
+    }
+    if (RECURSIVE_SEARCH_COMMANDS.has(commandName) && hasRecursiveFlag(args) && hasPatternBeforeRoot(args)) {
+      return formatSystemRootTraversalRefusal(commandName)
+    }
+    if (RECURSIVE_BY_DEFAULT_SEARCH_COMMANDS.has(commandName) && hasSearchTargetBeforeRoot(args)) {
+      return formatSystemRootTraversalRefusal(commandName)
+    }
+  }
+
+  return undefined
+}
+
+function formatSystemRootTraversalRefusal(commandName: string): string {
+  return [
+    `Refused command: ${commandName} over the system root "/" is not allowed.`,
+    'Narrow the command to /workspace, a relative path, or a specific known subdirectory.'
+  ].join('\n')
+}
+
+function shellCommandSegments(command: string): string[] {
+  return command.split(/\n|&&|\|\||;|\|/g).map(segment => segment.trim())
+}
+
+function shellWords(segment: string): string[] {
+  const words: string[] = []
+  let current = ''
+  let quote: '"' | "'" | undefined
+  let escaped = false
+
+  for (const char of segment) {
+    if (escaped) {
+      current += char
+      escaped = false
+      continue
+    }
+    if (char === '\\' && quote !== "'") {
+      escaped = true
+      continue
+    }
+    if (quote) {
+      if (char === quote) quote = undefined
+      else current += char
+      continue
+    }
+    if (char === '"' || char === "'") {
+      quote = char
+      continue
+    }
+    if (/\s/.test(char)) {
+      if (current.length > 0) {
+        words.push(current)
+        current = ''
+      }
+      continue
+    }
+    current += char
+  }
+
+  if (current.length > 0) words.push(current)
+  return words
+}
+
+function unwrapCommandWords(words: string[]): string[] {
+  let remaining = skipEnvAssignments(words)
+  while (remaining.length > 0) {
+    const commandName = commandBasename(remaining[0])
+    if (commandName === 'env') {
+      remaining = skipEnvAssignments(remaining.slice(1))
+      continue
+    }
+    if (commandName === 'sudo' || commandName === 'command' || commandName === 'time' || commandName === 'nohup') {
+      remaining = remaining.slice(1)
+      continue
+    }
+    if (commandName === 'timeout') {
+      remaining = remaining.slice(2)
+      continue
+    }
+    break
+  }
+  return remaining
+}
+
+function skipEnvAssignments(words: string[]): string[] {
+  let index = 0
+  while (index < words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[index]!)) index += 1
+  return words.slice(index)
+}
+
+function commandBasename(word: string | undefined): string | undefined {
+  if (!word) return undefined
+  return word.replace(/^.*\//, '')
+}
+
+function hasSystemRootPathArg(args: string[]): boolean {
+  return args.some(isSystemRootPathArg)
+}
+
+function isSystemRootPathArg(arg: string): boolean {
+  return arg === '/' || arg === '/*'
+}
+
+function hasRecursiveFlag(args: string[]): boolean {
+  return args.some(arg => arg === '--recursive' || /^-[A-Za-z]*[Rr][A-Za-z]*$/.test(arg))
+}
+
+function hasPatternBeforeRoot(args: string[]): boolean {
+  const rootIndex = args.findIndex(isSystemRootPathArg)
+  return rootIndex > 0 && args.slice(0, rootIndex).some(arg => arg !== '--' && !arg.startsWith('-'))
+}
+
+function hasSearchTargetBeforeRoot(args: string[]): boolean {
+  if (args.includes('--files')) return true
+  return hasPatternBeforeRoot(args)
 }
 
 /**

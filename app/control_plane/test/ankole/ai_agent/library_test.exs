@@ -6,6 +6,7 @@ defmodule Ankole.AIAgent.LibraryTest do
   alias Ankole.AIAgent.Library
   alias Ankole.AIAgent.Library.Schemas.AgentSkill
   alias Ankole.AIAgent.Library.Schemas.AgentSkillOverlay
+  alias Ankole.AIAgent.Library.SourceReader
   alias Ankole.Repo
 
   setup do
@@ -123,5 +124,106 @@ defmodule Ankole.AIAgent.LibraryTest do
 
     assert {:ok, skills} = Library.enabled_skills_for_agent(agent.uid)
     assert Enum.any?(skills, &(&1["skill_name"] == "agent-notes"))
+  end
+
+  test "set_agent_skill_enabled updates an existing registry row through the context facade" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, %AgentSkill{enabled: false}} =
+             Library.set_agent_skill_enabled(agent.uid, "nano-pdf", false)
+
+    assert {:error, :skill_not_enabled} = Library.skill_view(agent.uid, "nano-pdf")
+
+    assert {:ok, %AgentSkill{enabled: true}} =
+             Library.set_agent_skill_enabled(agent.uid, "nano-pdf", true)
+
+    assert {:ok, _skill} = Library.skill_view(agent.uid, "nano-pdf")
+  end
+
+  test "source reader uses runtime roots, internal shadowing, and fixed scan exclusions" do
+    root = tmp_library_root!("source-reader")
+    public_skill = Path.join([root, "library", "skills", "shadowed"])
+    public_only_skill = Path.join([root, "library", "skills", "public-only"])
+    internal_skill = Path.join([root, "internal", "shadowed"])
+
+    write_skill!(public_skill, "shadowed", "Public description.", "# Public")
+    write_skill!(public_only_skill, "public-only", "Public-only description.", "# Public only")
+    write_skill!(internal_skill, "shadowed", "Internal description.", "# Internal")
+
+    File.mkdir_p!(Path.join(internal_skill, "target"))
+    File.write!(Path.join([internal_skill, "target", "ignored.txt"]), "must not be scanned")
+    File.mkdir_p!(Path.join(internal_skill, "node_modules"))
+    File.write!(Path.join([internal_skill, "node_modules", "ignored.txt"]), "must not be scanned")
+    File.mkdir_p!(Path.join(internal_skill, "__pycache__"))
+    File.write!(Path.join([internal_skill, "__pycache__", "ignored.pyc"]), "must not be scanned")
+
+    with_library_config(
+      library_root: Path.join(root, "library"),
+      internal_skills_root: Path.join(root, "internal")
+    )
+
+    assert {:ok, sources} = SourceReader.read_builtin_skill_sources()
+    assert Enum.map(sources, & &1.name) == ["public-only", "shadowed"]
+
+    shadowed = Enum.find(sources, &(&1.name == "shadowed"))
+    assert shadowed.description == "Internal description."
+    assert shadowed.metadata["skill_root"] == "internal"
+    refute Enum.any?(shadowed.files, &String.starts_with?(&1.path, "target/"))
+    refute Enum.any?(shadowed.files, &String.starts_with?(&1.path, "node_modules/"))
+    refute Enum.any?(shadowed.files, &String.starts_with?(&1.path, "__pycache__/"))
+
+    assert {:ok, content} = SourceReader.read_builtin_skill_file("shadowed", "SKILL.md")
+    assert content =~ "# Internal"
+
+    with_library_config(
+      library_root: Path.join(root, "library"),
+      internal_skills_root: Path.join(root, "missing-internal")
+    )
+
+    assert {:ok, sources_without_internal} = SourceReader.read_builtin_skill_sources()
+    assert Enum.map(sources_without_internal, & &1.name) == ["public-only", "shadowed"]
+
+    assert Enum.find(sources_without_internal, &(&1.name == "shadowed")).description ==
+             "Public description."
+  end
+
+  defp tmp_library_root!(name) do
+    root =
+      Path.join([
+        System.tmp_dir!(),
+        "ankole-library-test-#{name}-#{System.unique_integer([:positive])}"
+      ])
+
+    File.rm_rf!(root)
+    File.mkdir_p!(root)
+    on_exit(fn -> File.rm_rf!(root) end)
+    root
+  end
+
+  defp write_skill!(dir, name, description, body) do
+    File.mkdir_p!(dir)
+
+    File.write!(Path.join(dir, "SKILL.md"), """
+    ---
+    name: #{name}
+    description: #{description}
+    default_enabled: true
+    category: test
+    ---
+
+    #{body}
+    """)
+  end
+
+  defp with_library_config(config) do
+    previous = Application.get_env(:ankole, Ankole.AIAgent.Library, [])
+
+    Application.put_env(
+      :ankole,
+      Ankole.AIAgent.Library,
+      Keyword.merge(previous, Keyword.put(config, :source_cache_ttl_ms, 0))
+    )
+
+    on_exit(fn -> Application.put_env(:ankole, Ankole.AIAgent.Library, previous) end)
   end
 end
