@@ -6,7 +6,27 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
   alias Ankole.AIGateway.Providers
   alias Ankole.Kernel.UniversalAIClient
 
-  test "responses dispatch strips previous_response_id and applies provider options" do
+  test "responses dispatch rejects stateful HTTP fields before provider dispatch" do
+    %{principal: agent} = agent_fixture()
+
+    for {field, request} <- [
+          {"previous_response_id",
+           %{"model" => "primary", "input" => "hello", "previous_response_id" => "resp_old"}},
+          {"conversation",
+           %{"model" => "primary", "input" => "hello", "conversation" => "conv_old"}},
+          {"store", %{"model" => "primary", "input" => "hello", "store" => true}}
+        ] do
+      assert {:error, {:stateful_http_field_forbidden, ^field}} =
+               AIGateway.create_response(agent.uid, request)
+
+      assert {:error, {:stateful_http_field_forbidden, ^field}} =
+               AIGateway.open_sse_stream(agent.uid, Map.put(request, "stream", true))
+    end
+
+    refute_receive {:gateway_request, _request}
+  end
+
+  test "responses dispatch applies provider options" do
     %{principal: agent} = agent_fixture()
 
     base_url =
@@ -46,7 +66,6 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              AIGateway.create_response(agent.uid, %{
                "model" => "primary",
                "input" => "hello",
-               "previous_response_id" => "resp_old",
                "stream" => true
              })
 
@@ -58,12 +77,31 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert request.body["stream"] == false
     assert request.body["input"] == "hello"
     assert request.body["reasoningEffort"] == "minimal"
-    refute Map.has_key?(request.body, "previous_response_id")
 
     assert body["id"] == "resp_test"
     assert body["model"] == "gpt-5.5"
     assert model_ref["selector"] == "primary"
     assert model_ref["provider_id"] == "openai-responses-main"
+  end
+
+  test "websocket responses require store true before continuation fields" do
+    %{principal: agent} = agent_fixture()
+
+    for request <- [
+          %{"model" => "primary", "input" => "hello", "previous_response_id" => "resp_old"},
+          %{"model" => "primary", "input" => "hello", "conversation" => "conv_old"},
+          %{
+            "model" => "primary",
+            "input" => "hello",
+            "store" => false,
+            "conversation" => "conv_old"
+          }
+        ] do
+      assert {:error, :stateful_store_required} =
+               AIGateway.open_websocket_stream(agent.uid, request)
+    end
+
+    refute_receive {:gateway_request, _request}
   end
 
   test "explicit provider selectors can carry request-scoped provider options" do

@@ -84,16 +84,7 @@ defmodule Ankole.KernelTest do
         type: "turn_start",
         turn_start: %{
           turn: actor_turn_ref(),
-          inputs: [
-            %{
-              actor_input_id: "input-1",
-              live_queue_sequence: 1,
-              type: "im.message.addressed",
-              ingress_event_id: "event-1",
-              provider_entry_id: "message-1",
-              payload_json: %{"text" => "PING"}
-            }
-          ]
+          actor_event: actor_event_envelope()
         }
       }
     }
@@ -112,7 +103,7 @@ defmodule Ankole.KernelTest do
                      "session_id" => "signal-channel:lark:dm:1"
                    }
                  },
-                 "inputs" => [%{"payload_json" => %{"text" => "PING"}}]
+                 "actor_event" => %{"payload_json" => %{"text" => "PING"}}
                }
              }
            } = RuntimeFabric.decode_envelope(encoded)
@@ -130,12 +121,31 @@ defmodule Ankole.KernelTest do
                  type: "turn_start",
                  turn_start: %{
                    turn: put_in(actor_turn_ref(), [:actor, :display_name], "ReleaseBot"),
-                   inputs: []
+                   actor_event: actor_event_envelope()
                  }
                }
              })
 
     assert reason =~ "ActorKey must not carry display_name"
+  end
+
+  test "runtime fabric turn_start requires one actor event" do
+    assert {:error, reason} =
+             RuntimeFabric.encode_envelope(%{
+               protocol_version: 1,
+               message_id: "turn-start-missing-event",
+               correlation_id: "turn-start-missing-event",
+               lane: "LANE_TURN",
+               durability: "CONTROL_REPLAYABLE",
+               body: %{
+                 type: "turn_start",
+                 turn_start: %{
+                   turn: actor_turn_ref()
+                 }
+               }
+             })
+
+    assert reason =~ "turn_start.actor_event is required"
   end
 
   test "runtime fabric encodes and decodes generic RPC envelopes" do
@@ -248,14 +258,7 @@ defmodule Ankole.KernelTest do
                  type: "turn_start",
                  turn_start: %{
                    turn: actor_turn_ref(),
-                   inputs: [
-                     %{
-                       actor_input_id: "input-1",
-                       live_queue_sequence: 1,
-                       type: "im.message.addressed",
-                       ingress_event_id: "event-1"
-                     }
-                   ]
+                   actor_event: actor_event_envelope()
                  }
                }
              })
@@ -800,8 +803,19 @@ defmodule Ankole.KernelTest do
       },
       activation_uid: "activation-1",
       actor_epoch: 1,
-      llm_turn_id: "11111111-1111-1111-1111-111111111111",
+      actor_event_id: "11111111-1111-1111-1111-111111111111",
       revision: 0
+    }
+  end
+
+  defp actor_event_envelope do
+    %{
+      actor_event_id: "00000000-0000-0000-0000-000000000001",
+      queue_sequence: 1,
+      type: "im.message.addressed",
+      source_event_id: "event-1",
+      source_entry_id: "message-1",
+      payload_json: %{"text" => "PING"}
     }
   end
 
@@ -816,15 +830,7 @@ defmodule Ankole.KernelTest do
         type: "turn_start",
         turn_start: %{
           turn: actor_turn_ref(),
-          inputs: [
-            %{
-              actor_input_id: "input-1",
-              live_queue_sequence: 1,
-              type: "im.message.addressed",
-              ingress_event_id: "event-1",
-              payload_json: %{"text" => "PING"}
-            }
-          ]
+          actor_event: actor_event_envelope()
         }
       }
     }

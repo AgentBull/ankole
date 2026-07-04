@@ -40,7 +40,7 @@ describe('@ankole/kernel', () => {
       'genUUID',
       'genUUIDv7',
       'xxh3_128_hex',
-      'xxh3File128Hex',
+      'xxh3File128Hex'
     ]) {
       expect(kernel[name as keyof typeof kernel]).toBeFunction()
     }
@@ -60,7 +60,7 @@ describe('@ankole/kernel', () => {
     expect(kernel.genericHash('bullx')).toBe('7f31cabae40697f9404428671c582d3c1f80c8a13d0741f4be8c9b856fcc0706')
     expect(kernel.bs58Hash(Buffer.from('bullx'))).toBe('9ZWpCkNYVXH91wFYb4cygXBxLe2xwsK9rBTVxwPMicWZ')
     expect(kernel.deriveKey('seed', 'tenant-A', 'scope-a')).toBe(
-      '0553f445a2fb3dfc0fab4efa1e1ed31ef6a103277286cf63874904e341ee0d20',
+      '0553f445a2fb3dfc0fab4efa1e1ed31ef6a103277286cf63874904e341ee0d20'
     )
   })
 
@@ -80,10 +80,10 @@ describe('@ankole/kernel', () => {
         aud: 'ankole.web_console',
         sub: 'human-1',
         exp: 4102444800,
-        token_use: 'access',
+        token_use: 'access'
       },
       'jwt-secret',
-      { algorithm: 'HS256', key_id: 'test-key' },
+      { algorithm: 'HS256', key_id: 'test-key' }
     )
 
     expect(
@@ -91,8 +91,8 @@ describe('@ankole/kernel', () => {
         algorithms: ['HS256'],
         iss: ['ankole.control_plane'],
         aud: ['ankole.web_console'],
-        sub: 'human-1',
-      }),
+        sub: 'human-1'
+      })
     ).toMatchObject({ sub: 'human-1', token_use: 'access' })
     expect(kernel.jwtDecodeHeader(token)).toMatchObject({ algorithm: 'HS256', key_id: 'test-key' })
   })
@@ -107,24 +107,26 @@ describe('@ankole/kernel', () => {
           id: 'msg-1',
           sender_key: 'lark:user:alice',
           text: 'hello from lark',
-          metadata: { repository: 'ankole' },
-        },
-      },
+          metadata: { repository: 'ankole' }
+        }
+      }
     }
 
     expect(kernel.signalsGatewayValidateFilter("signal.channel.id == 'lark:chat:group-a'")).toBe(true)
     expect(
       kernel.signalsGatewayFilterMatch(
         "binding.name == 'bot' && signal.entry.sender_key.startsWith('lark:user:')",
-        context,
-      ),
+        context
+      )
     ).toBe(true)
     expect(kernel.signalsGatewayFilterMatch("signal.channel.kind == 'im_dm'", context)).toBe(false)
 
     expect(() => kernel.signalsGatewayValidateFilter('signal.')).toThrow(/invalid signal filter/)
-    expect(() => kernel.signalsGatewayFilterMatch('signal.entry.text', context)).toThrow(/signal filter returned string/)
+    expect(() => kernel.signalsGatewayFilterMatch('signal.entry.text', context)).toThrow(
+      /signal filter returned string/
+    )
     expect(() => kernel.signalsGatewayFilterMatch('signal.entry.missing', context)).toThrow(
-      /signal filter execution failed/,
+      /signal filter execution failed/
     )
     expect(() => kernel.signalsGatewayFilterMatch('true', {})).toThrow(/signal filter context must include binding/)
   })
@@ -141,18 +143,9 @@ describe('@ankole/kernel', () => {
         type: 'turn_start',
         turn_start: {
           turn: actorTurnRef(),
-          inputs: [
-            {
-              actor_input_id: 'input-1',
-              live_queue_sequence: 1,
-              type: 'im.message.addressed',
-              ingress_event_id: 'event-1',
-              provider_entry_id: 'message-1',
-              payload_json: { text: 'PING' },
-            },
-          ],
-        },
-      },
+          actor_event: actorEventEnvelope()
+        }
+      }
     }
 
     const encoded = kernel.runtimeFabricEncodeEnvelope(envelope)
@@ -162,12 +155,12 @@ describe('@ankole/kernel', () => {
     expect(decoded.body.type).toBe('turn_start')
     expect(decoded.body.turn_start.turn.actor).toEqual({
       agent_uid: 'agent-1',
-      session_id: 'signal-channel:lark:dm:1',
+      session_id: 'signal-channel:lark:dm:1'
     })
-    expect(decoded.body.turn_start.inputs[0].payload_json.text).toBe('PING')
+    expect(decoded.body.turn_start.actor_event.payload_json.text).toBe('PING')
   })
 
-  it('encodes and decodes RuntimeFabric mailbox updates with turn inputs', () => {
+  it('encodes and decodes RuntimeFabric mailbox updates without inline inputs', () => {
     const envelope = {
       protocol_version: 1,
       message_id: 'mailbox-updated-1',
@@ -178,25 +171,16 @@ describe('@ankole/kernel', () => {
         type: 'mailbox_updated',
         mailbox_updated: {
           turn: actorTurnRef(),
-          reason: 'command.steer',
-          inputs: [
-            {
-              actor_input_id: 'steer-1',
-              live_queue_sequence: 2,
-              type: 'command.steer',
-              ingress_event_id: 'event-steer-1',
-              payload_json: { data: { command: { argsText: 'change course' } } },
-            },
-          ],
-        },
-      },
+          reason: 'command.steer'
+        }
+      }
     }
 
     const decoded = kernel.runtimeFabricDecodeEnvelope(kernel.runtimeFabricEncodeEnvelope(envelope))
 
     expect(decoded.body.type).toBe('mailbox_updated')
-    expect(decoded.body.mailbox_updated.turn.llm_turn_id).toBe('11111111-1111-1111-1111-111111111111')
-    expect(decoded.body.mailbox_updated.inputs[0].payload_json.data.command.argsText).toBe('change course')
+    expect(decoded.body.mailbox_updated.turn.actor_event_id).toBe('11111111-1111-1111-1111-111111111111')
+    expect(decoded.body.mailbox_updated.inputs).toBeUndefined()
   })
 
   it('encodes and decodes RuntimeFabric final proposal reply attachments', () => {
@@ -221,13 +205,13 @@ describe('@ankole/kernel', () => {
                   user_files_relative_path: 'reports/a.txt',
                   name: 'report.txt',
                   mime_type: 'text/plain',
-                  size: 16,
-                },
-              ],
-            },
-          },
-        },
-      }),
+                  size: 16
+                }
+              ]
+            }
+          }
+        }
+      })
     )
 
     expect(decoded.body.turn_final_proposal.reply.attachments[0]).toMatchObject({
@@ -235,7 +219,7 @@ describe('@ankole/kernel', () => {
       user_files_relative_path: 'reports/a.txt',
       name: 'report.txt',
       mime_type: 'text/plain',
-      size: 16,
+      size: 16
     })
   })
 
@@ -251,10 +235,10 @@ describe('@ankole/kernel', () => {
           type: 'turn_final_proposal',
           turn_final_proposal: {
             turn: actorTurnRef(),
-            messages: [],
-          },
-        },
-      }),
+            messages: []
+          }
+        }
+      })
     )
 
     expect(decoded.body.type).toBe('turn_final_proposal')
@@ -276,14 +260,32 @@ describe('@ankole/kernel', () => {
               ...actorTurnRef(),
               actor: {
                 ...actorTurnRef().actor,
-                display_name: 'ReleaseBot',
-              },
+                display_name: 'ReleaseBot'
+              }
             },
-            inputs: [],
-          },
-        },
-      }),
+            actor_event: actorEventEnvelope()
+          }
+        }
+      })
     ).toThrow(/ActorKey must not carry display_name/)
+  })
+
+  it('requires RuntimeFabric turn_start to carry one actor event', () => {
+    expect(() =>
+      kernel.runtimeFabricEncodeEnvelope({
+        protocol_version: 1,
+        message_id: 'turn-start-missing-event',
+        correlation_id: 'turn-start-missing-event',
+        lane: 'LANE_TURN',
+        durability: 'CONTROL_REPLAYABLE',
+        body: {
+          type: 'turn_start',
+          turn_start: {
+            turn: actorTurnRef()
+          }
+        }
+      })
+    ).toThrow(/turn_start\.actor_event is required/)
   })
 
   it('encodes and decodes RuntimeFabric RPC envelopes', () => {
@@ -302,16 +304,16 @@ describe('@ankole/kernel', () => {
             turn: {
               actor: {
                 agent_uid: 'agent-1',
-                session_id: 'signal-channel:lark:dm:1',
-              },
-            },
-          },
-        },
-      },
+                session_id: 'signal-channel:lark:dm:1'
+              }
+            }
+          }
+        }
+      }
     })
 
     expect(kernel.runtimeFabricDecodeEnvelope(encoded).body.rpc_request.method).toBe(
-      'agent_conversation.context.resolve',
+      'agent_conversation.context.resolve'
     )
   })
 
@@ -328,10 +330,10 @@ describe('@ankole/kernel', () => {
           turn_control: {
             turn: actorTurnRef(),
             command: 'steer',
-            payload_json: { text: 'inline steer is not allowed' },
-          },
-        },
-      }),
+            payload_json: { text: 'inline steer is not allowed' }
+          }
+        }
+      })
     ).toThrow(/steer payload must be empty/)
   })
 
@@ -346,17 +348,10 @@ describe('@ankole/kernel', () => {
           type: 'turn_start',
           turn_start: {
             turn: actorTurnRef(),
-            inputs: [
-              {
-                actor_input_id: 'input-1',
-                live_queue_sequence: 1,
-                type: 'im.message.addressed',
-                ingress_event_id: 'event-1',
-              },
-            ],
-          },
-        },
-      }),
+            actor_event: actorEventEnvelope()
+          }
+        }
+      })
     ).toThrow(/turn_start must use lane LANE_TURN/)
   })
 
@@ -377,7 +372,7 @@ describe('@ankole/kernel', () => {
       principal: {
         uid: 'alice',
         type: 'human',
-        status: 'active',
+        status: 'active'
       },
       staticGroupIds: [],
       computedGroups: [],
@@ -387,18 +382,18 @@ describe('@ankole/kernel', () => {
           principalUid: 'alice',
           resourcePattern: 'workspace:**',
           action: 'read',
-          condition: 'context.request.source == "test"',
-        },
+          condition: 'context.request.source == "test"'
+        }
       ],
       resource: 'workspace:default',
       action: 'read',
-      context: { source: 'test' },
+      context: { source: 'test' }
     })
 
     expect(decision).toMatchObject({
       status: 'allow',
       diagnostics: [],
-      effectiveGroupIds: [],
+      effectiveGroupIds: []
     })
   })
 
@@ -424,11 +419,22 @@ function actorTurnRef() {
   return {
     actor: {
       agent_uid: 'agent-1',
-      session_id: 'signal-channel:lark:dm:1',
+      session_id: 'signal-channel:lark:dm:1'
     },
     activation_uid: 'activation-1',
     actor_epoch: 1,
-    llm_turn_id: '11111111-1111-1111-1111-111111111111',
-    revision: 0,
+    actor_event_id: '11111111-1111-1111-1111-111111111111',
+    revision: 0
+  }
+}
+
+function actorEventEnvelope() {
+  return {
+    actor_event_id: '00000000-0000-0000-0000-000000000001',
+    queue_sequence: 1,
+    type: 'im.message.addressed',
+    source_event_id: 'event-1',
+    source_entry_id: 'message-1',
+    payload_json: { text: 'PING' }
   }
 }

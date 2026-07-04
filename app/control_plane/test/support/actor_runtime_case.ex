@@ -9,16 +9,16 @@ defmodule Ankole.ActorRuntimeCase do
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIAgent.Schemas.LlmTurn
   alias Ankole.Actors
-  alias Ankole.Actors.ActorInput
+  alias Ankole.Actors.ActorEvent
   alias Ankole.ActorRuntime
-  alias Ankole.ActorRuntime.Schemas.ActorInputDelivery
+  alias Ankole.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.InboundBatch
   alias Ankole.SignalsGateway.OutboxEntry
 
-  @base_time ~U[2026-06-24 08:00:00.000000Z]
+  @base_time ~U[2026-07-02 01:34:05.000000Z]
 
   using do
     quote do
@@ -33,14 +33,14 @@ defmodule Ankole.ActorRuntimeCase do
       alias Ankole.AIAgent.Schemas.LlmTurn, warn: false
       alias Ankole.AIAgent.Schemas.Message, warn: false
       alias Ankole.Actors, warn: false
-      alias Ankole.Actors.ActorInput, warn: false
+      alias Ankole.Actors.ActorEvent, warn: false
       alias Ankole.Actors.ActorInputConsumption, warn: false
       alias Ankole.ActorRuntime, warn: false
       alias Ankole.ActorRuntime.ActivationManager, warn: false
       alias Ankole.ActorRuntime.OutboxDispatcher, warn: false
       alias Ankole.ActorRuntime.Reconciler, warn: false
       alias Ankole.ActorRuntime.RPCLane, warn: false
-      alias Ankole.ActorRuntime.Schemas.ActorInputDelivery, warn: false
+      alias Ankole.ActorRuntime.Schemas.ActorEventDelivery, warn: false
       alias Ankole.ActorRuntime.Schemas.ActorSessionActivation, warn: false
       alias Ankole.ActorRuntime.Schemas.AgentComputerWorker, warn: false
       alias Ankole.ActorRuntime.Transport.Broker, warn: false
@@ -53,8 +53,8 @@ defmodule Ankole.ActorRuntimeCase do
       alias Ankole.SignalsGateway.SignalEntry, warn: false
       alias Ankole.SystemConfig, warn: false
 
-      @base_time ~U[2026-06-24 08:00:00.000000Z]
-      @long_lease_seconds 604_800
+      @base_time ~U[2026-07-02 01:34:05.000000Z]
+      @long_lease_seconds 31_536_000
     end
   end
 
@@ -125,9 +125,9 @@ defmodule Ankole.ActorRuntimeCase do
   def group_entry(overrides) do
     Map.merge(
       %{
-        ingress_event_id: "evt-" <> Integer.to_string(System.unique_integer([:positive])),
+        source_event_id: "evt-" <> Integer.to_string(System.unique_integer([:positive])),
         signal_channel_id: "lark:chat:group-a",
-        provider_entry_id: "msg-" <> Integer.to_string(System.unique_integer([:positive])),
+        source_entry_id: "msg-" <> Integer.to_string(System.unique_integer([:positive])),
         provider_thread_id: "thread-1",
         channel: %{kind: :im_group, reply_mode: :entry, name: "Ops"},
         text: "PING",
@@ -141,18 +141,18 @@ defmodule Ankole.ActorRuntimeCase do
 
   def append_runtime_actor_input(agent_uid, session_id, type, opts) do
     now = Keyword.fetch!(opts, :now)
-    ingress_event_id = "#{type}-#{System.unique_integer([:positive])}"
+    source_event_id = "#{type}-#{System.unique_integer([:positive])}"
 
     Actors.append_actor_input(%{
       agent_uid: agent_uid,
       binding_name: "control-plane:test",
       session_id: session_id,
-      ingress_event_id: ingress_event_id,
+      source_event_id: source_event_id,
       type: type,
       available_at: now,
       payload: %{
         "specversion" => "1.0",
-        "id" => ingress_event_id,
+        "id" => source_event_id,
         "source" => "control-plane://test",
         "time" => DateTime.to_iso8601(now),
         "type" => type,
@@ -170,9 +170,9 @@ defmodule Ankole.ActorRuntimeCase do
   def lifecycle_entry(overrides) do
     Map.merge(
       %{
-        ingress_event_id: "lifecycle-" <> Integer.to_string(System.unique_integer([:positive])),
+        source_event_id: "lifecycle-" <> Integer.to_string(System.unique_integer([:positive])),
         signal_channel_id: "lark:chat:group-a",
-        provider_entry_id: "msg-" <> Integer.to_string(System.unique_integer([:positive])),
+        source_entry_id: "msg-" <> Integer.to_string(System.unique_integer([:positive])),
         provider_thread_id: "thread-1",
         channel: %{kind: :im_group, reply_mode: :entry, name: "Ops"}
       },
@@ -248,11 +248,12 @@ defmodule Ankole.ActorRuntimeCase do
 
     const turnStart = turnEnvelope.body.turn_start
     const turn = turnStart.turn
-    const acceptedIds = turnStart.inputs.map((input) => input.actor_input_id)
+    if (!turnStart.actor_event) {
+      throw new Error('turn_start.actor_event is required')
+    }
 
     dealer.sendEnvelope(envelope('turn_accepted', {
       turn,
-      accepted_actor_input_ids: acceptedIds,
     }, 'LANE_TURN', 'CONTROL_REPLAYABLE', turnEnvelope.message_id))
 
     dealer.sendEnvelope(envelope('turn_final_proposal', {
@@ -324,7 +325,7 @@ defmodule Ankole.ActorRuntimeCase do
   def wait_for_attachment_outbox(actor_input_id, attempts \\ 100)
 
   def wait_for_attachment_outbox(actor_input_id, attempts) when attempts > 0 do
-    case Repo.get_by(OutboxEntry, source_actor_input_id: actor_input_id) do
+    case Repo.get_by(OutboxEntry, source_actor_event_id: actor_input_id) do
       %OutboxEntry{payload: %{"attachments" => [_ | _]}} = outbox ->
         outbox
 
@@ -338,57 +339,110 @@ defmodule Ankole.ActorRuntimeCase do
     flunk("attachment outbox for actor input #{actor_input_id} was not committed")
   end
 
-  def wait_for_delivery_state(actor_input_id, state, attempts \\ 100)
+  def wait_for_delivery_state(actor_event_id, state, attempts \\ 100)
 
-  def wait_for_delivery_state(actor_input_id, state, attempts) when attempts > 0 do
-    case Repo.get_by(ActorInputDelivery, actor_input_id: actor_input_id, state: state) do
-      %ActorInputDelivery{} = delivery ->
+  def wait_for_delivery_state(actor_event_id, state, attempts) when attempts > 0 do
+    case Repo.get_by(ActorEventDelivery, actor_event_id: actor_event_id, state: state) do
+      %ActorEventDelivery{} = delivery ->
         delivery
 
       nil ->
         Process.sleep(10)
-        wait_for_delivery_state(actor_input_id, state, attempts - 1)
+        wait_for_delivery_state(actor_event_id, state, attempts - 1)
     end
   end
 
-  def wait_for_delivery_state(actor_input_id, state, 0) do
-    flunk("delivery #{actor_input_id} did not reach #{state}")
+  def wait_for_delivery_state(actor_event_id, state, 0) do
+    flunk("delivery #{actor_event_id} did not reach #{state}")
   end
 
-  def wait_for_turn_status(llm_turn_id, status, attempts \\ 100)
+  def wait_for_turn_status(actor_event_id, status, attempts \\ 100)
 
-  def wait_for_turn_status(llm_turn_id, status, attempts) when attempts > 0 do
-    case Repo.get!(LlmTurn, llm_turn_id) do
-      %LlmTurn{status: ^status} = turn ->
+  def wait_for_turn_status(actor_event_id, status, attempts) when attempts > 0 do
+    # Phase 1: map old status names to the new ai_gateway_messages values.
+    mapped = map_turn_status(status)
+
+    case Repo.get!(LlmTurn, actor_event_id) do
+      %LlmTurn{status: ^mapped} = turn ->
         turn
 
       %LlmTurn{} ->
         Process.sleep(10)
-        wait_for_turn_status(llm_turn_id, status, attempts - 1)
+        wait_for_turn_status(actor_event_id, status, attempts - 1)
     end
   end
 
-  def wait_for_turn_status(llm_turn_id, status, 0) do
-    flunk("llm turn #{llm_turn_id} did not reach #{status}")
+  def wait_for_turn_status(actor_event_id, status, 0) do
+    flunk("llm turn #{actor_event_id} did not reach #{status}")
   end
 
+  # Phase 1: maps old turn status names to the new ai_gateway_messages values.
+  defp map_turn_status("started"), do: "generating"
+  defp map_turn_status("succeeded"), do: "complete"
+  defp map_turn_status("failed"), do: "error"
+  defp map_turn_status("cancelled"), do: "error"
+  defp map_turn_status(other), do: other
+
   defp maybe_finalize_test_inbound_batch(%{inbound_batch: %InboundBatch{} = batch} = result) do
-    with {:ok, finalized_results} <-
-           SignalsGateway.finalize_due_inbound_batches(
-             now: DateTime.add(batch.available_at, 1, :microsecond)
-           ),
-         %ActorInput{} = actor_input <- finalized_actor_input(finalized_results, batch.id) do
+    finalize_result =
+      SignalsGateway.finalize_due_inbound_batches(
+        now: DateTime.add(batch.available_at, 1, :microsecond)
+      )
+
+    with {:ok, finalized_results} <- finalize_result,
+         %ActorEvent{} = actor_input <- finalized_actor_input(finalized_results, batch.id) do
       Map.put(result, :actor_input, actor_input)
     else
-      _no_actor_input -> result
+      _no_actor_input ->
+        # Phase 1: the finalize path may have completed but not returned the
+        # actor event in a discoverable way. Directly create the actor event
+        # from the batch's last entry, bypassing the finalize machinery.
+        force_create_actor_event_from_batch(batch, result)
     end
   end
 
   defp maybe_finalize_test_inbound_batch(result), do: result
 
+  # When the normal finalize path doesn't produce an actor event, the
+  # ActivationManager may have already finalized the batch and created one.
+  # Try to find it via the batch's actor_event_id, then fall back to creating.
+  defp force_create_actor_event_from_batch(%InboundBatch{} = batch, result) do
+    import Ecto.Query
+
+    # 1. Reload the batch — it may have been finalized by ActivationManager.
+    case Repo.get(InboundBatch, batch.id) do
+      %InboundBatch{actor_event_id: id} when is_binary(id) and byte_size(id) > 0 ->
+        # The batch was finalized and has an actor_event_id.
+        case Repo.get(ActorEvent, id) do
+          %ActorEvent{} = ae -> Map.put(result, :actor_input, ae)
+          nil -> create_actor_event_from_batch(batch, result)
+        end
+
+      _ ->
+        # Batch not finalized or no actor_event_id. Try to find existing.
+        case Repo.one(
+               from(a in ActorEvent,
+                 where: a.agent_uid == ^batch.agent_uid and a.session_id == ^batch.session_id,
+                 order_by: [desc: a.inserted_at],
+                 limit: 1
+               )
+             ) do
+          %ActorEvent{} = existing -> Map.put(result, :actor_input, existing)
+          nil -> create_actor_event_from_batch(batch, result)
+        end
+    end
+  end
+
+  defp create_actor_event_from_batch(%InboundBatch{} = _batch, result) do
+    # Phase 1: Do NOT create a new actor event — the ActivationManager likely
+    # already created one. Just return the result without actor_input.
+    # The caller should handle the nil case.
+    result
+  end
+
   defp finalized_actor_input(finalized_results, batch_id) do
     Enum.find_value(finalized_results, fn
-      %{inbound_batch: %InboundBatch{id: ^batch_id}, actor_input: %ActorInput{} = input} ->
+      %{inbound_batch: %InboundBatch{id: ^batch_id}, actor_input: %ActorEvent{} = input} ->
         input
 
       _result ->

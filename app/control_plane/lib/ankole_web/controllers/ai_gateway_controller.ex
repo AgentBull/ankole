@@ -221,6 +221,11 @@ defmodule AnkoleWeb.AIGatewayController do
   defp error_tuple(:invalid_request_body),
     do: {400, "invalid_request_body", "JSON object body required"}
 
+  defp error_tuple({:stateful_http_field_forbidden, field}),
+    do:
+      {400, "stateful_responses_require_websocket",
+       "#{field} is only supported on WebSocket response.create with store=true"}
+
   defp error_tuple(:provider_disabled), do: {422, "provider_disabled", "provider is disabled"}
   defp error_tuple(:not_found), do: {404, "not_found", "resource not found"}
   defp error_tuple(:agent_not_found), do: {404, "agent_not_found", "agent not found"}

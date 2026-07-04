@@ -1,0 +1,230 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+CONTROL_PLANE_DIR="$ROOT_DIR/app/control_plane"
+WORKER_IMAGE="ankole-agent-computer:0.1.0"
+POSTGRES_PORT="${POSTGRES_PORT:-5433}"
+
+if [[ -f "$HOME/.kiex/elixirs/elixir-1.20.1-29.env" ]]; then
+  # Keep the one-command entrypoint consistent with the Elixir version used by
+  # the rest of the Ankole control-plane checks on this machine.
+  # shellcheck disable=SC1090
+  source "$HOME/.kiex/elixirs/elixir-1.20.1-29.env"
+fi
+
+load_dotenv_file() {
+  local file="$1"
+
+  if [[ ! -f "$file" ]]; then
+    return
+  fi
+
+  echo "[e2e] loading dotenv $file"
+  set -a
+  # These files are local test-only dotenv files. Product provider configuration
+  # still comes from Web UI-created provider rows; this only feeds e2e fixtures.
+  # shellcheck disable=SC1090
+  source "$file"
+  set +a
+}
+
+load_e2e_dotenv() {
+  load_dotenv_file "$CONTROL_PLANE_DIR/.env.test"
+  load_dotenv_file "$CONTROL_PLANE_DIR/.env.test.local"
+  load_dotenv_file "$CONTROL_PLANE_DIR/.env.local"
+}
+
+load_e2e_dotenv
+
+usage() {
+  cat <<'EOF'
+Usage: tools/e2e/run [--gate|--perf|--chaos|--real-provider|--real-llm|--all]
+                     [--providers=name[,name]] [--only=<mix test filter>]
+                     [--no-build] [--no-services]
+
+Runs the Ankole end-to-end suites from one entrypoint. Preflight checks Docker,
+builds the worker image when missing, and starts the devkit Postgres when the
+test database port is unreachable.
+
+Modes:
+  --gate           Transport, main-flow, lifecycle, worker/computer, and
+                   schedule suites (default).
+  --perf           Concurrency/throughput baseline suite.
+  --chaos          Chaos suite (worker kill, fabric restart, redelivery,
+                   provider-send failures).
+  --real-provider  AI Gateway real-provider smoke checks (needs API keys).
+  --real-llm       Docker worker + real OpenRouter LLM suite (needs API key).
+  --all            Gate + perf + chaos, then real-provider/real-llm for the
+                   providers whose API keys are present.
+
+Options:
+  --providers=...  Provider groups for --real-provider:
+                   openrouter,jina,google,available
+  --only=VALUE     Forwarded to mix test as --only VALUE (suite modes only).
+  --no-build       Fail instead of building a missing worker image.
+  --no-services    Fail instead of starting the devkit Postgres.
+
+Examples:
+  tools/e2e/run
+  tools/e2e/run --all
+  tools/e2e/run --chaos
+  tools/e2e/run --real-provider --providers=openrouter,jina
+EOF
+}
+
+mode="gate"
+providers="available"
+only_filter=""
+allow_build=1
+allow_services=1
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --gate) mode="gate"; shift ;;
+    --perf) mode="perf"; shift ;;
+    --chaos) mode="chaos"; shift ;;
+    --real-provider) mode="real-provider"; shift ;;
+    --real-llm) mode="real-llm"; shift ;;
+    --all) mode="all"; shift ;;
+    --providers=*) providers="${1#--providers=}"; shift ;;
+    --providers) providers="${2:?--providers requires a value}"; shift 2 ;;
+    --only=*) only_filter="${1#--only=}"; shift ;;
+    --only) only_filter="${2:?--only requires a value}"; shift 2 ;;
+    --no-build) allow_build=0; shift ;;
+    --no-services) allow_services=0; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      usage >&2
+      exit 64
+      ;;
+  esac
+done
+
+log() { echo "[e2e] $*"; }
+
+postgres_reachable() {
+  (exec 3<>"/dev/tcp/127.0.0.1/$POSTGRES_PORT") 2>/dev/null && exec 3>&- && exec 3<&-
+}
+
+preflight_docker() {
+  if ! docker info >/dev/null 2>&1; then
+    echo "[e2e] Docker daemon is not reachable; the worker suites need Docker." >&2
+    exit 1
+  fi
+
+  if docker image inspect "$WORKER_IMAGE" >/dev/null 2>&1; then
+    return
+  fi
+
+  if [[ "$allow_build" -ne 1 ]]; then
+    echo "[e2e] Missing worker image $WORKER_IMAGE and --no-build was given." >&2
+    exit 1
+  fi
+
+  log "worker image $WORKER_IMAGE missing; building it"
+  docker build -f "$ROOT_DIR/app/agent_computer/Dockerfile" -t "$WORKER_IMAGE" "$ROOT_DIR"
+}
+
+preflight_postgres() {
+  if postgres_reachable; then
+    return
+  fi
+
+  if [[ "$allow_services" -ne 1 ]]; then
+    echo "[e2e] Postgres on port $POSTGRES_PORT is unreachable and --no-services was given." >&2
+    exit 1
+  fi
+
+  log "Postgres on port $POSTGRES_PORT unreachable; starting devkit services"
+  (cd "$ROOT_DIR" && bun run services:start)
+
+  for _attempt in $(seq 1 30); do
+    if postgres_reachable; then
+      return
+    fi
+    sleep 1
+  done
+
+  echo "[e2e] Postgres did not become reachable on port $POSTGRES_PORT." >&2
+  exit 1
+}
+
+run_mix() {
+  local task="$1"
+  shift
+  (cd "$CONTROL_PLANE_DIR" && mix "$task" "$@")
+}
+
+suite_args=()
+if [[ -n "$only_filter" ]]; then
+  suite_args+=(--only "$only_filter")
+fi
+
+run_gate() { run_mix e2e.gate "${suite_args[@]:+${suite_args[@]}}"; }
+run_perf() { run_mix e2e.perf "${suite_args[@]:+${suite_args[@]}}"; }
+run_chaos() { run_mix e2e.chaos "${suite_args[@]:+${suite_args[@]}}"; }
+
+run_real_llm() {
+  (cd "$CONTROL_PLANE_DIR" && ANKOLE_REAL_LLM_E2E=1 mix e2e.real_llm "${suite_args[@]:+${suite_args[@]}}")
+}
+
+run_real_provider() {
+  run_mix e2e.ai_gateway_real_provider -- --providers="$providers"
+}
+
+has_openrouter_key() {
+  [[ -n "${OPENROUTER_API_KEY:-}" ]] || [[ -n "${OPEN_ROUTER_API_KEY:-}" ]]
+}
+
+has_real_provider_env() {
+  has_openrouter_key ||
+    [[ -n "${JINA_API_KEY:-}" ]] ||
+    [[ -n "${GOOGLE_AI_STUDIO_API_KEY:-}" ]]
+}
+
+case "$mode" in
+  gate)
+    preflight_docker
+    preflight_postgres
+    run_gate
+    ;;
+  perf)
+    preflight_docker
+    preflight_postgres
+    run_perf
+    ;;
+  chaos)
+    preflight_docker
+    preflight_postgres
+    run_chaos
+    ;;
+  real-provider)
+    preflight_postgres
+    run_real_provider
+    ;;
+  real-llm)
+    preflight_docker
+    preflight_postgres
+    run_real_llm
+    ;;
+  all)
+    preflight_docker
+    preflight_postgres
+    run_gate
+    run_perf
+    run_chaos
+    if has_real_provider_env; then
+      providers="available"
+      run_real_provider
+    else
+      log "skipping AI Gateway real-provider e2e: no provider API keys are present"
+    fi
+    if has_openrouter_key; then
+      run_real_llm
+    else
+      log "skipping real-LLM worker e2e: no OpenRouter API key is present"
+    fi
+    ;;
+esac

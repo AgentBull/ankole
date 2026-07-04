@@ -301,7 +301,6 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       |> post(~p"/api/v1/ai-gateway/responses", %{
         "model" => "primary",
         "input" => "hello",
-        "previous_response_id" => "resp_old",
         "stream" => true
       })
 
@@ -331,11 +330,47 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert_receive {:gateway_request, request}
     assert request.path == "v1/responses"
     assert request.body["stream"] == true
-    refute Map.has_key?(request.body, "previous_response_id")
 
     assert %{"type" => "response.completed", "response" => body} = List.last(events)
     assert_openresponses_response_resource(body)
     assert body["previous_response_id"] == nil
+  end
+
+  test "responses endpoint rejects stateful fields on HTTP and SSE", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+
+    for {field, request} <- [
+          {"previous_response_id",
+           %{"model" => "primary", "input" => "hello", "previous_response_id" => "resp_old"}},
+          {"conversation",
+           %{"model" => "primary", "input" => "hello", "conversation" => "conv_old"}},
+          {"store", %{"model" => "primary", "input" => "hello", "store" => true}},
+          {"previous_response_id",
+           %{
+             "model" => "primary",
+             "input" => "hello",
+             "stream" => true,
+             "previous_response_id" => "resp_old"
+           }}
+        ] do
+      conn =
+        conn
+        |> recycle()
+        |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+        |> put_req_header("content-type", "application/json")
+        |> post(~p"/api/v1/ai-gateway/responses", request)
+
+      assert %{
+               "error" => %{
+                 "code" => "stateful_responses_require_websocket",
+                 "message" => message
+               }
+             } =
+               json_response(conn, 400)
+
+      assert message =~ field
+    end
   end
 
   test "native streaming route waits for upstream ready before sending SSE", %{conn: conn} do

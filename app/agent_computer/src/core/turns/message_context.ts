@@ -1,95 +1,43 @@
-import type { AgentMessage } from '../types'
-import type { TextContent, UserMessage } from '../../ai-gateway-client'
 import type { JsonObject } from '../../actor_lane'
+import type { TextContent, UserMessage } from '../llm'
 
-const MESSAGE_CONTEXT_METADATA_KEY = 'message_context'
 const AGENT_ENVIRONMENT_INFO_OPEN = '<agent_environment_info>'
 const AGENT_ENVIRONMENT_INFO_CLOSE = '</agent_environment_info>'
-const PREVIOUS_CHAT_HISTORY_OPEN = '<previous_chat_history>'
-const PREVIOUS_CHAT_HISTORY_CLOSE = '</previous_chat_history>'
 
-/**
- * Prepends persisted Ankole `<agent_environment_info>` as its own user text
- * part. The worker decides per-prompt sparse time injection from durable
- * transcript rows; other scene facts come from message metadata.
- */
-export function renderMessageWithContext(message: AgentMessage, metadata: JsonObject): AgentMessage {
-  if (message.role !== 'user') return message
-  const lines = renderMessageContextLines(metadata)
-  return prependEnvironmentInfoLinesToUserMessage(message, lines)
-}
-
-export function prependEnvironmentInfoLinesToUserMessage(message: AgentMessage, lines: string[]): AgentMessage {
-  if (message.role !== 'user') return message
+export function prependEnvironmentInfoLinesToUserMessage(message: UserMessage, lines: string[]): UserMessage {
   const infoLines = lines.map(line => line.trim()).filter(line => line.length > 0)
   if (infoLines.length === 0) return message
 
   return upsertEnvironmentInfoPart(message, infoLines)
 }
 
-export function prependPreviousChatHistoryToUserMessage(
-  message: AgentMessage,
-  history: string | undefined
-): AgentMessage {
-  if (message.role !== 'user') return message
-  const previousHistory = history?.trim()
-  if (!previousHistory) return message
-
-  return prependTextPartToUserMessage(message, renderPreviousChatHistoryBlock(previousHistory))
-}
-
-/**
- * Renders the context lines whose persisted `injected` flag is true. Returning
- * undefined means this message should remain unprefixed.
- */
-export function renderMessageContextPrefix(metadata: JsonObject): string | undefined {
-  const lines = renderMessageContextLines(metadata)
-  return lines.length > 0 ? renderAgentEnvironmentInfoBlock(lines) : undefined
-}
-
-export function renderMessageContextLines(metadata: JsonObject): string[] {
-  const context = objectValue(metadata[MESSAGE_CONTEXT_METADATA_KEY])
+export function actorEventEnvironmentInfoLines(
+  payload: JsonObject | undefined,
+  opts: { timezone?: string | null } = {}
+): string[] {
+  const data = objectValue(payload?.data)
+  const entry = objectValue(data.entry)
+  const channel = objectValue(data.channel)
+  const author = objectValue(entry.author)
+  const lifecycle = objectValue(data.lifecycle)
   const lines: string[] = []
 
-  const time = objectValue(context.time)
-  const sendAt = stringValue(time.send_at) ?? stringValue(time.sent_at)
-  if (time.injected === true && sendAt) {
-    lines.push(`send_at: ${formatTimestamp(sendAt, stringValue(time.timezone))}`)
-  }
+  const sendAt = stringValue(entry.provider_time) ?? stringValue(payload?.time)
+  if (sendAt) lines.push(`send_at: ${formatTimestamp(sendAt, opts.timezone ?? undefined)}`)
 
-  const room = objectValue(context.room)
-  if (room.injected === true && typeof room.label === 'string') lines.push(`room: ${room.label}`)
+  const room = roomLabel(channel)
+  if (room) lines.push(`room: ${room}`)
 
-  const speaker = objectValue(context.speaker)
-  const actor = objectValue(context.actor)
-  if (speaker.injected === true) {
-    if (typeof speaker.display_name === 'string') lines.push(`speaker: ${speaker.display_name}`)
-    if (typeof speaker.role === 'string') lines.push(`speaker_role: ${speaker.role}`)
-    if (typeof speaker.trigger === 'string') lines.push(`speaker_trigger: ${speaker.trigger}`)
-  } else if (actor.injected === true && typeof actor.display_name === 'string') {
-    lines.push(`speaker: ${actor.display_name}`)
-  }
+  const speaker = speakerLabel(author)
+  if (speaker) lines.push(`speaker: ${speaker}`)
 
-  const think = objectValue(context.think)
-  if (think.injected === true && typeof think.text === 'string') lines.push(`think: ${think.text}`)
+  const senderType = stringValue(objectValue(author.metadata).sender_type)
+  if (senderType) lines.push(`speaker_role: ${senderType}`)
+
+  const lifecycleKind = stringValue(lifecycle.kind)
+  if (lifecycleKind) lines.push(`entry_lifecycle: ${lifecycleKind}`)
 
   return lines
-}
-
-function renderAgentEnvironmentInfoBlock(lines: string[]): string {
-  return `${AGENT_ENVIRONMENT_INFO_OPEN}\n${lines.join('\n')}\n${AGENT_ENVIRONMENT_INFO_CLOSE}`
-}
-
-function renderPreviousChatHistoryBlock(history: string): string {
-  return `${PREVIOUS_CHAT_HISTORY_OPEN}\n${history}\n${PREVIOUS_CHAT_HISTORY_CLOSE}`
-}
-
-function prependTextPartToUserMessage(message: UserMessage, text: string): UserMessage {
-  const part: TextContent = { type: 'text', text }
-  if (typeof message.content === 'string') {
-    return { ...message, content: [part, { type: 'text', text: message.content }] }
-  }
-  return { ...message, content: [part, ...message.content] }
 }
 
 function upsertEnvironmentInfoPart(message: UserMessage, lines: string[]): UserMessage {
@@ -106,9 +54,12 @@ function upsertEnvironmentInfoPart(message: UserMessage, lines: string[]): UserM
     return { ...message, content }
   }
 
-  const insertIndex = content[0]?.type === 'text' && isPreviousChatHistoryBlock(content[0].text) ? 1 : 0
-  content.splice(insertIndex, 0, part)
+  content.unshift(part)
   return { ...message, content }
+}
+
+function renderAgentEnvironmentInfoBlock(lines: string[]): string {
+  return `${AGENT_ENVIRONMENT_INFO_OPEN}\n${lines.join('\n')}\n${AGENT_ENVIRONMENT_INFO_CLOSE}`
 }
 
 function mergeEnvironmentInfoBlock(existing: string, lines: string[]): string {
@@ -121,9 +72,23 @@ function isAgentEnvironmentInfoBlock(text: string): boolean {
   return trimmed.startsWith(`${AGENT_ENVIRONMENT_INFO_OPEN}\n`) && trimmed.endsWith(`\n${AGENT_ENVIRONMENT_INFO_CLOSE}`)
 }
 
-function isPreviousChatHistoryBlock(text: string): boolean {
-  const trimmed = text.trim()
-  return trimmed.startsWith(`${PREVIOUS_CHAT_HISTORY_OPEN}\n`) && trimmed.endsWith(`\n${PREVIOUS_CHAT_HISTORY_CLOSE}`)
+function roomLabel(channel: JsonObject): string | undefined {
+  const name = stringValue(channel.name) ?? stringValue(channel.title)
+  if (name) return name
+
+  const kind = stringValue(channel.kind)
+  const id = stringValue(channel.id)
+  if (kind && id) return `${kind} ${id}`
+  return id ?? kind
+}
+
+function speakerLabel(author: JsonObject): string | undefined {
+  return (
+    stringValue(author.display_name) ??
+    stringValue(author.name) ??
+    stringValue(author.principal_uid) ??
+    stringValue(author.id)
+  )
 }
 
 function formatTimestamp(value: string, timezone?: string): string {

@@ -227,7 +227,7 @@ fn validate_body_required_fields(body: &proto::envelope::Body) -> KernelResult<(
         }
         proto::envelope::Body::TurnStart(payload) => {
             validate_turn_ref(payload.turn.as_ref(), "turn_start.turn")?;
-            validate_actor_inputs(&payload.inputs, "turn_start.inputs")?;
+            validate_actor_event(payload.actor_event.as_ref(), "turn_start.actor_event")?;
             validate_optional_model_ref(payload.model_ref.as_ref(), "turn_start.model_ref")
         }
         proto::envelope::Body::MailboxUpdated(payload) => {
@@ -235,15 +235,11 @@ fn validate_body_required_fields(body: &proto::envelope::Body) -> KernelResult<(
             require_non_empty(&payload.activation_uid, "mailbox_updated.activation_uid")?;
             require_positive_u64(payload.actor_epoch, "mailbox_updated.actor_epoch")?;
             let turn = validate_turn_ref(payload.turn.as_ref(), "mailbox_updated.turn")?;
-            validate_mailbox_turn_mirror(payload, turn)?;
-            validate_actor_inputs(&payload.inputs, "mailbox_updated.inputs")
+            validate_mailbox_turn_mirror(payload, turn)
         }
         proto::envelope::Body::TurnAccepted(payload) => {
             validate_turn_ref(payload.turn.as_ref(), "turn_accepted.turn")?;
-            validate_non_empty_strings(
-                &payload.accepted_actor_input_ids,
-                "turn_accepted.accepted_actor_input_ids",
-            )
+            Ok(())
         }
         proto::envelope::Body::TurnControl(payload) => {
             validate_turn_ref(payload.turn.as_ref(), "turn_control.turn")?;
@@ -282,22 +278,17 @@ fn validate_body_required_fields(body: &proto::envelope::Body) -> KernelResult<(
     }
 }
 
-fn validate_actor_inputs(inputs: &[proto::ActorInputEnvelope], field: &str) -> KernelResult<()> {
-    for (index, input) in inputs.iter().enumerate() {
-        require_non_empty(
-            &input.actor_input_id,
-            &format!("{field}[{index}].actor_input_id"),
-        )?;
-        require_positive_u64(
-            input.live_queue_sequence,
-            &format!("{field}[{index}].live_queue_sequence"),
-        )?;
-        require_non_empty(&input.r#type, &format!("{field}[{index}].type"))?;
-        require_non_empty(
-            &input.ingress_event_id,
-            &format!("{field}[{index}].ingress_event_id"),
-        )?;
-    }
+// Validates the single actor-event envelope carried by turn_start.
+fn validate_actor_event(
+    event: Option<&proto::ActorEventEnvelope>,
+    field: &str,
+) -> KernelResult<()> {
+    let event = event.ok_or_else(|| KernelError::new(format!("{field} is required")))?;
+
+    require_non_empty(&event.actor_event_id, &format!("{field}.actor_event_id"))?;
+    require_positive_u64(event.queue_sequence, &format!("{field}.queue_sequence"))?;
+    require_non_empty(&event.r#type, &format!("{field}.type"))?;
+    require_non_empty(&event.source_event_id, &format!("{field}.source_event_id"))?;
 
     Ok(())
 }
@@ -310,7 +301,7 @@ fn validate_turn_ref<'a>(
     validate_actor_key(turn.actor.as_ref(), &format!("{field}.actor"))?;
     require_non_empty(&turn.activation_uid, &format!("{field}.activation_uid"))?;
     require_positive_u64(turn.actor_epoch, &format!("{field}.actor_epoch"))?;
-    require_non_empty(&turn.llm_turn_id, &format!("{field}.llm_turn_id"))?;
+    require_non_empty(&turn.actor_event_id, &format!("{field}.actor_event_id"))?;
     Ok(turn)
 }
 
@@ -385,14 +376,6 @@ fn validate_proposed_reply_attachment(
         return Err(KernelError::new(format!(
             "{field} must include agent_computer_path or user_files_relative_path"
         )));
-    }
-
-    Ok(())
-}
-
-fn validate_non_empty_strings(values: &[String], field: &str) -> KernelResult<()> {
-    for (index, value) in values.iter().enumerate() {
-        require_non_empty(value, &format!("{field}[{index}]"))?;
     }
 
     Ok(())

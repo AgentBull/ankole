@@ -10,7 +10,11 @@ defmodule Ankole.AIGateway do
   alias Ankole.AIGateway.Models
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.Resolver
+  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIGateway.UniversalAIRequest
+
+  @stateful_http_fields ~w(previous_response_id conversation)
+  @websocket_continuation_fields ~w(previous_response_id conversation)
 
   @type gateway_response :: %{
           required(:status) => pos_integer(),
@@ -30,7 +34,8 @@ defmodule Ankole.AIGateway do
   def create_response(agent_uid, request, opts \\ [])
 
   def create_response(agent_uid, request, opts) when is_map(request) do
-    with {:ok, runtime} <- Resolver.resolve_request_model(agent_uid, "llm", request),
+    with :ok <- reject_http_stateful_fields(request),
+         {:ok, runtime} <- Resolver.resolve_request_model(agent_uid, "llm", request),
          {:ok, prepared_request} <-
            Providers.build_response_request(runtime, request, stream?: false),
          {:ok, upstream_response} <- execute_prepared_request(runtime, prepared_request, opts) do
@@ -46,7 +51,8 @@ defmodule Ankole.AIGateway do
   def open_sse_stream(agent_uid, request, opts \\ [])
 
   def open_sse_stream(agent_uid, request, opts) when is_map(request) do
-    with {:ok, runtime} <- Resolver.resolve_request_model(agent_uid, "llm", request),
+    with :ok <- reject_http_stateful_fields(request),
+         {:ok, runtime} <- Resolver.resolve_request_model(agent_uid, "llm", request),
          {:ok, prepared_request} <-
            Providers.build_response_request(runtime, request, stream?: true) do
       UniversalAIRequest.open_stream(prepared_request, :sse, opts)
@@ -64,9 +70,11 @@ defmodule Ankole.AIGateway do
   def open_websocket_stream(agent_uid, request, opts \\ [])
 
   def open_websocket_stream(agent_uid, request, opts) when is_map(request) do
-    with {:ok, runtime} <- Resolver.resolve_request_model(agent_uid, "llm", request),
+    with :ok <- validate_websocket_stateful_shape(request),
+         {:ok, request_for_provider} <- provider_websocket_request(agent_uid, request),
+         {:ok, runtime} <- Resolver.resolve_request_model(agent_uid, "llm", request_for_provider),
          {:ok, prepared_request} <-
-           Providers.build_response_request(runtime, request, stream?: true) do
+           Providers.build_response_request(runtime, request_for_provider, stream?: true) do
       UniversalAIRequest.open_stream(prepared_request, :websocket_text, opts)
     else
       {:error, _reason} = error -> error
@@ -75,6 +83,99 @@ defmodule Ankole.AIGateway do
   end
 
   def open_websocket_stream(_agent_uid, _request, _opts), do: {:error, :invalid_request_body}
+
+  # Step 1: Expands the message chain for a stateful run and injects the
+  # expanded history into the provider-facing request input.
+  #
+  # This replaces the old worker-side history resolution path: the gateway now
+  # owns history expansion (plan §3.9 step 3).
+  #
+  # After expansion, stateful fields are stripped from the request so they
+  # are not sent to the upstream provider (plan §3.9 step 6):
+  #   - previous_response_id (Ankole UUID, would 404 on OpenAI)
+  #   - store (would cause OpenAI to persist state)
+  #   - conversation (internal correlation)
+  #   - metadata.actor_event_id (internal correlation)
+  defp provider_websocket_request(agent_uid, request) do
+    request = normalize_request_keys(request)
+
+    if request["store"] == true do
+      expand_and_inject_history(agent_uid, request)
+    else
+      {:ok, strip_stateful_provider_fields(request)}
+    end
+  end
+
+  defp expand_and_inject_history(agent_uid, request) do
+    conversation_id = request["conversation"]
+    actor_event_id = get_in(request, ["metadata", "actor_event_id"])
+    previous_response_id = request["previous_response_id"]
+
+    with {:ok, conversation} <-
+           StatefulResponses.get_conversation_for_agent(
+             agent_uid,
+             decode_conv_id(conversation_id)
+           ),
+         :ok <- StatefulResponses.validate_response_anchor(conversation.id, previous_response_id) do
+      # Determine the anchor: explicit previous_response_id or latest visible leaf.
+      history =
+        StatefulResponses.expand_history(conversation.id,
+          previous_message_id: previous_response_id,
+          # Don't include the current run's generating row.
+          include_generating: false,
+          actor_event_id: actor_event_id
+        )
+
+      history_items = messages_to_response_items(history)
+
+      # The request's own "input" is the current-round delta (user input or
+      # function_call_output from the worker). We prepend expanded history items.
+      current_input = Map.get(request, "input", [])
+      expanded_input = history_items ++ current_input
+
+      # Strip stateful fields before sending to the provider.
+      request =
+        request
+        |> Map.put("input", expanded_input)
+        |> strip_stateful_provider_fields()
+
+      {:ok, request}
+    end
+  end
+
+  # Consume internal AIGateway state fields before provider dispatch. These are
+  # Ankole continuation controls, not upstream provider request parameters.
+  defp strip_stateful_provider_fields(request) do
+    request
+    |> Map.delete("previous_response_id")
+    |> Map.delete("store")
+    |> Map.delete("conversation")
+    |> strip_internal_metadata()
+  end
+
+  defp strip_internal_metadata(request) do
+    case Map.get(request, "metadata") do
+      %{} = metadata ->
+        cleaned = metadata |> Map.delete("actor_event_id")
+        Map.put(request, "metadata", cleaned)
+
+      _ ->
+        request
+    end
+  end
+
+  defp decode_conv_id(nil), do: nil
+  defp decode_conv_id("conv_" <> uuid), do: uuid
+  defp decode_conv_id(uuid), do: uuid
+
+  # The new message log stores durable Response items directly. Do not re-derive
+  # history from the legacy row-level role hint; replay the stored items as-is.
+  defp messages_to_response_items(messages) do
+    Enum.flat_map(messages, fn
+      %{content: content} when is_list(content) -> content
+      _message -> []
+    end)
+  end
 
   defp execute_prepared_request(_runtime, prepared_request, opts),
     do: UniversalAIRequest.request(prepared_request, opts)
@@ -134,6 +235,32 @@ defmodule Ankole.AIGateway do
   def stream_requested?(%{"stream" => true}), do: true
   def stream_requested?(%{stream: true}), do: true
   def stream_requested?(_request), do: false
+
+  defp reject_http_stateful_fields(request) do
+    request = normalize_request_keys(request)
+
+    cond do
+      Map.get(request, "store") == true ->
+        {:error, {:stateful_http_field_forbidden, "store"}}
+
+      field = Enum.find(@stateful_http_fields, &Map.has_key?(request, &1)) ->
+        {:error, {:stateful_http_field_forbidden, field}}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_websocket_stateful_shape(request) do
+    request = normalize_request_keys(request)
+    continuation_field = Enum.find(@websocket_continuation_fields, &Map.has_key?(request, &1))
+
+    if continuation_field && request["store"] != true do
+      {:error, :stateful_store_required}
+    else
+      :ok
+    end
+  end
 
   defp validate_embeddings_request(request) do
     request = normalize_request_keys(request)

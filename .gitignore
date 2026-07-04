@@ -96,6 +96,7 @@ build/
 
 logs/
 .codex-tmp-file
+erl_crash.dump
 
 .turbo
 
