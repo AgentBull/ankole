@@ -101,8 +101,6 @@ export interface ModelUsage {
 
 export type StopReason = 'stop' | 'length' | 'toolUse' | 'error' | 'aborted'
 
-export const ZERO_USAGE: ModelUsage = { inputTokens: 0, outputTokens: 0 }
-
 // ── Model configuration ───────────────────────────────────────────
 
 /**
@@ -242,7 +240,14 @@ export type StatefulResponseContext = {
   metadata?: Record<string, unknown>
 }
 
-export class AIGatewayWebSocketError extends Error {
+/**
+ * Carries structured AIGateway WebSocket failure metadata through the normal
+ * Error path.
+ *
+ * The agent loop only needs a retryable/non-retryable decision, but turn-error
+ * details should still preserve gateway codes and transport stages.
+ */
+class AIGatewayWebSocketError extends Error {
   readonly code?: string
   readonly status?: number
   readonly details?: unknown
@@ -337,6 +342,13 @@ export async function callModel(model: ModelConfig, options: CallModelOptions): 
   return result
 }
 
+/**
+ * Records function_call_output items into a stateful Responses conversation.
+ *
+ * In stateful mode the worker should not replay the whole transcript after
+ * tools run. It records only the tool outputs and continues from the response id
+ * returned by AIGateway.
+ */
 export async function recordToolResults(
   model: ModelConfig,
   options: ToolResultsRecordOptions
@@ -391,6 +403,9 @@ function toResponseInput(messages: Message[]): ResponseInputItem[] {
   return items
 }
 
+/**
+ * Converts worker content parts to the Responses input content wire shape.
+ */
 function responseInputContentParts(parts: ContentPart[]): ResponseInputMessageContentList {
   const content: ResponseInputMessageContentList = []
   for (const part of parts) {
@@ -403,6 +418,12 @@ function responseInputContentParts(parts: ContentPart[]): ResponseInputMessageCo
   return content
 }
 
+/**
+ * Produces an image URL acceptable to Responses input_image content.
+ *
+ * Binary in-memory images become data URLs because the worker has no public URL
+ * for transient screenshots or attachment bytes.
+ */
 function imageContentUrl(part: ImageContent): string {
   if (typeof part.image === 'string') return part.image
   if (part.image instanceof URL) return part.image.toString()
@@ -410,6 +431,9 @@ function imageContentUrl(part: ImageContent): string {
   return `data:${part.mimeType ?? 'image/png'};base64,${Buffer.from(imageBytes(part.image)).toString('base64')}`
 }
 
+/**
+ * Normalizes the few BufferSource variants accepted by worker tools.
+ */
 function imageBytes(value: Uint8Array | BufferSource): Uint8Array {
   if (value instanceof Uint8Array) return value
   if (value instanceof ArrayBuffer) return new Uint8Array(value)
@@ -430,6 +454,12 @@ function parseResponse(response: OpenAIResponse, modelName: string): ModelCallRe
   return result
 }
 
+/**
+ * Adds AIGateway stateful fields to a response.create payload.
+ *
+ * The first stateful round anchors by conversation id; later rounds anchor by
+ * previous_response_id so AIGateway owns replay and truncation.
+ */
 function statefulResponseParams(params: ResponseCreateParams, stateful: StatefulResponseContext): ResponseCreateParams {
   const metadata = {
     ...stateful.metadata,
@@ -457,6 +487,9 @@ function statefulResponseParams(params: ResponseCreateParams, stateful: Stateful
   return request as ResponseCreateParams
 }
 
+/**
+ * Builds the payload for recording tool outputs after a stateful model round.
+ */
 function statefulToolResultsRecordParams(
   model: ModelConfig,
   input: ResponseInputItem[],
@@ -478,6 +511,9 @@ function statefulToolResultsRecordParams(
   } as ResponseCreateParams
 }
 
+/**
+ * Calls stateful response.create over a reusable WebSocket session.
+ */
 async function callModelOverWebSocket(
   model: ModelConfig,
   params: ResponseCreateParams,
@@ -492,10 +528,20 @@ async function callModelOverWebSocket(
   }
 }
 
+/**
+ * Creates the default stateful Responses WebSocket session.
+ */
 export function createResponseWebSocketSession(model: ModelConfig): ResponseWebSocketSession {
   return new DefaultResponseWebSocketSession(model)
 }
 
+/**
+ * Reuses one AIGateway WebSocket for sequential stateful Responses requests.
+ *
+ * The class forbids concurrent requests because response.create and
+ * tool_results.record acknowledgements share one event stream and must be
+ * matched to one in-flight operation at a time.
+ */
 class DefaultResponseWebSocketSession implements ResponseWebSocketSession {
   private socket: ResponseWebSocketLike | undefined
   private opening: Promise<ResponseWebSocketLike> | undefined
@@ -506,6 +552,9 @@ class DefaultResponseWebSocketSession implements ResponseWebSocketSession {
 
   constructor(private readonly model: ModelConfig) {}
 
+  /**
+   * Sends one response.create request over the open session.
+   */
   async call(params: ResponseCreateParams, options: CallModelOptions): Promise<ModelCallResult> {
     if (this.inFlight) {
       throw new Error('AIGateway WebSocket session already has an active response.create')
@@ -526,6 +575,9 @@ class DefaultResponseWebSocketSession implements ResponseWebSocketSession {
     }
   }
 
+  /**
+   * Records tool results over the open session.
+   */
   async recordToolResults(
     params: ResponseCreateParams,
     options: ToolResultsRecordWebSocketOptions
@@ -549,11 +601,17 @@ class DefaultResponseWebSocketSession implements ResponseWebSocketSession {
     }
   }
 
+  /**
+   * Closes the session and prevents future requests.
+   */
   close(): void {
     this.closed = true
     this.closeSocket()
   }
 
+  /**
+   * Returns an open socket, opening exactly one socket even when callers race.
+   */
   private async ensureOpen(): Promise<ResponseWebSocketLike> {
     if (this.closed) {
       throw new Error('AIGateway WebSocket session is closed')
@@ -572,6 +630,11 @@ class DefaultResponseWebSocketSession implements ResponseWebSocketSession {
     return this.opening
   }
 
+  /**
+   * Opens a fresh socket and waits for the WebSocket open event.
+   *
+   * Failures before open are locally retryable because no request was sent yet.
+   */
   private async openFreshSocket(): Promise<ResponseWebSocketLike> {
     const transport = this.model.responseWebSocket
     if (!transport) {
@@ -625,12 +688,18 @@ class DefaultResponseWebSocketSession implements ResponseWebSocketSession {
     })
   }
 
+  /**
+   * Closes and forgets the current socket after a transport failure.
+   */
   private discardSocket(): void {
     this.closeSocket()
     this.socket = undefined
     this.opened = false
   }
 
+  /**
+   * Closes the socket while tolerating close races from terminal frames.
+   */
   private closeSocket(): void {
     if (!this.socket) return
 
@@ -642,6 +711,13 @@ class DefaultResponseWebSocketSession implements ResponseWebSocketSession {
   }
 }
 
+/**
+ * Sends one response.create payload over an already-open WebSocket and parses
+ * the streaming event frames into the same result shape as HTTP Responses.
+ *
+ * Some terminal frames may omit full output, so completed output_item frames are
+ * kept as a fallback until the terminal response arrives.
+ */
 async function responseCreateOverOpenWebSocket(
   model: ModelConfig,
   socket: ResponseWebSocketLike,
@@ -723,6 +799,9 @@ async function responseCreateOverOpenWebSocket(
           terminalStatus = frame.type === 'response.completed' && responseStatus !== 'failed' ? undefined : 'error'
           terminalErrorText = terminalErrorMessage(response, frame)
 
+          // AIGateway can send output_item.done before the terminal response and
+          // then finish with an empty response.output. Keeping stableItems avoids
+          // losing tool calls or final text in that edge case.
           const result = parseOutputItems(
             terminalItems,
             model.name,
@@ -780,6 +859,10 @@ async function responseCreateOverOpenWebSocket(
   })
 }
 
+/**
+ * Sends one response.tool_results.record payload and waits for the recorded
+ * response id that becomes the next stateful anchor.
+ */
 async function recordToolResultsOverOpenWebSocket(
   socket: ResponseWebSocketLike,
   params: ResponseCreateParams,
@@ -884,12 +967,18 @@ async function recordToolResultsOverOpenWebSocket(
   })
 }
 
+/**
+ * Creates the WebSocket object, using an injected factory in tests.
+ */
 function createResponseWebSocket(transport: ResponseWebSocketTransport, authorization: string): ResponseWebSocketLike {
   const init = { headers: { authorization } }
   if (transport.createWebSocket) return transport.createWebSocket(transport.url, init)
   return new WebSocket(transport.url, init as never) as ResponseWebSocketLike
 }
 
+/**
+ * Creates a structured transport error with retry hints for the agent loop.
+ */
 function webSocketTransportError(message: string, stage: string, localRetryable: boolean): AIGatewayWebSocketError {
   return new AIGatewayWebSocketError(message, {
     code: `aigateway_websocket_${stage}`,
@@ -901,6 +990,12 @@ function webSocketTransportError(message: string, stage: string, localRetryable:
   })
 }
 
+/**
+ * Decides whether the next WebSocket open should force-refresh authorization.
+ *
+ * Only pre-open failures are eligible; after a request is sent, local retry
+ * could duplicate response.create work.
+ */
 function shouldRefreshAuthorizationAfterWebSocketOpenFailure(error: unknown): boolean {
   if (!(error instanceof AIGatewayWebSocketError)) return false
   const details = recordValue(error.details)
@@ -908,6 +1003,12 @@ function shouldRefreshAuthorizationAfterWebSocketOpenFailure(error: unknown): bo
   return details?.local_retryable === true && stage !== undefined && stage.endsWith('_before_open')
 }
 
+/**
+ * Normalizes Responses output items into the worker assistant-message shape.
+ *
+ * `textFallback` and `fallbackFunctionCalls` handle streaming transports that
+ * deliver useful deltas or item events before a sparse terminal frame.
+ */
 function parseOutputItems(
   output: ResponseOutputItem[],
   modelName: string,
@@ -962,6 +1063,9 @@ function parseOutputItems(
   return { message, functionCalls, hasToolCalls: functionCalls.length > 0 }
 }
 
+/**
+ * Remembers a function_call output item by its stable call id.
+ */
 function rememberFunctionCall(calls: Map<string, ResponseFunctionToolCall>, item: Record<string, unknown>): void {
   if (item.type !== 'function_call') return
   const call = item as unknown as ResponseFunctionToolCall
@@ -969,10 +1073,16 @@ function rememberFunctionCall(calls: Map<string, ResponseFunctionToolCall>, item
   if (callId) calls.set(callId, call)
 }
 
+/**
+ * Reads the stable key used by Responses for a function call.
+ */
 function responseFunctionCallKey(call: Pick<ResponseFunctionToolCall, 'call_id' | 'id'>): string | undefined {
   return call.call_id || call.id
 }
 
+/**
+ * Converts OpenAI/AIGateway usage objects to the small worker usage shape.
+ */
 function usageFromResponse(usage: unknown): ModelUsage | undefined {
   const value = recordValue(usage)
   if (!value) return undefined
@@ -988,6 +1098,10 @@ function usageFromResponse(usage: unknown): ModelUsage | undefined {
   }
 }
 
+/**
+ * Extracts a useful terminal error message from failed or incomplete Responses
+ * frames without depending on one exact gateway error schema.
+ */
 function terminalErrorMessage(
   response: Record<string, unknown> | undefined,
   frame: Record<string, unknown>
@@ -1017,6 +1131,9 @@ function terminalErrorMessage(
   return undefined
 }
 
+/**
+ * Converts an AIGateway error event frame into a structured Error object.
+ */
 function aigatewayErrorFromFrame(frame: Record<string, unknown>): AIGatewayWebSocketError {
   const error = recordValue(frame.error)
 
@@ -1031,6 +1148,9 @@ function aigatewayErrorFromFrame(frame: Record<string, unknown>): AIGatewayWebSo
   })
 }
 
+/**
+ * Extracts the most readable message from an error frame.
+ */
 function errorFrameMessage(frame: Record<string, unknown>): string {
   const error = recordValue(frame.error)
   if (typeof error?.message === 'string') return error.message
@@ -1038,6 +1158,9 @@ function errorFrameMessage(frame: Record<string, unknown>): string {
   return 'AIGateway WebSocket returned an error frame'
 }
 
+/**
+ * Converts WebSocket frame data into text before JSON parsing.
+ */
 function webSocketFrameText(data: unknown): string {
   if (typeof data === 'string') return data
   if (data instanceof Uint8Array) return new TextDecoder().decode(data)
@@ -1045,18 +1168,30 @@ function webSocketFrameText(data: unknown): string {
   return String(data)
 }
 
+/**
+ * Narrows unknown values to non-array records.
+ */
 function recordValue(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined
 }
 
+/**
+ * Narrows unknown values to arrays.
+ */
 function arrayValue(value: unknown): unknown[] | undefined {
   return Array.isArray(value) ? value : undefined
 }
 
+/**
+ * Narrows unknown values to numbers.
+ */
 function numberValue(value: unknown): number | undefined {
   return typeof value === 'number' ? value : undefined
 }
 
+/**
+ * Narrows unknown values to strings.
+ */
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined
 }
@@ -1082,6 +1217,9 @@ export function validateToolArguments(args: string, schema: z.ZodType): unknown 
   return schema.parse(decoded)
 }
 
+/**
+ * Converts unknown thrown values into readable text.
+ */
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
@@ -1093,21 +1231,13 @@ export function userMessage(content: string | ContentPart[]): UserMessage {
   return { role: 'user', content }
 }
 
+/**
+ * Reads assistant text as a single trimmed string for turn-result decisions.
+ */
 export function assistantText(message: AssistantMessage | undefined): string {
   if (!message) return ''
   return message.content
     .map(block => block.text)
     .join('\n')
     .trim()
-}
-
-/**
- * Helper to create a tool result message.
- */
-export function toolResultMessage(toolCallId: string, result: unknown): ToolResultMessage {
-  return {
-    role: 'tool',
-    toolCallId,
-    result: typeof result === 'string' ? result : JSON.stringify(result)
-  }
 }

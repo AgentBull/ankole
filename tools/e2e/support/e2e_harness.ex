@@ -33,7 +33,7 @@ defmodule Ankole.E2E.Harness do
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.OutboxEntry
-  alias Ankole.SignalsGateway.SignalEntry
+  alias Ankole.SignalsGateway.Entry
 
   import Ecto.Query
 
@@ -553,12 +553,12 @@ defmodule Ankole.E2E.Harness do
 
   def wait_for_signal_entry!(signal_channel_id, source_entry_id, timeout_ms \\ 15_000) do
     case WaitHelpers.wait_until(WaitHelpers.deadline(timeout_ms), fn ->
-           Repo.get_by(SignalEntry,
+           Repo.get_by(Entry,
              signal_channel_id: signal_channel_id,
              source_entry_id: source_entry_id
            )
          end) do
-      {:ok, %SignalEntry{} = entry} ->
+      {:ok, %Entry{} = entry} ->
         entry
 
       :timeout ->
@@ -572,7 +572,7 @@ defmodule Ankole.E2E.Harness do
   def wait_for_signal_entry_removed!(signal_channel_id, source_entry_id, timeout_ms \\ 15_000) do
     case WaitHelpers.wait_until(WaitHelpers.deadline(timeout_ms), fn ->
            is_nil(
-             Repo.get_by(SignalEntry,
+             Repo.get_by(Entry,
                signal_channel_id: signal_channel_id,
                source_entry_id: source_entry_id
              )
@@ -654,11 +654,11 @@ defmodule Ankole.E2E.Harness do
 
   @doc """
   Asserts an ordinary streamed AI reply already landed on the fake Feishu
-  platform and has a final `signal_entries.ai_message_id` mirror.
+  platform and has a final `signal_gateway_entries.ai_message_id` mirror.
   """
   def assert_lark_final_reply(
         fake_feishu,
-        %SignalEntry{} = reply,
+        %Entry{} = reply,
         expected_text,
         operation,
         target
@@ -730,7 +730,7 @@ defmodule Ankole.E2E.Harness do
   defp assert_platform_target(message, :reply, target), do: assert(message.reply_to == target)
   defp assert_platform_target(message, :post, chat_id), do: assert(message.chat_id == chat_id)
 
-  defp final_reply_text(%SignalEntry{text: text, fallback_visible_text: fallback}) do
+  defp final_reply_text(%Entry{text: text, fallback_visible_text: fallback}) do
     text || fallback || ""
   end
 

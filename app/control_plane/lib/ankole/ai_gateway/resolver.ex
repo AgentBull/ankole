@@ -14,7 +14,7 @@ defmodule Ankole.AIGateway.Resolver do
   alias Ankole.AIGateway.Providers
   alias Ankole.Principals
 
-  @llm_aliases ~w(primary light heavy vision_fallback)
+  @llm_aliases ~w(primary light heavy coding vision_fallback)
 
   @doc """
   Resolves the request `model` field for one agent and capability.

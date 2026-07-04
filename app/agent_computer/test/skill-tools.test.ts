@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { createSkillTools } from '../src/tools/library/skill-tools'
-import type { ActorTurnRef } from '../src/actor_lane'
+import type { ActorTurnRef } from '../src/lanes/actor_lane'
 
 describe('@ankole/agent-computer skill tools', () => {
   it('skill_append appends notes to the existing skill overlay', async () => {

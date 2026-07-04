@@ -177,6 +177,9 @@ export function isLocallyRetryableLlmError(error: unknown): boolean {
   return hint ?? true
 }
 
+/**
+ * Builds the normalized classification object.
+ */
 function classified(
   kind: LlmErrorKind,
   retryable: boolean,
@@ -186,23 +189,36 @@ function classified(
   return { kind, retryable, shouldCompress, shouldFallbackProvider }
 }
 
-// Flattens every message string reachable through the error's cause chain into one lowercased blob,
-// so a single `includes` scan can match a phrase that lives on a nested cause rather than the top-level
-// error. Lowercased once here so all the needle lists can be written in lowercase.
+/**
+ * Flattens every message string reachable through the error's cause chain into
+ * one lowercased blob.
+ *
+ * A phrase can live on a nested cause rather than the top-level error; lowering
+ * once here keeps the classifier branches simple.
+ */
 function messageFromError(error: unknown): string {
   const messages: string[] = []
   collectMessages(error, messages, new WeakSet<object>())
   return messages.join('\n').toLowerCase()
 }
 
+/**
+ * Checks whether text contains any known classifier phrase.
+ */
 function includesAny(text: string, needles: string[]): boolean {
   return needles.some(needle => text.includes(needle))
 }
 
+/**
+ * Finds an HTTP status code in free-form text without matching larger numbers.
+ */
 function containsHttpStatus(text: string, status: number): boolean {
   return new RegExp(`(^|\\D)${status}(\\D|$)`).test(text)
 }
 
+/**
+ * Reads the AIGateway local-retry hint from structured error details.
+ */
 function localRetryableHint(error: unknown): boolean | undefined {
   if (!error || typeof error !== 'object') return undefined
   const record = error as Record<string, unknown>
@@ -212,10 +228,12 @@ function localRetryableHint(error: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined
 }
 
-// Walks the error and its `cause`/`error`/`response` children looking for the first property in `keys`
-// that `parse` accepts. Tries the keys on the current object before recursing, so a status on the
-// outer error wins over one buried deeper. The WeakSet + depth cap defend against cyclic error graphs
-// (an error whose `cause` points back at itself) and pathologically deep wrapping.
+/**
+ * Walks the error graph looking for the first property accepted by `parse`.
+ *
+ * Current-object fields win over nested fields. WeakSet and depth guards defend
+ * against cyclic SDK error graphs and very deep wrapper chains.
+ */
 function findErrorProperty<T>(
   error: unknown,
   keys: string[],
@@ -236,9 +254,9 @@ function findErrorProperty<T>(
   }
 }
 
-// Recursive companion to messageFromError: appends this node's message, then descends into
-// cause/error/response. Same cycle/depth guards as findErrorProperty. Accepts both real Error objects
-// and plain `{ message }` shapes because provider SDKs return either.
+/**
+ * Collects message strings from one error node and its common wrapper children.
+ */
 function collectMessages(error: unknown, messages: string[], seen: WeakSet<object>, depth = 0): void {
   if (error === undefined || error === null || depth > 25) return
   if (typeof error === 'string') {

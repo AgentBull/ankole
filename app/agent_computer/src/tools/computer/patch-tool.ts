@@ -54,6 +54,10 @@ interface PatchDetails {
 
 const patchFailureCounts = new Map<string, number>()
 
+/**
+ * Marks a patch failure as a target-matching problem that can trigger repeated
+ * failure guidance.
+ */
 class PatchMatchError extends Error {
   constructor(
     readonly path: string,
@@ -340,14 +344,23 @@ function patchCwd(params: Pick<PatchInput, 'cwd' | 'workdir'>): string | undefin
   return params.cwd ?? params.workdir
 }
 
+/**
+ * Builds the retry-counter key for patch failures in one execution scope.
+ */
 function patchFailureKey(scopeId: string, path: string): string {
   return `${scopeId}\0${path}`
 }
 
+/**
+ * Clears repeated-failure counters after a successful edit.
+ */
 function resetPatchFailures(scopeId: string, paths: string[]): void {
   for (const path of paths) patchFailureCounts.delete(patchFailureKey(scopeId, path))
 }
 
+/**
+ * Records a patch-match failure and escalates guidance after repeated misses.
+ */
 function recordPatchFailure(scopeId: string, path: string, message: string): string {
   const key = patchFailureKey(scopeId, path)
   const count = (patchFailureCounts.get(key) ?? 0) + 1
@@ -356,6 +369,9 @@ function recordPatchFailure(scopeId: string, path: string, message: string): str
   return `${message}\nRepeated patch failures for ${path}: stop retrying small variants of the same target. Re-read the file with read_file, include longer unique context, or rewrite the whole file when that is simpler.`
 }
 
+/**
+ * Adds line breaks around pure insertion replacements when needed.
+ */
 function formatScopedReplacement(source: string, start: number, end: number, replacement: string): string {
   if (start !== end || replacement.length === 0) return replacement
   const prefix = start > 0 && source[start - 1] !== '\n' ? '\n' : ''
@@ -363,6 +379,9 @@ function formatScopedReplacement(source: string, start: number, end: number, rep
   return `${prefix}${replacement}${suffix}`
 }
 
+/**
+ * Builds a no-match error with nearby line suggestions.
+ */
 function formatNoMatchError(kind: 'old_string' | 'patch hunk', path: string, content: string, needle: string): string {
   const lines = content.split('\n')
   if (lines.at(-1) === '') lines.pop()

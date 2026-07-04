@@ -2,7 +2,7 @@
 set -euo pipefail
 
 APP_DIR="${ANKOLE_AGENT_COMPUTER_BUN_WORKDIR:-}"
-if [[ -z "$APP_DIR" || ! -f "$APP_DIR/src/browser_cli.ts" ]]; then
+if [[ -z "$APP_DIR" || ! -f "$APP_DIR/src/tools/browser/cli.ts" ]]; then
   SOURCE="${BASH_SOURCE[0]}"
   while [[ -L "$SOURCE" ]]; do
     DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
@@ -12,4 +12,4 @@ if [[ -z "$APP_DIR" || ! -f "$APP_DIR/src/browser_cli.ts" ]]; then
   APP_DIR="$(cd -P "$(dirname "$SOURCE")/.." && pwd)"
 fi
 
-exec bun "$APP_DIR/src/browser_cli.ts" "$@"
+exec bun "$APP_DIR/src/tools/browser/cli.ts" "$@"

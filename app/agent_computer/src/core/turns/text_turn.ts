@@ -1,12 +1,13 @@
-import type { TurnStart } from '../../actor_lane'
+import type { TurnStart } from '../../lanes/actor_lane'
 import { createCombinedAbortSignal } from '../../common/async'
 import { runAgentLoop } from '../agent-loop'
 import { buildAgentSystemPrompt } from '../../prompts/system_prompt'
 import { createComputerTools } from '../../tools/computer'
 import { createSkillTools } from '../../tools/library/skill-tools'
-import { createScheduleTools } from '../../tools/schedule-tools'
-import { createTodoTool, TodoStore } from '../../tools/todo-tool'
-import { createWebTools } from '../../tools/web-tools'
+import { createScheduleTools } from '../../tools/schedule/schedule-tools'
+import { createTodoTool, TodoStore } from '../../tools/todo/todo-tool'
+import { createWebTools } from '../../tools/web/web-tools'
+import { createCodexDelegateTool } from '../../tools/codex/codex-tool'
 import { assistantText, userMessage } from '../llm'
 import { currentChannelFromTurnStart, statefulTruncationFromActorEventPayload } from './actor_event_text'
 import { actorEventUserContent } from './actor_event_content'
@@ -137,6 +138,15 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
           requestScheduleRpc: opts.requestScheduleRpc
         }),
         ...webTools,
+        createCodexDelegateTool({
+          turnStart,
+          workspaceRoot: opts.workspaceRoot,
+          requestAIGatewayApiKey: opts.requestAIGatewayApiKey,
+          requestAppConfigure: opts.requestAppConfigure,
+          createCodexDelegation: opts.createCodexDelegation,
+          appendCodexDelegationEvent: opts.appendCodexDelegationEvent,
+          updateCodexDelegationStatus: opts.updateCodexDelegationStatus
+        }),
         ...createSkillTools(opts.workspaceRoot, {
           turn: turnStart.turn,
           enabledSkills: agentConversationContext.skills ?? [],
@@ -161,6 +171,13 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
   }
 }
 
+/**
+ * Converts final assistant text into the worker's turn result contract.
+ *
+ * Empty visible text is only allowed for inputs that explicitly permit
+ * schedule-origin silent success; otherwise it is treated as a worker failure so
+ * the caller does not mistake no output for a completed user reply.
+ */
 export function textTurnResultFromAssistantReply(turnStart: TurnStart, replyText: string): TurnHandlerResult {
   if (silentSuccessAllowed(turnStart) && silentSuccessReply(replyText)) {
     return { kind: 'noop_completed', reason: 'schedule_silent_success' }
@@ -173,10 +190,19 @@ export function textTurnResultFromAssistantReply(turnStart: TurnStart, replyText
   return { kind: 'aigateway_response' }
 }
 
+/**
+ * Reads the per-turn flag that permits a no-visible-text completion.
+ */
 function silentSuccessAllowed(turnStart: TurnStart): boolean {
   return turnStart.request_context?.silent_success_allowed === true
 }
 
+/**
+ * Resolves browser runtime knobs from AppConfigure.
+ *
+ * Browser backend configuration is runtime-owned operator state, so it comes
+ * through the same control-plane RPC path as other process-independent config.
+ */
 async function resolveBrowserRuntimeConfig(
   turnStart: TurnStart,
   opts: TextTurnLoopOptions
@@ -206,6 +232,9 @@ async function resolveBrowserRuntimeConfig(
   }
 }
 
+/**
+ * Detects the explicit silent-success marker used by schedule wakeups.
+ */
 function silentSuccessReply(replyText: string): boolean {
   const text = replyText.trim()
   return text === '' || text === silentSuccessMarker

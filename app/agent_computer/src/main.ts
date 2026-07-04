@@ -1,65 +1,38 @@
 import * as kernel from '../../kernel'
-import {
-  mailboxUpdatedFromEnvelope,
-  turnControlFromEnvelope,
-  turnStartFromEnvelope,
-  type ActorTurnRef,
-  type TurnStart,
-  type TurnSteerUpdate
-} from './actor_lane'
+import { mailboxUpdatedFromEnvelope, turnControlFromEnvelope, turnStartFromEnvelope } from './lanes/actor_lane'
 import { runTurnHandlers } from './core'
-import { classifyLlmError } from './core/llm-error-classifier'
-import {
-  turnAcceptedEnvelope,
-  turnErrorEnvelope,
-  turnNoopCompletedEnvelope,
-  workerProgressEnvelope
-} from './turn_envelopes'
-import type {
-  AgentConversationContext,
-  AgentConversationContextRequest,
-  AIGatewayApiKeyRejected,
-  AIGatewayApiKeyRequest,
-  AIGatewayApiKeyResponse,
-  AppConfigureResolveRejected,
-  AppConfigureResolveRequest,
-  AppConfigureResolveResponse,
-  RpcError,
-  RpcMethod,
-  RpcRequest,
-  RpcResponse,
-  ScheduleRpcRequest,
-  SkillOverlayReplaceRequest,
-  SkillOverlayRequest,
-  SkillOverlayResponse
-} from './rpc_lane'
-import { RuntimeRpcClient, handleWorkerRpcRequest, rpcMethods } from './rpc_lane'
-import { parseWorkerEnv, workerCapacityEnvelope, workerHeartbeatEnvelope, workerReadyEnvelope } from './runtime'
-import type { WorkerConfig } from './runtime'
-import { decodeEnvelope, type JsonObject, type RuntimeFabricEnvelope } from './runtime_fabric'
-import {
-  isRuntimeFabricBackpressure,
-  reliableEnvelopeSender,
-  type ReliableEnvelopeSender
-} from './runtime_fabric_sender'
-import { prepareTurnWorkspace, verifyWorkerFilesystem } from './workspace'
-import { createFileTransferState, handleFileTransferFrame, isFileTransferFrame } from './file_transfer_lane'
+import { turnAcceptedEnvelope, turnErrorEnvelope, turnNoopCompletedEnvelope } from './fabric/envelopes'
+import type { RpcError, RpcRequest, RpcResponse } from './lanes/rpc_lane'
+import { RuntimeRpcClient, handleWorkerRpcRequest } from './lanes/rpc_lane'
+import { parseWorkerEnv, workerCapacityEnvelope, workerHeartbeatEnvelope, workerReadyEnvelope } from './worker/config'
+import type { WorkerConfig } from './worker/config'
+import { decodeEnvelope, type RuntimeFabricEnvelope } from './fabric/fabric'
+import { isRuntimeFabricBackpressure, reliableEnvelopeSender, type ReliableEnvelopeSender } from './fabric/sender'
+import { prepareTurnWorkspace, verifyWorkerFilesystem } from './worker/workspace'
+import { createFileTransferState, handleFileTransferFrame, isFileTransferFrame } from './lanes/file_transfer_lane'
 import { resolveBubblewrapSupport } from './tools/computer/bubblewrap'
+import {
+  availableTurnSlots,
+  startTurnProgress,
+  turnFailureDetails,
+  turnKey,
+  type ActiveTurn
+} from './worker/active_turns'
+import { logWorkerEvent } from './worker/logging'
+import {
+  replaceSkillOverlay,
+  appendCodexDelegationEvent,
+  createCodexDelegation,
+  requestAgentConversationContext,
+  requestAIGatewayApiKey,
+  requestAppConfigure,
+  requestScheduleRpc,
+  requestSkillOverlay,
+  stringFromDetails,
+  updateCodexDelegationStatus
+} from './worker/rpc_requests'
 
 const heartbeatIntervalMs = 15_000
-const turnProgressIntervalMs = 60_000
-const aiGatewayApiKeyRefreshSkewMs = 60_000
-const aiGatewayApiKeyCache = new Map<string, AIGatewayApiKeyResponse>()
-
-type ActiveTurn = {
-  turnStart: TurnStart
-  correlationId: string
-  steeringUpdates: TurnSteerUpdate[]
-  abortController: AbortController
-  controlledStopRequested: boolean
-  controlledStopCommand?: string
-  controlledStopReason?: string
-}
 
 try {
   await runWorker()
@@ -68,6 +41,13 @@ try {
   process.exit(1)
 }
 
+/**
+ * Runs the long-lived Agent Computer worker process.
+ *
+ * The process owns live RuntimeFabric receive/send loops and in-memory active
+ * turns only. Actor state, scheduling, and final commits remain control-plane
+ * and PostgreSQL responsibilities.
+ */
 async function runWorker(): Promise<void> {
   const config = parseWorkerEnv()
   verifyWorkerFilesystem(config)
@@ -126,6 +106,12 @@ async function runWorker(): Promise<void> {
   }
 }
 
+/**
+ * Logs whether command tools can use the stronger bubblewrap isolation mode.
+ *
+ * Weak mode is allowed because the worker still runs inside the Agent Computer
+ * container; the warning tells operators which host/container setting to fix.
+ */
 function logBubblewrapSupport(workspaceRoot: string): void {
   const support = resolveBubblewrapSupport(workspaceRoot)
   if (support.mode === 'strong') {
@@ -171,6 +157,13 @@ async function sendHeartbeat(sendEnvelope: ReliableEnvelopeSender, heartbeat: Ru
   }
 }
 
+/**
+ * Routes one decoded RuntimeFabric envelope to the lane-specific handler.
+ *
+ * Unknown envelope body types are ignored because this worker may share the
+ * fabric with newer control-plane senders; durable compatibility checks live at
+ * typed lane boundaries instead.
+ */
 async function handleEnvelope(
   config: WorkerConfig,
   sendEnvelope: ReliableEnvelopeSender,
@@ -204,6 +197,13 @@ async function handleEnvelope(
   }
 }
 
+/**
+ * Accepts and launches one turn if this worker has capacity.
+ *
+ * The acceptance envelope is sent before the async task starts so the control
+ * plane can fence duplicate deliveries and observe that the worker took
+ * responsibility for this actor event.
+ */
 async function startTurn(
   config: WorkerConfig,
   sendEnvelope: ReliableEnvelopeSender,
@@ -265,6 +265,12 @@ async function startTurn(
   })
 }
 
+/**
+ * Owns the lifecycle wrapper around the actual turn execution.
+ *
+ * It sends progress, converts ordinary failures to turn_error, and always
+ * publishes updated capacity after the active turn is removed.
+ */
 async function runActiveTurnTask(
   config: WorkerConfig,
   sendEnvelope: ReliableEnvelopeSender,
@@ -320,84 +326,12 @@ async function runActiveTurnTask(
   }
 }
 
-function availableTurnSlots(config: WorkerConfig, activeTurns: Map<string, ActiveTurn>): number {
-  return Math.max(config.maxConcurrentTurns - activeTurns.size, 0)
-}
-
-function startTurnProgress(sendEnvelope: ReliableEnvelopeSender, active: ActiveTurn): () => void {
-  let stopped = false
-  let progressInFlight = false
-
-  const sendProgress = (summary: string): void => {
-    if (stopped || progressInFlight) return
-
-    progressInFlight = true
-    void sendTurnProgress(sendEnvelope, active, summary).finally(() => {
-      progressInFlight = false
-    })
-  }
-
-  sendProgress('turn started')
-  const timer = setInterval(() => sendProgress('turn in progress'), turnProgressIntervalMs)
-  timer.unref?.()
-
-  return () => {
-    stopped = true
-    clearInterval(timer)
-  }
-}
-
-async function sendTurnProgress(
-  sendEnvelope: ReliableEnvelopeSender,
-  active: ActiveTurn,
-  summary: string
-): Promise<void> {
-  try {
-    await sendEnvelope(workerProgressEnvelope(active.turnStart.turn, 'checkpoint', summary, active.correlationId))
-  } catch (error) {
-    logWorkerEvent(
-      'worker.turn_progress_skipped',
-      {
-        actor_event_id: active.turnStart.turn.actor_event_id,
-        reason: isRuntimeFabricBackpressure(error) ? 'backpressure' : 'send_error',
-        error: error instanceof Error ? error.message : String(error)
-      },
-      'stderr'
-    )
-  }
-}
-
-function turnFailureDetails(error: unknown): JsonObject {
-  const classification = classifyLlmError(error)
-  const details: JsonObject = {
-    runtime: 'bun',
-    llm_error_kind: classification.kind,
-    retryable: classification.retryable,
-    should_compress: classification.shouldCompress,
-    should_fallback_provider: classification.shouldFallbackProvider
-  }
-
-  const gateway = aigatewayErrorDetails(error)
-  if (gateway) details.aigateway = gateway
-
-  return details
-}
-
-function aigatewayErrorDetails(error: unknown): JsonObject | undefined {
-  if (!error || typeof error !== 'object') return undefined
-
-  const record = error as Record<string, unknown>
-  const details: JsonObject = {}
-
-  if (typeof record.code === 'string') details.code = record.code
-  if (typeof record.status === 'number') details.status = record.status
-  if (record.details && typeof record.details === 'object' && !Array.isArray(record.details)) {
-    details.details_json = record.details as JsonObject
-  }
-
-  return Object.keys(details).length > 0 ? details : undefined
-}
-
+/**
+ * Builds the turn-local runtime surface and runs the registered turn handlers.
+ *
+ * All control-plane state access is passed in as RPC callbacks so the turn code
+ * cannot reach PostgreSQL-owned semantics directly.
+ */
 async function runActiveTurn(
   config: WorkerConfig,
   sendEnvelope: ReliableEnvelopeSender,
@@ -416,6 +350,9 @@ async function runActiveTurn(
     agentInstalledSkillsRoot: config.agentInstalledSkillsRoot,
     requestAIGatewayApiKey: (request, options) => requestAIGatewayApiKey(rpcClient, request, options),
     requestAppConfigure: request => requestAppConfigure(rpcClient, request),
+    createCodexDelegation: request => createCodexDelegation(rpcClient, request),
+    appendCodexDelegationEvent: request => appendCodexDelegationEvent(rpcClient, request),
+    updateCodexDelegationStatus: request => updateCodexDelegationStatus(rpcClient, request),
     requestAgentConversationContext: request => requestAgentConversationContext(rpcClient, request),
     requestScheduleRpc: (method, request) => requestScheduleRpc(rpcClient, method, request),
     requestSkillOverlay: request => requestSkillOverlay(rpcClient, request),
@@ -431,20 +368,12 @@ async function runActiveTurn(
   }
 }
 
-function logWorkerEvent(
-  event: string,
-  fields: Record<string, unknown> = {},
-  stream: 'stdout' | 'stderr' = 'stdout'
-): void {
-  const line = `${JSON.stringify({ event, ...fields })}\n`
-  if (stream === 'stderr') {
-    process.stderr.write(line)
-    return
-  }
-
-  process.stdout.write(line)
-}
-
+/**
+ * Adds an active steering update to the matching in-flight turn.
+ *
+ * The update is accepted only when the mailbox event already contains the
+ * journaled actor event; the worker must not synthesize steer text locally.
+ */
 async function handleMailboxUpdated(
   sendEnvelope: ReliableEnvelopeSender,
   activeTurns: Map<string, ActiveTurn>,
@@ -464,6 +393,12 @@ async function handleMailboxUpdated(
   await sendEnvelope(turnAcceptedEnvelope(update.turn, envelope.message_id))
 }
 
+/**
+ * Handles active `/retry` and `/stop` controls by aborting the in-flight turn.
+ *
+ * The control is recorded as a controlled stop so the normal abort exception
+ * does not become a durable worker failure.
+ */
 async function handleTurnControl(activeTurns: Map<string, ActiveTurn>, envelope: RuntimeFabricEnvelope): Promise<void> {
   const control = turnControlFromEnvelope(envelope)
   if (!control.turn || (control.command !== 'retry' && control.command !== 'stop')) return
@@ -477,106 +412,4 @@ async function handleTurnControl(activeTurns: Map<string, ActiveTurn>, envelope:
   active.controlledStopReason = reason
 
   active.abortController.abort(new DOMException(reason, 'AbortError'))
-}
-
-async function requestAIGatewayApiKey(
-  rpcClient: RuntimeRpcClient,
-  request: AIGatewayApiKeyRequest,
-  options: { forceRefresh?: boolean } = {}
-): Promise<AIGatewayApiKeyResponse | AIGatewayApiKeyRejected> {
-  const cacheKey = request.agent_uid
-  const cached = aiGatewayApiKeyCache.get(cacheKey)
-  if (!options.forceRefresh && cached && cached.expires_at * 1000 > Date.now() + aiGatewayApiKeyRefreshSkewMs) {
-    return { ...cached, request_id: request.request_id }
-  }
-
-  const response = await rpcClient.request(
-    rpcMethods.aiGatewayApiKeyForCreateOrFindByAgent,
-    request,
-    request.request_id
-  )
-  if ('code' in response) {
-    return {
-      request_id: request.request_id,
-      agent_uid: stringFromDetails(response, 'agent_uid') || request.agent_uid,
-      code: response.code,
-      message: response.message
-    }
-  }
-
-  const apiKey = response.payload_json as AIGatewayApiKeyResponse
-  aiGatewayApiKeyCache.set(cacheKey, apiKey)
-  return apiKey
-}
-
-async function requestAppConfigure(
-  rpcClient: RuntimeRpcClient,
-  request: AppConfigureResolveRequest
-): Promise<AppConfigureResolveResponse | AppConfigureResolveRejected> {
-  const response = await rpcClient.request(rpcMethods.appConfigureResolve, request, request.request_id)
-  if ('code' in response) {
-    return {
-      request_id: request.request_id,
-      agent_uid: stringFromDetails(response, 'agent_uid') || request.agent_uid,
-      code: response.code,
-      message: response.message
-    }
-  }
-
-  return response.payload_json as AppConfigureResolveResponse
-}
-
-async function requestAgentConversationContext(
-  rpcClient: RuntimeRpcClient,
-  request: AgentConversationContextRequest
-): Promise<AgentConversationContext> {
-  const response = await rpcClient.request(rpcMethods.agentConversationContextResolve, request, request.request_id)
-  if ('code' in response) {
-    throw new Error(`agent conversation context RPC failed: ${response.code} ${response.message ?? ''}`.trim())
-  }
-  return response.payload_json as AgentConversationContext
-}
-
-async function requestScheduleRpc(
-  rpcClient: RuntimeRpcClient,
-  method: RpcMethod,
-  request: ScheduleRpcRequest
-): Promise<JsonObject> {
-  const response = await rpcClient.request(method, request as never, request.request_id)
-  if ('code' in response) {
-    throw new Error(`schedule RPC failed: ${response.code} ${response.message ?? ''}`.trim())
-  }
-  return (response.payload_json ?? {}) as JsonObject
-}
-
-async function requestSkillOverlay(
-  rpcClient: RuntimeRpcClient,
-  request: SkillOverlayRequest
-): Promise<SkillOverlayResponse> {
-  const response = await rpcClient.request(rpcMethods.skillsOverlayResolve, request, request.request_id)
-  if ('code' in response) {
-    throw new Error(`skill overlay RPC failed: ${response.code} ${response.message ?? ''}`.trim())
-  }
-  return response.payload_json as SkillOverlayResponse
-}
-
-async function replaceSkillOverlay(
-  rpcClient: RuntimeRpcClient,
-  request: SkillOverlayReplaceRequest
-): Promise<SkillOverlayResponse> {
-  const response = await rpcClient.request(rpcMethods.skillsOverlayReplace, request, request.request_id)
-  if ('code' in response) {
-    throw new Error(`skill overlay replace RPC failed: ${response.code} ${response.message ?? ''}`.trim())
-  }
-  return response.payload_json as SkillOverlayResponse
-}
-
-function stringFromDetails(source: RpcError | JsonObject | undefined, key: string): string | undefined {
-  const details = (source && 'details_json' in source ? source.details_json : source) as JsonObject | undefined
-  const value = details?.[key]
-  return typeof value === 'string' ? value : undefined
-}
-
-function turnKey(turn: ActorTurnRef): string {
-  return `${turn.activation_uid}:${turn.actor_event_id}`
 }

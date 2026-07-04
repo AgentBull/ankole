@@ -22,7 +22,7 @@ defmodule Ankole.SignalsGateway.InputTombstone do
   import Ecto.Changeset
 
   alias Ankole.Principals.Principal
-  alias Ankole.SignalsGateway.SignalChannel
+  alias Ankole.SignalsGateway.Channel
 
   @primary_key false
   @foreign_key_type :string
@@ -37,7 +37,7 @@ defmodule Ankole.SignalsGateway.InputTombstone do
 
     field :binding_name, :string, primary_key: true
 
-    belongs_to :channel, SignalChannel,
+    belongs_to :channel, Channel,
       foreign_key: :signal_channel_id,
       references: :id,
       type: :string,

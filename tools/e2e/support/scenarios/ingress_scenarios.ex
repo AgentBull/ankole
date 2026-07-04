@@ -28,13 +28,13 @@ defmodule Ankole.E2E.Scenarios.Ingress do
   alias Ankole.E2E.FakeFeishu
   alias Ankole.Repo
   alias Ankole.SignalsGateway.OutboxEntry
-  alias Ankole.SignalsGateway.SignalEntry
+  alias Ankole.SignalsGateway.Entry
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
 
   def run_lark_adapter_guardrails(%{fake_feishu: fake_feishu, agent: agent}) do
     before_inputs = Repo.aggregate(ActorEvent, :count)
-    before_entries = Repo.aggregate(SignalEntry, :count)
+    before_entries = Repo.aggregate(Entry, :count)
 
     # Bot-authored echoes must not wake the agent. The ack proves the event
     # was fully dispatched before the "nothing happened" assertions run.
@@ -51,7 +51,7 @@ defmodule Ankole.E2E.Scenarios.Ingress do
     finalize_due_inbound_batches!()
 
     assert Repo.aggregate(ActorEvent, :count) == before_inputs
-    assert Repo.aggregate(SignalEntry, :count) == before_entries
+    assert Repo.aggregate(Entry, :count) == before_entries
     refute pending_actor_event(agent.uid, "om_bot_echo_1")
   end
 
@@ -71,7 +71,7 @@ defmodule Ankole.E2E.Scenarios.Ingress do
     wait_for_event_ack!(fake_feishu, "evt_ignored_unaddressed_1")
     finalize_due_inbound_batches!()
 
-    refute Repo.get_by(SignalEntry,
+    refute Repo.get_by(Entry,
              signal_channel_id: "lark:oc_chaos_ignore",
              source_entry_id: "om_ignored_unaddressed_1"
            )
@@ -96,7 +96,7 @@ defmodule Ankole.E2E.Scenarios.Ingress do
                  DateTime.to_unix(DateTime.add(@base_time, 350, :millisecond), :millisecond)
              )
 
-    assert %SignalEntry{text: "This observe_all line should be mirrored only."} =
+    assert %Entry{text: "This observe_all line should be mirrored only."} =
              wait_for_signal_entry!("lark:oc_chaos_record", "om_record_only_1")
 
     finalize_due_inbound_batches!()

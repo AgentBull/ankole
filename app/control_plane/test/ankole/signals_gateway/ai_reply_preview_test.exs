@@ -12,7 +12,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
   alias Ankole.Plugins.Spec
   alias Ankole.Repo
   alias Ankole.SignalsGateway.AIReplyPreview
-  alias Ankole.SignalsGateway.SignalEntry
+  alias Ankole.SignalsGateway.Entry
 
   setup :use_mock_signal_provider_plugin
 
@@ -66,7 +66,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert mirror.metadata["actor_event_id"] == actor_event.id
     assert mirror.metadata["source"] == "ai_gateway_final_reply"
     assert mirror.metadata["provider_thread_id"] == actor_event.provider_thread_id
-    assert String.starts_with?(mirror.document_id, "signal-entry:")
+    assert String.starts_with?(mirror.document_id, "signal-gateway-entry:")
     refute mirror.document_id == mirror.source_entry_id
     assert mirror.metadata_text =~ "ai_gateway_final_reply"
     assert mirror.content_hash && mirror.content_hash != ""
@@ -154,7 +154,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert mirror.source_entry_id =~ "mock-reply-"
     assert mirror.ai_message_id == second_committed.id
     assert mirror.metadata["actor_event_id"] == actor_event.id
-    refute Repo.get_by(SignalEntry, ai_message_id: first_committed.id)
+    refute Repo.get_by(Entry, ai_message_id: first_committed.id)
   end
 
   test "function call round does not reuse prior round preview text for an empty final response" do
@@ -205,7 +205,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
        }}
     )
 
-    refute Repo.get_by(SignalEntry, ai_message_id: first_message_id)
+    refute Repo.get_by(Entry, ai_message_id: first_message_id)
 
     send(pid, {:ai_gateway_event, :response_started, Ecto.UUID.generate(), %{}})
 
@@ -226,7 +226,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     )
 
     refute_receive {:mock_provider_outbox_sent, _final_edit}, 100
-    refute Repo.get_by(SignalEntry, ai_message_id: final_message_id)
+    refute Repo.get_by(Entry, ai_message_id: final_message_id)
   end
 
   test "preview edits and final edit use distinct idempotency keys" do
@@ -296,7 +296,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert final_edit.target_source_entry_id == flush_edit.target_source_entry_id
     refute is_nil(preview_entry_id)
 
-    assert %SignalEntry{text: "final answer"} = wait_for_final_mirror(message_id)
+    assert %Entry{text: "final answer"} = wait_for_final_mirror(message_id)
   end
 
   test "blank leading deltas do not create preview noise" do
@@ -414,7 +414,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     )
 
     refute_receive {:mock_provider_outbox_sent, _outbox}, 100
-    refute Repo.get_by(SignalEntry, ai_message_id: message_id)
+    refute Repo.get_by(Entry, ai_message_id: message_id)
   end
 
   defp use_mock_signal_provider_plugin(_context) do
@@ -439,8 +439,8 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
   defp wait_for_final_mirror(ai_message_id, attempts_left \\ 20)
 
   defp wait_for_final_mirror(ai_message_id, attempts_left) when attempts_left > 0 do
-    case Repo.get_by(SignalEntry, ai_message_id: ai_message_id) do
-      %SignalEntry{} = entry ->
+    case Repo.get_by(Entry, ai_message_id: ai_message_id) do
+      %Entry{} = entry ->
         entry
 
       nil ->
@@ -458,7 +458,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
   defp refute_final_mirror(ai_message_id, attempts_left \\ 3)
 
   defp refute_final_mirror(ai_message_id, attempts_left) when attempts_left > 0 do
-    refute Repo.get_by(SignalEntry, ai_message_id: ai_message_id)
+    refute Repo.get_by(Entry, ai_message_id: ai_message_id)
 
     receive do
     after
@@ -469,7 +469,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
   defp refute_final_mirror(_ai_message_id, 0), do: :ok
 
   defp final_reply_mirror_count(actor_event_id) do
-    SignalEntry
+    Entry
     |> where([entry], fragment("?->>'actor_event_id'", entry.metadata) == ^actor_event_id)
     |> where([entry], fragment("?->>'source'", entry.metadata) == "ai_gateway_final_reply")
     |> Repo.aggregate(:count, :source_entry_id)

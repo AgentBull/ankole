@@ -49,7 +49,7 @@ The plugin declaration should expose:
 - supervised children needed for the shared long-connection runtime.
 
 The adapter declarations are references to host-owned contracts. The plugin does
-not own `signal_bindings`, `signal_channels`, `signal_entries`,
+not own `signal_gateway_bindings`, `signal_gateway_channels`, `signal_gateway_entries`,
 `actor_events`, `signal_gateway_outbox`, Principal rows, or AuthZ grants.
 
 The supervised runtime may keep a connection registry keyed by `domain + appId`.
@@ -84,7 +84,7 @@ normalizes the provider message into a SignalsGateway entry receive fact.
 SignalsGateway mirrors the visible message and appends `im.message.addressed`.
 The agent's streamed answer is delivered live through the gateway's AI-reply
 preview (a streaming card when the adapter supports it) and, on the confirmed
-final send or edit, mirrored into `signal_entries` with `ai_message_id`.
+final send or edit, mirrored into `signal_gateway_entries` with `ai_message_id`.
 Explicit side effects — attachments, reactions, dividers, command feedback —
 still execute through `signal_gateway_outbox` rows.
 
@@ -149,7 +149,7 @@ The setup UI may present these group-message labels:
 | `observe_all` | `record_only` | Unaddressed group messages update the provider mirror but do not wake the agent. |
 | `may_intervene` | `may_intervene` | Unaddressed group messages update the mirror and append `im.message.may_intervene`. |
 
-The generic `signal_bindings` default can remain conservative, but Feishu/Lark
+The generic `signal_gateway_bindings` default can remain conservative, but Feishu/Lark
 setup should write `record_only` when the setup value is `observe_all`.
 
 The identity-provider adapter config is separate:
@@ -536,7 +536,7 @@ provider time never orders model history.
 The adapter submits the fact through `emit_entry_removed`. It does not create
 the tombstone or the lifecycle actor event itself.
 
-SignalsGateway hard-deletes the mirrored entry because `signal_entries` is the
+SignalsGateway hard-deletes the mirrored entry because `signal_gateway_entries` is the
 current provider-visible mirror, not actor transcript history. The tombstone
 prevents a late receive from recreating the entry.
 
@@ -702,7 +702,7 @@ are not hidden behind that retry rule.
 Provider write failures during streaming are isolated. Preview writes may fail
 and later writes may recover. `finish` reports whether the final text was
 confirmed. Final content truth is the `ai_gateway_messages` row; a confirmed
-final send or edit mirrors into `signal_entries` with the `ai_message_id`
+final send or edit mirrors into `signal_gateway_entries` with the `ai_message_id`
 backref. The outbox is not the streamed-reply path. Delivery is at-least-once:
 if the preview process dies before finalizing, `RecoveryScan` re-sends the
 completed final content later (see `docs/design-docs/SignalsGateway.md`,
@@ -779,7 +779,7 @@ scope.
 
 ## Provider Mirror Behavior
 
-Feishu/Lark receive facts update `signal_channels` and `signal_entries` through
+Feishu/Lark receive facts update `signal_gateway_channels` and `signal_gateway_entries` through
 SignalsGateway. Confirmed successful outbox sends update the mirror afterwards.
 Failed or unsupported outbox attempts do not fake mirror state.
 
@@ -818,7 +818,7 @@ provider. That is a provider limitation, not a SignalsGateway queue failure.
   output changes only through the deletion mapping.
 - Provider recall does not imply assistant-output delete.
 - Commands are typed actor events, including `command.steer`.
-- Streamed assistant replies mirror into `signal_entries` with `ai_message_id`
+- Streamed assistant replies mirror into `signal_gateway_entries` with `ai_message_id`
   only after confirmed provider success; the adapter never synthesizes a
   provider entry id.
 - Feishu/Lark OIDC is AuthN input to Principals and AuthZ, not a SignalsGateway

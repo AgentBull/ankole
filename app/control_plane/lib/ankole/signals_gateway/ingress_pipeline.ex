@@ -21,16 +21,16 @@ defmodule Ankole.SignalsGateway.IngressPipeline do
 
   alias Ankole.SignalsGateway.BindingFilters
   alias Ankole.SignalsGateway.IngressFact
-  alias Ankole.SignalsGateway.SignalBinding
+  alias Ankole.SignalsGateway.Binding
 
-  @type constructor :: (SignalBinding.t(), map(), DateTime.t() -> {:ok, map()} | {:error, term()})
+  @type constructor :: (Binding.t(), map(), DateTime.t() -> {:ok, map()} | {:error, term()})
 
   @doc """
   Builds a constructed ingress fact through one of the concrete fact constructors.
   """
-  @spec construct(atom(), SignalBinding.t(), map(), DateTime.t(), constructor()) ::
+  @spec construct(atom(), Binding.t(), map(), DateTime.t(), constructor()) ::
           {:ok, IngressFact.t()} | {:error, term()}
-  def construct(kind, %SignalBinding{} = binding, input, now, constructor)
+  def construct(kind, %Binding{} = binding, input, now, constructor)
       when is_atom(kind) and is_map(input) and is_function(constructor, 3) do
     with {:ok, attrs} <- constructor.(binding, input, now) do
       construct_fact(kind, attrs)
@@ -40,8 +40,8 @@ defmodule Ankole.SignalsGateway.IngressPipeline do
   @doc """
   Applies binding admission filters.
   """
-  @spec filter(SignalBinding.t(), IngressFact.t()) :: :match | :no_match | {:error, term()}
-  def filter(%SignalBinding{filters: filters}, %IngressFact{} = fact) do
+  @spec filter(Binding.t(), IngressFact.t()) :: :match | :no_match | {:error, term()}
+  def filter(%Binding{filters: filters}, %IngressFact{} = fact) do
     BindingFilters.match?(filters, fact)
   end
 

@@ -6,8 +6,8 @@ defmodule Ankole.SignalsGateway.Projection do
   alias Ecto.Adapters.SQL
   alias Ankole.SignalsGateway.InboundBatch
   alias Ankole.SignalsGateway.InputTombstone
-  alias Ankole.SignalsGateway.SignalChannel
-  alias Ankole.SignalsGateway.SignalEntry
+  alias Ankole.SignalsGateway.Channel
+  alias Ankole.SignalsGateway.Entry
 
   import Ankole.SignalsGateway.Utils, only: [thread_key: 1]
 
@@ -30,21 +30,21 @@ defmodule Ankole.SignalsGateway.Projection do
       last_seen_at: now
     }
 
-    case repo.get(SignalChannel, fact.signal_channel_id) do
-      %SignalChannel{} = channel ->
+    case repo.get(Channel, fact.signal_channel_id) do
+      %Channel{} = channel ->
         channel
-        |> SignalChannel.changeset(merge_channel_attrs(channel, attrs))
+        |> Channel.changeset(merge_channel_attrs(channel, attrs))
         |> repo.update()
 
       nil ->
-        %SignalChannel{}
-        |> SignalChannel.changeset(attrs)
+        %Channel{}
+        |> Channel.changeset(attrs)
         |> repo.insert(on_conflict: :nothing, conflict_target: :id, returning: true)
         |> case do
-          {:ok, %SignalChannel{id: id} = channel} when is_binary(id) ->
+          {:ok, %Channel{id: id} = channel} when is_binary(id) ->
             {:ok, channel}
 
-          {:ok, %SignalChannel{id: nil}} ->
+          {:ok, %Channel{id: nil}} ->
             update_existing_channel(repo, fact.signal_channel_id, attrs)
 
           {:error, _reason} = error ->
@@ -54,10 +54,10 @@ defmodule Ankole.SignalsGateway.Projection do
   end
 
   defp update_existing_channel(repo, signal_channel_id, attrs) do
-    case repo.get(SignalChannel, signal_channel_id) do
-      %SignalChannel{} = channel ->
+    case repo.get(Channel, signal_channel_id) do
+      %Channel{} = channel ->
         channel
-        |> SignalChannel.changeset(merge_channel_attrs(channel, attrs))
+        |> Channel.changeset(merge_channel_attrs(channel, attrs))
         |> repo.update()
 
       nil ->
@@ -70,7 +70,7 @@ defmodule Ankole.SignalsGateway.Projection do
   # rule is "don't overwrite with nothing": a sparse enum (:unknown/:none), a nil
   # text field, or an empty map all keep the previously stored value.
   # `first_seen_at` is always preserved since it records the first observation.
-  defp merge_channel_attrs(%SignalChannel{} = channel, attrs) do
+  defp merge_channel_attrs(%Channel{} = channel, attrs) do
     %{
       attrs
       | kind: preserve_enum(attrs.kind, :unknown, channel.kind),
@@ -101,18 +101,18 @@ defmodule Ankole.SignalsGateway.Projection do
     with :ok <- lock_entry(repo, fact) do
       attrs = receive_entry_attrs(fact, now)
 
-      case repo.get_by(SignalEntry,
+      case repo.get_by(Entry,
              signal_channel_id: fact.signal_channel_id,
              source_entry_id: fact.source_entry_id
            ) do
-        %SignalEntry{} = entry ->
+        %Entry{} = entry ->
           case stale_provider_time?(entry.provider_time, fact.provider_time) do
             true ->
               {:ok, entry}
 
             false ->
               entry
-              |> SignalEntry.changeset(%{
+              |> Entry.changeset(%{
                 attrs
                 | first_seen_at: entry.first_seen_at,
                   reactions: entry.reactions || %{},
@@ -122,8 +122,8 @@ defmodule Ankole.SignalsGateway.Projection do
           end
 
         nil ->
-          %SignalEntry{}
-          |> SignalEntry.changeset(attrs)
+          %Entry{}
+          |> Entry.changeset(attrs)
           |> repo.insert()
       end
     end
@@ -217,7 +217,7 @@ defmodule Ankole.SignalsGateway.Projection do
   end
 
   def delete_mirror_entry(repo, fact) do
-    SignalEntry
+    Entry
     |> where([entry], entry.signal_channel_id == ^fact.signal_channel_id)
     |> where([entry], entry.source_entry_id == ^fact.source_entry_id)
     |> repo.delete_all()
@@ -236,7 +236,7 @@ defmodule Ankole.SignalsGateway.Projection do
     entry_limit = Keyword.get(opts, :entry_limit, max(20, max_attachments))
     since = DateTime.add(provider_time, -window_seconds, :second)
 
-    SignalEntry
+    Entry
     |> where([entry], entry.signal_channel_id == ^signal_channel_id)
     |> where([entry], entry.provider_time >= ^since and entry.provider_time <= ^provider_time)
     |> order_by([entry], desc: entry.provider_time)
@@ -247,7 +247,7 @@ defmodule Ankole.SignalsGateway.Projection do
     |> Enum.take(max_attachments)
   end
 
-  def reaction_entry_attrs(%SignalEntry{} = entry, fact, now) do
+  def reaction_entry_attrs(%Entry{} = entry, fact, now) do
     {reactions, raw_reaction_keys} =
       update_reactions(
         entry.reactions || %{},
@@ -401,7 +401,7 @@ defmodule Ankole.SignalsGateway.Projection do
   # entry). `content_hash` instead digests the entry's *content* so a re-receive
   # with unchanged content produces the same hash (cheap change detection).
   def entry_document_id(signal_channel_id, source_entry_id) do
-    "signal-entry:" <> digest([signal_channel_id, source_entry_id])
+    "signal-gateway-entry:" <> digest([signal_channel_id, source_entry_id])
   end
 
   def entry_content_hash(parts), do: digest(parts)

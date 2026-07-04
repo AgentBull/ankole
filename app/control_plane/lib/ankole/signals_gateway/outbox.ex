@@ -13,9 +13,9 @@ defmodule Ankole.SignalsGateway.Outbox do
   alias Ankole.SignalsGateway.Projection
   alias Ankole.SignalsGateway.ReplyAttachment
   alias Ankole.SignalsGateway.Sanitizer
-  alias Ankole.SignalsGateway.SignalBinding
-  alias Ankole.SignalsGateway.SignalChannel
-  alias Ankole.SignalsGateway.SignalEntry
+  alias Ankole.SignalsGateway.Binding
+  alias Ankole.SignalsGateway.Channel
+  alias Ankole.SignalsGateway.Entry
 
   import Ankole.SignalsGateway.Utils,
     only: [
@@ -301,7 +301,7 @@ defmodule Ankole.SignalsGateway.Outbox do
   # so the message still gets out. The capability key is the string form because
   # it comes from plugin declarations.
   defp choose_outbox_operation(
-         %SignalChannel{reply_mode: :entry},
+         %Channel{reply_mode: :entry},
          capabilities,
          %ActorEvent{source_entry_id: source_entry_id}
        )
@@ -313,12 +313,12 @@ defmodule Ankole.SignalsGateway.Outbox do
      end}
   end
 
-  defp choose_outbox_operation(%SignalChannel{reply_mode: mode}, capabilities, _actor_event)
+  defp choose_outbox_operation(%Channel{reply_mode: mode}, capabilities, _actor_event)
        when mode in [:channel, :entry] do
     {:ok, post_or_fallback(capabilities, :post)}
   end
 
-  defp choose_outbox_operation(%SignalChannel{reply_mode: :none}, _capabilities, _actor_event),
+  defp choose_outbox_operation(%Channel{reply_mode: :none}, _capabilities, _actor_event),
     do: {:error, :outbox_reply_not_supported}
 
   defp choose_outbox_operation(_channel, _capabilities, _actor_event),
@@ -335,18 +335,18 @@ defmodule Ankole.SignalsGateway.Outbox do
     do: {:error, :signal_channel_id_missing}
 
   defp outbox_route_channel(repo, %ActorEvent{signal_channel_id: signal_channel_id}) do
-    case repo.get(SignalChannel, signal_channel_id) do
-      %SignalChannel{} = channel -> {:ok, channel}
+    case repo.get(Channel, signal_channel_id) do
+      %Channel{} = channel -> {:ok, channel}
       nil -> {:error, {:signal_channel_not_found, signal_channel_id}}
     end
   end
 
   defp outbox_route_binding(repo, %ActorEvent{} = actor_event) do
-    case repo.get_by(SignalBinding,
+    case repo.get_by(Binding,
            agent_uid: actor_event.agent_uid,
            name: actor_event.binding_name
          ) do
-      %SignalBinding{} = binding ->
+      %Binding{} = binding ->
         {:ok, binding}
 
       nil ->
@@ -410,8 +410,8 @@ defmodule Ankole.SignalsGateway.Outbox do
   defp outbox_channel(_repo, %OutboxEntry{signal_channel_id: nil}), do: {:ok, nil}
 
   defp outbox_channel(repo, %OutboxEntry{signal_channel_id: signal_channel_id}) do
-    case repo.get(SignalChannel, signal_channel_id) do
-      %SignalChannel{} = channel -> {:ok, channel}
+    case repo.get(Channel, signal_channel_id) do
+      %Channel{} = channel -> {:ok, channel}
       nil -> {:error, :signal_channel_not_found}
     end
   end
@@ -502,7 +502,7 @@ defmodule Ankole.SignalsGateway.Outbox do
 
   defp require_channel_surface(
          outbox,
-         %SignalChannel{reply_mode: reply_mode},
+         %Channel{reply_mode: reply_mode},
          capabilities,
          capability
        )
@@ -513,7 +513,7 @@ defmodule Ankole.SignalsGateway.Outbox do
   defp require_channel_surface(outbox, _channel, _capabilities, _capability),
     do: {:unsupported, outbox}
 
-  defp require_reply_surface(outbox, %SignalChannel{reply_mode: :entry}, capabilities) do
+  defp require_reply_surface(outbox, %Channel{reply_mode: :entry}, capabilities) do
     require_capability(outbox, capabilities, :reply_entry)
   end
 
@@ -724,7 +724,7 @@ defmodule Ankole.SignalsGateway.Outbox do
 
   # Prefer the id the provider returned; fall back to one already on the row.
   # Without a provider-derived entry id there is no source mirror identity, so a
-  # successful outbox row remains succeeded but does not write signal_entries.
+  # successful outbox row remains succeeded but does not write signal_gateway_entries.
   defp created_source_entry_id_after_success(%OutboxEntry{} = outbox, result) do
     optional_text(result, :created_source_entry_id) ||
       outbox.created_source_entry_id
@@ -799,13 +799,13 @@ defmodule Ankole.SignalsGateway.Outbox do
          _result,
          now
        ) do
-    case repo.get_by(SignalEntry,
+    case repo.get_by(Entry,
            signal_channel_id: outbox.signal_channel_id,
            source_entry_id: outbox.target_source_entry_id
          ) do
-      %SignalEntry{} = entry ->
+      %Entry{} = entry ->
         entry
-        |> SignalEntry.changeset(%{
+        |> Entry.changeset(%{
           text: outbox.fallback_visible_text,
           fallback_visible_text: outbox.fallback_visible_text,
           search_text: outbox.fallback_visible_text,
@@ -829,7 +829,7 @@ defmodule Ankole.SignalsGateway.Outbox do
          _result,
          _now
        ) do
-    SignalEntry
+    Entry
     |> where([entry], entry.signal_channel_id == ^outbox.signal_channel_id)
     |> where([entry], entry.source_entry_id == ^outbox.target_source_entry_id)
     |> repo.delete_all()
@@ -845,11 +845,11 @@ defmodule Ankole.SignalsGateway.Outbox do
          now
        )
        when operation in [:reaction_add, :reaction_remove] do
-    case repo.get_by(SignalEntry,
+    case repo.get_by(Entry,
            signal_channel_id: outbox.signal_channel_id,
            source_entry_id: outbox.target_source_entry_id
          ) do
-      %SignalEntry{} = entry ->
+      %Entry{} = entry ->
         fact = %{
           action: if(operation == :reaction_add, do: :add, else: :remove),
           reaction_key: outbox.payload["reaction_key"] || outbox.payload[:reaction_key],
@@ -859,7 +859,7 @@ defmodule Ankole.SignalsGateway.Outbox do
         }
 
         entry
-        |> SignalEntry.changeset(Projection.reaction_entry_attrs(entry, fact, now))
+        |> Entry.changeset(Projection.reaction_entry_attrs(entry, fact, now))
         |> repo.update()
         |> case do
           {:ok, _entry} -> :ok

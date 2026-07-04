@@ -361,7 +361,6 @@ impl ResponseContext {
 
     pub fn resolved_provider_request_object(&self) -> Map<String, Value> {
         let mut request = self.resolved_request_object();
-        request.remove("prompt_cache_key");
         request.remove("service_tier");
         normalize_compaction_input(&mut request);
         request
@@ -601,7 +600,10 @@ mod tests {
             provider_request.get("reasoningEffort"),
             Some(&json!("minimal"))
         );
-        assert!(!provider_request.contains_key("prompt_cache_key"));
+        assert_eq!(
+            provider_request.get("prompt_cache_key"),
+            Some(&json!("cache-a"))
+        );
         assert!(!provider_request.contains_key("service_tier"));
     }
 

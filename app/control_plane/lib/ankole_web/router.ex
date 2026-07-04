@@ -53,7 +53,7 @@ defmodule AnkoleWeb.Router do
   pipeline :ai_gateway_api do
     # Runtime AI calls are stateless HTTP requests authenticated as either an
     # agent-scoped AIGateway token or an active human admin console token.
-    plug :accepts, ["json"]
+    plug :accepts, ["json", "event-stream"]
     plug OpenApiSpex.Plug.PutApiSpec, module: AnkoleWeb.ApiSpec
     plug AnkoleWeb.Plugs.RequireAIGatewayAccessToken
   end

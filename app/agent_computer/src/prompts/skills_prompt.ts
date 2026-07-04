@@ -133,6 +133,9 @@ function groupSkillsByCategory(skills: SkillPromptEntry[]): Array<[string, Skill
   return [...grouped.entries()]
 }
 
+/**
+ * Sorts skills by category and name for deterministic prompt output.
+ */
 function compareSkills(a: SkillPromptEntry, b: SkillPromptEntry): number {
   const category = (a.category?.trim() || 'general').localeCompare(b.category?.trim() || 'general')
   if (category !== 0) return category
@@ -147,6 +150,9 @@ function formatPromptScalar(value: string): string {
   return isPlainPromptScalar(trimmed) ? trimmed : JSON.stringify(value)
 }
 
+/**
+ * Checks whether a scalar can appear unquoted in the prompt catalog.
+ */
 function isPlainPromptScalar(value: string): boolean {
   if (!/^[A-Za-z0-9][A-Za-z0-9_./-]*$/.test(value)) return false
   return !/^(true|false|null|~|yes|no|on|off)$/i.test(value)

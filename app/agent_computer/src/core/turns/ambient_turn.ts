@@ -5,7 +5,7 @@
  * text turn with the intervention prompt.
  */
 
-import type { TurnStart } from '../../actor_lane'
+import type { TurnStart } from '../../lanes/actor_lane'
 import { createCombinedAbortSignal } from '../../common/async'
 import { arrayPath } from '../../common/json-utils'
 import { recognizeAmbientIntervention } from './ambient_recognizer'
@@ -16,6 +16,13 @@ import type { TextTurnLoopOptions, TurnHandlerResult } from './turn_options'
 
 const AMBIENT_RECOGNIZER_TIMEOUT_MS = 30_000
 
+/**
+ * Runs the ambient recognizer and, only when it chooses to intervene, delegates
+ * to the normal text-turn path with extra context.
+ *
+ * Silent ambient observations complete as no-ops so normal chat traffic does not
+ * force the agent to speak.
+ */
 export async function runAmbientMayInterveneHandler(
   turnStart: TurnStart,
   opts: TextTurnLoopOptions
@@ -71,6 +78,9 @@ export async function runAmbientMayInterveneHandler(
   return result
 }
 
+/**
+ * Reads observed-history arrays from the ambient event payload.
+ */
 function ambientHistoryMessages(turnStart: TurnStart): unknown[] {
   const payload = turnStart.actor_event.payload_json
   return [

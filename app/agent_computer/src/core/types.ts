@@ -74,11 +74,6 @@ export interface AgentLoopConfig {
 }
 
 /**
- * Thinking/reasoning level for models that support it.
- */
-export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
-
-/**
  * Extensible interface for custom app messages.
  */
 export interface CustomAgentMessages {}
@@ -113,13 +108,4 @@ export interface AgentTool<TParameters extends z.ZodType = z.ZodType, TDetails =
     params: z.output<TParameters>,
     signal?: AbortSignal
   ) => Promise<AgentToolResult<TDetails>>
-}
-
-/**
- * Context snapshot passed into the low-level agent loop.
- */
-export interface AgentContext {
-  systemPrompt: string
-  messages: AgentMessage[]
-  tools?: AgentTool[]
 }

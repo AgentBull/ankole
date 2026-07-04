@@ -68,24 +68,36 @@ export function buildAmbientRecognizerUserPrompt(decisionInputJson: string): str
   ].join('\n')
 }
 
+/**
+ * Renders the recognizer's agent identity block.
+ */
 function agentIdentitySection(input: AmbientRecognizerSystemPromptInput): string {
   return ['<agent_identity>', `display_name: ${input.displayName}`, `uid: ${input.agentUid}`, '</agent_identity>'].join(
     '\n'
   )
 }
 
+/**
+ * Renders the agent SOUL block when present.
+ */
 function agentSoulSection(soul: string): string {
   const content = soul.trim()
   if (!content) return ''
   return ['<agent_soul>', content, '</agent_soul>'].join('\n')
 }
 
+/**
+ * Renders the agent mission block when present.
+ */
 function missionSection(mission: string | undefined): string {
   const content = mission?.trim()
   if (!content) return ''
   return ['<mission>', content, '</mission>'].join('\n')
 }
 
+/**
+ * Renders runtime facts used by the ambient recognizer.
+ */
 function runtimeContextSection(input: AmbientRecognizerSystemPromptInput): string {
   return [
     '<runtime_context>',

@@ -15,8 +15,8 @@ defmodule Ankole.SignalsGateway.Ingress do
   alias Ankole.SignalsGateway.InboundBatchFinalizer
   alias Ankole.SignalsGateway.IngressPipeline
   alias Ankole.SignalsGateway.Projection
-  alias Ankole.SignalsGateway.SignalBinding
-  alias Ankole.SignalsGateway.SignalEntry
+  alias Ankole.SignalsGateway.Binding
+  alias Ankole.SignalsGateway.Entry
 
   import Ankole.SignalsGateway.Utils,
     only: [
@@ -94,13 +94,13 @@ defmodule Ankole.SignalsGateway.Ingress do
         # the same message so two simultaneous add/removes can't clobber the
         # reactions map.
         with :ok <- Projection.lock_entry(repo, fact) do
-          case repo.get_by(SignalEntry,
+          case repo.get_by(Entry,
                  signal_channel_id: fact.signal_channel_id,
                  source_entry_id: fact.source_entry_id
                ) do
-            %SignalEntry{} = entry ->
+            %Entry{} = entry ->
               entry
-              |> SignalEntry.changeset(Projection.reaction_entry_attrs(entry, fact, now))
+              |> Entry.changeset(Projection.reaction_entry_attrs(entry, fact, now))
               |> repo.update()
               |> Projection.reaction_result()
 
@@ -265,7 +265,7 @@ defmodule Ankole.SignalsGateway.Ingress do
     end)
   end
 
-  defp entry_policy(%SignalBinding{} = binding, fact) do
+  defp entry_policy(%Binding{} = binding, fact) do
     cond do
       fact.mirror_only? ->
         {:ok, :record_only}

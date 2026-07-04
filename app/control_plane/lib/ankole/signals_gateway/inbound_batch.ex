@@ -12,7 +12,7 @@ defmodule Ankole.SignalsGateway.InboundBatch do
   import Ecto.Changeset
 
   alias Ankole.Principals.Principal
-  alias Ankole.SignalsGateway.SignalChannel
+  alias Ankole.SignalsGateway.Channel
   alias Ankole.Types.JsonValue
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
@@ -32,7 +32,7 @@ defmodule Ankole.SignalsGateway.InboundBatch do
     field :binding_name, :string
     field :session_id, :string
 
-    belongs_to :channel, SignalChannel,
+    belongs_to :channel, Channel,
       foreign_key: :signal_channel_id,
       references: :id,
       type: :string

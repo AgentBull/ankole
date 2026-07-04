@@ -21,7 +21,7 @@ defmodule Ankole.SignalsGateway do
   alias Ankole.SignalsGateway.Outbox
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Projection
-  alias Ankole.SignalsGateway.SignalBinding
+  alias Ankole.SignalsGateway.Binding
   alias Ankole.SignalsGateway.StateCleanup
   alias Ankole.SignalsGateway.Utils
 
@@ -30,36 +30,36 @@ defmodule Ankole.SignalsGateway do
   @doc """
   Creates or updates a per-agent signal binding.
   """
-  @spec upsert_binding(map()) :: {:ok, SignalBinding.t()} | {:error, term()}
+  @spec upsert_binding(map()) :: {:ok, Binding.t()} | {:error, term()}
   defdelegate upsert_binding(attrs), to: Bindings
 
   @spec put_lark_binding(String.t(), String.t(), map()) ::
-          {:ok, %{binding: SignalBinding.t(), config_key: String.t()}} | {:error, term()}
+          {:ok, %{binding: Binding.t(), config_key: String.t()}} | {:error, term()}
   defdelegate put_lark_binding(agent_uid, binding_name, config), to: Bindings
 
   @doc """
   Loads an enabled binding by route key.
   """
-  @spec get_binding(String.t(), String.t()) :: {:ok, SignalBinding.t()} | {:error, term()}
+  @spec get_binding(String.t(), String.t()) :: {:ok, Binding.t()} | {:error, term()}
   defdelegate get_binding(agent_uid, binding_name), to: Bindings
 
   @doc """
   Lists signal bindings for one agent, including disabled bindings.
   """
   @spec list_agent_bindings(String.t(), keyword()) ::
-          {:ok, [SignalBinding.t()]} | {:error, term()}
+          {:ok, [Binding.t()]} | {:error, term()}
   defdelegate list_agent_bindings(agent_uid, opts \\ []), to: Bindings
 
   @doc """
   Soft-disables a signal binding for one agent.
   """
-  @spec disable_binding(String.t(), String.t()) :: {:ok, SignalBinding.t()} | {:error, term()}
+  @spec disable_binding(String.t(), String.t()) :: {:ok, Binding.t()} | {:error, term()}
   defdelegate disable_binding(agent_uid, binding_name), to: Bindings
 
   @doc """
   Lists enabled bindings for an adapter that should have live provider connections.
   """
-  @spec list_enabled_bindings(String.t(), keyword()) :: [SignalBinding.t()]
+  @spec list_enabled_bindings(String.t(), keyword()) :: [Binding.t()]
   defdelegate list_enabled_bindings(adapter, opts \\ []), to: Bindings
 
   @doc """

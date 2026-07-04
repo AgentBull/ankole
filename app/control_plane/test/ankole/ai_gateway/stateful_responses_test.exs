@@ -9,7 +9,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
   alias Ankole.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.SignalsGateway.InputTombstone
-  alias Ankole.SignalsGateway.SignalChannel
+  alias Ankole.SignalsGateway.Channel
 
   describe "start_response_run/1" do
     test "creates a generating message row with metadata.actor_event_id" do
@@ -507,8 +507,8 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
 
       insert_live_delivery!(actor_event)
 
-      %SignalChannel{}
-      |> SignalChannel.changeset(%{
+      %Channel{}
+      |> Channel.changeset(%{
         id: "lark:chat:group-a",
         kind: :im_group,
         reply_mode: :entry,

@@ -1,0 +1,206 @@
+import type { JsonObject } from '../fabric/fabric'
+import {
+  RuntimeRpcClient,
+  rpcMethods,
+  type AgentConversationContext,
+  type AgentConversationContextRequest,
+  type AIGatewayApiKeyRejected,
+  type AIGatewayApiKeyRequest,
+  type AIGatewayApiKeyResponse,
+  type AppConfigureResolveRejected,
+  type AppConfigureResolveRequest,
+  type AppConfigureResolveResponse,
+  type CodexDelegationCreateRequest,
+  type CodexDelegationEventAppendRequest,
+  type CodexDelegationEventResponse,
+  type CodexDelegationRejected,
+  type CodexDelegationResponse,
+  type CodexDelegationStatusUpdateRequest,
+  type RpcError,
+  type RpcMethod,
+  type ScheduleRpcRequest,
+  type SkillOverlayReplaceRequest,
+  type SkillOverlayRequest,
+  type SkillOverlayResponse
+} from '../lanes/rpc_lane'
+
+const aiGatewayApiKeyRefreshSkewMs = 60_000
+const aiGatewayApiKeyCache = new Map<string, AIGatewayApiKeyResponse>()
+
+/**
+ * Resolves the agent-scoped AIGateway key over RuntimeFabric and caches it
+ * until the local skew window.
+ *
+ * The key is scoped to the agent, not the turn, so reusing it avoids one RPC per
+ * model round while still letting callers force a refresh after a 401 or socket
+ * open failure.
+ */
+export async function requestAIGatewayApiKey(
+  rpcClient: RuntimeRpcClient,
+  request: AIGatewayApiKeyRequest,
+  options: { forceRefresh?: boolean } = {}
+): Promise<AIGatewayApiKeyResponse | AIGatewayApiKeyRejected> {
+  const cacheKey = request.agent_uid
+  const cached = aiGatewayApiKeyCache.get(cacheKey)
+  if (!options.forceRefresh && cached && cached.expires_at * 1000 > Date.now() + aiGatewayApiKeyRefreshSkewMs) {
+    return { ...cached, request_id: request.request_id }
+  }
+
+  const response = await rpcClient.request(
+    rpcMethods.aiGatewayApiKeyForCreateOrFindByAgent,
+    request,
+    request.request_id
+  )
+  if ('code' in response) {
+    return {
+      request_id: request.request_id,
+      agent_uid: stringFromDetails(response, 'agent_uid') || request.agent_uid,
+      code: response.code,
+      message: response.message
+    }
+  }
+
+  const apiKey = response.payload_json as AIGatewayApiKeyResponse
+  aiGatewayApiKeyCache.set(cacheKey, apiKey)
+  return apiKey
+}
+
+/**
+ * Resolves runtime configuration keys through the control-plane owner.
+ *
+ * Worker code must not read operator-managed config from env after boot; values
+ * such as browser backend settings are runtime facts owned outside this process.
+ */
+export async function requestAppConfigure(
+  rpcClient: RuntimeRpcClient,
+  request: AppConfigureResolveRequest
+): Promise<AppConfigureResolveResponse | AppConfigureResolveRejected> {
+  const response = await rpcClient.request(rpcMethods.appConfigureResolve, request, request.request_id)
+  if ('code' in response) {
+    return {
+      request_id: request.request_id,
+      agent_uid: stringFromDetails(response, 'agent_uid') || request.agent_uid,
+      code: response.code,
+      message: response.message
+    }
+  }
+
+  return response.payload_json as AppConfigureResolveResponse
+}
+
+export async function createCodexDelegation(
+  rpcClient: RuntimeRpcClient,
+  request: CodexDelegationCreateRequest
+): Promise<CodexDelegationResponse | CodexDelegationRejected> {
+  const response = await rpcClient.request(rpcMethods.codexDelegationCreate, request, request.request_id)
+  if ('code' in response) return codexRejected(response, request)
+  return response.payload_json as CodexDelegationResponse
+}
+
+export async function appendCodexDelegationEvent(
+  rpcClient: RuntimeRpcClient,
+  request: CodexDelegationEventAppendRequest
+): Promise<CodexDelegationEventResponse | CodexDelegationRejected> {
+  const response = await rpcClient.request(rpcMethods.codexDelegationEventAppend, request, request.request_id)
+  if ('code' in response) return codexRejected(response, request)
+  return response.payload_json as CodexDelegationEventResponse
+}
+
+export async function updateCodexDelegationStatus(
+  rpcClient: RuntimeRpcClient,
+  request: CodexDelegationStatusUpdateRequest
+): Promise<CodexDelegationResponse | CodexDelegationRejected> {
+  const response = await rpcClient.request(rpcMethods.codexDelegationStatusUpdate, request, request.request_id)
+  if ('code' in response) return codexRejected(response, request)
+  return response.payload_json as CodexDelegationResponse
+}
+
+/**
+ * Loads the prompt-facing conversation context for one turn.
+ *
+ * A failed context lookup is fatal because the worker must not invent agent
+ * identity, skill metadata, or conversation anchors locally.
+ */
+export async function requestAgentConversationContext(
+  rpcClient: RuntimeRpcClient,
+  request: AgentConversationContextRequest
+): Promise<AgentConversationContext> {
+  const response = await rpcClient.request(rpcMethods.agentConversationContextResolve, request, request.request_id)
+  if ('code' in response) {
+    throw new Error(`agent conversation context RPC failed: ${response.code} ${response.message ?? ''}`.trim())
+  }
+  return response.payload_json as AgentConversationContext
+}
+
+/**
+ * Sends a schedule RPC and converts control-plane errors into tool failures.
+ *
+ * Scheduling changes are durable PostgreSQL-owned state, so the worker only
+ * packages the request and never applies local fallback behavior.
+ */
+export async function requestScheduleRpc(
+  rpcClient: RuntimeRpcClient,
+  method: RpcMethod,
+  request: ScheduleRpcRequest
+): Promise<JsonObject> {
+  const response = await rpcClient.request(method, request as never, request.request_id)
+  if ('code' in response) {
+    throw new Error(`schedule RPC failed: ${response.code} ${response.message ?? ''}`.trim())
+  }
+  return (response.payload_json ?? {}) as JsonObject
+}
+
+/**
+ * Reads the DB-backed overlay for an enabled skill.
+ *
+ * Skill source files live on worker storage, but per-agent additions are
+ * runtime state and must be resolved through RuntimeFabric.
+ */
+export async function requestSkillOverlay(
+  rpcClient: RuntimeRpcClient,
+  request: SkillOverlayRequest
+): Promise<SkillOverlayResponse> {
+  const response = await rpcClient.request(rpcMethods.skillsOverlayResolve, request, request.request_id)
+  if ('code' in response) {
+    throw new Error(`skill overlay RPC failed: ${response.code} ${response.message ?? ''}`.trim())
+  }
+  return response.payload_json as SkillOverlayResponse
+}
+
+/**
+ * Replaces the DB-backed overlay for an enabled skill.
+ *
+ * The append tool performs read-modify-write above this layer; this helper keeps
+ * the RPC surface narrow and explicit.
+ */
+export async function replaceSkillOverlay(
+  rpcClient: RuntimeRpcClient,
+  request: SkillOverlayReplaceRequest
+): Promise<SkillOverlayResponse> {
+  const response = await rpcClient.request(rpcMethods.skillsOverlayReplace, request, request.request_id)
+  if ('code' in response) {
+    throw new Error(`skill overlay replace RPC failed: ${response.code} ${response.message ?? ''}`.trim())
+  }
+  return response.payload_json as SkillOverlayResponse
+}
+
+/**
+ * Reads a string from either an RpcError details object or a plain JSON object.
+ */
+export function stringFromDetails(source: RpcError | JsonObject | undefined, key: string): string | undefined {
+  const details = (source && 'details_json' in source ? source.details_json : source) as JsonObject | undefined
+  const value = details?.[key]
+  return typeof value === 'string' ? value : undefined
+}
+
+function codexRejected(
+  response: RpcError,
+  request: { request_id: string; agent_uid: string }
+): CodexDelegationRejected {
+  return {
+    request_id: request.request_id,
+    agent_uid: stringFromDetails(response, 'agent_uid') || request.agent_uid,
+    code: response.code,
+    message: response.message
+  }
+}

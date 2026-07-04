@@ -378,7 +378,6 @@ defmodule Ankole.AIGateway do
   defp strip_noop_provider_fields(request) do
     request
     |> Map.delete("service_tier")
-    |> Map.delete("prompt_cache_key")
   end
 
   defp strip_internal_metadata(request) do
@@ -920,6 +919,13 @@ defmodule Ankole.AIGateway do
     request = normalize_request_keys(request)
 
     case Enum.find(@stateful_http_fields, &Map.has_key?(request, &1)) do
+      "store" ->
+        if request["store"] == false do
+          :ok
+        else
+          {:error, {:stateful_http_field_forbidden, "store"}}
+        end
+
       field when is_binary(field) ->
         {:error, {:stateful_http_field_forbidden, field}}
 

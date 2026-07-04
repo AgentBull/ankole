@@ -18,7 +18,7 @@ Only four concepts need to stay separate:
 - `IngressFact`: what an adapter or internal source reports to the gateway. It
   carries a stable source event id, raw references, and provider metadata when
   the input came from a provider. It is an input shape, not necessarily a table.
-- Provider mirror: `signal_channels` and `signal_entries`, the current
+- Provider mirror: `signal_gateway_channels` and `signal_gateway_entries`, the current
   provider-visible or provider-delivered state Ankole has chosen to observe.
 - `ActorEvent`: the semantic work item appended to `actor_events` for a session
   actor, such as `im.message.addressed`, `im.message.may_intervene`,
@@ -50,8 +50,8 @@ SignalsGateway is not an audit subsystem. Auditability is a low-priority
 byproduct here, not the design driver. Runtime behavior should remain
 explainable from these surfaces:
 
-- `signal_channels` and `signal_entries`: latest observed provider-visible or
-  provider-delivered mirror. `signal_entries` is also the long-lived substrate
+- `signal_gateway_channels` and `signal_gateway_entries`: latest observed provider-visible or
+  provider-delivered mirror. `signal_gateway_entries` is also the long-lived substrate
   for recall/search and future long-term memory.
 - `signal_gateway_input_tombstones`: short-lived provider-removal guards before a
   matching receive is accepted.
@@ -118,8 +118,8 @@ identities and indexes, not extra product concepts.
 | --- | --- | --- |
 | `binding_key` | `(agent_uid, binding_name)` | One configured provider ingress for one agent |
 | `session_key` | `(agent_uid, session_id)` | Actor session identity |
-| `signal_channel_key` | `(signal_channel_id)` | One `signal_channels` row |
-| `signal_entry_key` | `(signal_channel_id, source_entry_id)` | One `signal_entries` row |
+| `signal_channel_key` | `(signal_channel_id)` | One `signal_gateway_channels` row |
+| `signal_entry_key` | `(signal_channel_id, source_entry_id)` | One `signal_gateway_entries` row |
 | `outbox_key` | `(agent_uid, binding_name, outbound_key)` | One provider-visible side-effect intent |
 | `actor_event_idempotency_key` | `(agent_uid, binding_name, source_event_id)` | Actor event handoff idempotency |
 
@@ -164,7 +164,7 @@ appears to work.
 
 ## Reply Capability
 
-`signal_channels.reply_mode` records what kind of provider-visible reply the
+`signal_gateway_channels.reply_mode` records what kind of provider-visible reply the
 channel supports:
 
 - `none`: the channel does not support provider-visible agent output. A webhook
@@ -481,7 +481,7 @@ gateway appends a `signal.entry.removed` lifecycle event instead. Consuming
 that lifecycle event cancels checkbacks anchored to the removed entry, applies
 the AI-message deletion mapping, and completes — it produces no model-visible
 note. The deletion mapping works on `ai_gateway_messages` rows, located through
-the identity chain (`signal_entries` / `actor_events.source_event_id` →
+the identity chain (`signal_gateway_entries` / `actor_events.source_event_id` →
 `metadata.actor_event_id` → the event's loop chain): chain-tail rows after the
 last compaction are hard-deleted; historical rows and rows already covered by a
 compaction are no-op in v1. SignalsGateway does not derive a retraction note and
@@ -655,8 +655,8 @@ AIGateway publishes live chunk / terminal events (process messages)
   -> edits the same provider message as chunks arrive
   -> on the terminal complete event: finalize the provider message
   -> on confirmed final send/edit:
-       - upsert signal_entries by signal_entry_key
-       - set signal_entries.ai_message_id to the final ai_gateway_messages row
+       - upsert signal_gateway_entries by signal_entry_key
+       - set signal_gateway_entries.ai_message_id to the final ai_gateway_messages row
 ```
 
 Explicit side effects — attachments, cards, dividers, reactions, command
@@ -694,9 +694,9 @@ in `actor_events`, `actor_event_deliveries`, `ai_gateway_messages`, and
 
 ## Provider Mirror Contract
 
-`signal_channels` and `signal_entries` are provider mirror tables. They are the
+`signal_gateway_channels` and `signal_gateway_entries` are provider mirror tables. They are the
 current provider-visible or provider-delivered mirror of accepted observable
-facts and confirmed provider-visible outbound effects. `signal_entries` is also
+facts and confirmed provider-visible outbound effects. `signal_gateway_entries` is also
 long-lived input material for recall/search and future long-term memory. These
 tables are not routing state, actor transcript, provider truth, or a durable
 actor queue.
@@ -720,7 +720,7 @@ The provider mirror is not updated by:
 - ignored group traffic;
 - raw provider audit trails.
 
-`signal_channels.id` is the adapter-normalized provider channel id. It is not
+`signal_gateway_channels.id` is the adapter-normalized provider channel id. It is not
 scoped by agent uid, binding name, plugin id, or provider app id by the gateway.
 The adapter must normalize to the physical provider channel when the provider
 exposes one stable identity, even if several bindings observe it. It should add
@@ -743,7 +743,7 @@ actor events. Choose channel granularity from the user story:
 - a webhook carrying an object id should usually map each object to its own
   signal channel.
 
-`signal_channels` stores:
+`signal_gateway_channels` stores:
 
 - `id`;
 - `kind`, such as `im_dm`, `im_group`, `webhook_endpoint`, `issue`,
@@ -754,22 +754,22 @@ actor events. Choose channel granularity from the user story:
 - metadata and raw provider payload;
 - timestamps.
 
-`signal_entries` stores one row per `(signal_channel_id, source_entry_id)` and
+`signal_gateway_entries` stores one row per `(signal_channel_id, source_entry_id)` and
 uses that pair as its primary key. `source_entry_id` means the
 adapter-normalized entry id stored in the mirror; it is not necessarily the raw
 provider id. `thread_id` is not provider mirror identity; thread scope stays in
 `actor_events` and outbox as `provider_thread_id`, where batching and provider
 delivery need it.
 
-`signal_entries.ai_message_id` is a nullable backref column with a partial
+`signal_gateway_entries.ai_message_id` is a nullable backref column with a partial
 index. When a streamed AI reply's final send or edit succeeds, the mirror row
 records the `ai_gateway_messages.id` of the final output it delivered. The
 column is not part of the primary key — mirror identity stays the provider
-entry identity. Intermediate streaming chunks never write `signal_entries`;
+entry identity. Intermediate streaming chunks never write `signal_gateway_entries`;
 only the confirmed final reply does. The recovery scan uses this column to find
 completed AI outputs that never reached the provider.
 
-`signal_entries` also reserves recall/search fields. These fields are part of
+`signal_gateway_entries` also reserves recall/search fields. These fields are part of
 the mirror row because later full-text and vector recall need a stable searchable
 document identity even when provider ids or normalized payload shapes evolve:
 
@@ -785,7 +785,7 @@ Vector storage, embedding profiles, ranking, and re-embedding workers belong to
 the recall/search subsystem. SignalsGateway only reserves the stable entry-side
 fields that subsystem will need.
 
-`signal_entries` must not be treated as TTL runtime state. Memory/search
+`signal_gateway_entries` must not be treated as TTL runtime state. Memory/search
 retention, redaction, delete, and recall behavior are product/privacy policy,
 not actor-runtime cleanup. Actor-runtime recovery tables may be compacted; this
 provider observation surface is the durable source that memory systems can build
@@ -943,7 +943,7 @@ Envelope fields:
 - `id`: `source_event_id` and enqueue idempotency key
 - `source`: `signal://<adapter>/<encoded_channel_id>` for channel-scoped
   events, or `internal://<binding_name>/<session_id>` for internal events
-- `subject`: `signal_entries:<source_entry_id>` or
+- `subject`: `signal_gateway_entries:<source_entry_id>` or
   `signal_actions:<action_id>` for provider-backed events; internal events may
   use a source-specific subject such as a schedule fire id, or omit it
 - `time`
@@ -1017,7 +1017,7 @@ database-driven would create a second control plane without a user story.
 
 Stored state:
 
-- provider mirror rows: `signal_channels` and `signal_entries`;
+- provider mirror rows: `signal_gateway_channels` and `signal_gateway_entries`;
 - short-lived tombstones for provider-removal races;
 - `actor_events` rows: durable lifecycle work items. A row stays after its work
   completes; `completed_at` records the completion, and there is no separate
@@ -1029,7 +1029,7 @@ Stored state:
 SignalsGateway does not store a separate processed-ingress-events table.
 Actor event redelivery is de-duped by the `actor_events` unique key
 `(agent_uid, binding_name, source_event_id)`. Mirror-only redelivery is
-de-duped by `signal_entries` using the adapter's stable source entry key.
+de-duped by `signal_gateway_entries` using the adapter's stable source entry key.
 
 Code contracts:
 
@@ -1071,7 +1071,7 @@ TTL-like storage needs a resident cleanup path:
   lifecycle facts; any long-term retention policy belongs to the actor store,
   not to SignalsGateway cleanup.
 
-`signal_entries` is deliberately absent from this TTL list. It is long-lived
+`signal_gateway_entries` is deliberately absent from this TTL list. It is long-lived
 provider observation and memory/search substrate. Provider-side removal may
 remove or redact content through explicit product/privacy semantics, but
 background runtime cleanup must not treat it like actor delivery state.
@@ -1125,11 +1125,11 @@ actor_id = {agent_uid, session_id}
 The same channel routes to the same session actor for one agent. Different
 channels route to different session actors. `provider_thread_id` participates in
 batching, entry context, and provider delivery, but it does not define the
-session boundary and is not duplicated into `signal_entries`.
+session boundary and is not duplicated into `signal_gateway_entries`.
 
 Events without a signal channel, such as schedule fires, must carry an
 explicit `session_id`. They can append `actor_events` rows without creating a
-`signal_channels` row or `signal_entries` mirror row. Unless they deliberately
+`signal_gateway_channels` row or `signal_gateway_entries` mirror row. Unless they deliberately
 carry a channel, they do not enter the provider mirror.
 
 The actor runtime owns session scheduling, fencing, and turn recovery;
@@ -1265,7 +1265,7 @@ The actor store owns the physical `actor_events` and `actor_event_deliveries`
 schema. SignalsGateway owns the signal payload and idempotency contract it
 writes. Actor event payloads should be minimal dispatch snapshots, not raw
 provider payload copies. Heavy raw data, attachments, and long-lived searchable
-content should stay in `signal_entries`, attachment/blob storage, or the
+content should stay in `signal_gateway_entries`, attachment/blob storage, or the
 AIGateway message log after the work completes.
 
 Completing an actor event is the commit boundary, and it happens in AIGateway.
@@ -1330,7 +1330,7 @@ identity. Direct non-IM events set `available_at = now` and do not need pending
 batch state.
 
 A completed `actor_events` row is not a third long-lived content copy beside
-`signal_entries` and the AIGateway message log: its payload stays a minimal
+`signal_gateway_entries` and the AIGateway message log: its payload stays a minimal
 dispatch snapshot, and the durable content lives in the mirror and in
 `ai_gateway_messages`. The row itself stays because its lifecycle fields answer
 questions no other table should answer.
@@ -1404,7 +1404,7 @@ provider entries -> pending inbound batch -> addressed | ambient | no actor even
 ActorEvent.available_at -> delivery time for the already-formed event
 ```
 
-Provider-side removal follows the facts already stored in `signal_entries`,
+Provider-side removal follows the facts already stored in `signal_gateway_entries`,
 `signal_gateway_input_tombstones`, `actor_events` (its `input_state` and
 `completed_at` fields), and `ai_gateway_messages` refs. It must not create a
 separate entry-lifecycle table.
@@ -1551,7 +1551,7 @@ streaming-delivery state table, and no periodic chunk scanning. The design is
 - `ai_gateway_messages` is the content truth. AIGateway writes it.
 - Live chunks are in-process publish/subscribe messages from AIGateway. They
   are preview signals and are never persisted.
-- `signal_entries.ai_message_id` is the delivery proof: it is set only after a
+- `signal_gateway_entries.ai_message_id` is the delivery proof: it is set only after a
   confirmed final provider send or edit.
 
 `AIReplyPreview` is a per-event process that SignalsGateway starts when an
@@ -1575,13 +1575,13 @@ preview message id is transient delivery state; it is never written back into
 `ai_gateway_messages`. If the preview process dies mid-stream, the user may see
 a stale preview until recovery delivers the final content.
 
-Only the confirmed final send or edit writes the mirror: `signal_entries` is
+Only the confirmed final send or edit writes the mirror: `signal_gateway_entries` is
 upserted with the same normalized shape used for inbound entries, keyed by the
 provider entry identity `(signal_channel_id, source_entry_id)`, with
 `ai_message_id` set to the final row's id. If the provider does not return an
 entry id, no mirror row is written — the gateway never synthesizes a provider
 identity — and the recovery scan compensates later. Intermediate chunks never
-touch `signal_entries`.
+touch `signal_gateway_entries`.
 
 `RecoveryScan` is the catch-up path for finals that never reached the provider
 (preview process died, provider send failed, control plane restarted). It runs
@@ -1594,7 +1594,7 @@ what should be visible:
   its event (no `function_call` in content);
 - the actor event is IM-visible by policy;
 - the final content has non-empty visible text;
-- no `signal_entries` row with this `ai_message_id` exists yet.
+- no `signal_gateway_entries` row with this `ai_message_id` exists yet.
 
 Matching rows get their final IM reply sent (or re-sent). The scan waits out a
 grace window before touching recent rows, and re-checks best-effort before and
@@ -1689,7 +1689,7 @@ Because Feishu/Lark cannot notify message edits, a group entry mirrored through
 Feishu/Lark. This is a provider limitation, not a gateway queue failure.
 
 Provider-specific limitations belong in adapter design and tests, not in
-generic mirror semantics. `signal_entries` remains the long-lived observed-fact
+generic mirror semantics. `signal_gateway_entries` remains the long-lived observed-fact
 surface and latest-state mirror Ankole can build from; it is not expected to
 converge to provider state for lifecycle changes that the provider never emits
 and the adapter never fetches through an official API.
@@ -1771,8 +1771,8 @@ The gateway user-story surface includes these contract cases:
 - Signal binding identity is agent uid plus binding name.
 - A binding does not define provider channel identity or actor session identity.
 - Rule-based delivery routing is not the v1 user configuration surface.
-- Routeable actor events do not depend on `signal_channels` or
-  `signal_entries` primary keys.
+- Routeable actor events do not depend on `signal_gateway_channels` or
+  `signal_gateway_entries` primary keys.
 - Provider mirror identity is signal channel id plus source entry id,
   not agent uid or binding name.
 - Binding-channel observation is not a gateway identity.
@@ -1793,7 +1793,7 @@ The gateway user-story surface includes these contract cases:
   mapping, and provider-visible agent output is never removed by inference.
 - Explicit provider-visible side effects execute only through
   `signal_gateway_outbox` rows. Streamed AI replies are delivered live through
-  `AIReplyPreview` and mirrored into `signal_entries` with `ai_message_id`;
+  `AIReplyPreview` and mirrored into `signal_gateway_entries` with `ai_message_id`;
   they never pass through the outbox.
 - Provider send failure belongs to the outbox row for explicit effects, and to
   the recovery scan for streamed replies; neither revokes the accepted actor

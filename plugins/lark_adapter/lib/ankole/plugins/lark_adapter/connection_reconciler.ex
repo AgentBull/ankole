@@ -14,7 +14,7 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
   alias Ankole.IdentityProviders.Config, as: IdentityProviderConfig
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.AdapterContext
-  alias Ankole.SignalsGateway.SignalBinding
+  alias Ankole.SignalsGateway.Binding
 
   # Background cadence for re-deriving live connections from the database. It is
   # intentionally relaxed because connection startup is a live transport concern:
@@ -117,7 +117,7 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
     |> add_identity_provider_specs(opts)
   end
 
-  defp add_binding_spec(%SignalBinding{} = binding, {specs, errors}) do
+  defp add_binding_spec(%Binding{} = binding, {specs, errors}) do
     case binding_connection_spec(binding) do
       {:ok, key, spec} ->
         merge_connection_spec(
@@ -164,7 +164,7 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
     end
   end
 
-  defp binding_connection_spec(%SignalBinding{} = binding) do
+  defp binding_connection_spec(%Binding{} = binding) do
     with {:ok, config} <- Config.load_chat_config_ref(binding.config_ref) do
       context =
         AdapterContext.new(
@@ -251,7 +251,7 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
     supervisor.ensure_started(spec.config, Enum.reverse(spec.consumers), supervisor_opts)
   end
 
-  defp binding_error(%SignalBinding{} = binding, reason) do
+  defp binding_error(%Binding{} = binding, reason) do
     %{
       agent_uid: binding.agent_uid,
       binding_name: binding.name,

@@ -9,8 +9,8 @@ defmodule Ankole.SignalsGateway.InboundBatches do
   alias Ankole.SignalsGateway.InboundBatch
   alias Ankole.SignalsGateway.IngressFact
   alias Ankole.SignalsGateway.Projection
-  alias Ankole.SignalsGateway.SignalBinding
-  alias Ankole.SignalsGateway.SignalChannel
+  alias Ankole.SignalsGateway.Binding
+  alias Ankole.SignalsGateway.Channel
 
   import Ankole.SignalsGateway.Utils,
     only: [
@@ -540,15 +540,15 @@ defmodule Ankole.SignalsGateway.InboundBatches do
   end
 
   defp batch_binding(repo, %InboundBatch{} = batch) do
-    case repo.get_by(SignalBinding, agent_uid: batch.agent_uid, name: batch.binding_name) do
-      %SignalBinding{} = binding -> {:ok, binding}
+    case repo.get_by(Binding, agent_uid: batch.agent_uid, name: batch.binding_name) do
+      %Binding{} = binding -> {:ok, binding}
       nil -> {:error, :binding_not_found}
     end
   end
 
   defp batch_channel(repo, %InboundBatch{} = batch) do
-    case repo.get(SignalChannel, batch.signal_channel_id) do
-      %SignalChannel{} = channel -> {:ok, channel}
+    case repo.get(Channel, batch.signal_channel_id) do
+      %Channel{} = channel -> {:ok, channel}
       nil -> {:error, :signal_channel_not_found}
     end
   end
@@ -689,7 +689,7 @@ defmodule Ankole.SignalsGateway.InboundBatches do
         "batch_id" => batch.id,
         "batch_revision" => batch.batch_revision + 1,
         "source_entry_ids" => Enum.map(entries, & &1["source_entry_id"]),
-        "source_signal_entries" =>
+        "source_signal_gateway_entries" =>
           Enum.map(entries, fn entry ->
             %{
               "signal_channel_id" => entry["signal_channel_id"],

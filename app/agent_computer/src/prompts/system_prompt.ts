@@ -9,8 +9,8 @@
  * identity/persona/mission first, then runtime facts, policies, tool routing,
  * and finally the skill index.
  */
-import type { TurnStart } from '../actor_lane'
-import type { AgentConversationContext, RuntimeSkillSummary } from '../rpc_lane'
+import type { TurnStart } from '../lanes/actor_lane'
+import type { AgentConversationContext, RuntimeSkillSummary } from '../lanes/rpc_lane'
 import { formatSkillsForSystemPrompt, type SkillPromptEntry } from './skills_prompt'
 
 export type BuildAgentSystemPromptOptions = {
@@ -103,6 +103,12 @@ function runtimeContextSection(opts: BuildAgentSystemPromptOptions): string {
   return lines.join('\n')
 }
 
+/**
+ * Renders schedule-origin request context into prompt lines.
+ *
+ * This keeps scheduled wakeups visibly distinct from human-authored messages so
+ * the model does not over-reply to background work.
+ */
 function scheduleOriginLines(opts: BuildAgentSystemPromptOptions): string[] {
   const context = opts.turnStart.request_context
   if (!isRecord(context)) return []
@@ -149,11 +155,17 @@ function scheduleOriginLines(opts: BuildAgentSystemPromptOptions): string[] {
   return lines
 }
 
+/**
+ * Chooses the display name used in the system prompt.
+ */
 function agentDisplayName(opts: BuildAgentSystemPromptOptions): string {
   const displayName = opts.agentConversationContext?.agent?.display_name?.trim()
   return displayName || opts.turnStart.turn.actor.agent_uid
 }
 
+/**
+ * Reads the optional agent role for prompt context.
+ */
 function agentRole(opts: BuildAgentSystemPromptOptions): string | undefined {
   const role = opts.agentConversationContext?.agent?.role?.trim()
   return role || undefined
@@ -173,6 +185,9 @@ function agentEnvironmentInfoPolicySection(): string {
   ].join('\n')
 }
 
+/**
+ * Renders the model-facing tool and computer policy block.
+ */
 function toolsSection(): string {
   return `<tools>
 <about_computer>
@@ -186,6 +201,7 @@ Use \`read_file\` for paginated text reads and \`patch\` for targeted edits.
 For \`patch\`, use replace mode for one precise edit and \`mode='patch'\` V4A for multi-file, multi-site, or larger edits.
 Use \`command\` for stateless one-shot shell work.
 Use \`interactive_terminal\` for TTY/TUI programs, REPLs, and long-running interactive processes.
+Use \`codex_delegate\` when a nested coding agent should investigate, edit, test, or self-iterate on software work inside this same computer. Prefer it for substantial coding tasks where delegation plus independent verification is useful; inspect its result and rerun the relevant tests yourself before reporting completion.
 Use \`browser_*\` for rendered browser work inside the same computer. Browser sessions are persistent per execution scope through the configured CDP backend: local Chromium by default, or an operator-configured remote CDP service. Observe pages with \`browser_snapshot\`, use \`browser_find\` to search long rendered pages, then act on the latest element refs with tools such as \`browser_click\` and \`browser_type\`.
 Use \`check_back_later\` for one delayed self-wakeup tied to the current provider route.
 Use \`cron\` for recurring schedules; it supports listing, adding, updating, pausing, resuming, removing, manual run, and run history.
@@ -201,10 +217,16 @@ Do not invent tools that are not present in the tool list for this run.
 </tools>`
 }
 
+/**
+ * Converts runtime skill metadata into prompt catalog entries.
+ */
 function skillsForSystemPrompt(opts: BuildAgentSystemPromptOptions): SkillPromptEntry[] {
   return (opts.agentConversationContext?.skills ?? []).map(skillPromptEntryFromRuntime).filter(isSkillPromptEntry)
 }
 
+/**
+ * Drops skills that do not have enough metadata to appear in the prompt index.
+ */
 function skillPromptEntryFromRuntime(skill: RuntimeSkillSummary): SkillPromptEntry | null {
   if (!skill.skill_name || !skill.description) return null
   const metadata = skill.metadata ?? {}
@@ -219,10 +241,16 @@ function skillPromptEntryFromRuntime(skill: RuntimeSkillSummary): SkillPromptEnt
   }
 }
 
+/**
+ * Narrows nullable skill entries after filtering.
+ */
 function isSkillPromptEntry(skill: SkillPromptEntry | null): skill is SkillPromptEntry {
   return skill !== null
 }
 
+/**
+ * Formats current channel context into a compact prompt phrase.
+ */
 function formatCurrentChannel(channel: CurrentChannelContext): string {
   switch (channel.kind) {
     case 'external_dm': {
@@ -240,6 +268,9 @@ function formatCurrentChannel(channel: CurrentChannelContext): string {
   }
 }
 
+/**
+ * Adds a provider/platform prefix when available.
+ */
 function platformLabel(platform: string | undefined, noun: string): string {
   const brand = platform === 'feishu' ? 'Feishu' : platform === 'lark' ? 'Lark' : platform
   return brand ? `${brand} ${noun}` : noun
@@ -247,22 +278,34 @@ function platformLabel(platform: string | undefined, noun: string): string {
 
 type JsonRecord = Record<string, unknown>
 
+/**
+ * Reads a nested JSON object field from prompt-building context.
+ */
 function recordArg(args: JsonRecord | undefined, key: string): JsonRecord | undefined {
   const value = args?.[key]
   return isRecord(value) ? value : undefined
 }
 
+/**
+ * Reads and trims a string field from prompt-building context.
+ */
 function stringArg(args: JsonRecord | undefined, key: string): string | undefined {
   const value = args?.[key]
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined
 }
 
+/**
+ * Parses an optional date string.
+ */
 function parseDate(value: string | null | undefined): Date | undefined {
   if (!value) return undefined
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? undefined : date
 }
 
+/**
+ * Narrows unknown values to JSON records for prompt building.
+ */
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -284,6 +327,9 @@ function formatZonedDate(timezone: string, at: Date): string {
   return `${value('year')}-${value('month')}-${value('day')}`
 }
 
+/**
+ * Provides the minimal fallback identity text when an agent has no SOUL yet.
+ */
 function fallbackSoul(): string {
   return 'You are an Ankole AI colleague. Reply in plain text.'
 }

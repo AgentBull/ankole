@@ -20,7 +20,7 @@ import {
   browserWait,
   ensureBrowserSession as ensureCdpBrowserSession,
   type BrowserRuntimeOptions
-} from '../../browser_cdp'
+} from './cdp'
 
 // Shared schema fragments reused across the browser tools. Each `.describe`
 // is model-facing text; the wording steers when and how the tool is called.
@@ -200,7 +200,7 @@ interface BrowserToolDetails {
  * tools run in the main Bun worker process. The browser endpoint resolver uses
  * the AppConfigure-provided remote CDP adapter when present; otherwise it
  * lazily starts a worker-local Chromium singleton and isolates sessions with
- * CDP BrowserContext in `browser_cdp.ts`.
+ * CDP BrowserContext in `tools/browser/cdp`.
  */
 export function createBrowserTools(context: ComputerToolContext): AgentTool<any>[] {
   return [
@@ -265,6 +265,9 @@ function createBrowserOpenTool(context: ComputerToolContext): AgentTool<typeof B
   }
 }
 
+/**
+ * Builds the main URL navigation browser tool.
+ */
 function createBrowserNavigateTool(
   context: ComputerToolContext
 ): AgentTool<typeof BrowserNavigateParams, BrowserToolDetails> {
@@ -286,6 +289,9 @@ function createBrowserNavigateTool(
   }
 }
 
+/**
+ * Builds the page observation browser tool.
+ */
 function createBrowserSnapshotTool(
   context: ComputerToolContext
 ): AgentTool<typeof BrowserSnapshotParams, BrowserToolDetails> {
@@ -307,6 +313,9 @@ function createBrowserSnapshotTool(
   }
 }
 
+/**
+ * Builds the in-page text search browser tool.
+ */
 function createBrowserFindTool(context: ComputerToolContext): AgentTool<typeof BrowserFindParams, BrowserToolDetails> {
   return {
     name: 'browser_find',
@@ -335,6 +344,9 @@ function createBrowserFindTool(context: ComputerToolContext): AgentTool<typeof B
   }
 }
 
+/**
+ * Builds the element-click browser tool.
+ */
 function createBrowserClickTool(
   context: ComputerToolContext
 ): AgentTool<typeof BrowserClickParams, BrowserToolDetails> {
@@ -356,6 +368,9 @@ function createBrowserClickTool(
   }
 }
 
+/**
+ * Builds the text-entry browser tool.
+ */
 function createBrowserTypeTool(context: ComputerToolContext): AgentTool<typeof BrowserTypeParams, BrowserToolDetails> {
   return {
     name: 'browser_type',
@@ -375,6 +390,9 @@ function createBrowserTypeTool(context: ComputerToolContext): AgentTool<typeof B
   }
 }
 
+/**
+ * Builds the key-press browser tool.
+ */
 function createBrowserPressTool(
   context: ComputerToolContext
 ): AgentTool<typeof BrowserPressParams, BrowserToolDetails> {
@@ -395,6 +413,9 @@ function createBrowserPressTool(
   }
 }
 
+/**
+ * Builds the page or element scroll browser tool.
+ */
 function createBrowserScrollTool(
   context: ComputerToolContext
 ): AgentTool<typeof BrowserScrollParams, BrowserToolDetails> {
@@ -419,6 +440,9 @@ function createBrowserScrollTool(
   }
 }
 
+/**
+ * Builds the select-option browser tool.
+ */
 function createBrowserSelectTool(
   context: ComputerToolContext
 ): AgentTool<typeof BrowserSelectParams, BrowserToolDetails> {
@@ -440,6 +464,9 @@ function createBrowserSelectTool(
   }
 }
 
+/**
+ * Builds the condition-wait browser tool.
+ */
 function createBrowserWaitTool(context: ComputerToolContext): AgentTool<typeof BrowserWaitParams, BrowserToolDetails> {
   return {
     name: 'browser_wait',
@@ -474,6 +501,9 @@ function createBrowserWaitTool(context: ComputerToolContext): AgentTool<typeof B
   }
 }
 
+/**
+ * Builds the browser-history back tool.
+ */
 function createBrowserBackTool(context: ComputerToolContext): AgentTool<typeof BrowserBackParams, BrowserToolDetails> {
   return {
     name: 'browser_back',
@@ -492,6 +522,9 @@ function createBrowserBackTool(context: ComputerToolContext): AgentTool<typeof B
   }
 }
 
+/**
+ * Builds the screenshot capture browser tool.
+ */
 function createBrowserScreenshotTool(
   context: ComputerToolContext
 ): AgentTool<typeof BrowserScreenshotParams, BrowserToolDetails> {
@@ -593,6 +626,9 @@ function createBrowserRunTool(context: ComputerToolContext): AgentTool<typeof Br
   }
 }
 
+/**
+ * Runs one browser operation with runtime options and a bounded timeout.
+ */
 async function runBrowserOperation(
   context: ComputerToolContext,
   _session: string,
@@ -605,6 +641,12 @@ async function runBrowserOperation(
   return browserToolResult(context, result, signal)
 }
 
+/**
+ * Converts a browser operation result into model-visible tool output.
+ *
+ * When a screenshot path is present, the binary image is attached so
+ * image-capable models can inspect the real viewport.
+ */
 async function browserToolResult(
   context: ComputerToolContext,
   result: unknown,
@@ -626,12 +668,18 @@ async function browserToolResult(
   }
 }
 
+/**
+ * Reads an optional screenshot path from a browser operation result.
+ */
 function screenshotPathFromResult(value: unknown): string | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
   const path = (value as Record<string, unknown>).screenshot_path
   return typeof path === 'string' && path.length > 0 ? path : undefined
 }
 
+/**
+ * Builds browser runtime options from the current computer context.
+ */
 function browserRuntimeOptions(context: ComputerToolContext): BrowserRuntimeOptions {
   return {
     remoteCdpConfig: context.browserRemoteCdpConfig ?? null,
@@ -639,6 +687,9 @@ function browserRuntimeOptions(context: ComputerToolContext): BrowserRuntimeOpti
   }
 }
 
+/**
+ * Bounds a browser operation by timeout and turn abort signal.
+ */
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, signal?: AbortSignal): Promise<T> {
   if (signal?.aborted) throw new Error('browser command aborted')
 
@@ -667,6 +718,9 @@ function sessionFor(context: ComputerToolContext, value: string | undefined): st
   return sanitizeId(`${context.agentUid}--s-${executionScopeTag(context)}`, 'browser-session')
 }
 
+/**
+ * Builds a safe task id for browser artifact paths.
+ */
 function sanitizeTaskId(value: string | undefined): string {
   return sanitizeId(value ?? `task-${Date.now()}`, 'browser-task')
 }

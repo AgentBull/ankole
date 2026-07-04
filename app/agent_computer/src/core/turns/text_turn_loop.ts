@@ -1,4 +1,4 @@
-import type { TurnStart } from '../../actor_lane'
+import type { TurnStart } from '../../lanes/actor_lane'
 import { runAmbientMayInterveneHandler } from './ambient_turn'
 import { runTextTurnLoop } from './text_turn'
 import { isAmbientMayInterveneTurn } from './turn_control'

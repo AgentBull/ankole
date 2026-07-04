@@ -1,0 +1,118 @@
+# syntax=docker/dockerfile:1.7
+
+FROM oven/bun:1.3.14
+
+WORKDIR /repo
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG DEBIAN_MIRROR=http://deb.debian.org/debian
+ARG DEBIAN_SECURITY_MIRROR=http://deb.debian.org/debian-security
+ARG RUST_TOOLCHAIN=1.91.0
+
+ENV PATH="/root/.cargo/bin:/root/.bun/bin:/root/.local/bin:${PATH}"
+ENV CARGO_NET_RETRY=5
+ENV CARGO_HTTP_TIMEOUT=120
+
+RUN sed -i \
+    -e "s|http://deb.debian.org/debian-security|${DEBIAN_SECURITY_MIRROR}|g" \
+    -e "s|http://deb.debian.org/debian|${DEBIAN_MIRROR}|g" \
+    /etc/apt/sources.list.d/debian.sources \
+  && apt-get -o Acquire::Retries=5 update \
+  && apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
+    bash \
+    bubblewrap \
+    build-essential \
+    ca-certificates \
+    chromium \
+    coreutils \
+    curl \
+    ffmpeg \
+    file \
+    fontconfig \
+    fonts-liberation \
+    fonts-noto-cjk \
+    fonts-noto-color-emoji \
+    ghostscript \
+    gh \
+    git \
+    gnupg \
+    grep \
+    jq \
+    less \
+    libzmq3-dev \
+    libzmq5 \
+    libreoffice-impress \
+    lsof \
+    openssh-client \
+    pandoc \
+    pkg-config \
+    poppler-utils \
+    procps \
+    protobuf-compiler \
+    python3 \
+    python3-dev \
+    python3-pip \
+    python3-venv \
+    qpdf \
+    ripgrep \
+    rsync \
+    tini \
+    tmux \
+    tree \
+    unzip \
+    util-linux \
+    xz-utils \
+    zip \
+    zstd \
+  && rm -rf /var/lib/apt/lists/* \
+  && mkdir -p /workspace/shared/user-files /workspace/shared/skills/agents /workspace/.sessions \
+  && chmod -R 0775 /workspace
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+  | sh -s -- -y --profile minimal --default-toolchain "${RUST_TOOLCHAIN}" \
+  && rustc --version \
+  && cargo --version
+
+RUN bun add -g @openai/codex@0.142.0 \
+  && codex --version
+
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
+  && python3 -m venv /opt/ankole-python \
+  && for attempt in 1 2 3; do \
+    if /root/.local/bin/uv pip install --python /opt/ankole-python/bin/python \
+      blake3 \
+      defusedxml \
+      duckdb \
+      imageio \
+      ipykernel \
+      jupyter-client \
+      jupyter-server \
+      jupyterlab \
+      "markitdown[pptx]" \
+      matplotlib \
+      matplotlib-inline \
+      nano-pdf \
+      nbformat \
+      numpy \
+      opencv-python-headless \
+      openpyxl \
+      pandas \
+      pillow \
+      polars \
+      pyarrow \
+      pydantic \
+      python-docx \
+      python-pptx \
+      requests \
+      scipy \
+      websocket-client; then \
+      break; \
+    fi; \
+    if [ "$attempt" = "3" ]; then exit 1; fi; \
+    sleep $((attempt * 10)); \
+  done \
+  && find /opt/ankole-python/bin -maxdepth 1 -type f -perm /111 -exec ln -sf {} /usr/local/bin/ \; \
+  && rm -f /usr/local/bin/python /usr/local/bin/python3 \
+  && printf '%s\n' '#!/usr/bin/env sh' 'exec /opt/ankole-python/bin/python "$@"' > /usr/local/bin/python \
+  && cp /usr/local/bin/python /usr/local/bin/python3 \
+  && chmod +x /usr/local/bin/python /usr/local/bin/python3

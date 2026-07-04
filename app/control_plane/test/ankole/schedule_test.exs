@@ -22,7 +22,7 @@ defmodule Ankole.ScheduleTest do
   alias Ankole.SignalsGateway.AdapterContext
   alias Ankole.SignalsGateway.InboundBatch
   alias Ankole.SignalsGateway.OutboxEntry
-  alias Ankole.SignalsGateway.SignalEntry
+  alias Ankole.SignalsGateway.Entry
 
   import Ankole.ActorRuntimeCase, only: [complete_actor_event: 4, process_ready_events_once: 1]
 
@@ -909,8 +909,8 @@ defmodule Ankole.ScheduleTest do
   defp wait_for_final_mirror(ai_message_id, attempts \\ 20)
 
   defp wait_for_final_mirror(ai_message_id, attempts) when attempts > 0 do
-    case Repo.get_by(SignalEntry, ai_message_id: ai_message_id) do
-      %SignalEntry{} = entry ->
+    case Repo.get_by(Entry, ai_message_id: ai_message_id) do
+      %Entry{} = entry ->
         entry
 
       nil ->

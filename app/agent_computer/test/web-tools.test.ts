@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import type { AIGatewayHttpClient } from '../src/core/turns/model_runtime'
-import { createWebTools } from '../src/tools/web-tools'
+import { createWebTools } from '../src/tools/web/web-tools'
 
 function textOf(result: { content: Array<{ type: string; text?: string }> }): string {
   const part = result.content[0]

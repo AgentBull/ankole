@@ -14,7 +14,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
   alias Ankole.SignalsGateway.InboundBatchFinalizer
   alias Ankole.SignalsGateway.IngressFact
   alias Ankole.SignalsGateway.Projection
-  alias Ankole.SignalsGateway.SignalEntry
+  alias Ankole.SignalsGateway.Entry
 
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsGatewayFixtures
@@ -30,7 +30,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       assert {:ok, %{status: :ignored}} =
                SignalsGateway.emit_entry(agent.uid, "lark-main", group_entry(), now: @base_time)
 
-      assert Repo.aggregate(SignalEntry, :count) == 0
+      assert Repo.aggregate(Entry, :count) == 0
       assert Repo.aggregate(ActorEvent, :count) == 0
       assert Repo.aggregate(InboundBatch, :count) == 1
     end
@@ -271,7 +271,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
                  now: @base_time
                )
 
-      assert Repo.aggregate(SignalEntry, :count) == 0
+      assert Repo.aggregate(Entry, :count) == 0
 
       newer_time = DateTime.add(@base_time, 5, :second)
 
@@ -326,8 +326,8 @@ defmodule Ankole.SignalsGatewayIngressTest do
       assert {:ok, [%{status: :accepted}]} =
                SignalsGateway.finalize_due_inbound_batches(now: addressed_batch.available_at)
 
-      assert %SignalEntry{text: "new provider text", provider_time: ^newer_time} =
-               Repo.get_by!(SignalEntry,
+      assert %Entry{text: "new provider text", provider_time: ^newer_time} =
+               Repo.get_by!(Entry,
                  signal_channel_id: "lark:chat:group-a",
                  source_entry_id: "msg-stale-batch-old"
                )
@@ -538,7 +538,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
                )
 
       assert Repo.aggregate(ActorEvent, :count) == 0
-      assert Repo.aggregate(SignalEntry, :count) == 0
+      assert Repo.aggregate(Entry, :count) == 0
     end
 
     test "unavailable bindings do not accept ingress even when enabled" do
@@ -561,7 +561,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
                  now: @base_time
                )
 
-      assert Repo.aggregate(SignalEntry, :count) == 0
+      assert Repo.aggregate(Entry, :count) == 0
       assert Repo.aggregate(ActorEvent, :count) == 0
 
       %{actor_event: input} =
@@ -577,7 +577,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
         )
 
       assert input.signal_channel_id == "lark:chat:allowed"
-      assert Repo.aggregate(SignalEntry, :count) == 1
+      assert Repo.aggregate(Entry, :count) == 1
       assert Repo.aggregate(ActorEvent, :count) == 1
     end
 
@@ -674,7 +674,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
 
       assert %{filters: [_]} = errors_on(changeset)
 
-      assert Repo.aggregate(SignalEntry, :count) == 0
+      assert Repo.aggregate(Entry, :count) == 0
       assert Repo.aggregate(ActorEvent, :count) == 0
     end
 
@@ -728,8 +728,8 @@ defmodule Ankole.SignalsGatewayIngressTest do
 
       assert input.sender_key == "alice"
 
-      assert %SignalEntry{author: %{"principal_uid" => "alice", "platform_subject" => "ou_alice"}} =
-               Repo.get_by!(SignalEntry,
+      assert %Entry{author: %{"principal_uid" => "alice", "platform_subject" => "ou_alice"}} =
+               Repo.get_by!(Entry,
                  signal_channel_id: "lark:chat:group-a",
                  source_entry_id: "msg-known-author"
                )
@@ -756,7 +756,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
                  now: DateTime.add(@base_time, 1, :second)
                )
 
-      assert Repo.aggregate(SignalEntry, :count) == 1
+      assert Repo.aggregate(Entry, :count) == 1
 
       assert {:ok, [%{actor_event: _input_a}, %{actor_event: _input_b}]} =
                SignalsGateway.finalize_due_inbound_batches(
@@ -797,7 +797,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
                  now: @base_time
                )
 
-      assert Repo.aggregate(SignalEntry, :count) == 2
+      assert Repo.aggregate(Entry, :count) == 2
     end
   end
 
@@ -1052,7 +1052,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
                %{"source_entry_id" => "msg-bob-mention"}
              ] = get_in(input.payload, ["data", "entries"])
 
-      refute Repo.get_by(SignalEntry,
+      refute Repo.get_by(Entry,
                signal_channel_id: "lark:chat:group-a",
                source_entry_id: "msg-alice-neutral"
              )
@@ -1214,7 +1214,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
          author \\ %{principal_uid: "alice", id: "ou_alice", display_name: "Alice"},
          provider_thread_id \\ "thread-1"
        ) do
-    Repo.insert!(%SignalEntry{
+    Repo.insert!(%Entry{
       signal_channel_id: "lark:chat:group-a",
       source_entry_id: source_entry_id,
       text: text,

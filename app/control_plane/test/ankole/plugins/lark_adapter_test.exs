@@ -21,7 +21,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.AdapterContext
   alias Ankole.SignalsGateway.OutboxEntry
-  alias Ankole.SignalsGateway.SignalEntry
+  alias Ankole.SignalsGateway.Entry
   alias FeishuOpenAPI.Error
   alias FeishuOpenAPI.Event
 
@@ -248,7 +248,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert input.signal_channel_id == "lark:oc_group"
       assert input.provider_thread_id == "lark:oc_group:om_1"
 
-      assert Repo.get_by!(SignalEntry,
+      assert Repo.get_by!(Entry,
                signal_channel_id: "lark:oc_group",
                source_entry_id: "om_1"
              ).text ==
@@ -306,7 +306,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
 
       assert Repo.aggregate(ActorEvent, :count) == 0
-      assert Repo.aggregate(SignalEntry, :count) == 0
+      assert Repo.aggregate(Entry, :count) == 0
     end
 
     test "empty and unsupported non-text messages are explicitly ignored" do
@@ -346,7 +346,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                ])
 
       assert Repo.aggregate(ActorEvent, :count) == 0
-      assert Repo.aggregate(SignalEntry, :count) == 0
+      assert Repo.aggregate(Entry, :count) == 0
     end
 
     test "rich Lark message types normalize to deterministic text without guessing sticker pixels" do
@@ -559,7 +559,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
 
       assert Repo.aggregate(ActorEvent, :count) == 0
-      assert Repo.aggregate(SignalEntry, :count) == 0
+      assert Repo.aggregate(Entry, :count) == 0
     end
 
     test "reaction and recall events update the provider mirror through gateway APIs" do
@@ -587,7 +587,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  consumer
                ])
 
-      refute Repo.get_by(SignalEntry,
+      refute Repo.get_by(Entry,
                signal_channel_id: "lark:oc_group",
                source_entry_id: "om_1"
              )

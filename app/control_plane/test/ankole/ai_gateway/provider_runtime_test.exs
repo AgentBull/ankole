@@ -346,6 +346,26 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     assert primary_runtime_profile["context_length"] == 1_048_576
 
+    assert {:ok, %{profile: heavy_profile}} =
+             ModelProfiles.put_model_profile(agent.uid, "heavy", %{
+               provider_id: "openrouter-main",
+               model: "anthropic/claude-sonnet-4.5"
+             })
+
+    assert heavy_profile["provider_id"] == "openrouter-main"
+
+    assert {:ok, coding_profile} = ModelProfiles.get_model_profile(agent.uid, "coding")
+    assert coding_profile["profile"] == "coding"
+    assert coding_profile["fallback_profile"] == "heavy"
+    assert coding_profile["model"] == "anthropic/claude-sonnet-4.5"
+
+    assert {:ok, coding_runtime_profile} =
+             ModelProfiles.resolve_runtime_profile(agent.uid, "coding")
+
+    assert coding_runtime_profile["profile"] == "coding"
+    assert coding_runtime_profile["provider_id"] == "openrouter-main"
+    assert coding_runtime_profile["model"] == "anthropic/claude-sonnet-4.5"
+
     assert {:error, {:provider_kind_missing_capability, "embedding"}} =
              ModelProfiles.put_model_profile(agent.uid, "embedding", %{
                provider_id: "claude-main",

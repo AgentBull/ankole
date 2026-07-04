@@ -17,7 +17,7 @@ defmodule Ankole.AIGateway.ModelProfiles do
   alias Ankole.Principals.Agent
   alias Ankole.Repo
 
-  @profiles ~w(primary light heavy vision_fallback embedding rerank web_search web_fetch)
+  @profiles ~w(primary light heavy coding vision_fallback embedding rerank web_search web_fetch)
   @required_profiles ~w(primary light heavy)
 
   @type profile :: String.t()
@@ -57,7 +57,7 @@ defmodule Ankole.AIGateway.ModelProfiles do
          {:ok, profile} <- normalize_profile(profile) do
       agent
       |> profiles_from_agent()
-      |> Map.get(profile)
+      |> profile_with_fallback(profile)
       |> profile_result(profile)
     end
   end
@@ -130,6 +130,20 @@ defmodule Ankole.AIGateway.ModelProfiles do
   defp profile_result(nil, _profile), do: {:error, :model_profile_not_configured}
   defp profile_result(%{} = attrs, profile), do: {:ok, Map.put(attrs, "profile", profile)}
   defp profile_result(_value, _profile), do: {:error, :invalid_model_profile}
+
+  defp profile_with_fallback(profiles, "coding") do
+    case Map.get(profiles, "coding") do
+      %{} = profile -> profile
+      _value -> profiles |> Map.get("heavy") |> maybe_mark_fallback("heavy")
+    end
+  end
+
+  defp profile_with_fallback(profiles, profile), do: Map.get(profiles, profile)
+
+  defp maybe_mark_fallback(%{} = profile, fallback_profile),
+    do: Map.put(profile, "fallback_profile", fallback_profile)
+
+  defp maybe_mark_fallback(value, _fallback_profile), do: value
 
   defp normalize_profile(profile) when is_binary(profile) do
     profile = profile |> String.trim() |> String.downcase()

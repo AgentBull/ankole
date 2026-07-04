@@ -1,12 +1,22 @@
-import type { TurnStart, TurnSteerUpdate } from '../../actor_lane'
+import type { TurnStart, TurnSteerUpdate } from '../../lanes/actor_lane'
 import type { AgentMessage } from '../types'
 import { userMessage } from '../llm'
 import { actorEventText } from './actor_event_text'
 
+/**
+ * Detects ambient observation turns that should run through the recognizer
+ * before deciding whether to speak visibly.
+ */
 export function isAmbientMayInterveneTurn(turnStart: TurnStart): boolean {
   return turnStart.actor_event.type === 'im.message.may_intervene'
 }
 
+/**
+ * Converts applicable active steering updates into model-visible user messages.
+ *
+ * The worker only uses mailbox updates that match the current durable turn
+ * fence and have a newer revision; unrelated session traffic is ignored.
+ */
 export function steeringMessages(turnStart: TurnStart, updates: TurnSteerUpdate[]): AgentMessage[] {
   const applicable = applicableSteeringUpdates(turnStart, updates)
 
@@ -40,6 +50,9 @@ export function steeringMessages(turnStart: TurnStart, updates: TurnSteerUpdate[
   return messages
 }
 
+/**
+ * Filters steering updates to the active turn fence and newer revisions only.
+ */
 export function applicableSteeringUpdates(turnStart: TurnStart, updates: TurnSteerUpdate[]): TurnSteerUpdate[] {
   return updates.filter(update => {
     return (

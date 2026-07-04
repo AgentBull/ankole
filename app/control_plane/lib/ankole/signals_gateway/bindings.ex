@@ -8,13 +8,13 @@ defmodule Ankole.SignalsGateway.Bindings do
   alias Ankole.Plugins.LarkAdapter.Config, as: LarkConfig
   alias Ankole.Principals
   alias Ankole.SignalsGateway.OutboxEntry
-  alias Ankole.SignalsGateway.SignalBinding
+  alias Ankole.SignalsGateway.Binding
   alias Ankole.SignalsGateway.Utils
 
-  @spec upsert_binding(map()) :: {:ok, SignalBinding.t()} | {:error, term()}
+  @spec upsert_binding(map()) :: {:ok, Binding.t()} | {:error, term()}
   def upsert_binding(attrs) when is_map(attrs) do
-    %SignalBinding{}
-    |> SignalBinding.changeset(attrs)
+    %Binding{}
+    |> Binding.changeset(attrs)
     |> Repo.insert(
       on_conflict: {:replace_all_except, [:inserted_at]},
       conflict_target: [:agent_uid, :name],
@@ -23,7 +23,7 @@ defmodule Ankole.SignalsGateway.Bindings do
   end
 
   @spec put_lark_binding(String.t(), String.t(), map()) ::
-          {:ok, %{binding: SignalBinding.t(), config_key: String.t()}} | {:error, term()}
+          {:ok, %{binding: Binding.t(), config_key: String.t()}} | {:error, term()}
   def put_lark_binding(agent_uid, binding_name, config)
       when is_binary(binding_name) and is_map(config) do
     with {:ok, %{principal: principal}} <- Principals.get_agent(agent_uid),
@@ -51,16 +51,16 @@ defmodule Ankole.SignalsGateway.Bindings do
 
   def put_lark_binding(_agent_uid, _binding_name, _config), do: {:error, :invalid_lark_binding}
 
-  @spec get_binding(String.t(), String.t()) :: {:ok, SignalBinding.t()} | {:error, term()}
+  @spec get_binding(String.t(), String.t()) :: {:ok, Binding.t()} | {:error, term()}
   def get_binding(agent_uid, binding_name) do
-    case Repo.get_by(SignalBinding, agent_uid: Utils.normalize_uid(agent_uid), name: binding_name) do
-      %SignalBinding{enabled: true, unavailable_reason: reason} when is_binary(reason) ->
+    case Repo.get_by(Binding, agent_uid: Utils.normalize_uid(agent_uid), name: binding_name) do
+      %Binding{enabled: true, unavailable_reason: reason} when is_binary(reason) ->
         {:error, {:binding_unavailable, reason}}
 
-      %SignalBinding{enabled: true} = binding ->
+      %Binding{enabled: true} = binding ->
         {:ok, binding}
 
-      %SignalBinding{enabled: false} ->
+      %Binding{enabled: false} ->
         {:error, :binding_disabled}
 
       nil ->
@@ -69,7 +69,7 @@ defmodule Ankole.SignalsGateway.Bindings do
   end
 
   @spec list_agent_bindings(String.t(), keyword()) ::
-          {:ok, [SignalBinding.t()]} | {:error, term()}
+          {:ok, [Binding.t()]} | {:error, term()}
   def list_agent_bindings(agent_uid, opts \\ [])
 
   def list_agent_bindings(agent_uid, opts) when is_binary(agent_uid) do
@@ -77,7 +77,7 @@ defmodule Ankole.SignalsGateway.Bindings do
 
     with {:ok, %{principal: principal}} <- Principals.get_agent(agent_uid) do
       bindings =
-        SignalBinding
+        Binding
         |> where([binding], binding.agent_uid == ^principal.uid)
         |> order_by([binding], asc: binding.adapter, asc: binding.name)
         |> repo.all()
@@ -91,14 +91,14 @@ defmodule Ankole.SignalsGateway.Bindings do
 
   def list_agent_bindings(_agent_uid, _opts), do: {:error, :agent_not_found}
 
-  @spec disable_binding(String.t(), String.t()) :: {:ok, SignalBinding.t()} | {:error, term()}
+  @spec disable_binding(String.t(), String.t()) :: {:ok, Binding.t()} | {:error, term()}
   def disable_binding(agent_uid, binding_name)
       when is_binary(agent_uid) and is_binary(binding_name) do
     Repo.transact(fn repo ->
       with {:ok, %{principal: principal}} <- Principals.get_agent(agent_uid),
-           %SignalBinding{} = binding <- lock_binding(repo, principal.uid, binding_name) do
+           %Binding{} = binding <- lock_binding(repo, principal.uid, binding_name) do
         binding
-        |> SignalBinding.changeset(%{enabled: false, unavailable_reason: nil})
+        |> Binding.changeset(%{enabled: false, unavailable_reason: nil})
         |> repo.update()
       else
         nil -> {:error, :binding_not_found}
@@ -116,7 +116,7 @@ defmodule Ankole.SignalsGateway.Bindings do
   defp policy_from_lark_group_mode(_mode), do: {:error, :invalid_group_message_mode}
 
   defp lock_binding(repo, agent_uid, binding_name) do
-    SignalBinding
+    Binding
     |> where([binding], binding.agent_uid == ^agent_uid and binding.name == ^binding_name)
     |> lock("FOR UPDATE")
     |> repo.one()
@@ -133,11 +133,11 @@ defmodule Ankole.SignalsGateway.Bindings do
   defp present_text?(value) when is_binary(value), do: String.trim(value) != ""
   defp present_text?(_value), do: false
 
-  @spec list_enabled_bindings(String.t(), keyword()) :: [SignalBinding.t()]
+  @spec list_enabled_bindings(String.t(), keyword()) :: [Binding.t()]
   def list_enabled_bindings(adapter, opts \\ []) when is_binary(adapter) do
     repo = Keyword.get(opts, :repo, Repo)
 
-    SignalBinding
+    Binding
     |> where([binding], binding.adapter == ^adapter)
     |> where([binding], binding.enabled == true)
     |> where([binding], is_nil(binding.unavailable_reason))
@@ -150,14 +150,14 @@ defmodule Ankole.SignalsGateway.Bindings do
   def outbox_binding_config_ref(%OutboxEntry{} = outbox, opts \\ []) do
     repo = Keyword.get(opts, :repo, Repo)
 
-    case repo.get_by(SignalBinding,
+    case repo.get_by(Binding,
            agent_uid: outbox.agent_uid,
            name: outbox.binding_name
          ) do
-      %SignalBinding{config_ref: config_ref} when is_binary(config_ref) ->
+      %Binding{config_ref: config_ref} when is_binary(config_ref) ->
         {:ok, config_ref}
 
-      %SignalBinding{} ->
+      %Binding{} ->
         {:error, :binding_config_ref_missing}
 
       nil ->

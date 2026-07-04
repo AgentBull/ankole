@@ -51,9 +51,10 @@ is always "the PostgreSQL rows, nothing else".
                   v
         +------------------+     writes      +--------------------------+
         |  SignalsGateway  | --------------> |  PostgreSQL              |
-        |  ingress, mirror,|                 |  signal_channels/entries |
-        |  delivery        |                 |  actor_events            |
-        +------------------+                 |  actor_event_deliveries  |
+        |  ingress, mirror,|                 |  signal_gateway_channels |
+        |  delivery        |                 |  signal_gateway_entries  |
+        +------------------+                 |  actor_events            |
+                  |                          |  actor_event_deliveries  |
                   |                          |  ai_gateway_messages     |
                   | actor_events             |  ai_gateway_conversations|
                   v                          |  signal_gateway_outbox   |
@@ -78,7 +79,7 @@ Six pieces, one sentence each:
 
 - **SignalsGateway** (Elixir) receives provider events, mirrors what the
   provider shows, decides what wakes an agent, and delivers replies back.
-  Owns `signal_channels`, `signal_entries`, `actor_events`,
+  Owns `signal_gateway_channels`, `signal_gateway_entries`, `actor_events`,
   `signal_gateway_outbox`. Read `design-docs/SignalsGateway.md`.
 - **ActorRuntime** (Elixir) schedules actor events onto workers, one event per
   execution, with fences that stop stale workers from committing. Owns
@@ -210,7 +211,7 @@ anything resolves them, and the HTTP endpoint comes up last.
 `emit_entry/emit_reaction/emit_action` with normalized facts. For each one,
 the gateway checks the binding (`bindings.ex`), applies CEL filters (evaluated
 in the kernel), guards against tombstoned entries, upserts the provider mirror
-(`signal_channel.ex`, `signal_entry.ex`), and batches IM bursts
+(`channel.ex`, `entry.ex`), and batches IM bursts
 (`inbound_batch*.ex`). Closing a batch writes one `actor_events` row in one
 transaction, then acks the provider. Outbound explicit side effects take a
 separate path: `outbox.ex` / `outbox_entry.ex`, executed by the binding's
@@ -219,7 +220,7 @@ outbox adapter. Streamed replies are not outbox rows. Instead,
 provider-native preview, and `recovery_scan.ex` re-sends completed finals
 whose mirror is missing.
 
-Owns tables: `signal_bindings`, `signal_channels`, `signal_entries`,
+Owns tables: `signal_gateway_bindings`, `signal_gateway_channels`, `signal_gateway_entries`,
 `signal_gateway_input_tombstones`, `signal_gateway_inbound_batches`,
 `signal_gateway_outbox`.
 
@@ -422,7 +423,7 @@ answers after one shell command.
    `im.message.receive_v1` on the long connection and calls
    `Ankole.SignalsGateway.emit_entry/3`. The gateway resolves the binding,
    evaluates filters (kernel CEL), checks the tombstone, upserts
-   `signal_channels` / `signal_entries`, and opens or extends an inbound
+   `signal_gateway_channels` / `signal_gateway_entries`, and opens or extends an inbound
    batch.
 2. **One work item.** `InboundBatchFinalizer` closes the batch; one
    transaction writes one `actor_events` row with
@@ -465,7 +466,7 @@ answers after one shell command.
    the other endings.
 9. **Finalize.** `AIReplyPreview` replaces the card with the final content.
    On confirmed provider success it upserts the final mirror: a
-   `signal_entries` row with `ai_message_id` pointing at the final message
+   `signal_gateway_entries` row with `ai_message_id` pointing at the final message
    row. That row is the proof of delivery.
 10. **Recovery.** If anything died between steps 8 and 9, `RecoveryScan`
     finds the completed final without a mirror and re-sends it (at-least-once
@@ -510,7 +511,7 @@ Identity Layers.
 
 Durable tables (crash truth): `principals`, `human_users`, `agents`,
 `external_identities`, `principal_groups`, `permission_grants`,
-`app_configure`, `signal_bindings`, `signal_channels`, `signal_entries`,
+`app_configure`, `signal_gateway_bindings`, `signal_gateway_channels`, `signal_gateway_entries`,
 `signal_gateway_outbox`, `actor_events`, `actor_cron_schedules`,
 `actor_scheduled_events`, `ai_gateway_conversations`, `ai_gateway_messages`,
 `ai_gateway_providers`, plus the skill library tables.
@@ -644,7 +645,7 @@ while the workspace moves quickly.
   as `previous_response_id` at the API edge).
 - **visible leaf**: a `complete` row no other row chains from. Implicit
   continuation always picks the latest one.
-- **source mirror**: `signal_channels` + `signal_entries`, the current
+- **source mirror**: `signal_gateway_channels` + `signal_gateway_entries`, the current
   picture of what the provider shows. Not a queue, not model history.
 - **outbox**: `signal_gateway_outbox`, the durable table of explicit
   provider-visible side effects (attachments, reactions, command feedback).
@@ -652,7 +653,7 @@ while the workspace moves quickly.
 - **preview / finalize**: the streamed reply lifecycle — send a provider
   message on the first chunk, edit it while streaming, replace it with the
   final content at the terminal event.
-- **final mirror**: the `signal_entries` row (with `ai_message_id`) written
+- **final mirror**: the `signal_gateway_entries` row (with `ai_message_id`) written
   after a confirmed final send/edit. Proof of delivery.
 - **fence** (`ActorTurnRef`): the equality check (activation, epoch, actor
   event id, revision) that stops a stale worker from committing into newer

@@ -55,6 +55,9 @@ export function resolveBubblewrapSupport(workspaceRoot: string): BubblewrapSuppo
   )
 }
 
+/**
+ * Builds the bwrap argv that runs a command inside the worker workspace view.
+ */
 export function bubblewrapArgv(input: BubblewrapArgvInput, mode?: BubblewrapMode): string[] {
   const selectedMode = mode ?? resolveBubblewrapSupport(input.workspaceRoot).mode
   return [
@@ -81,10 +84,16 @@ export function bubblewrapArgv(input: BubblewrapArgvInput, mode?: BubblewrapMode
   ]
 }
 
+/**
+ * Returns the configured bwrap executable path.
+ */
 function bubblewrapExecutable(): string {
   return process.env.ANKOLE_BWRAP_PATH || 'bwrap'
 }
 
+/**
+ * Runs a small command to prove whether one bwrap mode works in this container.
+ */
 function probeBubblewrapMode(mode: BubblewrapMode, workspaceRoot: string): ProbeResult {
   const argv = bubblewrapArgv(
     {
@@ -121,6 +130,9 @@ function probeBubblewrapMode(mode: BubblewrapMode, workspaceRoot: string): Probe
   return { ok: false, reason: reason || 'probe failed without diagnostic output' }
 }
 
+/**
+ * Returns the `/proc` mount arguments for strong or weak mode.
+ */
 function procArgs(mode: BubblewrapMode): string[] {
   if (mode === 'strong') return ['--proc', '/proc']
 
@@ -136,6 +148,9 @@ function procArgs(mode: BubblewrapMode): string[] {
   ]
 }
 
+/**
+ * Adds worker runtime mounts that model-facing commands need inside bwrap.
+ */
 function runtimeWorkspaceBinds(): string[] {
   const binds: string[] = []
   const userFilesRoot = process.env.ANKOLE_USER_FILES_ROOT
@@ -169,10 +184,18 @@ function runtimeWorkspaceBinds(): string[] {
   return binds
 }
 
+/**
+ * Checks whether the in-process browser CLI runtime exists in the app tree.
+ */
 function browserCliRuntimePresent(agentComputerDir: string): boolean {
-  return existsSync(`${agentComputerDir}/bin/ankole-browser`) && existsSync(`${agentComputerDir}/src/browser_cli.ts`)
+  return (
+    existsSync(`${agentComputerDir}/bin/ankole-browser`) && existsSync(`${agentComputerDir}/src/tools/browser/cli.ts`)
+  )
 }
 
+/**
+ * Returns all parent directories of a path for bwrap `--dir` creation.
+ */
 function parentDirs(path: string): string[] {
   const parts = path.split('/').filter(Boolean)
   let current = ''
@@ -182,16 +205,25 @@ function parentDirs(path: string): string[] {
   })
 }
 
+/**
+ * Adds missing `--dir` arguments without duplicating existing pairs.
+ */
 function pushDirs(args: string[], dirs: string[]): void {
   for (const dir of dirs) {
     if (!hasArgPair(args, '--dir', dir)) args.push('--dir', dir)
   }
 }
 
+/**
+ * Checks whether an argv already contains one flag/value pair.
+ */
 function hasArgPair(args: string[], flag: string, value: string): boolean {
   return args.some((arg, index) => arg === flag && args[index + 1] === value)
 }
 
+/**
+ * Returns read-only host system paths needed by normal developer commands.
+ */
 function readOnlySystemBinds(): string[] {
   const directoryBinds = ['/usr', '/bin', '/lib', '/lib64', '/opt']
     .filter(path => existsSync(path))
@@ -204,6 +236,9 @@ function readOnlySystemBinds(): string[] {
   return [...directoryBinds, ...fileBinds]
 }
 
+/**
+ * Converts a host workspace path to the corresponding sandbox path.
+ */
 function sandboxWorkspacePath(workspaceRoot: string, hostPath: string): string {
   const path = relative(workspaceRoot, hostPath)
   return path ? `/workspace/${path}` : '/workspace'

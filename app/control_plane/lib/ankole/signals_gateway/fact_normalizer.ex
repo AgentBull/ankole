@@ -4,7 +4,7 @@ defmodule Ankole.SignalsGateway.FactNormalizer do
   alias Ankole.Principals
   alias Ankole.SignalsGateway.JsonPayload
   alias Ankole.SignalsGateway.Sanitizer
-  alias Ankole.SignalsGateway.SignalBinding
+  alias Ankole.SignalsGateway.Binding
 
   import Ankole.SignalsGateway.Utils,
     only: [
@@ -25,7 +25,7 @@ defmodule Ankole.SignalsGateway.FactNormalizer do
       truthy?: 1
     ]
 
-  def entry(%SignalBinding{} = binding, input, now) do
+  def entry(%Binding{} = binding, input, now) do
     with {:ok, source_event_id} <- required_text(input, :source_event_id),
          {:ok, signal_channel_id} <- required_text(input, :signal_channel_id),
          {:ok, source_entry_id} <- required_text(input, :source_entry_id),
@@ -77,7 +77,7 @@ defmodule Ankole.SignalsGateway.FactNormalizer do
     end
   end
 
-  def lifecycle(%SignalBinding{} = binding, input, provider_lifecycle_kind, now) do
+  def lifecycle(%Binding{} = binding, input, provider_lifecycle_kind, now) do
     with {:ok, source_event_id} <- required_text(input, :source_event_id),
          {:ok, signal_channel_id} <- required_text(input, :signal_channel_id),
          {:ok, source_entry_id} <- required_text(input, :source_entry_id) do
@@ -123,7 +123,7 @@ defmodule Ankole.SignalsGateway.FactNormalizer do
     end
   end
 
-  def reaction(%SignalBinding{} = binding, input, now) do
+  def reaction(%Binding{} = binding, input, now) do
     with {:ok, signal_channel_id} <- required_text(input, :signal_channel_id),
          {:ok, source_entry_id} <- required_text(input, :source_entry_id),
          {:ok, reaction_key} <- required_text(input, :reaction_key),
@@ -146,7 +146,7 @@ defmodule Ankole.SignalsGateway.FactNormalizer do
     end
   end
 
-  def action(%SignalBinding{} = binding, input, now) do
+  def action(%Binding{} = binding, input, now) do
     with {:ok, source_event_id} <- required_text(input, :source_event_id),
          {:ok, session_id} <- action_session_id(input),
          {:ok, action_id} <- required_text(input, :action_id) do
@@ -236,7 +236,7 @@ defmodule Ankole.SignalsGateway.FactNormalizer do
       optional_text(author, :id)
   end
 
-  defp normalize_author_principal(%SignalBinding{} = binding, author) when is_map(author) do
+  defp normalize_author_principal(%Binding{} = binding, author) when is_map(author) do
     case optional_text(author, :principal_uid) do
       principal_uid when is_binary(principal_uid) ->
         Map.put(author, "principal_uid", normalize_uid(principal_uid))
@@ -246,7 +246,7 @@ defmodule Ankole.SignalsGateway.FactNormalizer do
     end
   end
 
-  defp enrich_author_principal(%SignalBinding{} = binding, author) do
+  defp enrich_author_principal(%Binding{} = binding, author) do
     provider =
       optional_text(author, :provider) ||
         optional_text(fetch_map(author, :metadata, %{}), :provider) ||

@@ -415,6 +415,7 @@ defmodule Ankole.ActorRuntime.TransportTest do
                )
 
       assert command =~ "docker run --rm"
+      assert command =~ "ghcr.io/agentbull/ankole-agent-computer-worker:main-latest"
       assert command =~ "--cap-add SYS_ADMIN"
       assert command =~ "--security-opt seccomp=unconfined"
       assert command =~ "--security-opt systempaths=unconfined"

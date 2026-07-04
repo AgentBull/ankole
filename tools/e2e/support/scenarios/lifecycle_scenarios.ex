@@ -25,7 +25,7 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
   alias Ankole.E2E.FakeFeishu
   alias Ankole.Repo
   alias Ankole.SignalsGateway.OutboxEntry
-  alias Ankole.SignalsGateway.SignalEntry
+  alias Ankole.SignalsGateway.Entry
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
 
@@ -587,7 +587,7 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
     wait_for_event_ack!(fake_feishu, "evt_late_after_recall_1")
     finalize_due_inbound_batches!()
 
-    refute Repo.get_by(SignalEntry,
+    refute Repo.get_by(Entry,
              signal_channel_id: "lark:oc_chaos_direct",
              source_entry_id: "om_direct_1"
            )

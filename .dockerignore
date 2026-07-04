@@ -4,10 +4,15 @@
 .forgejo
 **/.git
 **/.turbo
+**/_build
+**/deps
 **/node_modules
 **/target
 **/.env
 **/.env.*
+app/control_plane/priv/static/**/*.gz
+app/control_plane/priv/static/assets
+app/control_plane/priv/static/cache_manifest.json
 var
 tmp
 *.log

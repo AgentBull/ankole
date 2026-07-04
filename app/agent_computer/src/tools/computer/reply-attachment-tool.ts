@@ -21,6 +21,13 @@ interface ReplyAttachmentDetails {
   }>
 }
 
+/**
+ * Builds the tool that marks one `/workspace/user-files` file for provider reply
+ * attachment.
+ *
+ * The tool does not upload the file itself; it records structured details that
+ * the control plane can attach when finalizing the visible reply.
+ */
 export function createReplyAttachmentTool(
   context: ComputerToolContext
 ): AgentTool<typeof ReplyAttachmentParams, ReplyAttachmentDetails> {
@@ -61,6 +68,9 @@ export function createReplyAttachmentTool(
   }
 }
 
+/**
+ * Converts accepted workspace paths to a user-files-relative path.
+ */
 function userFilesRelativePath(path: string, workspaceRoot: string): string {
   const normalized = path.replaceAll('\\', '/')
   const userFilesPrefix = `${workspaceRoot.replace(/\/+$/, '')}/user-files/`
@@ -75,6 +85,9 @@ function userFilesRelativePath(path: string, workspaceRoot: string): string {
   throw new Error('reply_attachment only accepts files under /workspace/user-files')
 }
 
+/**
+ * Removes leading slash characters from a relative path.
+ */
 function trimLeadingSlash(value: string): string {
   return value.replace(/^\/+/, '')
 }

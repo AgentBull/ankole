@@ -8,8 +8,8 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
   alias Ankole.SignalsGateway.InboundBatch
   alias Ankole.SignalsGateway.InputTombstone
   alias Ankole.SignalsGateway.OutboxEntry
-  alias Ankole.SignalsGateway.SignalChannel
-  alias Ankole.SignalsGateway.SignalEntry
+  alias Ankole.SignalsGateway.Channel
+  alias Ankole.SignalsGateway.Entry
 
   import Ankole.ActorRuntimeCase, only: [complete_actor_event: 4]
   import Ankole.PrincipalsFixtures
@@ -40,7 +40,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                  now: DateTime.add(@base_time, 1, :second)
                )
 
-      assert Repo.aggregate(SignalEntry, :count) == 0
+      assert Repo.aggregate(Entry, :count) == 0
       assert Repo.aggregate(ActorEvent, :count) == 0
     end
 
@@ -95,7 +95,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                  now: @base_time
                )
 
-      assert Repo.aggregate(SignalEntry, :count) == 0
+      assert Repo.aggregate(Entry, :count) == 0
       assert Repo.aggregate(ActorEvent, :count) == 0
 
       assert %InboundBatch{batch_state: "canceled", outcome: "canceled", entries: entries} =
@@ -129,7 +129,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
 
       assert lifecycle_event.type == "signal.entry.removed"
       assert lifecycle_event.available_at == DateTime.add(@base_time, 2, :second)
-      assert Repo.aggregate(SignalEntry, :count) == 0
+      assert Repo.aggregate(Entry, :count) == 0
     end
 
     test "removal of an earlier batched entry finds the completed actor event" do
@@ -267,7 +267,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                  now: @base_time
                )
 
-      assert Repo.aggregate(SignalEntry, :count) == 0
+      assert Repo.aggregate(Entry, :count) == 0
       assert Repo.aggregate(ActorEvent, :count) == 0
     end
   end
@@ -315,7 +315,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                )
 
       entry =
-        Repo.get_by!(SignalEntry,
+        Repo.get_by!(Entry,
           signal_channel_id: "lark:chat:group-a",
           source_entry_id: "msg-1"
         )
@@ -374,7 +374,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                  now: DateTime.add(@base_time, 1, :second)
                )
 
-      channel = Repo.get!(SignalChannel, "lark:chat:group-a")
+      channel = Repo.get!(Channel, "lark:chat:group-a")
 
       assert channel.kind == :im_group
       assert channel.reply_mode == :entry
@@ -398,7 +398,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                )
 
       assert preview["runtime"]["__type__"] == "pid"
-      assert Repo.aggregate(SignalEntry, :count) == 0
+      assert Repo.aggregate(Entry, :count) == 0
 
       assert {:error, {:attachment_not_materialized, _attachment}} =
                SignalsGateway.emit_entry(
@@ -443,7 +443,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                  now: @base_time
                )
 
-      assert Repo.aggregate(SignalEntry, :count) == 0
+      assert Repo.aggregate(Entry, :count) == 0
       assert Repo.aggregate(ActorEvent, :count) == 0
     end
 
@@ -485,7 +485,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
       refute Enum.any?(columns, fn [_table, column] -> column == "observed_only" end)
 
       refute Enum.any?(columns, fn [table, column] ->
-               table == "signal_entries" and column == "provider_thread_id"
+               table == "signal_gateway_entries" and column == "provider_thread_id"
              end)
 
       refute Enum.any?(columns, fn [table, column] ->

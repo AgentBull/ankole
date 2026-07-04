@@ -37,7 +37,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Projection
   alias Ankole.SignalsGateway.Sanitizer
-  alias Ankole.SignalsGateway.SignalEntry
+  alias Ankole.SignalsGateway.Entry
 
   require Logger
 
@@ -401,7 +401,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   # ─────────────────────────────────────────────────────────────────
 
   @doc """
-  Sends a final reply if needed and records the `signal_entries.ai_message_id`
+  Sends a final reply if needed and records the `signal_gateway_entries.ai_message_id`
   mirror only after provider delivery succeeds. Recovery scan calls this for
   terminal rows whose live preview handler died before final delivery.
   """
@@ -428,7 +428,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   end
 
   @doc """
-  Writes the final reply mirror into signal_entries with ai_message_id.
+  Writes the final reply mirror into signal_gateway_entries with ai_message_id.
 
   Called after a successful IM send/edit to record that the final reply
   for this ai_gateway_messages row has been delivered to the provider.
@@ -481,8 +481,8 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
         ai_message_id: ai_message_id
       }
 
-      case %SignalEntry{}
-           |> SignalEntry.changeset(attrs)
+      case %Entry{}
+           |> Entry.changeset(attrs)
            |> Repo.insert(
              on_conflict:
                {:replace,

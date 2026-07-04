@@ -15,6 +15,7 @@ defmodule Ankole.ActorRuntime.Supervisor do
 
   alias Ankole.ActorRuntime.WorkerAuthKey
   alias Ankole.ActorRuntime.WorkerBrowserConfig
+  alias Ankole.ActorRuntime.WorkerCodexConfig
 
   @doc """
   Starts actor-runtime services.
@@ -29,6 +30,7 @@ defmodule Ankole.ActorRuntime.Supervisor do
   def init(opts) do
     WorkerAuthKey.ensure!()
     :ok = WorkerBrowserConfig.ensure_registered()
+    :ok = WorkerCodexConfig.ensure_registered()
 
     runtime_opts = runtime_opts(opts)
 

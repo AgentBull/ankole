@@ -19,8 +19,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
            %{"model" => "primary", "input" => "hello", "previous_response_id" => "resp_old"}},
           {"conversation",
            %{"model" => "primary", "input" => "hello", "conversation" => "conv_old"}},
-          {"store", %{"model" => "primary", "input" => "hello", "store" => true}},
-          {"store", %{"model" => "primary", "input" => "hello", "store" => false}}
+          {"store", %{"model" => "primary", "input" => "hello", "store" => true}}
         ] do
       assert {:error, {:stateful_http_field_forbidden, ^field}} =
                AIGateway.create_response(agent.uid, request)
@@ -73,6 +72,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "model" => "primary",
                "input" => "hello",
                "stream" => true,
+               "store" => false,
                "service_tier" => "agent_computer",
                "prompt_cache_key" => "cache-a"
              })
@@ -87,7 +87,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert request.body["store"] == false
     assert request.body["reasoningEffort"] == "minimal"
     refute Map.has_key?(request.body, "service_tier")
-    refute Map.has_key?(request.body, "prompt_cache_key")
+    assert request.body["prompt_cache_key"] == "cache-a"
 
     assert body["id"] == "resp_test"
     assert body["model"] == "gpt-5.5"
@@ -230,7 +230,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
            )
 
     refute Map.has_key?(provider_request, "service_tier")
-    refute Map.has_key?(provider_request, "prompt_cache_key")
+    assert provider_request["prompt_cache_key"] == "cache-ws"
     refute Map.has_key?(provider_request, "previous_response_id")
     assert provider_request["store"] == false
     refute Map.has_key?(provider_request, "conversation")

@@ -54,16 +54,15 @@ payloads.
 ## Source Map
 
 - `src/main.ts` - worker event loop and turn dispatch.
-- `src/runtime.ts` - startup environment parsing and lifecycle envelopes.
-- `src/runtime_fabric.ts` - host JSON shape around kernel protobuf codecs.
-- `src/runtime_fabric_sender.ts` - bounded retry for RuntimeFabric sends.
-- `src/actor_lane.ts` and `src/turn_envelopes.ts` - actor envelope mapping.
-- `src/rpc_lane.ts` - worker/control-plane RPC contracts.
-- `src/file_transfer_lane.ts` - RuntimeFabric worker-file protocol.
-- `src/workspace.ts` - per-turn workspace preparation and readiness checks.
+- `src/worker/` - startup environment parsing, lifecycle envelopes, workspace
+  preparation, and readiness checks.
+- `src/fabric/` - RuntimeFabric envelope shape, kernel protobuf codec adapter,
+  turn envelope builders, and bounded retry sender.
+- `src/lanes/` - actor, RPC, and worker-file lane contracts.
 - `src/core/turns/` - turn handlers, message shaping, ambient recognition,
   scheduling integration, and telemetry.
-- `src/tools/` - model-facing tools bound to the container workspace.
+- `src/tools/` - model-facing tools bound to the container workspace, organized
+  by feature.
 - `src/prompts/` - system, ambient, and skill prompts.
 - `test/` - package-local Bun tests. They are run inside the worker image.
 

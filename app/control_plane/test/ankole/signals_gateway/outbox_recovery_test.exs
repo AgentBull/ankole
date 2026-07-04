@@ -5,7 +5,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.InputTombstone
   alias Ankole.SignalsGateway.OutboxEntry
-  alias Ankole.SignalsGateway.SignalEntry
+  alias Ankole.SignalsGateway.Entry
 
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsGatewayFixtures
@@ -63,7 +63,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
 
       assert unknown.status == :unknown_after_send
 
-      refute Repo.get_by(SignalEntry,
+      refute Repo.get_by(Entry,
                signal_channel_id: "lark:chat:group-a",
                source_entry_id: "maybe-provider-id"
              )
@@ -104,7 +104,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
       assert recovered.status == :succeeded
 
       assert Repo.get_by!(
-               SignalEntry,
+               Entry,
                signal_channel_id: "lark:chat:group-a",
                source_entry_id: "confirmed-provider-id"
              ).text == "confirmed"
@@ -223,7 +223,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                )
 
       assert Repo.get_by!(
-               SignalEntry,
+               Entry,
                signal_channel_id: "lark:chat:group-a",
                source_entry_id: "stale-provider-id"
              ).text == "confirmed by reconcile"

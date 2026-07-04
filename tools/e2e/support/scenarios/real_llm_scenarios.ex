@@ -11,17 +11,22 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
   import Ankole.E2E.WaitHelpers,
     only: [
       deadline: 1,
+      wait_until: 2,
+      wait_for_completed_actor_event_message: 3,
       wait_for_completed_final_reply: 3,
       ai_messages_for_actor_event: 1
     ]
 
   alias Ankole.AIAgent.Library.Schemas.AgentSkillOverlay
   alias Ankole.AIGateway.ModelProfiles
+  alias Ankole.CodexDelegations.Schemas.Delegation, as: CodexDelegation
+  alias Ankole.CodexDelegations.Schemas.Event, as: CodexDelegationEvent
   alias Ankole.E2E.FakeFeishu
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.SignalEntry
+  alias Ankole.SignalsGateway.Entry
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
+  @real_coding_model "openai/gpt-5.4-mini"
   @real_vision_model "openai/gpt-4o-mini"
   @real_tool_model "openai/gpt-4o-mini"
   @real_text_only_model "qwen/qwen3-30b-a3b"
@@ -300,6 +305,131 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     %{input: input, reply: reply, message: message}
   end
 
+  def run_real_lark_codex_todolist_turn(%{
+        fake_feishu: fake_feishu,
+        agent: agent,
+        container: container,
+        provider_id: provider_id
+      }) do
+    put_real_model_profile!(agent.uid, provider_id, "primary", @real_coding_model, %{})
+    put_real_model_profile!(agent.uid, provider_id, "heavy", @real_coding_model, %{})
+    put_real_model_profile!(agent.uid, provider_id, "coding", @real_coding_model, %{})
+
+    mention = lark_bot_mention()
+
+    assert :ok =
+             FakeFeishu.State.user_sends_message(fake_feishu.state,
+               event_id: "evt_real_codex_todolist_1",
+               message_id: "om_real_codex_todolist_1",
+               chat_id: "oc_real_llm_codex_todolist",
+               text: """
+               @_user_1 Codex delegation coding task. Use the real OpenRouter model openai/gpt-5.4-mini.
+
+               Required path:
+               1. Use codex_delegate exactly once with action="run", workdir="/workspace/temp/ankole-codex-todolist-real", and timeout_seconds=900.
+               2. The delegated Codex prompt must ask Codex to create a Vite + React todolist app in that workdir, including package.json, index.html, src/main.jsx, src/App.jsx, and src/styles.css.
+               3. The app must use React useState, allow adding todo items, toggling completion, deleting items, and show a visible remaining count.
+               4. The delegated Codex prompt must require Codex to run bun install and bun run build, and its final answer must include ANKOLE_CODEX_TODOLIST_DELEGATE_DONE.
+               5. After codex_delegate returns, do not trust the delegate's final text alone. Use read_file to inspect /workspace/temp/ankole-codex-todolist-real/package.json and /workspace/temp/ankole-codex-todolist-real/src/App.jsx.
+               6. Then use command from /workspace/temp/ankole-codex-todolist-real to run bun run build yourself.
+               7. Only after read_file proves the React todolist code and the command tool reports exit_code=0, reply exactly:
+                  ANKOLE_CODEX_TODOLIST_REAL_OK build=passed verified=files
+
+               Do not use browser tools, external APIs, or prior knowledge.
+               """,
+               mentions: [mention],
+               create_time_ms:
+                 DateTime.to_unix(DateTime.add(@base_time, 12, :second), :millisecond)
+             )
+
+    input = actor_event_by_source_entry_id!(agent.uid, "om_real_codex_todolist_1")
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+
+    assert {:ok, message} =
+             wait_for_completed_actor_event_message(container, input.id, deadline(1_500_000))
+
+    messages = ai_messages_for_actor_event(input.id)
+
+    reply =
+      case wait_until(deadline(60_000), fn ->
+             Repo.get_by(Entry, ai_message_id: message.id)
+           end) do
+        {:ok, %Entry{} = reply} ->
+          reply
+
+        :timeout ->
+          flunk("""
+          real Codex todolist turn completed without a final IM mirror.
+          final_message_text=#{inspect(message_text(message), printable_limit: 4_000)}
+          tool_results=#{inspect(tool_results(messages), limit: :infinity, printable_limit: 4_000)}
+          codex_delegations=#{inspect(codex_delegation_debug(input.id), limit: :infinity, printable_limit: 4_000)}
+          """)
+      end
+
+    assert reply.text =~ "ANKOLE_CODEX_TODOLIST_REAL_OK"
+    assert reply.text =~ "build=passed"
+    assert reply.text =~ "verified=files"
+
+    assert tool_result_succeeded?(messages, "codex_delegate")
+    assert command_tool_succeeded?(messages)
+
+    read_output =
+      messages
+      |> successful_tool_results("read_file")
+      |> inspect()
+
+    assert read_output =~ "useState"
+    assert read_output =~ "todos"
+    assert read_output =~ "vite"
+
+    called_tools =
+      messages
+      |> function_call_items()
+      |> Enum.map(& &1["name"])
+
+    assert Enum.count(called_tools, &(&1 == "codex_delegate")) == 1
+    assert "read_file" in called_tools
+    assert "command" in called_tools
+    refute Enum.any?(called_tools, &String.starts_with?(&1, "browser_"))
+
+    delegation =
+      Repo.one!(
+        from delegation in CodexDelegation,
+          where: delegation.agent_uid == ^agent.uid,
+          where: delegation.actor_event_id == ^input.id
+      )
+
+    assert delegation.status == "succeeded"
+    assert get_in(delegation.result, ["output_text"]) =~ "ANKOLE_CODEX_TODOLIST_DELEGATE_DONE"
+
+    events =
+      Repo.all(
+        from event in CodexDelegationEvent,
+          where: event.delegation_id == ^delegation.id,
+          order_by: [asc: event.seq]
+      )
+
+    assert length(events) >= 8
+    event_types = Enum.map(events, & &1.event_type)
+    assert "config_materialized" in event_types
+    assert "json_rpc" in event_types
+    assert "status_succeeded" in event_types
+
+    assert Enum.any?(events, fn event ->
+             event.event_type == "json_rpc" and
+               get_in(event.payload, ["message", "method"]) in [
+                 "initialize",
+                 "thread/start",
+                 "turn/start"
+               ]
+           end)
+
+    assert_actor_event_completed!(input.id)
+    %{input: input, reply: reply, message: message, delegation: delegation}
+  end
+
   def run_real_lark_post_image_direct_vision_turn(%{
         fake_feishu: fake_feishu,
         agent: agent,
@@ -389,8 +519,8 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     input = actor_event_by_source_entry_id!(agent.uid, message_id)
     assert input.type == "im.message.addressed"
 
-    assert %SignalEntry{text: text, attachments: [attachment]} =
-             Repo.get_by!(SignalEntry,
+    assert %Entry{text: text, attachments: [attachment]} =
+             Repo.get_by!(Entry,
                signal_channel_id: "lark:#{chat_id}",
                source_entry_id: message_id
              )
@@ -440,6 +570,71 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                provider_options: provider_options
              })
   end
+
+  defp codex_delegation_debug(actor_event_id) do
+    CodexDelegation
+    |> where([delegation], delegation.actor_event_id == ^actor_event_id)
+    |> Repo.all()
+    |> Enum.map(fn delegation ->
+      events =
+        CodexDelegationEvent
+        |> where([event], event.delegation_id == ^delegation.id)
+        |> order_by([event], asc: event.seq)
+        |> limit(40)
+        |> Repo.all()
+        |> Enum.map(&codex_event_debug/1)
+
+      %{
+        id: delegation.id,
+        status: delegation.status,
+        codex_thread_id: delegation.codex_thread_id,
+        result: delegation.result,
+        error: delegation.error,
+        metadata: delegation.metadata,
+        events: events
+      }
+    end)
+  end
+
+  defp codex_event_debug(%CodexDelegationEvent{} = event) do
+    message = event.payload["message"] || %{}
+    params = message["params"] || %{}
+    turn = params["turn"] || %{}
+
+    %{
+      seq: event.seq,
+      direction: event.direction,
+      event_type: event.event_type,
+      method: message["method"],
+      has_result: Map.has_key?(message, "result"),
+      rpc_error: message["error"],
+      turn_status: turn["status"],
+      payload: codex_debug_payload(event.payload)
+    }
+  end
+
+  defp codex_debug_payload(payload) when is_map(payload) do
+    payload
+    |> Map.take(~w(error message mode codex_turn_status output_text text max_running_per_agent))
+    |> truncate_debug_strings()
+  end
+
+  defp truncate_debug_strings(value) when is_map(value) do
+    Map.new(value, fn {key, nested} -> {key, truncate_debug_strings(nested)} end)
+  end
+
+  defp truncate_debug_strings(value) when is_list(value),
+    do: Enum.map(value, &truncate_debug_strings/1)
+
+  defp truncate_debug_strings(value) when is_binary(value) do
+    if String.length(value) > 1_000 do
+      String.slice(value, 0, 1_000) <> "...[truncated]"
+    else
+      value
+    end
+  end
+
+  defp truncate_debug_strings(value), do: value
 
   defp fallback_summary_recorded?(actor_event_id) do
     actor_event_id

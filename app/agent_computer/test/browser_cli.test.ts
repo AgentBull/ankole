@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const workspaceRoot = mkdtempSync(join(tmpdir(), 'ankole-browser-'))
-const cli = new URL('../src/browser_cli.ts', import.meta.url).pathname
+const cli = new URL('../src/tools/browser/cli.ts', import.meta.url).pathname
 
 afterAll(() => {
   rmSync(workspaceRoot, { force: true, recursive: true })
@@ -137,7 +137,7 @@ describe('@ankole/agent-computer browser CLI', () => {
 
     const session = `chromium-${Date.now()}`
     process.env.ANKOLE_WORKSPACE_ROOT = workspaceRoot
-    const browser = await import('../src/browser_cdp')
+    const browser = await import('../src/tools/browser/cdp')
     const options = {}
 
     try {
@@ -195,7 +195,7 @@ describe('@ankole/agent-computer browser CLI', () => {
     if (typeof doctor.chromium_path !== 'string' || doctor.chromium_path.length === 0) return
 
     process.env.ANKOLE_WORKSPACE_ROOT = workspaceRoot
-    const browser = await import('../src/browser_cdp')
+    const browser = await import('../src/tools/browser/cdp')
     const sessionA = `chromium-context-a-${Date.now()}`
     const sessionB = `chromium-context-b-${Date.now()}`
     const server = Bun.serve({

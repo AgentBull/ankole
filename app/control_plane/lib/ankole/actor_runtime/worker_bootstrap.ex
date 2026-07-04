@@ -5,7 +5,7 @@ defmodule Ankole.ActorRuntime.WorkerBootstrap do
 
   alias Ankole.ActorRuntime.WorkerAuthKey
 
-  @default_image "ankole-agent-computer:0.1.0"
+  @default_image "ghcr.io/agentbull/ankole-agent-computer-worker:main-latest"
 
   @doc """
   Builds the v1 Docker command text without starting Docker.

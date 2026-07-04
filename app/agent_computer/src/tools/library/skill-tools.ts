@@ -1,14 +1,14 @@
 import { join, normalize, resolve } from 'node:path'
 import { readFile } from 'node:fs/promises'
 import { z } from 'zod'
-import type { ActorTurnRef } from '../../actor_lane'
+import type { ActorTurnRef } from '../../lanes/actor_lane'
 import type { AgentTool, AgentToolResult } from '../../core'
 import type {
   RuntimeSkillSummary,
   SkillOverlayReplaceRequest,
   SkillOverlayRequest,
   SkillOverlayResponse
-} from '../../rpc_lane'
+} from '../../lanes/rpc_lane'
 
 // `name` is the enabled skill name from RuntimeFabric. `filePath` lets the model
 // follow references out of SKILL.md without a second tool, but resolution always
@@ -169,6 +169,9 @@ function safeSkillPath(skillRoot: string, filePath: string): string {
   return resolved
 }
 
+/**
+ * Looks up an enabled skill by name and rejects disabled or invalid names.
+ */
 function enabledSkill(name: string, opts: CreateSkillToolsOptions): RuntimeSkillSummary {
   assertValidSkillName(name)
   if (!opts.enabledSkills) {
@@ -184,6 +187,9 @@ function enabledSkill(name: string, opts: CreateSkillToolsOptions): RuntimeSkill
   return skill
 }
 
+/**
+ * Normalizes older string-only skill metadata into the current summary shape.
+ */
 function normalizeEnabledSkill(skill: RuntimeSkillSummary | string): RuntimeSkillSummary | undefined {
   if (typeof skill === 'string') {
     return isValidSkillName(skill) ? { skill_name: skill, source_kind: 'builtin', relative_path: skill } : undefined
@@ -192,6 +198,9 @@ function normalizeEnabledSkill(skill: RuntimeSkillSummary | string): RuntimeSkil
   return typeof skill.skill_name === 'string' && isValidSkillName(skill.skill_name) ? skill : undefined
 }
 
+/**
+ * Resolves the filesystem root for a built-in or installed skill.
+ */
 function skillFilesystemRoot(skill: RuntimeSkillSummary, opts: CreateSkillToolsOptions): string {
   if (!opts.skillRoots) {
     throw new Error('skill_view requires worker skill source roots')
@@ -210,16 +219,25 @@ function skillFilesystemRoot(skill: RuntimeSkillSummary, opts: CreateSkillToolsO
   throw new Error(`unsupported skill source_kind: ${sourceKind}`)
 }
 
+/**
+ * Throws when a skill name cannot be safely used as a skill identifier.
+ */
 function assertValidSkillName(name: string): void {
   if (!isValidSkillName(name)) {
     throw new Error('invalid skill name')
   }
 }
 
+/**
+ * Checks the restricted skill-name syntax used in skill:// references.
+ */
 function isValidSkillName(name: string): boolean {
   return /^[a-z][a-z0-9_-]{0,63}$/.test(name)
 }
 
+/**
+ * Normalizes a file path inside one skill source directory.
+ */
 function normalizeSkillFilePath(filePath: string): string {
   const raw = filePath.replaceAll('\\', '/')
   if (raw.split('/').some(segment => segment === '..')) {
@@ -238,6 +256,9 @@ function normalizeSkillFilePath(filePath: string): string {
   return normalized
 }
 
+/**
+ * Normalizes the skill source directory path supplied by RuntimeFabric.
+ */
 function normalizeSkillRelativePath(relativePath: string): string {
   const normalized = relativePath.replaceAll('\\', '/').replace(/^\/+/, '').replace(/\/+/g, '/')
   if (
@@ -251,10 +272,16 @@ function normalizeSkillRelativePath(relativePath: string): string {
   return normalized
 }
 
+/**
+ * Builds the model-facing URI for an enabled skill file.
+ */
 function skillLocation(name: string, filePath: string): string {
   return `skill://enabled/${name}/${filePath}`
 }
 
+/**
+ * Reads this agent's overlay text for one skill.
+ */
 async function overlayText(name: string, opts: CreateSkillToolsOptions): Promise<string> {
   if (!opts.turn || !opts.requestSkillOverlay) return ''
 
@@ -267,6 +294,9 @@ async function overlayText(name: string, opts: CreateSkillToolsOptions): Promise
   return typeof text === 'string' ? text.trim() : ''
 }
 
+/**
+ * Appends a new note to existing overlay text with a blank-line separator.
+ */
 function appendOverlayText(existing: string, addition: string): string {
   const note = addition.trim()
   if (!existing) return note
@@ -302,6 +332,9 @@ function wrapSkillContent(name: string, location: string, content: string): stri
   ].join('\n')
 }
 
+/**
+ * Escapes values used in XML-like skill wrapper attributes.
+ */
 function escapeAttribute(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 }

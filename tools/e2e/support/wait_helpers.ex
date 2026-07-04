@@ -18,7 +18,7 @@ defmodule Ankole.E2E.WaitHelpers do
   alias Ankole.Schedule.Schemas.CronSchedule
   alias Ankole.Schedule.Schemas.ScheduledEvent
   alias Ankole.SignalsGateway.OutboxEntry
-  alias Ankole.SignalsGateway.SignalEntry
+  alias Ankole.SignalsGateway.Entry
 
   @doc """
   Inserts old transcript rows plus a large recent tail for deterministic compression.
@@ -253,10 +253,10 @@ defmodule Ankole.E2E.WaitHelpers do
   Waits for the final IM mirror row associated with an AI message.
   """
   @spec wait_for_final_mirror(map() | port(), Ecto.UUID.t(), integer()) ::
-          {:ok, SignalEntry.t()}
+          {:ok, Entry.t()}
   def wait_for_final_mirror(process, ai_message_id, deadline) do
-    case Repo.get_by(SignalEntry, ai_message_id: ai_message_id) do
-      %SignalEntry{} = entry ->
+    case Repo.get_by(Entry, ai_message_id: ai_message_id) do
+      %Entry{} = entry ->
         {:ok, entry}
 
       nil ->
@@ -271,10 +271,10 @@ defmodule Ankole.E2E.WaitHelpers do
 
   Ordinary streamed AI replies do not produce durable outbox rows under the
   stateful AIGateway plan. They become provider-visible through the live
-  AIReplyPreview path, then are mirrored as `signal_entries.ai_message_id`.
+  AIReplyPreview path, then are mirrored as `signal_gateway_entries.ai_message_id`.
   """
   @spec wait_for_completed_final_reply(map() | port(), Ecto.UUID.t(), integer()) ::
-          {:ok, SignalEntry.t(), Message.t()}
+          {:ok, Entry.t(), Message.t()}
   def wait_for_completed_final_reply(process, actor_event_id, deadline) do
     with {:ok, message} <-
            wait_for_completed_actor_event_message(process, actor_event_id, deadline),

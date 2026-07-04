@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer'
 import type { ContentPart, ImageContent, ModelConfig } from './llm'
 import { assistantText, callModel } from './llm'
-import type { TurnModelRef } from '../actor_lane'
+import type { TurnModelRef } from '../lanes/actor_lane'
 
 export const VISION_MAX_IMAGE_BYTES = 4 * 1024 * 1024
 export const VISION_MAX_IMAGES_PER_TURN = 8
@@ -12,10 +12,19 @@ const visionFallbackInstructions = [
   'If text is visible, transcribe only the relevant visible text.'
 ].join('\n')
 
+/**
+ * Checks whether the selected turn model can receive image content directly.
+ */
 export function modelSupportsImage(modelRef: Pick<TurnModelRef, 'input_modalities'> | undefined | null): boolean {
   return modelRef?.input_modalities?.includes('image') ?? false
 }
 
+/**
+ * Converts bounded image bytes into a Responses-compatible image content part.
+ *
+ * Oversized or unknown image formats return undefined so callers can degrade to
+ * text instead of sending invalid binary content to the model.
+ */
 export function imageContentPartFromBuffer(bytes: Uint8Array, mimeType?: string): ImageContent | undefined {
   if (bytes.byteLength > VISION_MAX_IMAGE_BYTES) return undefined
 
@@ -29,6 +38,9 @@ export function imageContentPartFromBuffer(bytes: Uint8Array, mimeType?: string)
   }
 }
 
+/**
+ * Detects the small set of image MIME types the worker can safely pass through.
+ */
 export function sniffImageMimeType(bytes: Uint8Array): string | undefined {
   if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
     return 'image/png'
@@ -52,6 +64,10 @@ export function sniffImageMimeType(bytes: Uint8Array): string | undefined {
   return undefined
 }
 
+/**
+ * Uses a vision-capable fallback model to describe images for a text-only main
+ * model.
+ */
 export async function describeImagesWithFallback(
   fallbackModel: ModelConfig,
   images: ImageContent[],
@@ -75,6 +91,9 @@ export async function describeImagesWithFallback(
   return text || undefined
 }
 
+/**
+ * Wraps an automatic image summary so the model treats it as untrusted context.
+ */
 export function imageSummaryBlock(summary: string): string {
   return [
     '<image_summary>',
@@ -84,10 +103,16 @@ export function imageSummaryBlock(summary: string): string {
   ].join('\n')
 }
 
+/**
+ * Returns the text used when no model path can inspect image bytes.
+ */
 export function responseImageUnavailableText(): string {
   return 'The current model cannot directly view the attached image content; the files remain available at the paths listed above.'
 }
 
+/**
+ * Concatenates text parts from a mixed tool/model content list.
+ */
 export function contentText(parts: ContentPart[]): string {
   return parts
     .filter((part): part is Extract<ContentPart, { type: 'text' }> => part.type === 'text')

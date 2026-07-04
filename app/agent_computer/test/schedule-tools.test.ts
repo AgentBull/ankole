@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
-import type { JsonObject, TurnStart } from '../src/actor_lane'
-import { rpcMethods, type RpcMethod, type ScheduleRpcRequest } from '../src/rpc_lane'
-import { createScheduleTools } from '../src/tools/schedule-tools'
+import type { JsonObject, TurnStart } from '../src/lanes/actor_lane'
+import { rpcMethods, type RpcMethod, type ScheduleRpcRequest } from '../src/lanes/rpc_lane'
+import { createScheduleTools } from '../src/tools/schedule/schedule-tools'
 
 describe('schedule tools', () => {
   it('uses a stable default check_back_later idempotency key across provider tool call retries', async () => {

@@ -11,6 +11,9 @@ import { unifiedTextDiff } from '@ankole/kernel'
 
 const MAX_KERNEL_DIFF_INPUT_CHARS = 2_000_000
 
+/**
+ * Renders a unified diff or a bounded fallback summary for very large changes.
+ */
 export async function unifiedDiff(oldText: string, newText: string, path: string, context = 3): Promise<string> {
   if (oldText === newText) return `(no changes to ${path})`
 
@@ -31,6 +34,9 @@ export async function unifiedDiff(oldText: string, newText: string, path: string
   }
 }
 
+/**
+ * Counts visible lines in text without treating a final newline as an extra row.
+ */
 function countLines(text: string): number {
   const lines = text.split('\n')
   if (lines.at(-1) === '') lines.pop()

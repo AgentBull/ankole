@@ -1,7 +1,7 @@
-import type { TurnModelRef, TurnStart } from '../../actor_lane'
+import type { TurnModelRef, TurnStart } from '../../lanes/actor_lane'
 import type { ModelConfig } from '../llm'
 import { createModel } from '../llm'
-import type { AIGatewayApiKeyRejected, AIGatewayApiKeyResponse } from '../../rpc_lane'
+import type { AIGatewayApiKeyRejected, AIGatewayApiKeyResponse } from '../../lanes/rpc_lane'
 
 const aiGatewayApiKeyRefreshSkewMs = 60_000
 
@@ -23,6 +23,10 @@ export interface AIGatewayHttpClient {
   fetch: AIGatewayFetch
 }
 
+/**
+ * Verifies that the control-plane-issued key can only be used for this turn's
+ * agent and for AIGateway bearer auth.
+ */
 export function assertAIGatewayApiKeyMatchesTurn(turnStart: TurnStart, apiKey: AIGatewayApiKeyResponse): void {
   if (
     apiKey.agent_uid !== turnStart.turn.actor.agent_uid ||
@@ -35,7 +39,10 @@ export function assertAIGatewayApiKeyMatchesTurn(turnStart: TurnStart, apiKey: A
 }
 
 /**
- * Creates a ModelConfig pointed at AIGateway.
+ * Creates a ModelConfig pointed at AIGateway for the selected turn model.
+ *
+ * HTTP and WebSocket transports share the same refresh callback so stateful
+ * response.create can recover from both expiring and revoked keys.
  */
 export function runtimeModelFromAIGatewayApiKey(
   modelRef: TurnModelRef,
@@ -61,6 +68,9 @@ export function runtimeModelFromAIGatewayApiKey(
   })
 }
 
+/**
+ * Builds the small HTTP client used by worker tools that call AIGateway.
+ */
 export function aiGatewayHttpClientFromApiKey(
   apiKey: AIGatewayApiKeyResponse,
   refreshApiKey?: AIGatewayApiKeyRefresher
@@ -71,6 +81,10 @@ export function aiGatewayHttpClientFromApiKey(
   }
 }
 
+/**
+ * Converts the control-plane model reference into the selector accepted by
+ * AIGateway.
+ */
 export function aiGatewayModelSelector(modelRef: TurnModelRef): string {
   if (modelRef.provider_id === 'ai_gateway') {
     return modelRef.model
@@ -79,6 +93,9 @@ export function aiGatewayModelSelector(modelRef: TurnModelRef): string {
   return `${modelRef.provider_id}/${modelRef.model}`
 }
 
+/**
+ * Wraps fetch with proactive and reactive AIGateway bearer-token refresh.
+ */
 function aiGatewayFetch(
   initialApiKey: AIGatewayApiKeyResponse,
   refreshApiKey?: AIGatewayApiKeyRefresher
@@ -114,6 +131,12 @@ function aiGatewayFetch(
   }
 }
 
+/**
+ * Returns the WebSocket authorization header value for the current key.
+ *
+ * The stateful WebSocket path can request a forced refresh after pre-open
+ * failures where no response.create was sent.
+ */
 function aiGatewayAuthorization(initialApiKey: AIGatewayApiKeyResponse, refreshApiKey?: AIGatewayApiKeyRefresher) {
   let currentApiKey = initialApiKey
 
@@ -128,6 +151,9 @@ function aiGatewayAuthorization(initialApiKey: AIGatewayApiKeyResponse, refreshA
   }
 }
 
+/**
+ * Refreshes the key or throws the rejection as a worker-visible error.
+ */
 async function refreshApiKeyOrThrow(
   refreshApiKey?: AIGatewayApiKeyRefresher,
   options?: AIGatewayApiKeyRefreshOptions
@@ -142,6 +168,9 @@ async function refreshApiKeyOrThrow(
   return refreshed
 }
 
+/**
+ * Derives the stateful Responses WebSocket URL from the AIGateway base URL.
+ */
 function aiGatewayWebSocketUrl(baseUrl: string): string {
   const url = new URL(`${baseUrl.replace(/\/+$/, '')}/responses`)
   if (url.protocol === 'http:') {

@@ -1,4 +1,4 @@
-import type { JsonObject, TurnStart } from '../../actor_lane'
+import type { JsonObject, TurnStart } from '../../lanes/actor_lane'
 import type { CurrentChannelContext } from '../../prompts/system_prompt'
 import {
   arrayPath,
@@ -10,6 +10,13 @@ import {
   stringArg
 } from '../../common/json-utils'
 
+/**
+ * Renders a journaled actor event into the primary user text for the model.
+ *
+ * Provider payloads are not perfectly uniform, so the extraction order is part
+ * of the contract: commands prefer command args, normal entries prefer entry
+ * text, and specialized wakeups get purpose-built text.
+ */
 export function actorEventText(payload: JsonObject | undefined, fallbackType: string): string {
   if (fallbackType === 'check_back_later.wakeup') {
     return checkBackLaterInputText(payload)
@@ -31,6 +38,9 @@ export function actorEventText(payload: JsonObject | undefined, fallbackType: st
   return attachments ? `${base}\n\nAttachments:\n${attachments}` : base
 }
 
+/**
+ * Enables AIGateway truncation only for the overflow-retry path.
+ */
 export function statefulTruncationFromActorEventPayload(payload: JsonObject | undefined): 'auto' | undefined {
   const retryReason =
     deepString(payload, ['data', 'entry', 'retry_reason']) || deepString(payload, ['data', 'internal', 'retry_reason'])
@@ -38,6 +48,12 @@ export function statefulTruncationFromActorEventPayload(payload: JsonObject | un
   return retryReason === 'overflow_retry' ? 'auto' : undefined
 }
 
+/**
+ * Builds the current-channel summary used by the system prompt.
+ *
+ * The worker projects channel facts for model context only; SignalsGateway and
+ * the control plane still own provider routing and reply semantics.
+ */
 export function currentChannelFromTurnStart(turnStart: TurnStart): CurrentChannelContext | undefined {
   const input = turnStart.actor_event
   const channel = objectPath(input.payload_json, ['data', 'channel'])
@@ -61,6 +77,9 @@ export function currentChannelFromTurnStart(turnStart: TurnStart): CurrentChanne
   }
 }
 
+/**
+ * Renders a delayed self-wakeup into concise model input.
+ */
 function checkBackLaterInputText(payload: JsonObject | undefined): string {
   const wakePayload = objectPath(payload, ['data', 'wake_payload'])
   const reason = stringArg(wakePayload, 'reason')
@@ -77,6 +96,9 @@ function checkBackLaterInputText(payload: JsonObject | undefined): string {
     .join('\n')
 }
 
+/**
+ * Renders a recurring schedule fire into concise model input.
+ */
 function cronFireInputText(payload: JsonObject | undefined): string {
   const wakePayload = objectPath(payload, ['data', 'wake_payload'])
   const scheduleName = stringArg(wakePayload, 'cron_schedule_name')
@@ -93,6 +115,9 @@ function cronFireInputText(payload: JsonObject | undefined): string {
     .join('\n')
 }
 
+/**
+ * Maps provider channel kinds to the smaller prompt-facing channel vocabulary.
+ */
 function channelKind(kind: string | undefined): CurrentChannelContext['kind'] | undefined {
   switch (kind) {
     case 'im_dm':
@@ -106,6 +131,9 @@ function channelKind(kind: string | undefined): CurrentChannelContext['kind'] | 
   }
 }
 
+/**
+ * Extracts the provider/platform name from a signal URI.
+ */
 function sourcePlatform(payload: JsonObject | undefined): string | undefined {
   const source = deepString(payload, ['source'])
   if (!source?.startsWith('signal://')) return undefined
@@ -114,6 +142,10 @@ function sourcePlatform(payload: JsonObject | undefined): string | undefined {
   return separatorIndex >= 0 ? withoutScheme.slice(0, separatorIndex) : withoutScheme
 }
 
+/**
+ * Renders attachment metadata into text when the model cannot directly inspect
+ * the file bytes.
+ */
 function attachmentText(payload: JsonObject | undefined): string | undefined {
   const attachments = arrayPath(payload, ['data', 'entry', 'attachments'])
   if (attachments.length === 0) return undefined
@@ -126,6 +158,10 @@ function attachmentText(payload: JsonObject | undefined): string | undefined {
   )
 }
 
+/**
+ * Formats one attachment line while preserving whether the file was
+ * materialized into the worker workspace.
+ */
 function attachmentLine(value: unknown, index: number): string | undefined {
   if (!isRecord(value)) return undefined
 

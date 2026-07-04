@@ -34,9 +34,10 @@ Ankole 里的 agent 不是简单的 chat completion 封装，而是一个持久�
                   v
         +------------------+     writes      +--------------------------+
         |  SignalsGateway  | --------------> |  PostgreSQL              |
-        |  ingress, mirror,|                 |  signal_channels/entries |
-        |  delivery        |                 |  actor_events            |
-        +------------------+                 |  actor_event_deliveries  |
+        |  ingress, mirror,|                 |  signal_gateway_channels |
+        |  delivery        |                 |  signal_gateway_entries  |
+        +------------------+                 |  actor_events            |
+                  |                          |  actor_event_deliveries  |
                   |                          |  ai_gateway_messages     |
                   | actor_events             |  ai_gateway_conversations|
                   v                          |  signal_gateway_outbox   |
@@ -59,7 +60,7 @@ Ankole 里的 agent 不是简单的 chat completion 封装，而是一个持久�
 
 六个部分，各一句话：
 
-- **SignalsGateway**（Elixir）接收 provider event，镜像 provider 侧可见的状态，决定什么会唤醒 agent，并把回复送回 provider。它拥有 `signal_channels`、`signal_entries`、`actor_events`、`signal_gateway_outbox`。见 `design-docs/SignalsGateway.md`。
+- **SignalsGateway**（Elixir）接收 provider event，镜像 provider 侧可见的状态，决定什么会唤醒 agent，并把回复送回 provider。它拥有 `signal_gateway_channels`、`signal_gateway_entries`、`actor_events`、`signal_gateway_outbox`。见 `design-docs/SignalsGateway.md`。
 - **ActorRuntime**（Elixir）把 actor event 调度到 worker 上，每个 event 执行一次，并用 fence 挡住 stale 的 worker commit。它拥有 `actor_event_deliveries` 和 session activation。
 - **AIGateway**（Elixir）是 AI 边界：管 provider 凭证和路由，外加有状态的 Responses 日志，包括 model 历史、tool-loop 状态、compaction 和 terminal commit。它拥有 `ai_gateway_messages` 和 `ai_gateway_conversations`。见 `design-docs/AIGateway.md`。
 - **RuntimeFabric**（Rust + ZeroMQ）是 control plane 和 worker 之间的实时传输：turn envelope、RPC、文件字节。它永远不是持久事实来源。见 `design-docs/RuntimeFabric.md`。
@@ -146,9 +147,9 @@ Kernel 从同一个 crate 编译两次：一次作为 Elixir 的 Rustler NIF（�
 
 ### SignalsGateway：provider 入口和 provider 可见的副作用
 
-`Ankole.SignalsGateway`（`lib/ankole/signals_gateway/`）。Adapter 用归一化后的事实调 `emit_entry/emit_reaction/emit_action`；gateway 检查 binding（`bindings.ex`），应用 CEL filter（由 kernel 求值），挡住被 tombstone 的 entry，upsert provider 镜像（`signal_channel.ex`、`signal_entry.ex`），并把 IM 突发消息合并成 inbound batch（`inbound_batch*.ex`）。关闭 batch 时，在一个事务里写一条 `actor_events` 行，然后向 provider 确认。对外的显式副作用走 `outbox.ex` / `outbox_entry.ex`，由 binding 的 outbox adapter 执行。流式回复不是 outbox 行：`ai_reply_preview.ex` 订阅 AIGateway 的 chunk event，并驱动 provider 原生预览；`recovery_scan.ex` 会重发缺少镜像的 completed final。
+`Ankole.SignalsGateway`（`lib/ankole/signals_gateway/`）。Adapter 用归一化后的事实调 `emit_entry/emit_reaction/emit_action`；gateway 检查 binding（`bindings.ex`），应用 CEL filter（由 kernel 求值），挡住被 tombstone 的 entry，upsert provider 镜像（`channel.ex`、`entry.ex`），并把 IM 突发消息合并成 inbound batch（`inbound_batch*.ex`）。关闭 batch 时，在一个事务里写一条 `actor_events` 行，然后向 provider 确认。对外的显式副作用走 `outbox.ex` / `outbox_entry.ex`，由 binding 的 outbox adapter 执行。流式回复不是 outbox 行：`ai_reply_preview.ex` 订阅 AIGateway 的 chunk event，并驱动 provider 原生预览；`recovery_scan.ex` 会重发缺少镜像的 completed final。
 
-拥有的表：`signal_bindings`、`signal_channels`、`signal_entries`、`signal_gateway_input_tombstones`、`signal_gateway_inbound_batches`、`signal_gateway_outbox`。
+拥有的表：`signal_gateway_bindings`、`signal_gateway_channels`、`signal_gateway_entries`、`signal_gateway_input_tombstones`、`signal_gateway_inbound_batches`、`signal_gateway_outbox`。
 
 ### ActorRuntime：带 fence 的 worker turn 调度
 
@@ -207,7 +208,7 @@ Model 可见的 tool 接口有意保持很窄（扩大前先看 `docs/TradeoffsA
 
 Canonical 链路：用户在飞书群里 mention 一个 agent，agent 在跑了一个 shell 命令之后作答。
 
-1. **入口。** `plugins/lark_adapter/.../inbound.ex` 在长连接上收到 `im.message.receive_v1`，调用 `Ankole.SignalsGateway.emit_entry/3`。Gateway 解析 binding、求值 filter（kernel CEL）、检查 tombstone、upsert `signal_channels` / `signal_entries`，并打开或扩展 inbound batch。
+1. **入口。** `plugins/lark_adapter/.../inbound.ex` 在长连接上收到 `im.message.receive_v1`，调用 `Ankole.SignalsGateway.emit_entry/3`。Gateway 解析 binding、求值 filter（kernel CEL）、检查 tombstone、upsert `signal_gateway_channels` / `signal_gateway_entries`，并打开或扩展 inbound batch。
 2. **一个工作项。** `InboundBatchFinalizer` 关闭 batch；一个事务写入一条 `actor_events` 行，`type = "im.message.addressed"`，对 `(agent_uid, binding_name, source_event_id)` 唯一，然后向 provider 确认。这一行就是持久的工作项；它会永久保留，工作完成时设置 `completed_at`。
 3. **分发。** ActorRuntime 的 session controller 选择下一个 ready event（`input_state = 'open' AND completed_at IS NULL`，且没有 live delivery），`ActivationManager` 持有激活租约，`WorkerPool` 分配 worker，`TurnLifecycle.start_worker_turn` 写入 `actor_event_deliveries` 的 fence 行，`Transport.Broker` 通过 ZeroMQ 发送 `turn_start` envelope（由 `turn_envelope.ex` 构造）。这里不传历史，只有一个 fence、一个 actor event、一个 model 引用。
 4. **Worker turn 准备。** `src/main.ts` 分发到 `core/turns/text_turn.ts`，后者通过 RPC 拿会话上下文和 agent 范围的 AIGateway key，构造 system prompt，组装 tool set。
@@ -215,7 +216,7 @@ Canonical 链路：用户在飞书群里 mention 一个 agent，agent 在跑了�
 6. **实时预览。** `SignalsGateway.AIReplyPreview` 订阅这些 chunk，通过 lark adapter 的 CardKit 调用驱动流式飞书卡片：第一个 chunk 时发送，文本增长时编辑。
 7. **工具执行。** Model 返回 `function_call`；AIGateway 把行 commit 成 `complete`（input items + output items 在同一个 `content` 数组里）并发送 terminal frame。Worker 在 bubblewrap 里跑 shell 命令，然后用 `function_call_output` 发下一次 `response.create`，并通过 `previous_response_id` 链接。
 8. **Terminal commit。** 没有 tool call 的轮次是链尾，也就是这个 actor event 的最终 AI 输出。AIGateway 在一个事务里把它 commit 成 `complete`、设置 `actor_events.completed_at`、清理 delivery，然后 worker 才看到 terminal frame。Worker 成功时自己不报告任何东西；`turn_error` 和 `turn_noop_completed` 覆盖其他结束方式。
-9. **定稿。** `AIReplyPreview` 用最终内容替换卡片。Provider 确认成功之后，它 upsert 最终镜像：一条 `signal_entries` 行，其 `ai_message_id` 指向最终 message 行。那一行就是送达凭证。
+9. **定稿。** `AIReplyPreview` 用最终内容替换卡片。Provider 确认成功之后，它 upsert 最终镜像：一条 `signal_gateway_entries` 行，其 `ai_message_id` 指向最终 message 行。那一行就是送达凭证。
 10. **恢复。** 如果 8 和 9 之间有任何东西死掉，`RecoveryScan` 会找到缺少镜像的 completed final 并重发（设计上是 at-least-once）。Worker 在 turn 中途死亡表现为 fence 失败的 delivery；重试是一条新的 actor event，带 `retry_of_actor_event_id`；孤立的 `generating` 行会老化成 `error`，下一次 run 会重新 anchor 到最后一条 `complete` 行。
 
 Side chain 复用同样的形状：
@@ -241,7 +242,7 @@ Canonical 定义在 `design-docs/SignalsGateway.md` 的 Identity Layers 部分�
 
 ## Data Model Essentials
 
-持久表（崩溃后的事实来源）：`principals`、`human_users`、`agents`、`external_identities`、`principal_groups`、`permission_grants`、`app_configure`、`signal_bindings`、`signal_channels`、`signal_entries`、`signal_gateway_outbox`、`actor_events`、`actor_cron_schedules`、`actor_scheduled_events`、`ai_gateway_conversations`、`ai_gateway_messages`、`ai_gateway_providers`，以及 skill library 表。
+持久表（崩溃后的事实来源）：`principals`、`human_users`、`agents`、`external_identities`、`principal_groups`、`permission_grants`、`app_configure`、`signal_gateway_bindings`、`signal_gateway_channels`、`signal_gateway_entries`、`signal_gateway_outbox`、`actor_events`、`actor_cron_schedules`、`actor_scheduled_events`、`ai_gateway_conversations`、`ai_gateway_messages`、`ai_gateway_providers`，以及 skill library 表。
 
 运行时投影（UNLOGGED、可重建）：`actor_event_deliveries`、`actor_session_activations`、`actor_session_worker_assignments`、`agent_computer_workers`。
 
@@ -308,10 +309,10 @@ E2E harness（`tools/e2e/`）跑一个 fake 飞书平台，它用真实 WS 协�
 - **compaction row**：一条 `ai_gateway_messages` 行（`type = "compaction"`），总结较旧的历史前缀，让未来的 run 适配 model context。
 - **anchor**：新 run 链接到的行（`previous_message_id`；在 API 边缘渲染成 `previous_response_id`）。
 - **visible leaf**：没有其他行链接到它的 `complete` 行。隐式续接总是选最新的 visible leaf。
-- **source mirror**：`signal_channels` + `signal_entries`，provider 侧当前显示内容的映像。不是队列，也不是 model 历史。
+- **source mirror**：`signal_gateway_channels` + `signal_gateway_entries`，provider 侧当前显示内容的映像。不是队列，也不是 model 历史。
 - **outbox**：`signal_gateway_outbox`，显式 provider 可见副作用（附件、reaction、命令反馈）的持久表。流式回复不走这里。
 - **preview / finalize**：流式回复的生命周期：第一个 chunk 时发送 provider 消息，streaming 期间编辑它，在 terminal event 时替换成最终内容。
-- **final mirror**：确认最终发送/编辑之后写入的 `signal_entries` 行（带 `ai_message_id`）。它是送达凭证。
+- **final mirror**：确认最终发送/编辑之后写入的 `signal_gateway_entries` 行（带 `ai_message_id`）。它是送达凭证。
 - **fence**（`ActorTurnRef`）：一个相等性检查（activation、epoch、actor event id、revision），挡住 stale 的 worker commit 到更新的 actor 状态。
 - **turn**：一个 actor event 的一次 worker 执行；可能有多次 model 调用，但只有一次完成。
 - **dead letter**：被标记为不可送达的 actor event（`input_state = 'dead_letter'`）。它不同于 completed。

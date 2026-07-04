@@ -33,6 +33,10 @@ config :logger, :default_formatter,
 # Use the local Torque adapter for JSON parsing in Phoenix
 config :phoenix, :json_library, Ankole.JSON
 
+config :mime, :types, %{
+  "text/event-stream" => ["event-stream"]
+}
+
 config :elixir, :time_zone_database, Tzdata.TimeZoneDatabase
 config :tzdata, :autoupdate, :disabled
 

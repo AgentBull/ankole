@@ -123,6 +123,12 @@ export function findUniqueFuzzyMatch(haystack: string, needle: string): FuzzyMat
   return undefined
 }
 
+/**
+ * Finds a match after an optional cursor/context anchor.
+ *
+ * V4A hunks are applied in order, so scoped matching can start after the prior
+ * hunk and avoid accidentally matching an earlier repeated section.
+ */
 export function findScopedFuzzyMatch(
   haystack: string,
   needle: string,
@@ -154,6 +160,10 @@ export function findScopedFuzzyMatch(
   }
 }
 
+/**
+ * Finds nearby lines for a failed patch so the model can re-read the likely
+ * target area instead of blindly retrying.
+ */
 export function findClosestLineMatches(
   haystack: string,
   needle: string,
@@ -199,6 +209,9 @@ function uniqueExactMatch(haystack: string, needle: string): FuzzyMatch | undefi
   return { start, end: start + needle.length, exact: true, strategy: 'exact' }
 }
 
+/**
+ * Searches for a line-window match using the supplied normalization strategies.
+ */
 function findLineSequence(
   haystackLines: LineSpan[],
   needleLines: string[],
@@ -241,6 +254,9 @@ function findLineSequence(
   return undefined
 }
 
+/**
+ * Converts a char offset into the line index that contains it.
+ */
 function lineIndexAtOffset(lines: LineSpan[], offset: number): number {
   if (lines.length === 0) return 0
   if (offset <= 0) return 0
@@ -248,6 +264,9 @@ function lineIndexAtOffset(lines: LineSpan[], offset: number): number {
   return index === -1 ? lines.length : index
 }
 
+/**
+ * Normalizes common Unicode punctuation drift before fuzzy comparison.
+ */
 function normalizeUnicodePunctuation(line: string): string {
   return line
     .trim()
@@ -257,12 +276,18 @@ function normalizeUnicodePunctuation(line: string): string {
     .replace(/[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g, ' ')
 }
 
+/**
+ * Normalizes one line for closest-line similarity scoring.
+ */
 function normalizeForSimilarity(line: string): string {
   return normalizeUnicodePunctuation(line)
     .replace(/[ \t]+/g, ' ')
     .toLowerCase()
 }
 
+/**
+ * Scores the similarity between two normalized lines.
+ */
 function lineSimilarity(line: string, needle: string): number {
   if (line.length === 0 || needle.length === 0) return 0
   if (line === needle) return 1
@@ -272,6 +297,9 @@ function lineSimilarity(line: string, needle: string): number {
   return diceCoefficient(line, needle)
 }
 
+/**
+ * Computes Dice's coefficient over character bigrams.
+ */
 function diceCoefficient(left: string, right: string): number {
   const leftBigrams = bigramCounts(left)
   const rightBigrams = bigramCounts(right)
@@ -285,6 +313,9 @@ function diceCoefficient(left: string, right: string): number {
   return total === 0 ? 0 : (2 * overlap) / total
 }
 
+/**
+ * Counts character bigrams for similarity scoring.
+ */
 function bigramCounts(value: string): Map<string, number> {
   const source = value.length < 2 ? ` ${value} ` : value
   const counts = new Map<string, number>()

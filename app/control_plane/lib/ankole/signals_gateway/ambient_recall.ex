@@ -10,7 +10,7 @@ defmodule Ankole.SignalsGateway.AmbientRecall do
   import Ecto.Query
 
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.SignalEntry
+  alias Ankole.SignalsGateway.Entry
 
   @ambient_recall_max_rows 80
   @ambient_recent_history_rows 10
@@ -53,7 +53,7 @@ defmodule Ankole.SignalsGateway.AmbientRecall do
 
       boundary ->
         boundary
-        |> signal_entries_before_boundary(limit)
+        |> entries_before_boundary(limit)
         |> Enum.map(&observed_message_from_signal_entry(&1, attrs.provider_thread_id))
         |> Enum.reject(&is_nil/1)
     end
@@ -68,10 +68,10 @@ defmodule Ankole.SignalsGateway.AmbientRecall do
         []
 
       boundary ->
-        signal_entries = signal_entries_before_boundary(boundary, @ambient_recall_max_rows)
-        agent_cutoff = latest_agent_sent_at(signal_entries)
+        entries = entries_before_boundary(boundary, @ambient_recall_max_rows)
+        agent_cutoff = latest_agent_sent_at(entries)
 
-        signal_entries
+        entries
         |> Enum.filter(&(signal_entry_role(&1) != "agent"))
         |> Enum.filter(&after_cutoff?(&1, agent_cutoff))
         |> Enum.map(&observed_message_from_signal_entry(&1, attrs.provider_thread_id))
@@ -112,7 +112,7 @@ defmodule Ankole.SignalsGateway.AmbientRecall do
   end
 
   defp recall_signal_observed_messages(attrs, boundary) do
-    SignalEntry
+    Entry
     |> where([entry], entry.signal_channel_id == ^boundary.signal_channel_id)
     |> where(
       [entry],
@@ -147,8 +147,8 @@ defmodule Ankole.SignalsGateway.AmbientRecall do
     end)
   end
 
-  defp signal_entries_before_boundary(boundary, limit) do
-    SignalEntry
+  defp entries_before_boundary(boundary, limit) do
+    Entry
     |> where([entry], entry.signal_channel_id == ^boundary.signal_channel_id)
     |> where(
       [entry],
@@ -172,7 +172,7 @@ defmodule Ankole.SignalsGateway.AmbientRecall do
 
   defp same_provider_thread?(_entry, nil), do: true
 
-  defp same_provider_thread?(%SignalEntry{} = entry, provider_thread_id) do
+  defp same_provider_thread?(%Entry{} = entry, provider_thread_id) do
     case signal_entry_provider_thread_id(entry) do
       nil -> true
       ^provider_thread_id -> true
@@ -208,7 +208,7 @@ defmodule Ankole.SignalsGateway.AmbientRecall do
 
   defp observed_message_from_entry(_entry), do: nil
 
-  defp observed_message_from_signal_entry(%SignalEntry{} = entry, provider_thread_id) do
+  defp observed_message_from_signal_entry(%Entry{} = entry, provider_thread_id) do
     text = entry.text || entry.fallback_visible_text
 
     case text do
@@ -258,7 +258,7 @@ defmodule Ankole.SignalsGateway.AmbientRecall do
     end
   end
 
-  defp signal_entry_role(%SignalEntry{author: author}) when is_map(author) do
+  defp signal_entry_role(%Entry{author: author}) when is_map(author) do
     case optional_text(author, :agent_uid) do
       nil -> "ambient_human"
       _agent_uid -> "agent"
@@ -272,7 +272,7 @@ defmodule Ankole.SignalsGateway.AmbientRecall do
     |> Enum.filter(&(signal_entry_role(&1) == "agent"))
     |> List.last()
     |> case do
-      %SignalEntry{} = entry -> signal_entry_sent_at(entry)
+      %Entry{} = entry -> signal_entry_sent_at(entry)
       nil -> nil
     end
   end
@@ -283,13 +283,13 @@ defmodule Ankole.SignalsGateway.AmbientRecall do
     DateTime.compare(signal_entry_sent_at(entry), cutoff) == :gt
   end
 
-  defp signal_entry_sent_at(%SignalEntry{provider_time: %DateTime{} = sent_at}), do: sent_at
-  defp signal_entry_sent_at(%SignalEntry{last_seen_at: %DateTime{} = sent_at}), do: sent_at
-  defp signal_entry_sent_at(%SignalEntry{inserted_at: %DateTime{} = sent_at}), do: sent_at
-  defp signal_entry_sent_at(%SignalEntry{first_seen_at: %DateTime{} = sent_at}), do: sent_at
+  defp signal_entry_sent_at(%Entry{provider_time: %DateTime{} = sent_at}), do: sent_at
+  defp signal_entry_sent_at(%Entry{last_seen_at: %DateTime{} = sent_at}), do: sent_at
+  defp signal_entry_sent_at(%Entry{inserted_at: %DateTime{} = sent_at}), do: sent_at
+  defp signal_entry_sent_at(%Entry{first_seen_at: %DateTime{} = sent_at}), do: sent_at
   defp signal_entry_sent_at(_entry), do: DateTime.utc_now(:microsecond)
 
-  defp signal_entry_provider_thread_id(%SignalEntry{} = entry) do
+  defp signal_entry_provider_thread_id(%Entry{} = entry) do
     optional_text(entry.metadata || %{}, :provider_thread_id) ||
       optional_text(entry.raw_payload || %{}, :provider_thread_id)
   end

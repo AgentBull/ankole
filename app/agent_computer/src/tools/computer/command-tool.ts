@@ -171,6 +171,9 @@ export function createCommandTool(context: ComputerToolContext): AgentTool<typeo
   }
 }
 
+/**
+ * Formats foreground command output with exit code, duration, and timeout hints.
+ */
 function formatForegroundCommandResult(input: {
   command: string
   durationMs: number
@@ -190,17 +193,26 @@ function formatForegroundCommandResult(input: {
   return lines.join('\n')
 }
 
+/**
+ * Formats command duration for model-visible output.
+ */
 function formatDuration(durationMs: number): string {
   if (durationMs < 1000) return `${durationMs}ms`
   return `${(durationMs / 1000).toFixed(1)}s`
 }
 
+/**
+ * Detects the common `timeout` exit-code path for foreground commands.
+ */
 function isLikelyForegroundTimeout(exitCode: number, durationMs: number, timeoutSeconds: number): boolean {
   if (exitCode !== 124) return false
   const timeoutMs = timeoutSeconds * 1000
   return durationMs >= Math.max(0, timeoutMs - 1000)
 }
 
+/**
+ * Adds known non-error meanings for common command exit code 1 cases.
+ */
 function exitCodeNote(command: string, exitCode: number): string | undefined {
   const name = lastCommandName(command)
   if (!name) return undefined
@@ -216,6 +228,9 @@ function exitCodeNote(command: string, exitCode: number): string | undefined {
   return undefined
 }
 
+/**
+ * Extracts the last command name from a simple shell command string.
+ */
 function lastCommandName(command: string): string | undefined {
   const segments = command.split(/\|\||&&|;|\|/g)
   const segment = segments.at(-1)?.trim()
@@ -224,6 +239,9 @@ function lastCommandName(command: string): string | undefined {
   return token?.replace(/^.*\//, '')
 }
 
+/**
+ * Formats a background command snapshot for status/list/kill responses.
+ */
 async function backgroundResult(
   snapshot: BackgroundCommandSnapshot,
   options: { incremental?: boolean } = {}

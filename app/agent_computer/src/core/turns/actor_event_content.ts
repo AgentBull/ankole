@@ -1,6 +1,6 @@
 import { readFile, stat } from 'node:fs/promises'
 import { normalize, resolve } from 'node:path'
-import type { JsonObject, TurnModelRef } from '../../actor_lane'
+import type { JsonObject, TurnModelRef } from '../../lanes/actor_lane'
 import type { ContentPart, ImageContent, ModelConfig } from '../llm'
 import {
   describeImagesWithFallback,
@@ -13,6 +13,13 @@ import {
 import { arrayPath, firstString, isRecord } from '../../common/json-utils'
 import { actorEventText } from './actor_event_text'
 
+/**
+ * Builds the model-facing user content for one actor event.
+ *
+ * Text is always present. Image attachments are passed through when the selected
+ * model supports images; otherwise the worker tries a vision fallback summary so
+ * text-only models still receive useful context.
+ */
 export async function actorEventUserContent(
   payload: JsonObject | undefined,
   fallbackType: string,
@@ -38,6 +45,13 @@ export async function actorEventUserContent(
   return `${baseText}\n\n${responseImageUnavailableText()}`
 }
 
+/**
+ * Loads image attachments that have already been materialized into the worker
+ * workspace.
+ *
+ * Provider references without an agent-computer path are ignored here because
+ * the worker cannot fetch provider-owned blobs directly.
+ */
 async function actorEventImageParts(payload: JsonObject | undefined, workspaceRoot: string): Promise<ImageContent[]> {
   const attachments = arrayPath(payload, ['data', 'entry', 'attachments'])
   const paths = attachments.flatMap(visionEligibleAttachmentPath).slice(0, VISION_MAX_IMAGES_PER_TURN)
@@ -51,6 +65,9 @@ async function actorEventImageParts(payload: JsonObject | undefined, workspaceRo
   return parts
 }
 
+/**
+ * Returns a workspace path only for image-like attachment metadata.
+ */
 function visionEligibleAttachmentPath(value: unknown): string[] {
   if (!isRecord(value)) return []
   if (firstString(value, ['resource_type']) !== 'image') return []
@@ -59,6 +76,12 @@ function visionEligibleAttachmentPath(value: unknown): string[] {
   return path ? [path] : []
 }
 
+/**
+ * Reads one workspace image as a Responses image content part.
+ *
+ * Missing or invalid files are ignored because attachment text still describes
+ * the file; a single bad attachment should not drop the whole actor event.
+ */
 async function imagePartFromWorkspacePath(path: string, workspaceRoot: string): Promise<ImageContent | undefined> {
   let filePath: string
   try {
@@ -78,6 +101,10 @@ async function imagePartFromWorkspacePath(path: string, workspaceRoot: string): 
   }
 }
 
+/**
+ * Resolves a `/workspace/...` or relative attachment path under the session
+ * workspace root.
+ */
 function workspaceFilePath(path: string, workspaceRoot: string): string {
   const root = resolve(workspaceRoot)
   const normalized = normalize(path)
@@ -94,6 +121,9 @@ function workspaceFilePath(path: string, workspaceRoot: string): string {
   return resolved
 }
 
+/**
+ * Summarizes images through a fallback model when the main model is text-only.
+ */
 async function fallbackSummary(
   fallbackModel: ModelConfig | undefined,
   images: ImageContent[],

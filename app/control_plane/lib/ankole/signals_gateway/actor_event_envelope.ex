@@ -3,8 +3,8 @@ defmodule Ankole.SignalsGateway.ActorEventEnvelope do
 
   alias Ankole.Actors
   alias Ankole.SignalsGateway.AmbientRecall
-  alias Ankole.SignalsGateway.SignalChannel
-  alias Ankole.SignalsGateway.SignalEntry
+  alias Ankole.SignalsGateway.Channel
+  alias Ankole.SignalsGateway.Entry
 
   import Ankole.SignalsGateway.Utils,
     only: [
@@ -149,7 +149,7 @@ defmodule Ankole.SignalsGateway.ActorEventEnvelope do
 
   defp channel_payload(nil), do: nil
 
-  defp channel_payload(%SignalChannel{} = channel) do
+  defp channel_payload(%Channel{} = channel) do
     %{
       "id" => channel.id,
       "kind" => Atom.to_string(channel.kind),
@@ -174,7 +174,7 @@ defmodule Ankole.SignalsGateway.ActorEventEnvelope do
 
   defp lifecycle_payload(_fact), do: nil
 
-  defp entry_payload(%SignalEntry{} = entry, fact) do
+  defp entry_payload(%Entry{} = entry, fact) do
     %{
       "signal_channel_id" => entry.signal_channel_id,
       "source_entry_id" => entry.source_entry_id,
@@ -213,7 +213,7 @@ defmodule Ankole.SignalsGateway.ActorEventEnvelope do
     do: "signal_actions:#{action_id}"
 
   defp envelope_subject(%{source_entry_id: source_entry_id})
-       when is_binary(source_entry_id), do: "signal_entries:#{source_entry_id}"
+       when is_binary(source_entry_id), do: "signal_gateway_entries:#{source_entry_id}"
 
   defp envelope_subject(_fact), do: nil
 end

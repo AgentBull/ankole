@@ -386,7 +386,7 @@ second coordination layer. If Ankole later runs multiple recovery scanners, add
 an explicit resend mutex as part of that multi-instance deployment design.
 
 The e2e assertion for a normal streamed reply is the terminal
-`ai_gateway_messages` row plus the `signal_entries.ai_message_id` final mirror.
+`ai_gateway_messages` row plus the `signal_gateway_entries.ai_message_id` final mirror.
 It is not an outbox row; only explicit side effects assert the outbox.
 
 See `docs/design-docs/SignalsGateway.md` for the detailed ingress/outbox model.

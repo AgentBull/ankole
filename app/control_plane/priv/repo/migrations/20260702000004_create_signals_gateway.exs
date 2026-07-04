@@ -3,7 +3,7 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
   # and durable provider-visible outbox intents.
   #
   # Durable actor_events are never consumed away; queue_sequence orders each actor session;
-  # signal_entries.ai_message_id and outbox provenance columns connect provider mirrors to AI output.
+  # signal_gateway_entries.ai_message_id and outbox provenance columns connect provider mirrors to AI output.
   #
   # Identity layers:
   #   source_event_id: provider event idempotency key
@@ -69,7 +69,7 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
     )
 
     # Bindings are the per-agent bridge between provider adapters and runtime policy.
-    create table(:signal_bindings, primary_key: false) do
+    create table(:signal_gateway_bindings, primary_key: false) do
       add :agent_uid,
           references(:principals, column: :uid, type: :text, on_delete: :delete_all),
           primary_key: true
@@ -90,30 +90,30 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
       timestamps(type: :utc_datetime_usec)
     end
 
-    create index(:signal_bindings, [:adapter])
+    create index(:signal_gateway_bindings, [:adapter])
 
-    create constraint(:signal_bindings, :signal_bindings_name_present,
+    create constraint(:signal_gateway_bindings, :signal_gateway_bindings_name_present,
              check: "length(btrim(name)) > 0"
            )
 
-    create constraint(:signal_bindings, :signal_bindings_adapter_present,
+    create constraint(:signal_gateway_bindings, :signal_gateway_bindings_adapter_present,
              check: "length(btrim(adapter)) > 0"
            )
 
-    create constraint(:signal_bindings, :signal_bindings_config_ref_present,
+    create constraint(:signal_gateway_bindings, :signal_gateway_bindings_config_ref_present,
              check: "length(btrim(config_ref)) > 0"
            )
 
-    create constraint(:signal_bindings, :signal_bindings_filters_object,
+    create constraint(:signal_gateway_bindings, :signal_gateway_bindings_filters_object,
              check: "jsonb_typeof(filters) = 'object'"
            )
 
     comment_table(
-      :signal_bindings,
+      :signal_gateway_bindings,
       "Per-agent SignalsGateway bindings to external input and output adapters."
     )
 
-    comment_columns(:signal_bindings, %{
+    comment_columns(:signal_gateway_bindings, %{
       agent_uid: "Agent principal that owns the binding.",
       name: "Agent-local binding name used in actor event and outbox keys.",
       adapter: "SignalsGateway adapter that knows how to read and write the provider.",
@@ -126,7 +126,7 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
     })
 
     # Channels are provider locations observed by ingress or outbound recovery.
-    create table(:signal_channels, primary_key: false) do
+    create table(:signal_gateway_channels, primary_key: false) do
       add :id, :text, primary_key: true
       add :kind, :signal_channel_kind, null: false, default: "unknown"
       add :reply_mode, :signal_reply_mode, null: false, default: "none"
@@ -141,21 +141,21 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
       timestamps(type: :utc_datetime_usec)
     end
 
-    create constraint(:signal_channels, :signal_channels_id_present,
+    create constraint(:signal_gateway_channels, :signal_gateway_channels_id_present,
              check: "length(btrim(id)) > 0"
            )
 
-    create constraint(:signal_channels, :signal_channels_metadata_object,
+    create constraint(:signal_gateway_channels, :signal_gateway_channels_metadata_object,
              check: "jsonb_typeof(metadata) = 'object'"
            )
 
-    create constraint(:signal_channels, :signal_channels_raw_payload_object,
+    create constraint(:signal_gateway_channels, :signal_gateway_channels_raw_payload_object,
              check: "jsonb_typeof(raw_payload) = 'object'"
            )
 
-    comment_table(:signal_channels, "Provider channels observed by SignalsGateway.")
+    comment_table(:signal_gateway_channels, "Provider channels observed by SignalsGateway.")
 
-    comment_columns(:signal_channels, %{
+    comment_columns(:signal_gateway_channels, %{
       id: "Stable Ankole channel id derived from provider channel identity.",
       kind: "Channel category used for policy and rendering.",
       reply_mode: "Whether replies target the whole channel or a specific entry.",
@@ -168,12 +168,12 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
       last_seen_at: "Time this channel was most recently observed by the gateway."
     })
 
-    # signal_entries is the provider source mirror. ai_message_id is set only after an
+    # signal_gateway_entries is the provider source mirror. ai_message_id is set only after an
     # outbound final AI reply is sent, so recovery can distinguish mirrored terminal
     # messages from terminal messages that still need provider reconciliation.
-    create table(:signal_entries, primary_key: false) do
+    create table(:signal_gateway_entries, primary_key: false) do
       add :signal_channel_id,
-          references(:signal_channels, column: :id, type: :text, on_delete: :delete_all),
+          references(:signal_gateway_channels, column: :id, type: :text, on_delete: :delete_all),
           primary_key: true
 
       add :source_entry_id, :text, primary_key: true
@@ -201,28 +201,28 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
       timestamps(type: :utc_datetime_usec)
     end
 
-    create index(:signal_entries, [:document_id])
-    create index(:signal_entries, [:last_seen_at])
+    create index(:signal_gateway_entries, [:document_id])
+    create index(:signal_gateway_entries, [:last_seen_at])
     # Recovery scans use ai_message_id to prove a final reply already has a provider mirror.
-    create index(:signal_entries, [:ai_message_id],
-             name: :signal_entries_ai_message_id_index,
+    create index(:signal_gateway_entries, [:ai_message_id],
+             name: :signal_gateway_entries_ai_message_id_index,
              where: "ai_message_id IS NOT NULL"
            )
 
-    create constraint(:signal_entries, :signal_entries_source_entry_id_present,
+    create constraint(:signal_gateway_entries, :signal_gateway_entries_source_entry_id_present,
              check: "length(btrim(source_entry_id)) > 0"
            )
 
-    create constraint(:signal_entries, :signal_entries_document_id_present,
+    create constraint(:signal_gateway_entries, :signal_gateway_entries_document_id_present,
              check: "length(btrim(document_id)) > 0"
            )
 
     comment_table(
-      :signal_entries,
+      :signal_gateway_entries,
       "Provider entries mirrored for gateway policy, recall, and reply targeting."
     )
 
-    comment_columns(:signal_entries, %{
+    comment_columns(:signal_gateway_entries, %{
       signal_channel_id: "Channel that contains this provider entry.",
       source_entry_id: "Provider supplied entry or message identifier within the channel.",
       text: "Plain text extracted from the provider entry when available.",
@@ -256,7 +256,7 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
       add :binding_name, :text, primary_key: true
 
       add :signal_channel_id,
-          references(:signal_channels, column: :id, type: :text, on_delete: :delete_all),
+          references(:signal_gateway_channels, column: :id, type: :text, on_delete: :delete_all),
           primary_key: true
 
       add :source_entry_id, :text, primary_key: true

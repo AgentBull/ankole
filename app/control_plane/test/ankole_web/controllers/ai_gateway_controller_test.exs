@@ -758,6 +758,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     conn =
       conn
       |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> put_req_header("accept", "text/event-stream")
       |> put_req_header("content-type", "application/json")
       |> post(~p"/api/v1/ai-gateway/responses", %{
         "model" => "primary",
@@ -808,7 +809,6 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
           {"conversation",
            %{"model" => "primary", "input" => "hello", "conversation" => "conv_old"}},
           {"store", %{"model" => "primary", "input" => "hello", "store" => true}},
-          {"store", %{"model" => "primary", "input" => "hello", "store" => false}},
           {"previous_response_id",
            %{
              "model" => "primary",

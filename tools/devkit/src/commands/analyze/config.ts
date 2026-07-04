@@ -212,6 +212,9 @@ export const DUP_INTENTIONALLY_UNSCANNED = [
   'app/kernel/test/',
   'libs/feishu_openapi/test/',
   'libs/uikit/src/stories/',
+  // Repo-root e2e support modules compile only in MIX_ENV=test, so they stay
+  // with test harness code instead of the cross-module production scan.
+  'tools/e2e/',
   'internals/',
   'knip.config.ts'
 ] as const

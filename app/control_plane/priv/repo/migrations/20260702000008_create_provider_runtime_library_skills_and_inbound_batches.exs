@@ -310,7 +310,7 @@ defmodule Ankole.Repo.Migrations.CreateProviderRuntimeLibrarySkillsAndInboundBat
       add :session_id, :text, null: false
 
       add :signal_channel_id,
-          references(:signal_channels, column: :id, type: :text, on_delete: :delete_all),
+          references(:signal_gateway_channels, column: :id, type: :text, on_delete: :delete_all),
           null: false
 
       add :provider_thread_id, :text, null: false, default: ""

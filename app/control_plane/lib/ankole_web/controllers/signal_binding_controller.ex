@@ -7,7 +7,7 @@ defmodule AnkoleWeb.SignalBindingController do
   use OpenApiSpex.ControllerSpecs
 
   alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.SignalBinding
+  alias Ankole.SignalsGateway.Binding
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.ConsoleApi.ErrorEnvelope
   alias AnkoleWeb.Schemas.ConsoleApi.SignalBindingListResponse
@@ -66,7 +66,8 @@ defmodule AnkoleWeb.SignalBindingController do
 
   def index(conn, params) do
     with {:ok, agent_uid} <- text_param(params, "agent_uid"),
-         :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_bindings", "read"),
+         :ok <-
+           ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_gateway_bindings", "read"),
          {:ok, bindings} <- SignalsGateway.list_agent_bindings(agent_uid) do
       json(conn, %{data: Enum.map(bindings, &signal_binding_json/1)})
     else
@@ -77,7 +78,8 @@ defmodule AnkoleWeb.SignalBindingController do
   def put_lark(conn, params) do
     with {:ok, agent_uid} <- text_param(params, "agent_uid"),
          {:ok, binding_name} <- text_param(params, "binding_name"),
-         :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_bindings", "update"),
+         :ok <-
+           ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_gateway_bindings", "update"),
          {:ok, config} <- lark_config(conn.body_params),
          {:ok, result} <- SignalsGateway.put_lark_binding(agent_uid, binding_name, config) do
       json(conn, %{data: signal_binding_json(result)})
@@ -89,7 +91,8 @@ defmodule AnkoleWeb.SignalBindingController do
   def delete(conn, params) do
     with {:ok, agent_uid} <- text_param(params, "agent_uid"),
          {:ok, binding_name} <- text_param(params, "binding_name"),
-         :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_bindings", "delete"),
+         :ok <-
+           ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_gateway_bindings", "delete"),
          {:ok, binding} <- SignalsGateway.disable_binding(agent_uid, binding_name) do
       json(conn, %{data: signal_binding_json(binding)})
     else
@@ -101,7 +104,7 @@ defmodule AnkoleWeb.SignalBindingController do
   defp lark_config(%{config: config}) when is_map(config), do: {:ok, config}
   defp lark_config(_params), do: {:error, :missing_config}
 
-  defp signal_binding_json(%{binding: %SignalBinding{} = binding, config_key: config_key}) do
+  defp signal_binding_json(%{binding: %Binding{} = binding, config_key: config_key}) do
     %{
       agent_uid: binding.agent_uid,
       name: binding.name,
@@ -114,7 +117,7 @@ defmodule AnkoleWeb.SignalBindingController do
     }
   end
 
-  defp signal_binding_json(%SignalBinding{} = binding) do
+  defp signal_binding_json(%Binding{} = binding) do
     %{
       agent_uid: binding.agent_uid,
       name: binding.name,

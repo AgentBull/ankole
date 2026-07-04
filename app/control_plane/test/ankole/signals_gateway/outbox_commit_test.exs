@@ -5,7 +5,7 @@ defmodule Ankole.SignalsGatewayOutboxCommitTest do
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.OutboxEntry
-  alias Ankole.SignalsGateway.SignalEntry
+  alias Ankole.SignalsGateway.Entry
   alias Ankole.SignalsGatewayFixtures.ModuleOutboxAdapter
 
   import Ankole.ActorRuntimeCase, only: [complete_actor_event: 4]
@@ -175,7 +175,7 @@ defmodule Ankole.SignalsGatewayOutboxCommitTest do
 
       assert unsupported.status == :unsupported
 
-      refute Repo.get_by(SignalEntry,
+      refute Repo.get_by(Entry,
                signal_channel_id: "webhook:incident-1",
                source_entry_id: "reply-1"
              )
@@ -253,7 +253,7 @@ defmodule Ankole.SignalsGatewayOutboxCommitTest do
 
       assert succeeded.status == :succeeded
 
-      assert Repo.get_by!(SignalEntry,
+      assert Repo.get_by!(Entry,
                signal_channel_id: "lark:chat:group-a",
                source_entry_id: "module-adapter-msg"
              ).text == "from module"
@@ -311,7 +311,7 @@ defmodule Ankole.SignalsGatewayOutboxCommitTest do
       assert payload["nested"]["password"] == "[REDACTED]"
       assert String.ends_with?(payload["body"], "...[truncated]")
 
-      refute Repo.get_by(SignalEntry,
+      refute Repo.get_by(Entry,
                signal_channel_id: "lark:chat:group-a",
                source_entry_id: "invalid-adapter-result"
              )

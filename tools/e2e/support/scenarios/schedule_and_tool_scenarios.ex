@@ -21,7 +21,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
   alias Ankole.E2E.FakeFeishu
   alias Ankole.Repo
   alias Ankole.Schedule
-  alias Ankole.SignalsGateway.SignalEntry
+  alias Ankole.SignalsGateway.Entry
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
 
@@ -196,8 +196,8 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     input = actor_event_by_source_entry_id!(agent.uid, "om_file_1")
     assert input.type == "im.message.addressed"
 
-    assert %SignalEntry{text: nil, attachments: [attachment]} =
-             Repo.get_by!(SignalEntry,
+    assert %Entry{text: nil, attachments: [attachment]} =
+             Repo.get_by!(Entry,
                signal_channel_id: "lark:oc_chaos_file",
                source_entry_id: "om_file_1"
              )

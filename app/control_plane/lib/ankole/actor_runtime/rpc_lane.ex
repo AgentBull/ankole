@@ -9,6 +9,7 @@ defmodule Ankole.ActorRuntime.RPCLane do
   alias Ankole.ActorRuntime.AgentConversationContextBroker
   alias Ankole.ActorRuntime.AIGatewayApiKeyBroker
   alias Ankole.ActorRuntime.AppConfigureBroker
+  alias Ankole.ActorRuntime.CodexDelegationBroker
   alias Ankole.ActorRuntime.SkillOverlayBroker
   alias Ankole.ActorRuntime.WorkerRouteAuth
   alias Ankole.Schedule.RPCBroker
@@ -18,6 +19,9 @@ defmodule Ankole.ActorRuntime.RPCLane do
       {AIGatewayApiKeyBroker, :handle_request, []},
     "agent_conversation.context.resolve" => {AgentConversationContextBroker, :handle_request, []},
     "app_configure.resolve" => {AppConfigureBroker, :handle_request, []},
+    "codex.delegation.create" => {CodexDelegationBroker, :handle_create, []},
+    "codex.delegation.event.append" => {CodexDelegationBroker, :handle_append_event, []},
+    "codex.delegation.status.update" => {CodexDelegationBroker, :handle_update_status, []},
     "schedule.check_back_later.create" =>
       {RPCBroker, :handle_request,
        ["check_back_later.create", &WorkerRouteAuth.authorize_turn_route/3]},

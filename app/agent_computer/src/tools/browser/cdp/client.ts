@@ -1,0 +1,212 @@
+import type { JsonObject } from './types'
+
+/**
+ * Minimal Chrome DevTools Protocol client over one WebSocket.
+ *
+ * The worker uses only a small CDP subset, so keeping this local avoids pulling
+ * in a full browser automation framework while still preserving request ids,
+ * session ids, events, and command timeouts.
+ */
+export class CdpClient {
+  private nextId = 1
+  readonly closed: Promise<void>
+  private resolveClosed!: () => void
+  private eventListeners = new Map<string, Set<(params: JsonObject) => void>>()
+  private pending = new Map<
+    number,
+    {
+      resolve: (value: unknown) => void
+      reject: (reason: Error) => void
+      timeout: ReturnType<typeof setTimeout>
+    }
+  >()
+
+  private constructor(private readonly socket: WebSocket) {
+    this.closed = new Promise(resolve => {
+      this.resolveClosed = resolve
+    })
+    socket.addEventListener('message', event => {
+      try {
+        this.handleMessage(event.data)
+      } catch (error) {
+        debugCdp(`message handler failed: ${error instanceof Error ? error.stack || error.message : String(error)}`)
+      }
+    })
+    socket.addEventListener('close', event => {
+      debugCdp(`socket closed code=${event.code} reason=${event.reason || ''}`)
+      this.rejectAll(new Error('CDP socket closed'))
+      this.resolveClosed()
+    })
+    socket.addEventListener('error', () => {
+      debugCdp('socket error')
+      this.rejectAll(new Error('CDP socket error'))
+    })
+  }
+
+  /**
+   * Connects to a CDP WebSocket and resolves only after the socket is open.
+   */
+  static connect(url: string, opts: { headers?: Record<string, string>; timeoutMs?: number } = {}): Promise<CdpClient> {
+    return new Promise((resolveConnect, rejectConnect) => {
+      const socket = opts.headers ? new WebSocket(url, { headers: opts.headers } as never) : new WebSocket(url)
+      const timeout = setTimeout(() => {
+        socket.close()
+        rejectConnect(new Error('Timed out connecting to browser CDP'))
+      }, opts.timeoutMs ?? 5_000)
+
+      socket.addEventListener(
+        'open',
+        () => {
+          clearTimeout(timeout)
+          resolveConnect(new CdpClient(socket))
+        },
+        { once: true }
+      )
+      socket.addEventListener(
+        'error',
+        () => {
+          clearTimeout(timeout)
+          rejectConnect(new Error('Failed to connect to browser CDP'))
+        },
+        { once: true }
+      )
+    })
+  }
+
+  /**
+   * Sends one CDP command and waits for the matching response id.
+   */
+  send<T>(method: string, params: JsonObject = {}, sessionId?: string, timeoutMs = 15_000): Promise<T> {
+    if (this.socket.readyState !== WebSocket.OPEN) throw new Error('CDP socket is not open')
+
+    const id = this.nextId++
+    const message: JsonObject = { id, method, params }
+    if (sessionId) message['sessionId'] = sessionId
+    debugCdp(`send id=${id} method=${method} session=${sessionId ?? '-'}`)
+
+    const promise = new Promise<T>((resolveSend, rejectSend) => {
+      const timeout = setTimeout(() => {
+        this.pending.delete(id)
+        rejectSend(new Error(`CDP command timed out: ${method}`))
+      }, timeoutMs)
+      this.pending.set(id, {
+        resolve: value => resolveSend(value as T),
+        reject: rejectSend,
+        timeout
+      })
+    })
+
+    this.socket.send(JSON.stringify(message))
+    return promise
+  }
+
+  /**
+   * Closes the underlying WebSocket if it is still open or connecting.
+   */
+  close(): void {
+    if (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING) {
+      this.socket.close()
+    }
+  }
+
+  /**
+   * Reports whether the WebSocket is currently open.
+   */
+  isOpen(): boolean {
+    return this.socket.readyState === WebSocket.OPEN
+  }
+
+  /**
+   * Subscribes to CDP events, optionally scoped to an attached target session.
+   */
+  on(method: string, sessionId: string | undefined, listener: (params: JsonObject) => void): () => void {
+    const key = eventListenerKey(method, sessionId)
+    let listeners = this.eventListeners.get(key)
+    if (!listeners) {
+      listeners = new Set()
+      this.eventListeners.set(key, listeners)
+    }
+    listeners.add(listener)
+    return () => {
+      const current = this.eventListeners.get(key)
+      if (!current) return
+      current.delete(listener)
+      if (current.size === 0) this.eventListeners.delete(key)
+    }
+  }
+
+  /**
+   * Routes an incoming CDP message to either a pending command or event
+   * listeners.
+   */
+  private handleMessage(data: unknown): void {
+    const text = typeof data === 'string' ? data : Buffer.from(data as ArrayBuffer).toString('utf8')
+    const message = JSON.parse(text) as {
+      id?: number
+      method?: string
+      params?: JsonObject
+      sessionId?: string
+      result?: unknown
+      error?: { message?: string; data?: string }
+    }
+    if (message.id === undefined) {
+      if (message.method) this.emitEvent(message.method, message.sessionId, message.params ?? {})
+      return
+    }
+
+    const pending = this.pending.get(message.id)
+    if (!pending) return
+    this.pending.delete(message.id)
+    clearTimeout(pending.timeout)
+
+    if (message.error) {
+      pending.reject(new Error([message.error.message, message.error.data].filter(Boolean).join(': ')))
+    } else {
+      debugCdp(`recv id=${message.id}`)
+      pending.resolve(message.result)
+    }
+  }
+
+  /**
+   * Rejects all pending commands after the socket closes or errors.
+   */
+  private rejectAll(error: Error): void {
+    for (const [id, pending] of this.pending) {
+      clearTimeout(pending.timeout)
+      pending.reject(error)
+      this.pending.delete(id)
+    }
+  }
+
+  /**
+   * Emits an event to both session-specific listeners and wildcard listeners.
+   */
+  private emitEvent(method: string, sessionId: string | undefined, params: JsonObject): void {
+    for (const key of [eventListenerKey(method, sessionId), eventListenerKey(method, undefined)]) {
+      const listeners = this.eventListeners.get(key)
+      if (!listeners) continue
+      for (const listener of listeners) {
+        try {
+          listener(params)
+        } catch {
+          // Event listeners update local CDP bookkeeping only.
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Builds the listener map key for a CDP event and optional target session.
+ */
+function eventListenerKey(method: string, sessionId: string | undefined): string {
+  return `${sessionId ?? '*'}:${method}`
+}
+
+/**
+ * Writes CDP debug logs only when explicitly enabled.
+ */
+function debugCdp(message: string): void {
+  if (process.env.ANKOLE_BROWSER_CDP_DEBUG !== '1') return
+  process.stderr.write(`[browser-cdp] ${message}\n`)
+}

@@ -6,7 +6,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.OutboxEntry
-  alias Ankole.SignalsGateway.SignalEntry
+  alias Ankole.SignalsGateway.Entry
 
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsGatewayFixtures
@@ -45,7 +45,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
       assert failed.status == :failed
       assert %DateTime{} = failed.next_attempt_at
 
-      refute Repo.get_by(SignalEntry,
+      refute Repo.get_by(Entry,
                signal_channel_id: "lark:chat:group-a",
                source_entry_id: "post-failed"
              )
@@ -74,7 +74,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
 
       assert succeeded.status == :succeeded
 
-      assert Repo.get_by!(SignalEntry,
+      assert Repo.get_by!(Entry,
                signal_channel_id: "lark:chat:group-a",
                source_entry_id: "bot-msg-1"
              ).text ==
@@ -183,7 +183,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
       assert succeeded.payload == materialized_payload
 
       assert Repo.get_by!(
-               SignalEntry,
+               Entry,
                signal_channel_id: "lark:chat:group-a",
                source_entry_id: "bot-file-msg-1"
              ).attachments == materialized_payload["attachments"]
@@ -220,7 +220,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
       assert succeeded.status == :succeeded
       assert is_nil(succeeded.created_source_entry_id)
 
-      refute Repo.get_by(SignalEntry,
+      refute Repo.get_by(Entry,
                signal_channel_id: "lark:chat:group-a",
                source_entry_id: "local-outbox:post-without-provider-id"
              )
@@ -280,7 +280,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
                outbound_key: "post-mirror-fails-after-send"
              ).status == :succeeded
 
-      refute Repo.get_by(SignalEntry,
+      refute Repo.get_by(Entry,
                signal_channel_id: "lark:chat:group-a",
                source_entry_id: "mirror-fails-after-send"
              )
@@ -314,7 +314,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
 
       assert reply.status == :succeeded
 
-      assert Repo.get_by!(SignalEntry,
+      assert Repo.get_by!(Entry,
                signal_channel_id: "lark:chat:group-a",
                source_entry_id: "reply-msg"
              ).text == "reply visible"
@@ -336,7 +336,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
 
       assert edited.status == :succeeded
 
-      assert Repo.get_by!(SignalEntry,
+      assert Repo.get_by!(Entry,
                signal_channel_id: "lark:chat:group-a",
                source_entry_id: "reply-msg"
              ).text == "edited visible"
@@ -358,7 +358,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
 
       assert reaction_add.status == :succeeded
 
-      assert Repo.get_by!(SignalEntry,
+      assert Repo.get_by!(Entry,
                signal_channel_id: "lark:chat:group-a",
                source_entry_id: "reply-msg"
              ).reactions == %{"thumbsup" => ["agent"]}
@@ -380,7 +380,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
 
       assert reaction_remove.status == :succeeded
 
-      assert Repo.get_by!(SignalEntry,
+      assert Repo.get_by!(Entry,
                signal_channel_id: "lark:chat:group-a",
                source_entry_id: "reply-msg"
              ).reactions == %{}
@@ -401,7 +401,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
 
       assert divider.status == :succeeded
 
-      assert Repo.get_by!(SignalEntry,
+      assert Repo.get_by!(Entry,
                signal_channel_id: "lark:chat:group-a",
                source_entry_id: "divider-msg"
              ).text == "---"
@@ -422,7 +422,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
 
       assert card.status == :succeeded
 
-      assert Repo.get_by!(SignalEntry,
+      assert Repo.get_by!(Entry,
                signal_channel_id: "lark:chat:group-a",
                source_entry_id: "card-msg"
              ).text == "card fallback"
@@ -443,7 +443,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
 
       assert deleted.status == :succeeded
 
-      refute Repo.get_by(SignalEntry,
+      refute Repo.get_by(Entry,
                signal_channel_id: "lark:chat:group-a",
                source_entry_id: "reply-msg"
              )

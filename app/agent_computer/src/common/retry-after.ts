@@ -82,7 +82,6 @@ function retryAfterMsFromUnknown(value: unknown, seen: WeakSet<object>): number 
  * differently, so the plain-object path tries the exact, lower, and upper forms
  * before falling back to a full case-insensitive scan.
  */
-
 function headerValue(headers: unknown, key: string): string | undefined {
   if (!headers) return undefined
   if (typeof Headers !== 'undefined' && headers instanceof Headers) return headers.get(key) ?? undefined
@@ -100,6 +99,9 @@ function headerValue(headers: unknown, key: string): string | undefined {
   }
 }
 
+/**
+ * Finds a plain-object header by case-insensitive name.
+ */
 function findCaseInsensitive(record: Record<string, unknown>, key: string): unknown {
   const lowerKey = key.toLowerCase()
   const entry = Object.entries(record).find(([candidate]) => candidate.toLowerCase() === lowerKey)

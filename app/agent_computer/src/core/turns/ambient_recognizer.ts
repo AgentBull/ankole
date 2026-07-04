@@ -1,9 +1,9 @@
-import type { TurnStart } from '../../actor_lane'
+import type { TurnStart } from '../../lanes/actor_lane'
 import { buildAmbientRecognizerSystemPrompt, buildAmbientRecognizerUserPrompt } from '../../prompts/ambient_prompt'
 import { arrayPath, objectPath, safeJsonStringify, stringArg, isRecord } from '../../common/json-utils'
 import { currentChannelFromTurnStart, actorEventText } from './actor_event_text'
 import { assistantText, callModel, type Message, type ModelConfig, userMessage } from '../llm'
-import type { AgentConversationContext } from '../../rpc_lane'
+import type { AgentConversationContext } from '../../lanes/rpc_lane'
 
 export interface AmbientRecognizerInput {
   turnStart: TurnStart
@@ -17,6 +17,12 @@ export interface AmbientRecognizerResult {
   messages: Message[]
 }
 
+/**
+ * Decides whether an ambient observation should become a visible reply.
+ *
+ * The recognizer is intentionally a separate structured-output call so the main
+ * text turn only runs when there is a clear intervention decision.
+ */
 export async function recognizeAmbientIntervention(
   input: AmbientRecognizerInput,
   opts?: { abortSignal?: AbortSignal }
@@ -76,6 +82,9 @@ const ambientDecisionTextFormat = {
   }
 } as const
 
+/**
+ * Builds the JSON payload inspected by the ambient recognizer model.
+ */
 function ambientDecisionInput(input: AmbientRecognizerInput): Record<string, unknown> {
   const payload = input.turnStart.actor_event.payload_json
   const recentHistory = arrayPath(payload, ['data', 'recent_history'])
@@ -95,6 +104,9 @@ function ambientDecisionInput(input: AmbientRecognizerInput): Record<string, unk
   }
 }
 
+/**
+ * Parses the recognizer's structured JSON decision.
+ */
 function parseAmbientDecision(text: string): { intervene: boolean; reason: string } {
   const parsed = parseJsonObject(text)
   return {
@@ -103,6 +115,10 @@ function parseAmbientDecision(text: string): { intervene: boolean; reason: strin
   }
 }
 
+/**
+ * Recovers a JSON object from model output that may contain extra text despite
+ * the structured-output request.
+ */
 function parseJsonObject(text: string) {
   const trimmed = text.trim()
   if (!trimmed) return {}

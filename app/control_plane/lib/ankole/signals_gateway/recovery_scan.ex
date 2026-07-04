@@ -1,10 +1,10 @@
 defmodule Ankole.SignalsGateway.RecoveryScan do
   @moduledoc """
   Bounded catch-up scan for terminal ai_gateway_messages whose final IM reply
-  was not yet mirrored into signal_entries.
+  was not yet mirrored into signal_gateway_entries.
 
   Runs periodically (every 2 minutes) and at startup. Finds terminal message
-  rows that should be IM-visible but lack a signal_entries mirror, and
+  rows that should be IM-visible but lack a signal_gateway_entries mirror, and
   dispatches a best-effort final IM delivery.
 
   Scan criteria (plan §2.6):
@@ -16,7 +16,7 @@ defmodule Ankole.SignalsGateway.RecoveryScan do
     - content does NOT contain function_call (only chain-tail rows)
     - content contains visible final text
     - actor event has not been superseded by a retry event
-    - no signal_entries with matching ai_message_id exists
+    - no signal_gateway_entries with matching ai_message_id exists
     - updated_at is older than a grace period (60s) to avoid racing with live handlers
   """
 
@@ -29,7 +29,7 @@ defmodule Ankole.SignalsGateway.RecoveryScan do
   alias Ankole.Repo
   alias Ankole.SignalsGateway.AIReplyPreview
   alias Ankole.SignalsGateway.AIReplyText
-  alias Ankole.SignalsGateway.SignalEntry
+  alias Ankole.SignalsGateway.Entry
 
   require Logger
 
@@ -120,9 +120,9 @@ defmodule Ankole.SignalsGateway.RecoveryScan do
     )
     |> where(
       [m],
-      # Exclude rows that already have a signal_entries mirror.
+      # Exclude rows that already have a signal_gateway_entries mirror.
       fragment(
-        "NOT EXISTS (SELECT 1 FROM signal_entries WHERE signal_entries.ai_message_id = ?)",
+        "NOT EXISTS (SELECT 1 FROM signal_gateway_entries WHERE signal_gateway_entries.ai_message_id = ?)",
         m.id
       )
     )
@@ -268,7 +268,7 @@ defmodule Ankole.SignalsGateway.RecoveryScan do
 
   defp final_reply_mirrored?(repo, message_id) do
     repo.exists?(
-      from(entry in SignalEntry,
+      from(entry in Entry,
         where: entry.ai_message_id == ^message_id
       )
     )

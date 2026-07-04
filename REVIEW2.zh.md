@@ -63,7 +63,7 @@
 - **历史与压缩**：recursive CTE 带 cycle guard + 10000 depth cap 真实存在；covers_until 投影不双收；隐式续接确定性 latest visible leaf（SQL anti-join）；自动压缩先于 run row 创建、summarizer（外部 HTTP）在 DB 事务外、light→primary 退避、失败不写半截、truncation=auto 记 dropped_opaque_messages；max_tool_calls 按 raw complete chain 计数（压缩不重置）。
 - **完成语义**：complete+completed_at+清 delivery 同事务；function_call 轮保活；noop 完成不建 outbox；stop 先到则 commit 幂等拒绝；stale 双回收（watchdog vs start-path）两侧 `WHERE status='generating'` 守卫使竞态安全。
 - **删除映射**：tail hard delete（take_while 遇他事件/compaction 即停，不会误删他事件行）/historical no-op/compaction-covered no-op、不写 retracted/note、批内非末条 entry 可定位事件、checkback 同事务取消。
-- **mirror 纪律**：唯一身份 (signal_channel_id, source_entry_id)；ai_message_id 仅回溯（partial index 不入 PK）；无真实 provider entry id 绝不合成、跳过 mirror 留给 scan；中间 chunk 永不写 signal_entries。
+- **mirror 纪律**：唯一身份 (signal_channel_id, source_entry_id)；ai_message_id 仅回溯（partial index 不入 PK）；无真实 provider entry id 绝不合成、跳过 mirror 留给 scan；中间 chunk 永不写 signal_gateway_entries。
 - **schedule 链路**：cron/checkback 三层幂等（行唯一+Oban unique+claim 条件转移）、fired 标记同事务、origin_ai_message_id 值域正确、reply_route 从事件信封派生并经 route auth 校验、tombstone 取消 checkback。
 - **worker 契约**：首轮 conversation+input、续轮 previous_response_id+function_call_output、不重放 transcript、无本地停止策略、成功不发 proposal、无 DB/outbox 写入、官方 openai 包 + 薄 WS transport、overflow → turn_error.details_json → 下轮 truncation=auto 闭环、无效工具参数回灌不执行、并行 function_call 按 call_id 去重串行执行一次性回灌、steer 只在工具轮边界注入。
 - **e2e 诚实度**：断言在 provider 可见边界（FakeFeishu 出站事件）而非仅 DB；`/compress`、tail-delete、chaos 恢复均有场景级证明；worker kill/redelivery/router 重启/provider 拒发 4 项 chaos 实测过。

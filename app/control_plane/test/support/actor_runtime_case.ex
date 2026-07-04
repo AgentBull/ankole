@@ -22,7 +22,7 @@ defmodule Ankole.ActorRuntimeCase do
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.InboundBatch
   alias Ankole.SignalsGateway.OutboxEntry
-  alias Ankole.SignalsGateway.SignalEntry
+  alias Ankole.SignalsGateway.Entry
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
 
@@ -61,7 +61,7 @@ defmodule Ankole.ActorRuntimeCase do
       alias Ankole.SignalsGateway, warn: false
       alias Ankole.SignalsGateway.InboundBatch, warn: false
       alias Ankole.SignalsGateway.OutboxEntry, warn: false
-      alias Ankole.SignalsGateway.SignalEntry, warn: false
+      alias Ankole.SignalsGateway.Entry, warn: false
       alias Ankole.SystemConfig, warn: false
 
       @base_time ~U[2026-07-02 01:34:05.000000Z]
@@ -399,8 +399,8 @@ defmodule Ankole.ActorRuntimeCase do
   def wait_for_final_mirror(ai_message_id, attempts \\ 20)
 
   def wait_for_final_mirror(ai_message_id, attempts) when attempts > 0 do
-    case Repo.get_by(SignalEntry, ai_message_id: ai_message_id) do
-      %SignalEntry{} = entry ->
+    case Repo.get_by(Entry, ai_message_id: ai_message_id) do
+      %Entry{} = entry ->
         entry
 
       nil ->

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import type { TurnStart } from '../src/actor_lane'
+import type { TurnStart } from '../src/lanes/actor_lane'
 import { buildAgentSystemPrompt } from '../src/prompts/system_prompt'
 
 describe('@ankole/agent-computer prompts', () => {
@@ -57,7 +57,7 @@ describe('@ankole/agent-computer prompts', () => {
       expect(prompt).not.toContain('library-containers')
       expect(prompt).not.toContain('AGENT_APPEND.md')
       expect(prompt).not.toContain('PostgreSQL client')
-      expect(prompt).not.toContain('codex_delegate')
+      expect(prompt).toContain('codex_delegate')
       expect(prompt).not.toContain('send_file')
       expect(prompt).toContain('check_back_later')
       expect(prompt).toContain('cron')
@@ -68,6 +68,7 @@ describe('@ankole/agent-computer prompts', () => {
         'browser_snapshot',
         'browser_type',
         'check_back_later',
+        'codex_delegate',
         'command',
         'cron',
         'interactive_terminal',

@@ -13,8 +13,8 @@ defmodule Ankole.SignalsGateway.RecoveryScanTest do
   alias Ankole.Plugins.Spec
   alias Ankole.SignalsGateway.AIReplyPreview
   alias Ankole.SignalsGateway.RecoveryScan
-  alias Ankole.SignalsGateway.SignalChannel
-  alias Ankole.SignalsGateway.SignalEntry
+  alias Ankole.SignalsGateway.Channel
+  alias Ankole.SignalsGateway.Entry
 
   setup :use_mock_signal_provider_plugin
 
@@ -321,7 +321,7 @@ defmodule Ankole.SignalsGateway.RecoveryScanTest do
       assert outbox.reply_to_source_entry_id == event.source_entry_id
       assert outbox.fallback_visible_text == "recovered answer"
 
-      mirror = Repo.get_by!(SignalEntry, ai_message_id: message.id)
+      mirror = Repo.get_by!(Entry, ai_message_id: message.id)
       assert mirror.signal_channel_id == signal_channel_id
       assert mirror.source_entry_id =~ "mock-reply-"
       assert mirror.text == "recovered answer"
@@ -329,7 +329,7 @@ defmodule Ankole.SignalsGateway.RecoveryScanTest do
       assert mirror.metadata["actor_event_id"] == event.id
       assert mirror.metadata["source"] == "ai_gateway_final_reply"
       assert mirror.metadata["provider_thread_id"] == event.provider_thread_id
-      assert String.starts_with?(mirror.document_id, "signal-entry:")
+      assert String.starts_with?(mirror.document_id, "signal-gateway-entry:")
       refute mirror.document_id == mirror.source_entry_id
       assert mirror.metadata_text =~ "ai_gateway_final_reply"
       assert mirror.content_hash && mirror.content_hash != ""
@@ -350,7 +350,7 @@ defmodule Ankole.SignalsGateway.RecoveryScanTest do
                AIReplyPreview.mirror_final_reply(event, message.id, "final text")
 
       refute Repo.exists?(
-               from(entry in SignalEntry,
+               from(entry in Entry,
                  where: entry.ai_message_id == ^message.id
                )
              )
@@ -362,7 +362,7 @@ defmodule Ankole.SignalsGateway.RecoveryScanTest do
                  source_entry_id: "provider-final"
                )
 
-      assert Repo.get_by!(SignalEntry,
+      assert Repo.get_by!(Entry,
                signal_channel_id: event.signal_channel_id,
                source_entry_id: "provider-final"
              ).ai_message_id == message.id
@@ -442,8 +442,8 @@ defmodule Ankole.SignalsGateway.RecoveryScanTest do
   defp channel_fixture(id) do
     now = DateTime.utc_now(:microsecond)
 
-    %SignalChannel{}
-    |> SignalChannel.changeset(%{
+    %Channel{}
+    |> Channel.changeset(%{
       id: id,
       kind: :im_group,
       reply_mode: :entry,
@@ -461,8 +461,8 @@ defmodule Ankole.SignalsGateway.RecoveryScanTest do
   defp signal_entry_fixture(signal_channel_id, source_entry_id, ai_message_id) do
     now = DateTime.utc_now(:microsecond)
 
-    %SignalEntry{}
-    |> SignalEntry.changeset(%{
+    %Entry{}
+    |> Entry.changeset(%{
       signal_channel_id: signal_channel_id,
       source_entry_id: source_entry_id,
       text: "already mirrored",

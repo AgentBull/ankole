@@ -4,7 +4,7 @@ defmodule Ankole.ActorRuntime.AIGatewayMainChainTest do
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.PluginFixtures.MockSignalProviderPlugin
   alias Ankole.Plugins.Spec
-  alias Ankole.SignalsGateway.SignalEntry
+  alias Ankole.SignalsGateway.Entry
 
   setup :use_mock_signal_provider_plugin
 
@@ -135,7 +135,7 @@ defmodule Ankole.ActorRuntime.AIGatewayMainChainTest do
     assert mirror.text == "It is sunny in Shanghai."
     assert mirror.ai_message_id == final_committed.id
     assert mirror.metadata["actor_event_id"] == actor_event.id
-    refute Repo.get_by(SignalEntry, ai_message_id: first_committed.id)
+    refute Repo.get_by(Entry, ai_message_id: first_committed.id)
   end
 
   test "reply_attachment tool output commits a durable outbox row on final response" do
@@ -294,8 +294,8 @@ defmodule Ankole.ActorRuntime.AIGatewayMainChainTest do
   defp wait_for_final_mirror(ai_message_id, attempts_left \\ 20)
 
   defp wait_for_final_mirror(ai_message_id, attempts_left) when attempts_left > 0 do
-    case Repo.get_by(SignalEntry, ai_message_id: ai_message_id) do
-      %SignalEntry{} = entry ->
+    case Repo.get_by(Entry, ai_message_id: ai_message_id) do
+      %Entry{} = entry ->
         entry
 
       nil ->
@@ -311,7 +311,7 @@ defmodule Ankole.ActorRuntime.AIGatewayMainChainTest do
   defp refute_final_mirror(ai_message_id, attempts_left \\ 3)
 
   defp refute_final_mirror(ai_message_id, attempts_left) when attempts_left > 0 do
-    refute Repo.get_by(SignalEntry, ai_message_id: ai_message_id)
+    refute Repo.get_by(Entry, ai_message_id: ai_message_id)
     Process.sleep(20)
     refute_final_mirror(ai_message_id, attempts_left - 1)
   end

@@ -75,6 +75,9 @@ interface InteractiveTerminalDetails {
   status?: string
 }
 
+/**
+ * Wraps terminal JSON output in a normal AgentToolResult.
+ */
 function jsonResult(value: unknown, details: InteractiveTerminalDetails): AgentToolResult<InteractiveTerminalDetails> {
   return { content: [{ type: 'text', text: JSON.stringify(value) }], details }
 }
@@ -202,6 +205,9 @@ export function createInteractiveTerminalTool(
   }
 }
 
+/**
+ * Waits before capturing a terminal screen while still honoring turn abort.
+ */
 async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   if (ms <= 0) return
   if (signal?.aborted) throw new Error('interactive_terminal send aborted')

@@ -3,20 +3,20 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { zstdCompressBlock, zstdDecompressBlock } from '@ankole/kernel'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createFileTransferState, fileTransferProtocol, handleFileTransferFrame } from '../src/file_transfer_lane'
-import { encodeEnvelope } from '../src/runtime_fabric'
+import { createFileTransferState, fileTransferProtocol, handleFileTransferFrame } from '../src/lanes/file_transfer_lane'
+import { encodeEnvelope } from '../src/fabric/fabric'
 import {
   parseRuntimeFabricUrl,
   workerCapacityEnvelope,
   workerHeartbeatEnvelope,
   workerReadyEnvelope
-} from '../src/runtime'
-import { handleWorkerRpcRequest, type RpcRequest } from '../src/rpc_lane'
-import { isRuntimeFabricBackpressure, reliableEnvelopeSender } from '../src/runtime_fabric_sender'
-import { workerProgressEnvelope } from '../src/turn_envelopes'
-import type { WorkerConfig } from '../src/runtime'
-import { prepareTurnWorkspace } from '../src/workspace'
-import { mailboxUpdatedFromEnvelope, turnStartFromEnvelope } from '../src/actor_lane'
+} from '../src/worker/config'
+import { handleWorkerRpcRequest, type RpcRequest } from '../src/lanes/rpc_lane'
+import { isRuntimeFabricBackpressure, reliableEnvelopeSender } from '../src/fabric/sender'
+import { workerProgressEnvelope } from '../src/fabric/envelopes'
+import type { WorkerConfig } from '../src/worker/config'
+import { prepareTurnWorkspace } from '../src/worker/workspace'
+import { mailboxUpdatedFromEnvelope, turnStartFromEnvelope } from '../src/lanes/actor_lane'
 
 describe('@ankole/agent-computer runtime', () => {
   it('parses RuntimeFabric URL auth without embedding worker identity', () => {

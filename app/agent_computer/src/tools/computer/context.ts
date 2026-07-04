@@ -118,6 +118,9 @@ const BACKGROUND_COMMANDS_MAX = 64
 const backgroundCommands = new Map<string, MutableBackgroundCommand>()
 const WORKSPACE_VIRTUAL_ROOT = '/workspace'
 
+/**
+ * Evicts old finished background commands while never dropping running ones.
+ */
 function evictFinishedBackgroundCommands(): void {
   if (backgroundCommands.size <= BACKGROUND_COMMANDS_MAX) return
   const finished = Array.from(backgroundCommands.values())
@@ -264,10 +267,17 @@ export function executionScopeTag(context: Pick<ComputerToolContext, 'executionS
   return createHash('sha256').update(context.executionScopeId).digest('hex').slice(0, 8)
 }
 
+/**
+ * Resolves a path against the workspace root.
+ */
 function workspacePath(root: string, path: string): string {
   return resolveWorkspacePath(root, path, root)
 }
 
+/**
+ * Resolves absolute, relative, and `/workspace/...` virtual paths safely under
+ * the real workspace root.
+ */
 function resolveWorkspacePath(root: string, path: string, base: string): string {
   const resolved = isWorkspaceVirtualPath(path)
     ? resolve(root, `.${path.slice(WORKSPACE_VIRTUAL_ROOT.length)}`)
@@ -281,10 +291,16 @@ function resolveWorkspacePath(root: string, path: string, base: string): string 
   return resolved
 }
 
+/**
+ * Checks whether a path uses the model-facing `/workspace` virtual root.
+ */
 function isWorkspaceVirtualPath(path: string): boolean {
   return path === WORKSPACE_VIRTUAL_ROOT || path.startsWith(`${WORKSPACE_VIRTUAL_ROOT}/`)
 }
 
+/**
+ * Runs one foreground command inside bubblewrap.
+ */
 async function runBubblewrappedCommand(
   input: {
     cmd: string
@@ -390,6 +406,10 @@ async function runContainerControlCommand(
   }
 }
 
+/**
+ * Starts a long-running background command inside bubblewrap and registers it
+ * under the current execution scope.
+ */
 async function startBackgroundCommand(
   input: {
     cmd: string
@@ -458,21 +478,33 @@ async function startBackgroundCommand(
   return commandSnapshot(command)
 }
 
+/**
+ * Looks up a background command only inside the current execution scope.
+ */
 function scopedBackgroundCommand(id: string, scopeKey: string): MutableBackgroundCommand | null {
   const command = backgroundCommands.get(id)
   if (!command || command.scopeKey !== scopeKey) return null
   return command
 }
 
+/**
+ * Returns a snapshot for a scoped background command.
+ */
 function backgroundSnapshot(id: string, scopeKey: string): BackgroundCommandSnapshot | null {
   const command = scopedBackgroundCommand(id, scopeKey)
   return command ? commandSnapshot(command) : null
 }
 
+/**
+ * Builds the in-memory namespace key for background command ownership.
+ */
 function scopedBackgroundCommandKey(workspaceRoot: string, executionScopeId: string): string {
   return `${workspaceRoot}\u0000${executionScopeId}`
 }
 
+/**
+ * Returns an immutable snapshot facade over a mutable background command.
+ */
 function commandSnapshot(command: MutableBackgroundCommand): BackgroundCommandSnapshot {
   return {
     id: command.id,
@@ -491,6 +523,9 @@ function commandSnapshot(command: MutableBackgroundCommand): BackgroundCommandSn
   }
 }
 
+/**
+ * Returns only the new output since the last incremental read.
+ */
 function incrementalBackgroundOutput(command: MutableBackgroundCommand, mode: CommandOutputMode): string {
   if (mode === 'stdout') {
     const output = command.stdout.slice(command.observedStdoutChars)
@@ -510,6 +545,9 @@ function incrementalBackgroundOutput(command: MutableBackgroundCommand, mode: Co
   return [stdout, stderr].filter(Boolean).join(stdout && stderr ? '\n' : '')
 }
 
+/**
+ * Continuously appends a background process stream to its bounded buffer.
+ */
 async function collectBackgroundStream(
   stream: ReadableStream<Uint8Array> | null,
   append: (chunk: string) => void
@@ -530,6 +568,9 @@ async function collectBackgroundStream(
   }
 }
 
+/**
+ * Appends output while keeping only the newest bounded tail.
+ */
 function appendBounded(current: string, chunk: string): { droppedChars: number; text: string } {
   const next = current + chunk
   if (next.length <= BACKGROUND_OUTPUT_MAX_CHARS) return { droppedChars: 0, text: next }
@@ -537,6 +578,9 @@ function appendBounded(current: string, chunk: string): { droppedChars: number; 
   return { droppedChars, text: next.slice(droppedChars) }
 }
 
+/**
+ * Builds the allowlisted command environment passed into bwrap.
+ */
 function commandEnv(inputEnv: Record<string, string> | undefined): Record<string, string> {
   const env: Record<string, string> = {
     PATH: commandPath(process.env.PATH),
@@ -553,17 +597,26 @@ function commandEnv(inputEnv: Record<string, string> | undefined): Record<string
   return env
 }
 
+/**
+ * Ensures core command directories appear at the front of PATH.
+ */
 function commandPath(path: string | undefined): string {
   const required = ['/usr/local/bin', '/usr/bin', '/bin']
   const current = path?.split(':').filter(Boolean) ?? []
   return [...required, ...current.filter(entry => !required.includes(entry))].join(':')
 }
 
+/**
+ * Reads a stream fully as UTF-8 text.
+ */
 async function readableToUtf8(stream: ReadableStream<Uint8Array> | null): Promise<string> {
   if (!stream) return ''
   return Buffer.from(await new Response(stream).arrayBuffer()).toString('utf8')
 }
 
+/**
+ * Builds the completed-command facade returned by command execution.
+ */
 function finishedCommand(exitCode: number, stdout: string, stderr: string): CommandFinished {
   return {
     exitCode,
