@@ -3,11 +3,6 @@ import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { TurnStart } from '../src/actor_lane'
-import {
-  buildCompactionHistoryUserPrompt,
-  COMPACTION_FOCUS_INSTRUCTIONS,
-  SUMMARIZATION_SYSTEM_PROMPT
-} from '../src/prompts/compression-prompt'
 import { buildAgentSystemPrompt } from '../src/prompts/system_prompt'
 
 describe('@ankole/agent-computer prompts', () => {
@@ -66,8 +61,23 @@ describe('@ankole/agent-computer prompts', () => {
       expect(prompt).not.toContain('send_file')
       expect(prompt).toContain('check_back_later')
       expect(prompt).toContain('cron')
+      expect(toolReferencesInPrompt(prompt)).toEqual([
+        'browser_*',
+        'browser_click',
+        'browser_find',
+        'browser_snapshot',
+        'browser_type',
+        'check_back_later',
+        'command',
+        'cron',
+        'interactive_terminal',
+        'patch',
+        'read_file',
+        'skill_append',
+        'skill_view'
+      ])
       expect(prompt).not.toContain('web_search')
-      expect(prompt).not.toContain('web_extract')
+      expect(prompt).not.toContain('web_fetch')
       expect(prompt).not.toContain('terminal when')
       expect(prompt).not.toContain('process tool')
     } finally {
@@ -75,34 +85,9 @@ describe('@ankole/agent-computer prompts', () => {
     }
   })
 
-  it('keeps compression prompt sections and analysis focus in the worker prompt builder', () => {
-    const prompt = buildCompactionHistoryUserPrompt({
-      conversationText: '[User]: fix /compress\n\n[Assistant]: working on it',
-      customInstructions: COMPACTION_FOCUS_INSTRUCTIONS,
-      previousChatHistory: 'Existing compressed chat history.'
-    })
-
-    expect(SUMMARIZATION_SYSTEM_PROMPT).toContain('Do NOT continue the conversation')
-    expect(prompt).toContain('<conversation>')
-    expect(prompt).toContain('<previous_chat_history>')
-    expect(prompt).toContain('Existing compressed chat history.')
-    expect(prompt).toContain('## Active Task')
-    expect(prompt).toContain('## Constraints & Preferences')
-    expect(prompt).toContain('## Completed Actions')
-    expect(prompt).toContain('## Active State')
-    expect(prompt).toContain('## In Progress')
-    expect(prompt).toContain('## Blocked')
-    expect(prompt).toContain('## Key Decisions')
-    expect(prompt).toContain('## Resolved Questions')
-    expect(prompt).toContain('## Pending User Asks')
-    expect(prompt).toContain('## Remaining Work')
-    expect(prompt).toContain('## Critical Context')
-    expect(prompt).toContain('<analysis>')
-    expect(prompt).toContain('Preserve verbatim')
-  })
-
   it('describes schedule-origin quiet success only when the control plane allows it', () => {
     const start = turnStart()
+    const scheduleActorEventId = '00000000-0000-0000-0000-000000000202'
     const prompt = buildAgentSystemPrompt({
       workspaceRoot: tmpdir(),
       turnStart: {
@@ -115,20 +100,18 @@ describe('@ankole/agent-computer prompts', () => {
             scheduled_event_id: 'schedule-event-1'
           }
         },
-        inputs: [
-          {
-            actor_input_id: 'schedule-input-1',
-            live_queue_sequence: 1,
-            type: 'check_back_later.wakeup',
-            ingress_event_id: 'schedule-event-1',
-            payload_json: {
-              data: {
-                reason: 'Follow up on deployment',
-                check: 'Ask whether deployment succeeded'
-              }
+        actor_event: {
+          actor_event_id: scheduleActorEventId,
+          queue_sequence: 1,
+          type: 'check_back_later.wakeup',
+          source_event_id: 'schedule-event-1',
+          payload_json: {
+            data: {
+              reason: 'Follow up on deployment',
+              check: 'Ask whether deployment succeeded'
             }
           }
-        ]
+        }
       },
       agentConversationContext: {
         request_id: 'agent-conversation-context-1',
@@ -158,6 +141,8 @@ describe('@ankole/agent-computer prompts', () => {
 })
 
 function turnStart(): TurnStart {
+  const actorEventId = '00000000-0000-0000-0000-000000000201'
+
   return {
     turn: {
       actor: {
@@ -166,14 +151,31 @@ function turnStart(): TurnStart {
       },
       activation_uid: 'activation-1',
       actor_epoch: 1,
-      llm_turn_id: 'turn-1',
+      actor_event_id: actorEventId,
       revision: 0
     },
-    inputs: [],
+    actor_event: {
+      actor_event_id: actorEventId,
+      queue_sequence: 1,
+      type: 'im.message.addressed',
+      source_event_id: 'signal-entry-1',
+      payload_json: {}
+    },
     model_ref: {
       profile: 'primary',
       provider_id: 'openrouter-main',
       model: 'z-ai/glm-5.2'
     }
   }
+}
+
+function toolReferencesInPrompt(prompt: string): string[] {
+  const block = prompt.match(/<tools>[\s\S]*<\/tools>/)?.[0]
+  expect(block).toBeTruthy()
+
+  return [
+    ...new Set(
+      [...block!.matchAll(/`([a-z][a-z0-9_]*(?:_\*)?)`/g)].map(match => match[1]!).filter(name => !name.includes('__'))
+    )
+  ].sort()
 }

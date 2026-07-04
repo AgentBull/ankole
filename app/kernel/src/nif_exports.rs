@@ -357,77 +357,6 @@ pub fn authz_match_resource_pattern(pattern: Term<'_>, resource: Term<'_>) -> Ni
     authz::pattern_matches(&pattern, &resource).map_err(error)
 }
 
-/// Converts Unicode text into a best-effort ASCII representation.
-#[rustler::nif(schedule = "DirtyCpu")]
-pub fn any_ascii(input: Term<'_>) -> NifResult<String> {
-    let input = decode_string(input, "input")?;
-
-    Ok(common::any_ascii(&input))
-}
-
-/// Decodes Base58 text and returns a BEAM binary instead of a list of integers.
-#[rustler::nif(schedule = "DirtyCpu")]
-pub fn base58_decode(input: Term<'_>) -> NifResult<OwnedBinary> {
-    let input = decode_string(input, "input")?;
-
-    common::base58_decode(&input)
-        .map_err(error)
-        .and_then(binary_from_vec)
-}
-
-/// Encodes an Elixir binary as Base58 text.
-#[rustler::nif(schedule = "DirtyCpu")]
-pub fn base58_encode(input: Term<'_>) -> NifResult<String> {
-    let input = decode_binary(input, "input")?;
-
-    Ok(common::base58_encode(input.as_slice()))
-}
-
-/// Decodes padding-free URL-safe Base64 and returns a BEAM binary.
-#[rustler::nif(schedule = "DirtyCpu")]
-pub fn base64_url_safe_decode(input: Term<'_>) -> NifResult<OwnedBinary> {
-    let input = decode_string(input, "input")?;
-
-    common::base64_url_safe_decode(&input)
-        .map_err(error)
-        .and_then(binary_from_vec)
-}
-
-/// Encodes an Elixir binary with URL-safe Base64 and no padding.
-#[rustler::nif(schedule = "DirtyCpu")]
-pub fn base64_url_safe_encode(input: Term<'_>) -> NifResult<String> {
-    let input = decode_binary(input, "input")?;
-
-    Ok(common::base64_url_safe_encode(input.as_slice()))
-}
-
-/// Hashes an Elixir binary with BLAKE3 and returns the digest in Base58 form.
-#[rustler::nif(schedule = "DirtyCpu")]
-pub fn bs58_hash(data: Term<'_>, salt: Term<'_>) -> NifResult<String> {
-    let data = decode_binary(data, "data")?;
-    let salt = decode_optional_string(salt, "salt")?;
-
-    common::bs58_hash(data.as_slice(), salt.as_deref()).map_err(error)
-}
-
-/// Computes CRC32 over an Elixir binary, optionally continuing a prior state.
-#[rustler::nif(schedule = "DirtyCpu")]
-pub fn crc32(input: Term<'_>, initial_state: Term<'_>) -> NifResult<u32> {
-    let input = decode_binary(input, "input")?;
-    let initial_state = decode_optional_u32(initial_state, "initial_state")?;
-
-    Ok(common::crc32(input.as_slice(), initial_state))
-}
-
-/// Computes CRC32 and formats it as lowercase hexadecimal text.
-#[rustler::nif(schedule = "DirtyCpu")]
-pub fn crc32_hex(input: Term<'_>, initial_state: Term<'_>) -> NifResult<String> {
-    let input = decode_binary(input, "input")?;
-    let initial_state = decode_optional_u32(initial_state, "initial_state")?;
-
-    Ok(common::crc32_hex(input.as_slice(), initial_state))
-}
-
 /// Computes the non-cryptological XXH3 128-bit observation fingerprint.
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn xxh3_128_hex(input: Term<'_>) -> NifResult<String> {
@@ -488,14 +417,6 @@ pub fn derive_key(
     ))
 }
 
-/// Decodes a JWT header without validating the token signature.
-#[rustler::nif(schedule = "DirtyCpu")]
-pub fn jwt_decode_header_nif(token: Term<'_>) -> NifResult<String> {
-    let token = decode_string(token, "token")?;
-
-    common::jwt_decode_header(&token).map_err(error)
-}
-
 /// Signs claims with a JWT header and binary key.
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn jwt_sign_nif(claims: Term<'_>, key: Term<'_>, header: Term<'_>) -> NifResult<String> {
@@ -514,12 +435,6 @@ pub fn jwt_verify_nif(token: Term<'_>, key: Term<'_>, validation: Term<'_>) -> N
     let validation = decode_string(validation, "validation")?;
 
     common::jwt_verify(&token, key.as_slice(), &validation).map_err(error)
-}
-
-/// Generates a random UUIDv4 encoded as lowercase Base36.
-#[rustler::nif]
-pub fn gen_base36_uuid() -> String {
-    common::gen_base36_uuid()
 }
 
 /// Generates a random 32-byte hex key for kernel cryptographic helpers.
@@ -543,12 +458,6 @@ pub fn phone_normalize_e164(phone: Term<'_>) -> NifResult<String> {
     let phone = decode_string(phone, "phone")?;
 
     common::phone_normalize_e164(&phone).map_err(error)
-}
-
-/// Generates a random UUIDv4 encoded from raw UUID bytes as Base58.
-#[rustler::nif]
-pub fn gen_short_uuid() -> String {
-    common::gen_short_uuid()
 }
 
 /// Generates a standard hyphenated UUIDv4 string.
@@ -612,12 +521,6 @@ fn decode_json(term: Term<'_>, field: &str) -> NifResult<JsonValue> {
 fn decode_optional_string(term: Term<'_>, field: &str) -> NifResult<Option<String>> {
     term.decode()
         .map_err(|_| error_message(format!("{field} must be a string or nil")))
-}
-
-/// Decodes an optional Elixir unsigned 32-bit integer, where `nil` maps to `None`.
-fn decode_optional_u32(term: Term<'_>, field: &str) -> NifResult<Option<u32>> {
-    term.decode()
-        .map_err(|_| error_message(format!("{field} must be a non-negative integer or nil")))
 }
 
 /// Decodes a non-negative 64-bit integer.

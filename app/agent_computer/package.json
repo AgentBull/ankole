@@ -13,19 +13,15 @@
     "fmt:check": "oxfmt --check",
     "lint": "bun run fmt:check && bun run type-check",
     "//test": "Docker-only: the worker tool tests need the bubblewrap (bwrap) sandbox, which is absent on the host, so a bare 'bun test' fails the container-command cases. Requires the prebuilt ankole-agent-computer image; for full runtime coverage use the control-plane Docker worker e2e.",
-    "test": "cd ../.. && docker run --rm --cap-add SYS_ADMIN --security-opt seccomp=unconfined --security-opt systempaths=unconfined -v \"$PWD/app/agent_computer/src:/repo/app/agent_computer/src:ro\" -v \"$PWD/app/agent_computer/test:/repo/app/agent_computer/test:ro\" ankole-agent-computer:0.1.0 bun test"
+    "test": "cd ../.. && docker run --rm --cap-add SYS_ADMIN --security-opt seccomp=unconfined --security-opt systempaths=unconfined -v \"$PWD/app/agent_computer/bin:/repo/app/agent_computer/bin:ro\" -v \"$PWD/app/agent_computer/src:/repo/app/agent_computer/src:ro\" -v \"$PWD/app/agent_computer/test:/repo/app/agent_computer/test:ro\" ankole-agent-computer:0.1.0 bun test"
   },
   "dependencies": {
     "@ankole/kernel": "workspace:*",
     "@pleisto/active-support": "^1.5.9",
-    "@standard-schema/spec": "^1.1.0",
-    "@workflow/serde": "4.1.2",
-    "eventsource-parser": "^3.1.0",
-    "json-schema": "^0.4.0",
+    "openai": "^6.45.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/bun": "latest",
-    "@types/json-schema": "^7.0.15"
+    "@types/bun": "latest"
   }
 }

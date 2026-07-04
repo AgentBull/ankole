@@ -138,6 +138,84 @@ defmodule FeishuOpenAPI.UserTokenManagerTest do
              )
   end
 
+  test "request/4 refreshes managed user tokens after provider stale-token codes", %{
+    client: client,
+    user_key: user_key
+  } do
+    parent = self()
+    {:ok, user_info_calls} = Agent.start_link(fn -> 0 end)
+
+    :ok =
+      UserTokenManager.put(client, user_key, %{
+        access_token: "u-stale",
+        refresh_token: "refresh_stale",
+        token_type: "Bearer",
+        expires_in: 7200,
+        refresh_expires_in: 2_592_000,
+        raw: %{}
+      })
+
+    Req.Test.stub(FeishuOpenAPI.UserTokenManagerTest, fn conn ->
+      case conn.request_path do
+        "/open-apis/auth/v3/tenant_access_token/internal" ->
+          tenant_token(conn)
+
+        "/open-apis/authen/v1/oidc/refresh_access_token" ->
+          assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer t-user"]
+          {:ok, body, conn} = Plug.Conn.read_body(conn)
+          send(parent, {:refresh_body, Torque.decode!(body)})
+
+          Req.Test.json(conn, %{
+            "code" => 0,
+            "data" => %{
+              "access_token" => "u-refreshed",
+              "refresh_token" => "refresh_stale_new",
+              "token_type" => "Bearer",
+              "expires_in" => 7200,
+              "refresh_expires_in" => 2_592_000
+            }
+          })
+
+        "/open-apis/authen/v1/user_info" ->
+          call = Agent.get_and_update(user_info_calls, fn count -> {count, count + 1} end)
+
+          case call do
+            0 ->
+              assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer u-stale"]
+
+              conn
+              |> Plug.Conn.put_status(401)
+              |> Req.Test.json(%{"code" => 99_991_663, "msg" => "access token expired"})
+
+            1 ->
+              assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer u-refreshed"]
+              Req.Test.json(conn, %{"code" => 0, "data" => %{"user_id" => "ou_xxx"}})
+          end
+
+        other ->
+          flunk("unexpected request path: #{other}")
+      end
+    end)
+
+    :ok =
+      Req.Test.allow(
+        FeishuOpenAPI.UserTokenManagerTest,
+        self(),
+        Process.whereis(UserTokenManager)
+      )
+
+    assert {:ok, %{"code" => 0, "data" => %{"user_id" => "ou_xxx"}}} =
+             FeishuOpenAPI.get(client, "/open-apis/authen/v1/user_info",
+               user_access_token_key: user_key
+             )
+
+    assert_received {:refresh_body,
+                     %{"grant_type" => "refresh_token", "refresh_token" => "refresh_stale"}}
+
+    assert Agent.get(user_info_calls, & &1) == 2
+    assert {:ok, "u-refreshed"} = UserTokenManager.get(client, user_key)
+  end
+
   test "concurrent expired-token callers on the same key share a single upstream refresh", %{
     client: client,
     user_key: user_key

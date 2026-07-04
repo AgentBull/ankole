@@ -39,9 +39,9 @@ defmodule Ankole.SignalsGateway.OutboxEntry do
     field :binding_name, :string, primary_key: true
     field :outbound_key, :string, primary_key: true
 
-    # The provider-visible action this row represents. `source_provider_entry_id`
-    # is the entry being replied to; `target_provider_entry_id` is the entry an
-    # edit/delete/reaction acts on; `provider_entry_id` is filled in after a
+    # The provider-visible action this row represents. `reply_to_source_entry_id`
+    # is the entry being replied to; `target_source_entry_id` is the entry an
+    # edit/delete/reaction acts on; `created_source_entry_id` is filled in after a
     # successful post with the id the provider assigned to the new entry.
     field :operation, Ecto.Enum,
       values: [:post, :reply, :edit, :delete, :reaction_add, :reaction_remove, :divider, :card]
@@ -52,13 +52,12 @@ defmodule Ankole.SignalsGateway.OutboxEntry do
 
     field :signal_channel_id, :string
     field :provider_thread_id, :string
-    field :source_provider_entry_id, :string
-    field :target_provider_entry_id, :string
-    field :provider_entry_id, :string
+    field :reply_to_source_entry_id, :string
+    field :target_source_entry_id, :string
+    field :created_source_entry_id, :string
     # Back-references to where this side effect originated, for audit/recovery.
-    field :source_actor_input_id, Ecto.UUID
-    field :llm_turn_id, Ecto.UUID
-    field :assistant_message_id, Ecto.UUID
+    field :source_actor_event_id, Ecto.UUID
+    field :ai_message_id, Ecto.UUID
     field :payload, :map, default: %{}
     # Plain-text rendering used both as the search/mirror text and as the
     # fallback when a rich operation (card/divider) needs a text representation.
@@ -100,12 +99,11 @@ defmodule Ankole.SignalsGateway.OutboxEntry do
       :status,
       :signal_channel_id,
       :provider_thread_id,
-      :source_provider_entry_id,
-      :target_provider_entry_id,
-      :provider_entry_id,
-      :source_actor_input_id,
-      :llm_turn_id,
-      :assistant_message_id,
+      :reply_to_source_entry_id,
+      :target_source_entry_id,
+      :created_source_entry_id,
+      :source_actor_event_id,
+      :ai_message_id,
       :payload,
       :fallback_visible_text,
       :idempotency_key,
@@ -123,9 +121,9 @@ defmodule Ankole.SignalsGateway.OutboxEntry do
       :outbound_key,
       :signal_channel_id,
       :provider_thread_id,
-      :source_provider_entry_id,
-      :target_provider_entry_id,
-      :provider_entry_id,
+      :reply_to_source_entry_id,
+      :target_source_entry_id,
+      :created_source_entry_id,
       :fallback_visible_text,
       :idempotency_key
     ])

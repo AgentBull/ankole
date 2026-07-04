@@ -8,7 +8,7 @@ defmodule Ankole.AIGateway.CompactionPrompt do
   """
 
   @compaction_focus_instructions """
-  First, in an <analysis> block, walk the conversation chronologically and note each step's intent, decisions, and any errors and their fixes. This block is scratch work and will be discarded. Then write the summary. Preserve verbatim - never paraphrase - file paths, function and identifier names, error messages, command lines, and IDs/UUIDs; when the latest task is unfinished, quote its exact instruction so work resumes without drift.
+  First, in an <analysis> block, walk the conversation chronologically and note each step's intent, decisions, and any errors and their fixes (this block is scratch work and will be discarded). Then write the summary. Preserve verbatim — never paraphrase — file paths, function and identifier names, error messages, command lines, and IDs/UUIDs; when the latest task is unfinished, quote its exact instruction so work resumes without drift.
   """
 
   @summarization_system_prompt """
@@ -90,7 +90,7 @@ defmodule Ankole.AIGateway.CompactionPrompt do
   - [Preserve existing, add new ones discovered]
 
   ## Completed Actions
-  - [x] [Include previously done items AND newly completed actions]
+  - [x] [Include previously done items AND newly completed items]
   - [Or "(none)" if no meaningful actions were completed]
 
   ## Active State

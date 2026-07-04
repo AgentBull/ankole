@@ -1,8 +1,15 @@
 import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../../core'
-import { buildTool } from '../build-tool'
+import { TEXT_TURN_TIMEOUT_MS } from '../../core/turns/turn_config'
 import type { BackgroundCommandSnapshot, ComputerToolContext } from './context'
 import { truncateOutput } from './format'
+
+const TOOL_TIMEOUT_MARGIN_MS = 15_000
+const ForegroundCommandTimeoutMaxSeconds = Math.max(
+  1,
+  Math.floor((TEXT_TURN_TIMEOUT_MS - TOOL_TIMEOUT_MARGIN_MS) / 1000)
+)
+const BackgroundCommandTimeoutMaxSeconds = 1800
 
 const CommandParams = z
   .object({
@@ -26,10 +33,10 @@ const CommandParams = z
       .number()
       .int()
       .min(1)
-      .max(1800)
+      .max(BackgroundCommandTimeoutMaxSeconds)
       .optional()
       .describe(
-        'Max seconds to wait for the command. Defaults to 60 for foreground runs and 1800 for background runs.'
+        `Max seconds to wait for the command. Foreground runs must fit the current text-turn budget (${ForegroundCommandTimeoutMaxSeconds}s max); use background=true for longer commands up to ${BackgroundCommandTimeoutMaxSeconds}s.`
       ),
     env: z.record(z.string(), z.string()).optional().describe('Environment variables for this command only.')
   })
@@ -45,9 +52,22 @@ const CommandParams = z
         message: 'backgroundId is required for status/kill'
       })
     }
+    if (
+      action === 'run' &&
+      params.background !== true &&
+      params.timeout !== undefined &&
+      params.timeout > ForegroundCommandTimeoutMaxSeconds
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['timeout'],
+        message: `foreground timeout must be <= ${ForegroundCommandTimeoutMaxSeconds}s; use background=true for longer commands`
+      })
+    }
   })
 
 interface CommandDetails {
+  durationMs?: number
   exitCode?: number
   backgroundId?: string
   status?: 'running' | 'exited' | 'killed' | 'not_found'
@@ -63,13 +83,13 @@ interface CommandDetails {
  * steers the model away from cat/sed/heredoc tricks toward the dedicated read_file/patch tools.
  */
 export function createCommandTool(context: ComputerToolContext): AgentTool<typeof CommandParams, CommandDetails> {
-  return buildTool({
+  return {
     name: 'command',
-    label: 'Command',
     description:
       'Execute one stateless, non-interactive shell command in the computer. Use this for builds, installs, git, rg/find searches, package managers, scripts, network checks, and one-shot commands that should not depend on persistent cd/export/alias state. Set background=true for long-running non-interactive commands such as dev servers, then poll with action=status, list all with action=list, and stop with action=kill using the returned backgroundId. Do not use cat/head/tail to read files; use read_file. Do not use sed/awk/perl/python scripts or heredocs to edit files; use patch. Use interactive_terminal for direct TTY/TUI programs, REPLs, installers, and troubleshooting interactive CLIs.',
     schema: CommandParams,
     executionMode: 'sequential',
+    isReadOnly: false,
     isDestructive: true,
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<CommandDetails>> {
       const computer = await context.getComputer(signal)
@@ -103,7 +123,7 @@ export function createCommandTool(context: ComputerToolContext): AgentTool<typeo
           }
         }
 
-        return backgroundResult(snapshot)
+        return backgroundResult(snapshot, { incremental: action === 'status' })
       }
 
       // `-lc` runs a login shell so any profile sourced inside the sandbox is applied. The sandbox
@@ -111,7 +131,7 @@ export function createCommandTool(context: ComputerToolContext): AgentTool<typeo
       // ANKOLE_WORKSPACE_ROOT, plus validated caller env) is injected, so this is the sandbox
       // environment, not the host user's. `timeout` is the worker-side execution budget in seconds
       // (default 60), passed as ms; the worker kills the process when it elapses.
-      const timeoutSeconds = params.timeout ?? (params.background ? 1800 : 60)
+      const timeoutSeconds = params.timeout ?? (params.background ? BackgroundCommandTimeoutMaxSeconds : 60)
       const runInput = {
         cmd: 'bash',
         args: ['-lc', params.command!],
@@ -126,24 +146,95 @@ export function createCommandTool(context: ComputerToolContext): AgentTool<typeo
         return backgroundResult(snapshot)
       }
 
+      const startedAt = Date.now()
       const result = await computer.runCommand({
         ...runInput,
         timeoutMs: timeoutSeconds * 1000
       })
+      const durationMs = Date.now() - startedAt
       // stdout and stderr are merged and truncated before going back to the model, so a runaway
       // command cannot blow the context window. The `exit_code=` prefix gives the model the result
       // up front even when the tail of the output was dropped.
       const output = truncateOutput(await result.output('both', { signal }))
+      const text = formatForegroundCommandResult({
+        command: params.command!,
+        durationMs,
+        exitCode: result.exitCode,
+        output,
+        timeoutSeconds
+      })
       return {
-        content: [{ type: 'text', text: `exit_code=${result.exitCode}\n${output}` }],
-        details: { exitCode: result.exitCode }
+        content: [{ type: 'text', text }],
+        details: { durationMs, exitCode: result.exitCode }
       }
     }
-  })
+  }
 }
 
-async function backgroundResult(snapshot: BackgroundCommandSnapshot): Promise<AgentToolResult<CommandDetails>> {
-  const output = truncateOutput(await snapshot.output('both'))
+function formatForegroundCommandResult(input: {
+  command: string
+  durationMs: number
+  exitCode: number
+  output: string
+  timeoutSeconds: number
+}): string {
+  const lines = [`exit_code=${input.exitCode}`, `duration=${formatDuration(input.durationMs)}`]
+  const note = exitCodeNote(input.command, input.exitCode)
+  if (note) lines.push(`exit_code_note: ${note}`)
+  if (isLikelyForegroundTimeout(input.exitCode, input.durationMs, input.timeoutSeconds)) {
+    lines.push(
+      `command timed out after ${input.timeoutSeconds}s (foreground budget). Recovery: rerun with background=true then poll with action=status, or narrow the command (shorter probe, smaller input) and split the work.`
+    )
+  }
+  if (input.output.length > 0) lines.push(input.output)
+  return lines.join('\n')
+}
+
+function formatDuration(durationMs: number): string {
+  if (durationMs < 1000) return `${durationMs}ms`
+  return `${(durationMs / 1000).toFixed(1)}s`
+}
+
+function isLikelyForegroundTimeout(exitCode: number, durationMs: number, timeoutSeconds: number): boolean {
+  if (exitCode !== 124) return false
+  const timeoutMs = timeoutSeconds * 1000
+  return durationMs >= Math.max(0, timeoutMs - 1000)
+}
+
+function exitCodeNote(command: string, exitCode: number): string | undefined {
+  const name = lastCommandName(command)
+  if (!name) return undefined
+  if ((name === 'grep' || name === 'rg' || name === 'ag') && exitCode === 1) {
+    return `${name} exit 1 = no matches found (not an error)`
+  }
+  if ((name === 'test' || name === '[') && exitCode === 1) {
+    return `${name} exit 1 = condition is false (not an execution error)`
+  }
+  if ((name === 'diff' || name === 'cmp') && exitCode === 1) {
+    return `${name} exit 1 = inputs differ (not an execution error)`
+  }
+  return undefined
+}
+
+function lastCommandName(command: string): string | undefined {
+  const segments = command.split(/\|\||&&|;|\|/g)
+  const segment = segments.at(-1)?.trim()
+  if (!segment) return undefined
+  const token = segment.match(/^(?:env\s+)?(?:(?:[A-Za-z_][A-Za-z0-9_]*)=[^\s]+\s+)*([^\s]+)/)?.[1]
+  return token?.replace(/^.*\//, '')
+}
+
+async function backgroundResult(
+  snapshot: BackgroundCommandSnapshot,
+  options: { incremental?: boolean } = {}
+): Promise<AgentToolResult<CommandDetails>> {
+  const output = truncateOutput(await snapshot.output('both', { incremental: options.incremental }))
+  const outputLines =
+    options.incremental && output.length === 0
+      ? ['[no new output]']
+      : options.incremental
+        ? [`new_output_chars=${output.length}`, output]
+        : [output]
   return {
     content: [
       {
@@ -152,7 +243,7 @@ async function backgroundResult(snapshot: BackgroundCommandSnapshot): Promise<Ag
           `background_id=${snapshot.id}`,
           `status=${snapshot.status}`,
           snapshot.exitCode === undefined ? undefined : `exit_code=${snapshot.exitCode}`,
-          output
+          ...outputLines
         ]
           .filter((line): line is string => line !== undefined && line.length > 0)
           .join('\n')

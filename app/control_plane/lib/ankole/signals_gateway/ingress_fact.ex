@@ -4,24 +4,24 @@ defmodule Ankole.SignalsGateway.IngressFact do
 
   Adapter-facing APIs accept concrete maps, but the gateway pipeline should not
   pass those maps through as durable intent. Each accepted ingress shape becomes
-  this struct before routing, mirroring, or actor input planning.
+  this struct before routing, mirroring, or actor event planning.
   """
 
   alias Ankole.SignalsGateway.JsonPayload
 
-  # Every accepted signal shape (entry / lifecycle / reaction / action /
-  # internal) is represented by this one struct. Only the routing identity that
-  # all shapes share is enforced; the rest of the fields are populated per-kind
-  # by the constructors below, so most are nil for any given fact.
-  @enforce_keys [:kind, :agent_uid, :binding_name, :adapter, :ingress_event_id]
+  # Every accepted signal shape is represented by this one struct. Only the
+  # routing identity that all shapes share is enforced; the rest of the fields
+  # are populated per-kind by the constructors below, so most are nil for any
+  # given fact.
+  @enforce_keys [:kind, :agent_uid, :binding_name, :adapter, :source_event_id]
   defstruct [
     :kind,
     :agent_uid,
     :binding_name,
     :adapter,
-    :ingress_event_id,
+    :source_event_id,
     :signal_channel_id,
-    :provider_entry_id,
+    :source_entry_id,
     :provider_thread_id,
     :channel_kind,
     :reply_mode,
@@ -41,7 +41,7 @@ defmodule Ankole.SignalsGateway.IngressFact do
     :provider_time,
     :explicit?,
     :mirror_only?,
-    :actor_input_type,
+    :actor_event_type,
     :command_prefixes,
     :sender_key,
     :gateway_time,
@@ -53,9 +53,6 @@ defmodule Ankole.SignalsGateway.IngressFact do
     :raw_reaction_key,
     :action_id,
     :session_id,
-    :timer_id,
-    :internal_subject,
-    :internal,
     :command_payload
   ]
 
@@ -85,15 +82,9 @@ defmodule Ankole.SignalsGateway.IngressFact do
   @spec action(map()) :: {:ok, t()} | {:error, term()}
   def action(attrs), do: new(:action, attrs)
 
-  @doc """
-  Constructs an internal source fact such as a timer fire.
-  """
-  @spec internal(map()) :: {:ok, t()} | {:error, term()}
-  def internal(attrs), do: new(:internal, attrs)
-
   # Durability check runs before struct construction: if any map/list field
   # can't be made JSON-safe, the fact never forms and the signal is rejected
-  # before any mirror or actor input is written (see JsonPayload's "fail before
+  # before any mirror or actor event is written (see JsonPayload's "fail before
   # provider ack" rule).
   defp new(kind, attrs) when is_map(attrs) do
     with {:ok, normalized_attrs} <- normalize_durable_fields(kind, attrs),
@@ -133,7 +124,6 @@ defmodule Ankole.SignalsGateway.IngressFact do
     |> normalize_map_field(:metadata)
     |> normalize_map_field(:raw_payload)
     |> normalize_action_payload(kind)
-    |> normalize_map_field(:internal)
     |> normalize_map_field(:command_payload)
   end
 

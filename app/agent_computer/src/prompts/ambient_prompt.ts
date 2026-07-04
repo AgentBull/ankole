@@ -1,8 +1,8 @@
 /**
  * Prompt builders for the ambient recognizer: the cheap pre-step that decides
  * whether the agent should proactively speak in an IM room where it was not
- * directly addressed. The response schema is owned by `runAmbientRecognizer`
- * through AI SDK `Output.object`, so this module stays focused on policy text.
+ * directly addressed. The response schema is owned by `recognizeAmbientIntervention`,
+ * so this module stays focused on policy text.
  */
 
 export type AmbientRecognizerSystemPromptInput = {
@@ -50,17 +50,18 @@ export function buildAmbientRecognizerSystemPrompt(input: AmbientRecognizerSyste
 }
 
 /**
- * Builds the user-turn prompt carrying the room state to judge, passed in as YAML.
+ * Builds the user-turn prompt carrying the room state to judge, passed in as
+ * pretty JSON.
  *
  * The closing instruction is load-bearing: only the current observed messages
  * may trigger a reply, preventing repeated intervention on stale chatter.
  */
-export function buildAmbientRecognizerUserPrompt(decisionInputYaml: string): string {
+export function buildAmbientRecognizerUserPrompt(decisionInputJson: string): string {
   return [
     'Decide whether the agent should send a visible reply to the IM room now.',
     '',
     '<decision_input>',
-    decisionInputYaml.trim(),
+    decisionInputJson.trim(),
     '</decision_input>',
     '',
     'Use only the current observed messages as the trigger. Recent transcript and earlier observed messages are supporting context, not standalone reasons to speak.'

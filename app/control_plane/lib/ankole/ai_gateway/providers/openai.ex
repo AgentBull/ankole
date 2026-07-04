@@ -19,8 +19,6 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
     setting(:project)
     setting(:headers, type: :map)
     setting(:query_params, type: :map)
-    setting(:include_usage, type: :boolean)
-    setting(:supports_structured_outputs, type: :boolean)
 
     setting(:reasoningEffort, scope: :request)
     setting(:reasoningSummary, scope: :request)

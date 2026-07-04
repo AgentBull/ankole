@@ -5,13 +5,13 @@ defmodule Ankole.SignalsGateway.SignalEntry do
   An "entry" is a single provider message/post. This row mirrors the latest
   observed state of that external fact (text, attachments, reactions, author) so
   Ankole can render context and reconcile edits/deletes — it is NOT the agent's
-  actor input or conversation turn, which live elsewhere. The gateway also writes
+  actor event or conversation turn, which live elsewhere. The gateway also writes
   this mirror for its own outbound posts after a successful send, so an entry the
   agent produced and an entry a human produced share one shape.
 
   `search_text` / `metadata_text` / `content_hash` are denormalized for search
   and change detection; `document_id` is a stable per-entry digest. The
-  composite `{signal_channel_id, provider_entry_id}` primary key is what makes
+  composite `{signal_channel_id, source_entry_id}` primary key is what makes
   re-delivery idempotent (upsert the same entry instead of duplicating it).
   """
 
@@ -33,7 +33,7 @@ defmodule Ankole.SignalsGateway.SignalEntry do
       type: :string,
       primary_key: true
 
-    field :provider_entry_id, :string, primary_key: true
+    field :source_entry_id, :string, primary_key: true
     field :text, :string
     field :formatted_content, :map, default: %{}
     field :attachments, {:array, :map}, default: []
@@ -52,6 +52,11 @@ defmodule Ankole.SignalsGateway.SignalEntry do
     field :content_hash, :string
     field :first_seen_at, :utc_datetime_usec
     field :last_seen_at, :utc_datetime_usec
+    # Stored ai_gateway_messages.id when this entry mirrors an outbound final AI
+    # reply. Set only after a successful final send/edit. Used by recovery
+    # catch-up scan to detect completed messages whose final reply was not yet
+    # mirrored. Does NOT flow back into ai_gateway_messages.
+    field :ai_message_id, Ecto.UUID
 
     timestamps()
   end
@@ -64,7 +69,7 @@ defmodule Ankole.SignalsGateway.SignalEntry do
     entry
     |> cast(attrs, [
       :signal_channel_id,
-      :provider_entry_id,
+      :source_entry_id,
       :text,
       :formatted_content,
       :attachments,
@@ -82,11 +87,12 @@ defmodule Ankole.SignalsGateway.SignalEntry do
       :metadata_text,
       :content_hash,
       :first_seen_at,
-      :last_seen_at
+      :last_seen_at,
+      :ai_message_id
     ])
     |> normalize_blank([
       :signal_channel_id,
-      :provider_entry_id,
+      :source_entry_id,
       :text,
       :fallback_visible_text,
       :document_id,
@@ -96,7 +102,7 @@ defmodule Ankole.SignalsGateway.SignalEntry do
     ])
     |> validate_required([
       :signal_channel_id,
-      :provider_entry_id,
+      :source_entry_id,
       :formatted_content,
       :attachments,
       :links,
@@ -111,8 +117,8 @@ defmodule Ankole.SignalsGateway.SignalEntry do
       :last_seen_at
     ])
     |> foreign_key_constraint(:signal_channel_id)
-    |> unique_constraint([:signal_channel_id, :provider_entry_id], name: :signal_entries_pkey)
-    |> check_constraint(:provider_entry_id, name: :signal_entries_provider_entry_id_present)
+    |> unique_constraint([:signal_channel_id, :source_entry_id], name: :signal_entries_pkey)
+    |> check_constraint(:source_entry_id, name: :signal_entries_source_entry_id_present)
     |> check_constraint(:document_id, name: :signal_entries_document_id_present)
     |> JsonPayload.validate_map(:formatted_content, allow_datetime: true)
     |> JsonPayload.validate_list(:attachments, allow_datetime: true)

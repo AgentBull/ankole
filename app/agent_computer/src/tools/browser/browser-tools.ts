@@ -1,17 +1,48 @@
 import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../../core'
-import { buildTool } from '../build-tool'
+import { imageContentPartFromBuffer } from '../../core/vision'
+import { TEXT_TURN_TIMEOUT_MS } from '../../core/turns/turn_config'
 import { executionScopeTag, type CommandFinished, type ComputerToolContext } from '../computer/context'
 import { truncateOutput } from '../computer/format'
+import {
+  browserBack,
+  browserClick,
+  browserDoctor,
+  browserExtractFromSession,
+  browserFindInSession,
+  browserNavigate,
+  browserPress,
+  browserScreenshot,
+  browserScroll,
+  browserSelect,
+  browserSnapshot,
+  browserType,
+  browserWait,
+  ensureBrowserSession as ensureCdpBrowserSession,
+  type BrowserRuntimeOptions
+} from '../../browser_cdp'
 
-// Shared schema fragments reused across the four browser tools. Each `.describe`
+// Shared schema fragments reused across the browser tools. Each `.describe`
 // is model-facing text; the wording steers when and how the tool is called.
+const TOOL_TIMEOUT_MARGIN_MS = 15_000
+const BrowserTimeoutMaxSeconds = Math.max(1, Math.floor((TEXT_TURN_TIMEOUT_MS - TOOL_TIMEOUT_MARGIN_MS) / 1000))
+const BrowserDefaultTimeoutSeconds = Math.min(120, BrowserTimeoutMaxSeconds)
+
+const BrowserTimeout = z
+  .number()
+  .int()
+  .min(1)
+  .max(BrowserTimeoutMaxSeconds)
+  .optional()
+  .describe(
+    `Max seconds to wait for this foreground browser command. Use at most ${BrowserTimeoutMaxSeconds}s for the current text-turn budget.`
+  )
 
 const BrowserSession = z
   .string()
   .min(1)
   .optional()
-  .describe('Browser session/profile id. Defaults to the current Ankole Agent UID.')
+  .describe('Browser capture session id. Defaults to the current Ankole Agent UID.')
 
 const BrowserTaskId = z
   .string()
@@ -19,39 +50,13 @@ const BrowserTaskId = z
   .optional()
   .describe('Stable task id used for browser artifacts. Defaults to a generated id.')
 
-const BrowserHeadless = z.enum(['true', 'virtual']).optional().describe('Headless mode. Use virtual for Xvfb.')
-
-// The single most behavior-shaping field: ephemeral throws the profile away
-// (clean one-off render), persistent keeps cookies/localStorage so a login or a
-// multi-step flow survives across calls. The description spells out the choice
-// because the model picks it.
-const BrowserProfileMode = z
-  .enum(['ephemeral', 'persistent'])
-  .optional()
-  .describe(
-    'Browser profile persistence. Use ephemeral for one-off rendered page views. Use persistent for login/session workflows or a sequence of interactions that must share cookies/localStorage.'
-  )
-
-// `fetch` downloads the (large) Camoufox binary on demand. It is opt-in because
-// the fetch is slow and only needed the first time on a fresh workspace — which
-// is also why a doctor call with fetch gets a much longer timeout below.
-const BrowserDoctorParams = z.object({
-  fetch: z.boolean().optional().describe('Fetch the Camoufox browser binary into this computer workspace if missing.')
-})
+const BrowserDoctorParams = z.object({})
 
 const BrowserOpenParams = z.object({
-  url: z.string().url().describe('URL to open in the rendered browser.'),
+  url: z.url().describe('URL to open in the rendered browser.'),
   session: BrowserSession,
   taskId: BrowserTaskId,
-  timeout: z.number().int().min(1).max(900).optional().describe('Max seconds to wait for the browser command.'),
-  autoFetch: z.boolean().optional().describe('Allow this call to run camoufox fetch if the browser binary is missing.'),
-  profileMode: BrowserProfileMode,
-  headless: BrowserHeadless,
-  waitUntil: z
-    .enum(['load', 'domcontentloaded', 'networkidle'])
-    .optional()
-    .describe('Playwright navigation wait state.'),
-  waitAfterMs: z.number().int().min(0).max(30000).optional().describe('Extra wait after navigation before capture.')
+  timeout: BrowserTimeout
 })
 
 const BrowserExtractParams = z.object({
@@ -60,25 +65,118 @@ const BrowserExtractParams = z.object({
     .url()
     .optional()
     .describe('URL to open and extract. If omitted, extracts the latest session capture.'),
+  pattern: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('Optional case-insensitive line filter applied to extracted page text.'),
   session: BrowserSession,
   taskId: BrowserTaskId,
-  format: z.enum(['text', 'markdown', 'json']).optional().describe('Requested extraction format.'),
-  timeout: z.number().int().min(1).max(900).optional().describe('Max seconds to wait for the browser command.'),
-  autoFetch: z.boolean().optional().describe('Allow this call to run camoufox fetch if the browser binary is missing.'),
-  profileMode: BrowserProfileMode,
-  headless: BrowserHeadless,
-  waitUntil: z
-    .enum(['load', 'domcontentloaded', 'networkidle'])
+  timeout: BrowserTimeout
+})
+
+const BrowserNavigateParams = z.object({
+  url: z.string().url().describe('URL to open in the persistent browser session.'),
+  session: BrowserSession,
+  taskId: BrowserTaskId,
+  timeout: BrowserTimeout
+})
+
+const BrowserSnapshotParams = z.object({
+  full: z.boolean().optional().describe('Return the full page text instead of the default bounded snapshot.'),
+  session: BrowserSession,
+  timeout: BrowserTimeout
+})
+
+const BrowserFindParams = z.object({
+  query: z.string().min(1).describe('Case-insensitive text to find in the current browser page.'),
+  contextLines: z
+    .number()
+    .int()
+    .min(0)
+    .max(12)
     .optional()
-    .describe('Playwright navigation wait state.'),
-  waitAfterMs: z.number().int().min(0).max(30000).optional().describe('Extra wait after navigation before extraction.')
+    .describe('Number of neighboring text lines to return before and after each match. Defaults to 4.'),
+  matchLimit: z
+    .number()
+    .int()
+    .min(1)
+    .max(50)
+    .optional()
+    .describe('Maximum number of matches to return. Defaults to 20.'),
+  caseSensitive: z.boolean().optional().describe('Use case-sensitive matching. Defaults to false.'),
+  session: BrowserSession,
+  timeout: BrowserTimeout
+})
+
+const BrowserRef = z
+  .string()
+  .min(1)
+  .describe('Element ref from the latest browser_snapshot or browser_navigate result, such as e1.')
+
+const BrowserClickParams = z.object({
+  ref: BrowserRef,
+  session: BrowserSession,
+  timeout: BrowserTimeout
+})
+
+const BrowserTypeParams = z.object({
+  ref: BrowserRef,
+  text: z.string().describe('Text to place into the referenced input-like element. Existing value is replaced.'),
+  session: BrowserSession,
+  timeout: BrowserTimeout
+})
+
+const BrowserPressParams = z.object({
+  key: z.string().min(1).describe('Keyboard key to press, e.g. Enter, Tab, Escape, ArrowDown, or a single character.'),
+  session: BrowserSession,
+  timeout: BrowserTimeout
+})
+
+const BrowserScrollParams = z.object({
+  ref: BrowserRef.optional().describe('Optional scrollable element ref. Omit to scroll the page.'),
+  direction: z.enum(['down', 'up']).optional().describe('Scroll direction. Defaults to down.'),
+  pixels: z.number().int().min(1).max(10_000).optional().describe('Scroll distance in CSS pixels.'),
+  session: BrowserSession,
+  timeout: BrowserTimeout
+})
+
+const BrowserSelectParams = z.object({
+  ref: BrowserRef,
+  value: z.string().min(1).describe('Option value or visible option text to select.'),
+  session: BrowserSession,
+  timeout: BrowserTimeout
+})
+
+const BrowserWaitParams = z.object({
+  kind: z
+    .enum(['load', 'selector', 'text'])
+    .optional()
+    .describe('Condition to wait for. Defaults to page load readiness.'),
+  selector: z.string().optional().describe('CSS selector for kind=selector.'),
+  text: z.string().optional().describe('Page text fragment for kind=text.'),
+  waitForSeconds: z.number().int().min(1).max(120).optional().describe('Condition wait budget in seconds.'),
+  session: BrowserSession,
+  timeout: BrowserTimeout
+})
+
+const BrowserBackParams = z.object({
+  session: BrowserSession,
+  timeout: BrowserTimeout
+})
+
+const BrowserScreenshotParams = z.object({
+  path: z
+    .string()
+    .optional()
+    .describe('Optional /workspace path for the PNG. Defaults under /workspace/user-files/browser.'),
+  session: BrowserSession,
+  taskId: BrowserTaskId,
+  timeout: BrowserTimeout
 })
 
 const BrowserRunParams = z.object({
-  script: z
-    .string()
-    .min(1)
-    .describe('Python source for a repeatable browser automation script. It can import camoufox directly.'),
+  script: z.string().min(1).describe('Python source for a helper script run inside the computer.'),
   session: BrowserSession,
   taskId: BrowserTaskId,
   startUrl: z
@@ -86,29 +184,38 @@ const BrowserRunParams = z.object({
     .url()
     .optional()
     .describe('Optional start URL exposed to the script as ANKOLE_BROWSER_START_URL.'),
-  timeout: z.number().int().min(1).max(1800).optional().describe('Max seconds to wait for the browser script.'),
-  autoFetch: z.boolean().optional().describe('Allow this call to run camoufox fetch if the browser binary is missing.'),
-  profileMode: BrowserProfileMode,
-  headless: BrowserHeadless
+  timeout: BrowserTimeout
 })
 
-// Structured echo for logs/UI. `exitCode` is the CLI process exit; `result` is
-// the parsed JSON the CLI printed, when it printed any.
+// Structured echo for logs/UI. `exitCode` is retained for the model-visible
+// contract even though production browser actions now run in-process instead
+// of shelling through the `ankole-browser` CLI.
 interface BrowserToolDetails {
   exitCode: number
   result?: unknown
 }
 
 /**
- * Builds the browser tool family bound to one run's computer context. These are
- * the rendered-browser path: stateful browsing, screenshots, login/session
- * flows, and a fallback for pages that need JavaScript-rendered state. They all
- * shell out to the `ankole-browser` CLI inside the agent's computer rather than
- * driving a browser from this process.
+ * Builds the browser tool family bound to one run's computer context. These
+ * tools run in the main Bun worker process. The browser endpoint resolver uses
+ * the AppConfigure-provided remote CDP adapter when present; otherwise it
+ * lazily starts a worker-local Chromium singleton and isolates sessions with
+ * CDP BrowserContext in `browser_cdp.ts`.
  */
 export function createBrowserTools(context: ComputerToolContext): AgentTool<any>[] {
   return [
     createBrowserDoctorTool(context),
+    createBrowserNavigateTool(context),
+    createBrowserSnapshotTool(context),
+    createBrowserFindTool(context),
+    createBrowserClickTool(context),
+    createBrowserTypeTool(context),
+    createBrowserPressTool(context),
+    createBrowserScrollTool(context),
+    createBrowserSelectTool(context),
+    createBrowserWaitTool(context),
+    createBrowserBackTool(context),
+    createBrowserScreenshotTool(context),
     createBrowserOpenTool(context),
     createBrowserExtractTool(context),
     createBrowserRunTool(context)
@@ -116,130 +223,336 @@ export function createBrowserTools(context: ComputerToolContext): AgentTool<any>
 }
 
 /**
- * Health check for the in-computer browser runtime, optionally fetching the
- * browser binary. Marked destructive (not read-only) because with `fetch` it
- * writes the binary into the workspace; the timeout jumps to 900s for that
- * download path and stays short (60s) for a plain check.
+ * Health check for the in-computer browser runtime.
  */
 function createBrowserDoctorTool(
   context: ComputerToolContext
 ): AgentTool<typeof BrowserDoctorParams, BrowserToolDetails> {
-  return buildTool({
+  return {
     name: 'browser_doctor',
-    label: 'Browser Doctor',
     description:
-      'Check the Ankole browser runtime inside the computer. Browser tools are for stateful browsing, rendered interaction, screenshots, login/session workflows, or pages that require JavaScript-rendered state.',
+      'Check the Ankole browser runtime inside the computer. Reports local Chromium availability or the configured remote CDP adapter.',
     schema: BrowserDoctorParams,
     executionMode: 'sequential',
     isReadOnly: false,
-    isDestructive: true,
-    async execute(_toolCallId, params, signal) {
-      return runBrowserCli(context, ['doctor', ...(params.fetch ? ['--fetch'] : [])], params.fetch ? 900 : 60, signal)
+    isDestructive: false,
+    async execute(_toolCallId, _params, signal) {
+      return browserToolResult(context, browserDoctor(browserRuntimeOptions(context)), signal)
     }
-  })
+  }
 }
 
 /**
- * Opens a URL in the rendered browser and captures a screenshot plus text/html
- * artifacts. Defaults to an ephemeral profile (clean one-off view). Treated as
- * destructive because it drives a real browser and writes capture artifacts into
- * the workspace, even though the caller's intent is usually to read. The default
- * timeout is 120s, or 900s when `autoFetch` may trigger a binary download first.
+ * Opens a URL in the persistent rendered browser. Screenshot is best-effort
+ * because some CDP backends do not support it.
  */
 function createBrowserOpenTool(context: ComputerToolContext): AgentTool<typeof BrowserOpenParams, BrowserToolDetails> {
-  return buildTool({
+  return {
     name: 'browser_open',
-    label: 'Browser Open',
     description:
-      'Open a URL in the computer browser, capture a screenshot plus rendered text/html artifacts, and return page metadata. Defaults to an ephemeral browser profile for one-off rendered page views. Use profileMode="persistent" only for login/session workflows or a sequence of interactions.',
+      'Compatibility alias for browser_navigate that opens a URL in the persistent browser session and captures a screenshot artifact when the backend supports screenshots. Prefer browser_navigate for new multi-step browser work.',
     schema: BrowserOpenParams,
     executionMode: 'sequential',
     isReadOnly: false,
-    isDestructive: true,
+    isDestructive: false,
     async execute(_toolCallId, params, signal) {
-      return runBrowserCli(
+      const session = sessionFor(context, params.session)
+      return runBrowserOperation(context, session, params.timeout, signal, async options => {
+        await ensureCdpBrowserSession({ session }, options)
+        return await browserNavigate({ session, url: params.url, taskId: params.taskId, screenshot: true }, options)
+      })
+    }
+  }
+}
+
+function createBrowserNavigateTool(
+  context: ComputerToolContext
+): AgentTool<typeof BrowserNavigateParams, BrowserToolDetails> {
+  return {
+    name: 'browser_navigate',
+    description:
+      'Open a URL in the persistent browser session. Returns a text snapshot with stable element refs like e1; use those refs with browser_click/browser_type/etc. Cookies and page state persist for this execution scope while the CDP backend is alive.',
+    schema: BrowserNavigateParams,
+    executionMode: 'sequential',
+    isReadOnly: false,
+    isDestructive: false,
+    async execute(_toolCallId, params, signal) {
+      const session = sessionFor(context, params.session)
+      return runBrowserOperation(context, session, params.timeout, signal, async options => {
+        await ensureCdpBrowserSession({ session }, options)
+        return await browserNavigate({ session, url: params.url, taskId: params.taskId }, options)
+      })
+    }
+  }
+}
+
+function createBrowserSnapshotTool(
+  context: ComputerToolContext
+): AgentTool<typeof BrowserSnapshotParams, BrowserToolDetails> {
+  return {
+    name: 'browser_snapshot',
+    description:
+      'Observe the current browser page as text. The snapshot lists interactive elements with refs; refs are valid only for the latest page state, so take a new snapshot after navigation or DOM-changing actions.',
+    schema: BrowserSnapshotParams,
+    executionMode: 'sequential',
+    isReadOnly: false,
+    isDestructive: false,
+    async execute(_toolCallId, params, signal) {
+      const session = sessionFor(context, params.session)
+      return runBrowserOperation(context, session, params.timeout, signal, async options => {
+        await ensureCdpBrowserSession({ session }, options)
+        return await browserSnapshot({ session, full: params.full }, options)
+      })
+    }
+  }
+}
+
+function createBrowserFindTool(context: ComputerToolContext): AgentTool<typeof BrowserFindParams, BrowserToolDetails> {
+  return {
+    name: 'browser_find',
+    description:
+      'Find text in the current rendered browser page and return matching lines with nearby context. Use this after browser_navigate/browser_snapshot on long pages when the relevant text is outside the bounded snapshot.',
+    schema: BrowserFindParams,
+    executionMode: 'sequential',
+    isReadOnly: true,
+    isDestructive: false,
+    async execute(_toolCallId, params, signal) {
+      const session = sessionFor(context, params.session)
+      return runBrowserOperation(context, session, params.timeout, signal, async options => {
+        await ensureCdpBrowserSession({ session }, options)
+        return await browserFindInSession(
+          {
+            session,
+            query: params.query,
+            contextLines: params.contextLines,
+            matchLimit: params.matchLimit,
+            caseSensitive: params.caseSensitive
+          },
+          options
+        )
+      })
+    }
+  }
+}
+
+function createBrowserClickTool(
+  context: ComputerToolContext
+): AgentTool<typeof BrowserClickParams, BrowserToolDetails> {
+  return {
+    name: 'browser_click',
+    description:
+      'Click an element by ref from the latest browser snapshot, then return a fresh text snapshot. If the ref is stale, take browser_snapshot and retry with the new ref.',
+    schema: BrowserClickParams,
+    executionMode: 'sequential',
+    isReadOnly: false,
+    isDestructive: false,
+    async execute(_toolCallId, params, signal) {
+      const session = sessionFor(context, params.session)
+      return runBrowserOperation(context, session, params.timeout, signal, async options => {
+        await ensureCdpBrowserSession({ session }, options)
+        return await browserClick({ session, ref: params.ref }, options)
+      })
+    }
+  }
+}
+
+function createBrowserTypeTool(context: ComputerToolContext): AgentTool<typeof BrowserTypeParams, BrowserToolDetails> {
+  return {
+    name: 'browser_type',
+    description:
+      'Replace the value of an input-like element by ref, dispatching input/change events for framework-controlled fields, then return a fresh snapshot.',
+    schema: BrowserTypeParams,
+    executionMode: 'sequential',
+    isReadOnly: false,
+    isDestructive: false,
+    async execute(_toolCallId, params, signal) {
+      const session = sessionFor(context, params.session)
+      return runBrowserOperation(context, session, params.timeout, signal, async options => {
+        await ensureCdpBrowserSession({ session }, options)
+        return await browserType({ session, ref: params.ref, text: params.text }, options)
+      })
+    }
+  }
+}
+
+function createBrowserPressTool(
+  context: ComputerToolContext
+): AgentTool<typeof BrowserPressParams, BrowserToolDetails> {
+  return {
+    name: 'browser_press',
+    description: 'Press a keyboard key in the persistent browser page, then return a fresh snapshot.',
+    schema: BrowserPressParams,
+    executionMode: 'sequential',
+    isReadOnly: false,
+    isDestructive: false,
+    async execute(_toolCallId, params, signal) {
+      const session = sessionFor(context, params.session)
+      return runBrowserOperation(context, session, params.timeout, signal, async options => {
+        await ensureCdpBrowserSession({ session }, options)
+        return await browserPress({ session, key: params.key }, options)
+      })
+    }
+  }
+}
+
+function createBrowserScrollTool(
+  context: ComputerToolContext
+): AgentTool<typeof BrowserScrollParams, BrowserToolDetails> {
+  return {
+    name: 'browser_scroll',
+    description:
+      'Scroll the page or a scrollable element ref, then return a fresh snapshot. Use this when relevant refs are not visible in the current snapshot.',
+    schema: BrowserScrollParams,
+    executionMode: 'sequential',
+    isReadOnly: false,
+    isDestructive: false,
+    async execute(_toolCallId, params, signal) {
+      const session = sessionFor(context, params.session)
+      return runBrowserOperation(context, session, params.timeout, signal, async options => {
+        await ensureCdpBrowserSession({ session }, options)
+        return await browserScroll(
+          { session, ref: params.ref, direction: params.direction, pixels: params.pixels },
+          options
+        )
+      })
+    }
+  }
+}
+
+function createBrowserSelectTool(
+  context: ComputerToolContext
+): AgentTool<typeof BrowserSelectParams, BrowserToolDetails> {
+  return {
+    name: 'browser_select',
+    description:
+      'Select an option in a select element by ref and option value or visible text, then return a snapshot.',
+    schema: BrowserSelectParams,
+    executionMode: 'sequential',
+    isReadOnly: false,
+    isDestructive: false,
+    async execute(_toolCallId, params, signal) {
+      const session = sessionFor(context, params.session)
+      return runBrowserOperation(context, session, params.timeout, signal, async options => {
+        await ensureCdpBrowserSession({ session }, options)
+        return await browserSelect({ session, ref: params.ref, value: params.value }, options)
+      })
+    }
+  }
+}
+
+function createBrowserWaitTool(context: ComputerToolContext): AgentTool<typeof BrowserWaitParams, BrowserToolDetails> {
+  return {
+    name: 'browser_wait',
+    description:
+      'Wait for page load readiness, a selector, or visible text in the persistent browser page, then return a fresh snapshot.',
+    schema: BrowserWaitParams,
+    executionMode: 'sequential',
+    isReadOnly: false,
+    isDestructive: false,
+    async execute(_toolCallId, params, signal) {
+      const session = sessionFor(context, params.session)
+      return runBrowserOperation(
         context,
-        [
-          'open',
-          '--session',
-          sessionFor(context, params.session),
-          '--profile-session',
-          profileSessionFor(context, params.session),
-          '--url',
-          params.url,
-          ...optionalArg('--task-id', params.taskId),
-          '--profile-mode',
-          params.profileMode ?? 'ephemeral',
-          ...optionalArg('--headless', params.headless),
-          ...optionalArg('--wait-until', params.waitUntil),
-          ...optionalNumberArg('--wait-after-ms', params.waitAfterMs),
-          ...optionalTimeoutArg(params.timeout),
-          ...(params.autoFetch ? ['--auto-fetch'] : [])
-        ],
-        params.timeout ?? (params.autoFetch ? 900 : 120),
-        signal
+        session,
+        params.timeout ?? Math.max(BrowserDefaultTimeoutSeconds, params.waitForSeconds ?? 0),
+        signal,
+        async options => {
+          await ensureCdpBrowserSession({ session }, options)
+          return await browserWait(
+            {
+              session,
+              kind: params.kind,
+              selector: params.selector,
+              text: params.text,
+              timeoutMs: params.waitForSeconds === undefined ? undefined : params.waitForSeconds * 1000
+            },
+            options
+          )
+        }
       )
     }
-  })
+  }
+}
+
+function createBrowserBackTool(context: ComputerToolContext): AgentTool<typeof BrowserBackParams, BrowserToolDetails> {
+  return {
+    name: 'browser_back',
+    description: 'Navigate the persistent browser page back one history entry, then return a fresh snapshot.',
+    schema: BrowserBackParams,
+    executionMode: 'sequential',
+    isReadOnly: false,
+    isDestructive: false,
+    async execute(_toolCallId, params, signal) {
+      const session = sessionFor(context, params.session)
+      return runBrowserOperation(context, session, params.timeout, signal, async options => {
+        await ensureCdpBrowserSession({ session }, options)
+        return await browserBack({ session }, options)
+      })
+    }
+  }
+}
+
+function createBrowserScreenshotTool(
+  context: ComputerToolContext
+): AgentTool<typeof BrowserScreenshotParams, BrowserToolDetails> {
+  return {
+    name: 'browser_screenshot',
+    description:
+      'Capture a real PNG screenshot of the current persistent browser viewport. The image is saved under /workspace/user-files by default and may be attached for image-capable models.',
+    schema: BrowserScreenshotParams,
+    executionMode: 'sequential',
+    isReadOnly: false,
+    isDestructive: false,
+    async execute(_toolCallId, params, signal) {
+      const session = sessionFor(context, params.session)
+      return runBrowserOperation(context, session, params.timeout, signal, async options => {
+        await ensureCdpBrowserSession({ session }, options)
+        return await browserScreenshot({ session, path: params.path, taskId: params.taskId }, options)
+      })
+    }
+  }
 }
 
 /**
- * Extracts rendered text either from a fresh URL or from this session's latest
- * capture (when `url` is omitted), used when a page needs JavaScript-rendered state. Same
- * destructive/ephemeral defaults and timeout selection as `browser_open`.
+ * Extracts text either from a fresh URL capture or from this session's latest
+ * capture when `url` is omitted.
  */
 function createBrowserExtractTool(
   context: ComputerToolContext
 ): AgentTool<typeof BrowserExtractParams, BrowserToolDetails> {
-  return buildTool({
+  return {
     name: 'browser_extract',
-    label: 'Browser Extract',
     description:
-      'Extract rendered text from a URL or from the latest browser capture for this agent session. Defaults to an ephemeral browser profile when opening a URL. Use this for pages that require rendered state.',
+      'Extract text from a URL or from the current browser page for this agent session. URL extraction reuses the persistent CDP browser session.',
     schema: BrowserExtractParams,
     executionMode: 'sequential',
     isReadOnly: false,
-    isDestructive: true,
+    isDestructive: false,
     async execute(_toolCallId, params, signal) {
-      return runBrowserCli(
-        context,
-        [
-          'extract',
-          '--session',
-          sessionFor(context, params.session),
-          '--profile-session',
-          profileSessionFor(context, params.session),
-          ...optionalArg('--url', params.url),
-          ...optionalArg('--task-id', params.taskId),
-          ...optionalArg('--format', params.format),
-          '--profile-mode',
-          params.profileMode ?? 'ephemeral',
-          ...optionalArg('--headless', params.headless),
-          ...optionalArg('--wait-until', params.waitUntil),
-          ...optionalNumberArg('--wait-after-ms', params.waitAfterMs),
-          ...optionalTimeoutArg(params.timeout),
-          ...(params.autoFetch ? ['--auto-fetch'] : [])
-        ],
-        params.timeout ?? (params.autoFetch ? 900 : 120),
-        signal
-      )
+      const session = sessionFor(context, params.session)
+      return runBrowserOperation(context, session, params.timeout, signal, async options => {
+        await ensureCdpBrowserSession({ session }, options)
+        const extracted = await browserExtractFromSession(
+          { session, url: params.url, pattern: params.pattern, taskId: params.taskId },
+          options
+        )
+        if (!extracted) throw new Error('No active browser session; run browser_navigate first.')
+        return extracted
+      })
     }
-  })
+  }
 }
 
 /**
- * Runs an arbitrary Python automation script in the computer browser — the main
- * path for multi-step/stateful work. Defaults to a persistent profile so cookies
- * and login survive across steps. Clearly destructive: it executes model-written
- * code that drives a browser and writes a tree of run artifacts. Longest default
- * timeout of the family (180s, or 900s with autoFetch) because scripts run long.
+ * Runs an arbitrary Python helper script in the computer. This path does not
+ * inject a browser automation library; scripts may read artifacts or use
+ * binaries already present in the container.
  */
 function createBrowserRunTool(context: ComputerToolContext): AgentTool<typeof BrowserRunParams, BrowserToolDetails> {
-  return buildTool({
+  return {
     name: 'browser_run',
-    label: 'Browser Run',
     description:
-      'Run a repeatable Python browser automation script inside the computer. Defaults to persistent profile mode and is the main path for multi-step/stateful browser work. Use profileMode="ephemeral" only for self-contained scripts that should not reuse cookies/localStorage. The runtime writes Webwright-style final_runs artifacts, screenshots, stdout, stderr, and final_script_log.txt under /workspace/user-files/browser.',
+      'Run a Python helper script inside the computer. No browser automation package is injected; use only Python modules and binaries available in the container. The script is stored under /workspace/user-files/browser/tasks and runs with cwd=/workspace.',
     schema: BrowserRunParams,
     executionMode: 'sequential',
     isReadOnly: false,
@@ -254,95 +567,104 @@ function createBrowserRunTool(context: ComputerToolContext): AgentTool<typeof Br
       const taskId = sanitizeTaskId(params.taskId)
       const scriptPath = `user-files/browser/tasks/${session}/${taskId}/input_script.py`
       await computer.fs.writeFiles([{ path: scriptPath, content: params.script }], { cwd: '/workspace', signal })
-      return runBrowserCli(
+      const result = (await computer.runCommand({
+        cmd: 'python3',
+        args: [`/workspace/${scriptPath}`],
+        cwd: '/workspace',
+        env: params.startUrl ? { ANKOLE_BROWSER_START_URL: params.startUrl } : undefined,
+        timeoutMs: (params.timeout ?? BrowserDefaultTimeoutSeconds) * 1000,
+        signal
+      })) as CommandFinished
+      const [stdout, stderr] = await Promise.all([
+        result.output('stdout', { signal }),
+        result.output('stderr', { signal })
+      ])
+      return browserToolResult(
         context,
-        [
-          'run',
-          '--session',
-          session,
-          '--profile-session',
-          profileSessionFor(context, params.session),
-          '--task-id',
-          taskId,
-          '--script',
-          `/workspace/${scriptPath}`,
-          ...optionalArg('--start-url', params.startUrl),
-          '--profile-mode',
-          params.profileMode ?? 'persistent',
-          ...optionalArg('--headless', params.headless),
-          ...optionalTimeoutArg(params.timeout),
-          ...(params.autoFetch ? ['--auto-fetch'] : [])
-        ],
-        params.timeout ?? (params.autoFetch ? 900 : 180),
+        {
+          ok: result.exitCode === 0,
+          exit_code: result.exitCode,
+          stdout: truncateOutput(stdout),
+          stderr: truncateOutput(stderr)
+        },
         signal
       )
     }
-  })
+  }
 }
 
-/**
- * Single choke point that runs the `ankole-browser` CLI in the computer and
- * shapes its output into a tool result. The CLI is always run with `--json`. If
- * a JSON line is found it is pretty-printed for the model and kept structured in
- * `details`; otherwise the raw output is shown, truncated to the shared output
- * cap so a noisy run cannot blow the context window. The exit code is surfaced
- * either way so the model can see a non-zero failure even when output parsed.
- */
-async function runBrowserCli(
+async function runBrowserOperation(
   context: ComputerToolContext,
-  args: string[],
-  timeoutSeconds: number,
+  _session: string,
+  timeoutSeconds: number | undefined,
+  signal: AbortSignal | undefined,
+  operation: (options: BrowserRuntimeOptions) => Promise<Record<string, unknown>>
+): Promise<AgentToolResult<BrowserToolDetails>> {
+  const options = browserRuntimeOptions(context)
+  const result = await withTimeout(operation(options), (timeoutSeconds ?? BrowserDefaultTimeoutSeconds) * 1000, signal)
+  return browserToolResult(context, result, signal)
+}
+
+async function browserToolResult(
+  context: ComputerToolContext,
+  result: unknown,
   signal?: AbortSignal
 ): Promise<AgentToolResult<BrowserToolDetails>> {
-  const computer = await context.getComputer(signal)
-  const result = (await computer.runCommand({
-    cmd: 'ankole-browser',
-    args: ['--json', ...args],
-    timeoutMs: timeoutSeconds * 1000,
-    signal
-  })) as CommandFinished
-  const output = await result.output('both', { signal })
-  const parsed = parseJsonOutput(output)
-  const text = parsed
-    ? `exit_code=${result.exitCode}\n${JSON.stringify(parsed, null, 2)}`
-    : `exit_code=${result.exitCode}\n${truncateOutput(output)}`
+  const text = `exit_code=0\n${JSON.stringify(result, null, 2)}`
+  const content: AgentToolResult<BrowserToolDetails>['content'] = [{ type: 'text', text }]
+  const screenshotPath = screenshotPathFromResult(result)
+  if (screenshotPath) {
+    const computer = await context.getComputer(signal)
+    const screenshot = await computer.readFileToBuffer({ path: screenshotPath }, { signal })
+    const image = screenshot ? imageContentPartFromBuffer(screenshot) : undefined
+    if (image) content.push(image)
+  }
+
   return {
-    content: [{ type: 'text', text }],
-    details: { exitCode: result.exitCode, result: parsed }
+    content,
+    details: { exitCode: 0, result }
   }
 }
 
-// Pulls the CLI's JSON result line out of mixed stdout+stderr. Scans bottom-up
-// and returns the last line that parses, on the assumption that the CLI prints
-// its machine-readable result after any human-readable log lines. Non-JSON noise
-// is skipped rather than treated as an error.
-function parseJsonOutput(output: string): unknown | undefined {
-  const trimmed = output.trim()
-  if (!trimmed) return undefined
-  const lines = trimmed.split(/\r?\n/).filter(Boolean)
-  for (const line of lines.reverse()) {
-    try {
-      return JSON.parse(line)
-    } catch {
-      continue
-    }
+function screenshotPathFromResult(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const path = (value as Record<string, unknown>).screenshot_path
+  return typeof path === 'string' && path.length > 0 ? path : undefined
+}
+
+function browserRuntimeOptions(context: ComputerToolContext): BrowserRuntimeOptions {
+  return {
+    remoteCdpConfig: context.browserRemoteCdpConfig ?? null,
+    localBrowserIdleTtlMs: context.localBrowserIdleTtlMs
   }
-  return undefined
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, signal?: AbortSignal): Promise<T> {
+  if (signal?.aborted) throw new Error('browser command aborted')
+
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  let abort: (() => void) | undefined
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => reject(new Error(`browser command timed out after ${timeoutMs}ms`)), timeoutMs)
+    abort = () => reject(new Error('browser command aborted'))
+    signal?.addEventListener('abort', abort, { once: true })
+  })
+
+  try {
+    return await Promise.race([promise, timeoutPromise])
+  } finally {
+    if (timeout) clearTimeout(timeout)
+    if (abort) signal?.removeEventListener('abort', abort)
+  }
 }
 
 /**
- * Execution session: captures, downloads, artifacts, and the latest-capture
- * pointer are scoped per conversation. An explicit session id opts out of the
- * scoping and is used verbatim for both execution and profile.
+ * Execution session: captures, helper scripts, and the latest-capture pointer
+ * are scoped per conversation. An explicit session id opts out of that scoping.
  */
 function sessionFor(context: ComputerToolContext, value: string | undefined): string {
   if (value) return sanitizeId(value, 'browser-session')
   return sanitizeId(`${context.agentUid}--s-${executionScopeTag(context)}`, 'browser-session')
-}
-
-/** Profile (cookies/localStorage/HOME) scope: shared across the agent's conversations. */
-function profileSessionFor(context: ComputerToolContext, value: string | undefined): string {
-  return sanitizeId(value ?? context.agentUid, 'browser-session')
 }
 
 function sanitizeTaskId(value: string | undefined): string {
@@ -359,19 +681,4 @@ function sanitizeId(value: string, fallback: string): string {
     .replace(/[^a-zA-Z0-9._-]+/g, '-')
     .replace(/^-+|-+$/g, '')
   return safe.slice(0, 96) || fallback
-}
-
-// argv builders: emit the flag only when the value is present, so optional
-// params simply vanish from the command line instead of passing empty strings.
-function optionalArg(name: string, value: string | undefined): string[] {
-  return value ? [name, value] : []
-}
-
-function optionalNumberArg(name: string, value: number | undefined): string[] {
-  return value === undefined ? [] : [name, String(value)]
-}
-
-// The tool takes a timeout in seconds (model-friendly) but the CLI wants ms.
-function optionalTimeoutArg(value: number | undefined): string[] {
-  return value === undefined ? [] : ['--timeout-ms', String(value * 1000)]
 }

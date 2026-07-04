@@ -7,6 +7,10 @@
 # General application configuration
 import Config
 
+Code.require_file("support/bootstrap.exs", __DIR__)
+
+Ankole.Config.Bootstrap.load_dotenv!(root: Path.expand("..", __DIR__), env: config_env())
+
 config :ankole,
   ecto_repos: [Ankole.Repo],
   generators: [timestamp_type: :utc_datetime]

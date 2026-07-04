@@ -1,9 +1,15 @@
 defmodule AnkoleWeb.SetupControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
+  import Ecto.Query
+  import Ankole.PrincipalsFixtures
+
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
+  alias Ankole.AuthZ
+  alias Ankole.AuthZ.Grant
   alias Ankole.Repo
+  alias Ankole.Setup.Bootstrap
   alias Ankole.Setup.Config, as: SetupConfig
   alias AnkoleWeb.Session, as: WebSession
 
@@ -37,6 +43,28 @@ defmodule AnkoleWeb.SetupControllerTest do
     assert json_response(conn, 401)["error"] == "invalid bootstrap activation code"
     assert get_session(conn, :setup_session) == nil
     assert get_session(conn, :setup_oidc_state) == nil
+  end
+
+  test "bootstrap repairs console admin grants once when setup is complete" do
+    human = human_fixture(%{uid: unique_uid("setup-bootstrap-admin")})
+    assert {:ok, _root} = AuthZ.root_init_admin(human.principal.uid)
+
+    Repo.delete_all(
+      from grant in Grant,
+        where:
+          grant.resource_pattern == "**" and grant.action == "read" and grant.condition == "true"
+    )
+
+    {:ok, true} = SetupConfig.put_completed(true)
+
+    assert {:ok, %{completed: true, activation_code: nil}} = Bootstrap.initialize()
+
+    assert Repo.exists?(
+             from grant in Grant,
+               where:
+                 grant.resource_pattern == "**" and grant.action == "read" and
+                   grant.condition == "true"
+           )
   end
 
   defp allow_cache_database_access do

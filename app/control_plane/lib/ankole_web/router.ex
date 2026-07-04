@@ -26,11 +26,6 @@ defmodule AnkoleWeb.Router do
     plug :put_secure_browser_headers
   end
 
-  # Unused by any scope today, but kept as the conventional JSON entry pipeline.
-  pipeline :api do
-    plug :accepts, ["json"]
-  end
-
   pipeline :openapi do
     plug :accepts, ["json"]
     plug OpenApiSpex.Plug.PutApiSpec, module: AnkoleWeb.ApiSpec
@@ -107,6 +102,12 @@ defmodule AnkoleWeb.Router do
     delete "/app-configurations/:key", AppConfigurationController, :delete
     post "/app-configurations/:key/decryptions", AppConfigurationController, :decrypt
 
+    get "/agents", AgentController, :index
+    post "/agents", AgentController, :create
+    get "/agents/:agent_uid", AgentController, :show
+    patch "/agents/:agent_uid", AgentController, :update
+    delete "/agents/:agent_uid", AgentController, :delete
+
     get "/ai-gateway/provider-kinds", AIGatewayProviderController, :provider_kinds
     get "/ai-gateway/providers", AIGatewayProviderController, :index
     put "/ai-gateway/providers/:provider_id", AIGatewayProviderController, :put_provider
@@ -120,6 +121,16 @@ defmodule AnkoleWeb.Router do
     delete "/agents/:agent_uid/model-profiles/:profile",
            AIGatewayProviderController,
            :delete_model_profile
+
+    get "/agents/:agent_uid/signal-bindings", SignalBindingController, :index
+
+    put "/agents/:agent_uid/signal-bindings/lark/:binding_name",
+        SignalBindingController,
+        :put_lark
+
+    delete "/agents/:agent_uid/signal-bindings/:binding_name",
+           SignalBindingController,
+           :delete
 
     get "/agents/:agent_uid/sessions/:session_id/cron-schedules",
         ScheduleController,
@@ -170,10 +181,15 @@ defmodule AnkoleWeb.Router do
     pipe_through :ai_gateway_api
 
     get "/models", AIGatewayController, :models
+    get "/web_tools", AIGatewayController, :web_tools
     get "/responses", AIGatewayWebSocketController, :responses
+    get "/responses/:response_id", AIGatewayController, :retrieve_response
+    post "/responses/compact", AIGatewayController, :compact_response
     post "/responses", AIGatewayController, :responses
     post "/embeddings", AIGatewayController, :embeddings
     post "/rerank", AIGatewayController, :rerank
+    post "/web_search", AIGatewayController, :web_search
+    post "/web_fetch", AIGatewayController, :web_fetch
   end
 
   # Browser-facing HTML. The `*path` catch-alls let each SPA own its own

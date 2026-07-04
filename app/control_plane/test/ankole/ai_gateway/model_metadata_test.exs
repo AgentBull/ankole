@@ -36,6 +36,31 @@ defmodule Ankole.AIGateway.ModelMetadataTest do
            ]
   end
 
+  test "china-market provider metadata uses explicit aliases and static sources" do
+    assert {:ok, xiaomi} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "xiaomi-metadata-source",
+               provider_kind: "xiaomi_mimo",
+               connection_options: %{"api_key" => "mimo-key"}
+             })
+
+    assert {:ok, xiaomi_metadata} = ModelMetadata.model_metadata(xiaomi, "mimo-v2.5")
+    assert xiaomi_metadata["context_length"] == 1_048_576
+
+    assert {:ok, volcengine} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "volcengine-metadata-source",
+               provider_kind: "volcengine_ark",
+               connection_options: %{"api_key" => "ark-key"}
+             })
+
+    assert {:ok, doubao_metadata} =
+             ModelMetadata.model_metadata(volcengine, "doubao-seed-1-6")
+
+    assert doubao_metadata["context_length"] == 256_000
+    assert get_in(doubao_metadata, ["top_provider", "max_completion_tokens"]) == 32_000
+  end
+
   test "provider metadata hook is used when present" do
     assert {:ok, openrouter} =
              ProviderConfigs.create_provider(%{
@@ -60,7 +85,7 @@ defmodule Ankole.AIGateway.ModelMetadataTest do
     assert {:ok, provider} =
              ProviderConfigs.create_provider(%{
                provider_id: "compatible-metadata-source",
-               provider_kind: "openai-compatible",
+               provider_kind: "openai_compatible",
                base_url: "https://compatible.test/v1",
                connection_options: %{"api_key" => "sk-compatible"}
              })

@@ -66,10 +66,6 @@ defmodule AnkoleWeb do
     quote do
       # HTML escaping functionality
       import Phoenix.HTML
-      # Makes `t/1..3`, `lang/0`, `dir/0` available in shells without Gettext —
-      # Ankole renders server HTML in the installation default locale.
-      import AnkoleWeb.I18n.HTML
-
       # Routes generation with the ~p sigil
       unquote(verified_routes())
     end

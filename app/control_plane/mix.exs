@@ -29,15 +29,26 @@ defmodule Ankole.MixProject do
       preferred_envs: [
         precommit: :test,
         "e2e.ai_gateway_real_provider": :test,
-        "e2e.actor_runtime_worker": :test,
-        "e2e.lark_agent_docker_worker_chaos": :test
+        "e2e.gate": :test,
+        "e2e.perf": :test,
+        "e2e.chaos": :test,
+        "e2e.real_llm": :test
       ]
     ]
   end
 
   # Specifies which paths to compile per environment.
-  defp elixirc_paths(:test), do: ["lib", "test/support"] ++ plugin_elixirc_paths()
+  defp elixirc_paths(:test),
+    do: ["lib", "test/support", e2e_support_path()] ++ plugin_elixirc_paths()
+
   defp elixirc_paths(_), do: ["lib"] ++ plugin_elixirc_paths()
+
+  # Repo-root e2e support modules (FakeFeishu, harness, scenarios) compile into
+  # :test alongside test/support. The e2e suites themselves stay outside the
+  # compile path so plain `mix test` never runs them.
+  defp e2e_support_path do
+    Path.expand("../..", __DIR__) |> Path.join("tools/e2e/support")
+  end
 
   defp plugin_elixirc_paths do
     repo_root = Path.expand("../..", __DIR__)
@@ -69,6 +80,7 @@ defmodule Ankole.MixProject do
       {:open_api_spex, "~> 3.22"},
       {:toml_elixir, "~> 3.1"},
       {:tzdata, "~> 1.1"},
+      {:dotenvy, "~> 1.1"},
       {:torque, "~> 0.2.4"},
       {:llm_db, "~> 2026.6"},
       {:ankole_kernel, path: "../kernel"},
@@ -89,20 +101,34 @@ defmodule Ankole.MixProject do
       setup: ["deps.get", "ecto.setup"],
       "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
-      "e2e.actor_runtime_worker": [
+      "e2e.gate": [
         "ecto.create --quiet",
         "ecto.migrate --quiet",
-        "test e2e/actor_runtime_worker_e2e_test.exs --trace"
+        "test ../../tools/e2e/suites/lark_transport_e2e_test.exs " <>
+          "../../tools/e2e/suites/lark_main_flow_e2e_test.exs " <>
+          "../../tools/e2e/suites/lark_lifecycle_e2e_test.exs " <>
+          "../../tools/e2e/suites/worker_computer_e2e_test.exs " <>
+          "../../tools/e2e/suites/schedule_e2e_test.exs --trace"
+      ],
+      "e2e.perf": [
+        "ecto.create --quiet",
+        "ecto.migrate --quiet",
+        "test ../../tools/e2e/suites/concurrency_perf_e2e_test.exs --trace"
+      ],
+      "e2e.chaos": [
+        "ecto.create --quiet",
+        "ecto.migrate --quiet",
+        "test ../../tools/e2e/suites/chaos_e2e_test.exs --trace"
+      ],
+      "e2e.real_llm": [
+        "ecto.create --quiet",
+        "ecto.migrate --quiet",
+        "test ../../tools/e2e/suites/lark_real_llm_e2e_test.exs --trace"
       ],
       "e2e.ai_gateway_real_provider": [
         "ecto.create --quiet",
         "ecto.migrate --quiet",
-        "run tools/e2e/ai_gateway_real_provider_e2e.exs"
-      ],
-      "e2e.lark_agent_docker_worker_chaos": [
-        "ecto.create --quiet",
-        "ecto.migrate --quiet",
-        "test tools/e2e/lark_agent_docker_worker_chaos_e2e_test.exs --trace"
+        "run ../../tools/e2e/ai_gateway_real_provider_e2e.exs"
       ],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
       "assets.build": ["cmd --cd ../webapps bun run build"],

@@ -178,8 +178,18 @@ defmodule Ankole.SignalsGateway.Utils do
         fetch_value(mention, :kind) in [:agent, "agent", :bot, "bot"]
 
     mentioned_agent = optional_text(mention, :agent_uid)
-    structured? and (is_nil(mentioned_agent) or normalize_uid(mentioned_agent) == agent_uid)
+
+    structured? and targets_current_agent?(mention) and
+      (is_nil(mentioned_agent) or normalize_uid(mentioned_agent) == agent_uid)
   end
 
   def structured_mention?(_mention, _agent_uid), do: false
+
+  defp targets_current_agent?(mention) do
+    case fetch_value(mention, :targets_current_agent) do
+      false -> false
+      "false" -> false
+      _value -> true
+    end
+  end
 end

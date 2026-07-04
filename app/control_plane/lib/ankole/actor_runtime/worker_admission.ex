@@ -8,13 +8,14 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
   liveness. Lifecycle messages must come from the authenticated worker id and
   route the projection owns. When a worker dies or its route breaks, its
   created/sent deliveries are superseded and its assignments released, but the
-  underlying actor input rows stay open so the scheduler can simply retry them.
+  underlying actor event rows stay open so the scheduler can simply retry them.
   """
 
   import Ecto.Query, warn: false
 
-  alias Ankole.ActorRuntime.Schemas.ActorInputDelivery
+  alias Ankole.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.ActorRuntime.Schemas.AgentComputerWorker
+  alias Ankole.ActorRuntime.TurnLifecycle
   alias Ankole.ActorRuntime.WorkerPool
   alias Ankole.Repo
 
@@ -172,6 +173,35 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
   def mark_route_unusable(_route, _reason), do: :ok
 
   @doc """
+  Marks every ready route stale when the RuntimeFabric router itself stops.
+
+  A router restart invalidates the ZeroMQ route identities held in worker
+  projections. Workers may re-admit themselves, and replacement workers can be
+  scheduled immediately, but stale route rows must not keep receiving turns.
+  """
+  @spec mark_all_routes_unusable(term()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def mark_all_routes_unusable(reason) do
+    now = DateTime.utc_now(:microsecond)
+    reason = normalize_reason(reason)
+
+    Repo.transact(fn repo ->
+      workers =
+        AgentComputerWorker
+        |> where([worker], worker.status in ^@stale_worker_statuses)
+        |> lock("FOR UPDATE")
+        |> repo.all()
+
+      workers
+      |> Enum.map(&stale_worker_transition(repo, &1, now, reason))
+      |> collect_results()
+      |> case do
+        {:ok, workers} -> {:ok, length(workers)}
+        {:error, _reason} = error -> error
+      end
+    end)
+  end
+
+  @doc """
   Marks ready or draining workers stale after their heartbeat lease expires.
   """
   @spec mark_stale_workers(module(), DateTime.t(), non_neg_integer()) ::
@@ -275,10 +305,12 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
   end
 
   # Moves a worker out of service and releases every runtime fence that points
-  # at it. The actor input rows stay open, so the next scheduler pass can retry
+  # at it. The actor event rows stay open, so the next scheduler pass can retry
   # without changing the user-visible work.
   defp stale_worker_transition(repo, %AgentComputerWorker{} = worker, now, reason) do
     with {:ok, worker} <- mark_worker_stale(repo, worker, now, reason),
+         {:ok, _failed_activations} <-
+           TurnLifecycle.fail_activations_for_worker(repo, worker.worker_id, now, reason),
          {_delivery_count, _rows} <-
            supersede_unaccepted_deliveries_for_worker(repo, worker, now, reason),
          {_assignment_count, _rows} <- WorkerPool.release_assignments_for_worker(repo, worker) do
@@ -296,16 +328,15 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
     |> repo.update()
   end
 
-  # Supersedes only created/sent deliveries. Accepted deliveries are already in
-  # the commit path and must be resolved by turn fencing rather than worker
-  # staleness alone.
+  # The activation failure path handles accepted deliveries for the current
+  # turn. This catch-all only covers turns that were routed but never accepted.
   defp supersede_unaccepted_deliveries_for_worker(
          repo,
          %AgentComputerWorker{} = worker,
          now,
          reason
        ) do
-    ActorInputDelivery
+    ActorEventDelivery
     |> where([delivery], delivery.worker_id == ^worker.worker_id)
     |> where([delivery], delivery.state in ["created", "sent"])
     |> repo.update_all(
@@ -404,6 +435,10 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp normalize_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp normalize_reason(reason) when is_binary(reason), do: reason
+  defp normalize_reason(reason), do: inspect(reason)
 
   defp collect_results(results) do
     Enum.reduce_while(results, {:ok, []}, fn

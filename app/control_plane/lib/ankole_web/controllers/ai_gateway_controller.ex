@@ -41,6 +41,53 @@ defmodule AnkoleWeb.AIGatewayController do
     end
   end
 
+  operation(:retrieve_response,
+    summary: "Retrieve a stored stateful OpenResponses response",
+    parameters: [
+      response_id: [
+        in: :path,
+        type: :string,
+        required: true,
+        description: "Stored response id, formatted as resp_{uuid}"
+      ]
+    ],
+    responses: [
+      ok: {"OpenResponses response", "application/json", @json_object},
+      not_found: {"Not found", "application/json", @json_object},
+      unauthorized: {"Unauthorized", "application/json", @json_object}
+    ]
+  )
+
+  def retrieve_response(conn, %{"response_id" => response_id}) do
+    subject_uid = conn.assigns.current_ai_gateway_subject_uid
+
+    case AIGateway.retrieve_response(subject_uid, response_id) do
+      {:ok, %{body: body}} -> json(conn, body)
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  operation(:compact_response,
+    summary: "Create a stateful compaction response",
+    request_body:
+      {"OpenResponses compact request", "application/json", @json_object, required: true},
+    responses: [
+      ok: {"OpenResponses response", "application/json", @json_object},
+      bad_request: {"Invalid compact request", "application/json", @json_object},
+      unauthorized: {"Unauthorized", "application/json", @json_object}
+    ]
+  )
+
+  def compact_response(conn, _params) do
+    request = conn.body_params || %{}
+    subject_uid = conn.assigns.current_ai_gateway_subject_uid
+
+    case AIGateway.compact_response(subject_uid, request) do
+      {:ok, %{body: body}} -> json(conn, body)
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
   operation(:embeddings,
     summary: "Create embeddings through AIGateway",
     request_body: {"Embedding request", "application/json", @json_object, required: true},
@@ -74,6 +121,61 @@ defmodule AnkoleWeb.AIGatewayController do
     subject_uid = conn.assigns.current_ai_gateway_subject_uid
 
     case AIGateway.create_rerank(subject_uid, request) do
+      {:ok, %{body: body}} -> json(conn, body)
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  operation(:web_tools,
+    summary: "List provider-backed web tools available to this AIGateway subject",
+    responses: [
+      ok: {"Web tool availability", "application/json", @json_object},
+      unauthorized: {"Unauthorized", "application/json", @json_object}
+    ]
+  )
+
+  def web_tools(conn, _params) do
+    subject_uid = conn.assigns.current_ai_gateway_subject_uid
+
+    {:ok, body} = AIGateway.web_tools(subject_uid)
+    json(conn, body)
+  end
+
+  operation(:web_search,
+    summary: "Search the web through AIGateway",
+    request_body: {"Web search request", "application/json", @json_object, required: true},
+    responses: [
+      ok: {"Web search response", "application/json", @json_object},
+      bad_request: {"Invalid web search request", "application/json", @json_object},
+      unauthorized: {"Unauthorized", "application/json", @json_object}
+    ]
+  )
+
+  def web_search(conn, _params) do
+    request = conn.body_params || %{}
+    subject_uid = conn.assigns.current_ai_gateway_subject_uid
+
+    case AIGateway.create_web_search(subject_uid, request) do
+      {:ok, %{body: body}} -> json(conn, body)
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  operation(:web_fetch,
+    summary: "Fetch web pages through AIGateway",
+    request_body: {"Web fetch request", "application/json", @json_object, required: true},
+    responses: [
+      ok: {"Web fetch response", "application/json", @json_object},
+      bad_request: {"Invalid web fetch request", "application/json", @json_object},
+      unauthorized: {"Unauthorized", "application/json", @json_object}
+    ]
+  )
+
+  def web_fetch(conn, _params) do
+    request = conn.body_params || %{}
+    subject_uid = conn.assigns.current_ai_gateway_subject_uid
+
+    case AIGateway.create_web_fetch(subject_uid, request) do
       {:ok, %{body: body}} -> json(conn, body)
       {:error, reason} -> error(conn, reason)
     end
@@ -209,6 +311,14 @@ defmodule AnkoleWeb.AIGatewayController do
   defp error_tuple(:missing_model), do: {400, "missing_model", "model is required"}
   defp error_tuple(:missing_input), do: {400, "missing_input", "input is required"}
   defp error_tuple(:missing_query), do: {400, "missing_query", "query is required"}
+  defp error_tuple(:missing_urls), do: {400, "missing_urls", "urls is required"}
+  defp error_tuple(:invalid_query), do: {400, "invalid_query", "query is too long"}
+
+  defp error_tuple(:invalid_limit),
+    do: {400, "invalid_limit", "limit must be an integer from 1 to 100"}
+
+  defp error_tuple(:invalid_urls),
+    do: {400, "invalid_urls", "urls must contain 1 to 5 public HTTPS URLs"}
 
   defp error_tuple(:invalid_embedding_input),
     do: {400, "invalid_embedding_input", "input must be text, token arrays, or input blocks"}
@@ -220,6 +330,17 @@ defmodule AnkoleWeb.AIGatewayController do
 
   defp error_tuple(:invalid_request_body),
     do: {400, "invalid_request_body", "JSON object body required"}
+
+  defp error_tuple(:unsupported_stateless_compact),
+    do: {400, "unsupported_stateless_compact", "stateless /responses/compact is unsupported"}
+
+  defp error_tuple(:invalid_compaction_item),
+    do: {400, "invalid_compaction_item", "input must contain exactly one compaction item"}
+
+  defp error_tuple(:invalid_anchor),
+    do:
+      {400, "invalid_previous_response_id",
+       "previous_response_id must reference a stored response"}
 
   defp error_tuple({:stateful_http_field_forbidden, field}),
     do:

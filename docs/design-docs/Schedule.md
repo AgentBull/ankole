@@ -2,9 +2,9 @@
 
 Schedule is the control-plane subsystem that turns time into actor work. An
 Ankole agent does not wake up because time passed. A schedule records a future
-obligation in PostgreSQL, the control plane materializes an `ActorInput` when the
-obligation is due, and ActorRuntime starts the normal worker turn from that
-input.
+obligation in PostgreSQL, the control plane materializes an `ActorEvent` when
+the obligation is due, and ActorRuntime starts the normal worker turn from that
+event.
 
 This document covers two user-visible schedule primitives:
 
@@ -14,7 +14,9 @@ This document covers two user-visible schedule primitives:
   paused, removed, or disabled.
 
 They share the same durable fire path. They do not share the same product
-meaning.
+meaning. For where Schedule sits in the whole system, see `docs/README.md`;
+the actor event journal it feeds is described in
+`docs/design-docs/SignalsGateway.md`.
 
 ## Reference Semantics
 
@@ -47,7 +49,7 @@ BullX Agent's local `check_back_later` implementation is the one-shot reference.
 Ankole adopts those semantics, but not their storage shape. Hermes's JSON file
 and file lock, OpenClaw's broad Gateway tool schema, and script-only command cron
 are not Ankole's v1 architecture. In Ankole, PostgreSQL is the semantic ledger,
-Oban is the wake edge, and `ActorInput` remains the actor handoff.
+Oban is the wake edge, and `ActorEvent` remains the actor handoff.
 
 ## Core Invariants
 
@@ -60,14 +62,14 @@ All semantic idempotency is database-backed:
 - domain idempotency is enforced by unique indexes on schedule rows;
 - wake-up idempotency may use Oban uniqueness only as a noise reducer;
 - fire idempotency is enforced by scheduled-event status plus the stable
-  `ActorInput` ingress key.
+  `ActorEvent` source key.
 
 The control plane owns time. Workers may request a schedule through RuntimeFabric
 RPC, but workers do not own durable timers, recurrence, next-fire computation,
 or schedule status.
 
-Firing a schedule means appending an `ActorInput`. It does not mean choosing a
-worker. Once the input is appended, ActivationManager and the existing worker
+Firing a schedule means appending an `ActorEvent`. It does not mean choosing a
+worker. Once the event is appended, ActivationManager and the existing worker
 assignment path decide how to run it.
 
 Dynamic actor cron is not `Oban.Plugins.Cron`. The existing static Cron plugin
@@ -90,27 +92,27 @@ one `ScheduledEvent(kind = "check_back_later")`.
 `cron` needs a recurrence definition table because the same schedule keeps
 producing fires. A cron definition creates `ScheduledEvent(kind = "cron_fire")`
 rows. Each event is still one concrete future fire with its own `due_at`,
-idempotency key, Oban wake edge, ActorInput, and terminal status.
+idempotency key, Oban wake edge, ActorEvent, and terminal status.
 
 ```text
 check_back_later tool
   -> actor_scheduled_events(kind = check_back_later)
   -> Oban wake edge
-  -> ActorInput(type = check_back_later.wakeup)
-  -> LlmTurn(kind = checkback_generation)
+  -> ActorEvent(type = check_back_later.wakeup)
+  -> worker turn (request_context.turn_mode = check_back_later)
 
 cron schedule definition
   -> actor_cron_schedules
   -> actor_scheduled_events(kind = cron_fire, cron_schedule_id = ...)
   -> Oban wake edge
-  -> ActorInput(type = cron.fire)
-  -> LlmTurn(kind = scheduled_task)
+  -> ActorEvent(type = cron.fire)
+  -> worker turn (request_context.turn_mode = cron)
 ```
 
 ## Storage Shape
 
 Use boring text statuses plus database check constraints, matching the current
-ActorInput style. Do not introduce PostgreSQL enums for this v1.
+ActorEvent style. Do not introduce PostgreSQL enums for this v1.
 
 ### actor_scheduled_events
 
@@ -129,14 +131,16 @@ Required columns:
 - `cron_schedule_id`: nullable FK to `actor_cron_schedules`.
 - `cron_fire_slot_at`: nullable intended slot time for cron fires.
 - `tool_call_id`: nullable model tool call id.
-- `source_llm_turn_id`, `source_actor_input_id`.
-- `signal_channel_id`, `provider_thread_id`, `provider_entry_id`: reply route
-  fields copied into the fired ActorInput when that is semantically correct.
+- `source_actor_event_id`: the actor event whose turn created this schedule.
+- `origin_ai_message_id`: nullable reference to the `ai_gateway_messages` row
+  whose model output requested the schedule.
+- `signal_channel_id`, `provider_thread_id`, `source_entry_id`: reply route
+  fields copied into the fired ActorEvent when that is semantically correct.
 - `source_provenance`: JSON object for audit-only facts such as transport route,
   authenticated worker id, key revision, source activation uid, actor epoch,
   source revision, and source RPC request id.
-- `wake_payload`: JSON object used to build the future ActorInput payload.
-- `oban_job_id`, `actor_input_id`.
+- `wake_payload`: JSON object used to build the future ActorEvent payload.
+- `oban_job_id`, `actor_event_id`.
 - `fire_attempts`, `fire_claimed_at`, `fired_at`, `cancelled_at`.
 - `last_fire_error`: JSON object.
 - timestamps.
@@ -148,7 +152,7 @@ Indexes and constraints:
   NULL`;
 - index `(status, due_at)`;
 - index `(agent_uid, session_id, status, due_at)`;
-- index `actor_input_id`;
+- index `actor_event_id`;
 - index `oban_job_id`;
 - JSON object checks for `source_provenance`, `wake_payload`, and
   `last_fire_error`;
@@ -173,7 +177,8 @@ Required columns:
 - `schedule`: JSON object.
 - `timezone`: IANA timezone for cron wall-clock fields.
 - `payload`: JSON object used to build each cron fire.
-- `delivery`: JSON object or null.
+- `delivery`: JSON object containing a provider route. Cron delivery currently
+  requires `signal_channel_id`.
 - `next_fire_at`, `last_fire_at`.
 - `idempotency_key`: stable creation key.
 - `created_by`: JSON object describing whether creation came from a turn,
@@ -229,7 +234,7 @@ The request payload must include:
     "binding_name": "feishu-main",
     "signal_channel_id": "channel id",
     "provider_thread_id": "thread id",
-    "provider_entry_id": "source entry id"
+    "source_entry_id": "source entry id"
   }
 }
 ```
@@ -239,8 +244,8 @@ The handler must:
 1. validate the `turn_ref` shape;
 2. authorize the authenticated RuntimeFabric route against that turn with
    `WorkerRouteAuth.authorize_turn_route(turn_ref, route, :write)`;
-3. verify the requested reply route belongs to the current turn context or to an
-   ActorInput referenced by the turn;
+3. verify the requested reply route belongs to the current turn context or to
+   the actor event referenced by the turn;
 4. validate `tool_call_id` and `idempotency_key`;
 5. parse time in the control plane using `system.timezone` as the default;
 6. insert the `actor_scheduled_events` row;
@@ -296,8 +301,8 @@ Fire is also one transaction:
 
 ```text
 guarded claim scheduled event
-append ActorInput with a stable ingress_event_id
-mark scheduled event fired with actor_input_id
+append the ActorEvent with a stable source_event_id
+mark scheduled event fired with actor_event_id
 for cron:
   lock actor_cron_schedules row FOR UPDATE
   verify status still active
@@ -345,7 +350,7 @@ The worker:
 1. calls `ScheduledEvents.fire_due_event(event_id)`;
 2. treats `:noop` as success;
 3. returns errors only for transient or real failures;
-4. wakes ActivationManager after a committed ActorInput append.
+4. wakes ActivationManager after a committed ActorEvent append.
 
 A scheduled event enters `failed` only through domain code, not by reading Oban
 as schedule truth. Permanent validation failures should mark the event failed in
@@ -356,10 +361,10 @@ or re-arm it according to the schedule's failure policy.
 
 Oban uniqueness may be set on `(worker, scheduled_event_id)` for states such as
 scheduled, available, executing, and retryable. This is not a correctness
-guarantee. Correctness is the scheduled-event claim plus ActorInput ingress
+guarantee. Correctness is the scheduled-event claim plus actor event source
 idempotency.
 
-The fired ActorInput ingress key is stable:
+The fired actor event's `source_event_id` is stable:
 
 ```text
 check_back_later:<scheduled_event_id>:wakeup
@@ -367,29 +372,27 @@ cron:<cron_schedule_id>:<cron_fire_slot_at_iso8601>
 ```
 
 The scheduled-event claim is the primary idempotency guard. The appended
-ActorInput also uses `(agent_uid, binding_name, ingress_event_id)` as its live
-handoff key, so retries inside the firing window converge to one open
-ActorInput.
+ActorEvent also uses `(agent_uid, binding_name, source_event_id)` as its
+handoff key, so retries inside the firing window converge to one open actor
+event.
 
-## Actor Inputs And Turns
+## Actor Events And Turns
 
 `check_back_later` fires:
 
 ```text
-ActorInput.type = check_back_later.wakeup
-LlmTurn.kind = checkback_generation
+ActorEvent.type = check_back_later.wakeup
 request_context.turn_mode = check_back_later
 ```
 
 `cron` fires:
 
 ```text
-ActorInput.type = cron.fire
-LlmTurn.kind = scheduled_task
+ActorEvent.type = cron.fire
 request_context.turn_mode = cron
 ```
 
-ActorRuntime must explicitly branch on these input types. They must not fall
+ActorRuntime must explicitly branch on these event types. They must not fall
 through as ordinary `generation` turns.
 
 Schedule prompt facts travel on `turn_start.request_context`. The worker reads
@@ -397,16 +400,12 @@ Schedule prompt facts travel on `turn_start.request_context`. The worker reads
 turn payload while building the system prompt. They are not conversation
 history and are not returned by `agent_conversation.context.resolve`.
 
-`ActorInputTypes.consumption_path/1` should include explicit entries:
+Both event types are direct events: they are ready immediately and never enter
+IM batching.
 
-```text
-check_back_later.wakeup -> direct
-cron.fire -> direct
-```
-
-`ActorInputTypes.stale_after_session_reset?/1` should keep the existing behavior
-for `cron.*`: already-materialized cron notices are stale after a reset barrier.
-`check_back_later.wakeup` is not stale by default.
+Reset staleness keeps the split behavior: already-materialized `cron.*` fires
+are stale after a session reset barrier; `check_back_later.wakeup` is not stale
+by default.
 
 ## Prompt Contract
 
@@ -454,12 +453,11 @@ Store reply routing separately from schedule provenance.
 - `binding_name`;
 - `signal_channel_id`;
 - `provider_thread_id`;
-- optional `provider_entry_id`.
+- optional `source_entry_id`.
 
 `schedule_provenance` is audit and authorization context:
 
-- source turn id;
-- source actor input ids;
+- source actor event id;
 - source tool call id;
 - RPC request id;
 - authenticated worker id;
@@ -468,17 +466,17 @@ Store reply routing separately from schedule provenance.
 - source actor epoch and revision.
 
 Fire must never use `schedule_provenance.transport_route` to choose a worker.
-That route may be stale. Fire appends an ActorInput and lets ActorRuntime
+That route may be stale. Fire appends an ActorEvent and lets ActorRuntime
 schedule live work.
 
-For `check_back_later`, copy the original `provider_entry_id` into the fired
-ActorInput by default. If the original entry was deleted or recalled before the
-checkback is consumed, the existing tombstone guard cancels the input. This is
-the conservative behavior: do not produce a visible reply anchored to withdrawn
+For `check_back_later`, copy the original `source_entry_id` into the fired
+ActorEvent by default. If the original entry was deleted or recalled before the
+checkback runs, the removal handling cancels the checkback. This is the
+conservative behavior: do not produce a visible reply anchored to withdrawn
 content.
 
-For cron, do not copy the creation message's `provider_entry_id` into recurring
-fire ActorInputs. A recurring schedule should not stop forever because the chat
+For cron, do not copy the creation message's `source_entry_id` into recurring
+fire events. A recurring schedule should not stop forever because the chat
 message that created it was deleted. Store the creation entry only in
 `schedule_provenance`. Cron delivery should target a channel or thread, not an
 old source entry, unless a future product explicitly defines entry-anchored
@@ -556,20 +554,20 @@ run itself updates or removes the schedule.
 Paused schedules keep definition and history but do not arm new events. Resume
 recomputes `next_fire_at` from the resume time.
 
-Deleted schedules do not arm new events. Already-fired ActorInputs and committed
-turns are history. Still-scheduled future events are cancelled transactionally
-when the schedule is deleted.
+Deleted schedules do not arm new events. Already-fired actor events and their
+completed work are history. Still-scheduled future events are cancelled
+transactionally when the schedule is deleted.
 
 ## Reset Semantics
 
 `check_back_later` is an agent commitment to revisit one concrete question. It
 survives daily reset. If its `due_at` was before reset but Oban fires it after
-reset, the fired input enters the successor active conversation and carries both
+reset, the fired event enters the successor active conversation and carries both
 the original due time and actual fired time.
 
 Cron definitions survive reset. Individual already-materialized `cron.fire`
-ActorInputs are session-local system notices and remain stale after reset, as
-the current `cron.*` reset rule already says. A cron definition whose fire was
+actor events are session-local system notices and remain stale after reset, as
+the `cron.*` reset rule says. A cron definition whose fire was
 discarded by reset computes a later fire through the normal recurrence path.
 
 This distinction keeps one-time agent promises durable while still preventing
@@ -585,23 +583,17 @@ Cron delivery is schedule-defined. A recurring report usually delivers the final
 assistant output every run. A monitoring schedule may opt into quiet success, in
 which case a clean run can commit without provider-visible output.
 
-The commit coordinator must allow silent success for schedule-origin turns when
-their request context permits it. Silent success still consumes the ActorInput
-and marks the turn succeeded. It just creates no outbox row.
+Silent success is still a normal, fenced completion. When a schedule-origin
+turn has nothing meaningful to report and its request context allows quiet
+success, the worker sends the explicit `turn_noop_completed` marker. The
+control plane then sets `actor_events.completed_at` and creates no outbox row.
+Any model calls the turn already made remain committed in
+`ai_gateway_messages`; those rows are the audit record, and no separate
+assistant or introspection message is created.
 
-Silent success is still a normal worker commit. The worker must send a
-`turn_final_proposal` with an explicit `silent_success` marker in response,
-request context, or metadata. CommitCoordinator must then:
-
-- mark the `LlmTurn` succeeded;
-- consume the `ActorInput`;
-- create no provider outbox row;
-- either create no assistant `Message` or create an internal/introspection
-  `Message`, according to the schedule-origin policy;
-- record enough response metadata for audit and debugging.
-
-The worker must not express silent success by failing to send a final proposal.
-The turn still needs a fenced, committable, auditable terminal result.
+The worker must not express silent success by staying silent. The turn still
+needs a fenced, committable, auditable terminal result — either the AIGateway
+terminal commit of a final output, or the explicit noop marker.
 
 Provider-visible output uses normal `signal_gateway_outbox` rows. The scheduler
 does not send messages directly from the fire worker, and the worker should not
@@ -640,13 +632,13 @@ DB idempotency:
 - concurrent schedule requests with the same idempotency key create one row;
 - retrying an existing request returns `already_scheduled`;
 - if Oban insert fails, the domain row rolls back;
-- duplicate Oban jobs do not duplicate ActorInputs.
+- duplicate Oban jobs do not duplicate actor events.
 
 Fire transaction:
 
-- scheduled and due event appends one ActorInput and marks fired;
+- scheduled and due event appends one ActorEvent and marks fired;
 - already fired, cancelled, failed, or not-due event is no-op;
-- retry after partial failure is safe through the ActorInput ingress key;
+- retry after partial failure is safe through the actor event source key;
 - failed fire records retryable error without marking business no-op as error.
 
 Time parsing:
@@ -668,14 +660,15 @@ Cron recurrence:
 
 ActorRuntime and worker:
 
-- `check_back_later.wakeup` starts `checkback_generation`;
-- `cron.fire` starts `scheduled_task`;
+- `check_back_later.wakeup` starts a turn with `turn_mode = check_back_later`;
+- `cron.fire` starts a turn with `turn_mode = cron`;
 - prompt context marks both as schedule-origin events, not user messages;
-- checkback silent success consumes the input and creates no outbox;
+- checkback silent success completes the event via the noop marker and creates
+  no outbox row;
 - cron default delivery creates provider-visible outbox;
 - cron quiet-success policy creates no outbox;
 - visible checkback reply uses the original reply route;
-- checkback source entry tombstone cancels consumption;
+- removal of the checkback's source entry cancels the checkback;
 - cron fire ignores the schedule-creation entry tombstone.
 
 Reset:

@@ -18,8 +18,6 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
     setting(:api_version, default: "2025-04-01-preview")
     setting(:deployment)
     setting(:auth_scheme, default: "api_key")
-    setting(:include_usage, type: :boolean)
-    setting(:supports_structured_outputs, type: :boolean)
 
     setting(:reasoningEffort, scope: :request)
     setting(:reasoningSummary, scope: :request)

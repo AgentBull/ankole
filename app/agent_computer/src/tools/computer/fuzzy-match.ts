@@ -20,6 +20,18 @@ export interface FuzzyMatch {
   strategy: string
 }
 
+export interface ScopedFuzzyMatchOptions {
+  context?: string
+  endOfFile?: boolean
+  start?: number
+}
+
+export interface ClosestLineMatch {
+  lineNumber: number
+  score: number
+  snippet: Array<{ lineNumber: number; text: string }>
+}
+
 /** One source line and the char offsets it occupies in the original text. */
 interface LineSpan {
   end: number
@@ -38,7 +50,25 @@ const STRATEGIES: Array<{ name: string; normalize: (line: string) => string }> =
   // Leading and trailing whitespace differ — tolerates a re-indent of the block.
   { name: 'trim_line_edges', normalize: line => line.trim() },
   // Also collapse runs of interior spaces/tabs — tolerates reflowed/reformatted spacing.
-  { name: 'normalize_horizontal_whitespace', normalize: line => line.trim().replace(/[ \t]+/g, ' ') }
+  { name: 'normalize_horizontal_whitespace', normalize: line => line.trim().replace(/[ \t]+/g, ' ') },
+  // Common model/editor Unicode drift: smart quotes, dash variants, NBSPs/full-width spaces.
+  { name: 'normalize_unicode_punctuation', normalize: normalizeUnicodePunctuation }
+]
+
+const SCOPED_STRATEGIES: Array<{
+  acceptFirst: boolean
+  name: string
+  normalize: (line: string) => string
+}> = [
+  { acceptFirst: true, name: 'exact', normalize: line => line },
+  { acceptFirst: true, name: 'trim_trailing_whitespace', normalize: line => line.replace(/[ \t]+$/g, '') },
+  { acceptFirst: true, name: 'trim_line_edges', normalize: line => line.trim() },
+  {
+    acceptFirst: false,
+    name: 'normalize_horizontal_whitespace',
+    normalize: line => line.trim().replace(/[ \t]+/g, ' ')
+  },
+  { acceptFirst: false, name: 'normalize_unicode_punctuation', normalize: normalizeUnicodePunctuation }
 ]
 
 /**
@@ -58,11 +88,6 @@ export function findUniqueFuzzyMatch(haystack: string, needle: string): FuzzyMat
   if (!needle) return undefined
   const exact = uniqueExactMatch(haystack, needle)
   if (exact) return exact
-  // Single-line needles get no fuzzy fallback: one short line normalizes to something
-  // that recurs all over a file, so whitespace-tolerant matching would be far too
-  // likely to land on the wrong line. Fuzzy matching is reserved for multi-line blocks,
-  // whose combined context makes a unique location realistic.
-  if (!needle.includes('\n')) return undefined
 
   const haystackLines = lineSpans(haystack)
   const needleLines = splitLines(needle)
@@ -98,6 +123,72 @@ export function findUniqueFuzzyMatch(haystack: string, needle: string): FuzzyMat
   return undefined
 }
 
+export function findScopedFuzzyMatch(
+  haystack: string,
+  needle: string,
+  options: ScopedFuzzyMatchOptions = {}
+): FuzzyMatch | undefined {
+  const haystackLines = lineSpans(haystack)
+  let startLine = lineIndexAtOffset(haystackLines, options.start ?? 0)
+
+  if (options.context !== undefined && options.context.length > 0) {
+    const contextMatch = findLineSequence(haystackLines, [options.context], startLine, false, SCOPED_STRATEGIES)
+    if (!contextMatch) return undefined
+    startLine = contextMatch.startLine + 1
+  }
+
+  const needleLines = splitLines(needle)
+  if (needleLines.length === 0) {
+    const insertionLine = options.endOfFile ? haystackLines.length : Math.min(startLine, haystackLines.length)
+    const offset = insertionLine >= haystackLines.length ? haystack.length : haystackLines[insertionLine]!.start
+    return { end: offset, exact: false, start: offset, strategy: 'scoped_insert' }
+  }
+
+  const match = findLineSequence(haystackLines, needleLines, startLine, options.endOfFile === true, SCOPED_STRATEGIES)
+  if (!match) return undefined
+  return {
+    end: haystackLines[match.endLine - 1]!.end,
+    exact: match.strategy === 'exact',
+    start: haystackLines[match.startLine]!.start,
+    strategy: match.strategy
+  }
+}
+
+export function findClosestLineMatches(
+  haystack: string,
+  needle: string,
+  options: { contextLines?: number; limit?: number; minScore?: number } = {}
+): ClosestLineMatch[] {
+  const anchor = splitLines(needle)
+    .map(line => line.trim())
+    .find(line => line.length > 0)
+  if (!anchor) return []
+
+  const contextLines = options.contextLines ?? 2
+  const limit = options.limit ?? 3
+  const minScore = options.minScore ?? 0.25
+  const lines = splitLines(haystack)
+  const normalizedAnchor = normalizeForSimilarity(anchor)
+  const scored = lines
+    .map((line, index) => ({
+      index,
+      score: lineSimilarity(normalizeForSimilarity(line), normalizedAnchor)
+    }))
+    .filter(match => match.score >= minScore)
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .slice(0, limit)
+
+  return scored.map(match => {
+    const start = Math.max(0, match.index - contextLines)
+    const end = Math.min(lines.length, match.index + contextLines + 1)
+    return {
+      lineNumber: match.index + 1,
+      score: match.score,
+      snippet: lines.slice(start, end).map((text, offset) => ({ lineNumber: start + offset + 1, text }))
+    }
+  })
+}
+
 /** Exact substring match, but only when it is unique; a second occurrence makes it ambiguous. */
 function uniqueExactMatch(haystack: string, needle: string): FuzzyMatch | undefined {
   const start = haystack.indexOf(needle)
@@ -106,6 +197,102 @@ function uniqueExactMatch(haystack: string, needle: string): FuzzyMatch | undefi
   // so reject it rather than silently editing the first hit.
   if (haystack.indexOf(needle, start + needle.length) !== -1) return undefined
   return { start, end: start + needle.length, exact: true, strategy: 'exact' }
+}
+
+function findLineSequence(
+  haystackLines: LineSpan[],
+  needleLines: string[],
+  startLine: number,
+  endOfFile: boolean,
+  strategies: Array<{ acceptFirst: boolean; name: string; normalize: (line: string) => string }>
+): { endLine: number; startLine: number; strategy: string } | undefined {
+  if (needleLines.length === 0) return { endLine: startLine, startLine, strategy: 'empty' }
+  if (needleLines.length > haystackLines.length) return undefined
+
+  const maxStart = haystackLines.length - needleLines.length
+  const firstStart = endOfFile ? maxStart : startLine
+  if (firstStart < startLine || firstStart < 0 || firstStart > maxStart) return undefined
+  const lastStart = endOfFile ? firstStart : maxStart
+
+  for (const strategy of strategies) {
+    const normalizedNeedle = needleLines.map(strategy.normalize)
+    const matches: Array<{ endLine: number; startLine: number; strategy: string }> = []
+    for (let candidate = firstStart; candidate <= lastStart; candidate++) {
+      let matched = true
+      for (let offset = 0; offset < needleLines.length; offset++) {
+        if (strategy.normalize(haystackLines[candidate + offset]!.text) !== normalizedNeedle[offset]) {
+          matched = false
+          break
+        }
+      }
+      if (!matched) continue
+      const match = {
+        endLine: candidate + needleLines.length,
+        startLine: candidate,
+        strategy: strategy.name
+      }
+      if (strategy.acceptFirst) return match
+      matches.push(match)
+      if (matches.length > 1) break
+    }
+    if (matches.length === 1) return matches[0]
+    if (matches.length > 1) return undefined
+  }
+  return undefined
+}
+
+function lineIndexAtOffset(lines: LineSpan[], offset: number): number {
+  if (lines.length === 0) return 0
+  if (offset <= 0) return 0
+  const index = lines.findIndex(line => offset < line.end)
+  return index === -1 ? lines.length : index
+}
+
+function normalizeUnicodePunctuation(line: string): string {
+  return line
+    .trim()
+    .replace(/[\u2010-\u2015\u2212]/g, '-')
+    .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
+    .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
+    .replace(/[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g, ' ')
+}
+
+function normalizeForSimilarity(line: string): string {
+  return normalizeUnicodePunctuation(line)
+    .replace(/[ \t]+/g, ' ')
+    .toLowerCase()
+}
+
+function lineSimilarity(line: string, needle: string): number {
+  if (line.length === 0 || needle.length === 0) return 0
+  if (line === needle) return 1
+  if (line.includes(needle) || needle.includes(line)) {
+    return Math.min(line.length, needle.length) / Math.max(line.length, needle.length)
+  }
+  return diceCoefficient(line, needle)
+}
+
+function diceCoefficient(left: string, right: string): number {
+  const leftBigrams = bigramCounts(left)
+  const rightBigrams = bigramCounts(right)
+  let overlap = 0
+  for (const [bigram, count] of leftBigrams) {
+    overlap += Math.min(count, rightBigrams.get(bigram) ?? 0)
+  }
+  const total =
+    Array.from(leftBigrams.values()).reduce((sum, count) => sum + count, 0) +
+    Array.from(rightBigrams.values()).reduce((sum, count) => sum + count, 0)
+  return total === 0 ? 0 : (2 * overlap) / total
+}
+
+function bigramCounts(value: string): Map<string, number> {
+  const source = value.length < 2 ? ` ${value} ` : value
+  const counts = new Map<string, number>()
+  for (let index = 0; index < source.length - 1; index++) {
+    const bigram = source.slice(index, index + 2)
+    counts.set(bigram, (counts.get(bigram) ?? 0) + 1)
+  }
+  return counts
 }
 
 /**

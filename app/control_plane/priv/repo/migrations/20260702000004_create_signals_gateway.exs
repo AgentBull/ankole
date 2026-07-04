@@ -1,23 +1,19 @@
 defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
-  # SignalsGateway：provider 入口规范化 + source mirror + actor event 投递。
+  # SignalsGateway owns provider ingress normalization, source mirrors, actor handoff,
+  # and durable provider-visible outbox intents.
   #
-  # Phase 1 重构后的关键变化：
-  #   - actor_inputs        → actor_events（durable 事件，处理完不删除）
-  #   - 删除 actor_input_consumptions（不再需要 consumed tombstone）
-  #   - live_queue_sequence → queue_sequence
-  #   - signal_entries 新增 ai_message_id（引用 ai_gateway_messages.id）
-  #   - outbox: llm_turn_id 删除, source_actor_input_id → source_actor_event_id,
-  #     assistant_message_id → ai_message_id
+  # Durable actor_events are never consumed away; queue_sequence orders each actor session;
+  # signal_entries.ai_message_id and outbox provenance columns connect provider mirrors to AI output.
   #
-  # 四层身份（见 new-plan.md §2.2）：
-  #   source_event_id  来源事件幂等键
-  #   source_entry_id  来源平台消息 id
-  #   actor_event_id   Ankole 内部 work item id
-  #   ai_message_id    stored AI gateway message id
+  # Identity layers:
+  #   source_event_id: provider event idempotency key
+  #   source_entry_id: provider entry/message id
+  #   actor_event_id: Ankole durable work item id
+  #   ai_message_id: stored AIGateway message id
   use Ecto.Migration
 
   def change do
-    # ── 枚举类型 ──────────────────────────────────────────────
+    # Provider-facing enum values stay constrained in Postgres for replay and recovery.
     execute(
       """
       CREATE TYPE signal_channel_kind AS ENUM (
@@ -72,7 +68,7 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
       "DROP TYPE signal_gateway_outbox_status"
     )
 
-    # ── signal_bindings：agent ↔ adapter 绑定 ────────────────
+    # Bindings are the per-agent bridge between provider adapters and runtime policy.
     create table(:signal_bindings, primary_key: false) do
       add :agent_uid,
           references(:principals, column: :uid, type: :text, on_delete: :delete_all),
@@ -129,7 +125,7 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
       unavailable_reason: "Operator-visible reason why an enabled binding cannot currently run."
     })
 
-    # ── signal_channels：观察到的 provider 频道 ──────────────
+    # Channels are provider locations observed by ingress or outbound recovery.
     create table(:signal_channels, primary_key: false) do
       add :id, :text, primary_key: true
       add :kind, :signal_channel_kind, null: false, default: "unknown"
@@ -172,10 +168,9 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
       last_seen_at: "Time this channel was most recently observed by the gateway."
     })
 
-    # ── signal_entries：provider 消息镜像 ─────────────────────
-    # Phase 1 新增 ai_message_id：当 outbound final AI reply 成功发送后，
-    # 在此记录它对应的 ai_gateway_messages.id，供后续 edit/delete/reconcile
-    # 以及 recovery catch-up scan 判断「终态 message 是否已成功镜像」。
+    # signal_entries is the provider source mirror. ai_message_id is set only after an
+    # outbound final AI reply is sent, so recovery can distinguish mirrored terminal
+    # messages from terminal messages that still need provider reconciliation.
     create table(:signal_entries, primary_key: false) do
       add :signal_channel_id,
           references(:signal_channels, column: :id, type: :text, on_delete: :delete_all),
@@ -200,8 +195,7 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
       add :content_hash, :text
       add :first_seen_at, :utc_datetime_usec, null: false
       add :last_seen_at, :utc_datetime_usec, null: false
-      # Phase 1：outbound final AI reply 镜像时记录对应的 stored AI message id。
-      # 只属于 SignalsGateway 的 source mirror，不反向写入 ai_gateway_messages。
+      # SignalsGateway mirror pointer only; it does not backfill the AIGateway message row.
       add :ai_message_id, :uuid
 
       timestamps(type: :utc_datetime_usec)
@@ -209,7 +203,7 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
 
     create index(:signal_entries, [:document_id])
     create index(:signal_entries, [:last_seen_at])
-    # recovery scan 按 ai_message_id 查「final reply 是否已镜像」。
+    # Recovery scans use ai_message_id to prove a final reply already has a provider mirror.
     create index(:signal_entries, [:ai_message_id],
              name: :signal_entries_ai_message_id_index,
              where: "ai_message_id IS NOT NULL"
@@ -253,7 +247,7 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
         "Stored ai_gateway_messages.id when this entry mirrors an outbound final AI reply."
     })
 
-    # ── signal_gateway_input_tombstones：接收侧去重墓碑 ─────
+    # Receive-side tombstones suppress provider entries that should not reopen work.
     create table(:signal_gateway_input_tombstones, primary_key: false) do
       add :agent_uid,
           references(:principals, column: :uid, type: :text, on_delete: :delete_all),
@@ -286,11 +280,8 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
       tombstoned_until: "Time after which this tombstone can be removed."
     })
 
-    # ── actor_events：durable actor-facing work item ─────────
-    # 旧名 actor_inputs。Phase 1 重构后这是 durable lifecycle row：
-    # 处理完成后不删除，也不写 consumption marker（已删 actor_input_consumptions 表）。
-    # 是否仍在运行/完成由 delivery row + ai_gateway_conversations.generation lease +
-    # ai_gateway_messages.status 推导，不落独立状态字段（见 new-plan.md §2.3）。
+    # Actor events are durable worker-facing facts. Normal completion sets completed_at;
+    # unrecoverable events remain with input_state = 'dead_letter'.
     create table(:actor_events, primary_key: false) do
       add :id, :uuid, primary_key: true
 
@@ -306,11 +297,11 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
       add :source_entry_id, :text
       add :type, :text, null: false
       add :available_at, :utc_datetime_usec, null: false
-      # 旧名 live_queue_sequence → queue_sequence。Per-session 顺序号。
+      # Per-session ordering lives here because delivery is ordered within one actor session.
       add :queue_sequence, :bigint, null: false
-      # input_state 只约束 open | dead_letter（见 §2.3）。
-      # 完成态不在这里表达。
+      # input_state tracks queue eligibility only; normal completion lives in completed_at.
       add :input_state, :text, null: false, default: "open"
+      add :completed_at, :utc_datetime_usec
       add :sender_key, :text
       add :payload, :map, null: false
       add :dead_letter_at, :utc_datetime_usec
@@ -318,7 +309,7 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
       timestamps(type: :utc_datetime_usec)
     end
 
-    # source 幂等：同一 (agent, binding, source_event_id) 只产生一个 actor event。
+    # Source idempotency keeps one provider source event from enqueueing duplicate actor events.
     create unique_index(
              :actor_events,
              [:agent_uid, :binding_name, :source_event_id],
@@ -331,8 +322,9 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
 
     create index(
              :actor_events,
-             [:agent_uid, :session_id, :input_state, :available_at, :queue_sequence],
-             name: :actor_events_ready_index
+             [:agent_uid, :session_id, :available_at, :queue_sequence],
+             name: :actor_events_ready_index,
+             where: "input_state = 'open' AND completed_at IS NULL"
            )
 
     create index(
@@ -358,21 +350,20 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
       source_event_id: "Idempotency key for the source event (layer-1 identity).",
       signal_channel_id: "Provider channel tied to this event when it came from SignalsGateway.",
       provider_thread_id: "Provider thread key used for batching and reply context.",
-      source_entry_id: "Provider entry that produced this event when applicable (layer-2 identity).",
+      source_entry_id:
+        "Provider entry that produced this event when applicable (layer-2 identity).",
       type: "Actor event type such as command, signal entry, or session lifecycle.",
       available_at: "Earliest time this event may be delivered to the actor runtime.",
       queue_sequence: "Per-session sequence for ordering currently open actor events.",
       input_state: "Queue state for open or dead-lettered events.",
+      completed_at: "Time this event finished normal processing.",
       sender_key: "Provider sender key used by same-sender batching policy.",
       payload: "CloudEvents-style actor event envelope consumed by the worker.",
       dead_letter_at: "Time this event was marked undeliverable."
     })
 
-    # ── signal_gateway_outbox：provider 可见 side-effect ─────
-    # Phase 1：streamed AI reply 不再走 outbox（改走进程消息 live chunk events）。
-    # outbox 只保留其他显式 provider-visible side effect。
-    # 字段改名：source_actor_input_id → source_actor_event_id,
-    #          assistant_message_id → ai_message_id, 删除 llm_turn_id。
+    # The outbox stores non-streamed provider-visible side effects. Streamed final AI
+    # replies are sent as live chunk process events and mirrored after provider success.
     create table(:signal_gateway_outbox, primary_key: false) do
       add :agent_uid,
           references(:principals, column: :uid, type: :text, on_delete: :delete_all),
@@ -387,10 +378,8 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
       add :reply_to_source_entry_id, :text
       add :target_source_entry_id, :text
       add :created_source_entry_id, :text
-      # 旧名 source_actor_input_id → source_actor_event_id。
       add :source_actor_event_id, :uuid
-      # 旧名 assistant_message_id → ai_message_id。
-      # 引用 ai_gateway_messages.id（layer-4 identity），可确定性追溯。
+      # References ai_gateway_messages.id as the layer-4 identity for deterministic provenance.
       add :ai_message_id, :uuid
       add :payload, :map, null: false, default: %{}
       add :fallback_visible_text, :text
@@ -467,7 +456,7 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
     })
   end
 
-  # ── COMMENT 辅助函数 ───────────────────────────────────────
+  # PostgreSQL comment helpers keep schema documentation attached after a clean reset.
   defp comment_table(table, comment) do
     execute(
       "COMMENT ON TABLE #{identifier(table)} IS #{literal(comment)}",

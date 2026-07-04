@@ -1,11 +1,23 @@
 import Config
 
+Code.require_file("support/bootstrap.exs", __DIR__)
+
+Ankole.Config.Bootstrap.load_dotenv!(
+  root: Path.expand("..", __DIR__),
+  env: config_env()
+)
+
 runtime_fabric_bind_endpoint =
   System.get_env("ANKOLE_RUNTIME_FABRIC_BIND_ENDPOINT") ||
     System.get_env("ANKOLE_RUNTIME_FABRIC_ENDPOINT")
 
 if runtime_fabric_bind_endpoint do
   config :ankole, :actor_runtime_router, bind_endpoint: runtime_fabric_bind_endpoint
+end
+
+case Ankole.Config.Bootstrap.env_path_list("ANKOLE_PLUGIN_PATHS", nil) do
+  nil -> :ok
+  paths -> config :ankole, Ankole.Plugins.Discovery, paths: paths
 end
 
 # config/runtime.exs is executed for all environments, including
@@ -24,44 +36,32 @@ end
 #
 # Alternatively, you can use `mix phx.gen.release` to generate a `bin/server`
 # script that automatically sets the env var above.
-if System.get_env("PHX_SERVER") do
+if Ankole.Config.Bootstrap.env_boolean("PHX_SERVER", false) do
   config :ankole, AnkoleWeb.Endpoint, server: true
 end
 
+port = Ankole.Config.Bootstrap.env_integer("PORT", 4000)
+Ankole.Config.Bootstrap.validate_port!(port, "PORT")
+
 config :ankole, AnkoleWeb.Endpoint,
-  http: [port: String.to_integer(System.get_env("PORT", "4000"))]
+  http: [port: port],
+  secret_key_base: Ankole.Config.Bootstrap.endpoint_secret_key_base!()
 
 if config_env() == :prod do
-  database_url =
-    System.get_env("DATABASE_URL") ||
-      raise """
-      environment variable DATABASE_URL is missing.
-      For example: ecto://USER:PASS@HOST/DATABASE
-      """
+  database_url = Ankole.Config.Bootstrap.env!("DATABASE_URL")
 
-  maybe_ipv6 = if System.get_env("ECTO_IPV6") in ~w(true 1), do: [:inet6], else: []
+  maybe_ipv6 =
+    if Ankole.Config.Bootstrap.env_boolean("ECTO_IPV6", false), do: [:inet6], else: []
 
   config :ankole, Ankole.Repo,
     # ssl: true,
     url: database_url,
-    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
+    pool_size: Ankole.Config.Bootstrap.env_integer("POOL_SIZE", 10),
     # For machines with several cores, consider starting multiple pools of `pool_size`
     # pool_count: 4,
     socket_options: maybe_ipv6
 
-  # The secret key base is used to sign/encrypt cookies and other secrets.
-  # A default value is used in config/dev.exs and config/test.exs but you
-  # want to use a different value for prod and you most likely don't want
-  # to check this value into version control, so we use an environment
-  # variable instead.
-  secret_key_base =
-    System.get_env("SECRET_KEY_BASE") ||
-      raise """
-      environment variable SECRET_KEY_BASE is missing.
-      You can generate one by calling: mix phx.gen.secret
-      """
-
-  host = System.get_env("PHX_HOST") || "example.com"
+  host = Ankole.Config.Bootstrap.env_string("PHX_HOST", "example.com")
 
   config :ankole, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
@@ -73,8 +73,7 @@ if config_env() == :prod do
       # See the documentation on https://hexdocs.pm/bandit/Bandit.html#t:options/0
       # for details about using IPv6 vs IPv4 and loopback vs public addresses.
       ip: {0, 0, 0, 0, 0, 0, 0, 0}
-    ],
-    secret_key_base: secret_key_base
+    ]
 
   # ## SSL Support
   #

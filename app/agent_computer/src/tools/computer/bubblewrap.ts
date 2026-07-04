@@ -58,7 +58,7 @@ export function resolveBubblewrapSupport(workspaceRoot: string): BubblewrapSuppo
 export function bubblewrapArgv(input: BubblewrapArgvInput, mode?: BubblewrapMode): string[] {
   const selectedMode = mode ?? resolveBubblewrapSupport(input.workspaceRoot).mode
   return [
-    'bwrap',
+    bubblewrapExecutable(),
     '--unshare-all',
     '--share-net',
     '--die-with-parent',
@@ -79,6 +79,10 @@ export function bubblewrapArgv(input: BubblewrapArgvInput, mode?: BubblewrapMode
     ...Object.entries(input.env).flatMap(([key, value]) => ['--setenv', key, value]),
     ...input.commandArgv
   ]
+}
+
+function bubblewrapExecutable(): string {
+  return process.env.ANKOLE_BWRAP_PATH || 'bwrap'
 }
 
 function probeBubblewrapMode(mode: BubblewrapMode, workspaceRoot: string): ProbeResult {
@@ -193,15 +197,7 @@ function readOnlySystemBinds(): string[] {
     .filter(path => existsSync(path))
     .flatMap(path => ['--ro-bind', path, path])
 
-  const fileBinds = [
-    '/etc/hosts',
-    '/etc/resolv.conf',
-    '/etc/nsswitch.conf',
-    '/etc/ssl',
-    '/etc/ca-certificates',
-    '/etc/chromium',
-    '/etc/chromium.d'
-  ]
+  const fileBinds = ['/etc/hosts', '/etc/resolv.conf', '/etc/nsswitch.conf', '/etc/ssl', '/etc/ca-certificates']
     .filter(path => existsSync(path))
     .flatMap(path => ['--ro-bind', path, path])
 

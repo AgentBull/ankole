@@ -17,6 +17,7 @@ defmodule Ankole.AIGateway.Providers do
 
   @contract_id "ai_gateway.provider"
   @common_connection_settings ~w(base_url headers query_params transport)
+  @cache_key {__MODULE__, :registry}
 
   @builtins [
     Ankole.AIGateway.Providers.AzureOpenAI,
@@ -25,7 +26,11 @@ defmodule Ankole.AIGateway.Providers do
     Ankole.AIGateway.Providers.OpenAICompatible,
     Ankole.AIGateway.Providers.OpenRouter,
     Ankole.AIGateway.Providers.GoogleAIStudioOpenAI,
-    Ankole.AIGateway.Providers.Jina
+    Ankole.AIGateway.Providers.Jina,
+    Ankole.AIGateway.Providers.Parallel,
+    Ankole.AIGateway.Providers.BrightDataSERP,
+    Ankole.AIGateway.Providers.AgentBullCloud,
+    Ankole.AIGateway.Providers.JinaReader
   ]
 
   @type definition :: ProviderDefinition.t()
@@ -38,19 +43,38 @@ defmodule Ankole.AIGateway.Providers do
   """
   @spec all() :: [definition()]
   def all do
-    plugin_modules =
-      @contract_id
-      |> Plugins.adapter_declarations()
-      |> Enum.flat_map(fn declaration ->
-        case declaration_module(declaration) do
-          {:ok, module} -> [module]
-          {:error, _reason} -> []
-        end
-      end)
+    registry().definitions
+  end
 
-    (@builtins ++ plugin_modules)
-    |> Enum.map(&definition!/1)
-    |> Enum.uniq_by(& &1.provider_kind)
+  @doc """
+  Rebuilds the provider registry cache from the active plugin registry.
+  """
+  @spec refresh() :: %{definitions: [definition()], by_kind: %{String.t() => definition()}}
+  def refresh do
+    declarations =
+      case Process.whereis(Ankole.Plugins.Registry) do
+        nil -> []
+        _pid -> Plugins.adapter_declarations(@contract_id)
+      end
+
+    refresh_from_adapter_declarations(declarations)
+  end
+
+  @doc false
+  @spec refresh_from_adapter_declarations([map()]) :: %{
+          definitions: [definition()],
+          by_kind: %{String.t() => definition()}
+        }
+  def refresh_from_adapter_declarations(declarations) when is_list(declarations) do
+    registry = build_registry(declarations)
+    :persistent_term.put(@cache_key, registry)
+    registry
+  end
+
+  @doc false
+  def reset_for_test do
+    :persistent_term.erase(@cache_key)
+    :ok
   end
 
   @doc """
@@ -70,7 +94,7 @@ defmodule Ankole.AIGateway.Providers do
   def fetch(provider_kind) when is_binary(provider_kind) do
     normalized = normalize_id(provider_kind)
 
-    case Enum.find(all(), &(&1.provider_kind == normalized)) do
+    case Map.get(registry().by_kind, normalized) do
       %ProviderDefinition{} = provider -> {:ok, provider}
       nil -> {:error, :unknown_ai_gateway_provider}
     end
@@ -192,6 +216,20 @@ defmodule Ankole.AIGateway.Providers do
     do: build_prepared_request(runtime, :rerank_model, request, [])
 
   @doc """
+  Builds a prepared web-search request for UniversalAIClient.
+  """
+  @spec build_web_search_request(map(), map()) :: {:ok, map()} | {:error, term()}
+  def build_web_search_request(runtime, request),
+    do: build_prepared_request(runtime, :web_search, request, [])
+
+  @doc """
+  Builds a prepared web-fetch request for UniversalAIClient.
+  """
+  @spec build_web_fetch_request(map(), map()) :: {:ok, map()} | {:error, term()}
+  def build_web_fetch_request(runtime, request),
+    do: build_prepared_request(runtime, :web_fetch, request, [])
+
+  @doc """
   Returns connection option keys accepted by a provider definition.
 
   Common keys such as `transport`, `headers`, and `query_params` are handled by
@@ -226,10 +264,47 @@ defmodule Ankole.AIGateway.Providers do
     with {:ok, provider} <- fetch(Map.get(runtime, "provider_kind")),
          {:ok, capability} <- ProviderDefinition.capability(provider, capability_kind),
          {:ok, ctx} <- PrepareContext.build(provider, capability_kind, runtime, request, opts),
+         ctx = apply_provider_request_policies(ctx),
          {:ok, prepared} <- call_prepare(provider.module, capability, ctx) do
       {:ok, prepared}
     end
   end
+
+  defp apply_provider_request_policies(%PrepareContext{} = ctx) do
+    maybe_disable_openai_response_storage(ctx)
+  end
+
+  defp maybe_disable_openai_response_storage(
+         %PrepareContext{
+           provider: %ProviderDefinition{provider_kind: provider_kind},
+           capability: %Capability{kind: :language_model},
+           request: request
+         } = ctx
+       )
+       when provider_kind in ["openai", "azure_openai"] and is_map(request) do
+    if openai_responses_endpoint?(provider_kind, ctx) do
+      %{ctx | request: Map.put(request, "store", false)}
+    else
+      ctx
+    end
+  end
+
+  defp maybe_disable_openai_response_storage(ctx), do: ctx
+
+  defp openai_responses_endpoint?("openai", %PrepareContext{settings: settings})
+       when is_map(settings) do
+    case Map.get(settings, :endpoint_kind) do
+      "chat_completions" -> false
+      "compatible" -> false
+      _endpoint_kind -> true
+    end
+  end
+
+  defp openai_responses_endpoint?("azure_openai", %PrepareContext{settings: settings})
+       when is_map(settings),
+       do: Map.get(settings, :endpoint_kind) == "responses"
+
+  defp openai_responses_endpoint?(_provider_kind, _ctx), do: false
 
   # Provider code can return the builder or the final map, tagged or bare. That
   # keeps simple providers terse while preserving a single UniversalAIClient spec
@@ -243,6 +318,44 @@ defmodule Ankole.AIGateway.Providers do
       {:error, _reason} = error -> error
       other -> {:error, {:invalid_prepared_request, other}}
     end
+  end
+
+  defp registry do
+    case :persistent_term.get(@cache_key, nil) do
+      %{definitions: definitions, by_kind: by_kind} = registry
+      when is_list(definitions) and is_map(by_kind) ->
+        registry
+
+      _missing ->
+        refresh()
+    end
+  end
+
+  defp build_registry(declarations) do
+    definitions =
+      declarations
+      |> plugin_provider_modules()
+      |> then(fn plugin_modules -> @builtins ++ plugin_modules end)
+      |> Enum.map(&definition!/1)
+      |> Enum.uniq_by(& &1.provider_kind)
+
+    %{
+      definitions: definitions,
+      by_kind: Map.new(definitions, &{&1.provider_kind, &1})
+    }
+  end
+
+  defp plugin_provider_modules(declarations) do
+    declarations
+    |> Enum.filter(fn declaration ->
+      declaration[:contract_id] == @contract_id or declaration["contract_id"] == @contract_id
+    end)
+    |> Enum.flat_map(fn declaration ->
+      case declaration_module(declaration) do
+        {:ok, module} -> [module]
+        {:error, _reason} -> []
+      end
+    end)
   end
 
   defp capability_names(%ProviderDefinition{capabilities: capabilities}) do

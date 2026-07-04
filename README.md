@@ -53,7 +53,7 @@ The runtime is built around five technical bets:
 - **Virtual Actors for AI work.** A session is a stateful work identity with an address, mailbox, lifecycle, and recovery path, not loose background work.
 - **OTP Supervision Trees as failure domains.** If one agent hangs, times out, or crashes, Ankole can isolate or restart that branch without turning it into a deployment-wide failure.
 - **ZeroMQ Activation Fabric for live control.** Wakeups, steering, checkpoints, streaming, and backpressure move through a low-latency routing layer while the agent is still working.
-- **Agent Computer as the execution substrate.** The LLM loop, tools, MCP servers, files, terminal state, and streaming output run inside a Bun + TypeScript computer close to the workspace.
+- **Agent Computer as the execution substrate.** The LLM loop, tools, files, terminal state, and streaming output run inside a Bun + TypeScript computer close to the workspace.
 - **Durable Ledger for recovery and audit.** Mailboxes, turns, reminders, decisions, and committed side effects outlive processes. Streaming is progress; committed work is truth.
 
 For users and operators, the promise is simple: agents can work for hours or days, receive new input while running, fail independently, recover with context, and keep their side effects accountable. A longer version of the runtime argument is in [Why OTP Is a Better Runtime for Multi-Agent Orchestration](https://ding.ee/en-US/why-otp-is-a-better-runtime-for-multi-agent-orchestration/).
@@ -69,7 +69,6 @@ flowchart LR
 
   SG --> CP
   CP --> PG[("PostgreSQL<br/>durable truth")]
-  CP --> Redis[("Redis<br/>local dev service")]
 
   CP <-->|"RuntimeFabric<br/>live routing"| Worker["Agent Computer<br/>Bun / TypeScript worker"]
 
@@ -79,11 +78,11 @@ flowchart LR
 
 At a high level:
 
-- **SignalsGateway** accepts provider ingress and normalizes it into actor inputs.
+- **SignalsGateway** accepts provider ingress and normalizes it into durable actor events.
 - **Control Plane** owns durable state, actor orchestration, configuration, identity, and authorization.
 - **RuntimeFabric** connects actors, workers, and RPC lanes for live execution over ZeroMQ while PostgreSQL remains the durable source of replay, fences, reconciliation, and final commits.
 - **Agent Computer** executes turns and tools in an isolated worker container.
-- **PostgreSQL** remains the durable record for accepted inputs, state, fences, and final commits.
+- **PostgreSQL** remains the durable record for accepted events, state, fences, and final commits.
 
 ## Current Status
 
@@ -95,7 +94,7 @@ Ankole is an early engineering distribution, not a polished end-user product or 
 | Agent Computer | Bun/TypeScript worker runtime under `app/agent_computer`. Runs the agent loop and local tools inside an isolated Linux worker image; not a standalone CLI. |
 | Kernel | Rust crate under `app/kernel`, loaded by Elixir (Rustler) and Bun (N-API) for crypto, identifiers, AuthZ evaluation, and ZeroMQ transport. |
 | Frontend | Vite + React surfaces under `app/webapps`, built into the Phoenix static shell. |
-| Local services | PostgreSQL and Redis are provided through the devkit Docker Compose setup. |
+| Local services | PostgreSQL is provided through the devkit Docker Compose setup. |
 | Design docs | Architecture and runtime design documents live under `docs/design-docs`. |
 | Public API stability | Internal APIs are still evolving. Expect breaking changes between releases. |
 
@@ -115,7 +114,7 @@ This repository is the active Ankole control-plane and runtime workspace. It is 
 - `tools/devkit` - workspace automation for local services, app database helpers, code generation, and analysis.
 - `docs/design-docs` - current design documents for principal identity, authorization, configuration, I18n, plugins, RuntimeFabric, SignalsGateway, and provider adapters.
 
-RuntimeFabric is the live control-plane-to-worker fabric. It carries actor traffic, bounded RPC, and worker-file frames over ZeroMQ while PostgreSQL remains the source of durable replay, fences, reconciliation, and final commits. SignalsGateway is the provider-ingress layer: external chats, webhooks, and provider events become actor input without turning source facts into execution state.
+RuntimeFabric is the live control-plane-to-worker fabric. It carries actor traffic, bounded RPC, and worker-file frames over ZeroMQ while PostgreSQL remains the source of durable replay, fences, reconciliation, and final commits. SignalsGateway is the provider-ingress layer: external chats, webhooks, and provider events become actor events without turning source facts into execution state.
 
 ## Development
 
@@ -172,4 +171,4 @@ cd app/control_plane
 mix ankole.actor_runtime.worker_bootstrap --endpoint tcp://127.0.0.1:6010 --worker-id worker-a
 ```
 
-Production bootstrap configuration uses standard infrastructure names such as `DATABASE_URL`, `SECRET_KEY_BASE`, and `REDIS_URL`. Runtime application configuration belongs in Ankole's PostgreSQL-backed AppConfigure surface rather than process-local environment variables.
+Production bootstrap configuration uses standard infrastructure names such as `DATABASE_URL` and `SECRET_KEY_BASE`. Runtime application configuration belongs in Ankole's PostgreSQL-backed AppConfigure surface rather than process-local environment variables.

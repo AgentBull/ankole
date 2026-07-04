@@ -89,6 +89,25 @@ defmodule FeishuOpenAPI.UserTokenManager do
     :ok
   end
 
+  @doc """
+  Mark only the cached `user_access_token` as expired while preserving its
+  `refresh_token`, so the next `get/2` performs a real refresh.
+  """
+  @spec expire_access_token(Client.t(), String.t()) :: :ok
+  def expire_access_token(%Client{} = client, user_key) when is_binary(user_key) do
+    key = cache_key(client, user_key)
+
+    case lookup_entry(key) do
+      {:ok, entry} ->
+        :ets.insert(@table, {key, %{entry | access_expires_at: expired_at()}})
+
+      :miss ->
+        :ok
+    end
+
+    :ok
+  end
+
   @impl true
   def init(_) do
     :ets.new(@table, [:named_table, :public, :set, read_concurrency: true])
@@ -313,7 +332,9 @@ defmodule FeishuOpenAPI.UserTokenManager do
 
   # No lifetime given by the provider: place expiry in the past so the token is
   # treated as already-stale and a refresh is attempted on next use.
-  defp expires_at(_), do: System.monotonic_time(:millisecond) - @expiry_delta_ms
+  defp expires_at(_), do: expired_at()
+
+  defp expired_at, do: System.monotonic_time(:millisecond) - @expiry_delta_ms
 
   defp task_supervisor do
     Application.get_env(

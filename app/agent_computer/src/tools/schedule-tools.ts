@@ -1,8 +1,9 @@
+import { createHash } from 'node:crypto'
 import { z } from 'zod'
-import type { ActorInputEnvelope, JsonObject, TurnStart } from '../actor_lane'
+import type { ActorEventEnvelope, JsonObject, TurnStart } from '../actor_lane'
+import { deepString as rawDeepString } from '../common/json-utils'
 import type { AgentTool, AgentToolResult } from '../core'
 import { rpcMethods, type RpcMethod, type ScheduleRpcRequest } from '../rpc_lane'
-import { buildTool } from './build-tool'
 
 export type ScheduleRpcRequester = (method: RpcMethod, request: ScheduleRpcRequest) => Promise<JsonObject>
 
@@ -75,9 +76,8 @@ export function createScheduleTools(opts: CreateScheduleToolsOptions): AgentTool
 function createCheckBackLaterTool(
   opts: CreateScheduleToolsOptions
 ): AgentTool<typeof CheckBackLaterParams, ScheduleToolDetails> {
-  return buildTool({
+  return {
     name: 'check_back_later',
-    label: 'Check Back Later',
     description:
       'Schedule one delayed self-wakeup for this conversation. Use when the user asks you to wait, remind yourself, follow up later, or re-check something after time passes.',
     schema: CheckBackLaterParams,
@@ -98,7 +98,7 @@ function createCheckBackLaterTool(
         request_id: `schedule-checkback-${crypto.randomUUID()}`,
         turn_ref: opts.turnStart.turn,
         tool_call_id: toolCallId,
-        idempotency_key: params.idempotency_key ?? `check_back_later:${opts.turnStart.turn.llm_turn_id}:${toolCallId}`,
+        idempotency_key: params.idempotency_key ?? defaultCheckBackIdempotencyKey(opts.turnStart, params),
         reason: params.reason,
         check: params.check,
         context_summary: params.context_summary,
@@ -108,20 +108,39 @@ function createCheckBackLaterTool(
 
       return jsonToolResult(response)
     }
-  })
+  }
+}
+
+function defaultCheckBackIdempotencyKey(turnStart: TurnStart, params: z.output<typeof CheckBackLaterParams>): string {
+  const stableInput = {
+    actor_event_id: turnStart.turn.actor_event_id,
+    reason: params.reason.trim(),
+    check: params.check.trim(),
+    context_summary: params.context_summary?.trim() ?? '',
+    schedule: params.after
+      ? {
+          after: params.after,
+          timezone: params.timezone ?? null
+        }
+      : {
+          at: params.at ?? null,
+          timezone: params.timezone ?? null
+        }
+  }
+
+  return `check_back_later:${turnStart.turn.actor_event_id}:${stableHash(stableInput)}`
 }
 
 function createCronTool(opts: CreateScheduleToolsOptions): AgentTool<typeof CronParams, ScheduleToolDetails> {
-  return buildTool({
+  return {
     name: 'cron',
-    label: 'Cron Schedule',
     description:
       'List, inspect, create, update, pause, resume, remove, or manually run recurring schedules for this conversation. Recurring schedules support kind=every and kind=cron only.',
     schema: CronParams,
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
-    async execute(toolCallId, params): Promise<AgentToolResult<ScheduleToolDetails>> {
+    async execute(_toolCallId, params): Promise<AgentToolResult<ScheduleToolDetails>> {
       const method = cronMethod(params.action)
       const baseRequest = {
         request_id: `schedule-cron-${params.action}-${crypto.randomUUID()}`,
@@ -130,12 +149,12 @@ function createCronTool(opts: CreateScheduleToolsOptions): AgentTool<typeof Cron
 
       const response = await opts.requestScheduleRpc!(method, {
         ...baseRequest,
-        ...cronPayload(params, opts.turnStart, toolCallId)
+        ...cronPayload(params, opts.turnStart)
       })
 
       return jsonToolResult(response)
     }
-  })
+  }
 }
 
 function cronMethod(action: z.output<typeof CronParams>['action']): RpcMethod {
@@ -161,7 +180,7 @@ function cronMethod(action: z.output<typeof CronParams>['action']): RpcMethod {
   }
 }
 
-function cronPayload(params: z.output<typeof CronParams>, turnStart: TurnStart, toolCallId: string): JsonObject {
+function cronPayload(params: z.output<typeof CronParams>, turnStart: TurnStart): JsonObject {
   switch (params.action) {
     case 'list':
       return {}
@@ -174,7 +193,7 @@ function cronPayload(params: z.output<typeof CronParams>, turnStart: TurnStart, 
     case 'runs':
       return { cron_schedule_id: requiredCronScheduleId(params), ...(params.limit ? { limit: params.limit } : {}) }
     case 'add':
-      return cronAddPayload(params, turnStart, toolCallId)
+      return cronAddPayload(params, turnStart)
     case 'update':
       return {
         cron_schedule_id: requiredCronScheduleId(params),
@@ -183,7 +202,7 @@ function cronPayload(params: z.output<typeof CronParams>, turnStart: TurnStart, 
   }
 }
 
-function cronAddPayload(params: z.output<typeof CronParams>, turnStart: TurnStart, toolCallId: string): JsonObject {
+function cronAddPayload(params: z.output<typeof CronParams>, turnStart: TurnStart): JsonObject {
   if (!params.schedule) throw new Error('cron add requires schedule')
   const route = currentReplyRoute(turnStart)
   const bindingName = params.binding_name ?? route?.binding_name
@@ -195,8 +214,26 @@ function cronAddPayload(params: z.output<typeof CronParams>, turnStart: TurnStar
     schedule: params.schedule,
     payload: params.payload ?? {},
     delivery: cronDelivery(params, route),
-    idempotency_key: params.idempotency_key ?? `cron:add:${turnStart.turn.llm_turn_id}:${toolCallId}`
+    idempotency_key: params.idempotency_key ?? defaultCronAddIdempotencyKey(turnStart, params, bindingName, route)
   }
+}
+
+function defaultCronAddIdempotencyKey(
+  turnStart: TurnStart,
+  params: z.output<typeof CronParams>,
+  bindingName: string,
+  route: ReplyRoute | undefined
+): string {
+  const stableInput = {
+    actor_event_id: turnStart.turn.actor_event_id,
+    binding_name: bindingName,
+    name: params.name?.trim() ?? '',
+    schedule: params.schedule,
+    payload: params.payload ?? {},
+    delivery: cronDelivery(params, route) ?? {}
+  }
+
+  return `cron:add:${turnStart.turn.actor_event_id}:${stableHash(stableInput)}`
 }
 
 function cronUpdates(params: z.output<typeof CronParams>, turnStart: TurnStart): JsonObject {
@@ -227,17 +264,15 @@ type ReplyRoute = {
   binding_name?: string
   signal_channel_id?: string
   provider_thread_id?: string
-  provider_entry_id?: string
+  source_entry_id?: string
 }
 
 function currentReplyRoute(turnStart: TurnStart): ReplyRoute | undefined {
-  for (const input of turnStart.inputs) {
-    const route = replyRouteFromInput(input)
-    if (route.binding_name && route.signal_channel_id) return route
-  }
+  const route = replyRouteFromInput(turnStart.actor_event)
+  return route.binding_name && route.signal_channel_id ? route : undefined
 }
 
-function replyRouteFromInput(input: ActorInputEnvelope): ReplyRoute {
+function replyRouteFromInput(input: ActorEventEnvelope): ReplyRoute {
   const payload = input.payload_json
   return compact({
     binding_name:
@@ -253,10 +288,10 @@ function replyRouteFromInput(input: ActorInputEnvelope): ReplyRoute {
       input.provider_thread_id ??
       deepString(payload, ['data', 'reply_route', 'provider_thread_id']) ??
       deepString(payload, ['data', 'entry', 'provider_thread_id']),
-    provider_entry_id:
-      input.provider_entry_id ??
-      deepString(payload, ['data', 'reply_route', 'provider_entry_id']) ??
-      deepString(payload, ['data', 'entry', 'provider_entry_id'])
+    source_entry_id:
+      input.source_entry_id ??
+      deepString(payload, ['data', 'reply_route', 'source_entry_id']) ??
+      deepString(payload, ['data', 'entry', 'source_entry_id'])
   })
 }
 
@@ -272,14 +307,25 @@ function compact<T extends Record<string, string | undefined>>(value: T): T {
 }
 
 function deepString(value: unknown, path: string[]): string | undefined {
-  let current: unknown = value
-  for (const key of path) {
-    if (!isRecord(current)) return undefined
-    current = current[key]
-  }
-  return typeof current === 'string' && current.trim() !== '' ? current.trim() : undefined
+  const text = rawDeepString(value, path)?.trim()
+  return text ? text : undefined
 }
 
-function isRecord(value: unknown): value is JsonObject {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
+function stableHash(value: unknown): string {
+  return createHash('sha256').update(stableJson(value)).digest('hex').slice(0, 16)
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableJson).join(',')}]`
+  }
+
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([left], [right]) =>
+      left.localeCompare(right)
+    )
+    return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`).join(',')}}`
+  }
+
+  return JSON.stringify(value) ?? 'null'
 }

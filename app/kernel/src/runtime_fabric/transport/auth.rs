@@ -12,6 +12,9 @@ const ZAP_ENDPOINT: &str = "inproc://zeromq.zap.01";
 #[derive(Clone, Debug)]
 pub(super) struct AuthenticatedWorker {
     pub(super) worker_id: String,
+    // ZAP exposes authentication identity plus key revision as route metadata.
+    // The current global worker key has one revision; keep the field even while
+    // it is constant so the transport/auth boundary does not lose that fact.
     pub(super) key_revision: i64,
 }
 
@@ -305,9 +308,8 @@ fn record_authenticated_route(
 ) {
     if let Ok(mut state) = auth_routes.lock() {
         if !route.is_empty() {
-            state
-                .routes
-                .insert(route.to_string(), authenticated.clone());
+            state.routes.insert(route.to_string(), authenticated);
+            return;
         }
         state
             .pending_by_worker_id
@@ -325,4 +327,86 @@ fn forget_authenticated_route(auth_routes: &AuthenticatedRoutes, route: &str) {
 
 fn frame_string(frame: Option<&Vec<u8>>) -> Option<String> {
     frame.and_then(|bytes| String::from_utf8(bytes.clone()).ok())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn zap_success_with_route_identity_does_not_enqueue_pending_worker() {
+        let auth_routes = authenticated_routes();
+        let auth = zap_auth();
+        let frames = zap_plain_frames("worker-instance-a", "worker-a", "test-token");
+
+        for _ in 0..3 {
+            let response = zap_response("ankole", &auth, &auth_routes, &frames);
+            assert_eq!(response[2], b"200");
+        }
+
+        let state = auth_routes.lock().expect("auth routes lock");
+        assert_eq!(state.routes.len(), 1);
+        assert_eq!(
+            state
+                .routes
+                .get("worker-instance-a")
+                .map(|worker| worker.worker_id.as_str()),
+            Some("worker-a")
+        );
+        assert!(state.pending_by_worker_id.is_empty());
+    }
+
+    #[test]
+    fn zap_success_without_route_identity_can_bind_from_worker_ready() {
+        let auth_routes = authenticated_routes();
+        let auth = zap_auth();
+        let frames = zap_plain_frames("", "worker-a", "test-token");
+
+        let response = zap_response("ankole", &auth, &auth_routes, &frames);
+        assert_eq!(response[2], b"200");
+
+        let authenticated = authenticated_envelope_route(
+            &auth_routes,
+            "worker-instance-a",
+            &json!({
+                "body": {
+                    "type": "worker_ready",
+                    "worker_ready": {
+                        "worker_id": "worker-a"
+                    }
+                }
+            }),
+        )
+        .expect("pending auth binds to ready route");
+
+        assert_eq!(authenticated.worker_id, "worker-a");
+
+        let state = auth_routes.lock().expect("auth routes lock");
+        assert_eq!(state.routes.len(), 1);
+        assert!(state.pending_by_worker_id.is_empty());
+    }
+
+    fn authenticated_routes() -> AuthenticatedRoutes {
+        Arc::new(Mutex::new(AuthenticatedRouteState::default()))
+    }
+
+    fn zap_auth() -> ZapAuthConfig {
+        ZapAuthConfig::GlobalWorkerKey {
+            worker_auth_key: "test-token".to_owned(),
+        }
+    }
+
+    fn zap_plain_frames(route_identity: &str, username: &str, password: &str) -> Vec<Vec<u8>> {
+        vec![
+            b"1.0".to_vec(),
+            b"1".to_vec(),
+            b"ankole".to_vec(),
+            b"127.0.0.1".to_vec(),
+            route_identity.as_bytes().to_vec(),
+            b"PLAIN".to_vec(),
+            username.as_bytes().to_vec(),
+            password.as_bytes().to_vec(),
+        ]
+    }
 }

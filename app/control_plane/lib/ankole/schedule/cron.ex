@@ -201,6 +201,9 @@ defmodule Ankole.Schedule.Cron do
       idempotency_key: Store.cron_idempotency_key(schedule.id, slot_at),
       cron_schedule_id: schedule.id,
       cron_fire_slot_at: slot_at,
+      # Source table: created_by.origin_ai_message_id is ai_gateway_messages.id
+      # captured when the cron definition was created.
+      origin_ai_message_id: Attrs.map_text(schedule.created_by || %{}, "origin_ai_message_id"),
       source_provenance: %{
         "cron_schedule_id" => schedule.id,
         "trigger" => trigger

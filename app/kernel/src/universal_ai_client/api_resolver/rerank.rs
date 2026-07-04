@@ -41,7 +41,7 @@ fn resolve_rerank_body(
         .as_object()
         .cloned()
         .unwrap_or_default();
-    let request = context.resolved_request();
+    let request = context.resolved_provider_request();
     let documents = request
         .get("documents")
         .and_then(Value::as_array)

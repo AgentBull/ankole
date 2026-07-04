@@ -8,7 +8,9 @@ defmodule Ankole.ActorRuntime.WorkerRouteAuth do
   alias Ankole.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.Repo
 
-  @spec authorize_turn_route(map(), String.t(), :read | :write) :: :ok | {:error, atom()}
+  @type effect :: :read | :write
+
+  @spec authorize_turn_route(map(), String.t(), effect()) :: :ok | {:error, atom()}
   def authorize_turn_route(turn, route, effect)
       when is_map(turn) and is_binary(route) and effect in [:read, :write] do
     with {:ok, turn_ref} <- normalize_turn_ref(turn) do
@@ -55,7 +57,7 @@ defmodule Ankole.ActorRuntime.WorkerRouteAuth do
     |> where([activation], activation.session_id == ^turn_ref.session_id)
     |> where([activation], activation.activation_uid == ^turn_ref.activation_uid)
     |> where([activation], activation.actor_epoch == ^turn_ref.actor_epoch)
-    |> where([activation], activation.current_llm_turn_id == ^turn_ref.llm_turn_id)
+    |> where([activation], activation.current_actor_event_id == ^turn_ref.actor_event_id)
     |> where([activation], activation.assigned_worker_id == ^worker.worker_id)
     |> where([activation], activation.status in ["starting", "active", "draining"])
     |> repo.one()
@@ -64,10 +66,11 @@ defmodule Ankole.ActorRuntime.WorkerRouteAuth do
   defp authorize_revision(%ActorSessionActivation{}, _turn_ref, :read), do: :ok
 
   defp authorize_revision(
-         %ActorSessionActivation{revision: revision},
-         %{revision: revision},
+         %ActorSessionActivation{revision: activation_revision},
+         %{revision: turn_revision},
          :write
-       ),
+       )
+       when activation_revision >= turn_revision,
        do: :ok
 
   defp authorize_revision(%ActorSessionActivation{}, _turn_ref, :write),
@@ -79,7 +82,7 @@ defmodule Ankole.ActorRuntime.WorkerRouteAuth do
          session_id when is_binary(session_id) <- text(actor, "session_id"),
          activation_uid when is_binary(activation_uid) <- text(turn, "activation_uid"),
          actor_epoch when is_integer(actor_epoch) <- integer(turn, "actor_epoch"),
-         llm_turn_id when is_binary(llm_turn_id) <- text(turn, "llm_turn_id"),
+         actor_event_id when is_binary(actor_event_id) <- text(turn, "actor_event_id"),
          revision when is_integer(revision) <- integer(turn, "revision") do
       {:ok,
        %{
@@ -87,7 +90,7 @@ defmodule Ankole.ActorRuntime.WorkerRouteAuth do
          session_id: session_id,
          activation_uid: activation_uid,
          actor_epoch: actor_epoch,
-         llm_turn_id: llm_turn_id,
+         actor_event_id: actor_event_id,
          revision: revision
        }}
     else

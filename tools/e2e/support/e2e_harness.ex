@@ -13,8 +13,9 @@ defmodule Ankole.E2E.Harness do
   import ExUnit.Callbacks
 
   alias Ankole.AIAgent.Library
-  alias Ankole.AIAgent.ModelProfiles
-  alias Ankole.AIAgent.Schemas.Message
+  alias Ankole.AIGateway.ModelProfiles
+  alias Ankole.AIGateway.Schemas.Message
+  alias Ankole.ActorRuntime.WorkerBrowserConfig
   alias Ankole.Actors.ActorEvent
   alias Ankole.ActorRuntime.OutboxDispatcher
   alias Ankole.ActorRuntime.ReadyEventProcessor
@@ -404,6 +405,8 @@ defmodule Ankole.E2E.Harness do
                })
     end
 
+    maybe_put_real_llm_browser_cdp_config!(agent.uid)
+
     primary_binding =
       upsert_lark_binding!(agent.uid, "lark-real-llm-primary", :ignore, fake_feishu,
         app_id: @primary_app_id,
@@ -411,6 +414,22 @@ defmodule Ankole.E2E.Harness do
       )
 
     %{agent: agent, primary_binding: primary_binding, provider_id: provider_id}
+  end
+
+  defp maybe_put_real_llm_browser_cdp_config!(agent_uid) do
+    case System.get_env("ANKOLE_E2E_REMOTE_BROWSER_CDP_CONFIG") do
+      value when value in [nil, ""] ->
+        :ok
+
+      json ->
+        config = JSON.decode!(json)
+        definition = WorkerBrowserConfig.remote_cdp_config_definition()
+
+        assert :ok = WorkerBrowserConfig.ensure_registered()
+        assert {:ok, ^config} = AppConfigure.put_for_agent(agent_uid, definition, config)
+
+        :ok
+    end
   end
 
   @doc """
@@ -443,7 +462,7 @@ defmodule Ankole.E2E.Harness do
         "userName" => Keyword.get(opts, :user_name, "Lark Chaos Bot"),
         "group_message_mode" => Keyword.fetch!(opts, :group_message_mode)
       }
-      |> maybe_put_config("botOpenId", Keyword.get(opts, :bot_open_id))
+      |> maybe_put_config("botOpenId", Keyword.get(opts, :bot_open_id, "ou_bot"))
       |> maybe_put_config("botUserId", Keyword.get(opts, :bot_user_id))
 
     assert {:ok, _stored} =
@@ -466,14 +485,12 @@ defmodule Ankole.E2E.Harness do
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{
                provider_id: provider_id,
-               provider_kind: "openai-compatible",
+               provider_kind: "openai_compatible",
                # Provider upstream calls originate from host-side AIGateway, not
                # from the Docker worker, so localhost is correct here.
                base_url: "http://127.0.0.1:#{fake_llm_port}",
                connection_options: %{
-                 "api_key" => api_key,
-                 "include_usage" => true,
-                 "supports_structured_outputs" => true
+                 "api_key" => api_key
                }
              })
   end

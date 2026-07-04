@@ -14,7 +14,6 @@ defmodule Ankole.Kernel do
   @type result(value) :: value | {:error, error_reason()}
   @type salt :: String.t() | nil
   @type extra_context :: String.t() | nil
-  @type initial_crc32_state :: non_neg_integer() | nil
   @type authz_snapshot :: map()
   @type authz_decision :: map()
   @type signals_gateway_filter_context :: map()
@@ -199,66 +198,6 @@ defmodule Ankole.Kernel do
   def authz_match_resource_pattern(_pattern, _resource), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
-  Converts Unicode text into a best-effort ASCII representation.
-
-  This is intended for slugs, search keys, and display fallbacks. It is not a
-  reversible encoding.
-  """
-  @spec any_ascii(String.t()) :: result(String.t())
-  def any_ascii(_input), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc """
-  Decodes Base58 text into a binary.
-  """
-  @spec base58_decode(String.t()) :: result(binary())
-  def base58_decode(_input), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc """
-  Encodes a binary as Base58 text for compact human-copyable identifiers.
-  """
-  @spec base58_encode(binary()) :: result(String.t())
-  def base58_encode(_input), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc """
-  Decodes the padding-free URL-safe Base64 form used by kernel tokens.
-  """
-  @spec base64_url_safe_decode(String.t()) :: result(binary())
-  def base64_url_safe_decode(_input), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc """
-  Encodes a binary with the URL-safe Base64 alphabet and no padding.
-  """
-  @spec base64_url_safe_encode(binary()) :: result(String.t())
-  def base64_url_safe_encode(_input), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc """
-  Hashes data with BLAKE3 and returns the digest in Base58 form.
-
-  When `salt` is present, it must be a 64-character hex key. The strict key shape
-  keeps Elixir and Bun callers on the same keyed-hash contract.
-  """
-  @spec bs58_hash(binary(), salt()) :: result(String.t())
-  def bs58_hash(data, salt \\ nil)
-  def bs58_hash(_data, _salt), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc """
-  Computes CRC32 over a binary, optionally continuing from a previous state.
-
-  The optional state supports chunked checksum workflows without making callers
-  leave the native implementation.
-  """
-  @spec crc32(binary(), initial_crc32_state()) :: result(non_neg_integer())
-  def crc32(input, initial_state \\ nil)
-  def crc32(_input, _initial_state), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc """
-  Computes CRC32 and returns the value as lowercase hexadecimal text.
-  """
-  @spec crc32_hex(binary(), initial_crc32_state()) :: result(String.t())
-  def crc32_hex(input, initial_state \\ nil)
-  def crc32_hex(_input, _initial_state), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc """
   Computes a non-cryptographic XXH3 128-bit observation fingerprint.
 
   This is for file observations and change detection. It is not a security
@@ -296,19 +235,6 @@ defmodule Ankole.Kernel do
   def derive_key(_key_seed, _sub_key_id, _extra_context), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
-  Decodes a JWT header without validating the token signature.
-  """
-  @spec jwt_decode_header(String.t()) :: result(jwt_header())
-  def jwt_decode_header(token) when is_binary(token) do
-    token
-    |> jwt_decode_header_nif()
-    |> decode_json_result()
-  end
-
-  @spec jwt_decode_header_nif(String.t()) :: result(String.t())
-  defp jwt_decode_header_nif(_token), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc """
   Signs JSON-compatible JWT claims with the provided key and header options.
   """
   @spec jwt_sign(jwt_claims(), binary(), jwt_header()) :: result(String.t())
@@ -335,12 +261,6 @@ defmodule Ankole.Kernel do
   defp jwt_verify_nif(_token, _key, _validation), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
-  Generates a random UUIDv4 encoded as lowercase Base36 text.
-  """
-  @spec gen_base36_uuid() :: String.t()
-  def gen_base36_uuid, do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc """
   Generates a random 32-byte hex key for kernel cryptographic helpers.
   """
   @spec generate_key() :: String.t()
@@ -364,12 +284,6 @@ defmodule Ankole.Kernel do
   """
   @spec phone_normalize_e164(String.t()) :: result(String.t())
   def phone_normalize_e164(_phone), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc """
-  Generates a random UUIDv4 encoded from raw UUID bytes as Base58.
-  """
-  @spec gen_short_uuid() :: String.t()
-  def gen_short_uuid, do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
   Generates a standard hyphenated UUIDv4 string.

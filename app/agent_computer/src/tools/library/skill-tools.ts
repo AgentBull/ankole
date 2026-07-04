@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs'
 import { join, normalize, resolve } from 'node:path'
+import { readFile } from 'node:fs/promises'
 import { z } from 'zod'
 import type { ActorTurnRef } from '../../actor_lane'
 import type { AgentTool, AgentToolResult } from '../../core'
@@ -9,7 +9,6 @@ import type {
   SkillOverlayRequest,
   SkillOverlayResponse
 } from '../../rpc_lane'
-import { buildTool } from '../build-tool'
 
 // `name` is the enabled skill name from RuntimeFabric. `filePath` lets the model
 // follow references out of SKILL.md without a second tool, but resolution always
@@ -19,11 +18,9 @@ const SkillViewParams = z.object({
   filePath: z.string().optional().describe('Skill-relative file path. Defaults to SKILL.md.')
 })
 
-// `content` is a full DB overlay replacement, not a file append despite the tool name.
-// The tool name is kept for model/tool migration safety.
 const SkillAppendParams = z.object({
-  name: z.string().min(1).describe('Enabled skill name whose agent overlay should be replaced.'),
-  content: z.string().describe('Full replacement content for the agent-specific skill overlay.')
+  name: z.string().min(1).describe('Enabled skill name whose agent notes should be updated.'),
+  content: z.string().min(1).describe('New durable note text to append to this agent-specific skill overlay.')
 })
 
 /** Structured echo for logs/UI: which skill, which file, and (for append) whether it wrote. */
@@ -47,7 +44,6 @@ export interface CreateSkillToolsOptions {
   skillRoots?: SkillFileRoots
   requestSkillOverlay?: SkillOverlayRequester
   replaceSkillOverlay?: SkillOverlayReplaceRequester
-  clearSkillOverlay?: SkillOverlayRequester
 }
 
 /**
@@ -55,7 +51,7 @@ export interface CreateSkillToolsOptions {
  *
  * `skill_view` reads base skill files from their real source roots and resolves
  * the per-agent overlay over RuntimeFabric only for SKILL.md.
- * `skill_append` replaces that DB overlay over RuntimeFabric and does not write
+ * `skill_append` appends to that DB overlay over RuntimeFabric and does not write
  * any workspace file. Assignment remains a control-plane concern.
  */
 export function createSkillTools(_workspaceRoot: string, opts: CreateSkillToolsOptions = {}): AgentTool<any>[] {
@@ -67,15 +63,13 @@ export function createSkillTools(_workspaceRoot: string, opts: CreateSkillToolsO
  * skills as an index (name + one-line description); when the model decides a listed
  * skill covers the task it is about to do, it calls this to pull in the full SOP.
  *
- * Read-only and `parallel` because it only reads immutable or managed skill source
- * files — several skills can be loaded at once. It deliberately cannot enable a
- * skill: a missing skill source surfaces as a thrown read error, since
- * enabling/assigning skills is a control-plane decision, not something the model does.
+ * It deliberately cannot enable a skill: a missing skill source surfaces as a
+ * thrown read error, since enabling/assigning skills is a control-plane decision,
+ * not something the model does.
  */
 function createSkillViewTool(opts: CreateSkillToolsOptions): AgentTool<typeof SkillViewParams, SkillToolDetails> {
-  return buildTool({
+  return {
     name: 'skill_view',
-    label: 'Skill View',
     description:
       'Read an enabled skill file. Use SKILL.md first; read referenced files only when needed. This tool cannot enable disabled skills.',
     schema: SkillViewParams,
@@ -89,7 +83,7 @@ function createSkillViewTool(opts: CreateSkillToolsOptions): AgentTool<typeof Sk
         throw new Error('skill overlays are DB-backed semantic data, not AGENT_APPEND.md files')
       }
       const absolute = safeSkillPath(skillFilesystemRoot(skill, opts), filePath)
-      const content = readFileSync(absolute, 'utf8')
+      const content = await readFile(absolute, 'utf8')
       const rendered =
         filePath === 'SKILL.md'
           ? await renderEffectiveSkill(params.name, content, opts)
@@ -99,36 +93,38 @@ function createSkillViewTool(opts: CreateSkillToolsOptions): AgentTool<typeof Sk
         details: { name: params.name, path: filePath }
       }
     }
-  })
+  }
 }
 
 /**
- * `skill_append`: lets the agent persist durable notes onto a skill by replacing the
- * DB-backed overlay for that enabled skill. The base skill file stays first-party or
- * agent-installed filesystem content; only the overlay is mutable here.
+ * `skill_append`: lets the agent persist durable notes onto a skill by appending
+ * to the DB-backed overlay for that enabled skill. The base skill file stays
+ * first-party or agent-installed filesystem content; only the overlay is mutable
+ * here.
  */
 function createSkillAppendTool(opts: CreateSkillToolsOptions): AgentTool<typeof SkillAppendParams, SkillToolDetails> {
-  return buildTool({
+  return {
     name: 'skill_append',
-    label: 'Skill Append',
     description:
-      "Replace this agent's DB-backed overlay for an enabled skill. Use only after reading the skill and only for durable agent-specific additions.",
+      "Append durable notes to this agent's DB-backed overlay for an enabled skill. Use only after reading the skill and only for agent-specific additions learned while using it.",
     schema: SkillAppendParams,
     executionMode: 'sequential',
     isReadOnly: false,
-    isDestructive: true,
+    isDestructive: false,
     async execute(_toolCallId, params): Promise<AgentToolResult<SkillToolDetails>> {
       enabledSkill(params.name, opts)
-      if (!opts.turn || !opts.replaceSkillOverlay) {
+      if (!opts.turn || !opts.requestSkillOverlay || !opts.replaceSkillOverlay) {
         throw new Error('skill_append requires RuntimeFabric skill overlay RPC')
       }
+
+      const appendedContent = appendOverlayText(await overlayText(params.name, opts), params.content)
 
       await opts.replaceSkillOverlay({
         request_id: `skill-overlay-replace-${crypto.randomUUID()}`,
         turn: opts.turn,
         skill_name: params.name,
-        content: params.content,
-        overlay_json: { text: params.content }
+        content: appendedContent,
+        overlay_json: { text: appendedContent }
       })
 
       return {
@@ -141,7 +137,7 @@ function createSkillAppendTool(opts: CreateSkillToolsOptions): AgentTool<typeof 
         details: { name: params.name, changed: true }
       }
     }
-  })
+  }
 }
 
 /**
@@ -269,6 +265,13 @@ async function overlayText(name: string, opts: CreateSkillToolsOptions): Promise
   })
   const text = response.overlay_json?.text
   return typeof text === 'string' ? text.trim() : ''
+}
+
+function appendOverlayText(existing: string, addition: string): string {
+  const note = addition.trim()
+  if (!existing) return note
+  if (!note) return existing
+  return `${existing}\n\n${note}`
 }
 
 /**

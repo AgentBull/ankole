@@ -5,12 +5,16 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.ZaiCodingPlan do
 
   use Ankole.AIGateway.ProviderDSL
 
+  alias Ankole.AIGateway.Providers.OpenAICompatible
   alias Ankole.AIGateway.UniversalAIRequest
 
   @timeout_ms 300_000
   @global_base_url "https://api.z.ai/api/coding/paas/v4"
   @china_base_url "https://open.bigmodel.cn/api/coding/paas/v4"
-  @user_agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) CherryStudio/1.8.2 Chrome/146.0.7680.188 Electron/41.2.1 Safari/537.36"
+  # Z.AI's coding endpoint has been observed to behave like a desktop-client
+  # surface. Keep the compatibility UA configurable so operators can remove or
+  # update it without code changes if the upstream requirement changes.
+  @default_user_agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) CherryStudio/1.8.2 Chrome/146.0.7680.188 Electron/41.2.1 Safari/537.36"
 
   provider "zai_coding_plan" do
     label(%{"default" => "Z.AI Coding Plan", "zh-Hans-CN" => "Z.AI Coding Plan"})
@@ -18,15 +22,13 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.ZaiCodingPlan do
 
     setting(:api_key, encrypted: true)
     setting(:china_server, type: :boolean, default: false)
+    setting(:user_agent, default: @default_user_agent)
     setting(:headers, type: :map)
     setting(:query_params, type: :map)
-    setting(:include_usage, type: :boolean)
-    setting(:supports_structured_outputs, type: :boolean)
 
     setting(:user, scope: :request)
     setting(:thinking, type: :map, scope: :request)
     setting(:response_format, scope: :request)
-    setting(:strictJsonSchema, scope: :request)
 
     language_model do
       upstream(:sse)
@@ -40,7 +42,7 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.ZaiCodingPlan do
     ctx
     |> put_effective_base_url()
     |> UniversalAIRequest.new("chat/completions", :openai_chat_completions)
-    |> put_user_agent()
+    |> put_user_agent(ctx)
     |> UniversalAIRequest.bearer_auth()
   end
 
@@ -51,19 +53,10 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.ZaiCodingPlan do
     headers =
       ctx
       |> UniversalAIRequest.raw_headers()
-      |> put_user_agent()
+      |> put_user_agent(ctx)
       |> UniversalAIRequest.bearer_auth(ctx.settings[:api_key])
 
-    with {:ok, %{"status" => status, "body" => body}} when status in 200..299 <-
-           UniversalAIRequest.raw_get(ctx, "models", headers: headers) do
-      {:ok, body}
-    else
-      {:ok, %{"status" => status, "body" => body}} ->
-        {:error, {:provider_connection_check_failed, status, body}}
-
-      {:error, _reason} = error ->
-        error
-    end
+    OpenAICompatible.check_models_endpoint(ctx, headers)
   end
 
   defp put_effective_base_url(%{settings: settings} = ctx) when is_map(settings) do
@@ -94,7 +87,17 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.ZaiCodingPlan do
     settings[:china_server] in [true, "true"]
   end
 
-  defp put_user_agent(request_or_headers) do
-    UniversalAIRequest.put_new_header(request_or_headers, "user-agent", @user_agent)
+  defp put_user_agent(request_or_headers, %{settings: settings}) do
+    UniversalAIRequest.put_new_header(request_or_headers, "user-agent", user_agent(settings))
+  end
+
+  defp user_agent(settings) when is_map(settings) do
+    settings[:user_agent]
+    |> to_string()
+    |> String.trim()
+    |> case do
+      "" -> @default_user_agent
+      value -> value
+    end
   end
 end

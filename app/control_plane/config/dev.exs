@@ -4,11 +4,7 @@ webapps_path = Path.expand("../../webapps", __DIR__)
 
 # Configure your database
 config :ankole, Ankole.Repo,
-  username: "postgres",
-  password: System.get_env("POSTGRES_PASSWORD") || "just4local-dev",
-  hostname: "localhost",
-  port: String.to_integer(System.get_env("POSTGRES_PORT") || "5433"),
-  database: "ankole_dev",
+  url: Ankole.Config.Bootstrap.env!("DATABASE_URL"),
   template: "template0",
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
@@ -24,7 +20,6 @@ config :ankole, AnkoleWeb.Endpoint,
   check_origin: false,
   code_reloader: true,
   debug_errors: true,
-  secret_key_base: "c7RU/wpQbiQz5i/sPyIgbjZbL/tbpqTmqcMvppOoAzeQCKN/oHaEpyVoK5cNAeTQ",
   watchers: [
     bun: ["run", "dev", cd: webapps_path]
   ]
@@ -66,9 +61,6 @@ config :ankole, AnkoleWeb.Endpoint,
       ~r"lib/ankole_web/(controllers|components)/.*\.(ex|eex)$"E
     ]
   ]
-
-# Enable dev routes for dashboard and mailbox
-config :ankole, dev_routes: true
 
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"

@@ -20,11 +20,12 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
     # order instead of "does the whole request contain X?" checks.
     request_text = inspect(request, limit: :infinity, printable_limit: :infinity)
     request_trigger = latest_request_trigger_text(request_text)
+    latest_user_text = latest_user_text(request)
 
     prompt =
       request_trigger ||
         latest_chaos_marker_text(request) ||
-        latest_user_text(request) ||
+        latest_user_text ||
         request_text
 
     cond do
@@ -133,24 +134,24 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       String.contains?(prompt, "CHAOS_RECALL_SLOW") ->
         :slow_recall_stream
 
+      request_trigger == "CHAOS_CHECKBACK_WAKE_OK" and
+          String.contains?(latest_user_text || "", "CHAOS_CHECKBACK_TOOL") ->
+        :checkback_tool
+
       String.contains?(prompt, "CHAOS_CHECKBACK_WAKE_OK") and
           String.contains?(request_text, "Scheduled checkback wakeup.") ->
         :checkback_wakeup
 
-      request_trigger == "CHAOS_CHECKBACK_WAKE_OK" and
-          String.contains?(request_text, "CHAOS_CHECKBACK_TOOL") ->
-        :checkback_tool
-
       String.contains?(prompt, "CHAOS_STEER_TOOL") ->
         :steer_tool
+
+      request_trigger == "CHAOS_CRON_WAKE_OK" and
+          String.contains?(latest_user_text || "", "CHAOS_CRON_TOOL") ->
+        :cron_tool
 
       String.contains?(prompt, "CHAOS_CRON_WAKE_OK") and
           String.contains?(request_text, "Recurring schedule fire.") ->
         :cron_wakeup
-
-      request_trigger == "CHAOS_CRON_WAKE_OK" and
-          String.contains?(request_text, "CHAOS_CRON_TOOL") ->
-        :cron_tool
 
       String.contains?(prompt, "CHAOS_SLOW_STOP") ->
         :slow_stop_stream
@@ -196,6 +197,9 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
 
       kind in [:followup_slow, :followup_recall_slow] ->
         {:delayed_completion, reply_for(kind), 1_500}
+
+      missing_background_lifecycle_id?(kind, count, request) ->
+        {:completion, "CHAOS_BACKGROUND_LIFECYCLE_MISSING_BACKGROUND_ID", []}
 
       tool_call = tool_call_for(kind, count, request) ->
         {:tool_call, tool_call}
@@ -850,20 +854,49 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
 
   defp tool_call_for(kind, count, _request), do: tool_call_for(kind, count)
 
-  defp background_id_from_request(request) do
-    request_text = inspect(request, limit: :infinity, printable_limit: :infinity)
+  defp missing_background_lifecycle_id?(:background_lifecycle_tool, count, request)
+       when count in [2, 3],
+       do: is_nil(background_id_from_request(request))
 
-    with nil <- regex_capture(~r/background_id=([^\s\\n"]+)/, request_text),
-         nil <- regex_capture(~r/"backgroundId"\s*=>\s*"([^"]+)"/, request_text),
-         nil <- regex_capture(~r/\\"backgroundId\\"\s*=>\s*\\"([^\\"]+)\\"/, request_text) do
-      nil
+  defp missing_background_lifecycle_id?(_kind, _count, _request), do: false
+
+  defp background_id_from_request(request) do
+    find_background_id(request)
+  end
+
+  defp find_background_id(%{"backgroundId" => id}) when is_binary(id) and id != "", do: id
+  defp find_background_id(%{"background_id" => id}) when is_binary(id) and id != "", do: id
+  defp find_background_id(%{backgroundId: id}) when is_binary(id) and id != "", do: id
+  defp find_background_id(%{background_id: id}) when is_binary(id) and id != "", do: id
+
+  defp find_background_id(map) when is_map(map) do
+    map
+    |> Map.values()
+    |> Enum.find_value(&find_background_id/1)
+  end
+
+  defp find_background_id(list) when is_list(list),
+    do: Enum.find_value(list, &find_background_id/1)
+
+  defp find_background_id(binary) when is_binary(binary) do
+    case decode_embedded_json(binary) do
+      {:ok, decoded} -> find_background_id(decoded)
+      :error -> nil
     end
   end
 
-  defp regex_capture(regex, text) do
-    case Regex.run(regex, text) do
-      [_match, value] -> value
-      _other -> nil
+  defp find_background_id(_value), do: nil
+
+  defp decode_embedded_json(binary) do
+    trimmed = String.trim(binary)
+
+    if String.starts_with?(trimmed, ["{", "["]) do
+      case Ankole.JSON.decode(trimmed) do
+        {:ok, decoded} -> {:ok, decoded}
+        {:error, _reason} -> :error
+      end
+    else
+      :error
     end
   end
 end

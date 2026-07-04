@@ -66,12 +66,12 @@ fn named_body_from_json(name: &str, payload: &Value) -> KernelResult<proto::enve
         "worker_progress" => Ok(proto::envelope::Body::WorkerProgress(
             worker_progress_from_json(payload)?,
         )),
-        "turn_final_proposal" => Ok(proto::envelope::Body::TurnFinalProposal(
-            turn_final_proposal_from_json(payload)?,
-        )),
         "turn_error" => Ok(proto::envelope::Body::TurnError(turn_error_from_json(
             payload,
         )?)),
+        "turn_noop_completed" => Ok(proto::envelope::Body::TurnNoopCompleted(
+            turn_noop_completed_from_json(payload)?,
+        )),
         "control_shutdown" => Ok(proto::envelope::Body::ControlShutdown(
             control_shutdown_from_json(payload)?,
         )),
@@ -124,37 +124,26 @@ fn worker_capacity_from_json(value: &Value) -> KernelResult<proto::AgentComputer
     })
 }
 
-// Turn start carries actor inputs to the computer worker. It does not carry
-// pre-rendered LLM requests because the complete computer owns the local AI loop.
+// Turn start carries a single actor event to the computer worker. One worker
+// run handles exactly one actor_event_id.
 fn turn_start_from_json(value: &Value) -> KernelResult<proto::TurnStart> {
     let object = object(value, "turn_start")?;
 
     Ok(proto::TurnStart {
         turn: Some(turn_ref_from_json(required_value(object, "turn")?)?),
-        inputs: actor_inputs_from_json(object.get("inputs"))?,
+        actor_event: optional_message(object.get("actor_event"), actor_event_from_json)?,
         model_ref: optional_message(object.get("model_ref"), turn_model_ref_from_json)?,
+        request_context_json: json_bytes(object.get("request_context"))?.unwrap_or_default(),
     })
 }
 
 fn mailbox_updated_from_json(value: &Value) -> KernelResult<proto::MailboxUpdated> {
     let object = object(value, "mailbox_updated")?;
-    let turn = optional_message(object.get("turn"), turn_ref_from_json)?;
-    let actor = match object.get("actor") {
-        Some(actor) => Some(actor_key_from_json(actor)?),
-        None => turn.as_ref().and_then(|turn| turn.actor.clone()),
-    };
 
     Ok(proto::MailboxUpdated {
-        actor,
-        activation_uid: optional_string(object, "activation_uid")?
-            .or_else(|| turn.as_ref().map(|turn| turn.activation_uid.clone()))
-            .unwrap_or_default(),
-        actor_epoch: optional_u64(object, "actor_epoch")?
-            .or_else(|| turn.as_ref().map(|turn| turn.actor_epoch))
-            .unwrap_or_default(),
         reason: optional_string(object, "reason")?.unwrap_or_default(),
-        turn,
-        inputs: actor_inputs_from_json(object.get("inputs"))?,
+        turn: optional_message(object.get("turn"), turn_ref_from_json)?,
+        actor_event: optional_message(object.get("actor_event"), actor_event_from_json)?,
     })
 }
 
@@ -163,7 +152,6 @@ fn turn_accepted_from_json(value: &Value) -> KernelResult<proto::TurnAccepted> {
 
     Ok(proto::TurnAccepted {
         turn: Some(turn_ref_from_json(required_value(object, "turn")?)?),
-        accepted_actor_input_ids: string_list(object.get("accepted_actor_input_ids"))?,
     })
 }
 
@@ -188,23 +176,6 @@ fn worker_progress_from_json(value: &Value) -> KernelResult<proto::WorkerProgres
     })
 }
 
-// A final proposal is still only a proposal. The control plane must validate
-// the turn fence and commit it before it becomes durable transcript state.
-fn turn_final_proposal_from_json(value: &Value) -> KernelResult<proto::TurnFinalProposal> {
-    let object = object(value, "turn_final_proposal")?;
-
-    Ok(proto::TurnFinalProposal {
-        turn: Some(turn_ref_from_json(required_value(object, "turn")?)?),
-        messages: proposed_messages_from_json(object.get("messages"))?,
-        reply: optional_message(object.get("reply"), proposed_reply_from_json)?,
-        usage_json: json_bytes(object.get("usage_json"))?.unwrap_or_default(),
-        provider_metadata_json: json_bytes(object.get("provider_metadata_json"))?
-            .unwrap_or_default(),
-        stop_reason: optional_string(object, "stop_reason")?.unwrap_or_default(),
-        tool_results_json: json_bytes(object.get("tool_results_json"))?.unwrap_or_default(),
-    })
-}
-
 fn turn_error_from_json(value: &Value) -> KernelResult<proto::TurnError> {
     let object = object(value, "turn_error")?;
 
@@ -213,6 +184,15 @@ fn turn_error_from_json(value: &Value) -> KernelResult<proto::TurnError> {
         code: required_string(object, "code")?,
         message: optional_string(object, "message")?.unwrap_or_default(),
         details_json: json_bytes(object.get("details_json"))?.unwrap_or_default(),
+    })
+}
+
+fn turn_noop_completed_from_json(value: &Value) -> KernelResult<proto::TurnNoopCompleted> {
+    let object = object(value, "turn_noop_completed")?;
+
+    Ok(proto::TurnNoopCompleted {
+        turn: Some(turn_ref_from_json(required_value(object, "turn")?)?),
+        reason: optional_string(object, "reason")?.unwrap_or_default(),
     })
 }
 
@@ -255,7 +235,7 @@ fn rpc_error_from_json(value: &Value) -> KernelResult<proto::RpcError> {
     })
 }
 
-// Parses the durable turn fence echoed by worker replies. Every field is
+// Parses the durable run fence echoed by worker replies. Every field is
 // required so stale replies fail by equality checks in the control plane.
 fn turn_ref_from_json(value: &Value) -> KernelResult<proto::ActorTurnRef> {
     let object = object(value, "turn")?;
@@ -264,30 +244,18 @@ fn turn_ref_from_json(value: &Value) -> KernelResult<proto::ActorTurnRef> {
         actor: Some(actor_key_from_json(required_value(object, "actor")?)?),
         activation_uid: required_string(object, "activation_uid")?,
         actor_epoch: required_u64(object, "actor_epoch")?,
-        llm_turn_id: required_string(object, "llm_turn_id")?,
+        actor_event_id: required_string(object, "actor_event_id")?,
         revision: required_u32(object, "revision")?,
     })
 }
 
 fn actor_key_from_json(value: &Value) -> KernelResult<proto::ActorKey> {
     let object = object(value, "actor")?;
-    reject_actor_profile_field(object, "display_name")?;
-    reject_actor_profile_field(object, "role")?;
 
     Ok(proto::ActorKey {
         agent_uid: required_string(object, "agent_uid")?,
         session_id: required_string(object, "session_id")?,
     })
-}
-
-fn reject_actor_profile_field(object: &Map<String, Value>, field: &str) -> KernelResult<()> {
-    if object.contains_key(field) {
-        return Err(KernelError::new(format!(
-            "ActorKey must not carry {field}; resolve display identity through RPCLane"
-        )));
-    }
-
-    Ok(())
 }
 
 fn turn_model_ref_from_json(value: &Value) -> KernelResult<proto::TurnModelRef> {
@@ -297,77 +265,29 @@ fn turn_model_ref_from_json(value: &Value) -> KernelResult<proto::TurnModelRef> 
         profile: required_string(object, "profile")?,
         provider_id: required_string(object, "provider_id")?,
         model: required_string(object, "model")?,
+        provider_kind: optional_string(object, "provider_kind")?.unwrap_or_default(),
+        input_modalities: optional_string_list(object, "input_modalities")?.unwrap_or_default(),
+        vision_fallback_model_ref: optional_message(
+            object.get("vision_fallback_model_ref"),
+            turn_model_ref_from_json,
+        )?
+        .map(Box::new),
     })
 }
 
-fn actor_inputs_from_json(value: Option<&Value>) -> KernelResult<Vec<proto::ActorInputEnvelope>> {
-    array(value, "inputs")?
-        .into_iter()
-        .map(actor_input_from_json)
-        .collect()
-}
+// Parses the single actor-event envelope carried by actor-lane messages.
+fn actor_event_from_json(value: &Value) -> KernelResult<proto::ActorEventEnvelope> {
+    let object = object(value, "actor_event")?;
 
-fn actor_input_from_json(value: &Value) -> KernelResult<proto::ActorInputEnvelope> {
-    let object = object(value, "actor_input")?;
-
-    Ok(proto::ActorInputEnvelope {
-        actor_input_id: required_string(object, "actor_input_id")?,
-        live_queue_sequence: required_u64(object, "live_queue_sequence")?,
+    Ok(proto::ActorEventEnvelope {
+        actor_event_id: required_string(object, "actor_event_id")?,
+        queue_sequence: required_u64(object, "queue_sequence")?,
         r#type: required_string(object, "type")?,
-        ingress_event_id: required_string(object, "ingress_event_id")?,
-        provider_entry_id: optional_string(object, "provider_entry_id")?.unwrap_or_default(),
+        source_event_id: required_string(object, "source_event_id")?,
+        source_entry_id: optional_string(object, "source_entry_id")?.unwrap_or_default(),
         payload_json: json_bytes(object.get("payload_json"))?.unwrap_or_default(),
-    })
-}
-
-fn proposed_messages_from_json(value: Option<&Value>) -> KernelResult<Vec<proto::ProposedMessage>> {
-    array(value, "messages")?
-        .into_iter()
-        .map(proposed_message_from_json)
-        .collect()
-}
-
-fn proposed_message_from_json(value: &Value) -> KernelResult<proto::ProposedMessage> {
-    let object = object(value, "proposed_message")?;
-
-    Ok(proto::ProposedMessage {
-        role: required_string(object, "role")?,
-        content_json: json_bytes(object.get("content_json"))?.unwrap_or_default(),
-        metadata_json: json_bytes(object.get("metadata_json"))?.unwrap_or_default(),
-    })
-}
-
-fn proposed_reply_from_json(value: &Value) -> KernelResult<proto::ProposedReply> {
-    let object = object(value, "reply")?;
-
-    Ok(proto::ProposedReply {
-        text: optional_string(object, "text")?.unwrap_or_default(),
-        content_json: json_bytes(object.get("content_json"))?.unwrap_or_default(),
-        attachments: proposed_reply_attachments_from_json(object.get("attachments"))?,
-    })
-}
-
-fn proposed_reply_attachments_from_json(
-    value: Option<&Value>,
-) -> KernelResult<Vec<proto::ProposedReplyAttachment>> {
-    array(value, "attachments")?
-        .into_iter()
-        .map(proposed_reply_attachment_from_json)
-        .collect()
-}
-
-fn proposed_reply_attachment_from_json(
-    value: &Value,
-) -> KernelResult<proto::ProposedReplyAttachment> {
-    let object = object(value, "attachment")?;
-
-    Ok(proto::ProposedReplyAttachment {
-        agent_computer_path: optional_string(object, "agent_computer_path")?.unwrap_or_default(),
-        user_files_relative_path: optional_string(object, "user_files_relative_path")?
-            .unwrap_or_default(),
-        name: optional_string(object, "name")?.unwrap_or_default(),
-        mime_type: optional_string(object, "mime_type")?.unwrap_or_default(),
-        size: optional_u64(object, "size")?,
-        xxh3_128: optional_string(object, "xxh3_128")?.unwrap_or_default(),
+        binding_name: optional_string(object, "binding_name")?.unwrap_or_default(),
+        signal_channel_id: optional_string(object, "signal_channel_id")?.unwrap_or_default(),
+        provider_thread_id: optional_string(object, "provider_thread_id")?.unwrap_or_default(),
     })
 }

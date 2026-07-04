@@ -69,7 +69,6 @@ flowchart LR
 
   SG --> CP
   CP --> PG[("PostgreSQL<br/>durable truth")]
-  CP --> Redis[("Redis<br/>local dev service")]
 
   CP <-->|"RuntimeFabric<br/>live routing"| Worker["Agent Computer<br/>Bun / TypeScript worker"]
 
@@ -79,11 +78,11 @@ flowchart LR
 
 全体像：
 
-- **SignalsGateway** は provider ingress を受け付け、actor input に正規化します。
+- **SignalsGateway** は provider ingress を受け付け、durable actor event に正規化します。
 - **Control Plane** は durable state、actor orchestration、configuration、identity、authorization を担います。
 - **RuntimeFabric** は ZeroMQ 上で actor、worker、RPC lane を接続し live 実行を支えます。PostgreSQL は durable replay、fence、reconciliation、final commit の source of truth であり続けます。
 - **Agent Computer** は隔離された worker container 内で turn と tools を実行します。
-- **PostgreSQL** は受け入れた input、state、fence、final commit の durable record であり続けます。
+- **PostgreSQL** は受け入れた event、state、fence、final commit の durable record であり続けます。
 
 ## 現状
 
@@ -95,7 +94,7 @@ Ankole は早期 engineering distribution であり、polished end-user product 
 | Agent Computer | `app/agent_computer` の Bun/TypeScript worker runtime。隔離された Linux worker image 内で agent loop と local tools を実行します。standalone CLI ではありません。 |
 | Kernel | `app/kernel` の Rust crate。Elixir (Rustler) と Bun (N-API) が読み込み、crypto、identifier、AuthZ evaluation、ZeroMQ transport を担います。 |
 | Frontend | `app/webapps` の Vite + React surfaces。Phoenix static shell に build されます。 |
-| ローカルサービス | PostgreSQL と Redis は devkit Docker Compose で提供されます。 |
+| ローカルサービス | PostgreSQL は devkit Docker Compose で提供されます。 |
 | 設計ドキュメント | アーキテクチャと runtime 設計ドキュメントは `docs/design-docs` にあります。 |
 | Public API 安定性 | 内部 API はまだ進化中で、リリース間で breaking change が起きます。 |
 
@@ -115,7 +114,7 @@ Ankole は早期 engineering distribution であり、polished end-user product 
 - `tools/devkit` - local services、app database helpers、code generation、analysis のための workspace automation。
 - `docs/design-docs` - principal identity、authorization、configuration、I18n、plugins、RuntimeFabric、SignalsGateway、provider adapters の現在の design docs。
 
-RuntimeFabric は control-plane から worker への live fabric です。ZeroMQ 上で actor traffic、bounded RPC、worker-file frames を運び、PostgreSQL が durable replay、fences、reconciliation、final commits の source of truth であり続けます。SignalsGateway は provider ingress layer です。外部 chat、webhook、provider event は actor input になりますが、external source facts を execution state と混同しません。
+RuntimeFabric は control-plane から worker への live fabric です。ZeroMQ 上で actor traffic、bounded RPC、worker-file frames を運び、PostgreSQL が durable replay、fences、reconciliation、final commits の source of truth であり続けます。SignalsGateway は provider ingress layer です。外部 chat、webhook、provider event は actor event になりますが、external source facts を execution state と混同しません。
 
 ## 開発
 
@@ -171,4 +170,4 @@ cd app/control_plane
 mix ankole.actor_runtime.worker_bootstrap --endpoint tcp://127.0.0.1:6010 --worker-id worker-a
 ```
 
-Production bootstrap configuration は `DATABASE_URL`、`SECRET_KEY_BASE`、`REDIS_URL` のような標準 infrastructure 名を使います。Runtime application configuration は process-local environment variables ではなく、Ankole の PostgreSQL-backed AppConfigure surface に属します。
+Production bootstrap configuration は `DATABASE_URL`、`SECRET_KEY_BASE` のような標準 infrastructure 名を使います。Runtime application configuration は process-local environment variables ではなく、Ankole の PostgreSQL-backed AppConfigure surface に属します。

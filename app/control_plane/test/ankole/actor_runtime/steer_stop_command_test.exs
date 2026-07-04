@@ -1,10 +1,14 @@
 defmodule Ankole.ActorRuntime.SteerStopCommandTest do
   use Ankole.ActorRuntimeCase
 
-  describe "steer, compress, and stop commands" do
-    test "inactive steer command starts a generation with the steer args" do
+  alias Ankole.SignalsGateway.InputTombstone
+
+  setup {Ankole.ActorRuntimeCase, :use_mock_signal_provider_plugin}
+
+  describe "steer and stop commands" do
+    test "inactive steer command starts a worker turn with the steer args" do
       %{principal: agent} = agent_fixture()
-      binding_fixture(agent.uid, "bot", :ignore)
+      binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
       route = unique_route()
 
       :ok = Broker.register_local_worker(route, self())
@@ -12,7 +16,7 @@ defmodule Ankole.ActorRuntime.SteerStopCommandTest do
 
       assert {:ok, _worker} = admit_worker(route)
 
-      assert {:ok, %{actor_input: steer_input}} =
+      assert {:ok, %{actor_event: steer_event}} =
                emit_entry(
                  agent.uid,
                  "bot",
@@ -20,26 +24,18 @@ defmodule Ankole.ActorRuntime.SteerStopCommandTest do
                  now: @base_time
                )
 
-      assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: turn}} =
-               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 1, :second))
-
-      assert Repo.get!(LlmTurn, turn.id).kind == "generation"
-
-      assert %Message{content: [%{"text" => "focus on risk"}]} =
-               Repo.one!(
-                 from(message in Message,
-                   where: message.metadata["actor_input_id"] == ^steer_input.id
-                 )
-               )
+      assert {:ok, %{send_outcome: "sent_or_queued"}} =
+               process_ready_events_once(now: DateTime.add(@base_time, 1, :second))
 
       assert_receive {:actor_lane, envelope}
-      assert [%{"payload_json" => payload}] = envelope["body"]["turn_start"]["inputs"]
+      assert %{"payload_json" => payload} = envelope["body"]["turn_start"]["actor_event"]
       assert get_in(payload, ["data", "command", "argsText"]) == "focus on risk"
+      assert envelope["body"]["turn_start"]["turn"]["actor_event_id"] == steer_event.id
     end
 
-    test "active steer is delivered to the active generation and fences stale final proposal" do
+    test "active steer is attached to the live turn and completed when mailbox update is sent" do
       %{principal: agent} = agent_fixture()
-      binding_fixture(agent.uid, "bot", :ignore)
+      binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
       route = unique_route()
 
       :ok = Broker.register_local_worker(route, self())
@@ -47,7 +43,7 @@ defmodule Ankole.ActorRuntime.SteerStopCommandTest do
 
       assert {:ok, _worker} = admit_worker(route)
 
-      assert {:ok, %{actor_input: input}} =
+      assert {:ok, %{actor_event: input}} =
                emit_entry(
                  agent.uid,
                  "bot",
@@ -56,26 +52,23 @@ defmodule Ankole.ActorRuntime.SteerStopCommandTest do
                )
 
       assert {:ok, %{send_outcome: "sent_or_queued"}} =
-               ActorRuntime.process_ready_inputs_once(
+               process_ready_events_once(
                  now: DateTime.add(@base_time, 1, :second),
                  lease_seconds: @long_lease_seconds
                )
 
       assert_receive {:actor_lane, envelope}
-      turn_start = envelope["body"]["turn_start"]
-      turn_ref = turn_start["turn"]
-      input_ids = Enum.map(turn_start["inputs"], & &1["actor_input_id"])
-      assert input_ids == [input.id]
+      turn_ref = envelope["body"]["turn_start"]["turn"]
+      assert turn_ref["actor_event_id"] == input.id
 
       assert {:ok, [_delivery]} =
                ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{
-                   "turn" => turn_ref,
-                   "accepted_actor_input_ids" => input_ids
-                 }
+                 "turn_accepted" => %{"turn" => turn_ref}
                })
 
-      assert {:ok, %{actor_input: steer_input}} =
+      run = start_aigateway_run_for_turn!(turn_ref)
+
+      assert {:ok, %{actor_event: steer_event}} =
                emit_entry(
                  agent.uid,
                  "bot",
@@ -83,173 +76,64 @@ defmodule Ankole.ActorRuntime.SteerStopCommandTest do
                  now: DateTime.add(@base_time, 2, :second)
                )
 
-      assert {:ok,
-              %{
-                status: :active_steer_nudged,
-                send_outcome: "sent_or_queued",
-                turn_ref: steered_turn_ref,
-                delivery: steer_delivery
-              }} =
-               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 3, :second))
+      assert {:ok, %{status: :active_steer_nudged, send_outcome: "sent_or_queued"}} =
+               process_ready_events_once(now: DateTime.add(@base_time, 3, :second))
 
-      assert Repo.get!(ActorInput, steer_input.id).input_state == "open"
-      assert Repo.get!(ActorInputDelivery, steer_delivery.id).state == "sent"
-      assert steered_turn_ref["llm_turn_id"] == turn_ref["llm_turn_id"]
-      assert steered_turn_ref["revision"] == turn_ref["revision"] + 1
+      assert %DateTime{} = Repo.get!(ActorEvent, steer_event.id).completed_at
 
       assert_receive {:actor_lane, mailbox_envelope}
-      assert mailbox_envelope["durability"] == "CONTROL_EPHEMERAL"
       assert mailbox_envelope["body"]["type"] == "mailbox_updated"
-      mailbox_update = mailbox_envelope["body"]["mailbox_updated"]
-      assert mailbox_update["reason"] == "command.steer"
-      assert mailbox_update["turn"] == steered_turn_ref
-      steer_input_id = steer_input.id
+      mailbox = mailbox_envelope["body"]["mailbox_updated"]
+      assert mailbox["reason"] == "command.steer"
+      refute Map.has_key?(mailbox, "inputs")
+      assert mailbox["actor_event"]["actor_event_id"] == steer_event.id
+      assert mailbox["actor_event"]["type"] == "command.steer"
 
-      assert [%{"actor_input_id" => ^steer_input_id, "payload_json" => steer_payload}] =
-               mailbox_update["inputs"]
+      assert get_in(mailbox, ["actor_event", "payload_json", "data", "command", "argsText"]) ==
+               "change course"
 
-      assert get_in(steer_payload, ["data", "command", "argsText"]) == "change course"
+      input_id = input.id
+      steer_event_id = steer_event.id
 
-      assert {:ok, [_delivery]} =
+      assert {:ok,
+              [
+                %ActorEventDelivery{
+                  state: "accepted",
+                  actor_event_id: ^steer_event_id,
+                  actor_event_id_fence: ^input_id
+                }
+              ]} =
                ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{
-                   "turn" => steered_turn_ref,
-                   "accepted_actor_input_ids" => [steer_input.id]
-                 }
+                 "turn_accepted" => %{"turn" => mailbox["turn"]}
                })
 
-      assert Repo.get!(ActorInputDelivery, steer_delivery.id).state == "accepted"
+      assert %ActorEventDelivery{state: "accepted", actor_event_id_fence: ^input_id} =
+               Repo.get_by!(ActorEventDelivery, actor_event_id: steer_event.id)
 
-      assert {:error, :stale_revision} =
-               ActorRuntime.commit_final_proposal(%{
-                 "turn_final_proposal" => %{
-                   "turn" => turn_ref,
-                   "messages" => [],
-                   "reply" => %{"text" => "PONG"}
-                 }
-               })
+      complete_aigateway_turn!(turn_ref, "PONG", run: run, wait_for_mirror: true)
 
-      assert {:ok, %{status: :committed}} =
-               ActorRuntime.commit_final_proposal(%{
-                 "turn_final_proposal" => %{
-                   "turn" => steered_turn_ref,
-                   "messages" => [],
-                   "reply" => %{"text" => "PONG"}
-                 }
-               })
+      assert %DateTime{} = Repo.get!(ActorEvent, input.id).completed_at
+      assert %DateTime{} = Repo.get!(ActorEvent, steer_event.id).completed_at
 
-      refute Repo.get(ActorInput, input.id)
-      refute Repo.get(ActorInput, steer_input.id)
-      assert Repo.aggregate(ActorInputConsumption, :count) == 2
-      assert Repo.aggregate(ActorInputDelivery, :count) == 0
-
-      assert %OutboxEntry{
-               source_actor_input_id: source_actor_input_id,
-               source_provider_entry_id: source_provider_entry_id,
-               payload: %{"text" => "PONG"}
-             } = Repo.one!(from(outbox in OutboxEntry))
-
-      assert source_actor_input_id == input.id
-      assert source_provider_entry_id == input.provider_entry_id
-
-      assert Repo.one!(
-               from(message in Message,
-                 where: message.kind == "introspection",
-                 select: message.event_source
-               )
-             ) == "ai_agent.command.steer"
-
-      assert Repo.aggregate(LlmTurn, :count) == 1
-    end
-
-    test "active compress command waits for the current generation to finish" do
-      %{principal: agent} = agent_fixture()
-      binding_fixture(agent.uid, "bot", :ignore)
-      route = unique_route()
-
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
-
-      assert {:ok, _worker} = admit_worker(route)
-
-      assert {:ok, %{actor_input: input}} =
-               emit_entry(
-                 agent.uid,
-                 "bot",
-                 group_entry(%{text: "PING", explicit: true}),
-                 now: @base_time
-               )
-
-      assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: active_turn}} =
-               ActorRuntime.process_ready_inputs_once(
-                 now: DateTime.add(@base_time, 1, :second),
-                 lease_seconds: @long_lease_seconds
-               )
-
-      assert_receive {:actor_lane, envelope}
-      turn_start = envelope["body"]["turn_start"]
-      turn_ref = turn_start["turn"]
-      input_ids = Enum.map(turn_start["inputs"], & &1["actor_input_id"])
-      assert input_ids == [input.id]
-
-      assert {:ok, [_delivery]} =
-               ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{
-                   "turn" => turn_ref,
-                   "accepted_actor_input_ids" => input_ids
-                 }
-               })
-
-      assert {:ok, %{actor_input: compress_input}} =
-               emit_entry(
-                 agent.uid,
-                 "bot",
-                 group_entry(%{text: "/compress release notes", explicit: true}),
-                 now: DateTime.add(@base_time, 2, :second)
-               )
-
-      assert compress_input.type == "command.compress"
-
-      assert {:ok, %{status: :idle}} =
-               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 3, :second))
-
-      refute_receive {:actor_lane, _envelope}, 50
-      assert Repo.get!(ActorInput, compress_input.id).input_state == "open"
+      live_states = ActorEventDelivery.live_states()
 
       refute Repo.exists?(
-               from(delivery in ActorInputDelivery,
-                 where: delivery.actor_input_id == ^compress_input.id
+               from(delivery in ActorEventDelivery,
+                 where: delivery.actor_event_id_fence == ^input_id,
+                 where: delivery.state in ^live_states
                )
              )
 
-      assert {:ok, %{status: :committed}} =
-               ActorRuntime.commit_final_proposal(%{
-                 "turn_final_proposal" => %{
-                   "turn" => turn_ref,
-                   "messages" => [],
-                   "reply" => %{"text" => "PONG"}
-                 }
-               })
-
-      refute Repo.get(ActorInput, input.id)
-      assert Repo.get!(LlmTurn, active_turn.id).status == "succeeded"
-
-      assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: compression_turn}} =
-               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 4, :second))
-
-      assert_receive {:actor_lane, compression_envelope}
-      compression_start = compression_envelope["body"]["turn_start"]
-
-      assert [%{"type" => "command.compress", "actor_input_id" => actor_input_id}] =
-               compression_start["inputs"]
-
-      assert actor_input_id == compress_input.id
-      assert compression_start["turn"]["llm_turn_id"] == compression_turn.id
+      refute Repo.exists?(
+               from(message in Message,
+                 where: fragment("? \\? ?", message.metadata, "event_source")
+               )
+             )
     end
 
-    test "stop command cancels active generation and rejects late final proposal" do
+    test "active steer is completed even when the final response wins before mailbox acceptance" do
       %{principal: agent} = agent_fixture()
-      binding_fixture(agent.uid, "bot", :ignore)
+      binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
       route = unique_route()
 
       :ok = Broker.register_local_worker(route, self())
@@ -257,7 +141,7 @@ defmodule Ankole.ActorRuntime.SteerStopCommandTest do
 
       assert {:ok, _worker} = admit_worker(route)
 
-      assert {:ok, %{actor_input: input}} =
+      assert {:ok, %{actor_event: input}} =
                emit_entry(
                  agent.uid,
                  "bot",
@@ -265,29 +149,214 @@ defmodule Ankole.ActorRuntime.SteerStopCommandTest do
                  now: @base_time
                )
 
-      assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: llm_turn}} =
-               ActorRuntime.process_ready_inputs_once(
+      assert {:ok, %{send_outcome: "sent_or_queued"}} =
+               process_ready_events_once(
                  now: DateTime.add(@base_time, 1, :second),
                  lease_seconds: @long_lease_seconds
                )
 
       assert_receive {:actor_lane, envelope}
+      turn_ref = envelope["body"]["turn_start"]["turn"]
 
-      turn_start = envelope["body"]["turn_start"]
-      turn_ref = turn_start["turn"]
-      input_ids = Enum.map(turn_start["inputs"], & &1["actor_input_id"])
-
-      assert input_ids == [input.id]
-
-      assert {:ok, [%ActorInputDelivery{state: "accepted"}]} =
+      assert {:ok, [_delivery]} =
                ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{
-                   "turn" => turn_ref,
-                   "accepted_actor_input_ids" => input_ids
-                 }
+                 "turn_accepted" => %{"turn" => turn_ref}
                })
 
-      assert {:ok, %{actor_input: stop_input}} =
+      run = start_aigateway_run_for_turn!(turn_ref)
+
+      assert {:ok, %{actor_event: steer_event}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "/steer too late for current answer", explicit: true}),
+                 now: DateTime.add(@base_time, 2, :second)
+               )
+
+      assert {:ok, %{status: :active_steer_nudged, send_outcome: "sent_or_queued"}} =
+               process_ready_events_once(now: DateTime.add(@base_time, 3, :second))
+
+      assert %DateTime{} = Repo.get!(ActorEvent, steer_event.id).completed_at
+
+      assert_receive {:actor_lane, mailbox_envelope}
+      assert mailbox_envelope["body"]["type"] == "mailbox_updated"
+
+      input_id = input.id
+
+      assert %ActorEventDelivery{state: "sent", actor_event_id_fence: ^input_id} =
+               Repo.get_by!(ActorEventDelivery, actor_event_id: steer_event.id)
+
+      complete_aigateway_turn!(turn_ref, "PONG", run: run, wait_for_mirror: true)
+
+      assert %DateTime{} = Repo.get!(ActorEvent, input.id).completed_at
+      assert %DateTime{} = Repo.get!(ActorEvent, steer_event.id).completed_at
+
+      assert %ActorEventDelivery{state: "superseded"} =
+               Repo.get_by!(ActorEventDelivery, actor_event_id: steer_event.id)
+    end
+
+    test "late initial turn acceptance ignores newer active steer delivery revision" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_event: input}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "PING", explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, %{send_outcome: "sent_or_queued"}} =
+               process_ready_events_once(
+                 now: DateTime.add(@base_time, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_lane, envelope}
+      turn_ref = envelope["body"]["turn_start"]["turn"]
+
+      assert {:ok, %{actor_event: steer_event}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "/steer update before accept", explicit: true}),
+                 now: DateTime.add(@base_time, 2, :second)
+               )
+
+      assert {:ok, %{status: :active_steer_nudged, send_outcome: "sent_or_queued"}} =
+               process_ready_events_once(now: DateTime.add(@base_time, 3, :second))
+
+      assert_receive {:actor_lane, mailbox_envelope}
+      mailbox = mailbox_envelope["body"]["mailbox_updated"]
+
+      assert {:ok, [%ActorEventDelivery{state: "accepted", actor_event_id: input_id}]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{"turn" => turn_ref}
+               })
+
+      assert input_id == input.id
+
+      assert %ActorEventDelivery{state: "sent"} =
+               Repo.get_by!(ActorEventDelivery, actor_event_id: steer_event.id)
+
+      assert {:ok, [%ActorEventDelivery{state: "accepted", actor_event_id: steer_id}]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{"turn" => mailbox["turn"]}
+               })
+
+      assert steer_id == steer_event.id
+    end
+
+    test "steer starts a new turn when the activation's current event already completed" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_event: input}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "PING", explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, %{send_outcome: "sent_or_queued"}} =
+               process_ready_events_once(
+                 now: DateTime.add(@base_time, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_lane, envelope}
+      turn_ref = envelope["body"]["turn_start"]["turn"]
+
+      assert {:ok, [_delivery]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{"turn" => turn_ref}
+               })
+
+      input
+      |> ActorEvent.changeset(%{completed_at: DateTime.add(@base_time, 2, :second)})
+      |> Repo.update!()
+
+      assert %ActorEventDelivery{state: "accepted"} =
+               Repo.get_by!(ActorEventDelivery, actor_event_id: input.id)
+
+      assert {:ok, %{actor_event: steer_event}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "/steer start fresh", explicit: true}),
+                 now: DateTime.add(@base_time, 3, :second)
+               )
+
+      assert {:ok, %{send_outcome: "sent_or_queued", turn_ref: steer_turn_ref}} =
+               process_ready_events_once(now: DateTime.add(@base_time, 4, :second))
+
+      assert steer_turn_ref["actor_event_id"] == steer_event.id
+
+      assert_receive {:actor_lane, steer_envelope}
+      assert steer_envelope["body"]["type"] == "turn_start"
+      assert steer_envelope["body"]["turn_start"]["turn"]["actor_event_id"] == steer_event.id
+    end
+
+    test "stop command cancels active generation and writes command feedback" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_event: input}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "PING", explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, %{send_outcome: "sent_or_queued"}} =
+               process_ready_events_once(
+                 now: DateTime.add(@base_time, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_lane, envelope}
+      turn_ref = envelope["body"]["turn_start"]["turn"]
+
+      assert {:ok, [_delivery]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{"turn" => turn_ref}
+               })
+
+      generating = start_aigateway_run_for_turn!(turn_ref)
+      :ok = StatefulResponses.subscribe(input.id)
+
+      %InputTombstone{}
+      |> InputTombstone.changeset(%{
+        agent_uid: agent.uid,
+        binding_name: "bot",
+        signal_channel_id: input.signal_channel_id,
+        source_entry_id: input.source_entry_id,
+        tombstoned_until: DateTime.add(@base_time, 1, :day)
+      })
+      |> Repo.insert!()
+
+      assert {:ok, %{actor_event: stop_event}} =
                emit_entry(
                  agent.uid,
                  "bot",
@@ -295,7 +364,96 @@ defmodule Ankole.ActorRuntime.SteerStopCommandTest do
                  now: DateTime.add(@base_time, 2, :second)
                )
 
-      assert stop_input.type == "command.stop"
+      assert {:ok,
+              %{
+                status: :command_consumed,
+                feedback: "Stopped.",
+                stop_control_outcomes: [%{send_outcome: "sent_or_queued"}]
+              }} =
+               process_ready_events_once(now: DateTime.add(@base_time, 3, :second))
+
+      assert_receive {:ai_gateway_event, :response_failed, message_id, payload}
+      assert message_id == generating.id
+      assert payload.message_id == generating.id
+      assert payload.response_id == "resp_#{generating.id}"
+      assert payload.actor_event_id == input.id
+      assert payload.error["code"] == "command.stop"
+      assert payload.error["stage"] == "actor_runtime_cancel"
+
+      assert_receive {:actor_lane, stop_control}
+      assert stop_control["body"]["turn_control"]["command"] == "stop"
+      assert stop_control["body"]["turn_control"]["turn"]["actor_event_id"] == input.id
+
+      assert %Message{status: "error", metadata: metadata} = Repo.get!(Message, generating.id)
+      assert metadata["response"]["cancel_code"] == "command.stop"
+      assert metadata["error"]["stage"] == "actor_runtime_cancel"
+
+      assert %DateTime{} = Repo.get!(ActorEvent, input.id).completed_at
+      assert %DateTime{} = Repo.get!(ActorEvent, stop_event.id).completed_at
+
+      input_id = input.id
+
+      assert %ActorEventDelivery{state: "superseded"} =
+               Repo.one!(
+                 from(delivery in ActorEventDelivery,
+                   where: delivery.actor_event_id_fence == ^input_id
+                 )
+               )
+
+      assert %OutboxEntry{payload: %{"text" => "Stopped."}} =
+               Repo.one!(
+                 from(outbox in OutboxEntry,
+                   where: outbox.source_actor_event_id == ^stop_event.id
+                 )
+               )
+    end
+
+    test "stop command bypasses a reset barrier while a turn is running" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_event: input}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "PING", explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, %{send_outcome: "sent_or_queued"}} =
+               process_ready_events_once(
+                 now: DateTime.add(@base_time, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_lane, envelope}
+      turn_ref = envelope["body"]["turn_start"]["turn"]
+
+      assert {:ok, [_delivery]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{"turn" => turn_ref}
+               })
+
+      generating = start_aigateway_run_for_turn!(turn_ref)
+
+      assert {:ok, reset_event} =
+               append_runtime_actor_event(agent.uid, input.session_id, "session.reset_due",
+                 now: DateTime.add(@base_time, 2, :second)
+               )
+
+      assert {:ok, %{actor_event: stop_event}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "/stop", explicit: true}),
+                 now: DateTime.add(@base_time, 3, :second)
+               )
 
       assert {:ok,
               %{
@@ -303,49 +461,21 @@ defmodule Ankole.ActorRuntime.SteerStopCommandTest do
                 feedback: "Stopped.",
                 stop_control_outcomes: [%{send_outcome: "sent_or_queued"}]
               }} =
-               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 3, :second))
+               process_ready_events_once(now: DateTime.add(@base_time, 4, :second))
 
       assert_receive {:actor_lane, stop_control}
-      assert stop_control["body"]["type"] == "turn_control"
       assert stop_control["body"]["turn_control"]["command"] == "stop"
+      assert stop_control["body"]["turn_control"]["turn"]["actor_event_id"] == input.id
 
-      assert stop_control["body"]["turn_control"]["turn"]["llm_turn_id"] ==
-               turn_ref["llm_turn_id"]
-
-      assert stop_control["body"]["turn_control"]["payload_json"]["reason"] == "command.stop"
-
-      refute Repo.get(ActorInput, input.id)
-      refute Repo.get(ActorInput, stop_input.id)
-
-      assert %LlmTurn{
-               status: "cancelled",
-               response: %{"cancel_code" => "command.stop"},
-               completed_at: %DateTime{}
-             } = Repo.get!(LlmTurn, llm_turn.id)
-
-      assert %ActorInputDelivery{state: "superseded"} =
-               Repo.one!(
-                 from(delivery in ActorInputDelivery,
-                   where: delivery.llm_turn_id == ^llm_turn.id
-                 )
-               )
-
-      conversation = Repo.get!(Ankole.AIAgent.Schemas.Conversation, llm_turn.conversation_id)
-      assert conversation.generation["cancelled_at"]
-
-      assert {:error, :llm_turn_not_started} =
-               ActorRuntime.commit_final_proposal(%{
-                 "turn_final_proposal" => %{
-                   "turn" => turn_ref,
-                   "messages" => [],
-                   "reply" => %{"text" => "TOO LATE"}
-                 }
-               })
+      assert %Message{status: "error"} = Repo.get!(Message, generating.id)
+      assert %DateTime{} = Repo.get!(ActorEvent, input.id).completed_at
+      assert %DateTime{} = Repo.get!(ActorEvent, stop_event.id).completed_at
+      assert is_nil(Repo.get!(ActorEvent, reset_event.id).completed_at)
 
       assert %OutboxEntry{payload: %{"text" => "Stopped."}} =
                Repo.one!(
                  from(outbox in OutboxEntry,
-                   where: outbox.source_actor_input_id == ^stop_input.id
+                   where: outbox.source_actor_event_id == ^stop_event.id
                  )
                )
     end

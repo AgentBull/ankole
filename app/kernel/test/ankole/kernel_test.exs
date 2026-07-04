@@ -8,22 +8,9 @@ defmodule Ankole.KernelTest do
   @aead_key "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
   @aead_ciphertext "vveE4WxRjp0KO8YVx7o09aQ5_q9ZzqX2.gb1S9PmqEp_5UuejAzvKErXrdE4-sQ"
 
-  test "encoded bridge helpers are not exported as public kernel functions" do
-    refute function_exported?(NativeKernel, :authz_authorize_json, 1)
-    refute function_exported?(NativeKernel, :authz_authorize_all_json, 1)
-    refute function_exported?(NativeKernel, :runtime_fabric_encode_envelope_json, 1)
-    refute function_exported?(NativeKernel, :runtime_fabric_decode_envelope_json, 1)
-    refute function_exported?(NativeKernel, :signals_gateway_filter_match_json, 2)
-    refute function_exported?(NativeKernel, :jwt_decode_header_json, 1)
-    refute function_exported?(NativeKernel, :jwt_sign_json, 3)
-    refute function_exported?(NativeKernel, :jwt_verify_json, 3)
-  end
-
   test "hash helpers use the shared BLAKE3 vectors" do
     assert NativeKernel.generic_hash("bullx") ==
              "7f31cabae40697f9404428671c582d3c1f80c8a13d0741f4be8c9b856fcc0706"
-
-    assert NativeKernel.bs58_hash("bullx") == "9ZWpCkNYVXH91wFYb4cygXBxLe2xwsK9rBTVxwPMicWZ"
 
     assert NativeKernel.derive_key("seed", "tenant-A", "scope-a") ==
              "0553f445a2fb3dfc0fab4efa1e1ed31ef6a103277286cf63874904e341ee0d20"
@@ -42,7 +29,7 @@ defmodule Ankole.KernelTest do
     assert NativeKernel.aead_decrypt(@aead_ciphertext, @aead_key) == "secret"
   end
 
-  test "jwt helpers sign, verify, and decode headers" do
+  test "jwt helpers sign and verify claims" do
     token =
       NativeKernel.jwt_sign(
         %{
@@ -67,9 +54,6 @@ defmodule Ankole.KernelTest do
                aud: ["ankole.web_console"],
                sub: "human-1"
              })
-
-    assert %{"algorithm" => "HS256", "key_id" => "test-key"} =
-             NativeKernel.jwt_decode_header(token)
   end
 
   test "runtime fabric helpers encode and decode protobuf envelopes" do
@@ -84,7 +68,17 @@ defmodule Ankole.KernelTest do
         type: "turn_start",
         turn_start: %{
           turn: actor_turn_ref(),
-          actor_event: actor_event_envelope()
+          actor_event: actor_event_envelope(),
+          model_ref: %{
+            profile: "chat",
+            provider_id: "openrouter-main",
+            model: "openai/gpt-5.4-mini",
+            provider_kind: "openrouter"
+          },
+          request_context: %{
+            kind: "schedule",
+            silent_success_allowed: true
+          }
         }
       }
     }
@@ -103,30 +97,17 @@ defmodule Ankole.KernelTest do
                      "session_id" => "signal-channel:lark:dm:1"
                    }
                  },
-                 "actor_event" => %{"payload_json" => %{"text" => "PING"}}
+                 "actor_event" => %{
+                   "binding_name" => "lark",
+                   "payload_json" => %{"text" => "PING"},
+                   "provider_thread_id" => "thread-1",
+                   "signal_channel_id" => "lark:chat:group-a"
+                 },
+                 "model_ref" => %{"provider_kind" => "openrouter"},
+                 "request_context" => %{"silent_success_allowed" => true}
                }
              }
            } = RuntimeFabric.decode_envelope(encoded)
-  end
-
-  test "runtime fabric rejects profile fields on ActorKey" do
-    assert {:error, reason} =
-             RuntimeFabric.encode_envelope(%{
-               protocol_version: 1,
-               message_id: "turn-start-profile",
-               correlation_id: "turn-start-profile",
-               lane: "LANE_TURN",
-               durability: "CONTROL_REPLAYABLE",
-               body: %{
-                 type: "turn_start",
-                 turn_start: %{
-                   turn: put_in(actor_turn_ref(), [:actor, :display_name], "ReleaseBot"),
-                   actor_event: actor_event_envelope()
-                 }
-               }
-             })
-
-    assert reason =~ "ActorKey must not carry display_name"
   end
 
   test "runtime fabric turn_start requires one actor event" do
@@ -146,6 +127,26 @@ defmodule Ankole.KernelTest do
              })
 
     assert reason =~ "turn_start.actor_event is required"
+  end
+
+  test "runtime fabric mailbox_updated requires one actor event" do
+    assert {:error, reason} =
+             RuntimeFabric.encode_envelope(%{
+               protocol_version: 1,
+               message_id: "mailbox-updated-missing-event",
+               correlation_id: "mailbox-updated-missing-event",
+               lane: "LANE_TURN",
+               durability: "CONTROL_EPHEMERAL",
+               body: %{
+                 type: "mailbox_updated",
+                 mailbox_updated: %{
+                   turn: actor_turn_ref(),
+                   reason: "command.steer"
+                 }
+               }
+             })
+
+    assert reason =~ "mailbox_updated.actor_event is required"
   end
 
   test "runtime fabric encodes and decodes generic RPC envelopes" do
@@ -175,55 +176,6 @@ defmodule Ankole.KernelTest do
              }
            } =
              RuntimeFabric.decode_envelope(encoded)
-  end
-
-  test "runtime fabric encodes and decodes final proposal reply attachments" do
-    encoded =
-      RuntimeFabric.encode_envelope(%{
-        protocol_version: 1,
-        message_id: "turn-final-1",
-        correlation_id: "turn-start-1",
-        lane: "LANE_TURN",
-        durability: "CONTROL_DURABLE",
-        body: %{
-          type: "turn_final_proposal",
-          turn_final_proposal: %{
-            turn: actor_turn_ref(),
-            messages: [],
-            reply: %{
-              text: "Here is the report.",
-              content_json: [%{type: "text", text: "Here is the report."}],
-              attachments: [
-                %{
-                  agent_computer_path: "/workspace/user-files/reports/a.txt",
-                  user_files_relative_path: "reports/a.txt",
-                  name: "report.txt",
-                  mime_type: "text/plain",
-                  size: 16
-                }
-              ]
-            }
-          }
-        }
-      })
-
-    assert %{
-             "body" => %{
-               "turn_final_proposal" => %{
-                 "reply" => %{
-                   "attachments" => [
-                     %{
-                       "agent_computer_path" => "/workspace/user-files/reports/a.txt",
-                       "user_files_relative_path" => "reports/a.txt",
-                       "name" => "report.txt",
-                       "mime_type" => "text/plain",
-                       "size" => 16
-                     }
-                   ]
-                 }
-               }
-             }
-           } = RuntimeFabric.decode_envelope(encoded)
   end
 
   test "runtime fabric turn_control steer payload must be journaled, not inline" do
@@ -280,14 +232,6 @@ defmodule Ankole.KernelTest do
 
     assert {:error, :unknown_route} =
              RuntimeFabric.router_send_mandatory(router, "missing-worker", turn_start_envelope())
-  end
-
-  test "encoding helpers preserve binary payloads" do
-    assert NativeKernel.base58_encode("Hello World!") == "2NEpo7TZRRrLZSi2U"
-    assert NativeKernel.base58_decode("2NEpo7TZRRrLZSi2U") == "Hello World!"
-
-    assert NativeKernel.base64_url_safe_encode("bullx") == "YnVsbHg"
-    assert NativeKernel.base64_url_safe_decode("YnVsbHg") == "bullx"
   end
 
   test "authz helpers evaluate snapshots without host database access" do
@@ -400,10 +344,7 @@ defmodule Ankole.KernelTest do
     assert decision["deniedAction"] == "write"
   end
 
-  test "text and checksum helpers match existing vectors" do
-    assert NativeKernel.any_ascii("Björk") == "Bjork"
-    assert NativeKernel.crc32("TestCase😊") == 1_198_634_863
-    assert NativeKernel.crc32_hex("TestCase😊") == "4771b76f"
+  test "fingerprint and phone helpers match expected behavior" do
     assert NativeKernel.xxh3_128_hex("TestCase") == "7b16fe7c3e492b87d9615265f0856cec"
     assert NativeKernel.phone_normalize_e164("+1 415 555 2671") == "+14155552671"
     assert {:error, _reason} = NativeKernel.phone_normalize_e164("13800000000")
@@ -415,9 +356,6 @@ defmodule Ankole.KernelTest do
 
     assert NativeKernel.gen_uuid_v7() =~
              ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/
-
-    assert NativeKernel.gen_base36_uuid() =~ ~r/\A[0-9a-z]+\z/
-    assert NativeKernel.gen_short_uuid() =~ ~r/\A[1-9A-HJ-NP-Za-km-z]+\z/
   end
 
   test "universal AI client sends raw HTTP requests" do
@@ -815,6 +753,9 @@ defmodule Ankole.KernelTest do
       type: "im.message.addressed",
       source_event_id: "event-1",
       source_entry_id: "message-1",
+      binding_name: "lark",
+      signal_channel_id: "lark:chat:group-a",
+      provider_thread_id: "thread-1",
       payload_json: %{"text" => "PING"}
     }
   end

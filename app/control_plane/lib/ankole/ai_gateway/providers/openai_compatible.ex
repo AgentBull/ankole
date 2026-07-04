@@ -15,8 +15,6 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
     setting(:endpoint_kind, default: "chat_completions")
     setting(:headers, type: :map)
     setting(:query_params, type: :map)
-    setting(:include_usage, type: :boolean)
-    setting(:supports_structured_outputs, type: :boolean)
 
     setting(:user, scope: :request)
     setting(:reasoning, scope: :request)
@@ -66,6 +64,14 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
       |> UniversalAIRequest.raw_headers()
       |> UniversalAIRequest.bearer_auth(ctx.settings[:api_key])
 
+    check_models_endpoint(ctx, headers)
+  end
+
+  @doc """
+  Shared `/models` live check for OpenAI-compatible provider modules.
+  """
+  @spec check_models_endpoint(map(), map()) :: {:ok, map()} | {:error, term()}
+  def check_models_endpoint(ctx, headers) when is_map(ctx) and is_map(headers) do
     with {:ok, %{"status" => status, "body" => body}} when status in 200..299 <-
            UniversalAIRequest.raw_get(ctx, "models", headers: headers) do
       {:ok, body}

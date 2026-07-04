@@ -53,9 +53,9 @@ defmodule Ankole.Schedule.Checkbacks do
     agent_uid = Attrs.map_text(attrs, "agent_uid")
     session_id = Attrs.map_text(attrs, "session_id")
     binding_name = Attrs.map_text(attrs, "binding_name")
-    provider_entry_id = Attrs.map_text(attrs, "provider_entry_id")
+    source_entry_id = Attrs.map_text(attrs, "source_entry_id")
 
-    if Enum.all?([agent_uid, session_id, binding_name, provider_entry_id], &is_binary/1) do
+    if Enum.all?([agent_uid, session_id, binding_name, source_entry_id], &is_binary/1) do
       {count, _rows} =
         ScheduledEvent
         |> where([event], event.kind == "check_back_later")
@@ -63,7 +63,7 @@ defmodule Ankole.Schedule.Checkbacks do
         |> where([event], event.agent_uid == ^String.downcase(agent_uid))
         |> where([event], event.session_id == ^session_id)
         |> where([event], event.binding_name == ^binding_name)
-        |> where([event], event.provider_entry_id == ^provider_entry_id)
+        |> where([event], event.source_entry_id == ^source_entry_id)
         |> repo.update_all(
           set: [
             status: "cancelled",

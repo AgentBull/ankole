@@ -187,8 +187,7 @@ fn complete_response_resource(context: &ResponseContext, body: Value) -> Value {
     );
     object.insert(
         "service_tier".to_string(),
-        json!(string_value(preferred(&object, &request, "service_tier"))
-            .unwrap_or_else(|| "default".to_string())),
+        nullable_string(preferred(&object, &request, "service_tier")),
     );
     object.insert(
         "metadata".to_string(),

@@ -18,8 +18,8 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
       ai_messages_for_actor_event: 1
     ]
 
-  alias Ankole.AIAgent.Schemas.Conversation
-  alias Ankole.AIAgent.Schemas.Message
+  alias Ankole.AIGateway.Schemas.Conversation
+  alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Actors
   alias Ankole.Actors.ActorEvent
   alias Ankole.E2E.FakeFeishu

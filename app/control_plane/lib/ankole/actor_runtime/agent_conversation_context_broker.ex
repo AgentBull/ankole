@@ -3,14 +3,14 @@ defmodule Ankole.ActorRuntime.AgentConversationContextBroker do
   Resolves PG-backed context for the current AI-agent conversation.
 
   This RPC intentionally does not return transcript messages or turn-local
-  request context. Workers fetch transcript history through
-  `conversation.history.resolve`; turn-local facts travel on `turn_start`.
+  request context. Transcript history is owned by AIGateway; turn-local facts
+  travel on `turn_start`.
   """
 
   import Ecto.Query, warn: false
 
   alias Ankole.AIAgent.Library
-  alias Ankole.AIAgent.Schemas.Conversation
+  alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.ActorRuntime.WorkerRouteAuth
   alias Ankole.Principals.Agent, as: PrincipalAgent
   alias Ankole.Principals.Principal

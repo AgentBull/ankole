@@ -2,55 +2,52 @@ import type { AgentMessage } from '../types'
 import type {
   AgentConversationContext,
   AgentConversationContextRequest,
-  ConversationHistoryRequest,
-  ConversationHistoryResponse,
-  ConversationSummaryCommitRequest,
-  ConversationSummaryCommitResponse,
-  ConversationSummaryCommitRejected,
   AIGatewayApiKeyRejected,
   AIGatewayApiKeyRequest,
   AIGatewayApiKeyResponse,
+  AppConfigureResolveRejected,
+  AppConfigureResolveRequest,
+  AppConfigureResolveResponse,
   SkillOverlayReplaceRequest,
   SkillOverlayRequest,
   SkillOverlayResponse
 } from '../../rpc_lane'
 import type { ScheduleRpcRequester } from '../../tools/schedule-tools'
-import type { FinalProposalBody } from '../../turn_envelopes'
 import type { TurnSteerUpdate } from '../../actor_lane'
 
+export type AIGatewayApiKeyRequestOptions = {
+  forceRefresh?: boolean
+}
+
 export type AIGatewayApiKeyRequester = (
-  request: AIGatewayApiKeyRequest
+  request: AIGatewayApiKeyRequest,
+  options?: AIGatewayApiKeyRequestOptions
 ) => Promise<AIGatewayApiKeyResponse | AIGatewayApiKeyRejected>
 
 export type AgentConversationContextRequester = (
   request: AgentConversationContextRequest
 ) => Promise<AgentConversationContext>
-export type ConversationHistoryRequester = (request: ConversationHistoryRequest) => Promise<ConversationHistoryResponse>
-export type ConversationSummaryCommitter = (
-  request: ConversationSummaryCommitRequest
-) => Promise<ConversationSummaryCommitResponse | ConversationSummaryCommitRejected>
+export type AppConfigureRequester = (
+  request: AppConfigureResolveRequest
+) => Promise<AppConfigureResolveResponse | AppConfigureResolveRejected>
 export type SkillOverlayRequester = (request: SkillOverlayRequest) => Promise<SkillOverlayResponse>
 export type SkillOverlayReplaceRequester = (request: SkillOverlayReplaceRequest) => Promise<SkillOverlayResponse>
 
-export type TurnHandlerResult = FinalProposalBody | { summaryCommitted: boolean }
+export type TurnHandlerResult = { kind: 'aigateway_response' } | { kind: 'noop_completed'; reason: string }
 
 export type TextTurnLoopOptions = {
   workspaceRoot: string
   builtinSkillsRoot?: string
   agentInstalledSkillsRoot?: string
   requestAIGatewayApiKey: AIGatewayApiKeyRequester
+  requestAppConfigure?: AppConfigureRequester
   requestAgentConversationContext?: AgentConversationContextRequester
-  requestConversationHistory?: ConversationHistoryRequester
-  commitConversationSummary?: ConversationSummaryCommitter
   requestScheduleRpc?: ScheduleRpcRequester
   requestSkillOverlay?: SkillOverlayRequester
   replaceSkillOverlay?: SkillOverlayReplaceRequester
-  clearSkillOverlay?: SkillOverlayRequester
   agentConversationContext?: AgentConversationContext
-  conversationHistory?: ConversationHistoryResponse
   pollSteering?: () => TurnSteerUpdate[]
   abortSignal?: AbortSignal
-  maxSteps?: number
   extraMessages?: AgentMessage[]
 }
 

@@ -15,7 +15,7 @@ pub struct ApiResolver {
 
 trait ApiProtocol: std::fmt::Debug + Send + Sync {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
-        Ok(context.resolved_request_object())
+        Ok(context.resolved_provider_request_object())
     }
 
     fn websocket_initial_messages(
@@ -107,7 +107,7 @@ impl ApiResolver {
 }
 
 fn make_protocol(kind: ApiResolverKind, context: &ResponseContext) -> Box<dyn ApiProtocol> {
-    match kind.canonical() {
+    match kind {
         ApiResolverKind::OpenaiResponses => Box::new(OpenaiResponsesState::default()),
         ApiResolverKind::OpenaiChatCompletions => Box::new(ChatState::new(context.model.clone())),
         ApiResolverKind::AnthropicMessages => Box::new(AnthropicState::new(context.model.clone())),
@@ -123,5 +123,10 @@ fn make_protocol(kind: ApiResolverKind, context: &ResponseContext) -> Box<dyn Ap
         ApiResolverKind::GoogleEmbeddings => Box::new(GoogleEmbeddings),
         ApiResolverKind::OpenrouterRerank => Box::new(OpenrouterRerank),
         ApiResolverKind::JinaRerank => Box::new(JinaRerank),
+        ApiResolverKind::ParallelWebSearch => Box::new(ParallelWebSearch),
+        ApiResolverKind::ParallelWebFetch => Box::new(ParallelWebFetch),
+        ApiResolverKind::BrightDataSerpWebSearch => Box::new(BrightDataSerpWebSearch),
+        ApiResolverKind::AgentbullWebSearch => Box::new(AgentBullWebSearch),
+        ApiResolverKind::JinaReaderWebFetch => Box::new(JinaReaderWebFetch),
     }
 }

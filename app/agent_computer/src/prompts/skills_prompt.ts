@@ -22,7 +22,7 @@ const MAX_SKILLS_PROMPT_CHARS = 1_000_000
 const COMPACT_WARNING_OVERHEAD = 150
 
 /**
- * Builds the model-visible skill index as grouped YAML under a `## Skills` heading.
+ * Builds the model-visible skill index as a compact catalog under a `## Skills` heading.
  *
  * Skills flagged `disableModelInvocation` are dropped because those are invocable
  * only by applications, never chosen by the model. Returning an empty string lets
@@ -46,11 +46,11 @@ Before performing a task or subtask you are already going to do, call \`skill_vi
   if (limited.truncated) lines.push(`  # Skills list truncated to ${limited.skills.length} entries.`)
 
   for (const [category, categorySkills] of categories) {
-    lines.push(`  ${formatYamlScalar(category)}:`)
+    lines.push(`  ${formatPromptScalar(category)}:`)
 
     for (const skill of categorySkills) {
-      const name = formatYamlScalar(skill.name)
-      const description = formatYamlScalar(skill.description)
+      const name = formatPromptScalar(skill.name)
+      const description = formatPromptScalar(skill.description)
       // In compact mode descriptions are sacrificed before entries so the model
       // can still see as many callable skill names as possible.
       lines.push(limited.compact || !description ? `    - ${name}` : `    - ${name}: ${description}`)
@@ -106,7 +106,7 @@ function applySkillsPromptLimits(skills: SkillPromptEntry[]): {
 
 /**
  * Cheap size proxy used by the budget search. It only needs to grow with the
- * same inputs as the final YAML, not reproduce it exactly.
+ * same inputs as the final catalog, not reproduce it exactly.
  */
 function formatSkills(skills: SkillPromptEntry[], compact: boolean): string {
   return skills
@@ -140,14 +140,14 @@ function compareSkills(a: SkillPromptEntry, b: SkillPromptEntry): number {
 }
 
 /**
- * Renders a YAML scalar, quoting through JSON when a bare value would be unsafe.
+ * Renders a prompt-safe scalar, quoting through JSON when a bare value would be ambiguous.
  */
-function formatYamlScalar(value: string): string {
+function formatPromptScalar(value: string): string {
   const trimmed = value.trim()
-  return isPlainYamlScalar(trimmed) ? trimmed : JSON.stringify(value)
+  return isPlainPromptScalar(trimmed) ? trimmed : JSON.stringify(value)
 }
 
-function isPlainYamlScalar(value: string): boolean {
+function isPlainPromptScalar(value: string): boolean {
   if (!/^[A-Za-z0-9][A-Za-z0-9_./-]*$/.test(value)) return false
   return !/^(true|false|null|~|yes|no|on|off)$/i.test(value)
 }

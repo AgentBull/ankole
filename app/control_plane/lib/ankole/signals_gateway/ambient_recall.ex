@@ -9,12 +9,11 @@ defmodule Ankole.SignalsGateway.AmbientRecall do
 
   import Ecto.Query
 
-  alias Ankole.AIAgent.Schemas.Conversation
-  alias Ankole.AIAgent.Schemas.Message
   alias Ankole.Repo
   alias Ankole.SignalsGateway.SignalEntry
 
   @ambient_recall_max_rows 80
+  @ambient_recent_history_rows 10
 
   @doc """
   Returns the observed messages visible to one ambient batch.
@@ -22,19 +21,61 @@ defmodule Ankole.SignalsGateway.AmbientRecall do
   def observed_messages(attrs, entries) do
     case batch_boundary(attrs, entries) do
       nil ->
-        entries
-        |> Enum.map(&observed_message_from_entry/1)
-        |> Enum.reject(&is_nil/1)
+        batch_observed_messages(entries)
 
       boundary ->
         attrs
         |> recall_signal_observed_messages(boundary)
-        |> Kernel.++(recall_conversation_observed_messages(attrs, boundary))
-        |> Kernel.++(Enum.map(entries, &observed_message_from_entry/1))
+        |> Kernel.++(batch_observed_messages(entries))
         |> Enum.reject(&is_nil/1)
         |> dedupe_observed_messages()
         |> Enum.sort_by(&observed_sort_key/1)
         |> Enum.take(@ambient_recall_max_rows)
+    end
+  end
+
+  @doc """
+  Returns the current finalized batch as observed-message rows.
+  """
+  def batch_observed_messages(entries) do
+    entries
+    |> Enum.map(&observed_message_from_entry/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  @doc """
+  Returns the visible transcript immediately before the ambient batch.
+  """
+  def recent_history(attrs, entries, limit \\ @ambient_recent_history_rows) do
+    case batch_boundary(attrs, entries) do
+      nil ->
+        []
+
+      boundary ->
+        boundary
+        |> signal_entries_before_boundary(limit)
+        |> Enum.map(&observed_message_from_signal_entry(&1, attrs.provider_thread_id))
+        |> Enum.reject(&is_nil/1)
+    end
+  end
+
+  @doc """
+  Returns unreplied ambient messages since the latest mirrored agent reply.
+  """
+  def earlier_observed_messages(attrs, entries) do
+    case batch_boundary(attrs, entries) do
+      nil ->
+        []
+
+      boundary ->
+        signal_entries = signal_entries_before_boundary(boundary, @ambient_recall_max_rows)
+        agent_cutoff = latest_agent_sent_at(signal_entries)
+
+        signal_entries
+        |> Enum.filter(&(signal_entry_role(&1) != "agent"))
+        |> Enum.filter(&after_cutoff?(&1, agent_cutoff))
+        |> Enum.map(&observed_message_from_signal_entry(&1, attrs.provider_thread_id))
+        |> Enum.reject(&is_nil/1)
     end
   end
 
@@ -106,59 +147,33 @@ defmodule Ankole.SignalsGateway.AmbientRecall do
     end)
   end
 
-  defp recall_conversation_observed_messages(attrs, boundary) do
-    with %Conversation{} = conversation <- active_conversation(attrs.agent_uid, attrs.session_id) do
-      Message
-      |> where([message], message.conversation_id == ^conversation.id)
-      |> where([message], message.role in ["assistant", "tool", "im_ambient"])
-      |> where([message], message.inserted_at >= ^boundary.start_at)
-      |> where([message], message.inserted_at <= ^boundary.end_at)
-      |> order_by([message], asc: message.inserted_at)
-      |> limit(@ambient_recall_max_rows)
-      |> Repo.all()
-      |> then(fn messages ->
-        for message <- messages,
-            message_in_boundary?(message, boundary),
-            do: observed_message_from_conversation(message)
-      end)
-    else
-      nil -> []
-    end
-  end
-
-  defp active_conversation(agent_uid, session_id) do
-    Conversation
-    |> where([conversation], conversation.agent_uid == ^normalize_uid(agent_uid))
-    |> where([conversation], conversation.conversation_key == ^session_id)
-    |> where([conversation], is_nil(conversation.ended_at))
-    |> Repo.one()
-  end
-
-  defp message_in_boundary?(%Message{} = message, boundary) do
-    with true <- message_signal_channel_id(message) == boundary.signal_channel_id,
-         true <- message_provider_thread_matches?(message, boundary.provider_thread_id),
-         %DateTime{} = sent_at <- message_sent_at(message) do
-      DateTime.compare(sent_at, boundary.start_at) != :lt and
-        DateTime.compare(sent_at, boundary.end_at) != :gt
-    else
-      _value -> false
-    end
+  defp signal_entries_before_boundary(boundary, limit) do
+    SignalEntry
+    |> where([entry], entry.signal_channel_id == ^boundary.signal_channel_id)
+    |> where(
+      [entry],
+      fragment(
+        "COALESCE(?, ?, ?) < ?",
+        entry.provider_time,
+        entry.last_seen_at,
+        entry.inserted_at,
+        ^boundary.start_at
+      )
+    )
+    |> order_by([entry],
+      desc:
+        fragment("COALESCE(?, ?, ?)", entry.provider_time, entry.last_seen_at, entry.inserted_at)
+    )
+    |> limit(^limit)
+    |> Repo.all()
+    |> Enum.filter(&same_provider_thread?(&1, boundary.provider_thread_id))
+    |> Enum.reverse()
   end
 
   defp same_provider_thread?(_entry, nil), do: true
 
   defp same_provider_thread?(%SignalEntry{} = entry, provider_thread_id) do
     case signal_entry_provider_thread_id(entry) do
-      nil -> true
-      ^provider_thread_id -> true
-      _other -> false
-    end
-  end
-
-  defp message_provider_thread_matches?(_message, nil), do: true
-
-  defp message_provider_thread_matches?(%Message{} = message, provider_thread_id) do
-    case message_provider_thread_id(message) do
       nil -> true
       ^provider_thread_id -> true
       _other -> false
@@ -172,7 +187,7 @@ defmodule Ankole.SignalsGateway.AmbientRecall do
     case {text, sent_at} do
       {text, sent_at} when is_binary(text) and is_binary(sent_at) ->
         %{
-          "id" => "batch:#{entry["provider_entry_id"] || :erlang.phash2(entry)}",
+          "id" => "batch:#{entry["source_entry_id"] || :erlang.phash2(entry)}",
           "source" => "ambient_batch",
           "role" => "ambient_human",
           "kind" => "normal",
@@ -180,7 +195,7 @@ defmodule Ankole.SignalsGateway.AmbientRecall do
           "sent_at" => sent_at,
           "text" => text,
           "signal_channel_id" => entry["signal_channel_id"],
-          "provider_entry_id" => entry["provider_entry_id"],
+          "source_entry_id" => entry["source_entry_id"],
           "provider_thread_id" => entry["provider_thread_id"]
         }
         |> Enum.reject(fn {_key, value} -> is_nil(value) end)
@@ -199,7 +214,7 @@ defmodule Ankole.SignalsGateway.AmbientRecall do
     case text do
       text when is_binary(text) ->
         %{
-          "id" => "signal:#{entry.signal_channel_id}:#{entry.provider_entry_id}",
+          "id" => "signal:#{entry.signal_channel_id}:#{entry.source_entry_id}",
           "source" => "signal_entry",
           "role" => signal_entry_role(entry),
           "kind" => "normal",
@@ -207,33 +222,8 @@ defmodule Ankole.SignalsGateway.AmbientRecall do
           "sent_at" => DateTime.to_iso8601(signal_entry_sent_at(entry)),
           "text" => text,
           "signal_channel_id" => entry.signal_channel_id,
-          "provider_entry_id" => entry.provider_entry_id,
+          "source_entry_id" => entry.source_entry_id,
           "provider_thread_id" => signal_entry_provider_thread_id(entry) || provider_thread_id
-        }
-        |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-        |> Map.new()
-
-      _value ->
-        nil
-    end
-  end
-
-  defp observed_message_from_conversation(%Message{} = message) do
-    text = message_text(message)
-
-    case text do
-      text when is_binary(text) ->
-        %{
-          "id" => "conversation:#{message.id}",
-          "source" => "ai_agent_messages",
-          "role" => conversation_observed_role(message),
-          "kind" => message.kind,
-          "speaker" => message_speaker(message),
-          "sent_at" => message_sent_at(message) |> DateTime.to_iso8601(),
-          "text" => text,
-          "signal_channel_id" => message_signal_channel_id(message),
-          "provider_entry_id" => message_provider_entry_id(message),
-          "provider_thread_id" => message_provider_thread_id(message)
         }
         |> Enum.reject(fn {_key, value} -> is_nil(value) end)
         |> Map.new()
@@ -248,7 +238,7 @@ defmodule Ankole.SignalsGateway.AmbientRecall do
     |> Enum.reverse()
     |> Enum.uniq_by(fn message ->
       provider_key =
-        case {message["signal_channel_id"], message["provider_entry_id"]} do
+        case {message["signal_channel_id"], message["source_entry_id"]} do
           {channel_id, entry_id} when is_binary(channel_id) and is_binary(entry_id) ->
             "#{channel_id}:#{entry_id}"
 
@@ -277,6 +267,22 @@ defmodule Ankole.SignalsGateway.AmbientRecall do
 
   defp signal_entry_role(_entry), do: "ambient_human"
 
+  defp latest_agent_sent_at(entries) do
+    entries
+    |> Enum.filter(&(signal_entry_role(&1) == "agent"))
+    |> List.last()
+    |> case do
+      %SignalEntry{} = entry -> signal_entry_sent_at(entry)
+      nil -> nil
+    end
+  end
+
+  defp after_cutoff?(_entry, nil), do: true
+
+  defp after_cutoff?(entry, %DateTime{} = cutoff) do
+    DateTime.compare(signal_entry_sent_at(entry), cutoff) == :gt
+  end
+
   defp signal_entry_sent_at(%SignalEntry{provider_time: %DateTime{} = sent_at}), do: sent_at
   defp signal_entry_sent_at(%SignalEntry{last_seen_at: %DateTime{} = sent_at}), do: sent_at
   defp signal_entry_sent_at(%SignalEntry{inserted_at: %DateTime{} = sent_at}), do: sent_at
@@ -286,76 +292,6 @@ defmodule Ankole.SignalsGateway.AmbientRecall do
   defp signal_entry_provider_thread_id(%SignalEntry{} = entry) do
     optional_text(entry.metadata || %{}, :provider_thread_id) ||
       optional_text(entry.raw_payload || %{}, :provider_thread_id)
-  end
-
-  defp conversation_observed_role(%Message{role: "assistant"}), do: "agent"
-  defp conversation_observed_role(%Message{role: "tool"}), do: "tool"
-
-  defp conversation_observed_role(%Message{role: "im_ambient", kind: "introspection"}),
-    do: "runtime"
-
-  defp conversation_observed_role(%Message{role: "im_ambient"}), do: "ambient_human"
-  defp conversation_observed_role(%Message{}), do: "human"
-
-  defp message_speaker(%Message{role: "assistant", agent_uid: agent_uid}), do: agent_uid
-  defp message_speaker(%Message{role: "tool"}), do: "tool"
-
-  defp message_speaker(%Message{role: "im_ambient", kind: "introspection"}),
-    do: "Ankole runtime"
-
-  defp message_speaker(%Message{metadata: metadata}) do
-    speaker_name(
-      get_in(metadata || %{}, ["message_context", "actor"]) ||
-        Map.get(metadata || %{}, "actor")
-    )
-  end
-
-  defp message_text(%Message{content: content}) when is_list(content) do
-    content
-    |> Enum.flat_map(fn
-      text when is_binary(text) -> [text]
-      %{"text" => text} when is_binary(text) -> [text]
-      %{text: text} when is_binary(text) -> [text]
-      _block -> []
-    end)
-    |> Enum.join("\n")
-    |> String.trim()
-    |> case do
-      "" -> nil
-      text -> text
-    end
-  end
-
-  defp message_text(_message), do: nil
-
-  defp message_signal_channel_id(%Message{metadata: metadata}) do
-    metadata = metadata || %{}
-
-    optional_text(metadata, :signal_channel_id) ||
-      get_in(metadata, ["provider_refs", "room_id"]) ||
-      get_in(metadata, ["route", "provider_room_id"]) ||
-      get_in(metadata, ["message_context", "room", "id"])
-  end
-
-  defp message_provider_entry_id(%Message{metadata: metadata}) do
-    metadata = metadata || %{}
-
-    optional_text(metadata, :provider_entry_id) ||
-      get_in(metadata, ["provider_refs", "provider_message_id"])
-  end
-
-  defp message_provider_thread_id(%Message{metadata: metadata}) do
-    metadata = metadata || %{}
-
-    optional_text(metadata, :provider_thread_id) ||
-      get_in(metadata, ["provider_refs", "thread_id"]) ||
-      get_in(metadata, ["route", "provider_thread_id"])
-  end
-
-  defp message_sent_at(%Message{metadata: metadata, inserted_at: inserted_at}) do
-    metadata_sent_at = get_in(metadata || %{}, ["message_context", "time", "sent_at"])
-
-    parse_iso8601(metadata_sent_at) || inserted_at || DateTime.utc_now(:microsecond)
   end
 
   defp speaker_name(author) when is_map(author) do
@@ -396,7 +332,4 @@ defmodule Ankole.SignalsGateway.AmbientRecall do
   end
 
   defp optional_text(_map, _key), do: nil
-
-  defp normalize_uid(uid) when is_binary(uid), do: uid |> String.trim() |> String.downcase()
-  defp normalize_uid(uid), do: uid
 end

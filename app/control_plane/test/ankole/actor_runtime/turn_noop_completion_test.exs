@@ -145,7 +145,7 @@ defmodule Ankole.ActorRuntime.TurnNoopCompletionTest do
              )
     end
 
-    test "leaves unaccepted active steer open when noop completes first" do
+    test "keeps active steer completed when noop supersedes it before worker acceptance" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
       route = unique_route()
@@ -188,6 +188,8 @@ defmodule Ankole.ActorRuntime.TurnNoopCompletionTest do
       assert {:ok, %{status: :active_steer_nudged, send_outcome: "sent_or_queued"}} =
                process_ready_events_once(now: DateTime.add(@base_time, 3, :second))
 
+      assert %DateTime{} = Repo.get!(ActorEvent, steer_event.id).completed_at
+
       assert_receive {:actor_lane, mailbox_envelope}, 2_000
       assert mailbox_envelope["body"]["type"] == "mailbox_updated"
 
@@ -200,7 +202,7 @@ defmodule Ankole.ActorRuntime.TurnNoopCompletionTest do
                })
 
       assert %DateTime{} = Repo.get!(ActorEvent, input.id).completed_at
-      assert is_nil(Repo.get!(ActorEvent, steer_event.id).completed_at)
+      assert %DateTime{} = Repo.get!(ActorEvent, steer_event.id).completed_at
 
       assert %ActorEventDelivery{state: "superseded"} =
                Repo.get_by!(ActorEventDelivery, actor_event_id: steer_event.id)

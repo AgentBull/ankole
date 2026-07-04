@@ -11,6 +11,7 @@ defmodule Ankole.AdminAuth do
 
   alias Ankole.AuthZ.Group
   alias Ankole.AuthZ.Membership
+  alias Ankole.AuthZ.Root
   alias Ankole.Principals
   alias Ankole.Principals.Principal
   alias Ankole.Repo
@@ -18,7 +19,6 @@ defmodule Ankole.AdminAuth do
   # The built-in admin group is identified by this reserved name. The query below
   # also pins `built_in == true` and `kind == :static` so a human-created group
   # that merely happens to be named "admin" can never grant admin power.
-  @admin_group_name "admin"
 
   @doc """
   Returns true when the principal is an active human member of the built-in admin group.
@@ -30,6 +30,8 @@ defmodule Ankole.AdminAuth do
     # suspended/disabled human without having to scrub group memberships. A
     # malformed uid normalizes to an error and is treated as "not admin".
     with {:ok, principal_uid} <- Principals.normalize_uid(principal_uid) do
+      admin_group_name = Root.admin_group_name()
+
       Repo.exists?(
         from membership in Membership,
           join: group in Group,
@@ -37,7 +39,7 @@ defmodule Ankole.AdminAuth do
           join: principal in Principal,
           on: principal.uid == membership.principal_uid,
           where:
-            membership.principal_uid == ^principal_uid and group.name == ^@admin_group_name and
+            membership.principal_uid == ^principal_uid and group.name == ^admin_group_name and
               group.built_in == true and group.kind == :static and principal.type == :human and
               principal.status == :active
       )

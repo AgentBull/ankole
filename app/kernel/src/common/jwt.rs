@@ -1,8 +1,7 @@
 use jsonwebtoken::{
-    Algorithm, DecodingKey, EncodingKey, Header, TokenData, Validation, decode, decode_header,
-    encode,
+    Algorithm, DecodingKey, EncodingKey, Header, TokenData, Validation, decode, encode,
 };
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 use crate::common::{KernelError, KernelResult};
 
@@ -22,14 +21,6 @@ pub fn jwt_verify(token: &str, key: &[u8], validation_json: &str) -> KernelResul
     decode::<Value>(token, &DecodingKey::from_secret(key), &validation)
         .map_err(|error| KernelError::new(format!("jwt verify failed: {error}")))
         .and_then(encode_claims)
-}
-
-/// Decodes the JWT header without validating the signature.
-pub fn jwt_decode_header(token: &str) -> KernelResult<String> {
-    decode_header(token)
-        .map_err(|error| KernelError::new(format!("jwt header decode failed: {error}")))
-        .map(header_json)
-        .and_then(encode_json)
 }
 
 fn decode_json_object(input: &str, field: &str) -> KernelResult<Value> {
@@ -134,24 +125,6 @@ fn parse_algorithm(input: &str) -> KernelResult<Algorithm> {
     }
 }
 
-fn header_json(header: Header) -> Value {
-    let mut object = Map::new();
-    object.insert(
-        "algorithm".to_string(),
-        Value::String(algorithm_name(header.alg)),
-    );
-    insert_optional_string(&mut object, "type", header.typ);
-    insert_optional_string(&mut object, "content_type", header.cty);
-    insert_optional_string(&mut object, "key_id", header.kid);
-    insert_optional_string(&mut object, "json_key_url", header.jku);
-    insert_optional_string(&mut object, "x5_url", header.x5u);
-    insert_optional_array(&mut object, "x5_cert_chain", header.x5c);
-    insert_optional_string(&mut object, "x5_cert_thumbprint", header.x5t);
-    insert_optional_string(&mut object, "x5t_s256_cert_thumbprint", header.x5t_s256);
-
-    Value::Object(object)
-}
-
 fn encode_claims(token: TokenData<Value>) -> KernelResult<String> {
     match token.claims {
         Value::Object(_) => encode_json(token.claims),
@@ -211,29 +184,4 @@ fn u64_field(value: &Value, name: &str) -> KernelResult<Option<u64>> {
         Some(_) => Err(KernelError::new(format!("{name} must be an integer"))),
         None => Ok(None),
     }
-}
-
-fn insert_optional_string(object: &mut Map<String, Value>, key: &str, value: Option<String>) {
-    if let Some(value) = value {
-        object.insert(key.to_string(), Value::String(value));
-    }
-}
-
-fn insert_optional_array(object: &mut Map<String, Value>, key: &str, value: Option<Vec<String>>) {
-    if let Some(values) = value {
-        object.insert(
-            key.to_string(),
-            Value::Array(values.into_iter().map(Value::String).collect()),
-        );
-    }
-}
-
-fn algorithm_name(algorithm: Algorithm) -> String {
-    match algorithm {
-        Algorithm::HS256 => "HS256",
-        Algorithm::HS384 => "HS384",
-        Algorithm::HS512 => "HS512",
-        _ => "unsupported",
-    }
-    .to_string()
 }

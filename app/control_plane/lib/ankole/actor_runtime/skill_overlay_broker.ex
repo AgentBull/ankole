@@ -9,7 +9,7 @@ defmodule Ankole.ActorRuntime.SkillOverlayBroker do
 
   @spec handle_request(String.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
   def handle_request(action, request, route)
-      when action in ["resolve", "replace", "clear"] and is_map(request) and is_binary(route) do
+      when action in ["resolve", "replace"] and is_map(request) and is_binary(route) do
     request_id = text(request, "request_id") || "skill-overlay-#{Ecto.UUID.generate()}"
 
     with {:ok, turn} <- turn_ref(request),
@@ -46,13 +46,6 @@ defmodule Ankole.ActorRuntime.SkillOverlayBroker do
     end
   end
 
-  defp dispatch_action("clear", request_id, agent_uid, session_id, skill_name, _request) do
-    case Library.clear_skill_overlay(agent_uid, skill_name) do
-      {:ok, overlay} -> {:ok, response(request_id, agent_uid, session_id, skill_name, overlay)}
-      {:error, reason} -> error(request_id, reason, %{"skill_name" => skill_name})
-    end
-  end
-
   defp response(request_id, agent_uid, session_id, skill_name, %AgentSkillOverlay{} = overlay) do
     %{
       "request_id" => request_id,
@@ -84,7 +77,6 @@ defmodule Ankole.ActorRuntime.SkillOverlayBroker do
 
   defp effect_for("resolve"), do: :read
   defp effect_for("replace"), do: :write
-  defp effect_for("clear"), do: :write
 
   defp actor_identity(%{"actor" => %{"agent_uid" => agent_uid, "session_id" => session_id}})
        when is_binary(agent_uid) and is_binary(session_id),

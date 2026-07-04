@@ -4,7 +4,7 @@ defmodule Ankole.ActorRuntime.Schemas.ActorSessionWorkerAssignment do
 
   Assignment improves locality and avoids unnecessary worker churn. It is not
   durable truth for a turn; delivery and activation rows still fence each
-  in-flight actor input.
+  in-flight actor event.
   """
 
   use Ecto.Schema

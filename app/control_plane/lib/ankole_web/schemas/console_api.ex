@@ -175,6 +175,124 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
     )
   end
 
+  defmodule AgentItem do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "AgentItem",
+        type: :object,
+        properties: %{
+          uid: %Schema{type: :string},
+          status: %Schema{type: :string, enum: ["active", "disabled"]},
+          display_name: %Schema{type: :string, nullable: true},
+          avatar_url: %Schema{type: :string, nullable: true},
+          type: %Schema{type: :string, enum: ["ai_colleague"]},
+          role: %Schema{type: :string},
+          options: %Schema{type: :object, additionalProperties: true},
+          created_by_principal_uid: %Schema{type: :string, nullable: true},
+          inserted_at: %Schema{type: :string},
+          updated_at: %Schema{type: :string}
+        },
+        required: [
+          :uid,
+          :status,
+          :type,
+          :role,
+          :options,
+          :inserted_at,
+          :updated_at
+        ],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule AgentListResponse do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "AgentListResponse",
+        type: :object,
+        properties: %{
+          data: %Schema{type: :array, items: AgentItem}
+        },
+        required: [:data],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule AgentResponse do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "AgentResponse",
+        type: :object,
+        properties: %{
+          data: AgentItem
+        },
+        required: [:data],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule AgentCreateRequest do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "AgentCreateRequest",
+        type: :object,
+        properties: %{
+          uid: %Schema{type: :string},
+          display_name: %Schema{type: :string, nullable: true},
+          avatar_url: %Schema{type: :string, nullable: true},
+          role: %Schema{type: :string},
+          options: %Schema{type: :object, additionalProperties: true}
+        },
+        required: [:uid, :role],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule AgentUpdateRequest do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "AgentUpdateRequest",
+        type: :object,
+        properties: %{
+          display_name: %Schema{type: :string, nullable: true},
+          avatar_url: %Schema{type: :string, nullable: true},
+          role: %Schema{type: :string},
+          options: %Schema{type: :object, additionalProperties: true}
+        },
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
   defmodule AppConfigurationItem do
     @moduledoc false
 
@@ -316,6 +434,100 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
         type: :object,
         properties: %{
           data: AppConfigurationDecryptionValue
+        },
+        required: [:data],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule SignalBindingLarkWriteRequest do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "SignalBindingLarkWriteRequest",
+        type: :object,
+        properties: %{
+          config: JsonValue
+        },
+        required: [:config],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule SignalBindingItem do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "SignalBindingItem",
+        type: :object,
+        properties: %{
+          agent_uid: %Schema{type: :string},
+          name: %Schema{type: :string},
+          adapter: %Schema{type: :string},
+          config_ref: %Schema{type: :string},
+          config_key: %Schema{type: :string},
+          unaddressed_group_message_policy: %Schema{
+            type: :string,
+            enum: ["ignore", "record_only", "may_intervene"]
+          },
+          enabled: %Schema{type: :boolean},
+          unavailable_reason: %Schema{type: :string, nullable: true}
+        },
+        required: [
+          :agent_uid,
+          :name,
+          :adapter,
+          :config_ref,
+          :config_key,
+          :unaddressed_group_message_policy,
+          :enabled
+        ],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule SignalBindingResponse do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "SignalBindingResponse",
+        type: :object,
+        properties: %{
+          data: SignalBindingItem
+        },
+        required: [:data],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule SignalBindingListResponse do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "SignalBindingListResponse",
+        type: :object,
+        properties: %{
+          data: %Schema{type: :array, items: SignalBindingItem}
         },
         required: [:data],
         additionalProperties: false
@@ -679,6 +891,7 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
         properties: %{
           provider_id: %Schema{type: :string},
           model: %Schema{type: :string},
+          context_length: %Schema{type: :integer, minimum: 1},
           provider_options: %Schema{type: :object, additionalProperties: true}
         },
         required: [:provider_id, :model],

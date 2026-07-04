@@ -264,7 +264,14 @@ defmodule Ankole.AuthZTest do
       assert AuthZ.root_initialized?()
       assert {:error, :root_init_closed} = AuthZ.ensure_root_init_open()
 
-      assert {:error, :root_init_closed} = AuthZ.root_init_admin(first_admin.principal.uid)
+      assert {:ok, %{membership: retried_membership}} =
+               AuthZ.root_init_admin(first_admin.principal.uid)
+
+      assert retried_membership.principal_uid == first_admin.principal.uid
+
+      other_human = human_fixture(%{uid: unique_uid("other-root-init")})
+
+      assert {:error, :root_init_closed} = AuthZ.root_init_admin(other_human.principal.uid)
 
       assert {:error, :last_active_human_admin} =
                Principals.disable_principal(first_admin.principal.uid)
@@ -277,15 +284,12 @@ defmodule Ankole.AuthZTest do
       assert {:ok, _principal} = Principals.disable_principal(first_admin.principal.uid)
     end
 
-    test "non-human admin members do not satisfy the active human admin safety check" do
+    test "admin group accepts only active humans" do
       first_admin = human_fixture(%{uid: unique_uid("human-admin")})
       agent = agent_fixture(%{uid: unique_uid("agent-admin")})
 
       assert {:ok, _root} = AuthZ.root_init_admin(first_admin.principal.uid)
-      assert {:ok, _membership} = AuthZ.add_principal_to_group(agent.principal.uid, "admin")
-      assert {:ok, :deleted} = AuthZ.remove_principal_from_group(agent.principal.uid, "admin")
-
-      assert {:ok, _membership} = AuthZ.add_principal_to_group(agent.principal.uid, "admin")
+      assert {:error, :not_human} = AuthZ.add_principal_to_group(agent.principal.uid, "admin")
 
       assert {:error, :last_active_human_admin} =
                Principals.disable_principal(first_admin.principal.uid)
@@ -329,6 +333,58 @@ defmodule Ankole.AuthZTest do
       })
 
       assert AuthZ.external_group_ids("lark", dirty_external_id) == []
+    end
+
+    test "external directory membership sync only touches marked operator groups" do
+      %{principal: principal} = human_fixture(%{uid: unique_uid("directory-member")})
+
+      assert {:ok, managed_group} =
+               AuthZ.create_principal_group(%{
+                 name: "lark_managed_#{System.unique_integer([:positive])}",
+                 display_name: "Lark Managed",
+                 metadata: %{
+                   "external_directory" => %{"provider" => "lark-main", "kind" => "department"}
+                 }
+               })
+
+      assert {:ok, unmarked_group} =
+               AuthZ.create_principal_group(%{
+                 name: "lark_unmarked_#{System.unique_integer([:positive])}",
+                 display_name: "Lark Unmarked"
+               })
+
+      assert {:ok, _binding} =
+               AuthZ.upsert_external_binding(%{
+                 provider: "lark-main",
+                 external_id: "od_managed",
+                 group_id: managed_group.id
+               })
+
+      assert {:ok, _binding} =
+               AuthZ.upsert_external_binding(%{
+                 provider: "lark-main",
+                 external_id: "od_unmarked",
+                 group_id: unmarked_group.id
+               })
+
+      assert {:ok, %{synced_group_ids: [managed_group_id]}} =
+               AuthZ.sync_external_directory_group_memberships(
+                 "lark-main",
+                 principal.uid,
+                 ["od_managed", "od_unmarked"]
+               )
+
+      assert managed_group_id == managed_group.id
+      assert Repo.get_by(Membership, principal_uid: principal.uid, group_id: managed_group.id)
+      refute Repo.get_by(Membership, principal_uid: principal.uid, group_id: unmarked_group.id)
+
+      assert {:ok, _membership} = AuthZ.add_principal_to_group(principal.uid, unmarked_group.id)
+
+      assert {:ok, %{synced_group_ids: [], removed_memberships: 1}} =
+               AuthZ.sync_external_directory_group_memberships("lark-main", principal.uid, [])
+
+      refute Repo.get_by(Membership, principal_uid: principal.uid, group_id: managed_group.id)
+      assert Repo.get_by(Membership, principal_uid: principal.uid, group_id: unmarked_group.id)
     end
 
     test "external subjects can bind only to static groups" do

@@ -148,7 +148,9 @@ defmodule AnkoleWeb.ScheduleController do
     with {:ok, actor} <- actor_params(params),
          :ok <- ConsolePolicy.authorize(conn, schedule_resource(actor.agent_uid), "update"),
          attrs <- cron_create_attrs(conn, actor),
-         {:ok, %{cron_schedule: schedule}} <- Schedule.create_cron_schedule(attrs) do
+         created_by <- cron_created_by(conn),
+         {:ok, %{cron_schedule: schedule}} <-
+           Schedule.create_cron_schedule(attrs, created_by: created_by) do
       json(conn, %{data: Schedule.cron_projection(schedule)})
     else
       {:error, reason} -> error(conn, reason)
@@ -255,12 +257,15 @@ defmodule AnkoleWeb.ScheduleController do
     |> normalize_external_attrs()
     |> Map.merge(%{
       "agent_uid" => actor.agent_uid,
-      "session_id" => actor.session_id,
-      "created_by" => %{
-        "kind" => "operator_api",
-        "principal_uid" => conn.assigns[:current_principal_uid]
-      }
+      "session_id" => actor.session_id
     })
+  end
+
+  defp cron_created_by(conn) do
+    %{
+      "kind" => "operator_api",
+      "principal_uid" => conn.assigns[:current_principal_uid]
+    }
   end
 
   defp cron_for_actor(params, actor) do

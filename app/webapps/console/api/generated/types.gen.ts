@@ -5,19 +5,60 @@ export type ClientOptions = {
 }
 
 /**
- * AIGatewayProviderEncryptedOptionProjection
+ * AIGatewayProviderListResponse
  */
-export type AiGatewayProviderEncryptedOptionProjection = {
-  masked?: string | null
-  present: boolean
+export type AiGatewayProviderListResponse = {
+  data: Array<AiGatewayProviderItem>
 }
 
 /**
- * AIGatewayProviderEncryptedOptionsProjection
+ * AppConfigurationResponse
  */
-export type AiGatewayProviderEncryptedOptionsProjection = {
-  [key: string]: AiGatewayProviderEncryptedOptionProjection
+export type AppConfigurationResponse = {
+  data: AppConfigurationItem
 }
+
+/**
+ * AuthSessionDeleteResponse
+ */
+export type AuthSessionDeleteResponse = {
+  ok: boolean
+}
+
+/**
+ * AgentUpdateRequest
+ */
+export type AgentUpdateRequest = {
+  avatar_url?: string | null
+  display_name?: string | null
+  options?: {
+    [key: string]: unknown
+  }
+  role?: string
+}
+
+/**
+ * ConsoleApiErrorEnvelope
+ */
+export type ConsoleApiErrorEnvelope = {
+  error: ConsoleApiError
+}
+
+/**
+ * ModelProfileResponse
+ */
+export type ModelProfileResponse = {
+  data: {
+    [key: string]: unknown
+  }
+}
+
+/**
+ * JsonValue
+ *
+ * Any JSON-compatible value. AppConfigure validates the concrete key schema.
+ */
+export type JsonValue = unknown
 
 /**
  * AIGatewayProviderItem
@@ -38,71 +79,25 @@ export type AiGatewayProviderItem = {
 }
 
 /**
- * AIGatewayProviderKindItem
+ * ScheduleCronScheduleResponse
  */
-export type AiGatewayProviderKindItem = {
-  capabilities: Array<string>
-  capability_specs: Array<{
-    [key: string]: unknown
-  }>
-  connection_options: Array<string>
-  default_base_url: string | null
-  label: {
-    [key: string]: string
-  }
-  provider_kind: string
-  runtime_provider_options: Array<string>
-  settings: Array<{
-    [key: string]: unknown
-  }>
+export type ScheduleCronScheduleResponse = {
+  data: JsonValue
 }
 
 /**
- * AIGatewayProviderKindListResponse
+ * AgentResponse
  */
-export type AiGatewayProviderKindListResponse = {
-  data: Array<AiGatewayProviderKindItem>
+export type AgentResponse = {
+  data: AgentItem
 }
 
 /**
- * AIGatewayProviderListResponse
+ * AIGatewayProviderEncryptedOptionProjection
  */
-export type AiGatewayProviderListResponse = {
-  data: Array<AiGatewayProviderItem>
-}
-
-/**
- * AIGatewayProviderResponse
- */
-export type AiGatewayProviderResponse = {
-  data: AiGatewayProviderItem
-}
-
-/**
- * AIGatewayProviderWriteRequest
- */
-export type AiGatewayProviderWriteRequest = {
-  base_url?: string | null
-  connection_options?: {
-    [key: string]: unknown
-  }
-  provider_id?: string
-  provider_kind?: string
-}
-
-/**
- * AppConfigurationDecryptionResponse
- */
-export type AppConfigurationDecryptionResponse = {
-  data: AppConfigurationDecryptionValue
-}
-
-/**
- * AppConfigurationDecryptionValue
- */
-export type AppConfigurationDecryptionValue = {
-  key: string
-  value: JsonValue
+export type AiGatewayProviderEncryptedOptionProjection = {
+  masked?: string | null
+  present: boolean
 }
 
 /**
@@ -126,134 +121,10 @@ export type AppConfigurationItem = {
 }
 
 /**
- * AppConfigurationListResponse
+ * SignalBindingResponse
  */
-export type AppConfigurationListResponse = {
-  data: Array<AppConfigurationItem>
-}
-
-/**
- * AppConfigurationResponse
- */
-export type AppConfigurationResponse = {
-  data: AppConfigurationItem
-}
-
-/**
- * AppConfigurationUpdateRequest
- */
-export type AppConfigurationUpdateRequest = {
-  value: JsonValue
-}
-
-/**
- * AuthSessionDeleteResponse
- */
-export type AuthSessionDeleteResponse = {
-  ok: boolean
-}
-
-/**
- * ConsoleApiError
- */
-export type ConsoleApiError = {
-  code: string
-  details?: Array<ConsoleApiErrorDetail> | null
-  message: string
-}
-
-/**
- * ConsoleApiErrorDetail
- */
-export type ConsoleApiErrorDetail = {
-  message: string
-  path?: string | null
-  [key: string]: unknown
-}
-
-/**
- * ConsoleApiErrorEnvelope
- */
-export type ConsoleApiErrorEnvelope = {
-  error: ConsoleApiError
-}
-
-/**
- * ConsoleTokenRequest
- */
-export type ConsoleTokenRequest = {
-  grant_type: string
-  refresh_token?: string
-}
-
-/**
- * ConsoleTokenResponse
- */
-export type ConsoleTokenResponse = {
-  access_token: string
-  expires_in: number
-  refresh_token: string
-  refresh_token_expires_in: number
-  scope: string
-  token_type: 'Bearer'
-}
-
-/**
- * JsonValue
- *
- * Any JSON-compatible value. AppConfigure validates the concrete key schema.
- */
-export type JsonValue = unknown
-
-/**
- * ModelProfileResponse
- */
-export type ModelProfileResponse = {
-  data: {
-    [key: string]: unknown
-  }
-}
-
-/**
- * ModelProfileWriteRequest
- */
-export type ModelProfileWriteRequest = {
-  model: string
-  provider_id: string
-  provider_options?: {
-    [key: string]: unknown
-  }
-}
-
-/**
- * ModelProfilesResponse
- */
-export type ModelProfilesResponse = {
-  data: {
-    [key: string]: unknown
-  }
-}
-
-/**
- * OAuthErrorResponse
- */
-export type OAuthErrorResponse = {
-  error: string
-  error_description: string
-}
-
-/**
- * ScheduleCronScheduleListResponse
- */
-export type ScheduleCronScheduleListResponse = {
-  data: Array<JsonValue>
-}
-
-/**
- * ScheduleCronScheduleResponse
- */
-export type ScheduleCronScheduleResponse = {
-  data: JsonValue
+export type SignalBindingResponse = {
+  data: SignalBindingItem
 }
 
 /**
@@ -266,6 +137,83 @@ export type ScheduleCronUpdateRequest = {
   payload?: JsonValue
   schedule?: JsonValue
   timezone?: string | null
+}
+
+/**
+ * ModelProfilesResponse
+ */
+export type ModelProfilesResponse = {
+  data: {
+    [key: string]: unknown
+  }
+}
+
+/**
+ * ConsoleTokenRequest
+ */
+export type ConsoleTokenRequest = {
+  grant_type: string
+  refresh_token?: string
+}
+
+/**
+ * ScheduleEventListResponse
+ */
+export type ScheduleEventListResponse = {
+  data: Array<JsonValue>
+}
+
+/**
+ * AgentItem
+ */
+export type AgentItem = {
+  avatar_url?: string | null
+  created_by_principal_uid?: string | null
+  display_name?: string | null
+  inserted_at: string
+  options: {
+    [key: string]: unknown
+  }
+  role: string
+  status: 'active' | 'disabled'
+  type: 'ai_colleague'
+  uid: string
+  updated_at: string
+}
+
+/**
+ * SignalBindingListResponse
+ */
+export type SignalBindingListResponse = {
+  data: Array<SignalBindingItem>
+}
+
+/**
+ * ConsoleApiError
+ */
+export type ConsoleApiError = {
+  code: string
+  details?: Array<ConsoleApiErrorDetail> | null
+  message: string
+}
+
+/**
+ * ScheduleCronScheduleListResponse
+ */
+export type ScheduleCronScheduleListResponse = {
+  data: Array<JsonValue>
+}
+
+/**
+ * ModelProfileWriteRequest
+ */
+export type ModelProfileWriteRequest = {
+  context_length?: number
+  model: string
+  provider_id: string
+  provider_options?: {
+    [key: string]: unknown
+  }
 }
 
 /**
@@ -284,10 +232,38 @@ export type ScheduleCronWriteRequest = {
 }
 
 /**
- * ScheduleEventListResponse
+ * OAuthErrorResponse
  */
-export type ScheduleEventListResponse = {
-  data: Array<JsonValue>
+export type OAuthErrorResponse = {
+  error: string
+  error_description: string
+}
+
+/**
+ * AppConfigurationUpdateRequest
+ */
+export type AppConfigurationUpdateRequest = {
+  value: JsonValue
+}
+
+/**
+ * AIGatewayProviderKindItem
+ */
+export type AiGatewayProviderKindItem = {
+  capabilities: Array<string>
+  capability_specs: Array<{
+    [key: string]: unknown
+  }>
+  connection_options: Array<string>
+  default_base_url: string | null
+  label: {
+    [key: string]: string
+  }
+  provider_kind: string
+  runtime_provider_options: Array<string>
+  settings: Array<{
+    [key: string]: unknown
+  }>
 }
 
 /**
@@ -295,6 +271,123 @@ export type ScheduleEventListResponse = {
  */
 export type ScheduleEventResponse = {
   data: JsonValue
+}
+
+/**
+ * AgentListResponse
+ */
+export type AgentListResponse = {
+  data: Array<AgentItem>
+}
+
+/**
+ * AgentCreateRequest
+ */
+export type AgentCreateRequest = {
+  avatar_url?: string | null
+  display_name?: string | null
+  options?: {
+    [key: string]: unknown
+  }
+  role: string
+  uid: string
+}
+
+/**
+ * AppConfigurationListResponse
+ */
+export type AppConfigurationListResponse = {
+  data: Array<AppConfigurationItem>
+}
+
+/**
+ * AIGatewayProviderKindListResponse
+ */
+export type AiGatewayProviderKindListResponse = {
+  data: Array<AiGatewayProviderKindItem>
+}
+
+/**
+ * AIGatewayProviderResponse
+ */
+export type AiGatewayProviderResponse = {
+  data: AiGatewayProviderItem
+}
+
+/**
+ * ConsoleApiErrorDetail
+ */
+export type ConsoleApiErrorDetail = {
+  message: string
+  path?: string | null
+  [key: string]: unknown
+}
+
+/**
+ * AIGatewayProviderWriteRequest
+ */
+export type AiGatewayProviderWriteRequest = {
+  base_url?: string | null
+  connection_options?: {
+    [key: string]: unknown
+  }
+  provider_id?: string
+  provider_kind?: string
+}
+
+/**
+ * ConsoleTokenResponse
+ */
+export type ConsoleTokenResponse = {
+  access_token: string
+  expires_in: number
+  refresh_token: string
+  refresh_token_expires_in: number
+  scope: string
+  token_type: 'Bearer'
+}
+
+/**
+ * SignalBindingItem
+ */
+export type SignalBindingItem = {
+  adapter: string
+  agent_uid: string
+  config_key: string
+  config_ref: string
+  enabled: boolean
+  name: string
+  unaddressed_group_message_policy: 'ignore' | 'record_only' | 'may_intervene'
+  unavailable_reason?: string | null
+}
+
+/**
+ * AppConfigurationDecryptionResponse
+ */
+export type AppConfigurationDecryptionResponse = {
+  data: AppConfigurationDecryptionValue
+}
+
+/**
+ * SignalBindingLarkWriteRequest
+ */
+export type SignalBindingLarkWriteRequest = {
+  config: JsonValue
+}
+
+/**
+ * AppConfigurationDecryptionValue
+ */
+export type AppConfigurationDecryptionValue = {
+  key: string
+  value: JsonValue
+}
+
+/**
+ * AIGatewayProviderEncryptedOptionsProjection
+ */
+export type AiGatewayProviderEncryptedOptionsProjection = {
+  [key: string]: AiGatewayProviderEncryptedOptionProjection
 }
 
 export type AnkoleWebAuthControllerOauthTokenData = {
@@ -347,6 +440,193 @@ export type AnkoleWebAuthControllerDeleteSessionResponses = {
 
 export type AnkoleWebAuthControllerDeleteSessionResponse =
   AnkoleWebAuthControllerDeleteSessionResponses[keyof AnkoleWebAuthControllerDeleteSessionResponses]
+
+export type AnkoleWebAgentControllerIndexData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v1/agents'
+}
+
+export type AnkoleWebAgentControllerIndexErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAgentControllerIndexError =
+  AnkoleWebAgentControllerIndexErrors[keyof AnkoleWebAgentControllerIndexErrors]
+
+export type AnkoleWebAgentControllerIndexResponses = {
+  /**
+   * Agents
+   */
+  200: AgentListResponse
+}
+
+export type AnkoleWebAgentControllerIndexResponse =
+  AnkoleWebAgentControllerIndexResponses[keyof AnkoleWebAgentControllerIndexResponses]
+
+export type AnkoleWebAgentControllerCreateData = {
+  /**
+   * Agent
+   */
+  body: AgentCreateRequest
+  path?: never
+  query?: never
+  url: '/api/v1/agents'
+}
+
+export type AnkoleWebAgentControllerCreateErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Invalid agent
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAgentControllerCreateError =
+  AnkoleWebAgentControllerCreateErrors[keyof AnkoleWebAgentControllerCreateErrors]
+
+export type AnkoleWebAgentControllerCreateResponses = {
+  /**
+   * Agent
+   */
+  200: AgentResponse
+}
+
+export type AnkoleWebAgentControllerCreateResponse =
+  AnkoleWebAgentControllerCreateResponses[keyof AnkoleWebAgentControllerCreateResponses]
+
+export type AnkoleWebAgentControllerDeleteData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}'
+}
+
+export type AnkoleWebAgentControllerDeleteErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAgentControllerDeleteError =
+  AnkoleWebAgentControllerDeleteErrors[keyof AnkoleWebAgentControllerDeleteErrors]
+
+export type AnkoleWebAgentControllerDeleteResponses = {
+  /**
+   * Agent
+   */
+  200: AgentResponse
+}
+
+export type AnkoleWebAgentControllerDeleteResponse =
+  AnkoleWebAgentControllerDeleteResponses[keyof AnkoleWebAgentControllerDeleteResponses]
+
+export type AnkoleWebAgentControllerShowData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}'
+}
+
+export type AnkoleWebAgentControllerShowErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAgentControllerShowError =
+  AnkoleWebAgentControllerShowErrors[keyof AnkoleWebAgentControllerShowErrors]
+
+export type AnkoleWebAgentControllerShowResponses = {
+  /**
+   * Agent
+   */
+  200: AgentResponse
+}
+
+export type AnkoleWebAgentControllerShowResponse =
+  AnkoleWebAgentControllerShowResponses[keyof AnkoleWebAgentControllerShowResponses]
+
+export type AnkoleWebAgentControllerUpdateData = {
+  /**
+   * Agent
+   */
+  body: AgentUpdateRequest
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}'
+}
+
+export type AnkoleWebAgentControllerUpdateErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Invalid agent
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAgentControllerUpdateError =
+  AnkoleWebAgentControllerUpdateErrors[keyof AnkoleWebAgentControllerUpdateErrors]
+
+export type AnkoleWebAgentControllerUpdateResponses = {
+  /**
+   * Agent
+   */
+  200: AgentResponse
+}
+
+export type AnkoleWebAgentControllerUpdateResponse =
+  AnkoleWebAgentControllerUpdateResponses[keyof AnkoleWebAgentControllerUpdateResponses]
 
 export type AnkoleWebAiGatewayProviderControllerIndexModelProfilesData = {
   body?: never
@@ -780,6 +1060,126 @@ export type AnkoleWebScheduleControllerRunCronResponses = {
 export type AnkoleWebScheduleControllerRunCronResponse =
   AnkoleWebScheduleControllerRunCronResponses[keyof AnkoleWebScheduleControllerRunCronResponses]
 
+export type AnkoleWebSignalBindingControllerIndexData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/signal-bindings'
+}
+
+export type AnkoleWebSignalBindingControllerIndexErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebSignalBindingControllerIndexError =
+  AnkoleWebSignalBindingControllerIndexErrors[keyof AnkoleWebSignalBindingControllerIndexErrors]
+
+export type AnkoleWebSignalBindingControllerIndexResponses = {
+  /**
+   * Signal bindings
+   */
+  200: SignalBindingListResponse
+}
+
+export type AnkoleWebSignalBindingControllerIndexResponse =
+  AnkoleWebSignalBindingControllerIndexResponses[keyof AnkoleWebSignalBindingControllerIndexResponses]
+
+export type AnkoleWebSignalBindingControllerPutLarkData = {
+  /**
+   * Lark signal binding
+   */
+  body: SignalBindingLarkWriteRequest
+  path: {
+    agent_uid: string
+    binding_name: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/signal-bindings/lark/{binding_name}'
+}
+
+export type AnkoleWebSignalBindingControllerPutLarkErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Invalid value
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebSignalBindingControllerPutLarkError =
+  AnkoleWebSignalBindingControllerPutLarkErrors[keyof AnkoleWebSignalBindingControllerPutLarkErrors]
+
+export type AnkoleWebSignalBindingControllerPutLarkResponses = {
+  /**
+   * Signal binding
+   */
+  200: SignalBindingResponse
+}
+
+export type AnkoleWebSignalBindingControllerPutLarkResponse =
+  AnkoleWebSignalBindingControllerPutLarkResponses[keyof AnkoleWebSignalBindingControllerPutLarkResponses]
+
+export type AnkoleWebSignalBindingControllerDeleteData = {
+  body?: never
+  path: {
+    agent_uid: string
+    binding_name: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/signal-bindings/{binding_name}'
+}
+
+export type AnkoleWebSignalBindingControllerDeleteErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebSignalBindingControllerDeleteError =
+  AnkoleWebSignalBindingControllerDeleteErrors[keyof AnkoleWebSignalBindingControllerDeleteErrors]
+
+export type AnkoleWebSignalBindingControllerDeleteResponses = {
+  /**
+   * Signal binding
+   */
+  200: SignalBindingResponse
+}
+
+export type AnkoleWebSignalBindingControllerDeleteResponse =
+  AnkoleWebSignalBindingControllerDeleteResponses[keyof AnkoleWebSignalBindingControllerDeleteResponses]
+
 export type AnkoleWebAiGatewayControllerEmbeddingsData = {
   /**
    * Embedding request
@@ -1094,6 +1494,205 @@ export type AnkoleWebAiGatewayControllerResponsesResponses = {
 
 export type AnkoleWebAiGatewayControllerResponsesResponse =
   AnkoleWebAiGatewayControllerResponsesResponses[keyof AnkoleWebAiGatewayControllerResponsesResponses]
+
+export type AnkoleWebAiGatewayControllerCompactResponseData = {
+  /**
+   * OpenResponses compact request
+   */
+  body: {
+    [key: string]: unknown
+  }
+  path?: never
+  query?: never
+  url: '/api/v1/ai-gateway/responses/compact'
+}
+
+export type AnkoleWebAiGatewayControllerCompactResponseErrors = {
+  /**
+   * Invalid compact request
+   */
+  400: {
+    [key: string]: unknown
+  }
+  /**
+   * Unauthorized
+   */
+  401: {
+    [key: string]: unknown
+  }
+}
+
+export type AnkoleWebAiGatewayControllerCompactResponseError =
+  AnkoleWebAiGatewayControllerCompactResponseErrors[keyof AnkoleWebAiGatewayControllerCompactResponseErrors]
+
+export type AnkoleWebAiGatewayControllerCompactResponseResponses = {
+  /**
+   * OpenResponses response
+   */
+  200: {
+    [key: string]: unknown
+  }
+}
+
+export type AnkoleWebAiGatewayControllerCompactResponseResponse =
+  AnkoleWebAiGatewayControllerCompactResponseResponses[keyof AnkoleWebAiGatewayControllerCompactResponseResponses]
+
+export type AnkoleWebAiGatewayControllerRetrieveResponseData = {
+  body?: never
+  path: {
+    /**
+     * Stored response id, formatted as resp_{uuid}
+     */
+    response_id: string
+  }
+  query?: never
+  url: '/api/v1/ai-gateway/responses/{response_id}'
+}
+
+export type AnkoleWebAiGatewayControllerRetrieveResponseErrors = {
+  /**
+   * Unauthorized
+   */
+  401: {
+    [key: string]: unknown
+  }
+  /**
+   * Not found
+   */
+  404: {
+    [key: string]: unknown
+  }
+}
+
+export type AnkoleWebAiGatewayControllerRetrieveResponseError =
+  AnkoleWebAiGatewayControllerRetrieveResponseErrors[keyof AnkoleWebAiGatewayControllerRetrieveResponseErrors]
+
+export type AnkoleWebAiGatewayControllerRetrieveResponseResponses = {
+  /**
+   * OpenResponses response
+   */
+  200: {
+    [key: string]: unknown
+  }
+}
+
+export type AnkoleWebAiGatewayControllerRetrieveResponseResponse =
+  AnkoleWebAiGatewayControllerRetrieveResponseResponses[keyof AnkoleWebAiGatewayControllerRetrieveResponseResponses]
+
+export type AnkoleWebAiGatewayControllerWebFetchData = {
+  /**
+   * Web fetch request
+   */
+  body: {
+    [key: string]: unknown
+  }
+  path?: never
+  query?: never
+  url: '/api/v1/ai-gateway/web_fetch'
+}
+
+export type AnkoleWebAiGatewayControllerWebFetchErrors = {
+  /**
+   * Invalid web fetch request
+   */
+  400: {
+    [key: string]: unknown
+  }
+  /**
+   * Unauthorized
+   */
+  401: {
+    [key: string]: unknown
+  }
+}
+
+export type AnkoleWebAiGatewayControllerWebFetchError =
+  AnkoleWebAiGatewayControllerWebFetchErrors[keyof AnkoleWebAiGatewayControllerWebFetchErrors]
+
+export type AnkoleWebAiGatewayControllerWebFetchResponses = {
+  /**
+   * Web fetch response
+   */
+  200: {
+    [key: string]: unknown
+  }
+}
+
+export type AnkoleWebAiGatewayControllerWebFetchResponse =
+  AnkoleWebAiGatewayControllerWebFetchResponses[keyof AnkoleWebAiGatewayControllerWebFetchResponses]
+
+export type AnkoleWebAiGatewayControllerWebSearchData = {
+  /**
+   * Web search request
+   */
+  body: {
+    [key: string]: unknown
+  }
+  path?: never
+  query?: never
+  url: '/api/v1/ai-gateway/web_search'
+}
+
+export type AnkoleWebAiGatewayControllerWebSearchErrors = {
+  /**
+   * Invalid web search request
+   */
+  400: {
+    [key: string]: unknown
+  }
+  /**
+   * Unauthorized
+   */
+  401: {
+    [key: string]: unknown
+  }
+}
+
+export type AnkoleWebAiGatewayControllerWebSearchError =
+  AnkoleWebAiGatewayControllerWebSearchErrors[keyof AnkoleWebAiGatewayControllerWebSearchErrors]
+
+export type AnkoleWebAiGatewayControllerWebSearchResponses = {
+  /**
+   * Web search response
+   */
+  200: {
+    [key: string]: unknown
+  }
+}
+
+export type AnkoleWebAiGatewayControllerWebSearchResponse =
+  AnkoleWebAiGatewayControllerWebSearchResponses[keyof AnkoleWebAiGatewayControllerWebSearchResponses]
+
+export type AnkoleWebAiGatewayControllerWebToolsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v1/ai-gateway/web_tools'
+}
+
+export type AnkoleWebAiGatewayControllerWebToolsErrors = {
+  /**
+   * Unauthorized
+   */
+  401: {
+    [key: string]: unknown
+  }
+}
+
+export type AnkoleWebAiGatewayControllerWebToolsError =
+  AnkoleWebAiGatewayControllerWebToolsErrors[keyof AnkoleWebAiGatewayControllerWebToolsErrors]
+
+export type AnkoleWebAiGatewayControllerWebToolsResponses = {
+  /**
+   * Web tool availability
+   */
+  200: {
+    [key: string]: unknown
+  }
+}
+
+export type AnkoleWebAiGatewayControllerWebToolsResponse =
+  AnkoleWebAiGatewayControllerWebToolsResponses[keyof AnkoleWebAiGatewayControllerWebToolsResponses]
 
 export type AnkoleWebAppConfigurationControllerIndexData = {
   body?: never

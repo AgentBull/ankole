@@ -22,8 +22,8 @@ defmodule Ankole.E2E.Scenarios.Ingress do
       ai_messages_for_actor_event: 1
     ]
 
-  alias Ankole.AIAgent.Schemas.Conversation
-  alias Ankole.AIAgent.Schemas.Message
+  alias Ankole.AIGateway.Schemas.Conversation
+  alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Actors.ActorEvent
   alias Ankole.E2E.FakeFeishu
   alias Ankole.Repo
@@ -213,7 +213,7 @@ defmodule Ankole.E2E.Scenarios.Ingress do
 
     # The DM secret must not leak into the group session's model request.
     assert_receive {:fake_llm_request, :group_isolation_check, 1, request}, 15_000
-    refute inspect(request, limit: :infinity, printable_limit: :infinity) =~ secret
+    refute request_contains_text?(request, secret)
 
     assert {:ok, group_reply, group_message} =
              wait_for_completed_final_reply(container, group_input.id, deadline(45_000))
@@ -588,11 +588,45 @@ defmodule Ankole.E2E.Scenarios.Ingress do
 
   defp active_conversation_id_for_input!(agent_uid, session_id) do
     Repo.one!(
-      from conversation in Conversation,
+      from(conversation in Conversation,
         where: conversation.agent_uid == ^String.downcase(agent_uid),
         where: conversation.conversation_key == ^session_id,
         where: is_nil(conversation.ended_at),
         select: conversation.id
+      )
     )
+  end
+
+  defp request_contains_text?(value, needle) when is_map(value) do
+    value
+    |> Map.values()
+    |> Enum.any?(&request_contains_text?(&1, needle))
+  end
+
+  defp request_contains_text?(value, needle) when is_list(value) do
+    Enum.any?(value, &request_contains_text?(&1, needle))
+  end
+
+  defp request_contains_text?(value, needle) when is_binary(value) do
+    String.contains?(value, needle) or
+      case decode_embedded_json(value) do
+        {:ok, decoded} -> request_contains_text?(decoded, needle)
+        :error -> false
+      end
+  end
+
+  defp request_contains_text?(_value, _needle), do: false
+
+  defp decode_embedded_json(value) do
+    trimmed = String.trim(value)
+
+    if String.starts_with?(trimmed, ["{", "["]) do
+      case Ankole.JSON.decode(trimmed) do
+        {:ok, decoded} -> {:ok, decoded}
+        {:error, _reason} -> :error
+      end
+    else
+      :error
+    end
   end
 end

@@ -2,11 +2,10 @@ defmodule Ankole.ActorRuntime.Schemas.ActorEventDelivery do
   @moduledoc """
   Runtime projection of an actor event delivery attempt.
 
-  Formerly `actor_input_deliveries`. Delivery rows fence the gap between a queued
-  actor event and worker acceptance. They are intentionally lighter than AI-gateway
-  message rows and can be superseded or deleted after the durable commit path
-  finishes. Phase 1 single-event model: one worker execution processes exactly one
-  `actor_event_id`, so `delivery_batch_id` and `llm_turn_id` are gone.
+  Delivery rows fence the gap between a queued actor event and worker acceptance.
+  They are intentionally lighter than AI-gateway message rows and can be
+  superseded or deleted after the durable commit path finishes. One worker
+  execution processes exactly one `actor_event_id`.
   """
 
   use Ecto.Schema

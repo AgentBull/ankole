@@ -13,6 +13,11 @@ The lanes are not three product objects. They are a small routing split that
 keeps durable semantics, request/response semantics, and bytes from pretending
 to be the same thing.
 
+RuntimeFabric is live transport only. Durable truth — actor events, the AI
+message log, mirrors, outbox — lives in PostgreSQL and is written by the
+control plane. For where this fabric sits in the whole system, see
+`docs/README.md`.
+
 RuntimeFabric uses lane names consistently. The older bus terminology is not
 part of the current public architecture.
 
@@ -52,8 +57,8 @@ The worker-file frame shapes are:
 ```
 
 The Rust parser tolerates an empty delimiter frame and extra proxy-style leading
-identity frames where useful, but the protocol we should document and generate
-is the simpler shape above. That keeps interoperability room without making the
+identity frames where useful, but the documented and generated protocol is the
+simpler shape above. That keeps interoperability room without making the
 delimiter part of Ankole's own contract.
 
 ## Why ZeroMQ Here
@@ -82,8 +87,9 @@ committed in PG.
 
 The control plane owns PostgreSQL semantic state:
 
-- actor input journals;
-- turn status, messages, summaries, and final commits;
+- the actor event journal (`actor_events`) and delivery projections;
+- actor event completion facts, session activation fences, and the
+  AIGateway-owned stateful message log (`ai_gateway_messages`);
 - SOUL, MISSION, profile, and skill enablement;
 - per-agent skill overlays;
 - provider mirror and outbox state.
@@ -140,6 +146,21 @@ ZeroMQ send errors are mapped into actor-runtime language:
 route stale and rely on durable delivery projections for retry instead of
 treating the turn as delivered.
 
+## Projection Storage States
+
+RuntimeFabric and ActorRuntime projection tables such as
+`actor_event_deliveries`, `agent_computer_workers`,
+`actor_session_worker_assignments`, and `actor_session_activations` store
+transport and liveness states as `text` plus explicit database `CHECK`
+constraints. These tables are volatile UNLOGGED projections whose state names
+track transport lifecycle and recovery policy.
+
+Durable domain tables should still prefer PostgreSQL-native enums when the enum
+clarifies the domain and is intended to be reused as a stable model contract
+across code paths. The projection-table exception is deliberate: it keeps the
+transport state machine local to the projection that owns it instead of turning
+worker-routing status names into shared domain types.
+
 ## Worker Authentication
 
 RuntimeFabric uses ZeroMQ ZAP with PLAIN for worker bootstrap authentication.
@@ -149,7 +170,7 @@ implementation details:
 - the control plane owns `runtime_fabric.worker_auth_key` in AppConfigure;
 - the AppConfigure definition is encrypted and global-scope only;
 - if the key is missing at startup, the control plane generates and persists a
-  UUID value;
+  generated secret value;
 - PLAIN username is `WORKER_ID`;
 - PLAIN password is the worker auth key from `RUNTIME_FABRIC_URL`;
 - the control plane records the authenticated `worker_id` and key revision
@@ -196,7 +217,7 @@ normal Elixir or Bun handlers:
 - body type fixes the allowed lane and durability class;
 - turn and rpc envelopes require `correlation_id`;
 - rpc `correlation_id` must equal `request_id`;
-- `turn_control` must remain a control envelope, not a second actor input
+- `turn_control` must remain a control envelope, not a second actor event
   payload channel;
 - `worker_progress.kind` is limited to control-plane-visible progress classes.
 
@@ -209,7 +230,7 @@ RuntimeFabric connection. They are lower-level than the product lane names and
 are not subsections of the actor lane:
 
 - `LANE_CONTROL`: worker lifecycle, turn control, shutdown;
-- `LANE_TURN`: turn start, mailbox update, accepted inputs, final proposal, turn
+- `LANE_TURN`: turn start, mailbox update, turn accepted, noop completion, turn
   error;
 - `LANE_PROGRESS`: worker progress observations;
 - `LANE_RPC`: request/response/error RPC envelopes handled by the RPC lane.
@@ -231,27 +252,52 @@ Typical actor lane messages:
 - `mailbox_updated`;
 - `turn_control`;
 - `worker_progress`;
-- `turn_final_proposal`;
+- `turn_noop_completed`;
 - `turn_error`.
 
-`turn_start` carries the current turn's delivery facts:
+`turn_start` starts one worker execution for exactly one actor event:
 
 - `turn`: the `ActorTurnRef` fence;
-- `inputs`: the accepted actor input envelopes;
+- `actor_event`: the single accepted actor event envelope
+  (`actor_event_id`, `queue_sequence`, `type`, `source_event_id`,
+  `source_entry_id`, `payload_json`, `binding_name`, `signal_channel_id`,
+  `provider_thread_id`). There is no events list;
 - `model_ref`: the control-plane-selected runtime model profile for ordinary
-  generation;
+  generation (`profile`, `provider_id`, `model`, `provider_kind`);
 - `request_context`: current-turn facts such as schedule origin, turn mode, and
   `silent_success_allowed`.
 
-`request_context` is not conversation history and is not agent identity. Worker
-prompt construction reads durable transcript rows through RPC when it needs
-history.
+`mailbox_updated` carries exactly one already-journaled actor event; it is how a
+`/steer` event is injected into a running turn at a checkpoint. There is no batch
+update shape.
+
+`/steer` acknowledgement is deliberately a receive acknowledgement, not a model
+incorporation guarantee. When ActorRuntime has a live, lease-valid activation for
+the session, it bumps that activation revision, creates a delivery for the
+`command.steer` event, sends `mailbox_updated`, and marks the command event
+complete as soon as the broker reports `sent_or_queued`. It does not wait for the
+worker to accept the mailbox update, for a tool checkpoint, or for the final
+AIGateway response. If the broker cannot route/send the update, the steer event
+is not completed.
+
+This matches the intended interactive semantics: the user gets low-latency
+confirmation that the running agent has been nudged. The tradeoff is weaker than
+"the model consumed this steer exactly once": a turn may finish before the worker
+accepts or drains the update, in which case the delivery can be superseded while
+the command event remains complete. Delivery state in `actor_event_deliveries`
+records that transport fact; `actor_events.completed_at` records only that the
+control plane accepted the steer for the active turn.
+
+`request_context` is not conversation history and is not agent identity.
+Conversation history never crosses this lane: AIGateway expands it from
+`previous_response_id` or `conversation` on each `response.create` (see
+`docs/design-docs/AIGateway.md`).
 
 `turn_control(command = "retry")` is a stop signal for a turn the control plane
-has already fenced in PostgreSQL. The worker should abort its local AI loop,
-drop any late proposal for that turn, and release capacity. It should not report
+has already fenced in PostgreSQL. The worker should abort its local tool loop
+and any in-flight `response.create`, and release capacity. It should not report
 the controlled stop as `turn_error`; `turn_error` remains reserved for worker
-execution failure that makes the input retryable through the normal failure
+execution failure that makes the event retryable through the normal failure
 path.
 
 Every turn message carries an `ActorTurnRef`. The control plane validates this
@@ -261,17 +307,22 @@ important fields are:
 - actor key: `agent_uid` and `session_id`;
 - `activation_uid`;
 - `actor_epoch`;
-- `llm_turn_id`;
+- `actor_event_id`;
 - `revision`.
 
 The fence is deliberately not a separate permission system. It is the minimum
 runtime equality check that prevents old workers or old turn attempts from
 committing into a newer actor state.
 
-Final assistant output still returns as `turn_final_proposal`. The
-`CommitCoordinator` owns the transaction that consumes actor inputs, writes the
-assistant message, updates turn status, and appends provider-visible outbox
-effects.
+The actor lane carries no final-output message. The final AI output of a turn
+commits inside AIGateway: the terminal commit transaction marks the last
+`ai_gateway_messages` row `complete`, sets `actor_events.completed_at`, and
+clears the live delivery — before the terminal frame reaches the worker. The
+worker's success path simply ends with the AIGateway response; it proposes
+nothing back over the fabric. A turn whose event needs no output completes
+through the explicit `turn_noop_completed` marker; silence is never a
+completion signal. `turn_error` remains the worker execution-failure path that
+makes the event retryable.
 
 ## RPC Lane
 
@@ -286,41 +337,31 @@ RPC call when it needs a method owned by the other side.
 The current worker-to-control-plane methods are mostly for PG semantic state:
 
 - `agent_conversation.context.resolve`: returns the current
-  `ai_agent_conversations` context: agent display facts, conversation id/key,
+  `ai_gateway_conversations` context: agent display facts, conversation id/key,
   started time, timezone, soul, mission, enabled skills, and optional cache key.
-  It does not return request context or transcript messages;
-- `conversation.history.resolve`: returns complete active conversation
-  transcript rows for `purpose = "prompt"` or `purpose = "compression"`.
-  Each row carries `id`, `role`, `kind`, `content`, `metadata`, `created_at`,
-  and optional `covers_range`. `created_at` is `ai_agent_messages.inserted_at`;
-- `conversation.summary.commit`: commits a worker-produced `/compress` summary.
-  The worker supplies summary text and covered message ids for the older prefix
-  being folded; the recent tail remains normal transcript and is not covered by
-  the summary. The control plane validates the turn fence and that covered ids belong to the active
-  conversation, writes the summary row, consumes the `command.compress` actor
-  input, and appends fixed provider-visible feedback. Accepted `/steer` inputs
-  on the compression turn are released for the next turn instead of being
-  consumed by the summary commit. It does not generate summaries or choose
-  coverage;
+  It does not return request context or model history;
 - `skills.overlay.resolve`: returns one agent/skill overlay;
 - `skills.overlay.replace`: replaces one overlay;
-- `skills.overlay.clear`: clears one overlay;
 - `ai_gateway.api_key_for.create_or_find_by_agent`: returns an agent-scoped
   AIGateway API key for the request's explicit `agent_uid`.
 
-The current control-plane-to-worker methods are worker-owned semantic methods:
+There is deliberately no conversation-history RPC and no summary-commit RPC.
+Model history is AIGateway state: each `response.create` expands it
+server-side, and compaction writes are AIGateway-internal. The worker has
+nothing to fetch and nothing to commit on this lane for either concern.
 
-- `worker.runtime.describe`: returns worker process/runtime facts such as worker
-  identity, active turn count, and configured workspace roots.
+There are currently no declared control-plane-to-worker semantic methods. The
+lane still supports bounded request/response traffic in that direction; a method
+should be added only when a real caller owns the user story.
 
 RPC requests that belong to a turn include `ActorTurnRef`. The server checks the
 route and turn fence at the method boundary. Read methods may accept the current
 live turn fence. Write methods must match the current revision.
 
 The rpc lane should stay coarse enough to avoid chatty PG access. A normal text
-turn resolves agent conversation context once and history once before building
-the prompt. Skill overlays are resolved only when `skill_view` or
-`skill_append` needs them.
+turn resolves agent conversation context once before building the prompt.
+Skill overlays are resolved only when `skill_view` or `skill_append` needs
+them.
 
 The control-plane `RPCLane` is deliberately small. It dispatches methods and
 wraps handler results as `rpc_response` or `rpc_error`; method handlers own
@@ -462,8 +503,8 @@ independent zstd frame and returns one frame per `DATA` chunk.
 This is a bandwidth optimization, not a storage model. zstd compression and
 decompression live in the Rust kernel and are exposed to both hosts through
 Rustler (Elixir, scheduled as `DirtyCpu`) and napi-rs (Bun, as async tasks on a
-libuv worker thread). The worker image and the control-plane runtime no longer
-require an external `zstd` binary; missing kernel support is a readiness error,
+libuv worker thread). Neither the worker image nor the control-plane runtime
+requires an external `zstd` binary; missing kernel support is a readiness error,
 not a reason to fall back to another encoding.
 
 The reason for raw multipart plus default `zstd` is practical:
@@ -490,7 +531,7 @@ The current inbound path is:
 2. The control plane records provider observations and source references in PG.
 3. The control plane asks a worker to materialize the file through the file
    lane.
-4. PG stores the worker-visible path observation for later actor inputs.
+4. PG stores the worker-visible path observation for later actor events.
 
 For Lark/Feishu resource messages, the production inbound consumer downloads
 the provider resource bytes and writes them through `ActorRuntime.put_worker_file`
@@ -506,17 +547,20 @@ The current outbound path is:
 
 1. A worker writes or references a file under its visible roots.
 2. The model calls `reply_attachment` to register an existing
-   `/workspace/user-files/...` file as a native provider attachment.
-3. The final proposal carries `reply.attachments`; the commit coordinator stores
-   those attachments in the assistant transcript and the SignalsGateway outbox
-   payload.
+   `/workspace/user-files/...` file as a native provider attachment. The tool
+   result is a durable `function_call_output` item in the run row's `content`.
+3. AIGateway's terminal commit reads those attachment outputs from the final
+   content and inserts explicit `signal_gateway_outbox` intents in the same
+   transaction, referencing `source_actor_event_id` and `ai_message_id`.
 4. The provider adapter reads the file through `ActorRuntime.get_worker_file`,
    uploads bytes to the provider, and sends the provider-native file message.
 5. On send success, SignalsGateway mirrors the outbound entry with the same
    worker-visible attachment observation.
 
 Do not infer outbound attachments by scraping text for `/workspace/...` paths.
-The structured attachment field is the contract.
+The structured attachment field is the contract. The control plane validates
+`reply_attachment` tool outputs through the shared SignalsGateway
+reply-attachment schema before committing outbox rows.
 
 The Lark/Feishu v1 adapter supports one native file attachment per outbox row.
 Multiple provider-visible files should be modeled as separate outbox intents
@@ -564,6 +608,7 @@ RuntimeFabric is not:
 - an S3 clone;
 - a protobuf file-chunk protocol;
 - a turn-scoped file-write API;
+- a conversation-history RPC surface;
 - a second PG domain owner inside the worker.
 
 The useful boundary is small: actor facts over protobuf, semantic PG requests

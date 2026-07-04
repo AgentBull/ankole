@@ -1,7 +1,6 @@
 defmodule Ankole.Repo.Migrations.CreateAppConfigure do
-  # AppConfigure：操作员管理的运行时配置存储。
-  # scope 是 'global' 或 'agent:<uid>'；value 是带 type 的类型化信封。
-  # 与环境变量分开（见 AGENTS.md「bootstrap 配置与 AppConfigure 分离」）。
+  # AppConfigure stores operator-managed runtime settings, not bootstrap infrastructure facts.
+  # scope keeps installation defaults separate from agent-local overrides, while value is typed.
   use Ecto.Migration
 
   def change do
@@ -15,12 +14,12 @@ defmodule Ankole.Repo.Migrations.CreateAppConfigure do
 
     create unique_index(:app_configure, [:scope, :key], name: :app_configure_scope_key_unique)
 
-    # scope 只允许 global 或 agent:<uid> 前缀。
+    # Only installation-wide and concrete agent scopes are valid runtime configuration owners.
     create constraint(:app_configure, :app_configure_scope_check,
              check: "scope = 'global' OR scope ~ '^agent:.+$'"
            )
 
-    # value 必须是带 type 和 value 成员的信封对象。
+    # Configuration values must stay typed so callers can validate payload semantics at the edge.
     create constraint(:app_configure, :app_configure_value_envelope_check,
              check: "jsonb_typeof(value) = 'object' AND value ? 'type' AND value ? 'value'"
            )

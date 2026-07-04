@@ -54,8 +54,7 @@ defmodule Ankole.AuthZ.Root do
            :ok <- Store.ensure_active_human(principal),
            {:ok, built_ins} <- ensure_builtin_groups(repo),
            {:ok, admin_group} <- Store.lock_group(repo, built_ins.admin_group.id),
-           :ok <- ensure_root_init_open(repo, admin_group.id),
-           {:ok, membership} <- Store.insert_membership(repo, admin_group.id, principal.uid),
+           {:ok, membership} <- ensure_root_membership(repo, admin_group, principal.uid),
            {:ok, console_grants} <- Grants.upsert_console_admin_grants(repo, admin_group) do
         {:ok,
          %{
@@ -105,6 +104,28 @@ defmodule Ankole.AuthZ.Root do
       true -> {:error, :root_init_closed}
       false -> :ok
     end
+  end
+
+  defp ensure_root_membership(repo, %Group{} = admin_group, principal_uid) do
+    case lock_admin_memberships(repo, admin_group.id) do
+      [] ->
+        Store.insert_membership(repo, admin_group.id, principal_uid)
+
+      [%Membership{principal_uid: ^principal_uid} = membership] ->
+        {:ok, membership}
+
+      [_membership | _rest] ->
+        {:error, :root_init_closed}
+    end
+  end
+
+  defp lock_admin_memberships(repo, admin_group_id) do
+    repo.all(
+      from membership in Membership,
+        where: membership.group_id == ^admin_group_id,
+        order_by: [asc: membership.principal_uid],
+        lock: "FOR UPDATE"
+    )
   end
 
   defp upsert_builtin_group(repo, attrs) do

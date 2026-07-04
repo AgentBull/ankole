@@ -4,7 +4,9 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
-  alias Ankole.Actors.ActorInput
+  alias Ankole.AuthZ
+  alias Ankole.AuthZ.Membership
+  alias Ankole.Actors.ActorEvent
   alias Ankole.Plugins.LarkAdapter
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.IdentityProviders
@@ -25,7 +27,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
   import Ankole.PrincipalsFixtures
 
-  @base_time ~U[2026-06-24 08:00:00.000000Z]
+  @base_time ~U[2026-07-02 01:34:05.000000Z]
   @base_ms DateTime.to_unix(@base_time, :millisecond)
 
   setup do
@@ -62,11 +64,25 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                })
 
       assert chat["domain"] == "feishu"
+      assert chat["baseUrl"] == nil
       assert chat["group_message_mode"] == "observe_all"
       assert chat["platformSubjectNamespace"] == "lark-main"
       assert chat["botOpenId"] == nil
       assert chat["botUserId"] == nil
-      assert chat["streamingEnabled"] == true
+
+      assert {:ok, %{"baseUrl" => "http://127.0.0.1:4455"}} =
+               Config.validate_chat_config(%{
+                 "appId" => "cli_x",
+                 "appSecret" => "secret",
+                 "baseUrl" => "http://127.0.0.1:4455"
+               })
+
+      assert {:error, {:invalid_base_url, "baseUrl"}} =
+               Config.validate_chat_config(%{
+                 "appId" => "cli_x",
+                 "appSecret" => "secret",
+                 "baseUrl" => "ftp://bad"
+               })
 
       assert {:ok, identity} =
                Config.validate_identity_config(%{
@@ -225,7 +241,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       binding_fixture(agent.uid, "lark", :ignore)
       consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
 
-      assert {:ok, [%{status: :accepted, actor_input: input}]} =
+      assert {:ok, [%{status: :accepted, actor_event: input}]} =
                Inbound.handle_message_receive("im.message.receive_v1", receive_event(), [consumer])
 
       assert input.type == "command.steer"
@@ -234,11 +250,11 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
       assert Repo.get_by!(SignalEntry,
                signal_channel_id: "lark:oc_group",
-               provider_entry_id: "om_1"
+               source_entry_id: "om_1"
              ).text ==
                "@_user_1 /steer ship it"
 
-      assert Repo.aggregate(ActorInput, :count) == 1
+      assert Repo.aggregate(ActorEvent, :count) == 1
 
       assert {:ok, observed} =
                Ankole.Principals.resolve_platform_subject("lark-main", "ou_alice")
@@ -264,14 +280,14 @@ defmodule Ankole.Plugins.LarkAdapterTest do
           }
         end)
 
-      assert {:ok, [%{status: :accepted, actor_input: input}]} =
+      assert {:ok, [%{status: :accepted, actor_event: input}]} =
                Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
 
       assert input.type == "command.retry"
       assert input.payload["data"]["command"]["argsText"] == "12"
     end
 
-    test "bot and app senders are ignored before they can echo into actor input" do
+    test "bot and app senders are ignored before they can echo into actor event" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "lark", :ignore)
       consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
@@ -289,7 +305,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert {:ok, [%{status: :ignored_provider_self_sender, reason: :provider_self_sender}]} =
                Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
 
-      assert Repo.aggregate(ActorInput, :count) == 0
+      assert Repo.aggregate(ActorEvent, :count) == 0
       assert Repo.aggregate(SignalEntry, :count) == 0
     end
 
@@ -315,7 +331,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
           %{
             message
             | "message_id" => "om_share",
-              "message_type" => "share_chat",
+              "message_type" => "unknown_rich_type",
               "content" => ~s({"title":"do not guess from title"}),
               "mentions" => []
           }
@@ -329,8 +345,121 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  consumer
                ])
 
-      assert Repo.aggregate(ActorInput, :count) == 0
+      assert Repo.aggregate(ActorEvent, :count) == 0
       assert Repo.aggregate(SignalEntry, :count) == 0
+    end
+
+    test "rich Lark message types normalize to deterministic text without guessing sticker pixels" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark", :record_only)
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+
+      sticker =
+        receive_event()
+        |> update_message(fn message ->
+          %{
+            message
+            | "message_id" => "om_sticker",
+              "message_type" => "sticker",
+              "content" => ~s({"file_key":"sticker_1"}),
+              "mentions" => []
+          }
+        end)
+
+      location =
+        receive_event()
+        |> update_message(fn message ->
+          %{
+            message
+            | "message_id" => "om_location",
+              "message_type" => "location",
+              "content" => ~s({"name":"Office","latitude":31.2,"longitude":121.5}),
+              "mentions" => []
+          }
+        end)
+
+      share_chat =
+        receive_event()
+        |> update_message(fn message ->
+          %{
+            message
+            | "message_id" => "om_share_chat",
+              "message_type" => "share_chat",
+              "content" => ~s({"chat_id":"oc_shared","title":"Ops"}),
+              "mentions" => []
+          }
+        end)
+
+      share_user =
+        receive_event()
+        |> update_message(fn message ->
+          %{
+            message
+            | "message_id" => "om_share_user",
+              "message_type" => "share_user",
+              "content" => ~s({"user_id":"ou_shared","name":"Bob"}),
+              "mentions" => []
+          }
+        end)
+
+      assert {:ok, [%{status: :recorded, signal_entry: sticker_entry}]} =
+               Inbound.handle_message_receive("im.message.receive_v1", sticker, [consumer])
+
+      assert sticker_entry.text == "<|sticker|>"
+      assert sticker_entry.attachments == []
+
+      assert {:ok, [%{status: :recorded, signal_entry: location_entry}]} =
+               Inbound.handle_message_receive("im.message.receive_v1", location, [consumer])
+
+      assert location_entry.text == "<|location|> name=Office latitude=31.2 longitude=121.5"
+      assert location_entry.attachments == []
+
+      assert {:ok, [%{status: :recorded, signal_entry: share_chat_entry}]} =
+               Inbound.handle_message_receive("im.message.receive_v1", share_chat, [consumer])
+
+      assert share_chat_entry.text == "<|share_chat|> chat_id=oc_shared title=Ops"
+      assert share_chat_entry.attachments == []
+
+      assert {:ok, [%{status: :recorded, signal_entry: share_user_entry}]} =
+               Inbound.handle_message_receive("im.message.receive_v1", share_user, [consumer])
+
+      assert share_user_entry.text == "<|share_user|> user_id=ou_shared name=Bob"
+      assert share_user_entry.attachments == []
+    end
+
+    test "post embedded images become normal image attachments" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark", :record_only)
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+
+      event =
+        receive_event()
+        |> update_message(fn message ->
+          %{
+            message
+            | "message_id" => "om_post_image",
+              "message_type" => "post",
+              "content" =>
+                ~s({"content":[[{"tag":"text","text":"Look "},{"tag":"img","image_key":"img_1"},{"tag":"text","text":" here"}]]}),
+              "mentions" => []
+          }
+        end)
+
+      assert {:ok, [%{status: :recorded, signal_entry: entry}]} =
+               Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
+
+      assert entry.text == "Look [image] here"
+
+      assert [
+               %{
+                 "provider_ref" => "lark:image:img_1",
+                 "provider" => "lark",
+                 "source_message_id" => "om_post_image",
+                 "file_key" => "img_1",
+                 "download_type" => "image",
+                 "resource_type" => "image"
+               }
+             ] = entry.attachments
     end
 
     test "non-text materialized provider resources enter as attachment-only facts" do
@@ -367,7 +496,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                }
              ] = entry.attachments
 
-      assert Repo.aggregate(ActorInput, :count) == 0
+      assert Repo.aggregate(ActorEvent, :count) == 0
     end
 
     test "enabled materializer adds worker file paths to provider attachments" do
@@ -429,7 +558,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert {:error, :missing_platform_subject} =
                Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
 
-      assert Repo.aggregate(ActorInput, :count) == 0
+      assert Repo.aggregate(ActorEvent, :count) == 0
       assert Repo.aggregate(SignalEntry, :count) == 0
     end
 
@@ -460,7 +589,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
       refute Repo.get_by(SignalEntry,
                signal_channel_id: "lark:oc_group",
-               provider_entry_id: "om_1"
+               source_entry_id: "om_1"
              )
     end
 
@@ -469,7 +598,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       binding_fixture(agent.uid, "lark", :ignore)
       consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
 
-      assert {:ok, [%{status: :accepted, actor_input: input}]} =
+      assert {:ok, [%{status: :accepted, actor_event: input}]} =
                Inbound.handle_card_action("card.action.trigger", card_action_event(), [consumer])
 
       assert input.type == "signal.action.invoked"
@@ -496,7 +625,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                Outbox.request_for_outbox(%OutboxEntry{
                  operation: :reply,
                  signal_channel_id: "lark:oc_group",
-                 source_provider_entry_id: "om_1",
+                 reply_to_source_entry_id: "om_1",
                  fallback_visible_text: "anchored"
                })
 
@@ -508,7 +637,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                Outbox.request_for_outbox(%OutboxEntry{
                  operation: :reply,
                  signal_channel_id: "lark:oc_group",
-                 source_provider_entry_id: "om_1",
+                 reply_to_source_entry_id: "om_1",
                  payload: %{
                    "attachments" => [
                      %{"provider_file_key" => "file_uploaded_1", "name" => "report.txt"}
@@ -524,7 +653,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert {:ok, edit} =
                Outbox.request_for_outbox(%OutboxEntry{
                  operation: :edit,
-                 target_provider_entry_id: "om_1",
+                 target_source_entry_id: "om_1",
                  fallback_visible_text: "edited"
                })
 
@@ -546,7 +675,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert {:ok, reaction} =
                Outbox.request_for_outbox(%OutboxEntry{
                  operation: :reaction_add,
-                 target_provider_entry_id: "om_1",
+                 target_source_entry_id: "om_1",
                  payload: %{"reaction_key" => "thumbs_up"}
                })
 
@@ -555,7 +684,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert {:ok, delete} =
                Outbox.request_for_outbox(%OutboxEntry{
                  operation: :delete,
-                 target_provider_entry_id: "om_1"
+                 target_source_entry_id: "om_1"
                })
 
       assert delete.method == :delete
@@ -574,6 +703,35 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert divider_content["type"] == "divider"
       assert get_in(divider_content, ["params", "divider_text", "text"]) == "New Session"
       assert get_in(divider_content, ["params", "divider_text", "i18n_text", "zh_CN"]) == "新会话"
+    end
+
+    test "splits long Lark text replies into deterministic follow-up posts" do
+      long_text = String.duplicate("你", 4_001)
+
+      assert {:ok, [first, second]} =
+               Outbox.requests_for_outbox(%OutboxEntry{
+                 operation: :reply,
+                 signal_channel_id: "lark:oc_group",
+                 reply_to_source_entry_id: "om_1",
+                 fallback_visible_text: long_text,
+                 idempotency_key: "reply-long-1"
+               })
+
+      assert first.path == "im/v1/messages/:message_id/reply"
+      assert first.path_params == %{message_id: "om_1"}
+      refute Map.has_key?(first.body, :receive_id)
+      assert first.body.uuid == "reply-long-1"
+
+      assert second.path == "im/v1/messages"
+      assert second.query == [receive_id_type: "chat_id"]
+      assert second.body.receive_id == "oc_group"
+      assert second.body.uuid == "reply-long-1:part:2"
+
+      assert {:ok, %{"text" => first_text}} = Ankole.JSON.decode(first.body.content)
+      assert {:ok, %{"text" => second_text}} = Ankole.JSON.decode(second.body.content)
+      assert String.length(first_text) == 4_000
+      assert String.length(second_text) == 1
+      assert first_text <> second_text == long_text
     end
 
     test "renders control and progress notices as compact updateable cards" do
@@ -650,6 +808,74 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert observed.identity.metadata["open_id"] == "ou_open_bob"
     end
 
+    test "directory upsert syncs department memberships into marked external groups" do
+      assert {:ok, managed_group} =
+               AuthZ.create_principal_group(%{
+                 name: "lark_directory_#{System.unique_integer([:positive])}",
+                 display_name: "Lark Directory",
+                 metadata: %{
+                   "external_directory" => %{"provider" => "lark-main", "kind" => "department"}
+                 }
+               })
+
+      assert {:ok, unmarked_group} =
+               AuthZ.create_principal_group(%{
+                 name: "lark_manual_#{System.unique_integer([:positive])}",
+                 display_name: "Lark Manual"
+               })
+
+      assert {:ok, _binding} =
+               AuthZ.upsert_external_binding(%{
+                 provider: "lark-main",
+                 external_id: "od_directory",
+                 group_id: managed_group.id
+               })
+
+      assert {:ok, _binding} =
+               AuthZ.upsert_external_binding(%{
+                 provider: "lark-main",
+                 external_id: "od_manual",
+                 group_id: unmarked_group.id
+               })
+
+      assert {:ok, observed} =
+               IdentityProvider.upsert_user("lark-main", %{
+                 "user_id" => "ou_directory_user",
+                 "name" => "Directory User",
+                 "department_ids" => ["od_directory", "od_manual"]
+               })
+
+      assert Repo.get_by(Membership,
+               principal_uid: observed.principal.uid,
+               group_id: managed_group.id
+             )
+
+      refute Repo.get_by(Membership,
+               principal_uid: observed.principal.uid,
+               group_id: unmarked_group.id
+             )
+
+      assert {:ok, _membership} =
+               AuthZ.add_principal_to_group(observed.principal.uid, unmarked_group.id)
+
+      assert {:ok, _observed} =
+               IdentityProvider.upsert_user("lark-main", %{
+                 "user_id" => "ou_directory_user",
+                 "name" => "Directory User",
+                 "department_ids" => []
+               })
+
+      refute Repo.get_by(Membership,
+               principal_uid: observed.principal.uid,
+               group_id: managed_group.id
+             )
+
+      assert Repo.get_by(Membership,
+               principal_uid: observed.principal.uid,
+               group_id: unmarked_group.id
+             )
+    end
+
     test "directory upsert never falls back to open_id as platform subject" do
       assert {:error, :missing_user_id} =
                IdentityProvider.upsert_user("lark-main", %{
@@ -721,7 +947,8 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       %{
         "appId" => "cli_test",
         "appSecret" => "secret",
-        "platformSubjectNamespace" => "lark-main"
+        "platformSubjectNamespace" => "lark-main",
+        "botOpenId" => "ou_bot"
       }
       |> Map.merge(overrides)
       |> Config.validate_chat_config()

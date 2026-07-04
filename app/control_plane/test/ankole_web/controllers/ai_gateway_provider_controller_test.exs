@@ -3,7 +3,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
 
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AuthZ
@@ -43,12 +43,17 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn = get(conn, ~p"/api/v1/ai-gateway/provider-kinds")
     assert %{"data" => sources} = json_response(conn, 200)
     openrouter = Enum.find(sources, &(&1["provider_kind"] == "openrouter"))
-    openai_compatible = Enum.find(sources, &(&1["provider_kind"] == "openai-compatible"))
+    openai_compatible = Enum.find(sources, &(&1["provider_kind"] == "openai_compatible"))
     azure_openai = Enum.find(sources, &(&1["provider_kind"] == "azure_openai"))
+    parallel = Enum.find(sources, &(&1["provider_kind"] == "parallel"))
+    jina_reader = Enum.find(sources, &(&1["provider_kind"] == "jina_reader"))
 
     assert "llm" in openrouter["capabilities"]
     assert "embedding" in openrouter["capabilities"]
     assert "rerank" in openrouter["capabilities"]
+    assert "web_search" in parallel["capabilities"]
+    assert "web_fetch" in parallel["capabilities"]
+    assert "web_fetch" in jina_reader["capabilities"]
 
     assert "transport" in openai_compatible["connection_options"]
     assert is_nil(azure_openai["default_base_url"])
@@ -62,7 +67,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
       |> recycle_api()
       |> put(~p"/api/v1/ai-gateway/providers/openrouter-main", %{
         "provider_kind" => "openrouter",
-        "connection_options" => %{"api_key" => "sk-test", "include_usage" => true}
+        "connection_options" => %{"api_key" => "sk-test"}
       })
 
     assert %{
@@ -91,6 +96,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
       |> put(~p"/api/v1/agents/#{agent.uid}/model-profiles/primary", %{
         "provider_id" => "openrouter-main",
         "model" => "z-ai/glm-5.2",
+        "context_length" => 1_048_576,
         "provider_options" => %{"reasoningEffort" => "medium"}
       })
 
@@ -99,7 +105,8 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
                "profile" => "primary",
                "configured" => true,
                "provider_id" => "openrouter-main",
-               "model" => "z-ai/glm-5.2"
+               "model" => "z-ai/glm-5.2",
+               "context_length" => 1_048_576
              }
            } = json_response(conn, 200)
 
@@ -112,7 +119,8 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
              "data" => %{
                "primary" => %{
                  "provider_id" => "openrouter-main",
-                 "model" => "z-ai/glm-5.2"
+                 "model" => "z-ai/glm-5.2",
+                 "context_length" => 1_048_576
                }
              }
            } = json_response(conn, 200)
@@ -120,6 +128,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     assert {:ok, runtime_profile} = ModelProfiles.resolve_runtime_profile(agent.uid, "primary")
     assert runtime_profile["provider_id"] == "openrouter-main"
     assert runtime_profile["model"] == "z-ai/glm-5.2"
+    assert runtime_profile["context_length"] == 1_048_576
 
     conn =
       conn

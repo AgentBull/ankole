@@ -7,19 +7,23 @@ import {
   type TurnStart,
   type TurnSteerUpdate
 } from './actor_lane'
-import { runLlmTurnHandlers } from './core'
-import { finalProposalEnvelope, turnAcceptedEnvelope, turnErrorEnvelope } from './turn_envelopes'
+import { runTurnHandlers } from './core'
+import { classifyLlmError } from './core/llm-error-classifier'
+import {
+  turnAcceptedEnvelope,
+  turnErrorEnvelope,
+  turnNoopCompletedEnvelope,
+  workerProgressEnvelope
+} from './turn_envelopes'
 import type {
   AgentConversationContext,
   AgentConversationContextRequest,
   AIGatewayApiKeyRejected,
   AIGatewayApiKeyRequest,
   AIGatewayApiKeyResponse,
-  ConversationHistoryRequest,
-  ConversationHistoryResponse,
-  ConversationSummaryCommitRequest,
-  ConversationSummaryCommitResponse,
-  ConversationSummaryCommitRejected,
+  AppConfigureResolveRejected,
+  AppConfigureResolveRequest,
+  AppConfigureResolveResponse,
   RpcError,
   RpcMethod,
   RpcRequest,
@@ -43,6 +47,7 @@ import { createFileTransferState, handleFileTransferFrame, isFileTransferFrame }
 import { resolveBubblewrapSupport } from './tools/computer/bubblewrap'
 
 const heartbeatIntervalMs = 15_000
+const turnProgressIntervalMs = 60_000
 const aiGatewayApiKeyRefreshSkewMs = 60_000
 const aiGatewayApiKeyCache = new Map<string, AIGatewayApiKeyResponse>()
 
@@ -51,8 +56,6 @@ type ActiveTurn = {
   correlationId: string
   steeringUpdates: TurnSteerUpdate[]
   abortController: AbortController
-  retryRequested: boolean
-  retryReason?: string
   controlledStopRequested: boolean
   controlledStopCommand?: string
   controlledStopReason?: string
@@ -84,8 +87,8 @@ async function runWorker(): Promise<void> {
   }
 
   try {
-    await sendEnvelope(workerReadyEnvelope(config, 1))
-    await sendEnvelope(workerCapacityEnvelope(config, 1, 0))
+    await sendEnvelope(workerReadyEnvelope(config, availableTurnSlots(config, activeTurns)))
+    await sendEnvelope(workerCapacityEnvelope(config, availableTurnSlots(config, activeTurns), activeTurns.size))
     logWorkerEvent('worker.ready_sent', {
       endpoint: config.endpoint,
       worker_id: config.workerId
@@ -145,8 +148,8 @@ function logBubblewrapSupport(workspaceRoot: string): void {
 /**
  * Sends heartbeat as best-effort liveness, not as a worker-fatal control fact.
  *
- * Capacity, ack, RPC, and final proposal sends still fail loudly after bounded
- * retry. Heartbeat is different: it is periodically refreshed ephemeral state,
+ * Capacity, ack, and RPC sends still fail loudly after bounded retry. Heartbeat
+ * is different: it is periodically refreshed ephemeral state,
  * and killing the worker because one heartbeat hit a full ZeroMQ pipe creates a
  * worse failure mode than letting the control plane expire the lease if the pipe
  * is actually broken.
@@ -211,14 +214,29 @@ async function startTurn(
   const turnStart = turnStartFromEnvelope(envelope)
   const correlationId = envelope.message_id
   logWorkerEvent('worker.turn_start_received', {
-    llm_turn_id: turnStart.turn.llm_turn_id,
-    input_count: turnStart.inputs.length
+    actor_event_id: turnStart.turn.actor_event_id,
+    input_count: 1
   })
 
-  if (activeTurns.size > 0) {
+  const activeKey = turnKey(turnStart.turn)
+
+  if (activeTurns.has(activeKey)) {
     await sendEnvelope(
-      turnErrorEnvelope(turnStart.turn, 'worker_busy', 'worker already has an active turn', correlationId, {
-        runtime: 'bun'
+      turnErrorEnvelope(turnStart.turn, 'worker_busy', 'conversation already has an active turn', correlationId, {
+        runtime: 'bun',
+        retryable: true
+      })
+    )
+    return
+  }
+
+  if (activeTurns.size >= config.maxConcurrentTurns) {
+    await sendEnvelope(
+      turnErrorEnvelope(turnStart.turn, 'worker_busy', 'worker has no available turn slots', correlationId, {
+        runtime: 'bun',
+        retryable: true,
+        active_turns: activeTurns.size,
+        max_turns: config.maxConcurrentTurns
       })
     )
     return
@@ -229,25 +247,18 @@ async function startTurn(
     correlationId,
     steeringUpdates: [],
     abortController: new AbortController(),
-    retryRequested: false,
     controlledStopRequested: false
   }
-  activeTurns.set(turnKey(turnStart.turn), active)
+  activeTurns.set(activeKey, active)
 
-  await sendEnvelope(
-    turnAcceptedEnvelope(
-      turnStart.turn,
-      turnStart.inputs.map(input => input.actor_input_id),
-      correlationId
-    )
-  )
-  await sendEnvelope(workerCapacityEnvelope(config, 0, 1))
+  await sendEnvelope(turnAcceptedEnvelope(turnStart.turn, correlationId))
+  await sendEnvelope(workerCapacityEnvelope(config, availableTurnSlots(config, activeTurns), activeTurns.size))
 
   void runActiveTurnTask(config, sendEnvelope, rpcClient, active, activeTurns).catch(error => {
     process.stderr.write(
       `${JSON.stringify({
         event: 'worker.turn_completion_error',
-        llm_turn_id: turnStart.turn.llm_turn_id,
+        actor_event_id: turnStart.turn.actor_event_id,
         error: error instanceof Error ? error.message : String(error)
       })}\n`
     )
@@ -262,12 +273,13 @@ async function runActiveTurnTask(
   activeTurns: Map<string, ActiveTurn>
 ): Promise<void> {
   const turnStart = active.turnStart
+  const stopProgress = startTurnProgress(sendEnvelope, active)
 
   try {
     await runActiveTurn(config, sendEnvelope, rpcClient, active)
     if (active.controlledStopRequested) {
       logWorkerEvent('worker.turn_controlled_stop', {
-        llm_turn_id: turnStart.turn.llm_turn_id,
+        actor_event_id: turnStart.turn.actor_event_id,
         command: active.controlledStopCommand ?? 'unknown',
         reason: active.controlledStopReason ?? 'controlled_stop'
       })
@@ -275,12 +287,12 @@ async function runActiveTurnTask(
     }
 
     logWorkerEvent('worker.turn_completed', {
-      llm_turn_id: turnStart.turn.llm_turn_id
+      actor_event_id: turnStart.turn.actor_event_id
     })
   } catch (error) {
     if (active.controlledStopRequested) {
       logWorkerEvent('worker.turn_controlled_stop', {
-        llm_turn_id: turnStart.turn.llm_turn_id,
+        actor_event_id: turnStart.turn.actor_event_id,
         command: active.controlledStopCommand ?? 'unknown',
         reason: active.controlledStopReason ?? 'controlled_stop',
         error: error instanceof Error ? error.message : String(error)
@@ -290,19 +302,100 @@ async function runActiveTurnTask(
 
     const message = error instanceof Error ? error.message : String(error)
 
-    await sendEnvelope(turnErrorEnvelope(turnStart.turn, 'worker_turn_failed', message, active.correlationId))
+    await sendEnvelope(
+      turnErrorEnvelope(turnStart.turn, 'worker_turn_failed', message, active.correlationId, turnFailureDetails(error))
+    )
     logWorkerEvent(
       'worker.turn_failed',
       {
-        llm_turn_id: turnStart.turn.llm_turn_id,
+        actor_event_id: turnStart.turn.actor_event_id,
         error: error instanceof Error ? error.message : String(error)
       },
       'stderr'
     )
   } finally {
+    stopProgress()
     activeTurns.delete(turnKey(turnStart.turn))
-    await sendEnvelope(workerCapacityEnvelope(config, 1, 0))
+    await sendEnvelope(workerCapacityEnvelope(config, availableTurnSlots(config, activeTurns), activeTurns.size))
   }
+}
+
+function availableTurnSlots(config: WorkerConfig, activeTurns: Map<string, ActiveTurn>): number {
+  return Math.max(config.maxConcurrentTurns - activeTurns.size, 0)
+}
+
+function startTurnProgress(sendEnvelope: ReliableEnvelopeSender, active: ActiveTurn): () => void {
+  let stopped = false
+  let progressInFlight = false
+
+  const sendProgress = (summary: string): void => {
+    if (stopped || progressInFlight) return
+
+    progressInFlight = true
+    void sendTurnProgress(sendEnvelope, active, summary).finally(() => {
+      progressInFlight = false
+    })
+  }
+
+  sendProgress('turn started')
+  const timer = setInterval(() => sendProgress('turn in progress'), turnProgressIntervalMs)
+  timer.unref?.()
+
+  return () => {
+    stopped = true
+    clearInterval(timer)
+  }
+}
+
+async function sendTurnProgress(
+  sendEnvelope: ReliableEnvelopeSender,
+  active: ActiveTurn,
+  summary: string
+): Promise<void> {
+  try {
+    await sendEnvelope(workerProgressEnvelope(active.turnStart.turn, 'checkpoint', summary, active.correlationId))
+  } catch (error) {
+    logWorkerEvent(
+      'worker.turn_progress_skipped',
+      {
+        actor_event_id: active.turnStart.turn.actor_event_id,
+        reason: isRuntimeFabricBackpressure(error) ? 'backpressure' : 'send_error',
+        error: error instanceof Error ? error.message : String(error)
+      },
+      'stderr'
+    )
+  }
+}
+
+function turnFailureDetails(error: unknown): JsonObject {
+  const classification = classifyLlmError(error)
+  const details: JsonObject = {
+    runtime: 'bun',
+    llm_error_kind: classification.kind,
+    retryable: classification.retryable,
+    should_compress: classification.shouldCompress,
+    should_fallback_provider: classification.shouldFallbackProvider
+  }
+
+  const gateway = aigatewayErrorDetails(error)
+  if (gateway) details.aigateway = gateway
+
+  return details
+}
+
+function aigatewayErrorDetails(error: unknown): JsonObject | undefined {
+  if (!error || typeof error !== 'object') return undefined
+
+  const record = error as Record<string, unknown>
+  const details: JsonObject = {}
+
+  if (typeof record.code === 'string') details.code = record.code
+  if (typeof record.status === 'number') details.status = record.status
+  if (record.details && typeof record.details === 'object' && !Array.isArray(record.details)) {
+    details.details_json = record.details as JsonObject
+  }
+
+  return Object.keys(details).length > 0 ? details : undefined
 }
 
 async function runActiveTurn(
@@ -313,30 +406,29 @@ async function runActiveTurn(
 ): Promise<void> {
   const turnStart = active.turnStart
   const workspaceRoot = prepareTurnWorkspace(config, turnStart)
-  logWorkerEvent('worker.llm_turn_started', {
-    llm_turn_id: turnStart.turn.llm_turn_id
+  logWorkerEvent('worker.turn_started', {
+    actor_event_id: turnStart.turn.actor_event_id
   })
 
-  const proposal = await runLlmTurnHandlers(turnStart, {
+  const result = await runTurnHandlers(turnStart, {
     workspaceRoot,
     builtinSkillsRoot: config.builtinSkillsRoot,
     agentInstalledSkillsRoot: config.agentInstalledSkillsRoot,
-    requestAIGatewayApiKey: request => requestAIGatewayApiKey(rpcClient, request),
+    requestAIGatewayApiKey: (request, options) => requestAIGatewayApiKey(rpcClient, request, options),
+    requestAppConfigure: request => requestAppConfigure(rpcClient, request),
     requestAgentConversationContext: request => requestAgentConversationContext(rpcClient, request),
-    requestConversationHistory: request => requestConversationHistory(rpcClient, request),
-    commitConversationSummary: request => commitConversationSummary(rpcClient, request),
     requestScheduleRpc: (method, request) => requestScheduleRpc(rpcClient, method, request),
     requestSkillOverlay: request => requestSkillOverlay(rpcClient, request),
     replaceSkillOverlay: request => replaceSkillOverlay(rpcClient, request),
-    clearSkillOverlay: request => clearSkillOverlay(rpcClient, request),
     pollSteering: () => active.steeringUpdates.splice(0),
     abortSignal: active.abortController.signal
   })
 
   if (active.controlledStopRequested) return
-  if ('summaryCommitted' in proposal) return
 
-  await sendEnvelope(finalProposalEnvelope(turnStart.turn, proposal, active.correlationId))
+  if (result.kind === 'noop_completed') {
+    await sendEnvelope(turnNoopCompletedEnvelope(turnStart.turn, result.reason, active.correlationId))
+  }
 }
 
 function logWorkerEvent(
@@ -359,21 +451,17 @@ async function handleMailboxUpdated(
   envelope: RuntimeFabricEnvelope
 ): Promise<void> {
   const update = mailboxUpdatedFromEnvelope(envelope)
-  if (!update.turn || !Array.isArray(update.inputs) || update.inputs.length === 0) {
+  if (!update.turn) {
     return
   }
 
   const active = activeTurns.get(turnKey(update.turn))
   if (!active) return
 
-  active.steeringUpdates.push({ turn: update.turn, inputs: update.inputs })
-  await sendEnvelope(
-    turnAcceptedEnvelope(
-      update.turn,
-      update.inputs.map(input => input.actor_input_id),
-      envelope.message_id
-    )
-  )
+  // Active steer carries the single already-journaled actor event that caused
+  // this revision bump.
+  active.steeringUpdates.push({ turn: update.turn, actorEvent: update.actor_event })
+  await sendEnvelope(turnAcceptedEnvelope(update.turn, envelope.message_id))
 }
 
 async function handleTurnControl(activeTurns: Map<string, ActiveTurn>, envelope: RuntimeFabricEnvelope): Promise<void> {
@@ -388,21 +476,17 @@ async function handleTurnControl(activeTurns: Map<string, ActiveTurn>, envelope:
   active.controlledStopCommand = control.command
   active.controlledStopReason = reason
 
-  if (control.command === 'retry') {
-    active.retryRequested = true
-    active.retryReason = reason
-  }
-
   active.abortController.abort(new DOMException(reason, 'AbortError'))
 }
 
 async function requestAIGatewayApiKey(
   rpcClient: RuntimeRpcClient,
-  request: AIGatewayApiKeyRequest
+  request: AIGatewayApiKeyRequest,
+  options: { forceRefresh?: boolean } = {}
 ): Promise<AIGatewayApiKeyResponse | AIGatewayApiKeyRejected> {
   const cacheKey = request.agent_uid
   const cached = aiGatewayApiKeyCache.get(cacheKey)
-  if (cached && cached.expires_at * 1000 > Date.now() + aiGatewayApiKeyRefreshSkewMs) {
+  if (!options.forceRefresh && cached && cached.expires_at * 1000 > Date.now() + aiGatewayApiKeyRefreshSkewMs) {
     return { ...cached, request_id: request.request_id }
   }
 
@@ -425,6 +509,23 @@ async function requestAIGatewayApiKey(
   return apiKey
 }
 
+async function requestAppConfigure(
+  rpcClient: RuntimeRpcClient,
+  request: AppConfigureResolveRequest
+): Promise<AppConfigureResolveResponse | AppConfigureResolveRejected> {
+  const response = await rpcClient.request(rpcMethods.appConfigureResolve, request, request.request_id)
+  if ('code' in response) {
+    return {
+      request_id: request.request_id,
+      agent_uid: stringFromDetails(response, 'agent_uid') || request.agent_uid,
+      code: response.code,
+      message: response.message
+    }
+  }
+
+  return response.payload_json as AppConfigureResolveResponse
+}
+
 async function requestAgentConversationContext(
   rpcClient: RuntimeRpcClient,
   request: AgentConversationContextRequest
@@ -434,31 +535,6 @@ async function requestAgentConversationContext(
     throw new Error(`agent conversation context RPC failed: ${response.code} ${response.message ?? ''}`.trim())
   }
   return response.payload_json as AgentConversationContext
-}
-
-async function requestConversationHistory(
-  rpcClient: RuntimeRpcClient,
-  request: ConversationHistoryRequest
-): Promise<ConversationHistoryResponse> {
-  const response = await rpcClient.request(rpcMethods.conversationHistoryResolve, request, request.request_id)
-  if ('code' in response) {
-    throw new Error(`conversation history RPC failed: ${response.code} ${response.message ?? ''}`.trim())
-  }
-  return response.payload_json as ConversationHistoryResponse
-}
-
-async function commitConversationSummary(
-  rpcClient: RuntimeRpcClient,
-  request: ConversationSummaryCommitRequest
-): Promise<ConversationSummaryCommitResponse | ConversationSummaryCommitRejected> {
-  const response = await rpcClient.request(rpcMethods.conversationSummaryCommit, request, request.request_id)
-  if ('code' in response) {
-    // A fence/stale/lease/conversation-ended rejection is an expected outcome, not an infra
-    // failure: surface it as a typed rejection so the compression turn can treat it as a no-op
-    // instead of failing the whole turn (mirrors the AIGateway API key rejection contract).
-    return { request_id: request.request_id, code: response.code, message: response.message }
-  }
-  return response.payload_json as ConversationSummaryCommitResponse
 }
 
 async function requestScheduleRpc(
@@ -495,17 +571,6 @@ async function replaceSkillOverlay(
   return response.payload_json as SkillOverlayResponse
 }
 
-async function clearSkillOverlay(
-  rpcClient: RuntimeRpcClient,
-  request: SkillOverlayRequest
-): Promise<SkillOverlayResponse> {
-  const response = await rpcClient.request(rpcMethods.skillsOverlayClear, request, request.request_id)
-  if ('code' in response) {
-    throw new Error(`skill overlay clear RPC failed: ${response.code} ${response.message ?? ''}`.trim())
-  }
-  return response.payload_json as SkillOverlayResponse
-}
-
 function stringFromDetails(source: RpcError | JsonObject | undefined, key: string): string | undefined {
   const details = (source && 'details_json' in source ? source.details_json : source) as JsonObject | undefined
   const value = details?.[key]
@@ -513,5 +578,5 @@ function stringFromDetails(source: RpcError | JsonObject | undefined, key: strin
 }
 
 function turnKey(turn: ActorTurnRef): string {
-  return `${turn.activation_uid}:${turn.llm_turn_id}`
+  return `${turn.activation_uid}:${turn.actor_event_id}`
 }

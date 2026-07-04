@@ -5,23 +5,21 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
 
   use GenServer
 
-  import Ecto.Query
-
   require Logger
 
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.ConnectionSupervisor
   alias Ankole.Plugins.LarkAdapter.IdentityProvider
   alias Ankole.Plugins.LarkAdapter.Inbound
-  alias Ankole.Repo
   alias Ankole.IdentityProviders.Config, as: IdentityProviderConfig
+  alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.AdapterContext
   alias Ankole.SignalsGateway.SignalBinding
 
-  # Background cadence for re-deriving live connections from the database. This
-  # is only drift correction: binding edits also fire an explicit reconcile_once/1,
-  # so the timer just needs to catch anything that was missed, not be the primary
-  # path — hence a relaxed 60s rather than a tight poll.
+  # Background cadence for re-deriving live connections from the database. It is
+  # intentionally relaxed because connection startup is a live transport concern:
+  # setup/e2e helpers may call reconcile_once/1, while normal runtime edits are
+  # allowed to converge on the next tick.
   @default_interval_ms 60_000
   # A reconcile pass reads bindings and starts supervised connections (DB plus
   # supervisor calls), so the synchronous reconcile/1 uses a long timeout well
@@ -106,14 +104,7 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
   # only, switched on, and not parked with an unavailable_reason (e.g. credentials
   # that previously failed). Ordering keeps the derived set stable across runs.
   defp enabled_bindings(opts) do
-    repo = Keyword.get(opts, :repo, Repo)
-
-    SignalBinding
-    |> where([binding], binding.adapter == "lark")
-    |> where([binding], binding.enabled == true)
-    |> where([binding], is_nil(binding.unavailable_reason))
-    |> order_by([binding], asc: binding.agent_uid, asc: binding.name)
-    |> repo.all()
+    SignalsGateway.list_enabled_bindings("lark", Keyword.take(opts, [:repo]))
   end
 
   # Collapses bindings down to one spec per connection key, so several bindings

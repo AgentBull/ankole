@@ -10,7 +10,7 @@ defmodule Ankole.E2E.WaitHelpers do
   import Ecto.Query
   import ExUnit.Assertions
 
-  alias Ankole.AIAgent.Schemas.Message
+  alias Ankole.AIGateway.Schemas.Message
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.Actors.ActorEvent
   alias Ankole.ActorRuntime.Schemas.AgentComputerWorker
@@ -80,10 +80,11 @@ defmodule Ankole.E2E.WaitHelpers do
   @spec checkback_by_idempotency!(String.t(), String.t()) :: ScheduledEvent.t()
   def checkback_by_idempotency!(agent_uid, idempotency_key) do
     Repo.one!(
-      from event in ScheduledEvent,
+      from(event in ScheduledEvent,
         where: event.agent_uid == ^String.downcase(agent_uid),
         where: event.kind == "check_back_later",
         where: event.idempotency_key == ^idempotency_key
+      )
     )
   end
 
@@ -93,9 +94,10 @@ defmodule Ankole.E2E.WaitHelpers do
   @spec cron_schedule_by_idempotency!(String.t(), String.t()) :: CronSchedule.t()
   def cron_schedule_by_idempotency!(agent_uid, idempotency_key) do
     Repo.one!(
-      from schedule in CronSchedule,
+      from(schedule in CronSchedule,
         where: schedule.agent_uid == ^String.downcase(agent_uid),
         where: schedule.idempotency_key == ^idempotency_key
+      )
     )
   end
 
@@ -105,9 +107,10 @@ defmodule Ankole.E2E.WaitHelpers do
   @spec cron_event_for_schedule!(Ecto.UUID.t()) :: ScheduledEvent.t()
   def cron_event_for_schedule!(cron_schedule_id) do
     Repo.one!(
-      from event in ScheduledEvent,
+      from(event in ScheduledEvent,
         where: event.kind == "cron_fire",
         where: event.cron_schedule_id == ^cron_schedule_id
+      )
     )
   end
 
@@ -438,23 +441,27 @@ defmodule Ankole.E2E.WaitHelpers do
     |> Enum.find(&final_answer_message?/1)
   end
 
-  defp final_answer_message?(%Message{content: content}),
-    do: not contains_function_call_item?(content)
+  defp final_answer_message?(%Message{metadata: metadata, content: content}) do
+    not tool_result_journal?(metadata) and not contains_non_final_tool_item?(content)
+  end
 
-  defp contains_function_call_item?(items) when is_list(items) do
+  defp tool_result_journal?(%{"tool_result_journal" => true}), do: true
+  defp tool_result_journal?(_metadata), do: false
+
+  defp contains_non_final_tool_item?(items) when is_list(items) do
     Enum.any?(items, fn
-      %{"type" => "function_call"} ->
+      %{"type" => type} when type in ["function_call", "function_call_output"] ->
         true
 
       %{"content" => nested} when is_list(nested) ->
-        contains_function_call_item?(nested)
+        contains_non_final_tool_item?(nested)
 
       _item ->
         false
     end)
   end
 
-  defp contains_function_call_item?(_items), do: false
+  defp contains_non_final_tool_item?(_items), do: false
 
   defp ai_message_status("succeeded"), do: "complete"
   defp ai_message_status("failed"), do: "error"

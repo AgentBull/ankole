@@ -3,14 +3,14 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
 
   import Ecto.Query, warn: false
 
-  alias Ankole.AIAgent
-  alias Ankole.AIAgent.Schemas.Conversation
-  alias Ankole.AIAgent.Schemas.LlmTurn
-  alias Ankole.AIAgent.Schemas.Message
+  alias Ankole.AIGateway.Compaction
+  alias Ankole.AIGateway.Schemas.Conversation
+  alias Ankole.AIGateway.Schemas.Message
+  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.Actors
-  alias Ankole.Actors.ActorInput
+  alias Ankole.Actors.ActorEvent
   alias Ankole.ActorRuntime.OutboxDispatcher
-  alias Ankole.ActorRuntime.Schemas.ActorInputDelivery
+  alias Ankole.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.ActorRuntime.Schemas.ActorSessionActivation
   alias Ankole.ActorRuntime.Schemas.ActorSessionWorkerAssignment
   alias Ankole.ActorRuntime.TurnEnvelope
@@ -20,8 +20,9 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
   alias Ankole.ActorRuntime.WorkerAdmission
   alias Ankole.Repo
   alias Ankole.SignalsGateway
+  alias Ankole.SignalsGateway.AIReplyPreview
 
-  def process_new_command(actor_key, %ActorInput{} = input, opts) do
+  def process_new_command(actor_key, %ActorEvent{} = input, opts) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     case command_args(input) do
@@ -31,12 +32,19 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
       _args ->
         with {:ok, rollover} <-
                Repo.transact(fn repo ->
-                 with {:ok, stop_controls} <- end_active_conversation(repo, actor_key, input, now) do
-                   {:ok, %{status: :conversation_rolled_over, stop_controls: stop_controls}}
+                 with {:ok, %{stop_controls: stop_controls, cancelled_turn: cancelled_turn}} <-
+                        end_active_conversation(repo, actor_key, now) do
+                   {:ok,
+                    %{
+                      status: :conversation_rolled_over,
+                      stop_controls: stop_controls,
+                      cancelled_turn: cancelled_turn
+                    }}
                  end
                end)
+               |> publish_cancelled_turn_event()
                |> dispatch_stop_controls() do
-          case TurnLifecycle.start_llm_turn(actor_key, [input], opts) do
+          case TurnLifecycle.start_worker_turn(actor_key, input, opts) do
             {:error, :no_worker_available} ->
               {:ok,
                %{
@@ -52,11 +60,15 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
     end
   end
 
-  def process_runtime_command(actor_key, %ActorInput{} = input, opts) do
+  def process_runtime_command(actor_key, %ActorEvent{type: "command.compress"} = input, opts) do
+    process_compress_command(actor_key, input, opts)
+  end
+
+  def process_runtime_command(actor_key, %ActorEvent{} = input, opts) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     Repo.transact(fn repo ->
-      with %ActorInput{} = input <- TurnLifecycle.lock_actor_input(repo, input.id),
+      with %ActorEvent{} = input <- TurnLifecycle.lock_actor_event(repo, input.id),
            {:ok, result} <- apply_runtime_command(repo, actor_key, input, now) do
         {:ok, result}
       else
@@ -64,6 +76,8 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
         {:error, _reason} = error -> error
       end
     end)
+    |> publish_cancelled_turn_event()
+    |> maybe_start_retry_preview()
     |> TurnRetry.dispatch_retry_controls()
     |> dispatch_stop_controls()
     |> tap(fn
@@ -72,33 +86,141 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
     end)
   end
 
-  defp apply_runtime_command(repo, actor_key, %ActorInput{type: "command.stop"} = input, now) do
-    with {:ok, stop_controls} <-
-           cancel_active_generation(repo, actor_key, input, now, "command.stop"),
+  defp process_compress_command(actor_key, %ActorEvent{} = input, opts) do
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+
+    with {:ok, %{actor_event: input, conversation: conversation}} <-
+           prepare_compress_command(actor_key, input, now),
+         {:ok, %{compaction: compaction}} <-
+           Compaction.compact_conversation(input.agent_uid, conversation.id, %{
+             "metadata" => %{
+               "actor_event_id" => input.id,
+               "command" => input.type,
+               "command_args" => command_args(input)
+             }
+           }),
+         {:ok, result} <- consume_compress_command(input, compaction, now) do
+      {:ok, result}
+    else
+      {:ok, %{status: _status}} = ok -> ok
+      {:error, :no_compaction_candidate} -> consume_compress_noop(input, now)
+      {:error, _reason} = error -> error
+    end
+    |> tap(fn
+      {:ok, %{status: :command_consumed}} -> OutboxDispatcher.wake()
+      _result -> :ok
+    end)
+  end
+
+  defp prepare_compress_command(actor_key, %ActorEvent{} = input, now) do
+    Repo.transact(fn repo ->
+      with %ActorEvent{} = input <- TurnLifecycle.lock_actor_event(repo, input.id),
+           false <- session_has_running_ai_work?(repo, actor_key) do
+        case TurnLifecycle.active_conversation_for_update(repo, actor_key) do
+          %Conversation{} = conversation ->
+            {:ok, %{actor_event: input, conversation: conversation}}
+
+          nil ->
+            consume_command_feedback(repo, input, "No conversation to compress.", now)
+        end
+      else
+        nil -> {:ok, %{status: :idle}}
+        true -> {:ok, %{status: :waiting_for_generation, command: input.type, actor_event: input}}
+        {:error, _reason} = error -> error
+      end
+    end)
+  end
+
+  defp session_has_running_ai_work?(repo, actor_key) do
+    TurnLifecycle.session_has_running_work?(repo, actor_key) or
+      session_has_generating_response?(repo, actor_key)
+  end
+
+  defp session_has_generating_response?(repo, actor_key) do
+    Message
+    |> join(:inner, [message], conversation in Conversation,
+      on: conversation.id == message.conversation_id
+    )
+    |> where([message, conversation], conversation.agent_uid == ^actor_key.agent_uid)
+    |> where([_message, conversation], conversation.conversation_key == ^actor_key.session_id)
+    |> where([_message, conversation], is_nil(conversation.ended_at))
+    |> where([message, _conversation], message.type == "message")
+    |> where([message, _conversation], message.status == "generating")
+    |> repo.exists?()
+  end
+
+  defp consume_compress_command(%ActorEvent{} = input, %Message{} = compaction, now) do
+    Repo.transact(fn repo ->
+      with %ActorEvent{} = input <- TurnLifecycle.lock_actor_event(repo, input.id),
+           {:ok, outbox_intents} <-
+             command_feedback_outbox_intents(repo, input, "Conversation compressed."),
+           outbox_intents =
+             Enum.map(outbox_intents, &Map.put(&1, :ai_message_id, compaction.id)),
+           {:ok, completed_event} <-
+             Actors.complete_command_event_in_tx(repo, input,
+               completed_at: now,
+               outbox_intents: outbox_intents
+             ) do
+        {:ok,
+         %{
+           status: :command_consumed,
+           command: input.type,
+           feedback: "Conversation compressed.",
+           message: compaction,
+           actor_event: completed_event
+         }}
+      else
+        nil -> {:ok, %{status: :idle}}
+        {:error, _reason} = error -> error
+      end
+    end)
+  end
+
+  defp consume_compress_noop(%ActorEvent{} = input, now) do
+    Repo.transact(fn repo ->
+      with %ActorEvent{} = input <- TurnLifecycle.lock_actor_event(repo, input.id) do
+        consume_command_feedback(repo, input, "Nothing to compress.", now)
+      else
+        nil -> {:ok, %{status: :idle}}
+        {:error, _reason} = error -> error
+      end
+    end)
+  end
+
+  defp apply_runtime_command(repo, actor_key, %ActorEvent{type: "command.stop"} = input, now) do
+    with {:ok, %{stop_controls: stop_controls, cancelled_turn: cancelled_turn}} <-
+           cancel_live_turn(repo, actor_key, now, "command.stop"),
          {:ok, result} <- consume_command_feedback(repo, input, "Stopped.", now) do
-      {:ok, Map.put(result, :stop_controls, stop_controls)}
+      {:ok,
+       result
+       |> Map.put(:stop_controls, stop_controls)
+       |> Map.put(:cancelled_turn, cancelled_turn)}
     end
   end
 
-  defp apply_runtime_command(repo, actor_key, %ActorInput{type: "command.new"} = input, now) do
-    with {:ok, stop_controls} <- end_active_conversation(repo, actor_key, input, now),
+  defp apply_runtime_command(repo, actor_key, %ActorEvent{type: "command.new"} = input, now) do
+    with {:ok, %{stop_controls: stop_controls, cancelled_turn: cancelled_turn}} <-
+           end_active_conversation(repo, actor_key, now),
          {:ok, result} <-
            consume_command_feedback(repo, input, "Started a new conversation.", now) do
-      {:ok, Map.put(result, :stop_controls, stop_controls)}
+      {:ok,
+       result
+       |> Map.put(:stop_controls, stop_controls)
+       |> Map.put(:cancelled_turn, cancelled_turn)}
     end
   end
 
-  defp apply_runtime_command(repo, actor_key, %ActorInput{type: "command.retry"} = input, now) do
-    case TurnRetry.retry_active_generation_in_tx(repo, actor_key, input, now) do
-      {:ok, :no_active_generation} ->
-        with {:ok, retry_input} <- append_retry_input(repo, actor_key, input, now),
-             {:ok, consumption} <- consume_command_without_feedback(repo, input, now) do
+  defp apply_runtime_command(repo, actor_key, %ActorEvent{type: "command.retry"} = input, now) do
+    case TurnRetry.retry_live_turn_in_tx(repo, actor_key, input, now) do
+      {:ok, :no_live_turn} ->
+        with {:ok, retry_event} <- append_retry_event(repo, actor_key, input, now),
+             {:ok, completed_event} <- consume_command_without_feedback(repo, input, now) do
           {:ok,
            %{
              status: :command_consumed,
              command: input.type,
-             retry_actor_input: retry_input,
-             consumption: consumption
+             retry_actor_event: retry_event,
+             actor_event: completed_event
            }}
         end
 
@@ -110,11 +232,11 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
     end
   end
 
-  defp apply_runtime_command(repo, _actor_key, %ActorInput{type: "command.steer"} = input, now) do
+  defp apply_runtime_command(repo, _actor_key, %ActorEvent{type: "command.steer"} = input, now) do
     consume_command_feedback(repo, input, "Steer requires instructions.", now)
   end
 
-  def process_steer_command(actor_key, %ActorInput{} = input, opts) do
+  def process_steer_command(actor_key, %ActorEvent{} = input, opts) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     case command_args(input) do
@@ -123,8 +245,8 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
 
       _args ->
         Repo.transact(fn repo ->
-          with %ActorInput{} = input <- TurnLifecycle.lock_actor_input(repo, input.id) do
-            case TurnLifecycle.active_generation?(repo, actor_key) do
+          with %ActorEvent{} = input <- TurnLifecycle.lock_actor_event(repo, input.id) do
+            case TurnLifecycle.live_delivery_for_session?(repo, actor_key) do
               true ->
                 prepare_active_steer(repo, actor_key, input, now)
 
@@ -138,7 +260,7 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
         end)
         |> case do
           {:ok, %{status: :steer_as_generation}} ->
-            TurnLifecycle.start_llm_turn(actor_key, [input], opts)
+            TurnLifecycle.start_worker_turn(actor_key, input, opts)
 
           {:ok, %{status: :active_steer_nudged} = result} ->
             send_mailbox_updated(result)
@@ -149,36 +271,24 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
     end
   end
 
-  defp prepare_active_steer(repo, actor_key, %ActorInput{} = input, now) do
-    case TurnLifecycle.live_delivery_for_input?(repo, input.id) do
+  defp prepare_active_steer(repo, actor_key, %ActorEvent{} = input, now) do
+    case TurnLifecycle.live_delivery_for_event?(repo, input.id) do
       true ->
         {:ok, %{status: :waiting_for_generation, command: input.type}}
 
       false ->
-        with %Conversation{} = conversation <-
-               TurnLifecycle.active_conversation_for_update(repo, actor_key),
-             true <- TurnLifecycle.conversation_has_active_generation?(conversation),
-             %ActorSessionActivation{} = activation <-
+        with %ActorSessionActivation{} = activation <-
                TurnLifecycle.live_activation(repo, actor_key),
              true <- TurnLifecycle.activation_lease_alive?(activation, now),
-             %LlmTurn{} = llm_turn <- AIAgent.lock_turn(repo, activation.current_llm_turn_id),
+             :open <- current_activation_event_state(repo, actor_key, activation),
              %ActorSessionWorkerAssignment{} = assignment <-
                TurnLifecycle.live_assignment(repo, actor_key),
              {:ok, activation} <- TurnLifecycle.bump_activation_revision(repo, activation, now),
-             {:ok, _message} <-
-               insert_command_introspection(
-                 repo,
-                 conversation,
-                 input,
-                 now,
-                 "Steering note received: #{command_args(input)}"
-               ),
              {:ok, delivery} <-
-               TurnLifecycle.create_input_delivery_in_tx(
+               TurnLifecycle.create_event_delivery_in_tx(
                  repo,
                  input,
                  activation,
-                 llm_turn,
                  assignment.transport_route || assignment.worker_id,
                  assignment,
                  now
@@ -189,34 +299,63 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
            %{
              status: :active_steer_nudged,
              command: input.type,
+             actor_event: input,
              activation: activation,
              assignment: assignment,
              delivery: delivery,
-             input: input,
-             turn_ref: TurnEnvelope.turn_ref(repo, actor_key, activation, llm_turn)
+             completed_at: now,
+             turn_ref: TurnEnvelope.turn_ref(actor_key, activation)
            }}
         else
           false -> {:ok, %{status: :waiting_for_generation, command: input.type}}
+          state when state in [:completed, :missing] -> {:ok, %{status: :steer_as_generation}}
           nil -> {:error, :active_turn_not_found}
           {:error, _reason} = error -> error
         end
     end
   end
 
+  defp current_activation_event_state(
+         repo,
+         actor_key,
+         %ActorSessionActivation{current_actor_event_id: actor_event_id}
+       )
+       when is_binary(actor_event_id) do
+    ActorEvent
+    |> where([event], event.id == ^actor_event_id)
+    |> where([event], event.agent_uid == ^actor_key.agent_uid)
+    |> where([event], event.session_id == ^actor_key.session_id)
+    |> lock("FOR UPDATE")
+    |> repo.one()
+    |> case do
+      %ActorEvent{completed_at: nil} -> :open
+      %ActorEvent{} -> :completed
+      nil -> :missing
+    end
+  end
+
+  defp current_activation_event_state(_repo, _actor_key, %ActorSessionActivation{}), do: :missing
+
   defp send_mailbox_updated(
          %{
            assignment: assignment,
            delivery: delivery,
-           input: input,
+           completed_at: completed_at,
+           actor_event: input,
            turn_ref: turn_ref
          } = result
        ) do
     route = assignment.transport_route || assignment.worker_id
-    envelope = TurnEnvelope.mailbox_updated(turn_ref, [input])
+    envelope = TurnEnvelope.mailbox_updated(turn_ref, input)
 
     case Broker.send_mandatory(route, envelope) do
       {:ok, :sent_or_queued} ->
-        {:ok, Map.put(result, :send_outcome, "sent_or_queued")}
+        with {:ok, completed_event} <- complete_active_steer_event(input.id, completed_at) do
+          {:ok,
+           result
+           |> Map.put(:actor_event, completed_event)
+           |> Map.put(:send_outcome, "sent_or_queued")}
+        end
 
       {:error, reason} ->
         TurnLifecycle.mark_delivery_failed(delivery.id, reason, reason)
@@ -225,11 +364,32 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
     end
   end
 
-  defp consume_command_feedback(repo, %ActorInput{} = input, text, now) do
+  defp complete_active_steer_event(actor_event_id, completed_at) do
+    Repo.transact(fn repo ->
+      case TurnLifecycle.lock_actor_event(repo, actor_event_id) do
+        %ActorEvent{completed_at: %DateTime{}} = event ->
+          {:ok, event}
+
+        %ActorEvent{} = event ->
+          with {:ok, _event} <-
+                 Actors.complete_command_event_in_tx(repo, event,
+                   completed_at: completed_at,
+                   outbox_intents: []
+                 ) do
+            {:ok, %{event | completed_at: completed_at}}
+          end
+
+        nil ->
+          {:error, :actor_event_not_found}
+      end
+    end)
+  end
+
+  defp consume_command_feedback(repo, %ActorEvent{} = input, text, now) do
     with {:ok, outbox_intents} <- command_feedback_outbox_intents(repo, input, text),
-         {:ok, consumption} <-
-           Actors.consume_command_input_in_tx(repo, input,
-             consumed_at: now,
+         {:ok, completed_event} <-
+           Actors.complete_command_event_in_tx(repo, input,
+             completed_at: now,
              outbox_intents: outbox_intents
            ) do
       {:ok,
@@ -237,26 +397,26 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
          status: :command_consumed,
          command: input.type,
          feedback: text,
-         consumption: consumption
+         actor_event: completed_event
        }}
     end
   end
 
-  defp consume_command_without_feedback(repo, %ActorInput{} = input, now) do
-    Actors.consume_command_input_in_tx(repo, input,
-      consumed_at: now,
+  defp consume_command_without_feedback(repo, %ActorEvent{} = input, now) do
+    Actors.complete_command_event_in_tx(repo, input,
+      completed_at: now,
       outbox_intents: []
     )
   end
 
-  defp command_feedback_outbox_intents(_repo, %ActorInput{signal_channel_id: nil}, _text),
+  defp command_feedback_outbox_intents(_repo, %ActorEvent{signal_channel_id: nil}, _text),
     do: {:ok, []}
 
-  defp command_feedback_outbox_intents(_repo, %ActorInput{provider_entry_id: nil}, _text),
+  defp command_feedback_outbox_intents(_repo, %ActorEvent{source_entry_id: nil}, _text),
     do: {:ok, []}
 
-  defp command_feedback_outbox_intents(repo, %ActorInput{} = input, text) do
-    with {:ok, operation} <- SignalsGateway.outbox_operation_for_actor_input(input, repo) do
+  defp command_feedback_outbox_intents(repo, %ActorEvent{} = input, text) do
+    with {:ok, operation} <- SignalsGateway.outbox_operation_for_actor_event(input, repo) do
       command_name = String.replace_prefix(input.type, "command.", "")
 
       {:ok,
@@ -264,7 +424,7 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
          %{
            outbound_key: "command:#{input.id}:#{command_name}",
            operation: operation,
-           target_provider_entry_id: input.provider_entry_id,
+           target_source_entry_id: input.source_entry_id,
            provider_thread_id: input.provider_thread_id,
            payload: %{"text" => text},
            fallback_visible_text: text,
@@ -274,27 +434,27 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
     end
   end
 
-  defp append_retry_input(repo, actor_key, %ActorInput{} = command_input, now) do
+  defp append_retry_event(repo, actor_key, %ActorEvent{} = command_event, now) do
     with %Conversation{} = conversation <-
            TurnLifecycle.active_conversation_for_update(repo, actor_key),
          {:ok, retry_source} <- retry_source(repo, conversation) do
-      Actors.append_actor_input_in_tx(repo, %{
-        agent_uid: command_input.agent_uid,
-        binding_name: command_input.binding_name,
-        session_id: command_input.session_id,
-        ingress_event_id: "retry:#{command_input.id}",
-        signal_channel_id: command_input.signal_channel_id,
-        provider_thread_id: command_input.provider_thread_id,
-        provider_entry_id: command_input.provider_entry_id,
-        type: "im.message.receive",
+      Actors.append_actor_event_in_tx(repo, %{
+        agent_uid: command_event.agent_uid,
+        binding_name: command_event.binding_name,
+        session_id: command_event.session_id,
+        source_event_id: "retry:#{command_event.id}",
+        signal_channel_id: command_event.signal_channel_id,
+        provider_thread_id: command_event.provider_thread_id,
+        source_entry_id: command_event.source_entry_id,
+        type: "im.message.addressed",
         available_at: now,
-        sender_key: command_input.sender_key,
+        sender_key: command_event.sender_key,
         payload: %{
-          "type" => "im.message.receive",
+          "type" => "im.message.addressed",
           "data" => %{
             "entry" => %{
               "text" => retry_source.text,
-              "retry_of_llm_turn_id" => retry_source.llm_turn_id,
+              "retry_of_actor_event_id" => retry_source.actor_event_id,
               "retry_of_message_id" => retry_source.message_id
             }
           }
@@ -306,83 +466,134 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
     end
   end
 
+  defp maybe_start_retry_preview({:ok, %{retry_actor_event: %ActorEvent{} = event}} = result) do
+    _ = AIReplyPreview.maybe_start_for(event)
+    result
+  end
+
+  defp maybe_start_retry_preview({:ok, %{retry_actor_events: events}} = result)
+       when is_list(events) do
+    Enum.each(events, fn
+      %ActorEvent{} = event -> AIReplyPreview.maybe_start_for(event)
+      _event -> :ok
+    end)
+
+    result
+  end
+
+  defp maybe_start_retry_preview(result), do: result
+
+  defp publish_cancelled_turn_event({:ok, %{cancelled_turn: %Message{} = message}} = result) do
+    error = message.metadata["error"] || %{"code" => "actor_runtime_cancel"}
+
+    StatefulResponses.publish_terminal_event(message, :response_failed, %{
+      error: error,
+      response_id: "resp_#{message.id}",
+      actor_event_id: message.metadata["actor_event_id"]
+    })
+
+    result
+  end
+
+  defp publish_cancelled_turn_event(result), do: result
+
   defp retry_source(repo, %Conversation{} = conversation) do
-    last_turn =
-      LlmTurn
-      |> where([turn], turn.conversation_id == ^conversation.id)
-      |> where([turn], turn.kind in ["generation", "retry_generation"])
-      |> where([turn], turn.status in ["succeeded", "failed", "cancelled"])
-      |> order_by([turn], desc: turn.started_at, desc: turn.inserted_at)
-      |> repo.one()
+    Message
+    |> where([message], message.conversation_id == ^conversation.id)
+    |> where([message], message.type == "message")
+    |> where([message], message.status in ["complete", "error"])
+    |> order_by([message], desc: message.inserted_at, desc: message.id)
+    |> limit(20)
+    |> repo.all()
+    |> Enum.find_value(&retry_source_from_message/1)
+    |> case do
+      %{text: text} = source when is_binary(text) and text != "" ->
+        {:ok, source}
 
-    case last_turn do
-      %LlmTurn{input_message_ids: [message_id | _]} = turn ->
-        case repo.get(Message, message_id) do
-          %Message{} = message ->
-            {:ok,
-             %{
-               llm_turn_id: turn.id,
-               message_id: message.id,
-               text: message_text(message)
-             }}
-
-          nil ->
-            {:error, :retry_source_message_not_found}
-        end
-
-      %LlmTurn{} ->
-        {:error, :retry_source_message_not_found}
-
-      nil ->
+      _missing ->
         {:error, :retry_source_not_found}
     end
   end
 
-  defp message_text(%Message{content: content}) when is_list(content) do
+  defp retry_source_from_message(%Message{metadata: metadata} = message) when is_map(metadata) do
+    with actor_event_id when is_binary(actor_event_id) <- metadata["actor_event_id"],
+         text when is_binary(text) and text != "" <- request_user_text(message.content) do
+      %{
+        actor_event_id: actor_event_id,
+        message_id: message.id,
+        text: text
+      }
+    else
+      _missing -> nil
+    end
+  end
+
+  defp retry_source_from_message(_message), do: nil
+
+  defp request_user_text(content) when is_list(content) do
+    content
+    |> Enum.reverse()
+    |> Enum.find_value(&request_user_item_text/1)
+  end
+
+  defp request_user_text(_content), do: nil
+
+  defp request_user_item_text(%{"type" => "message", "role" => "user", "content" => content})
+       when is_list(content),
+       do: message_content_text(content)
+
+  defp request_user_item_text(%{"type" => "message", "role" => "user", "content" => content})
+       when is_binary(content),
+       do: content
+
+  defp request_user_item_text(%{"role" => "user", "content" => content}) when is_list(content),
+    do: message_content_text(content)
+
+  defp request_user_item_text(%{"role" => "user", "content" => content}) when is_binary(content),
+    do: content
+
+  defp request_user_item_text(_item), do: nil
+
+  defp message_content_text(content) when is_list(content) do
     content
     |> Enum.map(fn
       %{"text" => text} when is_binary(text) -> text
       %{"type" => "text", "text" => text} when is_binary(text) -> text
+      %{"type" => "input_text", "text" => text} when is_binary(text) -> text
       text when is_binary(text) -> text
       _part -> nil
     end)
     |> Enum.reject(&is_nil/1)
     |> Enum.join("\n")
+    |> case do
+      "" -> nil
+      text -> text
+    end
   end
 
-  defp message_text(_message), do: ""
-
-  defp cancel_active_generation(repo, actor_key, %ActorInput{} = input, now, reason) do
+  defp cancel_live_turn(repo, actor_key, now, reason) do
     case TurnLifecycle.active_conversation_for_update(repo, actor_key) do
-      %Conversation{} = conversation ->
-        lease_id = TurnLifecycle.generation_lease_id(conversation.generation || %{})
-        generation = TurnLifecycle.cancel_generation(conversation.generation || %{}, now, reason)
-        live_deliveries = live_deliveries_for_generation(repo, conversation, lease_id)
+      %Conversation{} ->
+        live_deliveries = live_deliveries_for_activation(repo, actor_key)
+        actor_event_id = current_actor_event_id(live_deliveries)
 
         stop_controls =
           Enum.map(live_deliveries, &stop_control_for_delivery(actor_key, &1, reason))
 
-        with {:ok, conversation} <-
-               conversation
-               |> Conversation.changeset(%{generation: generation})
-               |> repo.update(),
-             {:ok, _cancelled_turn} <-
-               TurnLifecycle.cancel_started_turn_for_lease(
+        with {:ok, cancelled_turn} <-
+               TurnLifecycle.cancel_started_turn_for_actor_event(
                  repo,
-                 conversation,
-                 lease_id,
+                 actor_event_id,
                  now,
                  reason
                ),
-             {:ok, _consumptions} <-
-               consume_cancelled_turn_inputs(repo, live_deliveries, now),
-             {:ok, _message} <-
-               insert_command_introspection(repo, conversation, input, now, "Generation stopped.") do
-          {:ok, stop_controls}
+             {:ok, _completed_events} <-
+               complete_cancelled_turn_events(repo, live_deliveries, now) do
+          {:ok, %{stop_controls: stop_controls, cancelled_turn: cancelled_turn}}
         end
 
       nil ->
-        {:ok, []}
+        {:ok, %{stop_controls: [], cancelled_turn: nil}}
     end
   end
 
@@ -416,50 +627,36 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
     end
   end
 
-  defp live_deliveries_for_generation(_repo, _conversation, nil), do: []
+  defp live_deliveries_for_activation(repo, actor_key) do
+    case TurnLifecycle.live_activation(repo, actor_key) do
+      %ActorSessionActivation{current_actor_event_id: actor_event_id}
+      when is_binary(actor_event_id) ->
+        ActorEventDelivery
+        |> where([delivery], delivery.actor_event_id_fence == ^actor_event_id)
+        |> where([delivery], delivery.state in ^ActorEventDelivery.live_states())
+        |> lock("FOR UPDATE")
+        |> repo.all()
 
-  defp live_deliveries_for_generation(repo, %Conversation{} = conversation, lease_id) do
-    case AIAgent.started_turn_for_lease(repo, conversation, lease_id) do
-      %LlmTurn{} = turn ->
-        live_deliveries_for_turn(turn, repo)
-
-      nil ->
+      _activation ->
         []
     end
   end
 
-  defp consume_cancelled_turn_inputs(repo, deliveries, now) when is_list(deliveries) do
+  defp complete_cancelled_turn_events(repo, deliveries, now) when is_list(deliveries) do
     deliveries
-    |> Enum.uniq_by(& &1.actor_input_id)
-    |> Enum.reduce_while({:ok, []}, fn delivery, {:ok, consumptions} ->
-      case TurnLifecycle.lock_actor_input(repo, delivery.actor_input_id) do
-        %ActorInput{} = input ->
-          opts = [
-            consumed_at: now,
-            llm_turn_id: delivery.llm_turn_id,
-            activation_uid: delivery.activation_uid,
-            actor_epoch: delivery.actor_epoch,
-            revision: delivery.revision
-          ]
-
-          case Actors.consume_actor_input_in_tx(repo, input, opts) do
-            {:ok, consumption} -> {:cont, {:ok, [consumption | consumptions]}}
+    |> Enum.uniq_by(& &1.actor_event_id)
+    |> Enum.reduce_while({:ok, []}, fn delivery, {:ok, completed_events} ->
+      case TurnLifecycle.lock_actor_event(repo, delivery.actor_event_id) do
+        %ActorEvent{} = event ->
+          case Actors.mark_event_completed_in_tx(repo, event, now) do
+            {:ok, completed_event} -> {:cont, {:ok, [completed_event | completed_events]}}
             {:error, reason} -> {:halt, {:error, reason}}
           end
 
         nil ->
-          {:cont, {:ok, consumptions}}
+          {:cont, {:ok, completed_events}}
       end
     end)
-  end
-
-  defp live_deliveries_for_turn(%LlmTurn{} = turn, repo) do
-    from(delivery in Ankole.ActorRuntime.Schemas.ActorInputDelivery,
-      where: delivery.llm_turn_id == ^turn.id,
-      where: delivery.state in ^ActorInputDelivery.live_states(),
-      lock: "FOR UPDATE"
-    )
-    |> repo.all()
   end
 
   defp stop_control_for_delivery(actor_key, delivery, reason) do
@@ -471,84 +668,54 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
           "agent_uid" => actor_key.agent_uid,
           "session_id" => actor_key.session_id
         },
+        # Source table: stop control turn_ref copies actor_event_deliveries
+        # fence values for the still-live worker turn.
         "activation_uid" => delivery.activation_uid,
         "actor_epoch" => delivery.actor_epoch,
-        "llm_turn_id" => delivery.llm_turn_id,
+        "actor_event_id" => delivery.actor_event_id_fence,
         "revision" => delivery.revision
       }
     }
   end
 
-  defp end_active_conversation(repo, actor_key, %ActorInput{} = input, now) do
+  defp current_actor_event_id([
+         %ActorEventDelivery{actor_event_id_fence: actor_event_id} | _rest
+       ]),
+       do: actor_event_id
+
+  defp current_actor_event_id(_deliveries), do: nil
+
+  defp end_active_conversation(repo, actor_key, now) do
     case TurnLifecycle.active_conversation_for_update(repo, actor_key) do
       %Conversation{} = conversation ->
-        lease_id = TurnLifecycle.generation_lease_id(conversation.generation || %{})
-        live_deliveries = live_deliveries_for_generation(repo, conversation, lease_id)
+        live_deliveries = live_deliveries_for_activation(repo, actor_key)
+        actor_event_id = current_actor_event_id(live_deliveries)
 
         stop_controls =
           Enum.map(live_deliveries, &stop_control_for_delivery(actor_key, &1, "command.new"))
 
-        generation =
-          TurnLifecycle.cancel_generation(conversation.generation || %{}, now, "command.new")
-
-        with {:ok, conversation} <-
+        with {:ok, _conversation} <-
                conversation
-               |> Conversation.changeset(%{generation: generation, ended_at: now})
+               |> Conversation.changeset(%{ended_at: now})
                |> repo.update(),
-             {:ok, _cancelled_turn} <-
-               TurnLifecycle.cancel_started_turn_for_lease(
+             {:ok, cancelled_turn} <-
+               TurnLifecycle.cancel_started_turn_for_actor_event(
                  repo,
-                 conversation,
-                 lease_id,
+                 actor_event_id,
                  now,
                  "command.new"
                ),
-             {:ok, _consumptions} <-
-               consume_cancelled_turn_inputs(repo, live_deliveries, now),
-             {:ok, _message} <-
-               insert_command_introspection(
-                 repo,
-                 conversation,
-                 input,
-                 now,
-                 "Conversation window closed."
-               ) do
-          {:ok, stop_controls}
+             {:ok, _completed_events} <-
+               complete_cancelled_turn_events(repo, live_deliveries, now) do
+          {:ok, %{stop_controls: stop_controls, cancelled_turn: cancelled_turn}}
         end
 
       nil ->
-        {:ok, []}
+        {:ok, %{stop_controls: [], cancelled_turn: nil}}
     end
   end
 
-  defp insert_command_introspection(
-         repo,
-         %Conversation{} = conversation,
-         %ActorInput{} = input,
-         now,
-         text
-       ) do
-    %Message{}
-    |> Message.changeset(%{
-      agent_uid: conversation.agent_uid,
-      conversation_id: conversation.id,
-      role: "assistant",
-      kind: "introspection",
-      status: "complete",
-      content: [%{"type" => "text", "text" => text}],
-      event_source: "ai_agent.#{input.type}",
-      event_id: input.ingress_event_id,
-      metadata: %{
-        "actor_input_id" => input.id,
-        "command" => input.type,
-        "command_args" => command_args(input),
-        "inserted_at" => DateTime.to_iso8601(now)
-      }
-    })
-    |> repo.insert()
-  end
-
-  defp command_args(%ActorInput{payload: payload}) when is_map(payload) do
+  defp command_args(%ActorEvent{payload: payload}) when is_map(payload) do
     payload
     |> get_in(["data", "command", "argsText"])
     |> case do

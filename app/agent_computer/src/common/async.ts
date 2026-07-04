@@ -1,42 +1,10 @@
 /**
  * Async control-flow primitives shared across the app.
  *
- * Ported/adapted from Claude Code's `utils/combinedAbortSignal.ts`,
- * `utils/generators.ts`, and `services/api/withRetry.ts`. Kept dependency-free
- * and Bun-native.
+ * Ported/adapted from Claude Code's `utils/combinedAbortSignal.ts` and
+ * `services/api/withRetry.ts`. Kept dependency-free and Bun-native.
  */
 import { retryAfterMsFromError } from './retry-after'
-
-/**
- * Run `thunks` with at most `cap` in flight at once, returning results in input
- * order (same contract as `Promise.all`, but concurrency-bounded). Rejects with
- * the first thunk error, like `Promise.all`.
- *
- * This is the bounded fan-out primitive for independent async work (e.g. fetching
- * several URLs). As more tools/providers are added, they share this instead of
- * each reinventing an unbounded `Promise.all`.
- */
-export async function all<T>(thunks: ReadonlyArray<() => Promise<T>>, cap = Infinity): Promise<T[]> {
-  if (thunks.length === 0) return []
-  // Never spawn more workers than there is work, and always at least one.
-  const limit = Math.max(1, Math.min(cap, thunks.length))
-  const results: T[] = []
-  // Shared cursor: every worker pulls the next index off `next`, so the pool stays
-  // saturated regardless of how uneven the per-thunk durations are. Writing to
-  // `results[index]` (not pushing) is what preserves input order.
-  let next = 0
-  async function worker(): Promise<void> {
-    while (next < thunks.length) {
-      const index = next++
-      results[index] = await thunks[index]!()
-    }
-  }
-  // The first rejecting thunk rejects this `Promise.all`, matching the documented
-  // contract. In-flight siblings are not cancelled (there is no signal here); they
-  // run to completion but their results are discarded.
-  await Promise.all(Array.from({ length: limit }, () => worker()))
-  return results
-}
 
 /**
  * A combined `AbortSignal` that fires when `signal` aborts or `timeoutMs` elapses,
@@ -62,7 +30,7 @@ export function createCombinedAbortSignal(
   const timer = setTimeout(() => {
     controller.abort(new DOMException(`Timed out after ${timeoutMs}ms`, 'TimeoutError'))
   }, timeoutMs)
-  // Keep this timer ref'ed. It is currently used as the worker's hard LLM turn
+  // Keep this timer ref'ed. It is currently used as the worker's hard text-turn
   // deadline, so it must fire even when the only other activity is native
   // ZMQ/fetch work that Bun may not count as a normal JS event-loop reference.
   // Source abort wins over the timeout: cancel the timer and forward the source's

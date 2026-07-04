@@ -69,7 +69,6 @@ flowchart LR
 
   SG --> CP
   CP --> PG[("PostgreSQL<br/>durable truth")]
-  CP --> Redis[("Redis<br/>本地开发服务")]
 
   CP <-->|"RuntimeFabric<br/>live routing"| Worker["Agent Computer<br/>Bun / TypeScript worker"]
 
@@ -79,11 +78,11 @@ flowchart LR
 
 整体上：
 
-- **SignalsGateway** 接收 provider ingress，归一化为 actor input。
+- **SignalsGateway** 接收 provider ingress，归一化为 durable actor event。
 - **Control Plane** 拥有 durable state、actor 编排、配置、身份和授权。
 - **RuntimeFabric** 通过 ZeroMQ 连接 actor、worker 和 RPC lane，承担 live 执行；PostgreSQL 仍然是 durable replay、fence、reconciliation 和 final commit 的来源。
 - **Agent Computer** 在隔离的 worker 容器中执行 turn 和 tools。
-- **PostgreSQL** 仍然是已接受 input、state、fence 和 final commit 的 durable 记录。
+- **PostgreSQL** 仍然是已接受 event、state、fence 和 final commit 的 durable 记录。
 
 ## 当前状态
 
@@ -95,7 +94,7 @@ Ankole 是早期工程发行版，不是打磨完成的终端用户产品或托�
 | Agent Computer | `app/agent_computer` 下的 Bun/TypeScript worker runtime，在隔离的 Linux worker 镜像内运行 agent loop 和本地 tools；不是独立 CLI。 |
 | Kernel | `app/kernel` 下的 Rust crate，由 Elixir (Rustler) 和 Bun (N-API) 加载，承载 crypto、identifier、AuthZ evaluator 和 ZeroMQ transport。 |
 | Frontend | `app/webapps` 下的 Vite + React surfaces，构建进 Phoenix static shell。 |
-| 本地服务 | PostgreSQL 和 Redis 由 devkit Docker Compose 提供。 |
+| 本地服务 | PostgreSQL 由 devkit Docker Compose 提供。 |
 | 设计文档 | 架构和 runtime 设计文档位于 `docs/design-docs`。 |
 | 公共 API 稳定性 | 内部 API 仍在演进，版本之间会有 breaking change。 |
 
@@ -115,7 +114,7 @@ Ankole 是早期工程发行版，不是打磨完成的终端用户产品或托�
 - `tools/devkit` - local services、app database helpers、code generation 和 analysis 的 workspace automation。
 - `docs/design-docs` - Principal identity、authorization、configuration、I18n、plugins、RuntimeFabric、SignalsGateway 和 provider adapters 的当前设计文档。
 
-RuntimeFabric 是 control-plane 到 worker 的 live fabric。它通过 ZeroMQ 承载 actor traffic、bounded RPC 和 worker-file frames；PostgreSQL 仍然负责 durable replay、fence、reconciliation 和 final commit。SignalsGateway 是 provider ingress layer：外部 chat、webhook 和 provider event 会变成 actor input，但不会把外部来源事实误写成 execution state。
+RuntimeFabric 是 control-plane 到 worker 的 live fabric。它通过 ZeroMQ 承载 actor traffic、bounded RPC 和 worker-file frames；PostgreSQL 仍然负责 durable replay、fence、reconciliation 和 final commit。SignalsGateway 是 provider ingress layer：外部 chat、webhook 和 provider event 会变成 actor event，但不会把外部来源事实误写成 execution state。
 
 ## 开发
 
@@ -170,4 +169,4 @@ cd app/control_plane
 mix ankole.actor_runtime.worker_bootstrap --endpoint tcp://127.0.0.1:6010 --worker-id worker-a
 ```
 
-生产 bootstrap config 使用 `DATABASE_URL`、`SECRET_KEY_BASE`、`REDIS_URL` 这样的通用基础设施名称。运行时应用配置属于 Ankole 的 PostgreSQL-backed AppConfigure 表面，而不是 process-local environment variables。
+生产 bootstrap config 使用 `DATABASE_URL`、`SECRET_KEY_BASE` 这样的通用基础设施名称。运行时应用配置属于 Ankole 的 PostgreSQL-backed AppConfigure 表面，而不是 process-local environment variables。

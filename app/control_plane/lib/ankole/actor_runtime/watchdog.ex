@@ -30,15 +30,6 @@ defmodule Ankole.ActorRuntime.Watchdog do
     GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
   end
 
-  @doc """
-  Runs one watchdog pass.
-
-  The watchdog owns repair work that is safe to repeat: stale workers, expired
-  activation leases, and durable turns whose runtime projections disappeared.
-  """
-  @spec run_once(keyword()) :: {:ok, map()} | {:error, term()}
-  def run_once(opts \\ []), do: ActorRuntime.watchdog_once(opts)
-
   @impl true
   def init(opts) do
     state = %{
@@ -77,7 +68,7 @@ defmodule Ankole.ActorRuntime.Watchdog do
   # Logs and keeps scheduling after failures. Recovery should be persistent, not
   # dependent on one successful watchdog tick.
   defp run(state) do
-    case run_once(
+    case ActorRuntime.watchdog_once(
            stale_after_seconds: state.stale_after_seconds,
            stale_worker_ttl_seconds: state.stale_worker_ttl_seconds,
            lease_grace_seconds: state.lease_grace_seconds

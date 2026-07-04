@@ -13,6 +13,7 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @timestamps_opts [type: :utc_datetime_usec]
   @slug_format ~r/\A[a-z][a-z0-9_-]{0,62}\z/
+  @provider_kind_format ~r/\A[a-z][a-z0-9_]{0,62}\z/
 
   schema "ai_gateway_providers" do
     field(:provider_id, :string)
@@ -47,7 +48,7 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
     |> normalize_lower([:provider_id, :provider_kind])
     |> validate_required([:provider_id, :provider_kind, :connection_options, :encrypted_options])
     |> validate_format(:provider_id, @slug_format)
-    |> validate_format(:provider_kind, @slug_format)
+    |> validate_format(:provider_kind, @provider_kind_format)
     |> validate_base_url()
     |> validate_provider_kind()
     |> validate_connection_options()

@@ -18,32 +18,20 @@ defmodule Ankole.ActorRuntime do
   repaired by `reconcile_projection_lost_started_turns/1`.
   """
 
-  alias Ankole.AIAgent
-  alias Ankole.AIAgent.Schemas.Conversation
-  alias Ankole.AIAgent.Schemas.LlmTurn
-  alias Ankole.Actors.ActorInput
-  alias Ankole.ActorRuntime.CommitCoordinator
+  alias Ankole.Actors.ActorEvent
   alias Ankole.ActorRuntime.FileTransferLane
-  alias Ankole.ActorRuntime.ReadyInputProcessor
+  alias Ankole.ActorRuntime.ReadyEventProcessor
   alias Ankole.ActorRuntime.Recovery
-  alias Ankole.ActorRuntime.Schemas.ActorInputDelivery
+  alias Ankole.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.ActorRuntime.Schemas.ActorSessionActivation
   alias Ankole.ActorRuntime.Schemas.ActorSessionWorkerAssignment
   alias Ankole.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.ActorRuntime.SessionReset
   alias Ankole.ActorRuntime.TurnLifecycle
-  alias Ankole.ActorRuntime.Transport.Broker
   alias Ankole.ActorRuntime.WorkerAdmission
   alias Ankole.ActorRuntime.WorkerPool
 
   @type actor_key :: %{agent_uid: String.t(), session_id: String.t()}
-
-  @doc """
-  Delegates active-conversation creation to the AI-agent context.
-  """
-  @spec ensure_conversation(String.t(), String.t()) :: {:ok, Conversation.t()} | {:error, term()}
-  def ensure_conversation(agent_uid, session_id),
-    do: AIAgent.ensure_conversation(agent_uid, session_id)
 
   @doc """
   Admits an authenticated worker-ready message.
@@ -51,13 +39,6 @@ defmodule Ankole.ActorRuntime do
   @spec admit_worker_ready(map(), String.t() | map()) ::
           {:ok, AgentComputerWorker.t()} | {:error, term()}
   defdelegate admit_worker_ready(worker_ready, authenticated_route), to: WorkerAdmission
-
-  @doc """
-  Records a worker-ready projection.
-  """
-  @spec record_worker_ready(map(), String.t() | nil) ::
-          {:ok, AgentComputerWorker.t()} | {:error, term()}
-  defdelegate record_worker_ready(attrs, route \\ nil), to: WorkerAdmission
 
   @doc """
   Records an authenticated worker heartbeat projection.
@@ -104,27 +85,17 @@ defmodule Ankole.ActorRuntime do
   end
 
   @doc """
-  Calls one semantic RPC method on a worker route.
+  Starts a worker-backed turn for a ready actor event.
   """
-  @spec request_worker_rpc(String.t(), String.t(), map(), keyword()) ::
-          {:ok, map()} | {:error, map() | term()}
-  def request_worker_rpc(transport_route, method, payload \\ %{}, opts \\ [])
-      when is_binary(transport_route) and is_binary(method) and is_map(payload) do
-    Broker.request_rpc(transport_route, method, payload, opts)
-  end
-
-  @doc """
-  Starts a worker-backed LLM turn for a ready actor input set.
-  """
-  @spec start_llm_turn(actor_key(), [ActorInput.t()], keyword()) ::
+  @spec start_worker_turn(actor_key(), ActorEvent.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
-  defdelegate start_llm_turn(actor_key, actor_inputs, opts \\ []), to: TurnLifecycle
+  defdelegate start_worker_turn(actor_key, actor_event, opts \\ []), to: TurnLifecycle
 
   @doc """
   Marks a delivery sent.
   """
   @spec mark_delivery_sent(Ecto.UUID.t(), String.t() | atom()) ::
-          {:ok, ActorInputDelivery.t()} | {:error, term()}
+          {:ok, ActorEventDelivery.t()} | {:error, term()}
   defdelegate mark_delivery_sent(delivery_id, send_outcome \\ "sent_or_queued"),
     to: TurnLifecycle
 
@@ -132,13 +103,13 @@ defmodule Ankole.ActorRuntime do
   Marks a delivery transport failure.
   """
   @spec mark_delivery_failed(Ecto.UUID.t(), String.t() | atom(), term()) ::
-          {:ok, ActorInputDelivery.t()} | {:error, term()}
+          {:ok, ActorEventDelivery.t()} | {:error, term()}
   defdelegate mark_delivery_failed(delivery_id, send_outcome, reason), to: TurnLifecycle
 
   @doc """
   Handles an actor lane turn.accepted envelope.
   """
-  @spec handle_turn_accepted(map()) :: {:ok, [ActorInputDelivery.t()]} | {:error, term()}
+  @spec handle_turn_accepted(map()) :: {:ok, [ActorEventDelivery.t()]} | {:error, term()}
   defdelegate handle_turn_accepted(envelope), to: TurnLifecycle
 
   @doc """
@@ -149,22 +120,16 @@ defmodule Ankole.ActorRuntime do
   defdelegate handle_worker_progress(envelope, opts \\ []), to: TurnLifecycle
 
   @doc """
-  Handles a final proposal envelope or body and commits it durably.
+  Completes a worker turn that deliberately produced no AIGateway response.
   """
-  @spec commit_final_proposal(map()) :: {:ok, map()} | {:error, term()}
-  defdelegate commit_final_proposal(proposal), to: CommitCoordinator
+  @spec handle_turn_noop_completed(map()) :: {:ok, map()} | {:error, term()}
+  defdelegate handle_turn_noop_completed(envelope), to: TurnLifecycle
 
   @doc """
-  Handles a worker turn.error envelope and releases the actor input for retry.
+  Handles a worker turn.error envelope and releases the actor event for retry.
   """
-  @spec handle_turn_error(map()) :: {:ok, map()} | {:error, term()}
-  defdelegate handle_turn_error(envelope), to: CommitCoordinator
-
-  @doc """
-  Marks a turn failed.
-  """
-  @spec mark_turn_failed(Ecto.UUID.t(), term()) :: {:ok, LlmTurn.t()} | {:error, term()}
-  def mark_turn_failed(llm_turn_id, reason), do: AIAgent.mark_turn_failed(llm_turn_id, reason)
+  @spec handle_turn_error(map(), keyword()) :: {:ok, map()} | {:error, term()}
+  defdelegate handle_turn_error(envelope, opts \\ []), to: TurnLifecycle
 
   @doc """
   Fails started turns whose unlogged activation/delivery fence was lost.
@@ -172,18 +137,6 @@ defmodule Ankole.ActorRuntime do
   @spec reconcile_projection_lost_started_turns(keyword()) ::
           {:ok, non_neg_integer()} | {:error, term()}
   defdelegate reconcile_projection_lost_started_turns(opts \\ []), to: Recovery
-
-  @doc """
-  Starts one ready actor if a worker is available.
-  """
-  @spec process_ready_inputs_once(keyword()) :: {:ok, map()} | {:error, term()}
-  defdelegate process_ready_inputs_once(opts \\ []), to: ReadyInputProcessor
-
-  @doc """
-  Starts ready actors up to the requested limit.
-  """
-  @spec process_ready_inputs(keyword()) :: {:ok, [map()]} | {:error, term()}
-  defdelegate process_ready_inputs(opts \\ []), to: ReadyInputProcessor
 
   @doc """
   Enqueues daily reset barrier inputs for sessions due at the latest local 04:30.
@@ -196,10 +149,10 @@ defmodule Ankole.ActorRuntime do
   defdelegate enqueue_daily_session_resets(boundary_at, opts), to: SessionReset
 
   @doc """
-  Starts one ready input for an actor key.
+  Starts one ready event for an actor key.
   """
-  @spec process_ready_inputs_for_actor(actor_key(), keyword()) :: {:ok, map()} | {:error, term()}
-  defdelegate process_ready_inputs_for_actor(actor_key, opts \\ []), to: ReadyInputProcessor
+  @spec process_ready_event_for_actor(actor_key(), keyword()) :: {:ok, map()} | {:error, term()}
+  defdelegate process_ready_event_for_actor(actor_key, opts \\ []), to: ReadyEventProcessor
 
   @doc """
   Runs one actor-runtime watchdog pass.

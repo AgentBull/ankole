@@ -5,13 +5,24 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
 
   require Logger
 
+  alias Ankole.AuthZ
   alias Ankole.Plugins.LarkAdapter.Config
+  alias Ankole.Plugins.LarkAdapter.MapHelpers
   alias Ankole.IdentityProviders
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Principals
   alias FeishuOpenAPI.Auth
   alias FeishuOpenAPI.Event
   alias FeishuOpenAPI.Pagination
+
+  import MapHelpers,
+    only: [
+      collect_results: 1,
+      compact_metadata_map: 1,
+      fetch_list: 2,
+      fetch_map: 3,
+      optional_text: 2
+    ]
 
   @doc """
   Builds the dispatcher consumer record for one configured identity provider.
@@ -64,24 +75,35 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
   @spec upsert_user(String.t(), map()) :: {:ok, map()} | {:error, term()}
   def upsert_user(provider_id, user) when is_binary(provider_id) and is_map(user) do
     with {:ok, user_id} <- user_id(user) do
-      Principals.upsert_platform_subject_human(%{
-        provider: provider_id,
-        external_id: user_id,
-        uid: user_id,
-        display_name: display_name(user),
-        avatar_url: avatar_url(user),
-        email: enterprise_email(user) || optional_text(user, "email"),
-        mobile: normalized_mobile(user),
-        job_title: optional_text(user, "job_title"),
-        metadata:
-          compact_map(%{
-            "open_id" => optional_text(user, "open_id"),
-            "union_id" => optional_text(user, "union_id"),
-            "tenant_key" => optional_text(user, "tenant_key"),
-            "employee_no" => optional_text(user, "employee_no"),
-            "department_ids" => fetch_list(user, "department_ids")
-          })
-      })
+      department_ids = fetch_list(user, "department_ids")
+
+      with {:ok, observed} <-
+             Principals.upsert_platform_subject_human(%{
+               provider: provider_id,
+               external_id: user_id,
+               uid: user_id,
+               display_name: display_name(user),
+               avatar_url: avatar_url(user),
+               email: enterprise_email(user) || optional_text(user, "email"),
+               mobile: normalized_mobile(user),
+               job_title: optional_text(user, "job_title"),
+               metadata:
+                 compact_metadata_map(%{
+                   "open_id" => optional_text(user, "open_id"),
+                   "union_id" => optional_text(user, "union_id"),
+                   "tenant_key" => optional_text(user, "tenant_key"),
+                   "employee_no" => optional_text(user, "employee_no"),
+                   "department_ids" => department_ids
+                 })
+             }),
+           {:ok, _sync} <-
+             AuthZ.sync_external_directory_group_memberships(
+               provider_id,
+               observed.principal.uid,
+               department_ids
+             ) do
+        {:ok, observed}
+      end
     end
   end
 
@@ -276,68 +298,6 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
     case String.length(digits) == 11 and String.starts_with?(digits, "1") do
       true -> [trimmed, "+86" <> digits]
       false -> [trimmed]
-    end
-  end
-
-  defp optional_text(map, key) when is_map(map) do
-    case fetch_value(map, key) do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          trimmed -> trimmed
-        end
-
-      _value ->
-        nil
-    end
-  end
-
-  defp fetch_map(map, key, default) do
-    case fetch_value(map, key) do
-      value when is_map(value) -> value
-      _value -> default
-    end
-  end
-
-  defp fetch_list(map, key) do
-    case fetch_value(map, key) do
-      value when is_list(value) -> value
-      _value -> []
-    end
-  end
-
-  defp fetch_value(map, key) when is_map(map) do
-    atom_key = atom_key(key)
-
-    # Provider data is string-keyed; tests and local adapters often use atom
-    # keys. Existing atoms are accepted without opening atom-creation risk.
-    cond do
-      Map.has_key?(map, key) -> Map.fetch!(map, key)
-      not is_nil(atom_key) and Map.has_key?(map, atom_key) -> Map.fetch!(map, atom_key)
-      true -> nil
-    end
-  end
-
-  defp atom_key(key) when is_binary(key) do
-    String.to_existing_atom(key)
-  rescue
-    ArgumentError -> nil
-  end
-
-  defp compact_map(map) do
-    map
-    |> Enum.reject(fn {_key, value} -> is_nil(value) or value == [] end)
-    |> Map.new()
-  end
-
-  defp collect_results(results) do
-    Enum.reduce_while(results, {:ok, []}, fn
-      {:ok, value}, {:ok, acc} -> {:cont, {:ok, [value | acc]}}
-      {:error, _reason} = error, _acc -> {:halt, error}
-    end)
-    |> case do
-      {:ok, values} -> {:ok, Enum.reverse(values)}
-      {:error, _reason} = error -> error
     end
   end
 end

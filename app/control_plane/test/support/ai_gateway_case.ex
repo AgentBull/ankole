@@ -3,8 +3,9 @@ defmodule Ankole.AIGatewayCase do
 
   use ExUnit.CaseTemplate
 
-  alias Ankole.AIAgent.Schemas.Conversation
-  alias Ankole.AIAgent.Schemas.LlmTurn
+  alias Ankole.AIGateway.Schemas.Conversation
+  alias Ankole.AIGateway.Schemas.Message
+  alias Ankole.Actors.ActorEvent
   alias Ankole.ActorRuntime.Schemas.ActorSessionActivation
   alias Ankole.ActorRuntime.Schemas.ActorSessionWorkerAssignment
   alias Ankole.ActorRuntime.Schemas.AgentComputerWorker
@@ -19,7 +20,7 @@ defmodule Ankole.AIGatewayCase do
 
       alias Ankole.AIGateway, warn: false
       alias Ankole.AIGateway.ProviderConfigs, warn: false
-      alias Ankole.AIAgent.ModelProfiles, warn: false
+      alias Ankole.AIGateway.ModelProfiles, warn: false
       alias Ankole.ActorRuntime.RPCLane, warn: false
       alias AnkoleWeb.AIGatewayTokens, warn: false
     end
@@ -256,34 +257,49 @@ defmodule Ankole.AIGatewayCase do
         id: Ecto.UUID.generate(),
         agent_uid: agent_uid,
         conversation_key: session_id,
-        generation: %{},
         metadata: %{},
         inserted_at: now,
         updated_at: now
       })
 
-    llm_turn =
-      Repo.insert!(%LlmTurn{
-        id: Ecto.UUID.generate(),
-        agent_uid: agent_uid,
-        conversation_id: conversation.id,
-        kind: "generation",
-        status: "started",
-        profile: "primary",
-        provider: "test-provider",
-        model: "z-ai/glm-5.2",
-        input_message_ids: [],
-        request_context: %{},
-        request_refs: [],
-        request_patches: [],
-        response: %{},
-        tool_results: [],
-        usage: %{},
-        provider_metadata: %{},
-        started_at: now,
-        inserted_at: now,
-        updated_at: now
-      })
+    actor_event =
+      Repo.insert!(
+        ActorEvent.changeset(%ActorEvent{}, %{
+          agent_uid: agent_uid,
+          binding_name: "test",
+          session_id: session_id,
+          source_event_id: "test-turn-#{System.unique_integer([:positive])}",
+          type: "test.turn",
+          available_at: now,
+          queue_sequence: 1,
+          input_state: "open",
+          payload: %{}
+        })
+      )
+
+    Repo.insert!(%Message{
+      agent_uid: agent_uid,
+      conversation_id: conversation.id,
+      type: "message",
+      status: "generating",
+      content: [],
+      metadata: %{
+        "actor_event_id" => actor_event.id,
+        "profile" => "primary",
+        "provider" => "test-provider",
+        "model" => "z-ai/glm-5.2",
+        "request_context" => %{},
+        "request_refs" => [],
+        "request_patches" => [],
+        "response" => %{},
+        "tool_results" => [],
+        "usage" => %{},
+        "provider_metadata" => %{},
+        "started_at" => now
+      },
+      inserted_at: now,
+      updated_at: now
+    })
 
     activation_uid = "activation-#{System.unique_integer([:positive])}"
 
@@ -297,7 +313,7 @@ defmodule Ankole.AIGatewayCase do
       lease_id: "lease-#{System.unique_integer([:positive])}",
       lease_expires_at: DateTime.add(now, 60, :second),
       assigned_worker_id: worker_id,
-      current_llm_turn_id: llm_turn.id,
+      current_actor_event_id: actor_event.id,
       revision: 0,
       started_at: now,
       metadata: %{},
@@ -310,7 +326,7 @@ defmodule Ankole.AIGatewayCase do
        "actor" => %{"agent_uid" => agent_uid, "session_id" => session_id},
        "activation_uid" => activation_uid,
        "actor_epoch" => 1,
-       "llm_turn_id" => llm_turn.id,
+       "actor_event_id" => actor_event.id,
        "revision" => 0
      }}
   end

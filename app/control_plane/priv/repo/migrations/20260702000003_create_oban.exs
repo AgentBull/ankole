@@ -1,6 +1,6 @@
 defmodule Ankole.Repo.Migrations.CreateOban do
-  # Oban 作业队列（用于定时调度等）。
-  # Oban 自带的迁移负责建 oban_jobs / oban_peers 表。
+  # Oban owns its queue schema; Ankole uses it for scheduled work and background retries.
+  # Keeping this as the upstream migration avoids hand-copying Oban table details.
   use Ecto.Migration
 
   def up do

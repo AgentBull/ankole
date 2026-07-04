@@ -1,7 +1,7 @@
 """Create a thumbnail contact sheet for a PPTX via LibreOffice + Poppler.
 
 Usage:
-    python scripts/thumbnail.py input.pptx [output_prefix] [--cols N]
+    python /repo/app/library/skills/powerpoint/scripts/thumbnail.py input.pptx [output_prefix] [--cols N]
 """
 
 import argparse

@@ -5,12 +5,13 @@ defmodule Ankole.SignalsGateway.Outbox do
 
   require Logger
 
-  alias Ankole.Actors.ActorInput
+  alias Ankole.Actors.ActorEvent
   alias Ankole.Repo
   alias Ankole.SignalsGateway.JsonPayload
   alias Ankole.SignalsGateway.OutboxAdapter
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Projection
+  alias Ankole.SignalsGateway.ReplyAttachment
   alias Ankole.SignalsGateway.Sanitizer
   alias Ankole.SignalsGateway.SignalBinding
   alias Ankole.SignalsGateway.SignalChannel
@@ -18,6 +19,7 @@ defmodule Ankole.SignalsGateway.Outbox do
 
   import Ankole.SignalsGateway.Utils,
     only: [
+      collect_results: 1,
       fetch_datetime: 2,
       fetch_list: 2,
       fetch_map: 3,
@@ -43,18 +45,63 @@ defmodule Ankole.SignalsGateway.Outbox do
   """
   @spec commit_outbox(map()) :: {:ok, OutboxEntry.t()} | {:error, term()}
   def commit_outbox(attrs) when is_map(attrs) do
+    commit_outbox_in_tx(Repo, attrs)
+  end
+
+  @doc """
+  Records a provider-visible outbox intent inside a caller-owned transaction.
+  """
+  @spec commit_outbox_in_tx(module(), map()) :: {:ok, OutboxEntry.t()} | {:error, term()}
+  def commit_outbox_in_tx(repo, attrs) when is_map(attrs) do
     %OutboxEntry{}
     |> OutboxEntry.changeset(default_outbox_attrs(attrs))
-    |> Repo.insert(
+    |> repo.insert(
       on_conflict: :nothing,
       conflict_target: [:agent_uid, :binding_name, :outbound_key],
       returning: true
     )
-    |> outbox_insert_result(attrs)
+    |> outbox_insert_result(repo, attrs)
   end
 
   @doc """
-  Chooses the provider-visible reply operation for an actor input.
+  Commits reply-attachment side effects produced by an AIGateway terminal item.
+  """
+  @spec commit_reply_attachment_outboxes_in_tx(
+          module(),
+          ActorEvent.t(),
+          binary(),
+          String.t(),
+          [map()]
+        ) :: {:ok, [OutboxEntry.t()]} | {:error, term()}
+  def commit_reply_attachment_outboxes_in_tx(
+        repo,
+        %ActorEvent{} = actor_event,
+        ai_message_id,
+        text,
+        attachments
+      )
+      when is_binary(ai_message_id) and is_list(attachments) do
+    with {:ok, attachments} <- ReplyAttachment.normalize_attachments(attachments),
+         {:ok, operation} <- outbox_operation_for_actor_event(actor_event, repo) do
+      attachments
+      |> Enum.with_index()
+      |> Enum.map(fn {attachment, index} ->
+        commit_reply_attachment_outbox_in_tx(
+          repo,
+          actor_event,
+          ai_message_id,
+          operation,
+          attachment,
+          text,
+          index
+        )
+      end)
+      |> collect_results()
+    end
+  end
+
+  @doc """
+  Chooses the provider-visible reply operation for an actor event.
 
   Decides whether the agent's reply should be a threaded `:reply` to the
   triggering entry or a top-level `:post`, based on the channel's reply_mode and
@@ -62,17 +109,17 @@ defmodule Ankole.SignalsGateway.Outbox do
   error so a provider-visible side effect is never committed to an invented
   route.
   """
-  @spec outbox_operation_for_actor_input(ActorInput.t(), module()) ::
+  @spec outbox_operation_for_actor_event(ActorEvent.t(), module()) ::
           {:ok, atom()} | {:error, term()}
-  def outbox_operation_for_actor_input(%ActorInput{} = actor_input, repo \\ Repo) do
-    with {:ok, channel} <- outbox_route_channel(repo, actor_input),
-         {:ok, binding} <- outbox_route_binding(repo, actor_input),
+  def outbox_operation_for_actor_event(%ActorEvent{} = actor_event, repo \\ Repo) do
+    with {:ok, channel} <- outbox_route_channel(repo, actor_event),
+         {:ok, binding} <- outbox_route_binding(repo, actor_event),
          {:ok, capabilities} <- adapter_outbound_capabilities(binding.adapter),
          {:ok, operation} <-
            choose_outbox_operation(
              channel,
              capabilities,
-             actor_input
+             actor_event
            ) do
       {:ok, operation}
     end
@@ -116,11 +163,10 @@ defmodule Ankole.SignalsGateway.Outbox do
   @doc """
   Lists outbox rows that are ready for a dispatch attempt.
 
-  "Due" means either freshly `:created` or `:failed` and past its
-  `next_attempt_at` with retries remaining. Oldest-first and capped by `limit`
-  so a periodic dispatcher drains a bounded, fair batch each tick. Rows in
-  `:sending`/`:succeeded`/`:unsupported`/`:unknown_after_send` are intentionally
-  excluded — they are either in progress or terminal.
+  "Due" means freshly `:created`, retryable `:failed` past its
+  `next_attempt_at`, or stale `:sending` older than the in-flight recovery
+  window. Oldest-first and capped by `limit` so a periodic dispatcher drains a
+  bounded, fair batch each tick. Terminal rows remain excluded.
   """
   @spec list_due_outbox(DateTime.t(), pos_integer()) :: [OutboxEntry.t()]
   def list_due_outbox(now \\ DateTime.utc_now(:microsecond), limit \\ 50)
@@ -168,7 +214,10 @@ defmodule Ankole.SignalsGateway.Outbox do
         with %OutboxEntry{} = outbox <-
                fetch_outbox_for_update(repo, agent_uid, binding_name, outbound_key),
              {:ok, channel} <- outbox_channel(repo, outbox) do
-          case in_flight_recovery_action(outbox, adapter) do
+          case in_flight_recovery_action(outbox, adapter, now) do
+            {:in_flight, outbox} ->
+              {:ok, outbox}
+
             {:reconcile, outbox} ->
               {:ok, {:reconcile, outbox, channel, adapter}}
 
@@ -202,10 +251,10 @@ defmodule Ankole.SignalsGateway.Outbox do
   # existed (the commit was a duplicate). That's success for an idempotent
   # commit, so re-read the existing row by its key and return it instead of the
   # empty conflict struct.
-  defp outbox_insert_result({:ok, %OutboxEntry{agent_uid: nil}}, attrs) do
+  defp outbox_insert_result({:ok, %OutboxEntry{agent_uid: nil}}, repo, attrs) do
     attrs = default_outbox_attrs(attrs)
 
-    case Repo.get_by(OutboxEntry,
+    case repo.get_by(OutboxEntry,
            agent_uid: attrs.agent_uid,
            binding_name: attrs.binding_name,
            outbound_key: attrs.outbound_key
@@ -215,8 +264,37 @@ defmodule Ankole.SignalsGateway.Outbox do
     end
   end
 
-  defp outbox_insert_result({:ok, %OutboxEntry{} = entry}, _attrs), do: {:ok, entry}
-  defp outbox_insert_result({:error, _changeset} = error, _attrs), do: error
+  defp outbox_insert_result({:ok, %OutboxEntry{} = entry}, _repo, _attrs), do: {:ok, entry}
+  defp outbox_insert_result({:error, _changeset} = error, _repo, _attrs), do: error
+
+  defp commit_reply_attachment_outbox_in_tx(
+         repo,
+         %ActorEvent{} = actor_event,
+         ai_message_id,
+         operation,
+         attachment,
+         text,
+         index
+       ) do
+    outbound_key = "ai-reply-attachment:#{ai_message_id}:#{index}"
+
+    commit_outbox_in_tx(repo, %{
+      agent_uid: actor_event.agent_uid,
+      binding_name: actor_event.binding_name,
+      outbound_key: outbound_key,
+      operation: operation,
+      signal_channel_id: actor_event.signal_channel_id,
+      provider_thread_id: actor_event.provider_thread_id,
+      reply_to_source_entry_id: actor_event.source_entry_id,
+      # Source table: source_actor_event_id stores the actor_events.id that
+      # caused this provider-visible side effect.
+      source_actor_event_id: actor_event.id,
+      ai_message_id: ai_message_id,
+      payload: %{"text" => text, "attachments" => [attachment]},
+      fallback_visible_text: text,
+      idempotency_key: outbound_key
+    })
+  end
 
   # Channel wants threaded replies and we have an entry to thread under: reply if
   # the adapter supports threaded replies, otherwise degrade to a top-level post
@@ -225,9 +303,9 @@ defmodule Ankole.SignalsGateway.Outbox do
   defp choose_outbox_operation(
          %SignalChannel{reply_mode: :entry},
          capabilities,
-         %ActorInput{provider_entry_id: provider_entry_id}
+         %ActorEvent{source_entry_id: source_entry_id}
        )
-       when is_binary(provider_entry_id) do
+       when is_binary(source_entry_id) do
     {:ok,
      case MapSet.member?(capabilities, "reply_entry") do
        true -> :reply
@@ -235,15 +313,15 @@ defmodule Ankole.SignalsGateway.Outbox do
      end}
   end
 
-  defp choose_outbox_operation(%SignalChannel{reply_mode: mode}, capabilities, _actor_input)
+  defp choose_outbox_operation(%SignalChannel{reply_mode: mode}, capabilities, _actor_event)
        when mode in [:channel, :entry] do
     {:ok, post_or_fallback(capabilities, :post)}
   end
 
-  defp choose_outbox_operation(%SignalChannel{reply_mode: :none}, _capabilities, _actor_input),
+  defp choose_outbox_operation(%SignalChannel{reply_mode: :none}, _capabilities, _actor_event),
     do: {:error, :outbox_reply_not_supported}
 
-  defp choose_outbox_operation(_channel, _capabilities, _actor_input),
+  defp choose_outbox_operation(_channel, _capabilities, _actor_event),
     do: {:error, :outbox_reply_mode_unknown}
 
   defp post_or_fallback(capabilities, fallback) do
@@ -253,26 +331,26 @@ defmodule Ankole.SignalsGateway.Outbox do
     end
   end
 
-  defp outbox_route_channel(_repo, %ActorInput{signal_channel_id: nil}),
+  defp outbox_route_channel(_repo, %ActorEvent{signal_channel_id: nil}),
     do: {:error, :signal_channel_id_missing}
 
-  defp outbox_route_channel(repo, %ActorInput{signal_channel_id: signal_channel_id}) do
+  defp outbox_route_channel(repo, %ActorEvent{signal_channel_id: signal_channel_id}) do
     case repo.get(SignalChannel, signal_channel_id) do
       %SignalChannel{} = channel -> {:ok, channel}
       nil -> {:error, {:signal_channel_not_found, signal_channel_id}}
     end
   end
 
-  defp outbox_route_binding(repo, %ActorInput{} = actor_input) do
+  defp outbox_route_binding(repo, %ActorEvent{} = actor_event) do
     case repo.get_by(SignalBinding,
-           agent_uid: actor_input.agent_uid,
-           name: actor_input.binding_name
+           agent_uid: actor_event.agent_uid,
+           name: actor_event.binding_name
          ) do
       %SignalBinding{} = binding ->
         {:ok, binding}
 
       nil ->
-        {:error, {:signal_binding_not_found, actor_input.agent_uid, actor_input.binding_name}}
+        {:error, {:signal_binding_not_found, actor_event.agent_uid, actor_event.binding_name}}
     end
   end
 
@@ -393,7 +471,7 @@ defmodule Ankole.SignalsGateway.Outbox do
 
       :reply ->
         with :ok <- require_reply_surface(outbox, channel, capabilities) do
-          require_text(outbox.source_provider_entry_id, outbox)
+          require_text(outbox.reply_to_source_entry_id, outbox)
         end
 
       :edit ->
@@ -443,7 +521,7 @@ defmodule Ankole.SignalsGateway.Outbox do
 
   defp require_capability_and_target(outbox, capabilities, capability) do
     with :ok <- require_capability(outbox, capabilities, capability) do
-      require_text(outbox.target_provider_entry_id, outbox)
+      require_text(outbox.target_source_entry_id, outbox)
     end
   end
 
@@ -465,21 +543,31 @@ defmodule Ankole.SignalsGateway.Outbox do
   # Recovery for a row found in :sending — meaning a previous dispatch told the
   # adapter to send and the node died before recording the outcome. A blind
   # resend risks a duplicate provider post, so:
-  #   - if the adapter can reconcile AND we already captured a provider_entry_id,
+  #   - if the adapter can reconcile AND we already captured a created_source_entry_id,
   #     reconcile to learn whether the send actually landed;
   #   - otherwise we cannot safely tell, so park the row as unknown_after_send
   #     for an operator rather than guess.
   # (This is the durable counterpart to "streaming is progress; committed work is
   # truth" — an unconfirmed send is neither, so it is never silently retried.)
   defp in_flight_recovery_action(
-         %OutboxEntry{
-           status: :sending,
-           platform_send_started_at: %DateTime{},
-           provider_entry_id: provider_entry_id
-         } = outbox,
+         %OutboxEntry{status: :sending, platform_send_started_at: %DateTime{} = started_at} =
+           outbox,
+         adapter,
+         now
+       ) do
+    case in_flight_recovery_due?(started_at, now) do
+      true -> stale_in_flight_recovery_action(outbox, adapter)
+      false -> {:in_flight, outbox}
+    end
+  end
+
+  defp in_flight_recovery_action(_outbox, _adapter, _now), do: :continue
+
+  defp stale_in_flight_recovery_action(
+         %OutboxEntry{created_source_entry_id: created_source_entry_id} = outbox,
          adapter
        )
-       when is_binary(provider_entry_id) do
+       when is_binary(created_source_entry_id) do
     capabilities = OutboxAdapter.capabilities(adapter)
 
     case MapSet.member?(capabilities, :outbound_reconciliation) do
@@ -488,20 +576,19 @@ defmodule Ankole.SignalsGateway.Outbox do
     end
   end
 
-  # Same situation but no provider_entry_id was captured, so even a
+  # Same situation but no created_source_entry_id was captured, so even a
   # reconciliation-capable adapter has nothing to look up → mark unknown.
-  defp in_flight_recovery_action(
-         %OutboxEntry{status: :sending, platform_send_started_at: %DateTime{}} = outbox,
-         _adapter
-       ),
-       do:
-         {:unknown, outbox,
-          %{
-            "reason" => "provider send started without provider entry id"
-          }}
+  defp stale_in_flight_recovery_action(outbox, _adapter),
+    do:
+      {:unknown, outbox,
+       %{
+         "reason" => "provider send started without provider entry id"
+       }}
 
-  # Not mid-send → proceed with a normal fresh dispatch.
-  defp in_flight_recovery_action(_outbox, _adapter), do: :continue
+  defp in_flight_recovery_due?(%DateTime{} = started_at, %DateTime{} = now) do
+    cutoff = DateTime.add(now, -@outbox_in_flight_recovery_seconds, :second)
+    DateTime.compare(started_at, cutoff) != :gt
+  end
 
   defp mark_outbox_sending(repo, outbox, now) do
     outbox
@@ -597,13 +684,16 @@ defmodule Ankole.SignalsGateway.Outbox do
 
   defp mark_outbox_succeeded(repo, outbox, result) do
     recovery_state = fetch_value(result, :recovery_state) || %{}
+    payload = fetch_value(result, :payload) || outbox.payload
 
     with {:ok, recovery_state} <-
-           JsonPayload.normalize_map(recovery_state, allow_datetime: true) do
+           JsonPayload.normalize_map(recovery_state, allow_datetime: true),
+         {:ok, payload} <- JsonPayload.normalize_map(payload, allow_datetime: true) do
       outbox
       |> OutboxEntry.changeset(%{
         status: :succeeded,
-        provider_entry_id: provider_entry_id_after_success(outbox, result),
+        created_source_entry_id: created_source_entry_id_after_success(outbox, result),
+        payload: payload,
         last_error: %{},
         next_attempt_at: nil,
         recovery_state: recovery_state
@@ -633,23 +723,12 @@ defmodule Ankole.SignalsGateway.Outbox do
   end
 
   # Prefer the id the provider returned; fall back to one already on the row.
-  # If the provider gave us nothing (some adapters don't return an id), synthesize
-  # a stable local id so the mirror still has a primary key — only for operations
-  # that create a new entry, since edit/delete/reaction target an existing id.
-  defp provider_entry_id_after_success(%OutboxEntry{} = outbox, result) do
-    optional_text(result, :provider_entry_id) ||
-      outbox.provider_entry_id ||
-      stable_local_provider_entry_id(outbox)
+  # Without a provider-derived entry id there is no source mirror identity, so a
+  # successful outbox row remains succeeded but does not write signal_entries.
+  defp created_source_entry_id_after_success(%OutboxEntry{} = outbox, result) do
+    optional_text(result, :created_source_entry_id) ||
+      outbox.created_source_entry_id
   end
-
-  # Derived from the idempotency/outbound key so the same committed intent always
-  # maps to the same local id, keeping the mirror upsert idempotent.
-  defp stable_local_provider_entry_id(%OutboxEntry{operation: operation} = outbox)
-       when operation in [:post, :reply, :divider, :card] do
-    "local-outbox:#{outbox.idempotency_key || outbox.outbound_key}"
-  end
-
-  defp stable_local_provider_entry_id(%OutboxEntry{}), do: nil
 
   # Exponential backoff: delay = 5s * 2^(attempt-1), clamped to the 5m ceiling
   # (so 5s, 10s, 20s, 40s, … capped at 300s). Returning nil once attempts are
@@ -683,14 +762,14 @@ defmodule Ankole.SignalsGateway.Outbox do
          now
        )
        when operation in [:post, :reply, :divider, :card] do
-    case optional_text(result, :provider_entry_id) || outbox.provider_entry_id do
+    case optional_text(result, :created_source_entry_id) || outbox.created_source_entry_id do
       nil ->
         :ok
 
-      provider_entry_id ->
+      source_entry_id ->
         fact = %{
           signal_channel_id: outbox.signal_channel_id,
-          provider_entry_id: provider_entry_id,
+          source_entry_id: source_entry_id,
           provider_thread_id: outbox.provider_thread_id,
           text: outbox.fallback_visible_text,
           fallback_visible_text: outbox.fallback_visible_text,
@@ -722,7 +801,7 @@ defmodule Ankole.SignalsGateway.Outbox do
        ) do
     case repo.get_by(SignalEntry,
            signal_channel_id: outbox.signal_channel_id,
-           provider_entry_id: outbox.target_provider_entry_id
+           source_entry_id: outbox.target_source_entry_id
          ) do
       %SignalEntry{} = entry ->
         entry
@@ -752,7 +831,7 @@ defmodule Ankole.SignalsGateway.Outbox do
        ) do
     SignalEntry
     |> where([entry], entry.signal_channel_id == ^outbox.signal_channel_id)
-    |> where([entry], entry.provider_entry_id == ^outbox.target_provider_entry_id)
+    |> where([entry], entry.source_entry_id == ^outbox.target_source_entry_id)
     |> repo.delete_all()
 
     :ok
@@ -768,7 +847,7 @@ defmodule Ankole.SignalsGateway.Outbox do
        when operation in [:reaction_add, :reaction_remove] do
     case repo.get_by(SignalEntry,
            signal_channel_id: outbox.signal_channel_id,
-           provider_entry_id: outbox.target_provider_entry_id
+           source_entry_id: outbox.target_source_entry_id
          ) do
       %SignalEntry{} = entry ->
         fact = %{

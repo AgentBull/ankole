@@ -8,6 +8,7 @@ defmodule Ankole.AIGateway.ProviderConfigs.Crypto do
   """
 
   alias Ankole.Kernel, as: NativeKernel
+  alias Ankole.SecretKeyBase
 
   @purpose "ai_gateway_provider_option"
 
@@ -51,24 +52,9 @@ defmodule Ankole.AIGateway.ProviderConfigs.Crypto do
   # across provider rows and option names. That is the useful guarantee here;
   # provider-specific validation still belongs to provider code.
   defp row_key(provider_row_id, option_key) do
-    with {:ok, secret} <- root_secret() do
+    with {:ok, secret} <- SecretKeyBase.fetch() do
       context = Ankole.JSON.encode!(["ai_gateway_providers", provider_row_id, option_key])
       {:ok, NativeKernel.derive_key(secret, @purpose, context)}
-    end
-  end
-
-  # Roots the per-row key derivation in the endpoint's `secret_key_base` rather
-  # than a separate KMS: one operator-managed secret already gates the
-  # installation, so encrypted provider options are bound to it. Rotating it
-  # invalidates all stored ciphertexts.
-  defp root_secret do
-    :ankole
-    |> Application.get_env(AnkoleWeb.Endpoint, [])
-    |> Keyword.fetch(:secret_key_base)
-    |> case do
-      {:ok, secret} when is_binary(secret) and secret != "" -> {:ok, secret}
-      {:ok, _secret} -> {:error, :invalid_secret_key_base}
-      :error -> {:error, :missing_secret_key_base}
     end
   end
 end

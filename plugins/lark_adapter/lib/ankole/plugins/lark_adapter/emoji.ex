@@ -22,9 +22,21 @@ defmodule Ankole.Plugins.LarkAdapter.Emoji do
     "EXCLAMATION" => "exclamation"
   }
 
-  @reverse @emoji
-           |> Enum.reverse()
-           |> Map.new(fn {provider, normalized} -> {normalized, provider} end)
+  @reverse %{
+    "thumbs_up" => "THUMBSUP",
+    "thumbs_down" => "THUMBSDOWN",
+    "ok" => "OK",
+    "heart" => "HEART",
+    "smile" => "SMILE",
+    "laugh" => "LAUGH",
+    "clap" => "CLAP",
+    "fire" => "FIRE",
+    "eyes" => "EYES",
+    "check" => "DONE",
+    "cross" => "WRONG",
+    "question" => "QUESTION",
+    "exclamation" => "EXCLAMATION"
+  }
 
   @doc """
   Converts provider reaction names into Ankole's stable reaction vocabulary.

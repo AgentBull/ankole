@@ -5,6 +5,7 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.AlibabaCN do
 
   use Ankole.AIGateway.ProviderDSL
 
+  alias Ankole.AIGateway.Providers.OpenAICompatible
   alias Ankole.AIGateway.UniversalAIRequest
 
   provider "alibaba_cn" do
@@ -14,8 +15,6 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.AlibabaCN do
     setting(:api_key, encrypted: true)
     setting(:headers, type: :map)
     setting(:query_params, type: :map)
-    setting(:include_usage, type: :boolean)
-    setting(:supports_structured_outputs, type: :boolean)
 
     setting(:user, scope: :request)
     setting(:response_format, scope: :request)
@@ -49,15 +48,6 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.AlibabaCN do
       |> UniversalAIRequest.raw_headers()
       |> UniversalAIRequest.bearer_auth(ctx.settings[:api_key])
 
-    with {:ok, %{"status" => status, "body" => body}} when status in 200..299 <-
-           UniversalAIRequest.raw_get(ctx, "models", headers: headers) do
-      {:ok, body}
-    else
-      {:ok, %{"status" => status, "body" => body}} ->
-        {:error, {:provider_connection_check_failed, status, body}}
-
-      {:error, _reason} = error ->
-        error
-    end
+    OpenAICompatible.check_models_endpoint(ctx, headers)
   end
 end

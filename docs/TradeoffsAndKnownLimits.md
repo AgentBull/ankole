@@ -36,9 +36,9 @@ distinction is deliberate:
 - the worker may read app configuration and request live credentials;
 - live secrets may exist in worker memory while a turn is running;
 - secrets must not be persisted into PostgreSQL payloads, workspace files,
-  skill overlays, progress rows, final proposals, or debug artifacts;
+  skill overlays, progress rows, AI gateway requests, or debug artifacts;
 - the control plane still owns final commit authority, turn fencing, provider
-  outbox truth, and durable transcript writes.
+  outbox truth, and the durable AI message log.
 
 This means a worker compromise is serious, but it is not the same failure mode
 as code escaping a single `bubblewrap` command sandbox. The worker is part of
@@ -140,17 +140,21 @@ environment-variable family, or compatibility layer.
 
 The control plane owns durable semantic state:
 
-- actor input journals and consumption facts;
-- turn status, revisions, and fences;
-- assistant transcript writes;
+- the actor event journal (`actor_events`), with completion recorded as the
+  `completed_at` timestamp — there is no consumption table;
+- delivery fences, revisions, and session activations;
+- the AIGateway stateful message log (`ai_gateway_messages` and
+  `ai_gateway_conversations`);
 - provider-visible outbox rows;
 - app configuration and provider configuration;
 - skill registry, enablement, and overlay metadata.
 
-Workers may propose effects, request semantic state, and transfer files, but
-they do not directly own final transcript commit. Final assistant output lands
-through a control-plane transaction that checks turn fences and writes durable
-state.
+Workers execute tools, request semantic state, and transfer files, but they
+never write the AI message log, the conversations table, or the outbox. Final
+AI output lands through AIGateway's terminal commit: one control-plane
+transaction that checks the delivery fence, marks the final message row
+`complete`, sets `actor_events.completed_at`, and clears the live delivery —
+committed before the terminal frame reaches the worker.
 
 This is why `mailbox_updated`, worker progress, and live fabric delivery are not
 durable ownership signals by themselves. They are runtime signals around
@@ -179,6 +183,70 @@ transport layer.
 The current auth story assumes first-party workers and private fabric endpoints.
 CURVE/TLS, public worker admission, and hostile-network hardening are not part
 of the current mainline.
+
+The 30-day agent-scoped AIGateway key is the only AI credential a worker ever
+holds. External provider secrets never reach worker memory.
+
+## China-Market Provider Compatibility Headers
+
+The `zai_coding_plan` provider keeps a desktop-client-compatible default
+`User-Agent` because the upstream coding endpoint has been observed to behave
+like a client-oriented compatibility surface. This is a pragmatic compatibility
+default, not an identity or compliance guarantee.
+
+Operators can override `connection_options.user_agent` for that provider. If
+the upstream endpoint no longer requires a desktop-style UA, the configured
+value should be replaced with an Ankole-specific UA or removed by setting an
+empty value only after a real-provider smoke confirms the endpoint still works.
+
+## AIGateway Stateful Responses
+
+These are settled decisions of the stateful Responses design, not open items.
+See `docs/design-docs/AIGateway.md` for the mechanism.
+
+Continuation is derived, never stored. `ai_gateway_conversations` keeps no
+active-generation lease and no "current position" pointer; the continuation
+base is re-derived from the message graph as the latest visible leaf. A stored
+pointer would be a second source of truth that drifts from the graph on
+compaction, retraction, branching, and reconnect. Deriving costs a query;
+repairing a drifted pointer costs correctness.
+
+There is no half-stream recovery. The log keeps no stable item snapshots and no
+content version counter. A broken provider stream costs one round: the stale
+`generating` row goes to `error` by `updated_at` staleness, and the round is
+re-sent from the last `complete` anchor. Retry is a new `actor_event_id` with
+`retry_of_actor_event_id`, not a resurrected stream.
+
+Token budgeting is chars/4 plus a per-item overhead. This deliberately avoids a
+tokenizer dependency. The worst case is one compaction triggered early or late,
+which is a cost tradeoff, not a correctness risk.
+
+Compaction covers text-bearing items only. A media item without an auditable
+summary or durable ref stays outside the covered prefix. When `truncation=auto`
+drops media or opaque items from provider-facing input, the run records them in
+`metadata.auto_truncation.dropped_opaque_messages`; media is never silently
+lost, but it is also not summarized yet.
+
+Retracted rows are skipped without replacement. Projection omits a retracted
+row's content and generates no note for the model. The audit fact stays on the
+row; the model simply no longer sees it.
+
+The security model is two rules: the 30-day per-agent token proves agent
+identity, and every query filters by that agent's `agent_uid`. There are no
+per-event tokens, no claims, no actor-event liveness checks, and no generation
+lease. Finer-grained permission layers here are treated as harmful complexity,
+not as missing features — the worker fleet is first-party and already inside
+the trusted fabric.
+
+There is no `DELETE /responses/:id` and no cancel endpoint. IM deletion has its
+own mapping in SignalsGateway, and a running generation is cancelled through
+actor event control. Stateless responses use transport-only `tmp_resp_*` ids
+that can never be retrieved or chained.
+
+One WebSocket connection runs one in-flight response, and `background=true` is
+unsupported. The worker loop is strictly sequential per actor event; parallel
+generations for one session are excluded at the ActorRuntime layer, not by an
+AIGateway lock.
 
 ## Rust Kernel Boundary
 
@@ -249,7 +317,12 @@ The current tool surface is intentionally narrow:
 - `patch`;
 - `read_file`;
 - `interactive_terminal`;
-- `command`.
+- `command`;
+- `reply_attachment`;
+- `skill_view`;
+- `skill_append`;
+- `check_back_later`;
+- `cron`.
 
 The current skill surface is also explicit:
 
@@ -278,14 +351,16 @@ It owns:
 - normalized provider ingress;
 - binding admission and group-message policy;
 - provider mirror updates;
-- actor input construction;
+- actor event construction;
+- live streamed-reply preview delivery (`AIReplyPreview`) and final-reply
+  mirror recovery (`RecoveryScan`);
 - provider-visible outbox execution.
 
 It does not own:
 
-- worker-internal AI SDK loops;
+- the AIGateway Responses loop, message log, or compaction;
 - session actor scheduling;
-- final assistant commit;
+- final AI output commit;
 - arbitrary rule routing;
 - plugin discovery or provider setup persistence;
 - universal raw-provider audit logging.
@@ -293,6 +368,26 @@ It does not own:
 Provider ack and provider-visible reply must stay separate. A webhook HTTP 200
 means transport acknowledgement after the gateway has accepted or rejected the
 fact; it is not an agent reply.
+
+Streamed IM delivery is at-least-once and best-effort, not exactly-once.
+Preview continuity is transient: the provider-side preview message id is never
+persisted into message rows, and a dead preview process leaves a stale card
+until recovery delivers the final content. A reply can be re-sent in rare crash
+windows. Error terminals are not rendered to IM at all in the current policy —
+a failed generation posts no new provider message.
+
+Streamed AI reply recovery is best-effort in v1. The `RecoveryScan` process is a
+single control-plane GenServer, and it only scans terminal AI messages older than
+the configured grace window. That window is the accepted protection against
+racing the live preview/finalize path. Do not add a database or advisory-lock
+mutex around recovery resend in the current single-instance deployment; it would
+not turn the provider-visible path into exactly-once delivery and would add a
+second coordination layer. If Ankole later runs multiple recovery scanners, add
+an explicit resend mutex as part of that multi-instance deployment design.
+
+The e2e assertion for a normal streamed reply is the terminal
+`ai_gateway_messages` row plus the `signal_entries.ai_message_id` final mirror.
+It is not an outbox row; only explicit side effects assert the outbox.
 
 See `docs/design-docs/SignalsGateway.md` for the detailed ingress/outbox model.
 
@@ -339,9 +434,16 @@ These surfaces are not part of the current mainline:
 - arbitrary user-configured rule routing for SignalsGateway;
 - a durable ZeroMQ queue;
 - a control-plane NFS scanner as semantic truth;
-- workflow/subagent/search/cron surfaces;
+- workflow/subagent/search surfaces beyond the schedule primitives;
 - provider-generated synchronous webhook response bodies;
-- hidden text scraping for outbound file attachments.
+- hidden text scraping for outbound file attachments;
+- multi-instance recovery-scan claim/lock coordination;
+- AIGateway hosted server-side tools (`ankole:*` extension slugs);
+- named branch projections over the message graph;
+- the OpenAI Conversations API public object surface;
+- response delete/cancel endpoints;
+- non-AI actor-event executors (a future workflow runtime owns its own durable
+  run tables instead of writing into `ai_gateway_messages`).
 
 When one of these becomes product work, it needs its own design and validation
 path.

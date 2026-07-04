@@ -110,14 +110,13 @@ defmodule Ankole.SignalsGateway.BindingFilters do
       "signal" => %{
         "kind" => json_value(fact.kind),
         "agent_uid" => fact.agent_uid,
-        "ingress_event_id" => fact.ingress_event_id,
+        "source_event_id" => fact.source_event_id,
         "gateway_time" => json_value(fact.gateway_time),
         "channel" => channel_context(fact),
         "entry" => entry_context(fact),
         "lifecycle" => lifecycle_context(fact),
         "reaction" => reaction_context(fact),
         "action" => action_context(fact),
-        "internal" => internal_context(fact),
         "command" => command_context(fact)
       }
     }
@@ -137,12 +136,12 @@ defmodule Ankole.SignalsGateway.BindingFilters do
 
   defp entry_context(fact) do
     %{
-      "id" => fact.provider_entry_id,
-      "provider_entry_id" => fact.provider_entry_id,
+      "id" => fact.source_entry_id,
+      "source_entry_id" => fact.source_entry_id,
       "thread_id" => fact.provider_thread_id,
       "provider_thread_id" => fact.provider_thread_id,
       "sender_key" => fact.sender_key,
-      "actor_input_type" => fact.actor_input_type,
+      "actor_event_type" => fact.actor_event_type,
       "text" => fact.text,
       "formatted_content" => json_value(fact.formatted_content),
       "attachments" => json_value(fact.attachments),
@@ -182,15 +181,6 @@ defmodule Ankole.SignalsGateway.BindingFilters do
     }
   end
 
-  defp internal_context(fact) do
-    %{
-      "session_id" => fact.session_id,
-      "timer_id" => fact.timer_id,
-      "subject" => fact.internal_subject,
-      "payload" => json_value(fact.internal)
-    }
-  end
-
   defp command_context(fact) do
     %{
       "prefixes" => json_value(fact.command_prefixes),
@@ -206,12 +196,12 @@ defmodule Ankole.SignalsGateway.BindingFilters do
     Map.new(value, fn {key, map_value} -> {json_key(key), json_value(map_value)} end)
   end
 
-  defp json_value(value) when is_list(value), do: Enum.map(value, &json_value/1)
-  defp json_value(value) when is_atom(value), do: Atom.to_string(value)
-
   defp json_value(value)
        when is_binary(value) or is_number(value) or is_boolean(value) or is_nil(value),
        do: value
+
+  defp json_value(value) when is_list(value), do: Enum.map(value, &json_value/1)
+  defp json_value(value) when is_atom(value), do: Atom.to_string(value)
 
   defp json_value(_value), do: nil
 

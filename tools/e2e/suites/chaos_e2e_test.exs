@@ -158,6 +158,9 @@ defmodule Ankole.E2E.ChaosE2ETest do
     assert :ok = FakeFeishu.State.drop_ws_connections(ctx.fake_feishu.state)
     assert_receive {:fake_feishu, {:ws_disconnected, _conn_id}}, 15_000
 
+    # FakeFeishu counts every WS accept. Waiting past the initial connection and
+    # the dropped socket proves the adapter opened a fresh consumer before the
+    # provider redelivery below.
     assert {:ok, _count} =
              wait_until(deadline(30_000), fn ->
                count = FakeFeishu.State.connection_count(ctx.fake_feishu.state)

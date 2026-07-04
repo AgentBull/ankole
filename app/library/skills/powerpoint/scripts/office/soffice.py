@@ -1,7 +1,7 @@
 """Small LibreOffice wrapper for sandbox-friendly PowerPoint conversion.
 
 Usage mirrors soffice:
-    python scripts/office/soffice.py --headless --convert-to pdf output.pptx
+    python /repo/app/library/skills/powerpoint/scripts/office/soffice.py --headless --convert-to pdf output.pptx
 """
 
 import os

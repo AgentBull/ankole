@@ -22,14 +22,13 @@ Bootstrap configuration owns process and infrastructure facts, including:
 - root secret material such as `SECRET_KEY_BASE`;
 - Phoenix endpoint host, port, TLS, and release-server settings;
 - database and HTTP pool sizes;
-- Redis connection settings such as `REDIS_URL`;
 - local development and test-only paths.
 
 These values are deployment facts. Changing them requires changing the process
 environment and restarting the affected process.
 
-AppConfigure must not be used to discover bootstrap values. In particular, Redis
-URLs, database URLs, endpoint settings, pool sizes, and root secret material are
+AppConfigure must not be used to discover bootstrap values. In particular,
+database URLs, endpoint settings, pool sizes, and root secret material are
 not runtime settings, because the application may need them before PostgreSQL or
 the AppConfigure cache is available.
 
@@ -44,11 +43,15 @@ Typical AppConfigure values include:
 - default locale and other operator-visible product settings;
 - installation-wide generated secrets, such as
   `runtime_fabric.worker_auth_key`;
-- LLM provider credentials and model preferences;
 - agent runtime limits and per-agent overrides;
 - plugin-owned setup values;
 - chat-channel or identity-provider settings that are not required to boot the
   process.
+
+Provider credentials and model preferences are owned by AIGateway and AI Agent
+today: configured provider instances live in `ai_gateway_providers`, and agent
+model preferences live in `agents.options`. They should not be documented as
+AppConfigure keys unless those owning subsystems later migrate them deliberately.
 
 AppConfigure is not a generic key-value store. Every key must be declared by its
 owning subsystem or accepted by a registered pattern. The declaration defines
@@ -69,7 +72,8 @@ of implementing its own crypto helpers inside the control-plane app.
 
 Each AppConfigure definition declares:
 
-- stable key, for example `i18n.default_locale` or `llm.openai.api_key`;
+- stable key, for example `i18n.default_locale` or
+  `runtime_fabric.worker_auth_key`;
 - value schema;
 - whether the stored value is encrypted at rest;
 - whether the definition is scoped or global-only;
@@ -292,12 +296,9 @@ or starting the RuntimeFabric router.
 `Ankole.AppConfigure.Cache` starts after `Ankole.Repo` and before subsystems that
 consume runtime configuration at boot.
 
-Subsystems that project AppConfigure into runtime state, such as LLM provider
-bridges or I18n catalog reloads, should subscribe to explicit post-write hooks
-from their owning write path.
-
-Redis cache bootstrap reads Redis connection settings from bootstrap
-configuration. It must not wait for AppConfigure.
+Subsystems that project AppConfigure into runtime state, such as I18n catalog
+reloads or plugin runtime projections, should subscribe to explicit post-write
+hooks from their owning write path.
 
 ## Invariants
 

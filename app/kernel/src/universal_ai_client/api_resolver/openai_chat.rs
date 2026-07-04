@@ -518,7 +518,7 @@ fn chat_output_items(message: &Value) -> Value {
 }
 
 fn build_openai_chat_body(context: &ResponseContext) -> Map<String, Value> {
-    let request = context.resolved_request_object();
+    let request = context.resolved_provider_request_object();
     let stream = request
         .get("stream")
         .and_then(Value::as_bool)

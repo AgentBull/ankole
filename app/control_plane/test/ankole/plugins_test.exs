@@ -9,6 +9,7 @@ defmodule Ankole.PluginsTest do
   alias Ankole.PluginFixtures.DuplicateAdapterPlugin
   alias Ankole.PluginFixtures.DuplicateAlphaPlugin
   alias Ankole.PluginFixtures.InvalidAdapterModulePlugin
+  alias Ankole.PluginFixtures.KebabAIGatewayProviderKindPlugin
   alias Ankole.PluginFixtures.MissingRemovedCallbackPlugin
   alias Ankole.PluginFixtures.MissingIdentityCallbackPlugin
   alias Ankole.PluginFixtures.MissingAIGatewayEmbeddingPreparePlugin
@@ -28,16 +29,34 @@ defmodule Ankole.PluginsTest do
     :ok
   end
 
-  test "discovers compiled plugin modules from source roots" do
-    assert {:ok, specs} = Discovery.discover(roots: [fixture_root()])
+  test "discovers compiled plugin modules from source paths" do
+    assert {:ok, specs} = Discovery.discover(paths: [fixture_path()])
     assert Enum.map(specs, & &1.id) == ["alpha", "beta"]
   end
 
-  test "missing plugin roots are ignored" do
-    missing_root =
+  test "uses configured plugin source paths as the default discovery paths" do
+    previous_config = Application.get_env(:ankole, Discovery)
+    fixture_path = fixture_path()
+
+    Application.put_env(:ankole, Discovery, paths: [fixture_path])
+
+    on_exit(fn ->
+      case previous_config do
+        nil -> Application.delete_env(:ankole, Discovery)
+        config -> Application.put_env(:ankole, Discovery, config)
+      end
+    end)
+
+    assert Discovery.default_paths() == [Path.expand(fixture_path)]
+    assert {:ok, specs} = Discovery.discover()
+    assert Enum.map(specs, & &1.id) == ["alpha", "beta"]
+  end
+
+  test "missing plugin paths are ignored" do
+    missing_path =
       Path.join(System.tmp_dir!(), "ankole-missing-plugins-#{System.unique_integer([:positive])}")
 
-    assert {:ok, []} = Discovery.discover(roots: [missing_root])
+    assert {:ok, []} = Discovery.discover(paths: [missing_path])
   end
 
   test "starts every discovered plugin unless disabled" do
@@ -90,7 +109,7 @@ defmodule Ankole.PluginsTest do
     assert {:stop, {:duplicate_plugin_id, "alpha", modules}} =
              Registry.init(
                discovery: [
-                 roots: [],
+                 paths: [],
                  modules: [AlphaPlugin, DuplicateAlphaPlugin]
                ]
              )
@@ -138,13 +157,18 @@ defmodule Ankole.PluginsTest do
               {:missing_adapter_callback, MissingAIGatewayEmbeddingPreparePlugin,
                :prepare_embedding_model, 1}}}} =
              Spec.from_module(MissingAIGatewayEmbeddingPreparePlugin)
+
+    assert {:error,
+            {KebabAIGatewayProviderKindPlugin,
+             {:invalid_adapter_declaration, {:invalid_ai_gateway_provider_kind, "kebab-provider"}}}} =
+             Spec.from_module(KebabAIGatewayProviderKindPlugin)
   end
 
   test "duplicate adapter declarations fail registry startup" do
     assert {:stop, {:duplicate_adapter_declaration, "test.adapter", "alpha-adapter", modules}} =
              Registry.init(
                discovery: [
-                 roots: [],
+                 paths: [],
                  modules: [AlphaPlugin, DuplicateAdapterPlugin]
                ]
              )
@@ -178,11 +202,11 @@ defmodule Ankole.PluginsTest do
 
     start_supervised!(%{
       id: name,
-      start: {Registry, :start_link, [[name: name, discovery: [roots: [fixture_root()]]]]}
+      start: {Registry, :start_link, [[name: name, discovery: [paths: [fixture_path()]]]]}
     })
   end
 
-  defp fixture_root do
+  defp fixture_path do
     Path.expand("../support/plugin_fixtures", __DIR__)
   end
 

@@ -20,6 +20,7 @@ defmodule Ankole.Plugins.Spec do
   # so subsystem contracts can be namespaced, e.g. "signals_gateway.adapter".
   @id_pattern ~r/\A[a-z][a-z0-9_-]*\z/
   @contract_id_pattern ~r/\A[a-z][a-z0-9_.-]*\z/
+  @ai_gateway_provider_kind_pattern ~r/\A[a-z][a-z0-9_]{0,62}\z/
 
   @enforce_keys [:module, :id, :api_version]
   defstruct [
@@ -329,7 +330,7 @@ defmodule Ankole.Plugins.Spec do
   defp validate_identity_capability(module, "user_full_sync"),
     do: validate_module_callback(module, :sync_users, 3)
 
-  defp validate_identity_capability(module, "department_full_sync"),
+  defp validate_identity_capability(module, "department_access_check"),
     do: validate_module_callback(module, :sync_departments, 3)
 
   defp validate_identity_capability(_module, _capability), do: :ok
@@ -346,12 +347,25 @@ defmodule Ankole.Plugins.Spec do
 
   defp validate_ai_gateway_provider_id(%{provider_kind: provider_kind}, declaration) do
     with {:ok, declaration_id} <- declaration_text(declaration, :id) do
-      case provider_kind do
-        ^declaration_id -> :ok
-        module_id -> {:error, {:ai_gateway_provider_id_mismatch, declaration_id, module_id}}
+      with :ok <- validate_ai_gateway_provider_kind(declaration_id),
+           :ok <- validate_ai_gateway_provider_kind(provider_kind) do
+        case provider_kind do
+          ^declaration_id -> :ok
+          module_id -> {:error, {:ai_gateway_provider_id_mismatch, declaration_id, module_id}}
+        end
       end
     end
   end
+
+  defp validate_ai_gateway_provider_kind(provider_kind) when is_binary(provider_kind) do
+    case Regex.match?(@ai_gateway_provider_kind_pattern, provider_kind) do
+      true -> :ok
+      false -> {:error, {:invalid_ai_gateway_provider_kind, provider_kind}}
+    end
+  end
+
+  defp validate_ai_gateway_provider_kind(provider_kind),
+    do: {:error, {:invalid_ai_gateway_provider_kind, provider_kind}}
 
   defp validate_ai_gateway_capabilities(%{capabilities: capabilities})
        when is_list(capabilities) do

@@ -5,7 +5,55 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.VolcengineArk do
 
   use Ankole.AIGateway.ProviderDSL
 
+  alias Ankole.AIGateway.Providers.OpenAICompatible
   alias Ankole.AIGateway.UniversalAIRequest
+
+  @doubao_metadata [
+    %{
+      "id" => "doubao-seed-1-6",
+      "name" => "Doubao Seed 1.6",
+      "aliases" => ["doubao-seed-1.6", "doubao-seed-1-6-250615"],
+      "context_length" => 256_000,
+      "top_provider" => %{"context_length" => 256_000, "max_completion_tokens" => 32_000},
+      "supported_parameters" => ~w(
+        temperature top_p max_tokens max_output_tokens response_format tools tool_choice
+        reasoning thinking
+      )
+    },
+    %{
+      "id" => "doubao-seed-1-6-flash",
+      "name" => "Doubao Seed 1.6 Flash",
+      "aliases" => ["doubao-seed-1.6-flash", "doubao-seed-1-6-flash-250615"],
+      "context_length" => 256_000,
+      "top_provider" => %{"context_length" => 256_000, "max_completion_tokens" => 32_000},
+      "supported_parameters" => ~w(
+        temperature top_p max_tokens max_output_tokens response_format tools tool_choice
+        reasoning thinking
+      )
+    },
+    %{
+      "id" => "doubao-seed-1-6-thinking",
+      "name" => "Doubao Seed 1.6 Thinking",
+      "aliases" => ["doubao-seed-1.6-thinking", "doubao-seed-1-6-thinking-250615"],
+      "context_length" => 256_000,
+      "top_provider" => %{"context_length" => 256_000, "max_completion_tokens" => 32_000},
+      "supported_parameters" => ~w(
+        temperature top_p max_tokens max_output_tokens response_format tools tool_choice
+        reasoning thinking
+      )
+    },
+    %{
+      "id" => "doubao-seed-2-0-pro",
+      "name" => "Doubao Seed 2.0 Pro",
+      "aliases" => ["doubao-seed-2.0-pro", "doubao-seed-2-0-pro-260215"],
+      "context_length" => 256_000,
+      "top_provider" => %{"context_length" => 256_000, "max_completion_tokens" => 128_000},
+      "supported_parameters" => ~w(
+        temperature top_p max_tokens max_output_tokens response_format tools tool_choice
+        reasoning thinking
+      )
+    }
+  ]
 
   provider "volcengine_ark" do
     label(%{"default" => "Volcengine Ark", "zh-Hans-CN" => "火山引擎 Ark"})
@@ -14,14 +62,10 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.VolcengineArk do
     setting(:api_key, encrypted: true)
     setting(:headers, type: :map)
     setting(:query_params, type: :map)
-    setting(:include_usage, type: :boolean)
-    setting(:supports_structured_outputs, type: :boolean)
 
     setting(:user, scope: :request)
     setting(:reasoning, scope: :request)
-    setting(:reasoningEffort, scope: :request)
-    setting(:textVerbosity, scope: :request)
-    setting(:strictJsonSchema, scope: :request)
+    setting(:thinking, type: :map, scope: :request)
 
     language_model do
       upstream(:sse)
@@ -37,21 +81,15 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.VolcengineArk do
   end
 
   @impl true
+  def models_metadata_source(_ctx), do: {:ok, {:static, @doubao_metadata}}
+
+  @impl true
   def check_connection(ctx) when is_map(ctx) do
     headers =
       ctx
       |> UniversalAIRequest.raw_headers()
       |> UniversalAIRequest.bearer_auth(ctx.settings[:api_key])
 
-    with {:ok, %{"status" => status, "body" => body}} when status in 200..299 <-
-           UniversalAIRequest.raw_get(ctx, "models", headers: headers) do
-      {:ok, body}
-    else
-      {:ok, %{"status" => status, "body" => body}} ->
-        {:error, {:provider_connection_check_failed, status, body}}
-
-      {:error, _reason} = error ->
-        error
-    end
+    OpenAICompatible.check_models_endpoint(ctx, headers)
   end
 end

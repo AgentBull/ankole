@@ -19,13 +19,14 @@ pub enum ApiResolverKind {
     GoogleEmbeddings,
     OpenrouterRerank,
     JinaRerank,
+    ParallelWebSearch,
+    ParallelWebFetch,
+    BrightDataSerpWebSearch,
+    AgentbullWebSearch,
+    JinaReaderWebFetch,
 }
 
 impl ApiResolverKind {
-    pub fn canonical(self) -> Self {
-        self
-    }
-
     pub fn as_str(self) -> &'static str {
         match self {
             Self::OpenaiResponses => "openai_responses",
@@ -39,6 +40,11 @@ impl ApiResolverKind {
             Self::GoogleEmbeddings => "google_embeddings",
             Self::OpenrouterRerank => "openrouter_rerank",
             Self::JinaRerank => "jina_rerank",
+            Self::ParallelWebSearch => "parallel_web_search",
+            Self::ParallelWebFetch => "parallel_web_fetch",
+            Self::BrightDataSerpWebSearch => "bright_data_serp_web_search",
+            Self::AgentbullWebSearch => "agentbull_web_search",
+            Self::JinaReaderWebFetch => "jina_reader_web_fetch",
         }
     }
 }
@@ -348,6 +354,60 @@ impl ResponseContext {
 
         request
     }
+
+    pub fn resolved_provider_request(&self) -> Value {
+        Value::Object(self.resolved_provider_request_object())
+    }
+
+    pub fn resolved_provider_request_object(&self) -> Map<String, Value> {
+        let mut request = self.resolved_request_object();
+        request.remove("prompt_cache_key");
+        request.remove("service_tier");
+        normalize_compaction_input(&mut request);
+        request
+    }
+}
+
+fn normalize_compaction_input(request: &mut Map<String, Value>) {
+    let Some(Value::Array(items)) = request.get_mut("input") else {
+        return;
+    };
+
+    for item in items {
+        if let Some(normalized) = normalize_compaction_item(item) {
+            *item = normalized;
+        }
+    }
+}
+
+fn normalize_compaction_item(item: &Value) -> Option<Value> {
+    let map = item.as_object()?;
+    if map.get("type").and_then(Value::as_str) != Some("compaction") {
+        return None;
+    }
+
+    let summary = map
+        .get("summary")
+        .map(value_to_prompt_text)
+        .filter(|text| !text.trim().is_empty())
+        .unwrap_or_else(|| value_to_prompt_text(item));
+
+    Some(json!({
+        "type": "message",
+        "role": "user",
+        "content": [{
+            "type": "input_text",
+            "text": format!("Conversation summary:\n{summary}")
+        }]
+    }))
+}
+
+fn value_to_prompt_text(value: &Value) -> String {
+    match value {
+        Value::String(text) => text.clone(),
+        Value::Null => String::new(),
+        value => serde_json::to_string(value).unwrap_or_default(),
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -513,7 +573,9 @@ mod tests {
             request: json!({
                 "input": "hello",
                 "provider_options": {"reasoningEffort": "high"},
-                "previous_response_id": "resp_old"
+                "previous_response_id": "resp_old",
+                "prompt_cache_key": "cache-a",
+                "service_tier": "agent_computer"
             }),
             provider_options: json!({"reasoningEffort": "minimal", "textVerbosity": "low"}),
             stream: Some(false),
@@ -527,7 +589,49 @@ mod tests {
         assert_eq!(request.get("textVerbosity"), Some(&json!("low")));
         assert_eq!(request.get("stream"), Some(&json!(false)));
         assert_eq!(request.get("model"), Some(&json!("gpt-test")));
+        assert_eq!(request.get("prompt_cache_key"), Some(&json!("cache-a")));
+        assert_eq!(request.get("service_tier"), Some(&json!("agent_computer")));
         assert!(!request.contains_key("provider_options"));
         assert!(!request.contains_key("previous_response_id"));
+
+        let provider_request = context.resolved_provider_request_object();
+
+        assert_eq!(provider_request.get("input"), Some(&json!("hello")));
+        assert_eq!(
+            provider_request.get("reasoningEffort"),
+            Some(&json!("minimal"))
+        );
+        assert!(!provider_request.contains_key("prompt_cache_key"));
+        assert!(!provider_request.contains_key("service_tier"));
+    }
+
+    #[test]
+    fn provider_request_projects_internal_compaction_items_as_user_text() {
+        let context = ResponseContext {
+            model: "gpt-test".to_string(),
+            request: json!({
+                "input": [
+                    {"type": "compaction", "summary": "Prior work was summarized."},
+                    {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "continue"}]}
+                ]
+            }),
+            provider_options: json!({}),
+            stream: None,
+            include_model: true,
+        };
+
+        let provider_request = context.resolved_provider_request_object();
+        let input = provider_request
+            .get("input")
+            .and_then(Value::as_array)
+            .unwrap();
+
+        assert_eq!(input[0]["type"], json!("message"));
+        assert_eq!(input[0]["role"], json!("user"));
+        assert_eq!(
+            input[0]["content"][0]["text"],
+            json!("Conversation summary:\nPrior work was summarized.")
+        );
+        assert_eq!(input[1]["type"], json!("message"));
     }
 }

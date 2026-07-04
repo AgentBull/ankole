@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use globset::GlobMatcher;
@@ -121,6 +122,9 @@ struct CachedResourcePattern {
 static CONDITION_CACHE: OnceLock<Mutex<HashMap<String, CachedCondition>>> = OnceLock::new();
 static RESOURCE_PATTERN_CACHE: OnceLock<Mutex<HashMap<String, CachedResourcePattern>>> =
     OnceLock::new();
+
+const MAX_CONDITION_CACHE_ENTRIES: usize = 1024;
+const MAX_RESOURCE_PATTERN_CACHE_ENTRIES: usize = 1024;
 
 /// Authorizes one exact action on one concrete resource.
 pub fn authorize(snapshot: AuthzSnapshot) -> KernelResult<AuthzDecision> {
@@ -447,16 +451,16 @@ fn store_cached_condition_program(
     program: &Arc<::cel::Program>,
 ) {
     let cache = CONDITION_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = lock_cache(cache);
 
-    if let Ok(mut guard) = cache.try_lock() {
-        guard.insert(
-            cache_key,
-            CachedCondition {
-                condition: condition.to_owned(),
-                program: Arc::clone(program),
-            },
-        );
-    }
+    evict_one_if_full(&mut guard, &cache_key, MAX_CONDITION_CACHE_ENTRIES);
+    guard.insert(
+        cache_key,
+        CachedCondition {
+            condition: condition.to_owned(),
+            program: Arc::clone(program),
+        },
+    );
 }
 
 fn cached_grant_resource_pattern_matches(
@@ -506,15 +510,33 @@ fn store_cached_resource_pattern_matcher(
     matcher: &Arc<GlobMatcher>,
 ) {
     let cache = RESOURCE_PATTERN_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = lock_cache(cache);
 
-    if let Ok(mut guard) = cache.try_lock() {
-        guard.insert(
-            cache_key,
-            CachedResourcePattern {
-                pattern: pattern.to_owned(),
-                matcher: Arc::clone(matcher),
-            },
-        );
+    evict_one_if_full(&mut guard, &cache_key, MAX_RESOURCE_PATTERN_CACHE_ENTRIES);
+    guard.insert(
+        cache_key,
+        CachedResourcePattern {
+            pattern: pattern.to_owned(),
+            matcher: Arc::clone(matcher),
+        },
+    );
+}
+
+fn lock_cache<K, V>(cache: &Mutex<HashMap<K, V>>) -> std::sync::MutexGuard<'_, HashMap<K, V>> {
+    match cache.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+fn evict_one_if_full<K, V>(cache: &mut HashMap<K, V>, key: &K, max_entries: usize)
+where
+    K: Clone + Eq + Hash,
+{
+    if !cache.contains_key(key) && cache.len() >= max_entries {
+        if let Some(old_key) = cache.keys().next().cloned() {
+            cache.remove(&old_key);
+        }
     }
 }
 
@@ -643,5 +665,59 @@ mod tests {
         let decision = authorize_all(snapshot).unwrap();
         assert_eq!(decision.status, "deny");
         assert_eq!(decision.denied_action.as_deref(), Some("write"));
+    }
+
+    #[test]
+    fn condition_cache_evicts_when_full() {
+        clear_condition_cache();
+
+        for index in 0..=MAX_CONDITION_CACHE_ENTRIES {
+            cached_condition_program(format!("test-condition:{index}"), "true").unwrap();
+        }
+
+        assert_eq!(condition_cache_len(), MAX_CONDITION_CACHE_ENTRIES);
+    }
+
+    #[test]
+    fn resource_pattern_cache_evicts_when_full() {
+        clear_resource_pattern_cache();
+
+        for index in 0..=MAX_RESOURCE_PATTERN_CACHE_ENTRIES {
+            let grant = SnapshotGrant {
+                id: format!("grant-{index}"),
+                principal_uid: Some("alice".to_owned()),
+                group_id: None,
+                resource_pattern: "web_console:**".to_owned(),
+                action: "read".to_owned(),
+                condition: "true".to_owned(),
+            };
+
+            cached_grant_resource_pattern_matcher(&grant).unwrap();
+        }
+
+        assert_eq!(
+            resource_pattern_cache_len(),
+            MAX_RESOURCE_PATTERN_CACHE_ENTRIES
+        );
+    }
+
+    fn clear_condition_cache() {
+        let cache = CONDITION_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        cache.lock().expect("condition cache lock").clear();
+    }
+
+    fn clear_resource_pattern_cache() {
+        let cache = RESOURCE_PATTERN_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        cache.lock().expect("resource pattern cache lock").clear();
+    }
+
+    fn condition_cache_len() -> usize {
+        let cache = CONDITION_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        cache.lock().expect("condition cache lock").len()
+    }
+
+    fn resource_pattern_cache_len() -> usize {
+        let cache = RESOURCE_PATTERN_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        cache.lock().expect("resource pattern cache lock").len()
     }
 }

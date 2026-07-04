@@ -44,7 +44,7 @@ defmodule Ankole.ActorRuntime.OutboxDispatcher do
   end
 
   @doc """
-  Best-effort wakeup after a final proposal commits an outbox row.
+  Best-effort wakeup after a transaction commits an outbox row.
 
   Periodic dispatch remains the recovery path. Waking only reduces latency after
   the commit transaction creates provider-visible work.

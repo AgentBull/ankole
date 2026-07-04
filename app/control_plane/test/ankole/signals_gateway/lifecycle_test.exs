@@ -2,8 +2,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
   use Ankole.DataCase, async: false
 
   alias Ecto.Adapters.SQL
-  alias Ankole.Actors
-  alias Ankole.Actors.ActorInput
+  alias Ankole.Actors.ActorEvent
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.InboundBatch
@@ -12,10 +11,11 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
   alias Ankole.SignalsGateway.SignalChannel
   alias Ankole.SignalsGateway.SignalEntry
 
+  import Ankole.ActorRuntimeCase, only: [complete_actor_event: 4]
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsGatewayFixtures
 
-  @base_time ~U[2026-06-23 08:00:00.000000Z]
+  @base_time ~U[2026-07-02 01:34:05.000000Z]
 
   describe "entry removal lifecycle" do
     test "removal before receive writes tombstone and drops late receive" do
@@ -26,7 +26,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                SignalsGateway.emit_entry_removed(
                  agent.uid,
                  "bot",
-                 lifecycle_entry(%{ingress_event_id: "delete-1"}),
+                 lifecycle_entry(%{source_event_id: "delete-1"}),
                  now: @base_time
                )
 
@@ -36,12 +36,12 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                SignalsGateway.emit_entry(
                  agent.uid,
                  "bot",
-                 group_entry(%{explicit: true, ingress_event_id: "evt-late"}),
+                 group_entry(%{explicit: true, source_event_id: "evt-late"}),
                  now: DateTime.add(@base_time, 1, :second)
                )
 
       assert Repo.aggregate(SignalEntry, :count) == 0
-      assert Repo.aggregate(ActorInput, :count) == 0
+      assert Repo.aggregate(ActorEvent, :count) == 0
     end
 
     test "receive and delete use the same transaction-scoped advisory lock" do
@@ -84,19 +84,19 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                  now: @base_time
                )
 
-      assert Repo.aggregate(ActorInput, :count) == 0
+      assert Repo.aggregate(ActorEvent, :count) == 0
       assert batch.batch_state == "open"
 
-      assert {:ok, %{updated_inbound_batches: 1, canceled_actor_inputs: 0, lifecycle_inputs: []}} =
+      assert {:ok, %{updated_inbound_batches: 1, canceled_actor_events: 0, lifecycle_events: []}} =
                SignalsGateway.emit_entry_removed(
                  agent.uid,
                  "bot",
-                 lifecycle_entry(%{ingress_event_id: "recall-1"}),
+                 lifecycle_entry(%{source_event_id: "recall-1"}),
                  now: @base_time
                )
 
       assert Repo.aggregate(SignalEntry, :count) == 0
-      assert Repo.aggregate(ActorInput, :count) == 0
+      assert Repo.aggregate(ActorEvent, :count) == 0
 
       assert %InboundBatch{batch_state: "canceled", outcome: "canceled", entries: entries} =
                Repo.get!(InboundBatch, batch.id)
@@ -108,62 +108,127 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
-      %{actor_input: original_input} =
-        emit_addressed_actor_input(agent.uid, "bot", group_entry(%{explicit: true}))
+      %{actor_event: original_input} =
+        emit_addressed_actor_event(agent.uid, "bot", group_entry(%{explicit: true}))
 
       assert {:ok, _consumed} =
-               Actors.consume_actor_input(
+               complete_actor_event(
                  agent.uid,
                  "bot",
-                 original_input.ingress_event_id,
-                 actor_commit_opts(consumed_at: DateTime.add(@base_time, 1, :second))
+                 original_input.source_event_id,
+                 actor_commit_opts(completed_at: DateTime.add(@base_time, 1, :second))
                )
 
-      assert {:ok, %{lifecycle_inputs: [lifecycle_input]}} =
+      assert {:ok, %{lifecycle_events: [lifecycle_event]}} =
                SignalsGateway.emit_entry_removed(
                  agent.uid,
                  "bot",
-                 lifecycle_entry(%{ingress_event_id: "delete-consumed"}),
+                 lifecycle_entry(%{source_event_id: "delete-consumed"}),
                  now: DateTime.add(@base_time, 2, :second)
                )
 
-      assert lifecycle_input.type == "signal.entry.removed"
-      assert lifecycle_input.available_at == DateTime.add(@base_time, 2, :second)
+      assert lifecycle_event.type == "signal.entry.removed"
+      assert lifecycle_event.available_at == DateTime.add(@base_time, 2, :second)
       assert Repo.aggregate(SignalEntry, :count) == 0
     end
 
-    test "actor commit rejects a actor input after a committed tombstone" do
+    test "removal of an earlier batched entry finds the completed actor event" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
-      %{actor_input: original_input} =
-        emit_addressed_actor_input(agent.uid, "bot", group_entry(%{explicit: true}))
+      alice = %{principal_uid: "alice", id: "provider-alice", display_name: "Alice"}
+
+      assert {:ok, %{status: :accepted}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{
+                   explicit: true,
+                   source_event_id: "evt-batch-a",
+                   source_entry_id: "msg-batch-a",
+                   author: alice,
+                   text: "first"
+                 }),
+                 now: @base_time
+               )
+
+      assert {:ok, %{status: :accepted}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{
+                   explicit: true,
+                   source_event_id: "evt-batch-b",
+                   source_entry_id: "msg-batch-b",
+                   author: alice,
+                   text: "second"
+                 }),
+                 now: DateTime.add(@base_time, 100, :millisecond)
+               )
+
+      assert {:ok, [%{actor_event: original_input}]} =
+               SignalsGateway.finalize_due_inbound_batches(
+                 now: DateTime.add(@base_time, 800, :millisecond)
+               )
+
+      assert original_input.source_entry_id == "msg-batch-b"
+
+      assert {:ok, _consumed} =
+               complete_actor_event(
+                 agent.uid,
+                 "bot",
+                 original_input.source_event_id,
+                 actor_commit_opts(completed_at: DateTime.add(@base_time, 1, :second))
+               )
+
+      assert {:ok, %{lifecycle_events: [lifecycle_event]}} =
+               SignalsGateway.emit_entry_removed(
+                 agent.uid,
+                 "bot",
+                 lifecycle_entry(%{
+                   source_event_id: "delete-batch-a",
+                   source_entry_id: "msg-batch-a"
+                 }),
+                 now: DateTime.add(@base_time, 2, :second)
+               )
+
+      assert lifecycle_event.type == "signal.entry.removed"
+      assert lifecycle_event.source_entry_id == "msg-batch-a"
+      assert lifecycle_event.available_at == DateTime.add(@base_time, 2, :second)
+    end
+
+    test "actor commit rejects a actor event after a committed tombstone" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      %{actor_event: original_input} =
+        emit_addressed_actor_event(agent.uid, "bot", group_entry(%{explicit: true}))
 
       assert {:ok, _} =
                SignalsGateway.emit_entry_removed(
                  agent.uid,
                  "bot",
-                 lifecycle_entry(%{ingress_event_id: "recall-before-commit"}),
+                 lifecycle_entry(%{source_event_id: "recall-before-commit"}),
                  now: DateTime.add(@base_time, 1, :second)
                )
 
-      assert {:error, :actor_input_not_found} =
-               Actors.consume_actor_input(
+      assert {:error, :actor_event_not_found} =
+               complete_actor_event(
                  agent.uid,
                  "bot",
-                 original_input.ingress_event_id,
-                 actor_commit_opts(consumed_at: DateTime.add(@base_time, 2, :second))
+                 original_input.source_event_id,
+                 actor_commit_opts(completed_at: DateTime.add(@base_time, 2, :second))
                )
 
-      assert Repo.aggregate(ActorInput, :count) == 0
+      assert Repo.aggregate(ActorEvent, :count) == 0
     end
 
-    test "actor commit rejects an existing actor input row when tombstone already exists" do
+    test "actor commit rejects an existing actor event row when tombstone already exists" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
-      %{actor_input: original_input} =
-        emit_addressed_actor_input(agent.uid, "bot", group_entry(%{explicit: true}))
+      %{actor_event: original_input} =
+        emit_addressed_actor_event(agent.uid, "bot", group_entry(%{explicit: true}))
 
       assert {:ok, _tombstone} =
                %InputTombstone{}
@@ -171,20 +236,20 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                  agent_uid: agent.uid,
                  binding_name: "bot",
                  signal_channel_id: "lark:chat:group-a",
-                 provider_entry_id: "msg-1",
+                 source_entry_id: "msg-1",
                  tombstoned_until: DateTime.add(@base_time, 1, :day)
                })
                |> Repo.insert()
 
-      assert {:error, :actor_input_canceled} =
-               Actors.consume_actor_input(
+      assert {:error, :actor_event_canceled} =
+               complete_actor_event(
                  agent.uid,
                  "bot",
-                 original_input.ingress_event_id,
-                 actor_commit_opts(consumed_at: DateTime.add(@base_time, 2, :second))
+                 original_input.source_event_id,
+                 actor_commit_opts(completed_at: DateTime.add(@base_time, 2, :second))
                )
 
-      assert Repo.aggregate(ActorInput, :count) == 1
+      assert Repo.aggregate(ActorEvent, :count) == 1
     end
 
     test "removal of record_only entry only updates mirror and tombstone" do
@@ -194,16 +259,16 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
       assert {:ok, %{status: :recorded}} =
                SignalsGateway.emit_entry(agent.uid, "bot", group_entry(), now: @base_time)
 
-      assert {:ok, %{canceled_actor_inputs: 0, lifecycle_inputs: []}} =
+      assert {:ok, %{canceled_actor_events: 0, lifecycle_events: []}} =
                SignalsGateway.emit_entry_removed(
                  agent.uid,
                  "bot",
-                 lifecycle_entry(%{ingress_event_id: "delete-record-only"}),
+                 lifecycle_entry(%{source_event_id: "delete-record-only"}),
                  now: @base_time
                )
 
       assert Repo.aggregate(SignalEntry, :count) == 0
-      assert Repo.aggregate(ActorInput, :count) == 0
+      assert Repo.aggregate(ActorEvent, :count) == 0
     end
   end
 
@@ -229,7 +294,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                  "bot",
                  %{
                    signal_channel_id: "lark:chat:group-a",
-                   provider_entry_id: "msg-1",
+                   source_entry_id: "msg-1",
                    reaction_key: "thumbsup",
                    raw_reaction_key: "👍",
                    actor_key: "alice"
@@ -242,7 +307,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                  agent.uid,
                  "bot",
                  group_entry(%{
-                   ingress_event_id: "evt-old",
+                   source_event_id: "evt-old",
                    text: "old",
                    provider_time: @base_time
                  }),
@@ -252,7 +317,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
       entry =
         Repo.get_by!(SignalEntry,
           signal_channel_id: "lark:chat:group-a",
-          provider_entry_id: "msg-1"
+          source_entry_id: "msg-1"
         )
 
       assert entry.text == "new"
@@ -270,7 +335,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                  "bot",
                  %{
                    signal_channel_id: "missing-channel",
-                   provider_entry_id: "missing-message",
+                   source_entry_id: "missing-message",
                    reaction_key: "thumbsup",
                    actor_key: "alice"
                  },
@@ -303,7 +368,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                  agent.uid,
                  "bot",
                  lifecycle_entry(%{
-                   ingress_event_id: "delete-sparse-channel",
+                   source_event_id: "delete-sparse-channel",
                    channel: %{}
                  }),
                  now: DateTime.add(@base_time, 1, :second)
@@ -366,7 +431,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
   end
 
   describe "durable JSON payload validation" do
-    test "entry ingress rejects runtime values before mirror or actor input writes" do
+    test "entry ingress rejects runtime values before mirror or actor event writes" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
@@ -379,27 +444,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                )
 
       assert Repo.aggregate(SignalEntry, :count) == 0
-      assert Repo.aggregate(ActorInput, :count) == 0
-    end
-
-    test "internal input rejects runtime values before actor input write" do
-      %{principal: agent} = agent_fixture()
-      binding_fixture(agent.uid, "internal:timers", :ignore, adapter: "internal")
-
-      assert {:error, {:invalid_json_payload, :internal, :unsupported_runtime_value}} =
-               SignalsGateway.emit_internal(
-                 agent.uid,
-                 "internal:timers",
-                 %{
-                   ingress_event_id: "timer-bad",
-                   session_id: "daily-reset:agent",
-                   type: "timer.fired",
-                   internal: %{"pid" => self()}
-                 },
-                 now: @base_time
-               )
-
-      assert Repo.aggregate(ActorInput, :count) == 0
+      assert Repo.aggregate(ActorEvent, :count) == 0
     end
 
     test "outbox commit rejects non JSON-serializable payload without inserting a row" do
@@ -447,10 +492,6 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                table == "actor_inputs" and column == "canceled_at"
              end)
 
-      refute Enum.any?(columns, fn [table, column] ->
-               table == "actor_input_consumptions" and column == "payload"
-             end)
-
       tables =
         SQL.query!(
           Repo,
@@ -466,6 +507,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
       refute Enum.any?(tables, &String.contains?(&1, "entry_lifecycle"))
       refute Enum.any?(tables, &String.contains?(&1, "binding_channel"))
       refute "signal_gateway_processed_ingress_events" in tables
+      refute "actor_input_consumptions" in tables
 
       assert "signal_gateway_outbox" in tables
       refute "actor_outbox" in tables

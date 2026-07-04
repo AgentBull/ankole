@@ -8,70 +8,72 @@ defmodule Ankole.ActorRuntime.TurnRetry do
     * provider-side removal of one source entry inside an in-flight merged IM batch.
 
   In both cases the control plane fences the old turn immediately, leaves or
-  rewrites the actor input as retryable durable work, then sends the worker a
+  rewrites the actor event as retryable durable work, then sends the worker a
   best-effort `turn_control retry` event so it can stop spending tokens.
   """
 
   import Ecto.Query, warn: false
 
-  alias Ankole.AIAgent
-  alias Ankole.AIAgent.Schemas.Conversation
-  alias Ankole.AIAgent.Schemas.LlmTurn
+  alias Ankole.AIGateway.Schemas.Conversation
+  alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Actors
-  alias Ankole.Actors.ActorInput
-  alias Ankole.ActorRuntime.Schemas.ActorInputDelivery
+  alias Ankole.Actors.ActorEvent
+  alias Ankole.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.ActorRuntime.Transport.Broker
   alias Ankole.ActorRuntime.TurnEnvelope
+  alias Ankole.ActorRuntime.TurnLifecycle
   alias Ankole.ActorRuntime.WorkerAdmission
 
   @doc """
-  Fences an active generation and marks its inputs retryable inside a transaction.
+  Fences a live worker turn and marks its events retryable inside a transaction.
   """
-  @spec retry_active_generation_in_tx(module(), map(), ActorInput.t(), DateTime.t()) ::
-          {:ok, map() | :no_active_generation} | {:error, term()}
-  def retry_active_generation_in_tx(repo, actor_key, %ActorInput{} = command_input, now) do
-    with %Conversation{} = conversation <- active_conversation_for_update(repo, actor_key),
-         true <- active_generation?(conversation),
-         %LlmTurn{} = turn <- started_turn_for_generation(repo, conversation),
-         deliveries <- deliveries_for_turn(repo, turn.id),
-         retry_input_ids when retry_input_ids != [] <- retry_actor_input_ids(turn, deliveries),
-         {:ok, retry_inputs} <-
-           mark_inputs_for_retry(repo, retry_input_ids, turn, now, "command.retry"),
-         {:ok, _conversation} <-
-           cancel_conversation_generation(repo, conversation, now, "command.retry"),
-         {:ok, cancelled_turn} <- AIAgent.cancel_turn_in_tx(repo, turn, "command.retry", now),
-         {_count, _rows} <- supersede_turn_deliveries(repo, turn.id, now, "command.retry"),
-         {:ok, consumption} <-
-           Actors.consume_command_input_in_tx(repo, command_input,
-             consumed_at: now,
+  @spec retry_live_turn_in_tx(module(), map(), ActorEvent.t(), DateTime.t()) ::
+          {:ok, map() | :no_live_turn} | {:error, term()}
+  def retry_live_turn_in_tx(repo, actor_key, %ActorEvent{} = command_event, now) do
+    with %Conversation{} <- active_conversation_for_update(repo, actor_key),
+         deliveries <- live_deliveries_for_actor(repo, actor_key),
+         actor_event_id when is_binary(actor_event_id) <- current_actor_event_id(deliveries),
+         turn <- TurnLifecycle.generating_message_for_actor_event(repo, actor_event_id),
+         retry_event_ids when retry_event_ids != [] <- retry_actor_event_ids(turn, deliveries),
+         {:ok, retry_events} <-
+           mark_events_for_retry(repo, retry_event_ids, actor_event_id, now, "command.retry"),
+         {:ok, cancelled_message} <-
+           TurnLifecycle.cancel_started_turn_for_actor_event(
+             repo,
+             actor_event_id,
+             now,
+             "command.retry"
+           ),
+         {:ok, completed_event} <-
+           Actors.complete_command_event_in_tx(repo, command_event,
+             completed_at: now,
              outbox_intents: []
            ) do
       {:ok,
        %{
          status: :command_consumed,
-         command: command_input.type,
-         retry_actor_inputs: retry_inputs,
+         command: command_event.type,
+         retry_actor_events: retry_events,
          retry_controls: retry_controls(live_deliveries(deliveries), "command.retry"),
-         llm_turn: cancelled_turn,
-         consumption: consumption
+         ai_message: cancelled_message,
+         actor_event: completed_event
        }}
     else
-      false -> {:ok, :no_active_generation}
-      nil -> {:ok, :no_active_generation}
-      [] -> {:ok, :no_active_generation}
+      nil -> {:ok, :no_live_turn}
+      [] -> {:ok, :no_live_turn}
       {:error, _reason} = error -> error
     end
   end
 
   @doc """
-  Retracts one provider source entry from live actor input inside a transaction.
+  Retracts one provider source entry from live actor event inside a transaction.
   """
   @spec retract_source_entry_in_tx(module(), map(), term(), DateTime.t()) ::
           {:ok, map()} | {:error, term()}
   def retract_source_entry_in_tx(repo, fact, kind, now) do
     fact
-    |> candidate_inputs_for_source_entry(repo)
-    |> Enum.map(&retract_source_entry_from_input(repo, &1, fact, kind, now))
+    |> candidate_events_for_source_entry(repo)
+    |> Enum.map(&retract_source_entry_from_event(repo, &1, fact, kind, now))
     |> collect_results()
     |> case do
       {:ok, results} ->
@@ -80,8 +82,8 @@ defmodule Ankole.ActorRuntime.TurnRetry do
         {:ok,
          %{
            results: results,
-           canceled_actor_inputs: Enum.count(results, &(&1.status == :canceled)),
-           retried_actor_inputs: Enum.count(results, &(&1.status == :retried)),
+           canceled_actor_events: Enum.count(results, &(&1.status == :canceled)),
+           retried_actor_events: Enum.count(results, &(&1.status == :retried)),
            retry_controls: results |> Enum.flat_map(& &1.retry_controls) |> Enum.uniq()
          }}
 
@@ -136,62 +138,55 @@ defmodule Ankole.ActorRuntime.TurnRetry do
     |> repo.one()
   end
 
-  defp active_generation?(%Conversation{generation: generation}) when is_map(generation) do
-    Conversation.generation_active?(generation)
-  end
-
-  defp active_generation?(_conversation), do: false
-
-  defp started_turn_for_generation(repo, %Conversation{generation: generation} = conversation)
-       when is_map(generation) do
-    AIAgent.started_turn_for_lease(repo, conversation, generation["lease_id"])
-  end
-
-  defp deliveries_for_turn(repo, llm_turn_id) do
-    ActorInputDelivery
-    |> where([delivery], delivery.llm_turn_id == ^llm_turn_id)
+  defp live_deliveries_for_actor(repo, actor_key) do
+    ActorEventDelivery
+    |> where([delivery], delivery.agent_uid == ^actor_key.agent_uid)
+    |> where([delivery], delivery.session_id == ^actor_key.session_id)
+    |> where([delivery], delivery.state in ^ActorEventDelivery.live_states())
     |> lock("FOR UPDATE")
     |> repo.all()
   end
 
-  defp live_deliveries_for_input(repo, %ActorInput{} = input) do
-    ActorInputDelivery
-    |> where([delivery], delivery.actor_input_id == ^input.id)
-    |> where([delivery], delivery.state in ^ActorInputDelivery.live_states())
+  defp live_deliveries_for_event(repo, %ActorEvent{} = input) do
+    ActorEventDelivery
+    |> where([delivery], delivery.actor_event_id == ^input.id)
+    |> where([delivery], delivery.state in ^ActorEventDelivery.live_states())
     |> lock("FOR UPDATE")
     |> repo.all()
   end
 
-  defp mark_inputs_for_retry(repo, input_ids, %LlmTurn{} = turn, now, reason) do
-    ActorInput
-    |> where([input], input.id in ^input_ids)
+  defp mark_events_for_retry(repo, event_ids, actor_event_id, now, reason) do
+    ActorEvent
+    |> where([input], input.id in ^event_ids)
     |> lock("FOR UPDATE")
     |> repo.all()
-    |> Enum.map(&mark_input_for_retry(repo, &1, turn, now, reason))
+    |> Enum.map(&mark_event_for_retry(repo, &1, actor_event_id, now, reason))
     |> collect_results()
     |> case do
-      {:ok, []} -> {:error, :retry_actor_input_not_found}
+      {:ok, []} -> {:error, :retry_actor_event_not_found}
       result -> result
     end
   end
 
-  defp mark_input_for_retry(repo, %ActorInput{} = input, %LlmTurn{} = turn, now, reason) do
-    payload = put_retry_metadata(input.payload, turn.id, input.id, reason, %{})
+  defp mark_event_for_retry(repo, %ActorEvent{} = input, actor_event_id, now, reason) do
+    payload = put_retry_metadata(input.payload, actor_event_id, reason, %{})
 
     input
-    |> ActorInput.changeset(%{payload: payload, available_at: now})
+    |> ActorEvent.changeset(%{payload: payload, available_at: now})
     |> repo.update()
   end
 
-  defp candidate_inputs_for_source_entry(fact, repo) do
-    ActorInput
+  defp candidate_events_for_source_entry(fact, repo) do
+    ActorEvent
     |> where([input], input.agent_uid == ^fact.agent_uid)
     |> where([input], input.binding_name == ^fact.binding_name)
     |> where([input], input.signal_channel_id == ^fact.signal_channel_id)
+    |> where([input], input.input_state == "open")
+    |> where([input], is_nil(input.completed_at))
     |> maybe_where_thread(fact.provider_thread_id)
     |> lock("FOR UPDATE")
     |> repo.all()
-    |> Enum.filter(&input_mentions_provider_entry?(&1, fact.provider_entry_id))
+    |> Enum.filter(&event_mentions_provider_entry?(&1, fact.source_entry_id))
   end
 
   defp maybe_where_thread(query, nil), do: query
@@ -200,58 +195,58 @@ defmodule Ankole.ActorRuntime.TurnRetry do
     where(query, [input], input.provider_thread_id == ^provider_thread_id)
   end
 
-  defp input_mentions_provider_entry?(%ActorInput{} = input, provider_entry_id) do
-    input.provider_entry_id == provider_entry_id or
-      Enum.any?(input_entries(input), &(&1["provider_entry_id"] == provider_entry_id))
+  defp event_mentions_provider_entry?(%ActorEvent{} = input, source_entry_id) do
+    input.source_entry_id == source_entry_id or
+      Enum.any?(event_entries(input), &(&1["source_entry_id"] == source_entry_id))
   end
 
-  defp retract_source_entry_from_input(repo, %ActorInput{} = input, fact, kind, now) do
-    entries = input_entries(input)
+  defp retract_source_entry_from_event(repo, %ActorEvent{} = input, fact, kind, now) do
+    entries = event_entries(input)
 
-    case source_entry_retraction(entries, input, fact.provider_entry_id) do
+    case source_entry_retraction(entries, input, fact.source_entry_id) do
       :no_match ->
         {:ok, nil}
 
       :cancel ->
         with {:ok, cancellation} <-
-               cancel_input_live_turn(repo, input, kind, now, retract_messages?: true),
+               cancel_event_live_turn(repo, input, kind, now),
              {:ok, _deleted} <- repo.delete(input) do
           {:ok,
            %{
              status: :canceled,
-             actor_input: input,
-             llm_turn: cancellation.turn,
+             actor_event: input,
+             ai_message: cancellation.message,
              retry_controls: cancellation.retry_controls
            }}
         end
 
       {:replace, remaining_entries} ->
         with {:ok, cancellation} <-
-               cancel_input_live_turn(repo, input, kind, now, retract_messages?: true),
-             {:ok, updated_input} <-
-               replace_input_entries(
+               cancel_event_live_turn(repo, input, kind, now),
+             {:ok, updated_event} <-
+               replace_event_entries(
                  repo,
                  input,
                  remaining_entries,
                  fact,
                  kind,
                  now,
-                 cancellation.turn
+                 cancellation.message
                ) do
           {:ok,
            %{
              status: :retried,
-             actor_input: updated_input,
-             llm_turn: cancellation.turn,
+             actor_event: updated_event,
+             ai_message: cancellation.message,
              retry_controls: cancellation.retry_controls
            }}
         end
     end
   end
 
-  defp source_entry_retraction(entries, %ActorInput{}, provider_entry_id)
+  defp source_entry_retraction(entries, %ActorEvent{}, source_entry_id)
        when is_list(entries) and entries != [] do
-    remaining = Enum.reject(entries, &(&1["provider_entry_id"] == provider_entry_id))
+    remaining = Enum.reject(entries, &(&1["source_entry_id"] == source_entry_id))
 
     cond do
       length(remaining) == length(entries) -> :no_match
@@ -262,79 +257,71 @@ defmodule Ankole.ActorRuntime.TurnRetry do
 
   defp source_entry_retraction(
          _entries,
-         %ActorInput{provider_entry_id: direct_entry_id},
-         provider_entry_id
+         %ActorEvent{source_entry_id: direct_entry_id},
+         source_entry_id
        )
-       when direct_entry_id == provider_entry_id,
+       when direct_entry_id == source_entry_id,
        do: :cancel
 
-  defp source_entry_retraction(_entries, _input, _provider_entry_id), do: :no_match
+  defp source_entry_retraction(_entries, _input, _source_entry_id), do: :no_match
 
-  defp cancel_input_live_turn(repo, %ActorInput{} = input, reason, now, opts) do
-    deliveries = live_deliveries_for_input(repo, input)
+  defp cancel_event_live_turn(repo, %ActorEvent{} = input, reason, now) do
+    deliveries = live_deliveries_for_event(repo, input)
 
     case deliveries do
       [] ->
-        {:ok, %{turn: nil, retry_controls: []}}
+        {:ok, %{message: nil, retry_controls: []}}
 
       [delivery | _rest] ->
-        with %LlmTurn{} = turn <- lock_turn(repo, delivery.llm_turn_id),
-             %Conversation{} = conversation <- lock_conversation(repo, turn.conversation_id),
-             {:ok, _conversation} <-
-               cancel_conversation_generation(repo, conversation, now, reason),
-             {:ok, cancelled_turn} <- AIAgent.cancel_turn_in_tx(repo, turn, reason, now),
-             {:ok, _messages} <- maybe_retract_turn_messages(repo, turn, reason, now, opts),
-             {_count, _rows} <- supersede_turn_deliveries(repo, turn.id, now, reason) do
+        actor_event_id = delivery.actor_event_id_fence
+
+        with {:ok, cancelled_message} <-
+               TurnLifecycle.cancel_started_turn_for_actor_event(
+                 repo,
+                 actor_event_id,
+                 now,
+                 reason
+               ) do
           {:ok,
            %{
-             turn: cancelled_turn,
+             message: cancelled_message,
              retry_controls: retry_controls(deliveries, reason_text(reason))
            }}
-        else
-          nil -> {:ok, %{turn: nil, retry_controls: []}}
-          {:error, _reason} = error -> error
         end
     end
   end
 
-  defp maybe_retract_turn_messages(repo, %LlmTurn{} = turn, reason, now, opts) do
-    case Keyword.get(opts, :retract_messages?, false) do
-      true -> AIAgent.retract_turn_input_messages_in_tx(repo, turn, reason, now)
-      false -> {:ok, []}
-    end
-  end
-
-  defp replace_input_entries(repo, input, entries, fact, kind, now, turn) do
+  defp replace_event_entries(repo, input, entries, fact, kind, now, turn) do
     summary = merged_entry_summary(entries)
 
     payload =
       input.payload
-      |> replace_payload_entries(entries, summary, fact.provider_entry_id, now)
-      |> maybe_put_retry_metadata(turn, input.id, reason_text(kind), %{
-        "removed_provider_entry_id" => fact.provider_entry_id
+      |> replace_payload_entries(entries, summary, fact.source_entry_id, now)
+      |> maybe_put_retry_metadata(turn, reason_text(kind), %{
+        "removed_source_entry_id" => fact.source_entry_id
       })
 
     attrs = %{
       payload: payload,
-      provider_entry_id: summary["provider_entry_id"],
+      source_entry_id: summary["source_entry_id"],
       available_at: now
     }
 
     attrs =
       case turn do
-        %LlmTurn{} ->
-          Map.put(attrs, :ingress_event_id, "retry:#{input.id}:without:#{fact.provider_entry_id}")
+        %Message{} ->
+          Map.put(attrs, :source_event_id, "retry:#{input.id}:without:#{fact.source_entry_id}")
 
         nil ->
           attrs
       end
 
     input
-    |> ActorInput.changeset(attrs)
+    |> ActorEvent.changeset(attrs)
     |> repo.update()
   end
 
-  defp replace_payload_entries(payload, entries, summary, removed_provider_entry_id, now)
+  defp replace_payload_entries(payload, entries, summary, removed_source_entry_id, now)
        when is_map(payload) do
     data = Map.get(payload, "data", %{})
 
@@ -342,23 +329,23 @@ defmodule Ankole.ActorRuntime.TurnRetry do
       data
       |> Map.put("entry", summary)
       |> Map.put("entries", entries)
-      |> update_observed_messages(removed_provider_entry_id)
+      |> update_observed_messages(removed_source_entry_id)
       |> update_ambient_batch(entries, now)
 
     Map.put(payload, "data", data)
   end
 
-  defp replace_payload_entries(_payload, entries, summary, _removed_provider_entry_id, _now) do
+  defp replace_payload_entries(_payload, entries, summary, _removed_source_entry_id, _now) do
     %{"data" => %{"entry" => summary, "entries" => entries}}
   end
 
-  defp maybe_put_retry_metadata(payload, %LlmTurn{} = turn, actor_input_id, reason, extra) do
-    put_retry_metadata(payload, turn.id, actor_input_id, reason, extra)
+  defp maybe_put_retry_metadata(payload, %Message{} = turn, reason, extra) do
+    put_retry_metadata(payload, turn_actor_event_id(turn), reason, extra)
   end
 
-  defp maybe_put_retry_metadata(payload, _turn, _actor_input_id, _reason, _extra), do: payload
+  defp maybe_put_retry_metadata(payload, _turn, _reason, _extra), do: payload
 
-  defp put_retry_metadata(payload, retry_turn_id, actor_input_id, reason, extra)
+  defp put_retry_metadata(payload, retry_actor_event_id, reason, extra)
        when is_map(payload) do
     entry =
       payload
@@ -368,8 +355,7 @@ defmodule Ankole.ActorRuntime.TurnRetry do
         _value -> %{}
       end
       |> Map.merge(extra)
-      |> Map.put("retry_of_llm_turn_id", retry_turn_id)
-      |> Map.put("retry_of_actor_input_id", actor_input_id)
+      |> Map.put("retry_of_actor_event_id", retry_actor_event_id)
       |> Map.put("retry_reason", reason)
 
     data =
@@ -380,23 +366,22 @@ defmodule Ankole.ActorRuntime.TurnRetry do
     Map.put(payload, "data", data)
   end
 
-  defp put_retry_metadata(_payload, retry_turn_id, actor_input_id, reason, extra) do
+  defp put_retry_metadata(_payload, retry_actor_event_id, reason, extra) do
     put_retry_metadata(
       %{"data" => %{"entry" => %{}}},
-      retry_turn_id,
-      actor_input_id,
+      retry_actor_event_id,
       reason,
       extra
     )
   end
 
-  defp update_observed_messages(data, removed_provider_entry_id) do
+  defp update_observed_messages(data, removed_source_entry_id) do
     case Map.get(data, "observed_messages") do
       messages when is_list(messages) ->
         Map.put(
           data,
           "observed_messages",
-          Enum.reject(messages, &(&1["provider_entry_id"] == removed_provider_entry_id))
+          Enum.reject(messages, &(&1["source_entry_id"] == removed_source_entry_id))
         )
 
       _value ->
@@ -410,10 +395,10 @@ defmodule Ankole.ActorRuntime.TurnRetry do
       batch
       |> Map.put("size", length(entries))
       |> Map.put(
-        "first_provider_entry_id",
-        entries |> List.first() |> Map.get("provider_entry_id")
+        "first_source_entry_id",
+        entries |> List.first() |> Map.get("source_entry_id")
       )
-      |> Map.put("last_provider_entry_id", entries |> List.last() |> Map.get("provider_entry_id"))
+      |> Map.put("last_source_entry_id", entries |> List.last() |> Map.get("source_entry_id"))
       |> Map.put("updated_at", DateTime.to_iso8601(now))
 
     Map.put(data, "ambient_batch", batch)
@@ -451,44 +436,11 @@ defmodule Ankole.ActorRuntime.TurnRetry do
   defp put_nonempty(map, _key, []), do: map
   defp put_nonempty(map, key, values), do: Map.put(map, key, values)
 
-  defp input_entries(%ActorInput{payload: %{"data" => %{"entries" => entries}}})
+  defp event_entries(%ActorEvent{payload: %{"data" => %{"entries" => entries}}})
        when is_list(entries),
        do: entries
 
-  defp input_entries(_input), do: []
-
-  defp cancel_conversation_generation(repo, %Conversation{} = conversation, now, reason) do
-    generation = conversation.generation || %{}
-
-    generation =
-      case generation["lease_id"] do
-        lease_id when is_binary(lease_id) and lease_id != "" ->
-          generation
-          |> Map.put("cancelled_at", DateTime.to_iso8601(now))
-          |> Map.put("cancel_reason", reason_text(reason))
-
-        _value ->
-          generation
-      end
-
-    conversation
-    |> Conversation.changeset(%{generation: generation})
-    |> repo.update()
-  end
-
-  defp supersede_turn_deliveries(repo, llm_turn_id, now, reason) do
-    ActorInputDelivery
-    |> where([delivery], delivery.llm_turn_id == ^llm_turn_id)
-    |> where([delivery], delivery.state in ^ActorInputDelivery.live_states())
-    |> repo.update_all(
-      set: [
-        state: "superseded",
-        superseded_at: now,
-        error: %{"reason" => inspect(reason)},
-        updated_at: now
-      ]
-    )
-  end
+  defp event_entries(_input), do: []
 
   defp retry_controls(deliveries, reason) do
     deliveries
@@ -504,53 +456,60 @@ defmodule Ankole.ActorRuntime.TurnRetry do
   end
 
   defp live_deliveries(deliveries) do
-    Enum.filter(deliveries, &(&1.state in ActorInputDelivery.live_states()))
+    Enum.filter(deliveries, &(&1.state in ActorEventDelivery.live_states()))
   end
 
-  defp retry_actor_input_ids(%LlmTurn{} = turn, deliveries) do
+  defp retry_actor_event_ids(%Message{} = turn, deliveries) do
     deliveries
-    |> Enum.map(& &1.actor_input_id)
-    |> Kernel.++(request_ref_actor_input_ids(turn.request_refs))
+    |> Enum.map(& &1.actor_event_id)
+    |> Kernel.++(request_ref_actor_event_ids(turn.metadata["request_refs"]))
     |> Enum.filter(&is_binary/1)
     |> Enum.uniq()
   end
 
-  defp request_ref_actor_input_ids(request_refs) when is_list(request_refs) do
+  defp retry_actor_event_ids(nil, deliveries) do
+    deliveries
+    |> Enum.map(& &1.actor_event_id)
+    |> Enum.filter(&is_binary/1)
+    |> Enum.uniq()
+  end
+
+  defp request_ref_actor_event_ids(request_refs) when is_list(request_refs) do
     Enum.flat_map(request_refs, fn
-      %{"actor_input_id" => actor_input_id} when is_binary(actor_input_id) -> [actor_input_id]
-      %{actor_input_id: actor_input_id} when is_binary(actor_input_id) -> [actor_input_id]
+      %{"actor_event_id" => actor_event_id} when is_binary(actor_event_id) -> [actor_event_id]
+      %{actor_event_id: actor_event_id} when is_binary(actor_event_id) -> [actor_event_id]
       _ref -> []
     end)
   end
 
-  defp request_ref_actor_input_ids(_request_refs), do: []
+  defp request_ref_actor_event_ids(_request_refs), do: []
 
-  defp turn_ref(%ActorInputDelivery{} = delivery) do
+  defp turn_ref(%ActorEventDelivery{} = delivery) do
     %{
       "actor" => %{
         "agent_uid" => delivery.agent_uid,
         "session_id" => delivery.session_id
       },
+      # Source table: retry control turn_ref copies the original
+      # actor_event_deliveries fence values, which were copied from activation.
       "activation_uid" => delivery.activation_uid,
       "actor_epoch" => delivery.actor_epoch,
-      "llm_turn_id" => delivery.llm_turn_id,
+      "actor_event_id" => delivery.actor_event_id_fence,
       "revision" => delivery.revision
     }
   end
 
-  defp lock_turn(repo, llm_turn_id) do
-    LlmTurn
-    |> where([turn], turn.id == ^llm_turn_id)
-    |> lock("FOR UPDATE")
-    |> repo.one()
-  end
+  defp current_actor_event_id([
+         %ActorEventDelivery{actor_event_id_fence: actor_event_id} | _rest
+       ]),
+       do: actor_event_id
 
-  defp lock_conversation(repo, conversation_id) do
-    Conversation
-    |> where([conversation], conversation.id == ^conversation_id)
-    |> lock("FOR UPDATE")
-    |> repo.one()
-  end
+  defp current_actor_event_id(_deliveries), do: nil
+
+  defp turn_actor_event_id(%Message{metadata: metadata}) when is_map(metadata),
+    do: metadata["actor_event_id"]
+
+  defp turn_actor_event_id(_turn), do: nil
 
   defp collect_results(results) do
     Enum.reduce_while(results, {:ok, []}, fn

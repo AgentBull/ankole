@@ -6,10 +6,8 @@ mod tests {
 
     #[test]
     fn openai_responses_passthrough_adds_zero_based_sequence() {
-        let mut resolver = ApiResolver::new(
-            ApiResolverKind::OpenaiResponses,
-            ResponseContext::default(),
-        );
+        let mut resolver =
+            ApiResolver::new(ApiResolverKind::OpenaiResponses, ResponseContext::default());
 
         let events = resolver
             .ingest(json!({"type": "response.created"}))
@@ -21,10 +19,8 @@ mod tests {
 
     #[test]
     fn openai_responses_requires_terminal_event_on_finish() {
-        let mut resolver = ApiResolver::new(
-            ApiResolverKind::OpenaiResponses,
-            ResponseContext::default(),
-        );
+        let mut resolver =
+            ApiResolver::new(ApiResolverKind::OpenaiResponses, ResponseContext::default());
 
         let error = resolver.finish().unwrap_err();
 
@@ -33,10 +29,8 @@ mod tests {
 
     #[test]
     fn openai_responses_error_event_is_not_terminal_by_itself() {
-        let mut resolver = ApiResolver::new(
-            ApiResolverKind::OpenaiResponses,
-            ResponseContext::default(),
-        );
+        let mut resolver =
+            ApiResolver::new(ApiResolverKind::OpenaiResponses, ResponseContext::default());
 
         resolver
             .ingest(json!({"type": "error", "error": {"code": "boom"}}))
@@ -67,11 +61,9 @@ mod tests {
                 "choices": [{"delta": {"content": "hello"}, "finish_reason": null}]
             }))
             .unwrap();
-        assert!(
-            events
-                .iter()
-                .any(|event| event["type"] == "response.output_text.delta")
-        );
+        assert!(events
+            .iter()
+            .any(|event| event["type"] == "response.output_text.delta"));
 
         let events = resolver
             .ingest(json!({
@@ -132,6 +124,38 @@ mod tests {
     }
 
     #[test]
+    fn openai_chat_build_body_keeps_png_data_url_as_chat_image_url() {
+        let image_data_url = "data:image/png;base64,iVBORw0KGgo=";
+        let resolver = ApiResolver::new(
+            ApiResolverKind::OpenaiChatCompletions,
+            ResponseContext {
+                model: "openrouter-vision-test".to_string(),
+                request: json!({
+                    "input": [{
+                        "role": "user",
+                        "content": [
+                            {"type": "input_text", "text": "look"},
+                            {"type": "input_image", "image_url": image_data_url}
+                        ]
+                    }]
+                }),
+                provider_options: json!({}),
+                stream: None,
+                include_model: true,
+            },
+        );
+
+        let body = Value::Object(resolver.build_body().unwrap());
+        let content = body["messages"][0]["content"].as_array().unwrap();
+
+        assert_eq!(content[0], json!({"type": "text", "text": "look"}));
+        assert_eq!(
+            content[1],
+            json!({"type": "image_url", "image_url": {"url": image_data_url}})
+        );
+    }
+
+    #[test]
     fn jina_embeddings_preserves_multivector_items() {
         let mut resolver = ApiResolver::new(
             ApiResolverKind::JinaEmbeddings,
@@ -160,7 +184,10 @@ mod tests {
 
         assert_eq!(body["data"][0]["index"], 0);
         assert_eq!(body["data"][0]["object"], "embedding");
-        assert_eq!(body["data"][0]["embeddings"], json!([[0.1, 0.2], [0.3, 0.4]]));
+        assert_eq!(
+            body["data"][0]["embeddings"],
+            json!([[0.1, 0.2], [0.3, 0.4]])
+        );
         assert!(body["data"][0].get("embedding").is_none());
     }
 
@@ -297,17 +324,59 @@ mod tests {
             }))
             .unwrap();
 
-        assert!(
-            events
-                .iter()
-                .any(|event| event["type"] == "response.output_text.done")
-        );
-        assert!(
-            events
-                .iter()
-                .any(|event| event["type"] == "response.content_part.done")
-        );
+        assert!(events
+            .iter()
+            .any(|event| event["type"] == "response.output_text.done"));
+        assert!(events
+            .iter()
+            .any(|event| event["type"] == "response.content_part.done"));
         assert_eq!(events.last().unwrap()["type"], "response.completed");
+    }
+
+    #[test]
+    fn anthropic_build_body_maps_openresponses_images_to_image_blocks() {
+        let resolver = ApiResolver::new(
+            ApiResolverKind::AnthropicMessages,
+            ResponseContext {
+                model: "claude-test".to_string(),
+                request: json!({
+                    "input": [{
+                        "role": "user",
+                        "content": [
+                            {"type": "input_text", "text": "describe"},
+                            {"type": "input_image", "image_url": "data:image/png;base64,aW1hZ2U="},
+                            {"type": "input_image", "image_url": {"url": "https://example.test/image.webp"}},
+                            {"type": "custom_image_payload", "data": "SHOULD_NOT_APPEAR_IN_TEXT"}
+                        ]
+                    }]
+                }),
+                provider_options: json!({}),
+                stream: None,
+                include_model: true,
+            },
+        );
+
+        let body = Value::Object(resolver.build_body().unwrap());
+        let content = body["messages"][0]["content"].as_array().unwrap();
+
+        assert_eq!(content[0], json!({"type": "text", "text": "describe"}));
+        assert_eq!(content[1]["type"], "image");
+        assert_eq!(content[1]["source"]["type"], "base64");
+        assert_eq!(content[1]["source"]["media_type"], "image/png");
+        assert_eq!(content[1]["source"]["data"], "aW1hZ2U=");
+        assert_eq!(content[2]["type"], "image");
+        assert_eq!(content[2]["source"]["type"], "url");
+        assert_eq!(
+            content[2]["source"]["url"],
+            "https://example.test/image.webp"
+        );
+        assert_eq!(
+            content[3],
+            json!({"type": "text", "text": "[image content omitted: unsupported image source]"})
+        );
+        assert!(!serde_json::to_string(&body)
+            .unwrap()
+            .contains("SHOULD_NOT_APPEAR_IN_TEXT"));
     }
 
     #[test]
@@ -346,11 +415,9 @@ mod tests {
 
         assert_eq!(terminal["type"], "response.completed");
         assert_eq!(output[0]["content"][0]["text"], "hello gemini");
-        assert!(
-            output
-                .iter()
-                .any(|item| item["type"] == "function_call" && item["name"] == "lookup")
-        );
+        assert!(output
+            .iter()
+            .any(|item| item["type"] == "function_call" && item["name"] == "lookup"));
         assert_eq!(terminal["response"]["usage"]["total_tokens"], 10);
     }
 
@@ -575,6 +642,123 @@ mod tests {
         );
         assert_eq!(body["results"][0]["embedding"], json!([1]));
         assert_eq!(body["usage"]["total_tokens"], 1);
+    }
+
+    #[test]
+    fn parallel_web_search_builds_search_body() {
+        let resolver = ApiResolver::new(
+            ApiResolverKind::ParallelWebSearch,
+            ResponseContext {
+                model: "default".to_string(),
+                request: json!({"query": "ankole web search", "limit": 3}),
+                provider_options: json!({}),
+                stream: None,
+                include_model: false,
+            },
+        );
+
+        let body = Value::Object(resolver.build_body().unwrap());
+
+        assert_eq!(body["objective"], "ankole web search");
+        assert_eq!(body["search_queries"], json!(["ankole web search"]));
+        assert_eq!(body["advanced_settings"]["max_results"], 3);
+        assert!(body.get("model").is_none());
+    }
+
+    #[test]
+    fn bright_data_serp_web_search_builds_direct_request_body() {
+        let resolver = ApiResolver::new(
+            ApiResolverKind::BrightDataSerpWebSearch,
+            ResponseContext {
+                model: "default".to_string(),
+                request: json!({"query": "agent operating system", "limit": 7}),
+                provider_options: json!({
+                    "zone": "serp_api1",
+                    "country": "us",
+                    "language": "en"
+                }),
+                stream: None,
+                include_model: false,
+            },
+        );
+
+        let body = Value::Object(resolver.build_body().unwrap());
+
+        assert_eq!(body["zone"], "serp_api1");
+        assert_eq!(body["format"], "json");
+        assert_eq!(
+            body["url"],
+            "https://www.google.com/search?q=agent+operating+system&num=7&gl=us&hl=en"
+        );
+    }
+
+    #[test]
+    fn web_search_normalizes_parallel_results() {
+        let mut resolver = ApiResolver::new(
+            ApiResolverKind::ParallelWebSearch,
+            ResponseContext {
+                model: "default".to_string(),
+                request: json!({"query": "Ankole"}),
+                provider_options: json!({}),
+                stream: None,
+                include_model: false,
+            },
+        );
+
+        let body = resolver
+            .normalize_body(
+                200,
+                json!({
+                    "results": [{
+                        "title": "Ankole docs",
+                        "url": "https://example.com/ankole",
+                        "publish_date": "2026-07-04",
+                        "excerpts": ["AIGateway", "Web Search"]
+                    }]
+                }),
+            )
+            .unwrap();
+
+        assert_eq!(body["success"], true);
+        assert_eq!(body["query"], "Ankole");
+        assert_eq!(body["results"][0]["title"], "Ankole docs");
+        assert_eq!(body["results"][0]["snippet"], "AIGateway\nWeb Search");
+        assert_eq!(body["results"][0]["published_at"], "2026-07-04");
+    }
+
+    #[test]
+    fn jina_reader_web_fetch_normalizes_data_content() {
+        let mut resolver = ApiResolver::new(
+            ApiResolverKind::JinaReaderWebFetch,
+            ResponseContext {
+                model: "default".to_string(),
+                request: json!({"urls": ["https://example.com/page"]}),
+                provider_options: json!({}),
+                stream: None,
+                include_model: false,
+            },
+        );
+
+        let request_body = Value::Object(resolver.build_body().unwrap());
+        assert_eq!(request_body["url"], "https://example.com/page");
+
+        let body = resolver
+            .normalize_body(
+                200,
+                json!({
+                    "data": {
+                        "title": "Example",
+                        "url": "https://example.com/page",
+                        "content": "# Example\nBody"
+                    }
+                }),
+            )
+            .unwrap();
+
+        assert_eq!(body["success"], true);
+        assert_eq!(body["results"][0]["url"], "https://example.com/page");
+        assert_eq!(body["results"][0]["title"], "Example");
+        assert_eq!(body["results"][0]["text"], "# Example\nBody");
     }
 
     #[test]

@@ -3,7 +3,8 @@ defmodule Ankole.ActorRuntime.Schemas.ActorSessionActivation do
   Live activation and lease projection for one actor session.
 
   Activations give worker replies a durable fence: actor key, activation uid,
-  actor epoch, turn id, and revision must all match before a proposal can commit.
+  actor epoch, actor event id, and revision must all match before a worker
+  update is accepted.
   """
 
   use Ecto.Schema
@@ -37,15 +38,15 @@ defmodule Ankole.ActorRuntime.Schemas.ActorSessionActivation do
     field :status, :string
     field :controller_node, :string
     # Lease: the activation is only valid while now < lease_expires_at. The
-    # watchdog fails expired activations so the actor input can be retried. The
-    # lease_id labels the generation lease the AI-agent turn holds.
+    # watchdog fails expired activations so the actor event can be retried.
     field :lease_id, :string
     field :lease_expires_at, :utc_datetime_usec
     field :last_actor_heartbeat_at, :utc_datetime_usec
     field :assigned_worker_id, :string
-    field :current_llm_turn_id, Ecto.UUID
-    # Bumped on every in-place steer/nudge of the live turn. A worker reply must
-    # echo the current revision, so a reply built before a steer is rejected.
+    field :current_actor_event_id, Ecto.UUID
+    # Bumped on every in-place steer/nudge of the live turn. Non-terminal
+    # progress stays exact; terminal writes tolerate newer revisions because
+    # active steer updates the same worker run before it completes.
     field :revision, :integer, default: 0
     field :started_at, :utc_datetime_usec
     field :stopped_at, :utc_datetime_usec
@@ -72,7 +73,7 @@ defmodule Ankole.ActorRuntime.Schemas.ActorSessionActivation do
       :lease_expires_at,
       :last_actor_heartbeat_at,
       :assigned_worker_id,
-      :current_llm_turn_id,
+      :current_actor_event_id,
       :revision,
       :started_at,
       :stopped_at,

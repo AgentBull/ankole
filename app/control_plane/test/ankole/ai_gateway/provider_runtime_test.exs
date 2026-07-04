@@ -4,6 +4,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AIAgent.Library
+  alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ProviderConfigs.Provider
   alias Ankole.AIGateway.ModelProfiles
@@ -27,6 +28,10 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert "openai_compatible" in provider_kinds
     assert "google_ai_studio_openai" in provider_kinds
     assert "jina" in provider_kinds
+    assert "parallel" in provider_kinds
+    assert "bright_data_serp" in provider_kinds
+    assert "agentbull_cloud" in provider_kinds
+    assert "jina_reader" in provider_kinds
     assert "claude" in provider_kinds
     assert "azure_openai" in provider_kinds
     refute "gemini" in provider_kinds
@@ -35,11 +40,20 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     openai_compatible = Enum.find(kinds, &(&1["provider_kind"] == "openai_compatible"))
     google_ai_studio = Enum.find(kinds, &(&1["provider_kind"] == "google_ai_studio_openai"))
     azure_openai = Enum.find(kinds, &(&1["provider_kind"] == "azure_openai"))
+    parallel = Enum.find(kinds, &(&1["provider_kind"] == "parallel"))
+    jina_reader = Enum.find(kinds, &(&1["provider_kind"] == "jina_reader"))
+    bright_data_serp = Enum.find(kinds, &(&1["provider_kind"] == "bright_data_serp"))
+    agentbull_cloud = Enum.find(kinds, &(&1["provider_kind"] == "agentbull_cloud"))
 
     assert "llm" in openrouter["capabilities"]
     assert "embedding" in openrouter["capabilities"]
     assert "rerank" in openrouter["capabilities"]
     assert "embedding" in google_ai_studio["capabilities"]
+    assert "web_search" in parallel["capabilities"]
+    assert "web_fetch" in parallel["capabilities"]
+    assert "web_fetch" in jina_reader["capabilities"]
+    assert "web_search" in bright_data_serp["capabilities"]
+    assert "web_search" in agentbull_cloud["capabilities"]
 
     assert "transport" in openrouter["connection_options"]
     assert "transport" in openai_compatible["connection_options"]
@@ -291,6 +305,27 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                connection_options: %{"api_key" => "jina-key"}
              })
 
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "parallel-main",
+               provider_kind: "parallel",
+               connection_options: %{"api_key" => "parallel-key"}
+             })
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "jina-reader-main",
+               provider_kind: "jina_reader",
+               connection_options: %{"api_key" => "jina-reader-key"}
+             })
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-vision",
+               provider_kind: "openai",
+               connection_options: %{"api_key" => "sk-openai"}
+             })
+
     assert {:ok, %{profile: profile}} =
              ModelProfiles.put_model_profile(agent.uid, "primary", %{
                provider_id: "openrouter-main",
@@ -329,6 +364,102 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
              ModelProfiles.resolve_runtime_profile(agent.uid, "embedding")
 
     assert runtime_profile["capability"] == "embedding"
+
+    assert {:error, {:provider_kind_missing_capability, "web_search"}} =
+             ModelProfiles.put_model_profile(agent.uid, "web_search", %{
+               provider_id: "claude-main",
+               model: "default"
+             })
+
+    assert {:ok, %{profile: web_search_profile}} =
+             ModelProfiles.put_model_profile(agent.uid, "web_search", %{
+               provider_id: "parallel-main",
+               model: "default"
+             })
+
+    assert web_search_profile["provider_id"] == "parallel-main"
+
+    assert {:ok, web_search_runtime_profile} =
+             ModelProfiles.resolve_runtime_profile(agent.uid, "web_search")
+
+    assert web_search_runtime_profile["capability"] == "web_search"
+
+    assert {:ok, %{profile: web_fetch_profile}} =
+             ModelProfiles.put_model_profile(agent.uid, "web_fetch", %{
+               provider_id: "jina-reader-main",
+               model: "default"
+             })
+
+    assert web_fetch_profile["provider_id"] == "jina-reader-main"
+
+    assert {:ok, web_fetch_runtime_profile} =
+             ModelProfiles.resolve_runtime_profile(agent.uid, "web_fetch")
+
+    assert web_fetch_runtime_profile["capability"] == "web_fetch"
+
+    assert {:ok, %{profile: vision_fallback_profile}} =
+             ModelProfiles.put_model_profile(agent.uid, "vision_fallback", %{
+               provider_id: "openai-vision",
+               model: "gpt-5"
+             })
+
+    assert vision_fallback_profile["provider_id"] == "openai-vision"
+
+    assert {:ok, vision_runtime_profile} =
+             ModelProfiles.resolve_runtime_profile(agent.uid, "vision_fallback")
+
+    assert vision_runtime_profile["capability"] == "llm"
+
+    assert {:ok, %{profile: nil}} =
+             ModelProfiles.put_model_profile(agent.uid, "vision_fallback", nil)
+
+    assert {:error, :model_profile_not_configured} =
+             ModelProfiles.get_model_profile(agent.uid, "vision_fallback")
+  end
+
+  test "turn start specs include input modalities and optional vision fallback refs" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-main",
+               provider_kind: "openai",
+               connection_options: %{"api_key" => "sk-main"}
+             })
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-vision",
+               provider_kind: "openai",
+               connection_options: %{"api_key" => "sk-vision"}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-main",
+               model: "text-only-local"
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "vision_fallback", %{
+               provider_id: "openai-vision",
+               model: "gpt-5"
+             })
+
+    assert {:ok, conversation} = Conversations.ensure_conversation(agent.uid, "session-vision")
+    assert {:ok, turn_start_spec} = Conversations.build_turn_start_spec(conversation)
+
+    assert turn_start_spec.model_ref["input_modalities"] == ["text"]
+
+    assert %{
+             "profile" => "vision_fallback",
+             "provider_id" => "openai-vision",
+             "provider_kind" => "openai",
+             "model" => "gpt-5",
+             "input_modalities" => input_modalities
+           } = turn_start_spec.model_ref["vision_fallback_model_ref"]
+
+    assert "image" in input_modalities
   end
 
   test "model profiles validate source-specific provider options and provider delete guard lists references" do
@@ -457,10 +588,10 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert get_in(envelope, ["body", "rpc_error", "code"]) == "worker_not_assigned_to_turn"
   end
 
-  test "runtime RPCLane rejects stale revision overlay writes" do
+  test "runtime RPCLane accepts overlay writes after active steer bumps revision" do
     %{principal: agent} = agent_fixture()
     assert {:ok, %{skills: 3}} = Library.sync_agent_skills(agent.uid)
-    {route, turn} = assign_worker_route(agent.uid, "signal-channel:stale-overlay")
+    {route, turn} = assign_worker_route(agent.uid, "signal-channel:steered-overlay")
 
     turn["activation_uid"]
     |> then(&Repo.get_by!(ActorSessionActivation, activation_uid: &1))
@@ -470,19 +601,21 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert {:ok, envelope} =
              RPCLane.handle_request(
                %{
-                 "request_id" => "skill-overlay-stale",
+                 "request_id" => "skill-overlay-after-steer",
                  "method" => "skills.overlay.replace",
                  "payload_json" => %{
                    "turn" => turn,
                    "skill_name" => "nano-pdf",
-                   "content" => "This stale write must be rejected."
+                   "content" => "Prefer page-by-page verification after steer."
                  }
                },
                route
              )
 
-    assert get_in(envelope, ["body", "type"]) == "rpc_error"
-    assert get_in(envelope, ["body", "rpc_error", "code"]) == "stale_revision"
+    assert get_in(envelope, ["body", "type"]) == "rpc_response"
+    payload = get_in(envelope, ["body", "rpc_response", "payload_json"])
+    assert payload["has_overlay"]
+    assert payload["overlay_json"] == %{"text" => "Prefer page-by-page verification after steer."}
   end
 
   test "worker auth key is global AppConfigure state" do

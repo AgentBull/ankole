@@ -3,14 +3,14 @@ defmodule Ankole.SignalsGateway.InboundBatches do
 
   import Ecto.Query, warn: false
 
-  alias Ankole.Actors.ActorInput
+  alias Ankole.Actors.ActorEvent
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.ActorInputEnvelope
+  alias Ankole.SignalsGateway.ActorEventEnvelope
   alias Ankole.SignalsGateway.InboundBatch
+  alias Ankole.SignalsGateway.IngressFact
   alias Ankole.SignalsGateway.Projection
   alias Ankole.SignalsGateway.SignalBinding
   alias Ankole.SignalsGateway.SignalChannel
-  alias Ankole.SignalsGateway.SignalEntry
 
   import Ankole.SignalsGateway.Utils,
     only: [
@@ -26,6 +26,8 @@ defmodule Ankole.SignalsGateway.InboundBatches do
       truthy?: 1,
       unthread_key: 1
     ]
+
+  require Logger
 
   @addressed_text_window_ms 600
   @addressed_attachment_window_ms 1_200
@@ -47,8 +49,22 @@ defmodule Ankole.SignalsGateway.InboundBatches do
     |> order_by([batch], asc: batch.available_at, asc: batch.inserted_at)
     |> limit(^limit)
     |> Repo.all()
-    |> Enum.map(&finalize_inbound_batch(&1, now))
-    |> collect_results()
+    |> Enum.map(&finalize_inbound_batch_best_effort(&1, now))
+    |> then(&{:ok, &1})
+  end
+
+  defp finalize_inbound_batch_best_effort(%InboundBatch{} = batch, now) do
+    case finalize_inbound_batch(batch, now) do
+      {:ok, result} ->
+        result
+
+      {:error, reason} ->
+        Logger.warning(
+          "signals_gateway inbound batch #{batch.id} finalize failed: #{inspect(reason)}"
+        )
+
+        %{status: :finalize_failed, inbound_batch: batch, error: reason}
+    end
   end
 
   def apply_im_entry_policy(repo, binding, fact, policy, type, now) do
@@ -94,22 +110,24 @@ defmodule Ankole.SignalsGateway.InboundBatches do
   defp should_mirror_im_entry?(:may_intervene, _type), do: true
   defp should_mirror_im_entry?(_policy, _type), do: false
 
-  defp maybe_finalize_due_batch(nil, _repo, _now), do: {:ok, nil}
+  defp maybe_finalize_due_batch(nil, _repo, _now) do
+    {:ok, %{inbound_batch: nil, finalized_actor_events: []}}
+  end
 
   defp maybe_finalize_due_batch(%InboundBatch{available_at: available_at} = batch, repo, now) do
     case DateTime.compare(available_at, now) do
       :gt ->
-        {:ok, batch}
+        {:ok, %{inbound_batch: batch, finalized_actor_events: []}}
 
       _ready ->
-        with {:ok, _result} <- finalize_inbound_batch_in_tx(repo, batch, now) do
-          {:ok, nil}
+        with {:ok, result} <- finalize_inbound_batch_in_tx(repo, batch, now) do
+          {:ok, %{inbound_batch: nil, finalized_actor_events: finalized_actor_events(result)}}
         end
     end
   end
 
   defp route_inbound_batch_entry(
-         {:ok, batch},
+         {:ok, %{inbound_batch: batch, finalized_actor_events: finalized_events}},
          repo,
          binding,
          channel,
@@ -119,7 +137,20 @@ defmodule Ankole.SignalsGateway.InboundBatches do
          type,
          now
        ) do
-    route_inbound_batch_entry(batch, repo, binding, channel, fact, entry, policy, type, now)
+    with {:ok, result} <-
+           route_inbound_batch_entry(
+             batch,
+             repo,
+             binding,
+             channel,
+             fact,
+             entry,
+             policy,
+             type,
+             now
+           ) do
+      {:ok, put_finalized_actor_events(result, finalized_events)}
+    end
   end
 
   defp route_inbound_batch_entry(
@@ -163,7 +194,7 @@ defmodule Ankole.SignalsGateway.InboundBatches do
         |> inbound_result(:accepted)
 
       true ->
-        with {:ok, _closed} <- finalize_inbound_batch_in_tx(repo, batch, now),
+        with {:ok, closed} <- finalize_inbound_batch_in_tx(repo, batch, now),
              {:ok, result} <-
                append_addressed_inbound_entry(
                  nil,
@@ -175,7 +206,7 @@ defmodule Ankole.SignalsGateway.InboundBatches do
                  policy,
                  now
                ) do
-          {:ok, result}
+          {:ok, merge_finalized_actor_events(result, closed)}
         end
     end
   end
@@ -191,20 +222,30 @@ defmodule Ankole.SignalsGateway.InboundBatches do
          now
        ) do
     {prefix, tail} = split_addressable_tail(batch.entries, fact.sender_key)
+    addressed_entries = tail ++ [entry]
 
-    with {:ok, _closed_prefix} <- close_or_replace_neutral_prefix(repo, batch, prefix, tail, now),
-         {:ok, result} <-
-           append_addressed_inbound_entry(
-             nil,
-             repo,
-             binding,
-             channel,
-             fact,
-             tail ++ [entry],
-             policy,
-             now
-           ) do
-      {:ok, result}
+    case prefix do
+      [] ->
+        batch
+        |> upgrade_neutral_batch_to_addressed(repo, addressed_entries, policy, now)
+        |> inbound_result(:accepted)
+
+      [_ | _] ->
+        with {:ok, closed_prefix} <-
+               close_or_replace_neutral_prefix(repo, batch, prefix, tail, now),
+             {:ok, result} <-
+               append_addressed_inbound_entry(
+                 nil,
+                 repo,
+                 binding,
+                 channel,
+                 fact,
+                 addressed_entries,
+                 policy,
+                 now
+               ) do
+          {:ok, put_finalized_actor_events(result, closed_prefix.finalized_actor_events)}
+        end
     end
   end
 
@@ -261,24 +302,20 @@ defmodule Ankole.SignalsGateway.InboundBatches do
         |> inbound_result(:accepted)
 
       batch.requester_sender_key == fact.sender_key and addressable_neutral_entry?(entry) ->
-        with {:ok, _closed} <- finalize_inbound_batch_in_tx(repo, batch, now),
+        with {:ok, closed} <- finalize_inbound_batch_in_tx(repo, batch, now),
              {:ok, result} <-
                create_inbound_batch(repo, fact, policy, "addressed", [entry], now)
                |> inbound_result(:accepted) do
-          {:ok, result}
+          {:ok, merge_finalized_actor_events(result, closed)}
         end
 
       true ->
-        with {:ok, _closed} <- finalize_inbound_batch_in_tx(repo, batch, now),
+        with {:ok, closed} <- finalize_inbound_batch_in_tx(repo, batch, now),
              {:ok, result} <-
                append_neutral_inbound_entry(nil, repo, binding, channel, fact, entry, policy, now) do
-          {:ok, result}
+          {:ok, merge_finalized_actor_events(result, closed)}
         end
     end
-  end
-
-  defp close_or_replace_neutral_prefix(repo, batch, [], _tail, now) do
-    cancel_inbound_batch(repo, batch, now, %{entries: []})
   end
 
   defp close_or_replace_neutral_prefix(repo, batch, prefix, [] = _tail, now) do
@@ -286,8 +323,13 @@ defmodule Ankole.SignalsGateway.InboundBatches do
     |> InboundBatch.changeset(%{entries: prefix})
     |> repo.update()
     |> case do
-      {:ok, updated} -> finalize_inbound_batch_in_tx(repo, updated, now)
-      {:error, _reason} = error -> error
+      {:ok, updated} ->
+        with {:ok, result} <- finalize_inbound_batch_in_tx(repo, updated, now) do
+          {:ok, %{tail: [], finalized_actor_events: finalized_actor_events(result)}}
+        end
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -300,8 +342,11 @@ defmodule Ankole.SignalsGateway.InboundBatches do
       {:error, _reason} = error -> error
     end
     |> case do
-      {:ok, _closed} -> {:ok, tail}
-      {:error, _reason} = error -> error
+      {:ok, result} ->
+        {:ok, %{tail: tail, finalized_actor_events: finalized_actor_events(result)}}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -310,6 +355,25 @@ defmodule Ankole.SignalsGateway.InboundBatches do
   end
 
   defp inbound_result({:error, _reason} = error, _status), do: error
+
+  defp merge_finalized_actor_events(result, finalized_result) when is_map(result) do
+    put_finalized_actor_events(result, finalized_actor_events(finalized_result))
+  end
+
+  defp put_finalized_actor_events(result, []), do: result
+
+  defp put_finalized_actor_events(result, events) when is_map(result) and is_list(events) do
+    existing = Map.get(result, :finalized_actor_events, [])
+
+    events =
+      (existing ++ events)
+      |> Enum.uniq_by(& &1.id)
+
+    Map.put(result, :finalized_actor_events, events)
+  end
+
+  defp finalized_actor_events(%{actor_event: %ActorEvent{} = event}), do: [event]
+  defp finalized_actor_events(_result), do: []
 
   defp neutral_status(:record_only), do: :recorded
   defp neutral_status(:may_intervene), do: :recorded
@@ -336,8 +400,8 @@ defmodule Ankole.SignalsGateway.InboundBatches do
 
   defp finalize_inbound_batch_in_tx(repo, %InboundBatch{mode: "addressed"} = batch, now) do
     with {:ok, append_result} <-
-           append_batch_actor_input(repo, batch, "im.message.addressed", now) do
-      finalize_batch_actor_input_append(repo, batch, now, "addressed", append_result)
+           append_batch_actor_event(repo, batch, "im.message.addressed", now) do
+      finalize_batch_actor_event_append(repo, batch, now, "addressed", append_result)
     end
   end
 
@@ -345,16 +409,16 @@ defmodule Ankole.SignalsGateway.InboundBatches do
     case batch.policy do
       "may_intervene" ->
         with {:ok, append_result} <-
-               append_batch_actor_input(repo, batch, "im.message.may_intervene", now) do
-          finalize_batch_actor_input_append(repo, batch, now, "ambient", append_result)
+               append_batch_actor_event(repo, batch, "im.message.may_intervene", now) do
+          finalize_batch_actor_event_append(repo, batch, now, "ambient", append_result)
         end
 
-      _no_actor_input ->
+      _no_actor_event ->
         with {:ok, closed} <-
                batch
                |> InboundBatch.changeset(%{
                  batch_state: "finalized",
-                 outcome: "no_actor_input",
+                 outcome: "no_actor_event",
                  finalized_at: now,
                  batch_revision: batch.batch_revision + 1
                })
@@ -364,12 +428,12 @@ defmodule Ankole.SignalsGateway.InboundBatches do
     end
   end
 
-  defp finalize_batch_actor_input_append(
+  defp finalize_batch_actor_event_append(
          repo,
          %InboundBatch{} = batch,
          now,
          outcome,
-         %ActorInput{} = actor_input
+         %ActorEvent{} = actor_event
        ) do
     with {:ok, closed} <-
            batch
@@ -377,11 +441,13 @@ defmodule Ankole.SignalsGateway.InboundBatches do
              batch_state: "finalized",
              outcome: outcome,
              finalized_at: now,
-             actor_input_id: actor_input.id,
+             # Source table: actor_event_id stores the actor_events.id created
+             # by finalizing this inbound batch.
+             actor_event_id: actor_event.id,
              batch_revision: batch.batch_revision + 1
            })
            |> repo.update() do
-      {:ok, %{status: :accepted, actor_input: actor_input, inbound_batch: closed}}
+      {:ok, %{status: :accepted, actor_event: actor_event, inbound_batch: closed}}
     end
   end
 
@@ -433,7 +499,10 @@ defmodule Ankole.SignalsGateway.InboundBatches do
   end
 
   defp remove_entry_from_inbound_batch(repo, %InboundBatch{} = batch, fact, now) do
-    entries = Enum.reject(batch.entries, &(&1["provider_entry_id"] == fact.provider_entry_id))
+    entries =
+      batch.entries
+      |> Enum.reject(&(&1["source_entry_id"] == fact.source_entry_id))
+      |> sort_batch_entries()
 
     cond do
       length(entries) == length(batch.entries) ->
@@ -446,24 +515,27 @@ defmodule Ankole.SignalsGateway.InboundBatches do
         end
 
       true ->
+        mode = recompute_batch_mode(entries)
+
         batch
         |> InboundBatch.changeset(%{
+          mode: mode,
           entries: entries,
-          requester_sender_key: requester_sender_key(batch.mode, entries),
-          available_at: inbound_due_at(batch.mode, batch.policy, entries, batch, now),
-          hard_cap_at: inbound_hard_cap_at(batch.mode, batch.policy, batch, now),
+          requester_sender_key: requester_sender_key(mode, entries),
+          available_at: inbound_due_at(mode, batch.policy, entries, batch, now),
+          hard_cap_at: inbound_hard_cap_at(mode, batch.policy, batch, now),
           batch_revision: batch.batch_revision + 1
         })
         |> repo.update()
     end
   end
 
-  defp append_batch_actor_input(repo, batch, type, now) do
+  defp append_batch_actor_event(repo, batch, type, now) do
     with {:ok, binding} <- batch_binding(repo, batch),
          {:ok, channel} <- batch_channel(repo, batch),
-         :ok <- mirror_unmirrored_batch_entries(repo, batch.entries, now) do
+         :ok <- mirror_unmirrored_batch_entries(repo, batch, binding, now) do
       fact = batch_actor_fact(batch, type, now)
-      ActorInputEnvelope.append_actor_input(binding, fact, type, channel, nil, now)
+      ActorEventEnvelope.append_actor_event(binding, fact, type, channel, nil, now)
     end
   end
 
@@ -483,6 +555,8 @@ defmodule Ankole.SignalsGateway.InboundBatches do
 
   defp create_inbound_batch(repo, fact, policy, mode, entries, now) do
     policy = Atom.to_string(policy)
+
+    entries = sort_batch_entries(entries)
 
     attrs = %{
       agent_uid: fact.agent_uid,
@@ -505,7 +579,7 @@ defmodule Ankole.SignalsGateway.InboundBatches do
   end
 
   defp update_inbound_batch(%InboundBatch{} = batch, repo, new_entries, now) do
-    entries = batch.entries ++ new_entries
+    entries = sort_batch_entries(batch.entries ++ new_entries)
 
     batch
     |> InboundBatch.changeset(%{
@@ -513,6 +587,21 @@ defmodule Ankole.SignalsGateway.InboundBatches do
       requester_sender_key: requester_sender_key(batch.mode, entries),
       available_at: inbound_due_at(batch.mode, batch.policy, entries, batch, now),
       hard_cap_at: inbound_hard_cap_at(batch.mode, batch.policy, batch, now)
+    })
+    |> repo.update()
+  end
+
+  defp upgrade_neutral_batch_to_addressed(%InboundBatch{} = batch, repo, entries, policy, now) do
+    entries = sort_batch_entries(entries)
+
+    batch
+    |> InboundBatch.changeset(%{
+      entries: entries,
+      mode: "addressed",
+      policy: Atom.to_string(policy),
+      requester_sender_key: requester_sender_key("addressed", entries),
+      available_at: inbound_due_at("addressed", policy, entries, batch, now),
+      hard_cap_at: inbound_hard_cap_at("addressed", policy, batch, now)
     })
     |> repo.update()
   end
@@ -529,12 +618,26 @@ defmodule Ankole.SignalsGateway.InboundBatches do
     |> repo.one()
   end
 
+  defp sort_batch_entries(entries) when is_list(entries) do
+    Enum.sort_by(entries, fn entry ->
+      {
+        Map.get(entry, "provider_time") || Map.get(entry, "sent_at") || "",
+        Map.get(entry, "received_at") || Map.get(entry, "sent_at") || "",
+        Map.get(entry, "source_entry_id") || ""
+      }
+    end)
+  end
+
   defp inbound_batch_entry(fact, mirror_entry, policy, type, now) do
     attrs = Projection.receive_entry_attrs(fact, now)
 
     %{
+      "agent_uid" => fact.agent_uid,
+      "binding_name" => fact.binding_name,
+      "adapter" => fact.adapter,
+      "source_event_id" => fact.source_event_id,
       "signal_channel_id" => fact.signal_channel_id,
-      "provider_entry_id" => fact.provider_entry_id,
+      "source_entry_id" => fact.source_entry_id,
       "provider_thread_id" => fact.provider_thread_id,
       "sender_key" => fact.sender_key,
       "text" => fact.text,
@@ -547,6 +650,7 @@ defmodule Ankole.SignalsGateway.InboundBatches do
       "raw_payload" => fact.raw_payload,
       "provider_time" => datetime_iso8601(fact.provider_time),
       "sent_at" => datetime_iso8601(fact.provider_time) || DateTime.to_iso8601(now),
+      "received_at" => DateTime.to_iso8601(now),
       "document_id" => attrs.document_id,
       "search_text" => attrs.search_text,
       "metadata_text" => attrs.metadata_text,
@@ -570,9 +674,9 @@ defmodule Ankole.SignalsGateway.InboundBatches do
       agent_uid: batch.agent_uid,
       binding_name: batch.binding_name,
       session_id: batch.session_id,
-      ingress_event_id: "inbound-batch:#{batch.id}:#{batch.batch_revision + 1}",
+      source_event_id: "inbound-batch:#{batch.id}:#{batch.batch_revision + 1}",
       signal_channel_id: batch.signal_channel_id,
-      provider_entry_id: last_entry["provider_entry_id"],
+      source_entry_id: last_entry["source_entry_id"],
       provider_thread_id: unthread_key(batch.provider_thread_id),
       sender_key: batch.requester_sender_key,
       text: merged_entry_text(entries),
@@ -584,12 +688,12 @@ defmodule Ankole.SignalsGateway.InboundBatches do
         "source" => "inbound_batch",
         "batch_id" => batch.id,
         "batch_revision" => batch.batch_revision + 1,
-        "source_provider_entry_ids" => Enum.map(entries, & &1["provider_entry_id"]),
+        "source_entry_ids" => Enum.map(entries, & &1["source_entry_id"]),
         "source_signal_entries" =>
           Enum.map(entries, fn entry ->
             %{
               "signal_channel_id" => entry["signal_channel_id"],
-              "provider_entry_id" => entry["provider_entry_id"]
+              "source_entry_id" => entry["source_entry_id"]
             }
           end)
       },
@@ -602,15 +706,15 @@ defmodule Ankole.SignalsGateway.InboundBatches do
     }
   end
 
-  defp unmirrored_batch_entry_results(entries, repo, now) do
-    for entry <- entries,
+  defp unmirrored_batch_entry_results(batch, binding, repo, now) do
+    for entry <- batch.entries,
         entry["mirrored"] in [nil, false],
-        do: mirror_batch_entry(repo, entry, now)
+        do: mirror_batch_entry(repo, batch, binding, entry, now)
   end
 
-  defp mirror_unmirrored_batch_entries(repo, entries, now) do
-    entries
-    |> unmirrored_batch_entry_results(repo, now)
+  defp mirror_unmirrored_batch_entries(repo, batch, binding, now) do
+    batch
+    |> unmirrored_batch_entry_results(binding, repo, now)
     |> collect_results()
     |> case do
       {:ok, _entries} -> :ok
@@ -618,10 +722,16 @@ defmodule Ankole.SignalsGateway.InboundBatches do
     end
   end
 
-  defp mirror_batch_entry(repo, entry, now) do
+  defp mirror_batch_entry(repo, batch, binding, entry, now) do
     attrs = %{
+      agent_uid: batch.agent_uid,
+      binding_name: batch.binding_name,
+      adapter: entry["adapter"] || binding.adapter,
+      source_event_id:
+        entry["source_event_id"] || "inbound-batch-entry:#{batch.id}:#{entry["source_entry_id"]}",
       signal_channel_id: entry["signal_channel_id"],
-      provider_entry_id: entry["provider_entry_id"],
+      source_entry_id: entry["source_entry_id"],
+      provider_thread_id: entry["provider_thread_id"],
       text: entry["text"],
       formatted_content: entry["formatted_content"] || %{},
       attachments: entry["attachments"] || [],
@@ -630,36 +740,11 @@ defmodule Ankole.SignalsGateway.InboundBatches do
       mentions: entry["mentions"] || [],
       metadata: entry["metadata"] || %{},
       raw_payload: entry["raw_payload"] || %{},
-      provider_time: parse_datetime(entry["provider_time"]),
-      fallback_visible_text: entry["text"],
-      reactions: %{},
-      raw_reaction_keys: %{},
-      document_id: entry["document_id"],
-      search_text: entry["search_text"],
-      metadata_text: entry["metadata_text"],
-      content_hash: entry["content_hash"],
-      first_seen_at: now,
-      last_seen_at: now
+      provider_time: parse_datetime(entry["provider_time"])
     }
 
-    case repo.get_by(SignalEntry,
-           signal_channel_id: attrs.signal_channel_id,
-           provider_entry_id: attrs.provider_entry_id
-         ) do
-      %SignalEntry{} = existing ->
-        existing
-        |> SignalEntry.changeset(%{
-          attrs
-          | first_seen_at: existing.first_seen_at,
-            reactions: existing.reactions || %{},
-            raw_reaction_keys: existing.raw_reaction_keys || %{}
-        })
-        |> repo.update()
-
-      nil ->
-        %SignalEntry{}
-        |> SignalEntry.changeset(attrs)
-        |> repo.insert()
+    with {:ok, fact} <- IngressFact.entry(attrs) do
+      Projection.mirror_receive_entry(repo, fact, now)
     end
   end
 
@@ -680,6 +765,13 @@ defmodule Ankole.SignalsGateway.InboundBatches do
   end
 
   defp addressable_neutral_entry?(entry), do: entry["addressable_neutral"] == true
+
+  defp recompute_batch_mode(entries) do
+    case Enum.any?(entries, &(&1["explicit"] == true)) do
+      true -> "addressed"
+      false -> "neutral"
+    end
+  end
 
   defp non_bot_mention?(%{} = entry) when is_map_key(entry, "non_bot_mention"),
     do: entry["non_bot_mention"] == true
@@ -741,6 +833,10 @@ defmodule Ankole.SignalsGateway.InboundBatches do
   end
 
   defp inbound_hard_cap_at("neutral", "may_intervene", nil, now) do
+    DateTime.add(now, @ambient_hard_cap_ms, :millisecond)
+  end
+
+  defp inbound_hard_cap_at("neutral", "may_intervene", %InboundBatch{hard_cap_at: nil}, now) do
     DateTime.add(now, @ambient_hard_cap_ms, :millisecond)
   end
 

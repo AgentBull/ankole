@@ -7,6 +7,7 @@ defmodule Ankole.Setup.Bootstrap do
 
   require Logger
 
+  alias Ankole.AuthZ
   alias Ankole.Setup.Config
 
   @alphabet ~c"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -71,6 +72,7 @@ defmodule Ankole.Setup.Bootstrap do
 
   defp initialize_for_completion(true) do
     with :ok <- Config.delete_bootstrap_activation_code() do
+      ensure_console_admin_grants_once()
       {:ok, %{completed: true, activation_code: nil}}
     end
   end
@@ -80,6 +82,17 @@ defmodule Ankole.Setup.Bootstrap do
 
     with {:ok, ^code} <- Config.put_bootstrap_activation_code(code) do
       {:ok, %{completed: false, activation_code: code}}
+    end
+  end
+
+  defp ensure_console_admin_grants_once do
+    case AuthZ.ensure_console_admin_grants() do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Console admin grant startup repair skipped: #{inspect(reason)}")
+        :ok
     end
   end
 end

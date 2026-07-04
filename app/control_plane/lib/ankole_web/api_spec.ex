@@ -51,12 +51,20 @@ defmodule AnkoleWeb.ApiSpec do
           description: "Registry-backed runtime configuration exposed to the web console"
         },
         %Tag{
+          name: "Agents",
+          description: "Operator-managed agent principals"
+        },
+        %Tag{
           name: "LLM Runtime",
           description: "Operator-managed LLM provider and agent model profile configuration"
         },
         %Tag{
           name: "AIGateway",
           description: "Agent-authenticated AI provider gateway"
+        },
+        %Tag{
+          name: "Signal Bindings",
+          description: "Operator-managed agent bindings for signal adapters"
         },
         %Tag{
           name: "Schedule",

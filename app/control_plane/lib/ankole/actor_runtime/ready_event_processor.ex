@@ -48,6 +48,13 @@ defmodule Ankole.ActorRuntime.ReadyEventProcessor do
       when type in ["check_back_later.wakeup", "cron.fire"] ->
         TurnLifecycle.start_worker_turn(actor_key, event, ScheduledTurn.opts(event, opts))
 
+      %ActorEvent{type: "im.message.may_intervene"} = event ->
+        TurnLifecycle.start_worker_turn(
+          actor_key,
+          event,
+          Keyword.put_new(opts, :profile, "light")
+        )
+
       %ActorEvent{} = event ->
         TurnLifecycle.start_worker_turn(actor_key, event, opts)
     end

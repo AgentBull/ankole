@@ -12,7 +12,7 @@ export function externalServicesCommand(): Crust {
       cmd
         .meta({
           aliases: ['up'],
-          description: 'Start Postgres and Redis.'
+          description: 'Start Postgres.'
         })
         .flags({
           pull: {
@@ -40,11 +40,9 @@ export function externalServicesCommand(): Crust {
         )
     )
     .command('stop', cmd =>
-      cmd.meta({ description: 'Stop Postgres and Redis without removing containers.' }).run(() => runCompose(['stop']))
+      cmd.meta({ description: 'Stop Postgres without removing containers.' }).run(() => runCompose(['stop']))
     )
-    .command('restart', cmd =>
-      cmd.meta({ description: 'Restart Postgres and Redis.' }).run(() => runCompose(['restart']))
-    )
+    .command('restart', cmd => cmd.meta({ description: 'Restart Postgres.' }).run(() => runCompose(['restart'])))
     .command('remove', cmd =>
       cmd
         .meta({

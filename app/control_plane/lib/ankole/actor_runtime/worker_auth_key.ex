@@ -9,6 +9,7 @@ defmodule Ankole.ActorRuntime.WorkerAuthKey do
 
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Definition
+  alias Ankole.AppConfigure.GeneratedSecret
   alias Ankole.AppConfigure.Schema
 
   @key "runtime_fabric.worker_auth_key"
@@ -23,7 +24,7 @@ defmodule Ankole.ActorRuntime.WorkerAuthKey do
       encrypted: true,
       scope: :global,
       schema: Schema.non_empty_string(),
-      generator: &Ecto.UUID.generate/0,
+      generator: GeneratedSecret.generator(),
       description: "Global RuntimeFabric worker authentication key."
     )
   end
@@ -41,7 +42,7 @@ defmodule Ankole.ActorRuntime.WorkerAuthKey do
   end
 
   @doc """
-  Returns the persisted key, creating a UUID value when the row is missing.
+  Returns the persisted key, creating a generated secret value when the row is missing.
   """
   @spec ensure() :: {:ok, String.t()} | {:error, term()}
   def ensure do

@@ -173,14 +173,14 @@ fn body_spec(body: &proto::envelope::Body) -> BodySpec {
             durability: proto::DurabilityClass::ControlEphemeral,
             requires_correlation_id: true,
         },
-        proto::envelope::Body::TurnFinalProposal(_) => BodySpec {
-            name: "turn_final_proposal",
-            lane: proto::Lane::Turn,
-            durability: proto::DurabilityClass::ControlDurable,
-            requires_correlation_id: true,
-        },
         proto::envelope::Body::TurnError(_) => BodySpec {
             name: "turn_error",
+            lane: proto::Lane::Turn,
+            durability: proto::DurabilityClass::ControlReplayable,
+            requires_correlation_id: true,
+        },
+        proto::envelope::Body::TurnNoopCompleted(_) => BodySpec {
+            name: "turn_noop_completed",
             lane: proto::Lane::Turn,
             durability: proto::DurabilityClass::ControlReplayable,
             requires_correlation_id: true,
@@ -231,11 +231,8 @@ fn validate_body_required_fields(body: &proto::envelope::Body) -> KernelResult<(
             validate_optional_model_ref(payload.model_ref.as_ref(), "turn_start.model_ref")
         }
         proto::envelope::Body::MailboxUpdated(payload) => {
-            validate_actor_key(payload.actor.as_ref(), "mailbox_updated.actor")?;
-            require_non_empty(&payload.activation_uid, "mailbox_updated.activation_uid")?;
-            require_positive_u64(payload.actor_epoch, "mailbox_updated.actor_epoch")?;
-            let turn = validate_turn_ref(payload.turn.as_ref(), "mailbox_updated.turn")?;
-            validate_mailbox_turn_mirror(payload, turn)
+            validate_turn_ref(payload.turn.as_ref(), "mailbox_updated.turn")?;
+            validate_actor_event(payload.actor_event.as_ref(), "mailbox_updated.actor_event")
         }
         proto::envelope::Body::TurnAccepted(payload) => {
             validate_turn_ref(payload.turn.as_ref(), "turn_accepted.turn")?;
@@ -249,19 +246,13 @@ fn validate_body_required_fields(body: &proto::envelope::Body) -> KernelResult<(
             validate_turn_ref(payload.turn.as_ref(), "worker_progress.turn")?;
             require_non_empty(&payload.kind, "worker_progress.kind")
         }
-        proto::envelope::Body::TurnFinalProposal(payload) => {
-            validate_turn_ref(payload.turn.as_ref(), "turn_final_proposal.turn")?;
-            for (index, message) in payload.messages.iter().enumerate() {
-                require_non_empty(
-                    &message.role,
-                    &format!("turn_final_proposal.messages[{index}].role"),
-                )?;
-            }
-            validate_optional_proposed_reply(payload.reply.as_ref(), "turn_final_proposal.reply")
-        }
         proto::envelope::Body::TurnError(payload) => {
             validate_turn_ref(payload.turn.as_ref(), "turn_error.turn")?;
             require_non_empty(&payload.code, "turn_error.code")
+        }
+        proto::envelope::Body::TurnNoopCompleted(payload) => {
+            validate_turn_ref(payload.turn.as_ref(), "turn_noop_completed.turn")?;
+            Ok(())
         }
         proto::envelope::Body::ControlShutdown(_payload) => Ok(()),
         proto::envelope::Body::RpcRequest(payload) => {
@@ -311,31 +302,6 @@ fn validate_actor_key(actor: Option<&proto::ActorKey>, field: &str) -> KernelRes
     require_non_empty(&actor.session_id, &format!("{field}.session_id"))
 }
 
-fn validate_mailbox_turn_mirror(
-    mailbox: &proto::MailboxUpdated,
-    turn: &proto::ActorTurnRef,
-) -> KernelResult<()> {
-    if mailbox.actor.as_ref() != turn.actor.as_ref() {
-        return Err(KernelError::new(
-            "mailbox_updated actor must match mailbox_updated.turn.actor",
-        ));
-    }
-
-    if mailbox.activation_uid != turn.activation_uid {
-        return Err(KernelError::new(
-            "mailbox_updated activation_uid must match mailbox_updated.turn.activation_uid",
-        ));
-    }
-
-    if mailbox.actor_epoch != turn.actor_epoch {
-        return Err(KernelError::new(
-            "mailbox_updated actor_epoch must match mailbox_updated.turn.actor_epoch",
-        ));
-    }
-
-    Ok(())
-}
-
 fn validate_optional_model_ref(
     model_ref: Option<&proto::TurnModelRef>,
     field: &str,
@@ -344,38 +310,13 @@ fn validate_optional_model_ref(
         require_non_empty(&model_ref.profile, &format!("{field}.profile"))?;
         require_non_empty(&model_ref.provider_id, &format!("{field}.provider_id"))?;
         require_non_empty(&model_ref.model, &format!("{field}.model"))?;
-    }
-
-    Ok(())
-}
-
-fn validate_optional_proposed_reply(
-    reply: Option<&proto::ProposedReply>,
-    field: &str,
-) -> KernelResult<()> {
-    let Some(reply) = reply else {
-        return Ok(());
-    };
-
-    require_non_empty(&reply.text, &format!("{field}.text"))?;
-
-    for (index, attachment) in reply.attachments.iter().enumerate() {
-        validate_proposed_reply_attachment(attachment, &format!("{field}.attachments[{index}]"))?;
-    }
-
-    Ok(())
-}
-
-fn validate_proposed_reply_attachment(
-    attachment: &proto::ProposedReplyAttachment,
-    field: &str,
-) -> KernelResult<()> {
-    if attachment.agent_computer_path.trim().is_empty()
-        && attachment.user_files_relative_path.trim().is_empty()
-    {
-        return Err(KernelError::new(format!(
-            "{field} must include agent_computer_path or user_files_relative_path"
-        )));
+        for (index, modality) in model_ref.input_modalities.iter().enumerate() {
+            require_non_empty(modality, &format!("{field}.input_modalities[{index}]"))?;
+        }
+        validate_optional_model_ref(
+            model_ref.vision_fallback_model_ref.as_deref(),
+            &format!("{field}.vision_fallback_model_ref"),
+        )?;
     }
 
     Ok(())
@@ -397,12 +338,13 @@ fn require_positive_u64(value: u64, field: &str) -> KernelResult<()> {
     Ok(())
 }
 
-// Steering must be journaled as actor input instead of hidden in a turn-control
-// payload. That preserves the user-visible input stream as the replay source.
+// Steering must be journaled as an actor event instead of hidden in a
+// turn-control payload. That preserves the user-visible event stream as the
+// replay source.
 fn validate_turn_control(control: &proto::TurnControl) -> KernelResult<()> {
     if control.command == "steer" && !empty_json_payload(&control.payload_json) {
         return Err(KernelError::new(
-            "turn_control steer payload must be empty and journaled as actor input",
+            "turn_control steer payload must be empty and journaled as actor event",
         ));
     }
 

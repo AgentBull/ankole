@@ -64,11 +64,11 @@ fn body_to_json(body: Option<&proto::envelope::Body>) -> KernelResult<Value> {
         Some(proto::envelope::Body::WorkerProgress(payload)) => {
             ("worker_progress", worker_progress_to_json(payload))
         }
-        Some(proto::envelope::Body::TurnFinalProposal(payload)) => {
-            ("turn_final_proposal", turn_final_proposal_to_json(payload))
-        }
         Some(proto::envelope::Body::TurnError(payload)) => {
             ("turn_error", turn_error_to_json(payload))
+        }
+        Some(proto::envelope::Body::TurnNoopCompleted(payload)) => {
+            ("turn_noop_completed", turn_noop_completed_to_json(payload))
         }
         Some(proto::envelope::Body::ControlShutdown(payload)) => {
             ("control_shutdown", control_shutdown_to_json(payload))
@@ -123,53 +123,39 @@ fn turn_start_to_json(payload: &proto::TurnStart) -> KernelResult<Value> {
     Ok(json_object([
         ("turn", turn_ref_to_json(payload.turn.as_ref())?),
         (
-            "inputs",
-            Value::Array(
-                payload
-                    .inputs
-                    .iter()
-                    .map(actor_input_to_json)
-                    .collect::<KernelResult<Vec<_>>>()?,
-            ),
+            "actor_event",
+            match payload.actor_event.as_ref() {
+                Some(event) => actor_event_to_json(event)?,
+                None => Value::Null,
+            },
         ),
         (
             "model_ref",
             turn_model_ref_to_json(payload.model_ref.as_ref())?,
+        ),
+        (
+            "request_context",
+            bytes_to_json(&payload.request_context_json)?,
         ),
     ]))
 }
 
 fn mailbox_updated_to_json(payload: &proto::MailboxUpdated) -> KernelResult<Value> {
     Ok(json_object([
-        ("actor", actor_key_to_json(payload.actor.as_ref())?),
-        (
-            "activation_uid",
-            Value::from(payload.activation_uid.clone()),
-        ),
-        ("actor_epoch", Value::from(payload.actor_epoch)),
         ("reason", Value::from(payload.reason.clone())),
         ("turn", turn_ref_to_json(payload.turn.as_ref())?),
         (
-            "inputs",
-            Value::Array(
-                payload
-                    .inputs
-                    .iter()
-                    .map(actor_input_to_json)
-                    .collect::<KernelResult<Vec<_>>>()?,
-            ),
+            "actor_event",
+            optional_actor_event_to_json(payload.actor_event.as_ref())?,
         ),
     ]))
 }
 
 fn turn_accepted_to_json(payload: &proto::TurnAccepted) -> KernelResult<Value> {
-    Ok(json_object([
-        ("turn", turn_ref_to_json(payload.turn.as_ref())?),
-        (
-            "accepted_actor_input_ids",
-            string_array(&payload.accepted_actor_input_ids),
-        ),
-    ]))
+    Ok(json_object([(
+        "turn",
+        turn_ref_to_json(payload.turn.as_ref())?,
+    )]))
 }
 
 fn turn_control_to_json(payload: &proto::TurnControl) -> KernelResult<Value> {
@@ -189,39 +175,19 @@ fn worker_progress_to_json(payload: &proto::WorkerProgress) -> KernelResult<Valu
     ]))
 }
 
-fn turn_final_proposal_to_json(payload: &proto::TurnFinalProposal) -> KernelResult<Value> {
-    Ok(json_object([
-        ("turn", turn_ref_to_json(payload.turn.as_ref())?),
-        (
-            "messages",
-            Value::Array(
-                payload
-                    .messages
-                    .iter()
-                    .map(proposed_message_to_json)
-                    .collect::<KernelResult<Vec<_>>>()?,
-            ),
-        ),
-        ("reply", proposed_reply_to_json(payload.reply.as_ref())?),
-        ("usage_json", bytes_to_json(&payload.usage_json)?),
-        (
-            "provider_metadata_json",
-            bytes_to_json(&payload.provider_metadata_json)?,
-        ),
-        ("stop_reason", Value::from(payload.stop_reason.clone())),
-        (
-            "tool_results_json",
-            bytes_to_json(&payload.tool_results_json)?,
-        ),
-    ]))
-}
-
 fn turn_error_to_json(payload: &proto::TurnError) -> KernelResult<Value> {
     Ok(json_object([
         ("turn", turn_ref_to_json(payload.turn.as_ref())?),
         ("code", Value::from(payload.code.clone())),
         ("message", Value::from(payload.message.clone())),
         ("details_json", bytes_to_json(&payload.details_json)?),
+    ]))
+}
+
+fn turn_noop_completed_to_json(payload: &proto::TurnNoopCompleted) -> KernelResult<Value> {
+    Ok(json_object([
+        ("turn", turn_ref_to_json(payload.turn.as_ref())?),
+        ("reason", Value::from(payload.reason.clone())),
     ]))
 }
 
@@ -264,7 +230,7 @@ fn turn_ref_to_json(turn: Option<&proto::ActorTurnRef>) -> KernelResult<Value> {
         ("actor", actor_key_to_json(turn.actor.as_ref())?),
         ("activation_uid", Value::from(turn.activation_uid.clone())),
         ("actor_epoch", Value::from(turn.actor_epoch)),
-        ("llm_turn_id", Value::from(turn.llm_turn_id.clone())),
+        ("actor_event_id", Value::from(turn.actor_event_id.clone())),
         ("revision", Value::from(turn.revision)),
     ]))
 }
@@ -290,90 +256,52 @@ fn turn_model_ref_to_json(model_ref: Option<&proto::TurnModelRef>) -> KernelResu
             ("profile", Value::from(model_ref.profile.clone())),
             ("provider_id", Value::from(model_ref.provider_id.clone())),
             ("model", Value::from(model_ref.model.clone())),
-        ])),
-        None => Ok(Value::Null),
-    }
-}
-
-fn actor_input_to_json(input: &proto::ActorInputEnvelope) -> KernelResult<Value> {
-    Ok(json_object([
-        ("actor_input_id", Value::from(input.actor_input_id.clone())),
-        (
-            "live_queue_sequence",
-            Value::from(input.live_queue_sequence),
-        ),
-        ("type", Value::from(input.r#type.clone())),
-        (
-            "ingress_event_id",
-            Value::from(input.ingress_event_id.clone()),
-        ),
-        (
-            "provider_entry_id",
-            Value::from(input.provider_entry_id.clone()),
-        ),
-        ("payload_json", bytes_to_json(&input.payload_json)?),
-    ]))
-}
-
-fn proposed_message_to_json(message: &proto::ProposedMessage) -> KernelResult<Value> {
-    Ok(json_object([
-        ("role", Value::from(message.role.clone())),
-        ("content_json", bytes_to_json(&message.content_json)?),
-        ("metadata_json", bytes_to_json(&message.metadata_json)?),
-    ]))
-}
-
-fn proposed_reply_to_json(reply: Option<&proto::ProposedReply>) -> KernelResult<Value> {
-    match reply {
-        Some(reply) => Ok(json_object([
-            ("text", Value::from(reply.text.clone())),
-            ("content_json", bytes_to_json(&reply.content_json)?),
             (
-                "attachments",
-                Value::Array(
-                    reply
-                        .attachments
-                        .iter()
-                        .map(proposed_reply_attachment_to_json)
-                        .collect::<KernelResult<Vec<_>>>()?,
-                ),
+                "provider_kind",
+                Value::from(model_ref.provider_kind.clone()),
+            ),
+            (
+                "input_modalities",
+                string_list_to_json(&model_ref.input_modalities),
+            ),
+            (
+                "vision_fallback_model_ref",
+                turn_model_ref_to_json(model_ref.vision_fallback_model_ref.as_deref())?,
             ),
         ])),
         None => Ok(Value::Null),
     }
 }
 
-fn proposed_reply_attachment_to_json(
-    attachment: &proto::ProposedReplyAttachment,
-) -> KernelResult<Value> {
-    let mut object = Map::new();
-    object.insert(
-        "agent_computer_path".into(),
-        Value::from(attachment.agent_computer_path.clone()),
-    );
-    object.insert(
-        "user_files_relative_path".into(),
-        Value::from(attachment.user_files_relative_path.clone()),
-    );
+fn actor_event_to_json(event: &proto::ActorEventEnvelope) -> KernelResult<Value> {
+    Ok(json_object([
+        ("actor_event_id", Value::from(event.actor_event_id.clone())),
+        ("queue_sequence", Value::from(event.queue_sequence)),
+        ("type", Value::from(event.r#type.clone())),
+        (
+            "source_event_id",
+            Value::from(event.source_event_id.clone()),
+        ),
+        (
+            "source_entry_id",
+            Value::from(event.source_entry_id.clone()),
+        ),
+        ("payload_json", bytes_to_json(&event.payload_json)?),
+        ("binding_name", Value::from(event.binding_name.clone())),
+        (
+            "signal_channel_id",
+            Value::from(event.signal_channel_id.clone()),
+        ),
+        (
+            "provider_thread_id",
+            Value::from(event.provider_thread_id.clone()),
+        ),
+    ]))
+}
 
-    if !attachment.name.is_empty() {
-        object.insert("name".into(), Value::from(attachment.name.clone()));
+fn optional_actor_event_to_json(event: Option<&proto::ActorEventEnvelope>) -> KernelResult<Value> {
+    match event {
+        Some(event) => actor_event_to_json(event),
+        None => Ok(Value::Null),
     }
-
-    if !attachment.mime_type.is_empty() {
-        object.insert(
-            "mime_type".into(),
-            Value::from(attachment.mime_type.clone()),
-        );
-    }
-
-    if let Some(size) = attachment.size {
-        object.insert("size".into(), Value::from(size));
-    }
-
-    if !attachment.xxh3_128.is_empty() {
-        object.insert("xxh3_128".into(), Value::from(attachment.xxh3_128.clone()));
-    }
-
-    Ok(Value::Object(object))
 }

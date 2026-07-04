@@ -33,7 +33,7 @@ defmodule FeishuOpenAPI do
 
   require Logger
 
-  alias FeishuOpenAPI.{Client, Error, Request, Spec, TokenManager}
+  alias FeishuOpenAPI.{Client, Error, Request, Spec, TokenManager, UserTokenManager}
 
   # Feishu business codes the SDK reacts to (everything else is surfaced as-is):
   #   * @token_invalid_codes — the access token went stale; drop it and retry once.
@@ -255,8 +255,9 @@ defmodule FeishuOpenAPI do
            status: status
          }}
 
-      {:ok, %Req.Response{status: status, body: body} = resp} ->
-        maybe_error_from_body(body, resp, status)
+      {:ok, %Req.Response{status: status} = resp} ->
+        resp = decode_json_body(resp)
+        maybe_error_from_body(resp.body, resp, status)
 
       {:error, _} = err ->
         err
@@ -505,12 +506,15 @@ defmodule FeishuOpenAPI do
   defp maybe_recover_app_ticket(_client), do: :ok
 
   # Drop exactly the cached credential that just failed, so the retry refetches
-  # it. User tokens (explicit bearer or :user_access_token mode) are not owned by
-  # the app/tenant token cache, so there is nothing here to invalidate for them.
+  # it. Managed user tokens keep their refresh_token and only expire the stale
+  # access token, allowing the retry to refresh through UserTokenManager.
   defp invalidate_for_retry(client, %Spec{} = spec) do
     cond do
       is_binary(spec.user_access_token) ->
         :ok
+
+      is_binary(spec.user_access_token_key) ->
+        UserTokenManager.expire_access_token(client, spec.user_access_token_key)
 
       spec.access_token_type == :user_access_token ->
         :ok

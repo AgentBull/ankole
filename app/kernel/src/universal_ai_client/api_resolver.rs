@@ -7,5 +7,6 @@ include!("api_resolver/aws_bedrock_converse.rs");
 include!("api_resolver/embeddings.rs");
 include!("api_resolver/google_embeddings.rs");
 include!("api_resolver/rerank.rs");
+include!("api_resolver/web.rs");
 include!("api_resolver/standard.rs");
 include!("api_resolver/tests.rs");

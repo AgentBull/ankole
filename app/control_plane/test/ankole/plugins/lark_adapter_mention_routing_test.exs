@@ -1,7 +1,7 @@
 defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
   use Ankole.DataCase, async: false
 
-  alias Ankole.Actors.ActorInput
+  alias Ankole.Actors.ActorEvent
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.Inbound
   alias Ankole.Repo
@@ -11,10 +11,49 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
 
   import Ankole.PrincipalsFixtures
 
-  @base_time ~U[2026-06-24 08:00:00.000000Z]
+  @base_time ~U[2026-07-02 01:34:05.000000Z]
   @base_ms DateTime.to_unix(@base_time, :millisecond)
 
   describe "configured bot mention routing" do
+    test "message receive ignores a group mention when bot identity is not configured" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark", :ignore)
+
+      consumer =
+        Inbound.chat_consumer(
+          adapter_context(agent.uid),
+          chat_config(%{})
+        )
+
+      event =
+        receive_event()
+        |> update_message(fn message ->
+          %{
+            message
+            | "message_id" => "om_unconfigured_bot_mention",
+              "content" => ~s({"text":"@_some_bot /retry"}),
+              "mentions" => [
+                %{
+                  "key" => "_some_bot",
+                  "name" => "Some Bot",
+                  "id" => %{"open_id" => "ou_some_bot"}
+                }
+              ]
+          }
+        end)
+
+      assert {:ok, [%{status: :ignored}]} =
+               Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
+
+      refute Repo.get_by(ActorEvent, source_entry_id: "om_unconfigured_bot_mention")
+
+      assert {:ok, %{mentions: [mention], explicit: false}} =
+               Inbound.normalize_message_receive(event, consumer)
+
+      refute Map.has_key?(mention, "agent_uid")
+      assert mention["targets_current_agent"] == false
+    end
+
     test "message receive ignores a group mention for another configured bot" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "lark", :ignore)
@@ -45,7 +84,7 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
       assert {:ok, [%{status: :ignored}]} =
                Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
 
-      refute Repo.get_by(ActorInput, provider_entry_id: "om_other_bot_mention")
+      refute Repo.get_by(ActorEvent, source_entry_id: "om_other_bot_mention")
 
       assert {:ok, %{mentions: [mention], explicit: false}} =
                Inbound.normalize_message_receive(event, consumer)
@@ -81,11 +120,11 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
           }
         end)
 
-      assert {:ok, [%{status: :accepted, actor_input: input}]} =
+      assert {:ok, [%{status: :accepted, actor_event: input}]} =
                Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
 
       assert input.type == "command.retry"
-      assert input.provider_entry_id == "om_this_bot_mention"
+      assert input.source_entry_id == "om_this_bot_mention"
 
       assert {:ok, %{mentions: [%{"agent_uid" => agent_uid}], explicit: true}} =
                Inbound.normalize_message_receive(event, consumer)

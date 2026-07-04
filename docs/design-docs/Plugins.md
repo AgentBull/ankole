@@ -19,20 +19,28 @@ know what plugin modules or packages are available before those plugins can
 register runtime configuration, supervised children, setup metadata, or adapter
 contracts.
 
-Discovery reads local plugin roots from the repository:
+Discovery reads local plugin paths from the repository:
 
 - `plugins/` for normal first-party plugins;
 - `internals/plugins/` for private first-party plugins when that tree exists.
 
-`internals/plugins/` is a future optional root. A missing optional root is not a
-startup error. A plugin declaration loaded from either root follows the same
+Container/release deployments may override these paths with the bootstrap
+environment variable `ANKOLE_PLUGIN_PATHS`, using a colon-separated list of
+absolute paths. The image must copy the plugin source-index tree at those paths;
+the modules are still trusted first-party code compiled into the release. This
+keeps plugin discovery a deployment fact rather than a database/runtime setting.
+
+`internals/plugins/` is a future optional path. A missing optional path is not a
+startup error. A plugin declaration loaded from either path follows the same
 contract once discovered.
 
 Discovery must not depend on AppConfigure. AppConfigure starts after Repo and is
 the runtime settings store; it is not how the process finds local plugin code.
+Changing plugin paths requires changing the deployment environment and
+restarting Ankole.
 
-Plugin ids must be unique across all discovery roots. A duplicate id is a
-startup configuration error, not an ordering rule where one root silently wins.
+Plugin ids must be unique across all discovery paths. A duplicate id is a
+startup configuration error, not an ordering rule where one path silently wins.
 
 The registry should store discovered specs and the active plugin set. A
 normalized plugin spec includes:
@@ -185,8 +193,9 @@ added only when the owning subsystem has an implementation or a settled design.
 
 - Plugin code is trusted and available as local code at boot.
 - Plugin code discovery is bootstrap/local-code state, not AppConfigure state.
-- Plugin discovery reads `plugins/` and optional `internals/plugins/`.
-- Plugin ids are unique across all discovery roots.
+- Plugin discovery reads `plugins/` and optional `internals/plugins/`, unless
+  `ANKOLE_PLUGIN_PATHS` supplies the container/release source-index paths.
+- Plugin ids are unique across all discovery paths.
 - All discovered plugins are active unless listed in global
   `plugins.disabled_ids`.
 - Plugin activation changes require process restart.

@@ -7,7 +7,7 @@ import chalk from 'chalk'
 export const devkitRootPath = dirname(fileURLToPath(import.meta.url))
 export const packageRootPath = join(devkitRootPath, '..')
 export const repoRootPath = join(packageRootPath, '..', '..')
-export const appRootPath = join(repoRootPath, 'app')
+export const appRootPath = join(repoRootPath, 'app', 'control_plane')
 export const composeFilePath = join(packageRootPath, 'external-services.docker-compose.yml')
 
 export const styledError = (msg: string): string => `${chalk.bold.red('ERROR:')} ${msg}`
@@ -118,7 +118,7 @@ export type StartComposeServicesArgs = {
 }
 
 /**
- * Bring up every service defined in the Compose file (Postgres, Redis, ...).
+ * Bring up every service defined in the Compose file.
  * Shared by `external-services start` and the `app-db` commands so the two
  * start paths cannot drift and silently omit a service.
  */
@@ -144,12 +144,12 @@ export function resolveAppDatabaseName(explicitName?: string): string {
   if (explicitName) return validateDatabaseName(explicitName)
 
   const databaseUrl = loadAppEnvValue('DATABASE_URL')
-  if (!databaseUrl) return 'ankole_development'
+  if (!databaseUrl) return 'ankole_dev'
 
   try {
     const parsed = new URL(databaseUrl)
     const databaseName = decodeURIComponent(parsed.pathname.replace(/^\//, ''))
-    return validateDatabaseName(databaseName || 'ankole_development')
+    return validateDatabaseName(databaseName || 'ankole_dev')
   } catch {
     throw new Error(`Invalid DATABASE_URL in app env files: ${databaseUrl}`)
   }

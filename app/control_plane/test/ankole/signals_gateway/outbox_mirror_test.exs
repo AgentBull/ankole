@@ -11,7 +11,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsGatewayFixtures
 
-  @base_time ~U[2026-06-23 08:00:00.000000Z]
+  @base_time ~U[2026-07-02 01:34:05.000000Z]
 
   describe "outbox mirror after provider success" do
     test "successful post is mirrored only after adapter success and failure does not mirror" do
@@ -47,7 +47,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
 
       refute Repo.get_by(SignalEntry,
                signal_channel_id: "lark:chat:group-a",
-               provider_entry_id: "post-failed"
+               source_entry_id: "post-failed"
              )
 
       assert {:ok, _created} =
@@ -67,7 +67,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
                  "post-ok",
                  %{
                    capabilities: [:post_entry],
-                   send: fn _outbox -> {:ok, %{provider_entry_id: "bot-msg-1"}} end
+                   send: fn _outbox -> {:ok, %{created_source_entry_id: "bot-msg-1"}} end
                  },
                  now: @base_time
                )
@@ -76,7 +76,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
 
       assert Repo.get_by!(SignalEntry,
                signal_channel_id: "lark:chat:group-a",
-               provider_entry_id: "bot-msg-1"
+               source_entry_id: "bot-msg-1"
              ).text ==
                "visible"
     end
@@ -118,7 +118,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
                      assert outbox.status == :sending
                      assert %DateTime{} = outbox.platform_send_started_at
 
-                     {:ok, %{provider_entry_id: "durable-send-msg"}}
+                     {:ok, %{created_source_entry_id: "durable-send-msg"}}
                    end
                  },
                  now: @base_time
@@ -127,7 +127,69 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
       assert succeeded.status == :succeeded
     end
 
-    test "post-like success without provider entry id materializes a stable local mirror id" do
+    test "successful send persists adapter-materialized payload" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      assert {:ok, %{status: :accepted}} =
+               SignalsGateway.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, _created} =
+               SignalsGateway.commit_outbox(%{
+                 agent_uid: agent.uid,
+                 binding_name: "bot",
+                 outbound_key: "post-materialized-payload",
+                 operation: :reply,
+                 signal_channel_id: "lark:chat:group-a",
+                 reply_to_source_entry_id: "human-msg-1",
+                 payload: %{
+                   "attachments" => [
+                     %{"user_files_relative_path" => "reports/chaos-report.txt"}
+                   ]
+                 },
+                 fallback_visible_text: "visible"
+               })
+
+      materialized_payload = %{
+        "attachments" => [
+          %{
+            "user_files_relative_path" => "reports/chaos-report.txt",
+            "provider_file_key" => "file_uploaded_1"
+          }
+        ]
+      }
+
+      assert {:ok, succeeded} =
+               SignalsGateway.dispatch_outbox(
+                 agent.uid,
+                 "bot",
+                 "post-materialized-payload",
+                 %{
+                   capabilities: [:reply_entry],
+                   send: fn _outbox ->
+                     {:ok,
+                      %{
+                        created_source_entry_id: "bot-file-msg-1",
+                        payload: materialized_payload
+                      }}
+                   end
+                 },
+                 now: @base_time
+               )
+
+      assert succeeded.status == :succeeded
+      assert succeeded.payload == materialized_payload
+
+      assert Repo.get_by!(
+               SignalEntry,
+               signal_channel_id: "lark:chat:group-a",
+               source_entry_id: "bot-file-msg-1"
+             ).attachments == materialized_payload["attachments"]
+    end
+
+    test "post-like success without provider entry id does not synthesize mirror identity" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
@@ -156,12 +218,12 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
                )
 
       assert succeeded.status == :succeeded
-      assert succeeded.provider_entry_id == "local-outbox:post-without-provider-id"
+      assert is_nil(succeeded.created_source_entry_id)
 
-      assert Repo.get_by!(SignalEntry,
+      refute Repo.get_by(SignalEntry,
                signal_channel_id: "lark:chat:group-a",
-               provider_entry_id: "local-outbox:post-without-provider-id"
-             ).text == "visible"
+               source_entry_id: "local-outbox:post-without-provider-id"
+             )
     end
 
     test "confirmed provider send stays succeeded when local mirror write fails" do
@@ -197,7 +259,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
                        send: fn _outbox ->
                          {:ok,
                           %{
-                            provider_entry_id: "mirror-fails-after-send",
+                            created_source_entry_id: "mirror-fails-after-send",
                             raw_payload: %{"pid" => test_pid}
                           }}
                        end
@@ -210,7 +272,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
 
       assert_receive {:succeeded_outbox, succeeded}
       assert succeeded.status == :succeeded
-      assert succeeded.provider_entry_id == "mirror-fails-after-send"
+      assert succeeded.created_source_entry_id == "mirror-fails-after-send"
 
       assert Repo.get_by!(OutboxEntry,
                agent_uid: agent.uid,
@@ -220,7 +282,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
 
       refute Repo.get_by(SignalEntry,
                signal_channel_id: "lark:chat:group-a",
-               provider_entry_id: "mirror-fails-after-send"
+               source_entry_id: "mirror-fails-after-send"
              )
 
       assert log =~ "signals_gateway outbox mirror failed after provider send"
@@ -243,18 +305,18 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
                    outbound_key: "reply-ok",
                    operation: :reply,
                    signal_channel_id: "lark:chat:group-a",
-                   source_provider_entry_id: "msg-1",
+                   reply_to_source_entry_id: "msg-1",
                    fallback_visible_text: "reply visible"
                  },
                  [:reply_entry],
-                 %{provider_entry_id: "reply-msg"}
+                 %{created_source_entry_id: "reply-msg"}
                )
 
       assert reply.status == :succeeded
 
       assert Repo.get_by!(SignalEntry,
                signal_channel_id: "lark:chat:group-a",
-               provider_entry_id: "reply-msg"
+               source_entry_id: "reply-msg"
              ).text == "reply visible"
 
       assert {:ok, edited} =
@@ -265,7 +327,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
                    outbound_key: "edit-ok",
                    operation: :edit,
                    signal_channel_id: "lark:chat:group-a",
-                   target_provider_entry_id: "reply-msg",
+                   target_source_entry_id: "reply-msg",
                    fallback_visible_text: "edited visible"
                  },
                  [:edit_entry],
@@ -276,7 +338,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
 
       assert Repo.get_by!(SignalEntry,
                signal_channel_id: "lark:chat:group-a",
-               provider_entry_id: "reply-msg"
+               source_entry_id: "reply-msg"
              ).text == "edited visible"
 
       assert {:ok, reaction_add} =
@@ -287,7 +349,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
                    outbound_key: "reaction-add-ok",
                    operation: :reaction_add,
                    signal_channel_id: "lark:chat:group-a",
-                   target_provider_entry_id: "reply-msg",
+                   target_source_entry_id: "reply-msg",
                    payload: %{reaction_key: "thumbsup", actor_key: "agent"}
                  },
                  [:add_reaction],
@@ -298,7 +360,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
 
       assert Repo.get_by!(SignalEntry,
                signal_channel_id: "lark:chat:group-a",
-               provider_entry_id: "reply-msg"
+               source_entry_id: "reply-msg"
              ).reactions == %{"thumbsup" => ["agent"]}
 
       assert {:ok, reaction_remove} =
@@ -309,7 +371,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
                    outbound_key: "reaction-remove-ok",
                    operation: :reaction_remove,
                    signal_channel_id: "lark:chat:group-a",
-                   target_provider_entry_id: "reply-msg",
+                   target_source_entry_id: "reply-msg",
                    payload: %{reaction_key: "thumbsup", actor_key: "agent"}
                  },
                  [:remove_reaction],
@@ -320,7 +382,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
 
       assert Repo.get_by!(SignalEntry,
                signal_channel_id: "lark:chat:group-a",
-               provider_entry_id: "reply-msg"
+               source_entry_id: "reply-msg"
              ).reactions == %{}
 
       assert {:ok, divider} =
@@ -334,14 +396,14 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
                    fallback_visible_text: "---"
                  },
                  [:post_entry, :divider],
-                 %{provider_entry_id: "divider-msg"}
+                 %{created_source_entry_id: "divider-msg"}
                )
 
       assert divider.status == :succeeded
 
       assert Repo.get_by!(SignalEntry,
                signal_channel_id: "lark:chat:group-a",
-               provider_entry_id: "divider-msg"
+               source_entry_id: "divider-msg"
              ).text == "---"
 
       assert {:ok, card} =
@@ -355,14 +417,14 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
                    fallback_visible_text: "card fallback"
                  },
                  [:post_entry, :card],
-                 %{provider_entry_id: "card-msg"}
+                 %{created_source_entry_id: "card-msg"}
                )
 
       assert card.status == :succeeded
 
       assert Repo.get_by!(SignalEntry,
                signal_channel_id: "lark:chat:group-a",
-               provider_entry_id: "card-msg"
+               source_entry_id: "card-msg"
              ).text == "card fallback"
 
       assert {:ok, deleted} =
@@ -373,7 +435,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
                    outbound_key: "delete-ok",
                    operation: :delete,
                    signal_channel_id: "lark:chat:group-a",
-                   target_provider_entry_id: "reply-msg"
+                   target_source_entry_id: "reply-msg"
                  },
                  [:delete_entry],
                  %{}
@@ -383,7 +445,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
 
       refute Repo.get_by(SignalEntry,
                signal_channel_id: "lark:chat:group-a",
-               provider_entry_id: "reply-msg"
+               source_entry_id: "reply-msg"
              )
     end
   end

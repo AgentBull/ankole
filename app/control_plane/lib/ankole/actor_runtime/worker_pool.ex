@@ -7,7 +7,7 @@ defmodule Ankole.ActorRuntime.WorkerPool do
   the `agent_computer_worker` table remains the liveness source, and every
   placement revalidates the worker behind the assignment. If the assigned worker
   is gone, the assignment is released and re-placed. Crucially, an assignment is
-  not part of the durable user story — losing one only means the actor input is
+  not part of the durable user story — losing one only means the actor event is
   retried onto another worker, never that work is dropped. Placement deliberately
   considers only liveness and free capacity because all workers run one image; a
   heterogeneous pool is out of scope for this path.
@@ -75,12 +75,12 @@ defmodule Ankole.ActorRuntime.WorkerPool do
 
   # Keeps actor-to-worker affinity while the assigned worker is still usable.
   # This lowers churn without making the worker part of the durable user story:
-  # stale workers release the assignment and the actor input can be retried.
+  # stale workers release the assignment and the actor event can be retried.
   defp assign_worker_in_tx(repo, actor_key, now) do
     case live_assignment(repo, actor_key) do
       %ActorSessionWorkerAssignment{} = assignment ->
         case assignment_worker_available(repo, assignment) do
-          %AgentComputerWorker{} = worker ->
+          {:ok, %AgentComputerWorker{} = worker} ->
             touch_assignment(repo, assignment, worker, now)
 
           nil ->
@@ -88,6 +88,9 @@ defmodule Ankole.ActorRuntime.WorkerPool do
                  {:ok, assignment} <- assign_new_worker(repo, actor_key, now) do
               {:ok, assignment}
             end
+
+          {:error, _reason} = error ->
+            error
         end
 
       nil ->
@@ -96,7 +99,7 @@ defmodule Ankole.ActorRuntime.WorkerPool do
   end
 
   # Locks one live assignment for the actor key so concurrent wakeups do not
-  # create multiple worker routes for the same ready input prefix.
+  # create multiple worker routes for the same ready event prefix.
   defp live_assignment(repo, actor_key) do
     ActorSessionWorkerAssignment
     |> where([assignment], assignment.agent_uid == ^actor_key.agent_uid)
@@ -110,6 +113,7 @@ defmodule Ankole.ActorRuntime.WorkerPool do
   # on purpose: fairness can improve later without changing turn semantics.
   defp assign_new_worker(repo, actor_key, now) do
     with %AgentComputerWorker{} = worker <- choose_worker(repo),
+         {:ok, worker} <- reserve_worker_slot(repo, worker),
          {:ok, assignment} <- insert_assignment(repo, actor_key, worker, now) do
       {:ok, assignment}
     else
@@ -124,11 +128,12 @@ defmodule Ankole.ActorRuntime.WorkerPool do
     AgentComputerWorker
     |> where([worker], worker.worker_id == ^assignment.worker_id)
     |> where([worker], worker.status == ^@ready_worker_status)
+    |> lock("FOR UPDATE")
     |> repo.one()
     |> case do
       %AgentComputerWorker{} = worker ->
         case worker_has_capacity?(worker) do
-          true -> worker
+          true -> reserve_worker_slot(repo, worker)
           false -> nil
         end
 
@@ -153,15 +158,50 @@ defmodule Ankole.ActorRuntime.WorkerPool do
   end
 
   # Chooses from ready workers after reading their current capacity projection.
-  # Missing capacity means "usable" so early workers can participate before they
-  # implement richer load reporting.
+  # Missing capacity is not assumed usable: every current worker reports turn
+  # slots in its ready/capacity envelopes.
   defp choose_worker(repo) do
     AgentComputerWorker
     |> where([worker], worker.status == ^@ready_worker_status)
     |> order_by([worker], asc: worker.inserted_at)
+    |> lock("FOR UPDATE SKIP LOCKED")
     |> repo.all()
     |> Enum.find(&worker_has_capacity?/1)
   end
+
+  defp reserve_worker_slot(repo, %AgentComputerWorker{} = worker) do
+    case worker_has_capacity?(worker) do
+      true ->
+        worker
+        |> AgentComputerWorker.changeset(%{
+          capacity: reserve_capacity(worker.capacity),
+          load: reserve_load(worker.load)
+        })
+        |> repo.update()
+
+      false ->
+        {:error, :no_worker_available}
+    end
+  end
+
+  defp reserve_capacity(capacity) when is_map(capacity) do
+    case integer_from_map(capacity, "available_turn_slots") do
+      slots when is_integer(slots) ->
+        Map.put(capacity, "available_turn_slots", max(slots - 1, 0))
+
+      nil ->
+        capacity
+    end
+  end
+
+  defp reserve_capacity(_capacity), do: %{}
+
+  defp reserve_load(load) when is_map(load) do
+    active_turns = integer_from_map(load, "active_turns") || 0
+    Map.put(load, "active_turns", active_turns + 1)
+  end
+
+  defp reserve_load(_load), do: %{"active_turns" => 1}
 
   # Accepts either explicit available slots or max-minus-active reporting. This
   # keeps the worker protocol small while allowing older and newer workers to
@@ -179,7 +219,7 @@ defmodule Ankole.ActorRuntime.WorkerPool do
 
     case available_slots do
       slots when is_integer(slots) -> slots > 0
-      nil -> true
+      nil -> false
     end
   end
 

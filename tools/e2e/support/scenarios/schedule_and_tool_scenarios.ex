@@ -473,7 +473,9 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     assert tool_detail(open_result, ["exitCode"]) == 0
     assert tool_detail(open_result, ["result", "ok"]) == true
     assert tool_detail(open_result, ["result", "url"]) == "https://example.com"
-    assert tool_detail(open_result, ["result", "screenshot_path"]) =~ "/workspace/temp/browser/"
+
+    assert tool_detail(open_result, ["result", "screenshot_path"]) =~ "/workspace/temp/browser/" or
+             tool_detail(open_result, ["result", "screenshot_unsupported"]) == true
 
     assert_actor_event_completed!(input.id)
     %{input: input, reply: reply}

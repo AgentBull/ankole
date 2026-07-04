@@ -4,13 +4,10 @@
 // types needed to build tools.
 
 export { runAgentLoop } from './agent-loop'
-export type { AgentEventSink } from './agent-loop'
-export { runLlmTurnHandlers, runTextTurnLoop } from './turns/text_turn_loop'
+export { runTurnHandlers, runTextTurnLoop } from './turns/text_turn_loop'
 export type {
   AgentConversationContextRequester,
   AIGatewayApiKeyRequester,
-  ConversationHistoryRequester,
-  ConversationSummaryCommitter,
   SkillOverlayReplaceRequester,
   SkillOverlayRequester,
   TextTurnLoopOptions,

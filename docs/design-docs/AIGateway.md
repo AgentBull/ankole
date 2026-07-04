@@ -1,18 +1,28 @@
 # AIGateway
 
-AIGateway is the control-plane owned AI boundary between Ankole workers and
-external AI providers.
+AIGateway is the control-plane owned AI boundary of Ankole. It sits between
+callers and external AI providers, and it owns two things:
 
-Workers do not receive external provider credentials. Provider credentials,
-provider kinds, model bindings, endpoint selection, and prepared request
-construction live in Elixir. Streaming response normalization runs in the Rust
-kernel data plane once Elixir has built the upstream request. Workers receive
-only an agent-scoped AIGateway API key, keep it in memory, and call AIGateway
-HTTP endpoints.
+- the provider boundary: provider credentials, provider kinds, model bindings,
+  endpoint selection, and prepared request construction live in Elixir. Workers
+  never receive external provider credentials.
+- the stateful Responses log: for agent-computer executions, AIGateway stores
+  every model call as a row in PostgreSQL and owns all state of the agentic
+  tool loop — history, continuation, stop policy, compaction, and the terminal
+  commit.
 
-This boundary makes provider choice a control-plane concern. It also gives the
+Workers receive only an agent-scoped AIGateway API key, keep it in memory, and
+call AIGateway over HTTP and WebSocket. Streaming response normalization runs
+in the Rust kernel data plane once Elixir has built the upstream request.
+
+This boundary makes provider choice a control-plane concern. It gives the
 worker one local AI surface instead of a growing set of provider-specific
-credential and SDK paths.
+credential and SDK paths. It also keeps durable conversation state out of the
+worker: a worker process can die at any point without losing model history.
+
+If this is your first Ankole document, read `docs/README.md` first. It shows
+where AIGateway sits in the whole system and how one chat message flows
+through it.
 
 ## Capabilities
 
@@ -20,10 +30,12 @@ AIGateway models are grouped by capability kind:
 
 - `llm`;
 - `embedding`;
-- `rerank`.
+- `rerank`;
+- `web_search`;
+- `web_fetch`.
 
-The registry must leave room for future capability kinds such as `web_search`,
-`image_generate`, and `asr`, but those are not part of the v1 runtime surface.
+The registry must leave room for future capability kinds such as
+`image_generate` and `asr`, but those are not part of the v1 runtime surface.
 
 Capability kind is part of model resolution. An LLM alias and a rerank alias may
 have the same short name only when the caller's endpoint makes the capability
@@ -37,13 +49,13 @@ provider contract. They are Elixir-side modules called by the control plane.
 Built-in LLM provider kinds:
 
 - `openai`;
-- `openai-compatible`;
+- `openai_compatible`;
 - `openrouter`;
 - `google_ai_studio_openai`;
 - `claude`;
 - `azure_openai`.
 
-The `openai-compatible` provider supports both `responses` and
+The `openai_compatible` provider supports both `responses` and
 `chat_completions` endpoint modes. `openrouter` is an OpenAI-compatible provider
 with OpenRouter defaults and app attribution headers. `google_ai_studio_openai`
 uses Google AI Studio's OpenAI-compatible endpoint. `claude` adapts Anthropic's
@@ -64,6 +76,18 @@ Built-in embedding and rerank provider kinds:
 - `openrouter`;
 - `jina`.
 
+Built-in web search and extraction provider kinds:
+
+- `parallel`, for provider-backed search and extraction;
+- `bright_data_serp`, for Bright Data SERP search;
+- `agentbull_cloud`, for AgentBull cloud search;
+- `jina_reader`, for Jina Reader extraction.
+
+`jina_reader` is intentionally separate from `jina`. The existing `jina`
+provider continues to own Jina embedding and rerank behavior; reader-style web
+extraction uses its own provider kind and resolver so request and response
+contracts do not leak across capabilities.
+
 Plugins may contribute additional provider implementations through the `ai_gateway.provider`
 contract. Plugins are trusted first-party Elixir code discovered at boot. They
 do not own AIGateway persistence, authorization, model bindings, or credential
@@ -81,12 +105,12 @@ An AIGateway provider row is an operator-configured provider instance. It owns:
 - connection options;
 - disabled state.
 
-`provider_kind` is stored as a validated slug, not as a database enum or fixed
-database whitelist. The control plane validates it against built-in provider
-modules or active plugin `ai_gateway.provider` modules before accepting or
-using a provider row. Provider-specific options and encrypted credential values
-are projected into the provider prepare context as settings; there is no global
-credential-mode registry.
+`provider_kind` is stored as a validated snake_case slug, not as a database enum
+or fixed database whitelist. The control plane validates it against built-in
+provider modules or active plugin `ai_gateway.provider` modules before accepting
+or using a provider row. Provider-specific options and encrypted credential
+values are projected into the provider prepare context as settings; there is no
+global credential-mode registry.
 
 Provider kind modules are the metadata source of truth. A module uses
 `ProviderDSL` to declare its id, localized label, settings, default base URL,
@@ -113,9 +137,12 @@ provider kind first, then the normalized configured provider id, against
 already-loaded `LLMDB.providers()`. It never creates atoms from operator input.
 Built-in provider naming differences such as `claude` to `anthropic`,
 `azure_openai` to `azure`, and `google_ai_studio_openai` to `google` are treated
-as explicit equivalence aliases for this metadata lookup. If no metadata source
-or model record exists, the catalog returns neutral text metadata or an empty
-provider list instead of failing the public `/models` request.
+as explicit equivalence aliases for this metadata lookup. Plugin provider ids
+should match the upstream `llm_db` provider id when one exists; if the product
+name needs a clearer Ankole id, add an explicit metadata alias such as
+`xiaomi_mimo` to `xiaomi`. If no metadata source or model record exists, the
+catalog returns neutral text metadata or an empty provider list instead of
+failing the public `/models` request.
 
 `connection_options.transport` is optional. When omitted, Elixir displays and
 normalizes the same default preference Rust uses at the NIF boundary:
@@ -127,14 +154,67 @@ attempts for the prepared request.
 
 Model bindings connect an agent-visible model selector to a provider instance
 and upstream model id. LLM bindings preserve the existing `primary`, `light`,
-and `heavy` variants. Embedding and rerank defaults are first-class profile
-slots named `embedding` and `rerank`; they live in the same
-`agents.options["ai_agent"]["models"]` map as the LLM profiles.
+and `heavy` variants. Embedding, rerank, web search, and web fetch defaults
+are first-class profile slots named `embedding`, `rerank`, `web_search`, and
+`web_fetch`; they live in the same `agents.options["ai_agent"]["models"]` map
+as the LLM profiles. Their public selectors are `embedding.default`,
+`rerank.default`, `web_search.default`, and `web_fetch.default`.
 
 The worker may also send an explicit provider/model selector in the form
 `provider_id/raw-model-id`. That selector bypasses an agent alias but still
 requires an active configured provider and the caller's agent-scoped AIGateway
 credential.
+
+## Usage Surfaces
+
+AIGateway has two usage surfaces. They share the same `/responses` endpoint
+family but have different state rules.
+
+**The stateless surface** serves enterprise/internal callers that are not
+agent-computer workers. It plays the role of a small private OpenRouter: pick a
+model, send a request, get a response. Rules:
+
+- HTTP with optional SSE streaming is the primary path. WebSocket is also
+  allowed, with the same stateless meaning.
+- It never writes the `ai_gateway_messages` or `ai_gateway_conversations`
+  tables. Nothing is stored.
+- A stateless request that carries `store=true`, `previous_response_id`, or
+  `conversation` is rejected with `400`. The caller must keep its own history
+  and send full context on every request.
+- A stateless response still needs a schema-level id. It uses a transport-only
+  id with the prefix `tmp_resp_`, for example
+  `tmp_resp_0198f00d-31aa-7cde-9f00-3c9b52ab01aa`. A `tmp_resp_*` id can never
+  be retrieved, chained, or stored. `GET /responses/:id` on it returns `404`.
+
+**The agent-computer stateful surface** serves exactly one caller: the Bun
+worker running an actor event. Rules:
+
+- The transport is WebSocket `response.create` messages, plus an explicit
+  `store=true` field, plus a valid agent token.
+- A new conversation session passes `conversation`. A continuation passes
+  `previous_response_id`. Exactly one of the two must be present; sending both
+  or neither is a `400`.
+- The request `metadata` carries the `actor_event_id` of the actor event the
+  worker is executing. AIGateway uses it for correlation and idempotency.
+  A stateful request without it is a `400`.
+- The worker opens one WebSocket connection per actor-event run, reuses it for
+  tool-loop continuation `response.create` messages, and runs at most one
+  in-flight response on that connection at a time.
+- `background=true` is unsupported. Ankole has no background response mode;
+  cancelling a running generation goes through ActorRuntime actor event
+  control, not through the AIGateway API.
+
+The gate is intentionally explicit. AIGateway never guesses from headers or
+`User-Agent` whether a request should be stateful. Only
+`WebSocket + store=true + valid token` opens the stateful path.
+
+Rejections are typed. A bad request shape (stateful fields on HTTP, a
+continuation without `store=true`, `conversation` and `previous_response_id`
+both present or both missing) is a `400`. A missing or invalid token is a
+standard Bearer-auth failure: `401`. An authenticated subject that is explicitly
+refused is a `403`. A `conversation` or `previous_response_id` that does not
+resolve inside the token's agent scope is a `400` (unknown conversation /
+invalid anchor).
 
 ## HTTP API
 
@@ -147,15 +227,21 @@ is:
 - `DELETE /api/v1/ai-gateway/providers/:provider_id`;
 - `GET /api/v1/ai-gateway/models`;
 - `POST /api/v1/ai-gateway/responses`;
+- `GET /api/v1/ai-gateway/responses/:response_id`;
+- `POST /api/v1/ai-gateway/responses/compact`;
 - `POST /api/v1/ai-gateway/embeddings`;
-- `POST /api/v1/ai-gateway/rerank`.
+- `POST /api/v1/ai-gateway/rerank`;
+- `GET /api/v1/ai-gateway/web_tools`;
+- `POST /api/v1/ai-gateway/web_search`;
+- `POST /api/v1/ai-gateway/web_fetch`.
 
-`/responses` follows the OpenResponses contract. It supports non-streaming HTTP,
-HTTP SSE streaming, and raw WebSocket response creation in v1. Non-streaming
-responses are normalized to the OpenResponses `ResponseResource` shape. HTTP
-SSE responses use `text/event-stream`, include an `event:` field matching each
-event body's `type`, stream output item/content lifecycle events when output is
-present, and end with the literal `data: [DONE]` sentinel.
+`POST /responses` over HTTP follows the OpenResponses contract and is always
+stateless. It supports non-streaming HTTP and HTTP SSE streaming. It rejects
+`store=true`, `previous_response_id`, and `conversation` with `400`.
+Non-streaming responses are normalized to the OpenResponses `ResponseResource`
+shape. HTTP SSE responses use `text/event-stream`, include an `event:` field
+matching each event body's `type`, stream output item/content lifecycle events
+when output is present, and end with the literal `data: [DONE]` sentinel.
 
 Streaming response normalization is native-kernel owned. Elixir provider modules
 still choose the provider, apply credentials, select endpoint/transport, and
@@ -191,12 +277,9 @@ repository includes a portable compliance CLI:
 Local tests should mirror that suite instead of inventing a separate schema.
 The required local stateless HTTP set covers basic text, assistant phase
 history, system prompt input, tool calling, image input, multi-turn input, and
-SSE event schema. The WebSocket set covers raw `response.create` messages on the
-same `/responses` path and sequential independent turns on one socket.
-
-The official OpenResponses compliance cases that require provider-side response
-state are outside the stateless v1 pass: `previous_response_id`-driven recovery,
-failure bookkeeping for stateful recovery, and `/responses/compact`.
+SSE event schema. Compliance cases that need provider-side response state —
+`previous_response_id` recovery and `/responses/compact` — run against the
+stateful WebSocket surface; the stateless surface rejects them by contract.
 
 `/models` follows the OpenRouter model list response style: top-level `data`
 contains model entries with `id`, `canonical_slug`, `name`, `description`,
@@ -223,11 +306,20 @@ Workers connect to `ws(s)://<host>/api/v1/ai-gateway/responses` with the same
 agent-scoped bearer credential used for HTTP. Client messages must be JSON
 objects with `type: "response.create"` plus the normal Responses create body.
 HTTP-only fields `stream`, `stream_options`, and `background` are rejected in
-WebSocket messages. `previous_response_id` is stripped before provider dispatch
-for the same stateless reason as HTTP. Server messages are OpenResponses
-streaming event JSON frames; the terminal `response.completed`,
-`response.failed`, `response.incomplete`, or `error` event completes the current
-WebSocket turn. WebSocket frames do not use the HTTP SSE `[DONE]` sentinel.
+WebSocket messages.
+
+A WebSocket `response.create` without `store=true` is a stateless request. Like
+HTTP, it rejects `previous_response_id` and `conversation` with `400`. With
+`store=true` and a valid agent token it enters the stateful path described in
+the sections below. For stateful runs, every server frame — including
+non-terminal frames such as `response.created` — carries
+`response.id = "resp_" <> row id`. A worker reading the id from any frame, the
+way the OpenAI SDK does, can never see an upstream provider id.
+
+Server messages are OpenResponses streaming event JSON frames; the terminal
+`response.completed`, `response.failed`, `response.incomplete`, or `error`
+event completes the current WebSocket turn. WebSocket frames do not use the
+HTTP SSE `[DONE]` sentinel.
 
 `/embeddings` follows the OpenRouter embedding contract. Requests use `model`
 and `input`, with optional OpenRouter/OpenAI fields such as `dimensions` and
@@ -247,92 +339,464 @@ Responses keep the OpenRouter rerank shape: top-level `id`, `model`, `results`,
 has `document`, `index`, and `relevance_score`; provider variants such as a
 top-level result `text` or `score` are normalized into that shape.
 
+`GET /web_tools` exposes the provider-backed tool availability for the current
+agent token. The response tells the worker whether `web_search` and
+`web_fetch` are configured, and which profile selector to send back. It does
+not advertise the worker-local browser fallback; Agent Computer may add that
+fallback for `web_fetch` independently when building its tool list.
+
+`/web_search` accepts `model`, `query`, and optional `limit`. It resolves the
+model through the `web_search` capability and dispatches to the configured
+provider. Provider responses are normalized to a shared body with `success`,
+`query`, and `results`. Each result may include `title`, `url`, `snippet`,
+`published_at`, `source`, `sources`, `score`, and provider metadata when the
+upstream supplies it.
+
+`/web_fetch` accepts `model` and one to five public HTTPS `urls`. It resolves
+the model through the `web_fetch` capability and dispatches only to
+provider-backed extraction. Literal localhost, private, link-local, loopback,
+and metadata-host URLs are rejected before provider dispatch. Responses are
+normalized to `success` plus `results`, where each result includes at least the
+requested `url` and may include `title`, `content`, `text`, `markdown`,
+`html`, `links`, `images`, `metadata`, or `error` depending on the provider
+contract.
+
 AIGateway should not add Ankole-only top-level fields to these public bodies.
-Gateway trace data belongs in logs, telemetry, or durable turn metadata.
+Gateway trace data belongs in logs, telemetry, or durable message metadata.
 
-## Protocol Edge Case Tests
+## Protocol Positioning
 
-The local test suite should pin AIGateway behavior around provider and stream
-irregularities. These are AIGateway contract tests, not copies of any single
-upstream gateway implementation.
+Ankole AIGateway is a superset of OpenResponses. It also borrows a small set of
+concepts from the OpenAI Responses API. If you have used the OpenAI SDK, most
+field names here already mean what you expect. This section lists what matches
+and what is different on purpose.
 
-Responses HTTP tests must cover non-streaming JSON response shape, no SSE
-headers when `stream` is absent or false, complete stateless input requirements,
-and the v1 rule that HTTP `previous_response_id` is accepted, ignored, and
-stripped before provider dispatch.
+Taken from OpenResponses:
 
-Responses SSE tests must cover `text/event-stream`, `event` matching the JSON
-body `type`, JSON `data`, the literal `data: [DONE]` sentinel, LF and CRLF event
-delimiters, optional space after SSE field colons, multi-line `data` fields
-joined with `\n`, UTF-8 characters split across byte chunks, comment or
-keepalive lines, and streams that close before a terminal event.
+- object shapes, stream events, and the `ResponseItem[]` item model;
+- the `/responses/compact` request schema shape.
 
-Responses event tests must cover output item lifecycle events, content part
-lifecycle events, output text deltas and completion, refusal deltas and
-completion, reasoning summary events, and terminal `response.completed`,
-`response.failed`, and `response.incomplete` outcomes. A stream that returns
-HTTP 200 but later emits an upstream error, invalid JSON, or no terminal event
-is not a successful response.
+Taken from the OpenAI Responses API, with Ankole-scoped semantics:
 
-Provider dispatch tests must preserve the requested selector, resolved provider
-id, upstream model id, and usage or billing model as separate facts. They must
-also cover explicit wire API selection, including OpenAI-compatible `responses`
-versus `chat_completions`, without treating provider id or base URL as the wire
-protocol.
+- `previous_response_id`: continue from an earlier stored response;
+- `conversation`: name the conversation a new session belongs to;
+- `store`: opt into stored state;
+- `GET /responses/:id`: retrieve one stored response.
 
-Capability tests must fail closed for unknown aliases, disabled providers,
-unsupported capability kinds, and unsupported request features such as
-streaming, tools, text format or JSON schema, reasoning, image input,
-embeddings, and rerank. Local selector and configuration failures do not
-trigger provider failover.
+These four exist only to serve the Ankole worker state model. They are not a
+public multi-tenant conversation service.
 
-Provider error tests must classify upstream timeout, first-byte timeout, idle
-timeout, 429, 5xx, 400, and 422 responses. Retry or failover policy is provider
-and configuration specific, but client/configuration errors must not be retried
-as provider alternatives.
+Deliberately not implemented:
 
-Provider stream-shape tests must cover upstream non-stream requests that return
-SSE or a mislabeled content type. A non-streaming AIGateway response remains
-JSON: the provider implementation either aggregates the upstream stream into a
-JSON response or returns a structured protocol error.
+- the OpenAI Conversations API public object surface;
+- `DELETE /responses/:id` — IM message deletion has its own mapping (see
+  `docs/design-docs/SignalsGateway.md`), and nothing else needs response
+  deletion;
+- `POST /responses/:id/cancel` — Ankole has no background response mode, so a
+  running generation is cancelled through ActorRuntime actor event control;
+- OpenAI's `store=false` connection-local continuation over WebSocket.
 
-Observability tests must assert that logs, telemetry, and durable metadata can
-record provider id, profile, selector, upstream model, latency, usage, finish
-state, and error class without recording provider credentials, bearer tokens, or
-raw secret-bearing request headers.
+Field rules:
 
-Future-state tests should cover persisted response storage, meaningful
-`previous_response_id` behavior, `/responses/compact`, and durable `store: true`
-recovery. Those tests are outside the stateless v1 pass.
+- `instructions` always comes from the current request. It is never inherited
+  from `previous_response_id` and never stored into the history projection.
+- `prompt_cache_key` is accepted and may be echoed, but it is a no-op. It is
+  stripped before the provider call. It does not read or write any cache, does
+  not locate history, and does not affect compaction, retrieval, or
+  authorization.
+- `service_tier` is accepted but has no Ankole value domain. It is stripped
+  before the provider call so upstream providers do not reject it. It does not
+  affect scheduling, routing, billing, or priority. Responses may echo it or
+  omit it.
 
-## v1 Response State
+## Stateful Message Log
 
-The first AIGateway release has no persisted response state.
+Two PostgreSQL tables carry all stateful Responses state. AIGateway is the only
+writer.
 
-The worker must send complete usable context on each `/responses` request.
-AIGateway does not keep a local response object store and does not reconstruct
-conversation state from an earlier response id.
+`ai_gateway_messages` is the message log. One row records one stateful
+Responses run, or one stateful compaction. A "run row" is the row written for
+one `response.create` call.
 
-For HTTP, `previous_response_id` is accepted for wire compatibility, but v1
-ignores it and strips it before provider dispatch. It does not load prior state,
-alter model resolution, or change provider behavior.
+| Column | Meaning |
+| --- | --- |
+| `id` (uuid) | The row id. The API id `resp_#{id}` is this uuid with a prefix. |
+| `agent_uid` | Owning agent. Every query filters on it. |
+| `conversation_id` | The `ai_gateway_conversations` row this run belongs to. |
+| `type` | `message` (a Responses run) or `compaction` (a summary fact). |
+| `role` | Display hint for transcript projections only. Not authoritative. |
+| `status` | `generating`, `complete`, `error`, or `retracted`. |
+| `previous_message_id` | Self-reference to the anchor row. Rendered as `previous_response_id` at the API edge. |
+| `content` (jsonb) | The OpenResponses `ResponseItem[]` array for this run. |
+| `covers_until_message_id` | Compaction rows only: the last row id the summary covers. |
+| `metadata` (jsonb) | model/provider facts, usage, provider raw ids, `actor_event_id`, request refs, error details. |
 
-For WebSocket, v1 follows the same stateless rule. A WebSocket
-`response.create` with `previous_response_id` is treated as a complete new
-stateless request after that field is stripped.
+`content` holds both sides of one run: the request-side input items and the
+model output items live in the same array, in one row. A two-round tool loop
+therefore produces rows like:
 
-The following are not part of v1:
+```json
+// row 1 (first response.create of the actor event)
+[
+  {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "How many files changed this week?"}]},
+  {"type": "reasoning", "summary": [...]},
+  {"type": "function_call", "call_id": "call_a1", "name": "run_command", "arguments": "{\"cmd\":\"git diff --stat ...\"}"}
+]
 
-- `/responses/compact`;
-- persisted response state;
-- response-state handling across socket turns, connections, or restarts.
+// row 2 (second response.create, chained to row 1)
+[
+  {"type": "function_call_output", "call_id": "call_a1", "output": "14 files changed ..."},
+  {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "14 files changed this week."}]}
+]
+```
 
-The next stateful phase should add response storage, meaningful
-`previous_response_id` support, and `/responses/compact`.
+One call, one row. Multiple output items from one call are elements of the same
+`content` array, never separate rows. Streaming deltas are never written to the
+log; only the terminal state of a run lands in `content` (see Live Delivery).
+
+`content` must stay JSON-safe. Text, data URLs, base64 strings, provider file
+ids, file/image URLs, durable file refs, MIME types, and filenames are fine.
+Process objects and raw byte buffers are not. Item content parts such as
+`input_text`, `input_image`, `input_file`, and `output_text` are stored as
+sent. An unsupported multimodal item is either kept opaque-but-JSON-safe with a
+restricted replay path, or rejected as unsupported. It is never silently
+flattened into plain text.
+
+Type and content combine under two rules, enforced in the changeset:
+
+- a `compaction` row contains exactly one compaction item, and must have both
+  `previous_message_id` and `covers_until_message_id`;
+- a `message` row must not contain a compaction item.
+
+Errors are statuses, not types. A failed run is a `message` row with
+`status = "error"`. `status = "retracted"` remains a cheap audit/recovery enum
+value, but v1 IM deletion does not write it: tail deletion hard-deletes, and
+historical or compaction-covered deletion is a no-op. Row type states what the
+row is; status states where it is in its lifecycle.
+
+One partial unique index protects the in-flight invariant:
+
+```sql
+((metadata->>'actor_event_id')) WHERE status = 'generating' AND type = 'message'
+```
+
+Each actor event has at most one `generating` run row at any moment — the
+current `response.create`. Earlier rounds of the same loop are already
+`complete`, so they never occupy the index. Reconnect logic uses this index to
+find the current in-flight row for an actor event deterministically.
+
+`metadata.actor_event_id` values always come from `actor_events.id`.
+`previous_message_id` values always come from `ai_gateway_messages.id`. The two
+id spaces never mix (see Response Identity).
+
+`ai_gateway_conversations` stores conversation identity only:
+
+| Column | Meaning |
+| --- | --- |
+| `id` (uuid) | The API id `conv_#{id}` is this uuid with a prefix. |
+| `agent_uid` | Owning agent. |
+| `conversation_key` | Stable external key for the session scope. |
+| `ended_at` | Set when the session window is closed. |
+| `metadata` (jsonb) | Auxiliary facts. |
+
+The conversation row deliberately stores no active-generation lease and no
+"current position" pointer. The continuation base is always derived from the
+message graph (see Status And Projection). A stored pointer would be a second
+source of truth, and it would drift from the graph on compaction, retraction,
+branching, and worker reconnect. Keeping only the graph means there is nothing
+to repair. Concurrency control — "one run at a time per session" — is not a
+conversation lease either; ActorRuntime enforces it by not handing out a second
+actor event while a live delivery exists for the session.
+
+## Response Identity
+
+Stored ids and database ids are the same identity:
+
+- `resp_#{uuid}` always equals `resp_#{ai_gateway_messages.id}`;
+- `conv_#{uuid}` always equals `conv_#{ai_gateway_conversations.id}`.
+
+Decoding a `resp_*` or `conv_*` id means stripping the prefix, nothing more.
+There is no mapping table and no alias generation. An upstream provider
+response id is never used as an Ankole stored id, and no API frame ever leaks
+one: every stateful frame rewrites `response.id` to `resp_#{row id}`.
+
+Two more prefixes exist:
+
+- `tmp_resp_*` is the transport-only id of a stateless response. It cannot be
+  used in `previous_response_id`, `conversation`, `GET /responses/:id`, or any
+  database write path.
+- `cmp_*` renders a stored compaction item, as `cmp_#{row id}` of the
+  compaction row. It is a rendering namespace only and is unrelated to
+  `tmp_resp_*`.
+
+Across the whole system, any column or JSON key that references a model output
+is named `ai_message_id` and holds an `ai_gateway_messages.id`. This is one of
+four strictly separated identity layers (source event id, source entry id,
+actor event id, AI message id). The canonical definition of all four lives in
+`docs/design-docs/SignalsGateway.md` under Identity Layers.
+
+## Status And Projection
+
+A message-log row is always in one of four statuses:
+
+- `generating`: the row is in the durable log, but it is still the in-flight
+  candidate output of an active actor event. Normal cross-event history cannot
+  read it, and it cannot be a continuation anchor. Even inside the same actor
+  event, the next loop round anchors on the previous round's already-committed
+  `complete` row, never on a `generating` row.
+- `complete`: the row is part of normal history. It can be read by projection
+  and used as an anchor.
+- `error`: the run failed terminally. The row keeps whatever content could be
+  saved plus `metadata.error` for audit. It is not an anchor.
+- `retracted`: reserved for future audit/recovery facts. If present, projection
+  skips its `content`, it is never an implicit leaf, and it is not an anchor. No
+  replacement note is generated for the model; the row is simply invisible to
+  history. Current IM deletion mapping does not write this status.
+
+The API `Response.status` is synthesized from the row:
+
+- `complete` → `completed`;
+- `error` → `failed`;
+- provider/overflow metadata marking a truncated result → `incomplete`.
+
+There is no `cancelled` status, because there is no cancel endpoint.
+
+The "anchor" of a run is the row its `previous_message_id` points to — the
+previous hop of the chain. History projection walks that chain backwards:
+
+- it reads only `complete` rows and skips `retracted` rows;
+- it understands `covers_until_message_id`: when it meets a compaction row, it
+  uses the compaction item and does not also re-read the original rows the
+  summary covers. The coverage boundary is interpreted only on that compaction
+  row's own ancestor chain, never by comparing uuids or timestamps globally;
+- it never reads `generating` rows;
+- the current request's input comes only from the current `response.create`
+  payload, never from re-reading history.
+
+A "visible leaf" is a `complete`, non-retracted row that no other row chains
+from — a tail of the graph. Continuation resolves like this:
+
+- an explicit `previous_response_id` names the anchor directly. It does not
+  have to be the newest row. Passing an older `complete` id creates a branch,
+  the same way it does in the OpenAI Responses API.
+- a request with only `conversation` uses implicit continuation: AIGateway
+  deterministically picks the latest visible leaf by creation order. Zero
+  leaves means the conversation starts from empty history. If several leaves
+  exist because of branching, implicit continuation still picks only the
+  latest; it never explores or merges the branch graph. A caller that wants an
+  older branch must pass `previous_response_id` explicitly.
+
+## Stateful Write Path And Tool Loop
+
+If you have written a tool-calling agent with the OpenAI SDK or ai-sdk, the
+wire shape here is the loop you already know: send a request, get output, run
+the `function_call`, send the result back, repeat. The difference is where the
+state lives. In a client-side loop, the client owns the growing message list.
+Here AIGateway owns history, anchors, stop policy, and persistence; the worker
+owns only tool execution.
+
+One `response.create` runs this pipeline:
+
+1. Gate: transport is WebSocket, `store=true` is present, the token is valid.
+2. Scope: all queries from here on filter by the token's `agent_uid`.
+3. Resolve the anchor from `previous_response_id` or `conversation`.
+4. Expand history along the chain. If the estimated provider-facing input is
+   over budget, run auto-compaction first (see Compaction). The compaction row
+   is written before the run row, so the run row's `previous_message_id` points
+   at the compaction anchor from the start.
+5. Merge the request-side input items.
+6. Create the run row: `status = "generating"`, `metadata.actor_event_id`, and
+   the initial `content` holding the request-side items.
+7. Strip internal fields — `previous_response_id`, `conversation`,
+   `service_tier`, `prompt_cache_key` — and build the provider request. The
+   upstream provider sees plain input items, never Ankole continuation fields.
+8. Call the provider. While it streams, AIGateway publishes live chunk events
+   as process messages (see Live Delivery). Chunks are not written to the row.
+9. On the provider terminal, normalize the final model facts into the same
+   row's `content`: request-side input items plus output items, one array.
+10. Commit the row to `complete` in the database, then send the terminal frame
+    to the worker. Commit always happens before the frame. If the commit
+    fails, the worker gets a failed frame instead, and the row is either set to
+    `error` explicitly or left for the orphan reclaim path. A repeated
+    terminal commit returns `already_terminal` and is idempotent.
+
+The loop across calls is worker-driven:
+
+```text
+worker                                  AIGateway
+------                                  ---------
+response.create                          create run row 1 (generating)
+  store=true, conversation=conv_...,     expand history, call provider
+  metadata.actor_event_id=...,           commit row 1 complete
+  input=[user message]              <--  response.completed
+                                         output has function_call
+
+(run the tool locally)
+
+response.create                          create run row 2 (generating)
+  store=true,                            anchor = row 1, expand history
+  previous_response_id=resp_<row1>,      call provider
+  input=[function_call_output]           commit row 2 complete
+                                    <--  response.completed
+                                         output has no function_call
+
+(stop; the loop is done)
+```
+
+The worker's rule is mechanical: response contains a `function_call` → execute
+it and send the next `response.create`; response contains no `function_call` →
+stop. All stop policy lives in AIGateway. When `max_tool_calls` is reached, the
+provider fails, or the actor event is stopped, AIGateway converges by not
+emitting another `function_call` or by returning a terminal failure. The worker
+never counts rounds and never decides to stop on its own. If one output round
+contains both an assistant message and a `function_call`, the loop continues —
+the stop test is "no tool call", not "has a message".
+
+One actor event therefore produces a chain of rows linked by
+`previous_message_id`. The final AI output of the actor event is the chain-tail
+`complete` row whose content has no `function_call`. The first human input of
+the event travels inside the first `response.create`'s `input`; there is no
+separate stored user-message row.
+
+The worker side stays thin:
+
+- it uses the official `openai` npm package: the OpenAI-compatible client for
+  stateless HTTP calls, and the Responses/WebSocket wire shape with a small
+  transport adapter for the stateful path;
+- it keeps only short-lived execution state: the WebSocket connection, the
+  current actor event id, current tool-call ids, and tool-local state;
+- it never selects anchors, never expands history, never compacts, never
+  decides the final output, and never writes `ai_gateway_messages`,
+  `ai_gateway_conversations`, or `signal_gateway_outbox`.
+
+## Compaction
+
+Compaction folds an older history prefix into one summary so future runs fit
+the model context. It runs entirely in Elixir inside AIGateway. Workers never
+summarize and never commit summaries.
+
+A compaction is itself a message-log row: `type = "compaction"`,
+`status = "complete"`, exactly one compaction item in `content`,
+`previous_message_id` pointing at the pre-compaction anchor, and
+`covers_until_message_id` marking the end of the covered prefix. Projection
+then uses the summary and skips the covered rows.
+
+Manual compaction is `POST /responses/compact` with a `previous_response_id`:
+
+- AIGateway reads the chain from that anchor, writes one compaction row, and
+  returns `resp_#{new row id}`. The caller can chain from it like any other
+  response.
+- The stateless form — no `previous_response_id` — returns `400 unsupported`.
+  Note this differs from OpenAI's standalone compact, which returns a compacted
+  input window instead of a stored id.
+- The IM command `/compress` is a control-plane command that ends in this same
+  write: AIGateway summarizes and writes the compaction row, then the user gets
+  fixed command feedback through the outbox. See
+  `docs/design-docs/SignalsGateway.md` for the command surface.
+
+Auto-compaction runs inside the write path, at history expansion:
+
+- AIGateway estimates the provider-facing input budget as characters divided
+  by four, plus a fixed overhead per item. This is deliberately rough: it
+  avoids a tokenizer dependency, and the cost of estimating early or late is
+  one compaction sooner or later, not a correctness failure.
+- Over the threshold, it selects the compactable prefix: `complete`
+  text-bearing rows after the last valid compaction. It never covers
+  `generating` rows, never covers `retracted` rows, and always keeps a recent
+  tail uncovered so the current task keeps its latest context.
+- An internal summarizer model generates the summary — the agent's `light`
+  profile first, falling back to `primary`. The summarizer's usage is recorded
+  in the compaction row's `metadata` and can be folded into the triggering
+  run's usage.
+- The compaction row is written first, as its own complete fact. The
+  triggering run row then chains from it. The summary of already-complete rows
+  is valid whether or not the triggering run later succeeds.
+- If the summarizer fails, no compaction row is written. There is never a
+  half-written compaction fact. The request falls back to truncation, an
+  overflow retry, or an explicit error.
+
+Truncation is the fallback ladder:
+
+- `truncation = disabled` (default): an over-budget request that cannot be
+  compacted returns a structured `context_overflow` error. ActorRuntime may
+  then record an overflow retry on the same open actor event
+  (`retry_reason = overflow_retry`); the worker's next call for that event
+  sets `truncation = auto`.
+- `truncation = auto`: AIGateway drops history from the head of the
+  provider-facing input. It never crosses a valid compaction anchor and never
+  mixes covered original rows back in. The durable `previous_message_id` still
+  points at the real anchor; truncation changes only what the provider sees.
+- When `truncation = auto` drops media or other opaque items, the triggering
+  run records them in `metadata.auto_truncation.dropped_opaque_messages`: the
+  `resp_*` ids, item types, and any durable or provider refs. Media never
+  disappears silently.
+
+Multimodal coverage is conservative: the current version compacts text-bearing
+items only. A media item without an auditable summary or durable ref stays out
+of the covered prefix.
+
+The compaction prompt semantics are fixed: the summary is reference state, not
+a command to continue old work; it must preserve paths, function names,
+identifiers, error messages, command lines, and ids; when the covered history
+contains reverse signals such as stop, undo, rollback, or a topic change, the
+old work is marked cancelled or superseded in the summary.
+
+## Live Delivery
+
+While a provider call streams, AIGateway publishes live chunk events and
+terminal events as in-process messages (Phoenix.PubSub — the standard Elixir
+publish/subscribe primitive). Live chunks are preview signals. They are never
+written to `ai_gateway_messages`, and no database notification mechanism is
+involved.
+
+Two consumers subscribe:
+
+- the worker's WebSocket connection receives the chunks as OpenResponses event
+  frames;
+- SignalsGateway's `AIReplyPreview` process uses them to send and edit the
+  provider-visible preview message (the streaming IM card), and to finalize on
+  the terminal event.
+
+Durable content truth stays in the message log; delivery state stays in
+SignalsGateway. The provider-side preview message id is never written back
+into a message-log row, and streamed replies never pass through
+`signal_gateway_outbox` — the outbox carries only explicit side effects. The
+full provider-visible delivery and recovery story lives in
+`docs/design-docs/SignalsGateway.md` under Streamed AI Reply Delivery.
+
+## Recovery And Reconnect
+
+Nothing in the stateful path assumes a long-lived process. Recovery rules:
+
+- An orphaned `generating` row — its worker or connection died — is detected by
+  `updated_at` staleness. The start path sets it to `error` and the caller
+  re-sends the round from the last `complete` anchor. If the row still has a
+  live delivery fence, the new call gets `409 response_in_progress` instead;
+  there is no lease to steal.
+- There is no half-stream recovery. The current version keeps no stable item
+  snapshots and no content version counter. A broken stream costs one round:
+  the stale row goes to `error`, and the round is re-sent.
+- A worker reconnect restores tool-execution context only. The worker does not
+  repair history and does not re-read the log; it continues the loop from the
+  ids it holds, or the actor event is retried.
+- An actor event retry is a new actor event: a new `actor_event_id` whose
+  payload carries `retry_of_actor_event_id`. Failed rows keep their audit
+  content under `status = "error"`.
+
+`GET /responses/:id` is the read-side recovery and debug surface:
+
+- it decodes `resp_*` to a row id and synthesizes the Response object from that
+  single row;
+- a `generating` row returns `200` with `status = "in_progress"`,
+  `completed_at = null`, and `output = []`. The request-side input is visible;
+  half-finished provider output is not;
+- it does not replay streams (`stream` + `starting_after` is unsupported), does
+  not trigger writes, and does not change the chain;
+- `tmp_resp_*` returns `404`.
 
 ## Authentication
 
-In v1, `/api/v1/ai-gateway/*` accepts either:
+`/api/v1/ai-gateway/*` accepts either:
 
 - agent-scoped AIGateway bearer credentials; or
 - console access JWTs whose `sub` is still an active human member of the built-in
@@ -349,6 +813,20 @@ The auth plug keeps the authenticated subject typed. Admin access does not
 overload agent identity: agent model aliases resolve only for an agent subject,
 while admin callers should use explicit `provider_id/raw-model` selectors unless
 a later ACL design adds an explicit agent-on-behalf-of contract.
+
+The security model for stateful data is exactly two rules:
+
+1. the 30-day agent token proves which agent is calling;
+2. every conversation, message, and anchor query filters by that agent's
+   `agent_uid`, so agents are isolated from each other.
+
+There is deliberately nothing else: no per-actor-event tokens, no claims, no
+actor-event liveness checks in AIGateway, and no generation lease acting as a
+permission. Finer-grained permission layers here would add failure modes
+without adding a real boundary — the worker fleet is first-party and already
+inside the trusted fabric. Error order is fixed: bad request shape → `400`;
+missing or invalid token → `401`; authenticated-but-refused subject → `403`;
+anchor or conversation that does not resolve in the agent's scope → `400`.
 
 ## RuntimeFabric RPC
 
@@ -377,24 +855,134 @@ to the container. The control plane may therefore return an explicitly
 configured URL such as `http://host.docker.internal:<port>/api/v1/ai-gateway`
 without changing the public Phoenix endpoint URL.
 
+The worker derives its stateful WebSocket endpoint from the same response: the
+key response's base URL becomes `ws(s)://.../responses`. The model profile for
+a run comes from the turn's `model_ref`; neither the token nor the endpoint is
+carried in the RuntimeFabric protobuf envelope.
+
 Workers keep the key only in memory. In the current actor-agnostic worker pool,
-process startup has no agent identity, so the executable v1 rule is: fetch the
-agent's AIGateway key immediately at turn start before any provider HTTP request.
-Before each AIGateway HTTP request, the worker checks the expiry. If the key is
-absent or expired, the worker calls the RPC again. If Ankole later runs
-actor-dedicated workers, those workers should also fetch the key at process
-startup because agent identity will be known then.
+process startup has no agent identity, so the executable rule is: fetch the
+agent's AIGateway key immediately at turn start before any AIGateway request.
+Before each request, the worker checks the expiry. If the key is absent or
+expired, the worker calls the RPC again. If Ankole later runs actor-dedicated
+workers, those workers should also fetch the key at process startup because
+agent identity will be known then.
 
 No refresh token exists for this surface.
+
+## Protocol Edge Case Tests
+
+The local test suite should pin AIGateway behavior around provider and stream
+irregularities. These are AIGateway contract tests, not copies of any single
+upstream gateway implementation.
+
+Responses HTTP tests must cover non-streaming JSON response shape, no SSE
+headers when `stream` is absent or false, complete stateless input requirements,
+and the rule that HTTP `previous_response_id`, `conversation`, and `store=true`
+are rejected with `400`.
+
+Responses SSE tests must cover `text/event-stream`, `event` matching the JSON
+body `type`, JSON `data`, the literal `data: [DONE]` sentinel, LF and CRLF event
+delimiters, optional space after SSE field colons, multi-line `data` fields
+joined with `\n`, UTF-8 characters split across byte chunks, comment or
+keepalive lines, and streams that close before a terminal event.
+
+Responses event tests must cover output item lifecycle events, content part
+lifecycle events, output text deltas and completion, refusal deltas and
+completion, reasoning summary events, and terminal `response.completed`,
+`response.failed`, and `response.incomplete` outcomes. A stream that returns
+HTTP 200 but later emits an upstream error, invalid JSON, or no terminal event
+is not a successful response.
+
+Provider dispatch tests must preserve the requested selector, resolved provider
+id, upstream model id, and usage or billing model as separate facts. They must
+also cover explicit wire API selection, including OpenAI-compatible `responses`
+versus `chat_completions`, without treating provider id or base URL as the wire
+protocol.
+
+Capability tests must fail closed for unknown aliases, disabled providers,
+unsupported capability kinds, and unsupported request features such as
+streaming, tools, text format or JSON schema, reasoning, image input,
+embeddings, rerank, web search, and web fetch. Local selector and
+configuration failures do not trigger provider failover.
+
+Web tool tests must cover capability registration, profile resolution,
+provider config validation, normalized search/extract responses, URL rejection
+before extraction dispatch, worker tool registration from `/web_tools`, gateway
+success and error propagation, and the explicit unavailable behavior when
+provider-backed extraction is not configured. Local-browser fallback behavior is
+owned by the worker/browser design and is not part of this AIGateway path.
+
+Provider error tests must classify upstream timeout, first-byte timeout, idle
+timeout, 429, 5xx, 400, and 422 responses. Retry or failover policy is provider
+and configuration specific, but client/configuration errors must not be retried
+as provider alternatives.
+
+Provider stream-shape tests must cover upstream non-stream requests that return
+SSE or a mislabeled content type. A non-streaming AIGateway response remains
+JSON: the provider implementation either aggregates the upstream stream into a
+JSON response or returns a structured protocol error.
+
+Observability tests must assert that logs, telemetry, and durable metadata can
+record provider id, profile, selector, upstream model, latency, usage, finish
+state, and error class without recording provider credentials, bearer tokens, or
+raw secret-bearing request headers.
+
+Stateful contract tests must cover:
+
+- the gate: `store=true` required for continuation fields, `conversation` XOR
+  `previous_response_id`, `400` / `401` / `403` ordering;
+- one run row per `response.create`, with request input items and output items
+  in the same `content` array;
+- the in-flight partial unique index: a second `generating` row for the same
+  actor event is impossible;
+- commit-before-terminal-frame ordering, `already_terminal` idempotency, and
+  `response.id` rewriting to `resp_*` on every frame;
+- `GET /responses/:id` single-row synthesis, `in_progress` for `generating`
+  rows with empty output, and `404` for `tmp_resp_*`;
+- `/responses/compact` writing one compaction row with both link fields, and
+  `400 unsupported` for the stateless form;
+- orphaned `generating` reclaim by staleness and `409 response_in_progress`
+  for live generations;
+- `instructions` non-inheritance, `prompt_cache_key` no-op, and `service_tier`
+  stripping.
+
+## Known Limits And Extension Points
+
+These are deliberate extension points. None of them is built; each one has a
+defined place in the current design:
+
+- Hosted server-side tools. When AIGateway later executes tools itself (named
+  with extension slugs such as `ankole:web_search`, `ankole:file_search`,
+  `ankole:workspace_search`), their calls and results also become items in
+  `ai_gateway_messages.content`, rendered through the same OpenResponses item
+  shapes. A hosted tool must support multi-step result feedback into the model,
+  recording the full item sequence — not a single injected result.
+- Named branches. Branching already exists through explicit
+  `previous_response_id`. A branch-naming projection can be added later without
+  touching the log schema, because the graph is the only truth.
+- Multi-instance recovery coordination and richer multimodal compaction
+  summaries are future work; see `docs/TradeoffsAndKnownLimits.md`.
+- Other actor-event executors. `actor_events` is a generic work item. Only
+  events routed to the AIGateway/agent-computer handler enter the Responses
+  API, write `ai_gateway_messages`, and participate in chaining, compaction,
+  and retraction. A future executor (for example a DAG workflow runtime) must
+  own its own durable tables instead of writing its run log into
+  `ai_gateway_messages`.
 
 ## Ownership
 
 Elixir owns provider credentials, provider configuration, provider execution,
-model binding resolution, AIGateway authentication, and normalized HTTP
-responses.
+model binding resolution, AIGateway authentication, normalized HTTP responses,
+and the whole stateful layer: the message log, history expansion, continuation
+anchors, stop policy, compaction, the terminal commit, and live chunk
+publication.
 
 RuntimeFabric owns the worker-to-control-plane API-key request path.
 
-Bun workers own prompt construction, local tools, MCP servers, and the in-memory
-AIGateway client. They do not own provider credentials or provider-specific
-runtime state.
+Bun workers own prompt construction, local tools, and environment capabilities.
+If Ankole later exposes MCP servers to model runs, that bridge belongs in the
+worker boundary as another local tool source. A worker drives loop iterations
+through the official `openai` client over WebSocket, but it owns no loop state:
+no history, no anchors, no stop policy, and no writes to `ai_gateway_messages`,
+`ai_gateway_conversations`, or `signal_gateway_outbox`.

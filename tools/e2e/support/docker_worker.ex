@@ -37,7 +37,7 @@ defmodule Ankole.E2E.DockerWorker do
             {"WORKER_ID", worker_id},
             {"RUNTIME_FABRIC_URL", runtime_fabric_url}
           ] ++ docker_worker_passthrough_env()
-        ) ++ [@docker_image]
+        ) ++ docker_image_and_dev_command_args()
 
     port =
       Port.open({:spawn_executable, docker_path()}, [
@@ -60,7 +60,7 @@ defmodule Ankole.E2E.DockerWorker do
         docker_agent_computer_runtime_args() ++
         docker_dev_agent_computer_mount_args() ++
         docker_dev_workspace_mount_args() ++
-        docker_env_args(env) ++ [@docker_image]
+        docker_env_args(env) ++ docker_image_and_dev_command_args()
 
     System.cmd(docker_path(), args, stderr_to_stdout: true)
   end
@@ -137,20 +137,44 @@ defmodule Ankole.E2E.DockerWorker do
     end)
   end
 
+  # The mounted-source fast path intentionally reuses the current container
+  # userspace while replacing Agent Computer scripts and TS sources. Override
+  # the image CMD in that mode so a stale local e2e image cannot route back to a
+  # deleted wrapper script.
+  defp docker_image_and_dev_command_args do
+    [@docker_image] ++ docker_dev_agent_computer_command_args()
+  end
+
+  defp docker_dev_agent_computer_command_args do
+    case mount_agent_computer_src?() do
+      true -> ["/bin/sh", "-lc", "cd /repo/app/agent_computer && exec bun src/main.ts"]
+      false -> []
+    end
+  end
+
   # Development-only fast path for the real worker e2e. The worker process,
   # Linux userspace packages, native binaries, node_modules, and tool sandboxing
-  # still come from the Agent Computer container; this mount only replaces the
-  # container's TS source tree to shorten edit/run feedback.
+  # still come from the Agent Computer container; these mounts replace the
+  # Agent Computer scripts and TS source tree to shorten edit/run feedback.
   defp docker_dev_agent_computer_mount_args do
-    case System.get_env("ANKOLE_E2E_MOUNT_AGENT_COMPUTER_SRC") do
-      "1" ->
+    case mount_agent_computer_src?() do
+      true ->
+        bin = Path.join([repo_root(), "app", "agent_computer", "bin"])
         src = Path.join([repo_root(), "app", "agent_computer", "src"])
-        ["-v", "#{src}:/repo/app/agent_computer/src:ro"]
 
-      _value ->
+        [
+          "-v",
+          "#{bin}:/repo/app/agent_computer/bin:ro",
+          "-v",
+          "#{src}:/repo/app/agent_computer/src:ro"
+        ]
+
+      false ->
         []
     end
   end
+
+  defp mount_agent_computer_src?, do: System.get_env("ANKOLE_E2E_MOUNT_AGENT_COMPUTER_SRC") == "1"
 
   # E2E artifact mount. The worker, commands, and bubblewrap sandbox still run
   # in the Linux container; this only makes /workspace contents inspectable from

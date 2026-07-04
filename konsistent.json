@@ -1,0 +1,59 @@
+{
+  "$schema": "node_modules/konsistent/konsistent.schema.json",
+  "version": "v1",
+  "conventions": [
+    {
+      "name": "webapp-app-exports",
+      "paths": "app/webapps/{appName:matches(^(auth|console|setup)$)}/app.tsx",
+      "must": {
+        "exportFunctions": ["${appName.toPascalCase()}App"]
+      }
+    },
+    {
+      "name": "webapp-entrypoints",
+      "paths": "app/webapps/entrypoints/{appName}.tsx",
+      "must": {
+        "import": [
+          {
+            "name": "mountApp",
+            "from": "../common/mount-spa"
+          }
+        ]
+      }
+    },
+    {
+      "name": "webapp-direct-entrypoint-app-imports",
+      "paths": "app/webapps/entrypoints/{appName:matches(^(auth|console)$)}.tsx",
+      "must": {
+        "import": [
+          {
+            "name": "${appName.toPascalCase()}App",
+            "from": "../${appName}/app"
+          }
+        ]
+      }
+    },
+    {
+      "name": "webapp-setup-entrypoint-lazy-app",
+      "paths": "app/webapps/entrypoints/setup.tsx",
+      "must": {
+        "declareConstants": ["SetupApp"]
+      }
+    },
+    {
+      "name": "computer-tool-factories",
+      "paths": "app/agent_computer/src/tools/computer/{toolName}-tool.ts",
+      "must": {
+        "exportFunctions": ["create${toolName.toPascalCase()}Tool"]
+      }
+    },
+    {
+      "name": "plugin-root-files",
+      "paths": "plugins/{pluginName}",
+      "must": {
+        "haveType": "directory",
+        "haveFiles": ["lib/ankole/plugins/${pluginName}.ex"]
+      }
+    }
+  ]
+}

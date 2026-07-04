@@ -1,21 +1,10 @@
 import type { TurnStart, TurnSteerUpdate } from '../../actor_lane'
 import type { AgentMessage } from '../types'
-import { inputText } from './actor_input_text'
-import { userMessage } from './turn_messages'
+import { userMessage } from '../llm'
+import { actorEventText } from './actor_event_text'
 
 export function isAmbientMayInterveneTurn(turnStart: TurnStart): boolean {
-  return turnStart.inputs.length > 0 && turnStart.inputs.every(input => input.type === 'im.message.may_intervene')
-}
-
-export function isCompressionTurn(turnStart: TurnStart): boolean {
-  return turnStart.inputs.length > 0 && turnStart.inputs.every(input => input.type === 'command.compress')
-}
-
-export function turnRefAfterSteeringDrain(turnStart: TurnStart, updates: TurnSteerUpdate[]): TurnStart['turn'] {
-  for (const update of applicableSteeringUpdates(turnStart, updates)) {
-    turnStart.turn.revision = update.turn.revision
-  }
-  return turnStart.turn
+  return turnStart.actor_event.type === 'im.message.may_intervene'
 }
 
 export function steeringMessages(turnStart: TurnStart, updates: TurnSteerUpdate[]): AgentMessage[] {
@@ -23,17 +12,29 @@ export function steeringMessages(turnStart: TurnStart, updates: TurnSteerUpdate[
 
   if (applicable.length === 0) return []
 
-  const messages: AgentMessage[] = [
-    userMessage(
-      'Runtime note:\nThe user sent /steer while this turn was running. Do not continue the previous tool plan by inertia; continue from the latest steering instructions below.'
-    )
-  ]
+  const messages: AgentMessage[] = applicable.map(update => {
+    const steerText = update.actorEvent
+      ? actorEventText(update.actorEvent.payload_json, update.actorEvent.type)
+      : undefined
+    const content = steerText
+      ? [
+          'Runtime note:',
+          'The user sent /steer while this turn was running. Do not continue the previous tool plan by inertia.',
+          '',
+          'Steering instruction:',
+          steerText
+        ].join('\n')
+      : [
+          'Runtime note:',
+          'A mailbox update arrived while this turn was running, but it did not include a steering actor event.',
+          'Re-check the current task state before continuing.'
+        ].join('\n')
+
+    return userMessage(content)
+  })
 
   for (const update of applicable) {
     turnStart.turn.revision = update.turn.revision
-    for (const input of update.inputs) {
-      messages.push(userMessage(`Steering instruction:\n${inputText(input.payload_json, input.type)}`))
-    }
   }
 
   return messages
@@ -46,7 +47,7 @@ export function applicableSteeringUpdates(turnStart: TurnStart, updates: TurnSte
       update.turn.actor.session_id === turnStart.turn.actor.session_id &&
       update.turn.activation_uid === turnStart.turn.activation_uid &&
       update.turn.actor_epoch === turnStart.turn.actor_epoch &&
-      update.turn.llm_turn_id === turnStart.turn.llm_turn_id &&
+      update.turn.actor_event_id === turnStart.turn.actor_event_id &&
       update.turn.revision > turnStart.turn.revision
     )
   })

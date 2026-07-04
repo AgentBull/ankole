@@ -70,16 +70,16 @@ defmodule Ankole.PluginFixtures.MockSignalProvider.Inbound do
   defp emit_receive(_consumer, _event), do: {:error, :invalid_mock_consumer}
 
   defp entry_input(event) do
-    event_id = fetch(event, :ingress_event_id) || "mock-event-#{unique_id()}"
+    event_id = fetch(event, :source_event_id) || "mock-event-#{unique_id()}"
     channel_id = fetch(event, :signal_channel_id) || "mock:chat:e2e"
-    provider_entry_id = fetch(event, :provider_entry_id) || "mock-message-#{unique_id()}"
+    source_entry_id = fetch(event, :source_entry_id) || "mock-message-#{unique_id()}"
     provider_thread_id = fetch(event, :provider_thread_id) || "mock-thread"
     text = fetch(event, :text) || "PING"
 
     %{
-      ingress_event_id: event_id,
+      source_event_id: event_id,
       signal_channel_id: channel_id,
-      provider_entry_id: provider_entry_id,
+      source_entry_id: source_entry_id,
       provider_thread_id: provider_thread_id,
       channel: %{
         kind: fetch(event, :channel_kind) || :im_group,
@@ -92,7 +92,7 @@ defmodule Ankole.PluginFixtures.MockSignalProvider.Inbound do
       explicit: fetch(event, :explicit) == true,
       author: author(event),
       metadata: %{"provider" => "mock-signal-provider"},
-      raw_payload: %{"event_id" => event_id, "provider_entry_id" => provider_entry_id},
+      raw_payload: %{"event_id" => event_id, "source_entry_id" => source_entry_id},
       provider_time: fetch(event, :provider_time)
     }
   end
@@ -139,18 +139,21 @@ defmodule Ankole.PluginFixtures.MockSignalProvider.Outbox do
   def capabilities, do: [:reply_entry]
 
   @doc false
-  def put_recipient(pid) when is_pid(pid), do: Process.put(@recipient_key, pid)
+  def put_recipient(pid) when is_pid(pid), do: :persistent_term.put(@recipient_key, pid)
+
+  @doc false
+  def delete_recipient, do: :persistent_term.erase(@recipient_key)
 
   @impl true
   def send(outbox) do
-    case Process.get(@recipient_key) do
+    case :persistent_term.get(@recipient_key, nil) do
       pid when is_pid(pid) -> Kernel.send(pid, {:mock_provider_outbox_sent, outbox})
       _value -> :ok
     end
 
     {:ok,
      %{
-       provider_entry_id: "mock-reply-#{System.unique_integer([:positive])}",
+       created_source_entry_id: "mock-reply-#{System.unique_integer([:positive])}",
        raw_payload: %{"provider" => "mock-signal-provider"}
      }}
   end

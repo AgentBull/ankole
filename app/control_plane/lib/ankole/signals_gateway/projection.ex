@@ -103,7 +103,7 @@ defmodule Ankole.SignalsGateway.Projection do
 
       case repo.get_by(SignalEntry,
              signal_channel_id: fact.signal_channel_id,
-             provider_entry_id: fact.provider_entry_id
+             source_entry_id: fact.source_entry_id
            ) do
         %SignalEntry{} = entry ->
           case stale_provider_time?(entry.provider_time, fact.provider_time) do
@@ -131,11 +131,11 @@ defmodule Ankole.SignalsGateway.Projection do
 
   def receive_entry_attrs(fact, now) do
     search_text = Map.get(fact, :text) || Map.get(fact, :fallback_visible_text)
-    metadata_text = metadata_text(fact)
+    metadata_text = entry_metadata_text(fact)
 
     %{
       signal_channel_id: fact.signal_channel_id,
-      provider_entry_id: fact.provider_entry_id,
+      source_entry_id: fact.source_entry_id,
       text: fact.text,
       formatted_content: fact.formatted_content,
       attachments: fact.attachments,
@@ -148,11 +148,11 @@ defmodule Ankole.SignalsGateway.Projection do
       fallback_visible_text: fact.text,
       reactions: %{},
       raw_reaction_keys: %{},
-      document_id: document_id(fact.signal_channel_id, fact.provider_entry_id),
+      document_id: entry_document_id(fact.signal_channel_id, fact.source_entry_id),
       search_text: search_text,
       metadata_text: metadata_text,
       content_hash:
-        content_hash([
+        entry_content_hash([
           search_text,
           metadata_text,
           fact.formatted_content,
@@ -176,7 +176,7 @@ defmodule Ankole.SignalsGateway.Projection do
       agent_uid: fact.agent_uid,
       binding_name: fact.binding_name,
       signal_channel_id: fact.signal_channel_id,
-      provider_entry_id: fact.provider_entry_id,
+      source_entry_id: fact.source_entry_id,
       tombstoned_until: DateTime.add(now, @tombstone_ttl_seconds, :second)
     }
 
@@ -184,7 +184,7 @@ defmodule Ankole.SignalsGateway.Projection do
            agent_uid: fact.agent_uid,
            binding_name: fact.binding_name,
            signal_channel_id: fact.signal_channel_id,
-           provider_entry_id: fact.provider_entry_id
+           source_entry_id: fact.source_entry_id
          ) do
       %InputTombstone{} = tombstone ->
         tombstone
@@ -203,7 +203,7 @@ defmodule Ankole.SignalsGateway.Projection do
            agent_uid: fact.agent_uid,
            binding_name: fact.binding_name,
            signal_channel_id: fact.signal_channel_id,
-           provider_entry_id: fact.provider_entry_id
+           source_entry_id: fact.source_entry_id
          ) do
       %InputTombstone{tombstoned_until: tombstoned_until} ->
         case DateTime.compare(tombstoned_until, now) do
@@ -219,16 +219,33 @@ defmodule Ankole.SignalsGateway.Projection do
   def delete_mirror_entry(repo, fact) do
     SignalEntry
     |> where([entry], entry.signal_channel_id == ^fact.signal_channel_id)
-    |> where([entry], entry.provider_entry_id == ^fact.provider_entry_id)
+    |> where([entry], entry.source_entry_id == ^fact.source_entry_id)
     |> repo.delete_all()
   end
 
-  # Notify each session that already CONSUMED the now-removed entry. We
-  # can't undo what the agent did, but it should know the source message is gone,
-  # so we append a "removed" input per affected session, stripped of the
-  # original content (no text/mentions/command). It is a tombstone notice, not a
-  # re-delivery or user command. Sessions that never consumed the entry had their
-  # pending input cancelled instead (see accept_lifecycle), so there's nothing to
+  def recent_entry_attachments(
+        repo,
+        signal_channel_id,
+        author_id,
+        %DateTime{} = provider_time,
+        opts \\ []
+      )
+      when is_binary(signal_channel_id) and is_binary(author_id) do
+    window_seconds = Keyword.get(opts, :window_seconds, 120)
+    max_attachments = Keyword.get(opts, :limit, 3)
+    entry_limit = Keyword.get(opts, :entry_limit, max(20, max_attachments))
+    since = DateTime.add(provider_time, -window_seconds, :second)
+
+    SignalEntry
+    |> where([entry], entry.signal_channel_id == ^signal_channel_id)
+    |> where([entry], entry.provider_time >= ^since and entry.provider_time <= ^provider_time)
+    |> order_by([entry], desc: entry.provider_time)
+    |> limit(^entry_limit)
+    |> repo.all()
+    |> Enum.filter(&(get_in(&1.author || %{}, ["id"]) == author_id))
+    |> Enum.flat_map(&(&1.attachments || []))
+    |> Enum.take(max_attachments)
+  end
 
   def reaction_entry_attrs(%SignalEntry{} = entry, fact, now) do
     {reactions, raw_reaction_keys} =
@@ -319,7 +336,7 @@ defmodule Ankole.SignalsGateway.Projection do
   def lock_entry(repo, fact) do
     key =
       Enum.join(
-        [fact.signal_channel_id, fact.provider_entry_id],
+        [fact.signal_channel_id, fact.source_entry_id],
         "|"
       )
 
@@ -361,10 +378,7 @@ defmodule Ankole.SignalsGateway.Projection do
     :ok
   end
 
-  # Fill the status-machine defaults a freshly committed intent needs: starts
-  # :created with zero attempts and a 10-attempt ceiling. `put_new` so a caller
-
-  defp metadata_text(fact) do
+  def entry_metadata_text(fact) do
     [fact.author, fact.metadata, fact.channel_name, fact.channel_title]
     |> List.flatten()
     |> Enum.map(&metadata_text_part/1)
@@ -386,11 +400,11 @@ defmodule Ankole.SignalsGateway.Projection do
   # Stable, opaque per-entry id derived from its identity (channel + provider
   # entry). `content_hash` instead digests the entry's *content* so a re-receive
   # with unchanged content produces the same hash (cheap change detection).
-  defp document_id(signal_channel_id, provider_entry_id) do
-    "signal-entry:" <> digest([signal_channel_id, provider_entry_id])
+  def entry_document_id(signal_channel_id, source_entry_id) do
+    "signal-entry:" <> digest([signal_channel_id, source_entry_id])
   end
 
-  defp content_hash(parts), do: digest(parts)
+  def entry_content_hash(parts), do: digest(parts)
 
   # term_to_binary → SHA-256 → url-safe base64. Hashing the BEAM term (not a
   # string) avoids having to define a canonical serialization for the mixed

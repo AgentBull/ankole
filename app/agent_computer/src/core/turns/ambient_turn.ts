@@ -1,70 +1,80 @@
+/**
+ * Ambient may-intervene handler.
+ *
+ * Runs the ambient recognizer and, if intervention is recommended, starts a
+ * text turn with the intervention prompt.
+ */
+
 import type { TurnStart } from '../../actor_lane'
-import type { FinalProposalBody } from '../../turn_envelopes'
-import { runAmbientRecognizer } from './ambient_recognizer'
-import { renderMessageWithContext } from './message_context'
-import { runtimeModelFromAIGatewayApiKey } from './model_runtime'
+import { createCombinedAbortSignal } from '../../common/async'
+import { arrayPath } from '../../common/json-utils'
+import { recognizeAmbientIntervention } from './ambient_recognizer'
+import { assertAIGatewayApiKeyMatchesTurn, runtimeModelFromAIGatewayApiKey } from './model_runtime'
 import { runTextTurnLoop } from './text_turn'
-import { AMBIENT_RECOGNIZER_TIMEOUT_MS } from './turn_config'
-import { resolveAgentConversationContext, resolveConversationHistory } from './turn_context'
-import { userMessage } from './turn_messages'
-import type { TextTurnLoopOptions } from './turn_options'
+import { resolveAgentConversationContext } from './turn_context'
+import type { TextTurnLoopOptions, TurnHandlerResult } from './turn_options'
+
+const AMBIENT_RECOGNIZER_TIMEOUT_MS = 30_000
 
 export async function runAmbientMayInterveneHandler(
   turnStart: TurnStart,
   opts: TextTurnLoopOptions
-): Promise<FinalProposalBody> {
+): Promise<TurnHandlerResult> {
+  const modelRef = turnStart.model_ref
+  if (!modelRef) {
+    throw new Error('ambient turn is missing a real model_ref')
+  }
+
   const apiKeyRequest = {
-    request_id: `ai-gateway-key-${crypto.randomUUID()}`,
+    request_id: `ambient-ai-gateway-key-${crypto.randomUUID()}`,
     agent_uid: turnStart.turn.actor.agent_uid
   }
   const apiKey = await opts.requestAIGatewayApiKey(apiKeyRequest)
-
   if ('code' in apiKey) {
     throw new Error(`AIGateway API key rejected: ${apiKey.code} ${apiKey.message ?? ''}`.trim())
   }
+  assertAIGatewayApiKeyMatchesTurn(turnStart, apiKey)
 
-  const lightModelRef = { profile: 'light', provider_id: 'ai_gateway', model: 'light' }
-  const lightModel = runtimeModelFromAIGatewayApiKey(lightModelRef, apiKey, 'light', () =>
-    opts.requestAIGatewayApiKey({
-      ...apiKeyRequest,
-      request_id: `ai-gateway-key-${crypto.randomUUID()}`
-    })
+  const model = runtimeModelFromAIGatewayApiKey(modelRef, apiKey, refreshOptions =>
+    opts.requestAIGatewayApiKey(
+      {
+        ...apiKeyRequest,
+        request_id: `ambient-ai-gateway-key-${crypto.randomUUID()}`
+      },
+      refreshOptions
+    )
   )
   const agentConversationContext = await resolveAgentConversationContext(turnStart, opts)
-  const history = await resolveConversationHistory(turnStart, opts, 'prompt')
-  const recognition = await runAmbientRecognizer({
-    headers: lightModel.headers ?? {},
-    model: lightModel,
-    agentConversationContext,
-    conversationHistory: history,
-    turnStart,
-    workspaceRoot: opts.workspaceRoot,
-    timeoutMs: AMBIENT_RECOGNIZER_TIMEOUT_MS
-  })
 
-  if (!recognition.decision.intervene || !recognition.intervention) {
-    return { messages: [], reply: null }
+  const recognizerTimeout = createCombinedAbortSignal(opts.abortSignal, AMBIENT_RECOGNIZER_TIMEOUT_MS)
+  const recognition = await recognizeAmbientIntervention(
+    {
+      turnStart,
+      model,
+      historyMessages: ambientHistoryMessages(turnStart),
+      agentConversationContext
+    },
+    { abortSignal: recognizerTimeout.signal }
+  ).finally(() => recognizerTimeout.cleanup())
+
+  if (recognition.messages.length === 0) {
+    return { kind: 'noop_completed', reason: 'ambient_silent' }
   }
 
-  const interventionPrompt = renderMessageWithContext(
-    userMessage(recognition.intervention.text),
-    recognition.intervention.metadata
-  )
-  const replyProposal = await runTextTurnLoop(turnStart, {
+  // Feed intervention messages as extra context and run a text turn.
+  const result = await runTextTurnLoop(turnStart, {
     ...opts,
     agentConversationContext,
-    conversationHistory: history,
-    extraMessages: [...(opts.extraMessages ?? []), interventionPrompt]
+    extraMessages: recognition.messages
   })
-  const replyText = replyProposal.reply?.text ?? ''
 
-  return {
-    ...replyProposal,
-    messages: [recognition.intervention.proposedMessage],
-    reply: {
-      text: replyText,
-      content_json: [{ type: 'text', text: replyText }],
-      ...(replyProposal.reply?.attachments?.length ? { attachments: replyProposal.reply.attachments } : {})
-    }
-  }
+  return result
+}
+
+function ambientHistoryMessages(turnStart: TurnStart): unknown[] {
+  const payload = turnStart.actor_event.payload_json
+  return [
+    ...arrayPath(payload, ['data', 'recent_history']),
+    ...arrayPath(payload, ['data', 'earlier_observed_messages'])
+  ]
 }

@@ -16,7 +16,7 @@ defmodule Ankole.ActorRuntime.SessionController do
   alias Ankole.ActorRuntime.ActorDirectory
   alias Ankole.ActorRuntime.SessionSupervisor
 
-  # Processing one ready batch can drive an LLM turn end to end, so the
+  # Processing one ready batch can drive a worker run end to end, so the
   # caller-side call timeout is generous (30s) to avoid spurious exits while the
   # actor does real work. The DB fences still bound correctness if it does run long.
   @call_timeout 30_000
@@ -31,7 +31,7 @@ defmodule Ankole.ActorRuntime.SessionController do
   end
 
   @doc """
-  Ensures the controller exists and asks it to process ready input.
+  Ensures the controller exists and asks it to process one ready event.
 
   One controller serializes scheduling for one actor key. Database fences still
   protect correctness, but this keeps common-path concurrency easy to reason
@@ -51,7 +51,7 @@ defmodule Ankole.ActorRuntime.SessionController do
 
   @impl true
   def handle_call({:process_ready, opts}, _from, state) do
-    {:reply, ActorRuntime.process_ready_inputs_for_actor(state.actor_key, opts), state}
+    {:reply, ActorRuntime.process_ready_event_for_actor(state.actor_key, opts), state}
   end
 
   # Accept both atom-keyed (internal) and string-keyed (decoded JSON) actor keys,

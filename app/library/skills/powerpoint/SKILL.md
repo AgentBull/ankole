@@ -19,8 +19,8 @@ Use this skill any time a .pptx file is involved in any way — as input, output
 | Task | Guide |
 |------|-------|
 | Read/analyze content | `python -m markitdown presentation.pptx` |
-| Edit or create from template | Read [editing.md](editing.md) |
-| Create from scratch | Read [pptxgenjs.md](pptxgenjs.md) |
+| Edit or create from template | Read `/repo/app/library/skills/powerpoint/editing.md` |
+| Create from scratch | Read `/repo/app/library/skills/powerpoint/pptxgenjs.md` |
 
 ---
 
@@ -31,17 +31,17 @@ Use this skill any time a .pptx file is involved in any way — as input, output
 python -m markitdown presentation.pptx
 
 # Visual overview
-python scripts/thumbnail.py presentation.pptx
+python /repo/app/library/skills/powerpoint/scripts/thumbnail.py presentation.pptx
 
 # Raw XML
-python scripts/office/unpack.py presentation.pptx unpacked/
+python /repo/app/library/skills/powerpoint/scripts/office/unpack.py presentation.pptx unpacked/
 ```
 
 ---
 
 ## Editing Workflow
 
-**Read [editing.md](editing.md) for full details.**
+**Read `/repo/app/library/skills/powerpoint/editing.md` for full details.**
 
 1. Analyze template with `thumbnail.py`
 2. Unpack → manipulate slides → edit content → clean → pack
@@ -50,7 +50,7 @@ python scripts/office/unpack.py presentation.pptx unpacked/
 
 ## Creating from Scratch
 
-**Read [pptxgenjs.md](pptxgenjs.md) for full details.**
+**Read `/repo/app/library/skills/powerpoint/pptxgenjs.md` for full details.**
 
 Use when no template or reference presentation is available.
 
@@ -217,7 +217,7 @@ Report ALL issues found, including minor ones.
 Convert presentations to individual slide images for visual inspection:
 
 ```bash
-python scripts/office/soffice.py --headless --convert-to pdf output.pptx
+python /repo/app/library/skills/powerpoint/scripts/office/soffice.py --headless --convert-to pdf output.pptx
 pdftoppm -jpeg -r 150 output.pdf slide
 ```
 
@@ -236,5 +236,5 @@ pdftoppm -jpeg -r 150 -f N -l N output.pdf slide-fixed
 - `pip install "markitdown[pptx]"` - text extraction
 - `pip install Pillow` - thumbnail grids
 - `npm install -g pptxgenjs` - creating from scratch
-- LibreOffice (`soffice`) - PDF conversion (auto-configured for sandboxed environments via `scripts/office/soffice.py`)
+- LibreOffice (`soffice`) - PDF conversion (auto-configured for sandboxed environments via `/repo/app/library/skills/powerpoint/scripts/office/soffice.py`)
 - Poppler (`pdftoppm`) - PDF to images

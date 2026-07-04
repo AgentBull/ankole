@@ -216,6 +216,36 @@ defmodule FeishuOpenAPI.RequestTest do
             }} = FeishuOpenAPI.get(client, "/open-apis/contact/v3/users/u1")
   end
 
+  test "download decodes non-2xx Feishu JSON envelopes into structured errors", %{
+    client: client
+  } do
+    Req.Test.stub(FeishuOpenAPI.RequestTest, fn conn ->
+      conn
+      |> Plug.Conn.put_resp_header("x-tt-logid", "log-download")
+      |> Plug.Conn.put_status(403)
+      |> Req.Test.json(%{
+        "code" => 99_991_672,
+        "msg" => "Access denied",
+        "error" => %{
+          "permission_violations" => [%{"scope" => "drive:drive:readonly"}]
+        }
+      })
+    end)
+
+    assert {:error,
+            %FeishuOpenAPI.Error{
+              code: 99_991_672,
+              msg: "Access denied",
+              http_status: 403,
+              log_id: "log-download",
+              raw_body: %{"code" => 99_991_672},
+              details: %{"permission_violations" => [%{"scope" => "drive:drive:readonly"}]}
+            }} =
+             FeishuOpenAPI.download(client, "/open-apis/drive/v1/files/:file_token/download",
+               path_params: %{file_token: "file_x"}
+             )
+  end
+
   test "non-zero response code yields a structured error", %{client: client} do
     Req.Test.stub(FeishuOpenAPI.RequestTest, fn conn ->
       conn

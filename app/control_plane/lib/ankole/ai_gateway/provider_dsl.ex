@@ -11,7 +11,7 @@ defmodule Ankole.AIGateway.ProviderDSL do
   alias Ankole.AIGateway.ProviderDefinition.Capability
   alias Ankole.AIGateway.ProviderDefinition.Setting
 
-  @capability_kinds [:language_model, :embedding_model, :rerank_model]
+  @capability_kinds [:language_model, :embedding_model, :rerank_model, :web_search, :web_fetch]
   @upstream_kinds [:sse, :eventstream, :websocket_text, :json]
 
   @doc false
@@ -31,8 +31,8 @@ defmodule Ankole.AIGateway.ProviderDSL do
   Starts a provider declaration.
 
   The provider kind is the stable id used by stored provider rows and runtime
-  model bindings. Atoms are normalized to kebab-case strings so Elixir module
-  names do not leak into the external id format.
+  model bindings. Atoms and strings are normalized to snake_case strings so the
+  external id format matches the Elixir provider modules without exposing atoms.
   """
   defmacro provider(provider_kind, do: block) do
     quote do
@@ -80,6 +80,12 @@ defmodule Ankole.AIGateway.ProviderDSL do
 
   @doc "Declares the provider's rerank-model capability."
   defmacro rerank_model(do: block), do: capability(:rerank_model, block)
+
+  @doc "Declares the provider's web-search capability."
+  defmacro web_search(do: block), do: capability(:web_search, block)
+
+  @doc "Declares the provider's web-fetch capability."
+  defmacro web_fetch(do: block), do: capability(:web_fetch, block)
 
   @doc """
   Declares the upstream wire shape consumed by UniversalAIClient.
@@ -211,10 +217,10 @@ defmodule Ankole.AIGateway.ProviderDSL do
   defp normalize_provider_kind(nil), do: raise(ArgumentError, "provider id is required")
 
   defp normalize_provider_kind(value) when is_atom(value),
-    do: value |> Atom.to_string() |> String.replace("_", "-")
+    do: value |> Atom.to_string() |> normalize_provider_kind()
 
   defp normalize_provider_kind(value) when is_binary(value),
-    do: value |> String.trim() |> String.downcase()
+    do: value |> String.trim() |> String.downcase() |> String.replace("-", "_")
 
   defp normalize_label(value) when is_binary(value), do: %{"default" => value}
   defp normalize_label(value) when is_map(value), do: value

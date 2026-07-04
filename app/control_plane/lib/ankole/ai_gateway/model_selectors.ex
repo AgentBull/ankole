@@ -16,6 +16,14 @@ defmodule Ankole.AIGateway.ModelSelectors do
     "rerank" => %{
       profile: "rerank",
       selector: "rerank.default"
+    },
+    "web_search" => %{
+      profile: "web_search",
+      selector: "web_search.default"
+    },
+    "web_fetch" => %{
+      profile: "web_fetch",
+      selector: "web_fetch.default"
     }
   }
 

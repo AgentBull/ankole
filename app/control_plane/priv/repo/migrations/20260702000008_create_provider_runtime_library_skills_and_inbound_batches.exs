@@ -1,15 +1,13 @@
 defmodule Ankole.Repo.Migrations.CreateProviderRuntimeLibrarySkillsAndInboundBatches do
-  # 收尾子系统：AI Gateway provider 连接、agent library、skill 注册表与 overlay、
-  # 以及 IM 入站批量去重表。
+  # Final schema group for provider connections, agent library files, skill registry
+  # state, skill overlays, and IM inbound batching.
   #
-  # 注意：
-  #   - signal_gateway_inbound_batches 暂时保留。当 new-plan.md §2.3 的
-  #     「inbound batch finalize 不由 ReadyInputProcessor 触发」在代码中落地后，
-  #     再连同 schema/inbound_batches.ex/测试一起删除。
+  # signal_gateway_inbound_batches remains because SignalsGateway still owns IM debounce
+  # and batch-finalization policy before appending actor events.
   use Ecto.Migration
 
   def up do
-    # ══ AI Gateway provider 运行时 ══════════════════════════════
+    # Operator-managed AIGateway provider connections resolved by runtime model profiles.
 
     create table(:ai_gateway_providers, primary_key: false) do
       add :id, :uuid, primary_key: true
@@ -28,7 +26,7 @@ defmodule Ankole.Repo.Migrations.CreateProviderRuntimeLibrarySkillsAndInboundBat
            )
 
     create constraint(:ai_gateway_providers, :ai_gateway_providers_provider_kind_format,
-             check: "provider_kind ~ '^[a-z][a-z0-9_-]{0,62}$'"
+             check: "provider_kind ~ '^[a-z][a-z0-9_]{0,62}$'"
            )
 
     create constraint(:ai_gateway_providers, :ai_gateway_providers_base_url_present,
@@ -69,9 +67,8 @@ defmodule Ankole.Repo.Migrations.CreateProviderRuntimeLibrarySkillsAndInboundBat
       disabled_at: "Time the provider was disabled and excluded from runtime resolution."
     })
 
-    # ══ Agent library：persona docs 与文件内容 ═════════════════
-    # 存 agent 拥有的 persona/setting 文件（SOUL.md / MISSION.md / SETTING.md 等）。
-    # skill overlay 不在这里——它们在 agent_skill_overlays 表。
+    # Agent library rows materialize worker-visible persona and setting files
+    # such as SOUL.md, MISSION.md, and SETTING.md. Skill overlays live separately.
     create table(:agent_library_container_entries, primary_key: false) do
       add :id, :uuid, primary_key: true
 
@@ -131,7 +128,7 @@ defmodule Ankole.Repo.Migrations.CreateProviderRuntimeLibrarySkillsAndInboundBat
       deleted_at: "Soft-delete marker that removes the path from the active library view."
     })
 
-    # ══ library_builtin_sync_state：builtin 内容同步游标 ════════
+    # Built-in library sync state records source hashes without duplicating every file.
     create table(:library_builtin_sync_state, primary_key: false) do
       add :name, :text, primary_key: true
       add :content_hash, :text, null: false
@@ -164,9 +161,8 @@ defmodule Ankole.Repo.Migrations.CreateProviderRuntimeLibrarySkillsAndInboundBat
       metadata: "Sync metadata outside the content hash contract."
     })
 
-    # ══ agent_skill_overlays：per-agent skill overlay ═══════════
-    # 与 agent_skills 配合：agent_skills 是注册表元数据，
-    # overlay 是叠加到 SKILL.md 上的定制 JSON。
+    # Skill overlays are per-agent customizations layered on top of registry metadata.
+    # The base skill entry still comes from agent_skills.
     create table(:agent_skill_overlays, primary_key: false) do
       add(:id, :uuid, primary_key: true)
 
@@ -221,7 +217,7 @@ defmodule Ankole.Repo.Migrations.CreateProviderRuntimeLibrarySkillsAndInboundBat
       deleted_at: "Soft-delete marker that removes the overlay from the active skill view."
     })
 
-    # ══ agent_skills：skill 注册表 ══════════════════════════════
+    # agent_skills is the per-agent registry used by worker skill discovery.
     create table(:agent_skills, primary_key: false) do
       add(:id, :uuid, primary_key: true)
 
@@ -301,8 +297,8 @@ defmodule Ankole.Repo.Migrations.CreateProviderRuntimeLibrarySkillsAndInboundBat
       synced_at: "Time this registry row was last synchronized from its source."
     })
 
-    # ══ signal_gateway_inbound_batches：IM 入站批量去重 ═════════
-    # 暂时保留。当 new-plan.md §2.3 移除意图在代码中落地后删除。
+    # Inbound batches debounce provider entries before finalization. A finalized batch
+    # appends at most one actor event so group-message policy stays centralized here.
     create table(:signal_gateway_inbound_batches, primary_key: false) do
       add :id, :uuid, primary_key: true
 
@@ -328,7 +324,6 @@ defmodule Ankole.Repo.Migrations.CreateProviderRuntimeLibrarySkillsAndInboundBat
       add :batch_revision, :integer, null: false, default: 0
       add :outcome, :text
       add :finalized_at, :utc_datetime_usec
-      # Phase 1：actor_input_id → actor_event_id。
       add :actor_event_id, :uuid
 
       timestamps(type: :utc_datetime_usec)
@@ -369,7 +364,7 @@ defmodule Ankole.Repo.Migrations.CreateProviderRuntimeLibrarySkillsAndInboundBat
 
     create constraint(:signal_gateway_inbound_batches, :inbound_batches_outcome_check,
              check:
-               "outcome IS NULL OR outcome IN ('addressed', 'ambient', 'no_actor_input', 'duplicate_consumed', 'canceled')"
+               "outcome IS NULL OR outcome IN ('addressed', 'ambient', 'no_actor_event', 'canceled')"
            )
   end
 

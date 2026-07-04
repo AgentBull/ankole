@@ -3,9 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { zstdCompressBlock, zstdDecompressBlock } from '@ankole/kernel'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { ActorTurnRef } from '../src/actor_lane'
 import { createFileTransferState, fileTransferProtocol, handleFileTransferFrame } from '../src/file_transfer_lane'
-import { finalProposalEnvelope } from '../src/turn_envelopes'
 import { encodeEnvelope } from '../src/runtime_fabric'
 import {
   parseRuntimeFabricUrl,
@@ -13,10 +11,12 @@ import {
   workerHeartbeatEnvelope,
   workerReadyEnvelope
 } from '../src/runtime'
-import { handleWorkerRpcRequest, rpcMethods, type RpcRequest } from '../src/rpc_lane'
+import { handleWorkerRpcRequest, type RpcRequest } from '../src/rpc_lane'
 import { isRuntimeFabricBackpressure, reliableEnvelopeSender } from '../src/runtime_fabric_sender'
+import { workerProgressEnvelope } from '../src/turn_envelopes'
 import type { WorkerConfig } from '../src/runtime'
 import { prepareTurnWorkspace } from '../src/workspace'
+import { mailboxUpdatedFromEnvelope, turnStartFromEnvelope } from '../src/actor_lane'
 
 describe('@ankole/agent-computer runtime', () => {
   it('parses RuntimeFabric URL auth without embedding worker identity', () => {
@@ -43,18 +43,56 @@ describe('@ankole/agent-computer runtime', () => {
     expect(JSON.stringify(ready)).not.toContain('agent_uid')
     expect(JSON.stringify(ready)).not.toContain('actor_epoch')
     expect((ready.body.worker_ready as { capacity_json: unknown }).capacity_json).toMatchObject({
-      available_turn_slots: 1
+      max_turns: 9,
+      available_turn_slots: 9
     })
     expect(capacity.body.worker_capacity as { available_turn_slots: number }).toMatchObject({
-      available_turn_slots: 1
+      available_turn_slots: 9
     })
     expect(encodeEnvelope(ready)).toBeInstanceOf(Buffer)
     expect(encodeEnvelope(heartbeat)).toBeInstanceOf(Buffer)
     expect(encodeEnvelope(capacity)).toBeInstanceOf(Buffer)
   })
 
+  it('reports available capacity from configured concurrent turn slots', () => {
+    const config = { ...workerConfig(), maxConcurrentTurns: 3 }
+    const capacity = workerCapacityEnvelope(config, 1, 2)
+
+    expect(capacity.body.worker_capacity).toMatchObject({
+      available_turn_slots: 1,
+      capacity_json: {
+        max_turns: 3,
+        available_turn_slots: 1
+      },
+      load_json: {
+        active_turns: 2
+      }
+    })
+  })
+
+  it('emits worker progress as an ephemeral progress-lane keepalive', () => {
+    const turn = actorTurnRef()
+    const envelope = workerProgressEnvelope(turn, 'checkpoint', 'turn in progress', 'turn-start-1', {
+      stage: 'llm'
+    })
+
+    expect(envelope.lane).toBe('LANE_PROGRESS')
+    expect(envelope.durability).toBe('CONTROL_EPHEMERAL')
+    expect(envelope.correlation_id).toBe('turn-start-1')
+    expect(envelope.body.type).toBe('worker_progress')
+    expect(envelope.body.worker_progress).toMatchObject({
+      turn,
+      kind: 'checkpoint',
+      summary: 'turn in progress',
+      refs_json: { stage: 'llm' }
+    })
+    expect(encodeEnvelope(envelope)).toBeInstanceOf(Buffer)
+  })
+
   it('prepares session workspace without projecting enabled skills', () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-workspace-'))
+    const actorEventId = '00000000-0000-0000-0000-000000000101'
+
     try {
       const config = workerConfigForRoot(root)
       mkdirSync(config.userFilesRoot, { recursive: true })
@@ -64,10 +102,16 @@ describe('@ankole/agent-computer runtime', () => {
           actor: { agent_uid: 'agent-1', session_id: 'session-1' },
           activation_uid: 'activation-1',
           actor_epoch: 1,
-          llm_turn_id: 'turn-1',
+          actor_event_id: actorEventId,
           revision: 0
         },
-        inputs: [],
+        actor_event: {
+          actor_event_id: actorEventId,
+          queue_sequence: 1,
+          type: 'im.message.addressed',
+          source_event_id: 'signal-entry-1',
+          payload_json: {}
+        },
         model_ref: { profile: 'primary', provider_id: 'openrouter-main', model: 'z-ai/glm-5.2' }
       })
 
@@ -77,6 +121,53 @@ describe('@ankole/agent-computer runtime', () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
+  })
+
+  it('rejects mailbox updates without the journaled actor event', () => {
+    expect(() =>
+      mailboxUpdatedFromEnvelope({
+        protocol_version: 1,
+        message_id: 'mailbox-updated-missing-event',
+        correlation_id: 'mailbox-updated-missing-event',
+        lane: 'LANE_TURN',
+        durability: 'CONTROL_EPHEMERAL',
+        body: {
+          type: 'mailbox_updated',
+          mailbox_updated: {
+            turn: {
+              actor: { agent_uid: 'agent-1', session_id: 'session-1' },
+              activation_uid: 'activation-1',
+              actor_epoch: 1,
+              actor_event_id: '00000000-0000-0000-0000-000000000001',
+              revision: 1
+            },
+            reason: 'command.steer'
+          }
+        }
+      })
+    ).toThrow(/mailbox_updated\.actor_event is required/)
+  })
+
+  it('rejects turn_start envelopes without a durable turn fence', () => {
+    expect(() =>
+      turnStartFromEnvelope({
+        protocol_version: 1,
+        message_id: 'turn-start-missing-turn',
+        lane: 'LANE_TURN',
+        durability: 'CONTROL_DURABLE',
+        body: {
+          type: 'turn_start',
+          turn_start: {
+            actor_event: {
+              actor_event_id: '00000000-0000-0000-0000-000000000001',
+              queue_sequence: 1,
+              type: 'im.message.addressed',
+              source_event_id: 'source-1'
+            }
+          }
+        }
+      })
+    ).toThrow(/turn_start\.turn is required/)
   })
 
   it('retries transient RuntimeFabric backpressure without hiding permanent send errors', async () => {
@@ -110,12 +201,12 @@ describe('@ankole/agent-computer runtime', () => {
     expect(nonRetryAttempts).toBe(1)
   })
 
-  it('answers control-plane-initiated worker RPC requests', async () => {
+  it('rejects unknown control-plane-initiated worker RPC requests', async () => {
     const sent: ReturnType<typeof workerReadyEnvelope>[] = []
     const request: RpcRequest = {
       request_id: 'worker-rpc-1',
-      method: rpcMethods.workerRuntimeDescribe,
-      payload_json: {}
+      method: 'test.probe',
+      payload_json: { probe: true }
     }
 
     await handleWorkerRpcRequest(
@@ -130,14 +221,11 @@ describe('@ankole/agent-computer runtime', () => {
     expect(sent).toHaveLength(1)
     expect(sent[0]!.lane).toBe('LANE_RPC')
     expect(sent[0]!.correlation_id).toBe('worker-rpc-1')
-    expect(sent[0]!.body.type).toBe('rpc_response')
-    expect(sent[0]!.body.rpc_response).toMatchObject({
+    expect(sent[0]!.body.type).toBe('rpc_error')
+    expect(sent[0]!.body.rpc_error).toMatchObject({
       request_id: 'worker-rpc-1',
-      payload_json: {
-        worker_id: 'worker-a',
-        runtime: 'bun',
-        active_turns: 2
-      }
+      code: 'unknown_rpc_method',
+      details_json: { method: 'test.probe' }
     })
     expect(encodeEnvelope(sent[0]!)).toBeInstanceOf(Buffer)
   })
@@ -166,39 +254,6 @@ describe('@ankole/agent-computer runtime', () => {
       details_json: { method: 'worker.unknown' }
     })
     expect(encodeEnvelope(sent[0]!)).toBeInstanceOf(Buffer)
-  })
-
-  it('includes final proposal telemetry fields in durable envelopes', () => {
-    const turn: ActorTurnRef = {
-      actor: { agent_uid: 'agent-1', session_id: 'signal-channel:chat-1' },
-      activation_uid: 'activation-1',
-      actor_epoch: 1,
-      llm_turn_id: 'turn-telemetry-1',
-      revision: 0
-    }
-
-    const envelope = finalProposalEnvelope(
-      turn,
-      {
-        messages: [],
-        reply: { text: 'done' },
-        usage_json: { input: 11, output: 7, totalTokens: 18 },
-        provider_metadata_json: { response_id: 'resp_123', response_model: 'google/gemini-3.5-flash' },
-        stop_reason: 'stop',
-        tool_results_json: [{ tool_call_id: 'call_1', tool_name: 'command', is_error: false }]
-      },
-      'turn-start-telemetry-1'
-    )
-
-    expect(envelope.body.type).toBe('turn_final_proposal')
-    expect(envelope.body.turn_final_proposal).toMatchObject({
-      usage_json: { input: 11, output: 7, totalTokens: 18 },
-      provider_metadata_json: { response_id: 'resp_123', response_model: 'google/gemini-3.5-flash' },
-      stop_reason: 'stop',
-      tool_results_json: [{ tool_call_id: 'call_1', tool_name: 'command', is_error: false }]
-    })
-    expect(envelope.correlation_id).toBe('turn-start-telemetry-1')
-    expect(encodeEnvelope(envelope)).toBeInstanceOf(Buffer)
   })
 
   it('handles worker file lane WRITE and READ through zstd DATA credit', async () => {
@@ -392,7 +447,21 @@ function workerConfig(): WorkerConfig {
     sharedFsRoot: '/workspace/shared',
     userFilesRoot: '/workspace/shared/user-files',
     agentInstalledSkillsRoot: '/workspace/shared/skills/agents',
-    builtinSkillsRoot: '/repo/app/library/skills'
+    builtinSkillsRoot: '/repo/app/library/skills',
+    maxConcurrentTurns: 9
+  }
+}
+
+function actorTurnRef() {
+  return {
+    actor: {
+      agent_uid: 'agent-1',
+      session_id: 'session-1'
+    },
+    activation_uid: 'activation-1',
+    actor_epoch: 1,
+    actor_event_id: '00000000-0000-0000-0000-000000000101',
+    revision: 0
   }
 }
 
@@ -406,7 +475,8 @@ function workerConfigForRoot(root: string): WorkerConfig {
     sharedFsRoot: join(root, 'shared'),
     userFilesRoot: join(root, 'shared/user-files'),
     agentInstalledSkillsRoot: join(root, 'shared/skills/agents'),
-    builtinSkillsRoot: join(root, 'builtin-skills')
+    builtinSkillsRoot: join(root, 'builtin-skills'),
+    maxConcurrentTurns: 9
   }
 }
 

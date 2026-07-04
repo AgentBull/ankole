@@ -3,6 +3,7 @@ import { DEFAULT_TOPOLOGY_SCOPE, TOPOLOGY_GATED_SCOPES, TOPOLOGY_SCOPES } from '
 import { runCycles } from './cycles'
 import { runDuplicates } from './duplicates'
 import { runSmells } from './smells'
+import { runStructure } from './structure'
 import { runTopology } from './topology'
 import type { CheckResult, ExitCode } from './types'
 import { runUnused } from './unused'
@@ -34,6 +35,7 @@ async function runAll(options: { json: boolean; skip?: string }): Promise<void> 
   const gates: Array<{ name: string; run: () => CheckResult | Promise<CheckResult> }> = [
     { name: 'smells', run: () => runSmells() },
     { name: 'unused', run: () => runUnused() },
+    { name: 'structure', run: () => runStructure() },
     { name: 'duplicates', run: () => runDuplicates() },
     { name: 'cycles', run: () => runCycles() },
     // Internal module surfaces must not export what nothing consumes.
@@ -110,6 +112,14 @@ export function analyzeCommand(): Crust {
         .flags({ ...jsonFlag })
         .run(async ({ flags }) => {
           emit(await runUnused({ json: flags.json }), flags.json)
+        })
+    )
+    .command('structure', cmd =>
+      cmd
+        .meta({ description: 'konsistent structural convention gate.' })
+        .flags({ ...jsonFlag })
+        .run(async ({ flags }) => {
+          emit(await runStructure({ json: flags.json }), flags.json)
         })
     )
     .command('duplicates', cmd =>

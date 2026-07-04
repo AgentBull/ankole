@@ -279,16 +279,16 @@ fn turn_start_envelope() -> serde_json::Value {
                     },
                     "activation_uid": "activation-a",
                     "actor_epoch": 1,
-                    "llm_turn_id": "00000000-0000-0000-0000-000000000001",
+                    "actor_event_id": "00000000-0000-0000-0000-000000000001",
                     "revision": 0
                 },
-                "inputs": [{
-                    "actor_input_id": "00000000-0000-0000-0000-000000000002",
-                    "live_queue_sequence": 1,
+                "actor_event": {
+                    "actor_event_id": "00000000-0000-0000-0000-000000000002",
+                    "queue_sequence": 1,
                     "type": "im.message.addressed",
-                    "ingress_event_id": "event-a",
+                    "source_event_id": "event-a",
                     "payload_json": {"text": "PING"}
-                }]
+                }
             }
         }
     })

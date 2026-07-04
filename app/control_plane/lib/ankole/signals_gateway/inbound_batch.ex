@@ -1,10 +1,10 @@
 defmodule Ankole.SignalsGateway.InboundBatch do
   @moduledoc """
-  Short-lived IM ingress grouping state before ActorInput creation.
+  Short-lived IM ingress grouping state before ActorEvent creation.
 
   A row here is not actor work yet. It holds provider messages for one
   agent/binding/channel/thread until SignalsGateway can decide whether they
-  close as addressed input, ambient observation, or no actor input.
+  close as addressed input, ambient observation, or no actor event.
   """
 
   use Ecto.Schema
@@ -21,7 +21,7 @@ defmodule Ankole.SignalsGateway.InboundBatch do
   @states ~w(open finalized canceled)
   @modes ~w(neutral addressed)
   @policies ~w(ignore record_only may_intervene)
-  @outcomes ~w(addressed ambient no_actor_input canceled)
+  @outcomes ~w(addressed ambient no_actor_event canceled)
 
   schema "signal_gateway_inbound_batches" do
     belongs_to :agent, Principal,
@@ -48,7 +48,7 @@ defmodule Ankole.SignalsGateway.InboundBatch do
     field :batch_revision, :integer, default: 0
     field :outcome, :string
     field :finalized_at, :utc_datetime_usec
-    field :actor_input_id, Ecto.UUID
+    field :actor_event_id, Ecto.UUID
 
     timestamps()
   end
@@ -75,14 +75,13 @@ defmodule Ankole.SignalsGateway.InboundBatch do
       :batch_revision,
       :outcome,
       :finalized_at,
-      :actor_input_id
+      :actor_event_id
     ])
     |> normalize_blank([
       :agent_uid,
       :binding_name,
       :session_id,
       :signal_channel_id,
-      :provider_thread_id,
       :batch_state,
       :mode,
       :policy,
@@ -96,7 +95,6 @@ defmodule Ankole.SignalsGateway.InboundBatch do
       :binding_name,
       :session_id,
       :signal_channel_id,
-      :provider_thread_id,
       :batch_state,
       :mode,
       :policy,
@@ -130,11 +128,23 @@ defmodule Ankole.SignalsGateway.InboundBatch do
   end
 
   defp normalize_thread_key(changeset) do
-    update_change(changeset, :provider_thread_id, fn
-      nil -> ""
-      value -> value
-    end)
+    put_change(
+      changeset,
+      :provider_thread_id,
+      thread_key(get_field(changeset, :provider_thread_id))
+    )
   end
+
+  defp thread_key(nil), do: ""
+
+  defp thread_key(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> ""
+      trimmed -> trimmed
+    end
+  end
+
+  defp thread_key(_value), do: ""
 
   defp normalize_blank(changeset, fields) when is_list(fields) do
     Enum.reduce(fields, changeset, &normalize_blank(&2, &1))

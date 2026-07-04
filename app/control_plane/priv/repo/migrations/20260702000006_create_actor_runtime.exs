@@ -1,23 +1,14 @@
 defmodule Ankole.Repo.Migrations.CreateActorRuntime do
-  # ActorRuntime 的 volatile（UNLOGGED）运行时表。
+  # ActorRuntime UNLOGGED tables are volatile runtime projections, not durable truth.
   #
-  # Phase 1 重构（见 new-plan.md §2.3）：
-  #   - actor_input_deliveries → actor_event_deliveries
-  #   - delivery row: actor_input_id → actor_event_id, live_queue_sequence → queue_sequence,
-  #     删除 delivery_batch_id 和 llm_turn_id（单事件化，不再批量/不再有 turn 概念）
-  #   - worker 路由 fence 从 (activation_uid, actor_epoch, llm_turn_id, revision) 改为
-  #     (activation_uid, actor_epoch, actor_event_id, revision)
+  # actor_event_deliveries records one-event worker deliveries, while worker route fences
+  # use activation_uid, actor_epoch, actor_event_id, and revision.
   #
-  # 这些表是 UNLOGGED 的：它们是进程可重建的运行时投影，不是 durable truth。
-  # durable truth 在 PostgreSQL 的 actor_events + ai_gateway_messages。
+  # These rows can be rebuilt from process state and durable actor_events/ai_gateway_messages.
   use Ecto.Migration
 
   def up do
-    # ── actor_event_deliveries：delivery 尝试 ────────────────
-    # 旧名 actor_input_deliveries。Phase 1 单事件化后：
-    #   - 一次 worker execution 只处理一个 actor_event_id（§2.3）
-    #   - 删除 delivery_batch_id（不再批量发送）
-    #   - 删除 llm_turn_id（不再有 llm_turn 概念，改用 actor_event_id）
+    # A worker execution handles exactly one actor_event_id, so attempts are tracked per event.
     execute("""
     CREATE UNLOGGED TABLE actor_event_deliveries (
       id uuid PRIMARY KEY,
@@ -36,10 +27,10 @@ defmodule Ankole.Repo.Migrations.CreateActorRuntime do
       transport_route text,
       state text NOT NULL DEFAULT 'created',
       send_outcome text,
-      sent_at timestamptz,
-      accepted_at timestamptz,
-      failed_at timestamptz,
-      superseded_at timestamptz,
+      sent_at timestamp(6),
+      accepted_at timestamp(6),
+      failed_at timestamp(6),
+      superseded_at timestamp(6),
       error jsonb NOT NULL DEFAULT '{}',
       inserted_at timestamp(6) NOT NULL,
       updated_at timestamp(6) NOT NULL,
@@ -64,8 +55,7 @@ defmodule Ankole.Repo.Migrations.CreateActorRuntime do
       "CREATE UNIQUE INDEX actor_event_deliveries_event_attempt_index ON actor_event_deliveries (actor_event_id, attempt_no)"
     )
 
-    # 一个 actor event 至多一条 live delivery（created/sent/accepted）。
-    # 这是 DB 级保证：一个 queued event 映射到至多一个 in-flight worker turn。
+    # One actor event may have at most one live delivery, preventing duplicate in-flight turns.
     execute(
       "CREATE UNIQUE INDEX actor_event_deliveries_live_event_index ON actor_event_deliveries (actor_event_id) WHERE state IN ('created', 'sent', 'accepted')"
     )
@@ -78,7 +68,7 @@ defmodule Ankole.Repo.Migrations.CreateActorRuntime do
       "CREATE INDEX actor_event_deliveries_worker_state_index ON actor_event_deliveries (worker_id, state)"
     )
 
-    # ── agent_computer_workers：已连接 worker 注册表 ──────────
+    # Connected-worker registry used by assignment and recovery policy.
     execute("""
     CREATE UNLOGGED TABLE agent_computer_workers (
       id uuid PRIMARY KEY,
@@ -88,9 +78,9 @@ defmodule Ankole.Repo.Migrations.CreateActorRuntime do
       capacity jsonb NOT NULL DEFAULT '{}',
       load jsonb NOT NULL DEFAULT '{}',
       transport_route text,
-      last_worker_heartbeat_at timestamptz,
-      started_at timestamptz,
-      stopped_at timestamptz,
+      last_worker_heartbeat_at timestamp(6),
+      started_at timestamp(6),
+      stopped_at timestamp(6),
       stop_reason text,
       metadata jsonb NOT NULL DEFAULT '{}',
       inserted_at timestamp(6) NOT NULL,
@@ -112,7 +102,7 @@ defmodule Ankole.Repo.Migrations.CreateActorRuntime do
       "CREATE UNIQUE INDEX agent_computer_workers_transport_route_index ON agent_computer_workers (transport_route) WHERE transport_route IS NOT NULL"
     )
 
-    # ── actor_session_worker_assignments：session → worker 映射
+    # Live session-to-worker assignment is volatile and can be rebuilt after restart.
     execute("""
     CREATE UNLOGGED TABLE actor_session_worker_assignments (
       id uuid PRIMARY KEY,
@@ -122,8 +112,8 @@ defmodule Ankole.Repo.Migrations.CreateActorRuntime do
       transport_route text,
       status text NOT NULL,
       workspace_mount text,
-      assigned_at timestamptz NOT NULL,
-      last_used_at timestamptz,
+      assigned_at timestamp(6) NOT NULL,
+      last_used_at timestamp(6),
       metadata jsonb NOT NULL DEFAULT '{}',
       inserted_at timestamp(6) NOT NULL,
       updated_at timestamp(6) NOT NULL,
@@ -142,9 +132,7 @@ defmodule Ankole.Repo.Migrations.CreateActorRuntime do
       "CREATE INDEX actor_session_worker_assignments_worker_index ON actor_session_worker_assignments (worker_id, status)"
     )
 
-    # ── actor_session_activations：activation lease ──────────
-    # Phase 1：current_llm_turn_id → current_actor_event_id。
-    # lease/fence 仍由 activation 维护，但指向 actor event 而非 llm_turn。
+    # Activation leases carry the current actor-event fence for a live actor session.
     execute("""
     CREATE UNLOGGED TABLE actor_session_activations (
       id uuid PRIMARY KEY,
@@ -155,13 +143,13 @@ defmodule Ankole.Repo.Migrations.CreateActorRuntime do
       status text NOT NULL,
       controller_node text,
       lease_id text NOT NULL,
-      lease_expires_at timestamptz NOT NULL,
-      last_actor_heartbeat_at timestamptz,
+      lease_expires_at timestamp(6) NOT NULL,
+      last_actor_heartbeat_at timestamp(6),
       assigned_worker_id text,
       current_actor_event_id uuid,
       revision integer NOT NULL DEFAULT 0,
-      started_at timestamptz NOT NULL,
-      stopped_at timestamptz,
+      started_at timestamp(6) NOT NULL,
+      stopped_at timestamp(6),
       stop_reason text,
       metadata jsonb NOT NULL DEFAULT '{}',
       inserted_at timestamp(6) NOT NULL,
@@ -220,7 +208,10 @@ defmodule Ankole.Repo.Migrations.CreateActorRuntime do
       error: "Structured delivery error for diagnostics."
     })
 
-    comment_table(:agent_computer_workers, "Volatile registry of connected Agent Computer workers.")
+    comment_table(
+      :agent_computer_workers,
+      "Volatile registry of connected Agent Computer workers."
+    )
 
     comment_columns(:agent_computer_workers, %{
       worker_id: "Worker process id authenticated by the control plane.",
@@ -253,7 +244,10 @@ defmodule Ankole.Repo.Migrations.CreateActorRuntime do
       metadata: "Assignment metadata outside the scheduler contract."
     })
 
-    comment_table(:actor_session_activations, "Volatile activation leases for live actor sessions.")
+    comment_table(
+      :actor_session_activations,
+      "Volatile activation leases for live actor sessions."
+    )
 
     comment_columns(:actor_session_activations, %{
       activation_uid: "Stable activation identifier carried across worker messages.",

@@ -1,0 +1,122 @@
+defmodule Ankole.SignalsGateway.ReplyAttachmentTest do
+  use ExUnit.Case, async: true
+
+  alias Ankole.Actors.ActorEvent
+  alias Ankole.SignalsGateway.Outbox
+  alias Ankole.SignalsGateway.ReplyAttachment
+
+  test "extracts canonical attachments from reply_attachment tool outputs" do
+    attachment = %{
+      "agent_computer_path" => "/workspace/user-files/reports/chaos-report.txt",
+      "user_files_relative_path" => "reports/chaos-report.txt",
+      "name" => "chaos-report.txt",
+      "mime_type" => "text/plain",
+      "size" => 28,
+      "ignored" => "not durable"
+    }
+
+    assert {:ok,
+            [
+              %{
+                "agent_computer_path" => "/workspace/user-files/reports/chaos-report.txt",
+                "user_files_relative_path" => "reports/chaos-report.txt",
+                "name" => "chaos-report.txt",
+                "mime_type" => "text/plain",
+                "size" => 28
+              }
+            ]} =
+             ReplyAttachment.attachments_from_response_items([
+               %{
+                 "type" => "function_call_output",
+                 "call_id" => "call_reply_attachment",
+                 "output" =>
+                   Ankole.JSON.encode!(%{
+                     "tool" => "reply_attachment",
+                     "ok" => true,
+                     "attachments" => [attachment]
+                   })
+               }
+             ])
+  end
+
+  test "ignores other function_call_output items" do
+    assert {:ok, []} =
+             ReplyAttachment.attachments_from_response_items([
+               %{
+                 "type" => "function_call_output",
+                 "call_id" => "call_other_tool",
+                 "output" => %{"tool" => "todo", "ok" => true}
+               },
+               %{"type" => "message", "content" => []}
+             ])
+  end
+
+  test "rejects malformed reply_attachment tool outputs" do
+    assert {:error,
+            {:invalid_reply_attachment_output, "call_bad",
+             {:reply_attachment_required_text_missing, "user_files_relative_path"}}} =
+             ReplyAttachment.attachments_from_response_items([
+               %{
+                 "type" => "function_call_output",
+                 "call_id" => "call_bad",
+                 "output" => %{
+                   "tool" => "reply_attachment",
+                   "attachments" => [
+                     %{
+                       "agent_computer_path" => "/workspace/user-files/report.txt",
+                       "name" => "report.txt",
+                       "size" => 1
+                     }
+                   ]
+                 }
+               }
+             ])
+  end
+
+  test "rejects paths outside the user-files worker root" do
+    assert {:error, :reply_attachment_path_not_under_user_files} =
+             ReplyAttachment.normalize_attachment(%{
+               "agent_computer_path" => "/workspace/shared/user-files/report.txt",
+               "user_files_relative_path" => "report.txt",
+               "name" => "report.txt",
+               "size" => 1
+             })
+  end
+
+  test "rejects path traversal under the user-files worker root" do
+    assert {:error, :reply_attachment_relative_path_invalid} =
+             ReplyAttachment.normalize_attachment(%{
+               "agent_computer_path" => "/workspace/user-files/reports/../secret.txt",
+               "user_files_relative_path" => "reports/../secret.txt",
+               "name" => "secret.txt",
+               "size" => 1
+             })
+  end
+
+  test "rejects null bytes in attachment paths" do
+    assert {:error, :reply_attachment_path_contains_null_byte} =
+             ReplyAttachment.normalize_attachment(%{
+               "agent_computer_path" => "/workspace/user-files/reports/evil.txt" <> <<0>>,
+               "user_files_relative_path" => "reports/evil.txt",
+               "name" => "evil.txt",
+               "size" => 1
+             })
+  end
+
+  test "outbox commits reject attachments before route lookup when schema is invalid" do
+    assert {:error, {:reply_attachment_required_text_missing, "user_files_relative_path"}} =
+             Outbox.commit_reply_attachment_outboxes_in_tx(
+               Ankole.Repo,
+               %ActorEvent{},
+               "message-1",
+               "done",
+               [
+                 %{
+                   "agent_computer_path" => "/workspace/user-files/report.txt",
+                   "name" => "report.txt",
+                   "size" => 1
+                 }
+               ]
+             )
+  end
+end

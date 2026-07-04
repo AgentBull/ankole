@@ -18,7 +18,7 @@ defmodule Ankole.ActorRuntime.WatchdogReconcilerTest do
         set: [last_worker_heartbeat_at: @base_time]
       )
 
-      assert {:ok, %{actor_input: input}} =
+      assert {:ok, %{actor_event: input}} =
                emit_entry(
                  agent.uid,
                  "bot",
@@ -26,14 +26,21 @@ defmodule Ankole.ActorRuntime.WatchdogReconcilerTest do
                  now: @base_time
                )
 
-      assert {:ok, %{llm_turn: first_turn}} =
-               ActorRuntime.process_ready_inputs_once(
+      assert {:ok, %{turn_ref: first_turn_ref}} =
+               process_ready_events_once(
                  now: DateTime.add(@base_time, 1, :second),
                  lease_seconds: 300
                )
 
+      assert first_turn_ref["actor_event_id"] == input.id
       assert_receive {:actor_lane, _first_envelope}
-      assert %ActorInputDelivery{state: "sent"} = wait_for_delivery_state(input.id, "sent")
+      assert %ActorEventDelivery{state: "sent"} = wait_for_delivery_state(input.id, "sent")
+
+      stale_message =
+        insert_generating_ai_message_for_actor_event!(
+          input,
+          now: DateTime.add(@base_time, -400, :second)
+        )
 
       assert {:ok, %{stale_workers: 1}} =
                ActorRuntime.watchdog_once(
@@ -41,12 +48,12 @@ defmodule Ankole.ActorRuntime.WatchdogReconcilerTest do
                  stale_after_seconds: 60
                )
 
-      assert Repo.get!(ActorInput, input.id).input_state == "open"
+      assert Repo.get!(ActorEvent, input.id).input_state == "open"
 
-      assert %ActorInputDelivery{state: "superseded"} =
+      assert %ActorEventDelivery{state: "superseded"} =
                Repo.one!(
-                 from(delivery in ActorInputDelivery,
-                   where: delivery.actor_input_id == ^input.id
+                 from(delivery in ActorEventDelivery,
+                   where: delivery.actor_event_id_fence == ^input.id
                  )
                )
 
@@ -54,31 +61,136 @@ defmodule Ankole.ActorRuntime.WatchdogReconcilerTest do
       on_exit(fn -> Broker.unregister_local_worker(live_route) end)
       assert {:ok, live_worker} = admit_worker(live_route)
 
-      assert {:ok, %{llm_turn: second_turn}} =
-               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 121, :second))
+      assert {:ok, %{turn_ref: second_turn_ref}} =
+               process_ready_events_once(now: DateTime.add(@base_time, 121, :second))
 
-      assert second_turn.id != first_turn.id
-      assert Repo.get!(LlmTurn, first_turn.id).status == "failed"
-      assert Repo.get!(LlmTurn, second_turn.id).kind == "retry_generation"
+      assert second_turn_ref["actor_event_id"] == input.id
+
+      assert Repo.get!(Message, stale_message.id).status == "error"
+
+      assert Repo.get!(Message, stale_message.id).metadata["error"]["code"] ==
+               "heartbeat_timeout"
 
       assert_receive {:actor_lane, second_envelope}
-      assert second_envelope["body"]["turn_start"]["turn"]["llm_turn_id"] == second_turn.id
+      assert second_envelope["body"]["turn_start"]["turn"]["actor_event_id"] == input.id
 
       assert %ActorSessionActivation{
                assigned_worker_id: assigned_worker_id,
-               current_llm_turn_id: current_llm_turn_id
+               current_actor_event_id: current_actor_event_id,
+               status: "active"
              } =
-               Repo.one!(from(activation in ActorSessionActivation))
+               Repo.one!(
+                 from(activation in ActorSessionActivation,
+                   where: activation.status == "active"
+                 )
+               )
 
       assert assigned_worker_id == live_worker.worker_id
-      assert current_llm_turn_id == second_turn.id
+      assert current_actor_event_id == input.id
+
+      assert Repo.exists?(
+               from(activation in ActorSessionActivation,
+                 where: activation.status == "failed"
+               )
+             )
 
       assert ["sent"] =
-               ActorInputDelivery
-               |> where([delivery], delivery.actor_input_id == ^input.id)
+               ActorEventDelivery
+               |> where([delivery], delivery.actor_event_id_fence == ^input.id)
                |> order_by([delivery], asc: delivery.attempt_no)
                |> select([delivery], delivery.state)
                |> Repo.all()
+    end
+
+    test "watchdog fails stale accepted worker turn and retries through another worker" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+      stale_route = unique_route()
+      live_route = unique_route()
+
+      :ok = Broker.register_local_worker(stale_route, self())
+      on_exit(fn -> Broker.unregister_local_worker(stale_route) end)
+
+      assert {:ok, stale_worker} = admit_worker(stale_route)
+
+      Repo.update_all(
+        from(worker in AgentComputerWorker, where: worker.worker_id == ^stale_worker.worker_id),
+        set: [last_worker_heartbeat_at: @base_time]
+      )
+
+      assert {:ok, %{actor_event: input}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "PING", explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, %{turn_ref: first_turn_ref}} =
+               process_ready_events_once(
+                 now: DateTime.add(@base_time, 1, :second),
+                 lease_seconds: 300
+               )
+
+      assert first_turn_ref["actor_event_id"] == input.id
+      assert_receive {:actor_lane, _first_envelope}
+
+      assert {:ok, [%ActorEventDelivery{state: "accepted"}]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{
+                   "turn" => first_turn_ref
+                 }
+               })
+
+      stale_message = insert_generating_ai_message_for_actor_event!(input)
+
+      assert {:ok, %{stale_workers: 1}} =
+               ActorRuntime.watchdog_once(
+                 now: DateTime.add(@base_time, 120, :second),
+                 stale_after_seconds: 60
+               )
+
+      assert Repo.get!(ActorEvent, input.id).input_state == "open"
+
+      assert %ActorEventDelivery{state: "superseded"} =
+               Repo.one!(
+                 from(delivery in ActorEventDelivery,
+                   where: delivery.actor_event_id_fence == ^input.id
+                 )
+               )
+
+      assert %Message{status: "error"} = Repo.get!(Message, stale_message.id)
+
+      assert Repo.get!(Message, stale_message.id).metadata["error"]["code"] ==
+               "heartbeat_timeout"
+
+      assert %ActorSessionActivation{status: "failed"} =
+               Repo.one!(from(activation in ActorSessionActivation))
+
+      :ok = Broker.register_local_worker(live_route, self())
+      on_exit(fn -> Broker.unregister_local_worker(live_route) end)
+      assert {:ok, live_worker} = admit_worker(live_route)
+
+      assert {:ok, %{turn_ref: second_turn_ref}} =
+               process_ready_events_once(now: DateTime.add(@base_time, 121, :second))
+
+      assert second_turn_ref["actor_event_id"] == input.id
+      assert_receive {:actor_lane, second_envelope}
+      assert second_envelope["body"]["turn_start"]["turn"]["actor_event_id"] == input.id
+
+      assert %ActorSessionActivation{
+               assigned_worker_id: assigned_worker_id,
+               current_actor_event_id: current_actor_event_id,
+               status: "active"
+             } =
+               Repo.one!(
+                 from(activation in ActorSessionActivation,
+                   where: activation.status == "active"
+                 )
+               )
+
+      assert assigned_worker_id == live_worker.worker_id
+      assert current_actor_event_id == input.id
     end
 
     test "watchdog deletes stale worker projections after the v1 ttl" do
@@ -118,7 +230,7 @@ defmodule Ankole.ActorRuntime.WatchdogReconcilerTest do
       on_exit(fn -> Broker.unregister_local_worker(route) end)
       assert {:ok, _worker} = admit_worker(route)
 
-      assert {:ok, %{actor_input: input}} =
+      assert {:ok, %{actor_event: input}} =
                emit_entry(
                  agent.uid,
                  "bot",
@@ -126,13 +238,20 @@ defmodule Ankole.ActorRuntime.WatchdogReconcilerTest do
                  now: @base_time
                )
 
-      assert {:ok, %{llm_turn: first_turn}} =
-               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 1, :second))
+      assert {:ok, %{turn_ref: first_turn_ref_from_result}} =
+               process_ready_events_once(now: DateTime.add(@base_time, 1, :second))
 
+      assert first_turn_ref_from_result["actor_event_id"] == input.id
       assert_receive {:actor_lane, first_envelope}
       first_turn_ref = first_envelope["body"]["turn_start"]["turn"]
 
-      Repo.delete_all(ActorInputDelivery)
+      stale_message =
+        insert_generating_ai_message_for_actor_event!(
+          input,
+          now: DateTime.add(@base_time, -400, :second)
+        )
+
+      Repo.delete_all(ActorEventDelivery)
       Repo.delete_all(ActorSessionActivation)
 
       assert {:ok, 1} =
@@ -140,25 +259,27 @@ defmodule Ankole.ActorRuntime.WatchdogReconcilerTest do
                  now: DateTime.add(@base_time, 2, :second)
                )
 
-      assert Repo.get!(LlmTurn, first_turn.id).status == "failed"
-      assert Repo.get!(ActorInput, input.id).input_state == "open"
+      assert Repo.get!(Message, stale_message.id).status == "error"
 
-      assert {:error, :llm_turn_not_started} =
-               ActorRuntime.commit_final_proposal(%{
-                 "turn_final_proposal" => %{
+      assert Repo.get!(Message, stale_message.id).metadata["error"]["code"] ==
+               "actor_runtime_projection_lost"
+
+      assert Repo.get!(ActorEvent, input.id).input_state == "open"
+
+      assert {:error, :actor_runtime_fence_not_found} =
+               ActorRuntime.handle_turn_noop_completed(%{
+                 "turn_noop_completed" => %{
                    "turn" => first_turn_ref,
-                   "messages" => [],
-                   "reply" => %{"text" => "PONG"}
+                   "reason" => "late_worker_completion"
                  }
                })
 
-      assert {:ok, %{llm_turn: second_turn}} =
-               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 3, :second))
+      assert {:ok, %{turn_ref: second_turn_ref}} =
+               process_ready_events_once(now: DateTime.add(@base_time, 3, :second))
 
-      assert second_turn.id != first_turn.id
-      assert Repo.get!(LlmTurn, second_turn.id).kind == "retry_generation"
+      assert second_turn_ref["actor_event_id"] == input.id
       assert_receive {:actor_lane, second_envelope}
-      assert second_envelope["body"]["turn_start"]["turn"]["llm_turn_id"] == second_turn.id
+      assert second_envelope["body"]["turn_start"]["turn"]["actor_event_id"] == input.id
     end
 
     test "reconciler runs a startup projection-loss pass" do
@@ -170,7 +291,7 @@ defmodule Ankole.ActorRuntime.WatchdogReconcilerTest do
       on_exit(fn -> Broker.unregister_local_worker(route) end)
       assert {:ok, _worker} = admit_worker(route)
 
-      assert {:ok, %{actor_input: input}} =
+      assert {:ok, %{actor_event: input}} =
                emit_entry(
                  agent.uid,
                  "bot",
@@ -178,18 +299,24 @@ defmodule Ankole.ActorRuntime.WatchdogReconcilerTest do
                  now: @base_time
                )
 
-      assert {:ok, %{llm_turn: started_turn}} =
-               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 1, :second))
+      assert {:ok, %{turn_ref: started_turn_ref}} =
+               process_ready_events_once(now: DateTime.add(@base_time, 1, :second))
 
+      assert started_turn_ref["actor_event_id"] == input.id
       assert_receive {:actor_lane, _envelope}
 
-      Repo.delete_all(ActorInputDelivery)
+      insert_generating_ai_message_for_actor_event!(
+        input,
+        now: DateTime.add(@base_time, -400, :second)
+      )
+
+      Repo.delete_all(ActorEventDelivery)
       Repo.delete_all(ActorSessionActivation)
 
       start_supervised!({Reconciler, name: unique_process_name("reconciler")})
 
-      assert %LlmTurn{status: "failed"} = wait_for_turn_status(started_turn.id, "failed")
-      assert Repo.get!(ActorInput, input.id).input_state == "open"
+      assert %Message{status: "error"} = wait_for_ai_message_status(input.id, "error")
+      assert Repo.get!(ActorEvent, input.id).input_state == "open"
     end
   end
 end

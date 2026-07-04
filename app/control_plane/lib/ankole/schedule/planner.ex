@@ -44,8 +44,7 @@ defmodule Ankole.Schedule.Planner do
              "kind" => "cron",
              "expression" => normalized_expression,
              "timezone" => timezone,
-             "stagger_ms" => stagger_ms,
-             "day_match" => "and"
+             "stagger_ms" => stagger_ms
            }, timezone}
         end
 

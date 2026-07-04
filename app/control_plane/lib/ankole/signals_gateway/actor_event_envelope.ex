@@ -67,10 +67,16 @@ defmodule Ankole.SignalsGateway.ActorEventEnvelope do
   defp maybe_ambient_batch_payload(payload, _type, _attrs, _fact, _now), do: payload
 
   defp refresh_ambient_batch_payload(payload, attrs, entries, now) do
+    observed_messages = AmbientRecall.observed_messages(attrs, entries)
+    recent_history = AmbientRecall.recent_history(attrs, entries)
+    earlier_observed_messages = AmbientRecall.earlier_observed_messages(attrs, entries)
+
     payload
     |> put_in(["data", "entry"], batch_entry_summary(entries))
     |> put_in(["data", "entries"], entries)
-    |> put_in(["data", "observed_messages"], AmbientRecall.observed_messages(attrs, entries))
+    |> put_in(["data", "observed_messages"], observed_messages)
+    |> put_in(["data", "recent_history"], recent_history)
+    |> put_in(["data", "earlier_observed_messages"], earlier_observed_messages)
     |> put_in(["data", "ambient_batch"], %{
       "size" => length(entries),
       "first_source_entry_id" => entries |> List.first() |> Map.get("source_entry_id"),
@@ -82,8 +88,8 @@ defmodule Ankole.SignalsGateway.ActorEventEnvelope do
   defp batch_entry_summary(entries) do
     text =
       entries
-      |> Enum.map(& &1["text"])
-      |> Enum.filter(&is_binary/1)
+      |> AmbientRecall.batch_observed_messages()
+      |> Enum.map(&observed_message_line/1)
       |> Enum.join("\n")
 
     entries
@@ -91,6 +97,20 @@ defmodule Ankole.SignalsGateway.ActorEventEnvelope do
     |> Kernel.||(%{})
     |> Map.put("text", text)
   end
+
+  defp observed_message_line(%{"text" => text} = message) when is_binary(text) do
+    label =
+      [message["sent_at"], message["speaker"]]
+      |> Enum.filter(&(is_binary(&1) and &1 != ""))
+      |> Enum.join(" ")
+
+    case label do
+      "" -> text
+      label -> "[#{label}] #{text}"
+    end
+  end
+
+  defp observed_message_line(_message), do: nil
 
   # The payload stored on the ActorEvent is a CloudEvents 1.0 envelope so the
   # worker sees a uniform shape regardless of which provider/source produced it.

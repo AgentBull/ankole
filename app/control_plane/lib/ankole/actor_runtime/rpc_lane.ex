@@ -8,8 +8,7 @@ defmodule Ankole.ActorRuntime.RPCLane do
 
   alias Ankole.ActorRuntime.AgentConversationContextBroker
   alias Ankole.ActorRuntime.AIGatewayApiKeyBroker
-  alias Ankole.ActorRuntime.ConversationHistoryBroker
-  alias Ankole.ActorRuntime.ConversationSummaryBroker
+  alias Ankole.ActorRuntime.AppConfigureBroker
   alias Ankole.ActorRuntime.SkillOverlayBroker
   alias Ankole.ActorRuntime.WorkerRouteAuth
   alias Ankole.Schedule.RPCBroker
@@ -18,8 +17,7 @@ defmodule Ankole.ActorRuntime.RPCLane do
     "ai_gateway.api_key_for.create_or_find_by_agent" =>
       {AIGatewayApiKeyBroker, :handle_request, []},
     "agent_conversation.context.resolve" => {AgentConversationContextBroker, :handle_request, []},
-    "conversation.history.resolve" => {ConversationHistoryBroker, :handle_request, []},
-    "conversation.summary.commit" => {ConversationSummaryBroker, :handle_request, []},
+    "app_configure.resolve" => {AppConfigureBroker, :handle_request, []},
     "schedule.check_back_later.create" =>
       {RPCBroker, :handle_request,
        ["check_back_later.create", &WorkerRouteAuth.authorize_turn_route/3]},
@@ -42,8 +40,7 @@ defmodule Ankole.ActorRuntime.RPCLane do
     "schedule.cron.run" =>
       {RPCBroker, :handle_request, ["cron.run", &WorkerRouteAuth.authorize_turn_route/3]},
     "skills.overlay.resolve" => {SkillOverlayBroker, :handle_request, ["resolve"]},
-    "skills.overlay.replace" => {SkillOverlayBroker, :handle_request, ["replace"]},
-    "skills.overlay.clear" => {SkillOverlayBroker, :handle_request, ["clear"]}
+    "skills.overlay.replace" => {SkillOverlayBroker, :handle_request, ["replace"]}
   }
 
   @spec handle_request(map(), String.t()) :: {:ok, map()} | {:error, term()}

@@ -1,8 +1,8 @@
 defmodule Ankole.E2E.ConcurrencyPerfE2ETest do
   @moduledoc """
   Basic concurrency and throughput baseline: N independent chats drive direct
-  turns across two worker containers without cross-talk, and the outbox batch
-  dispatch lands every reply in its own chat.
+  turns across two worker containers without cross-talk, and streamed final
+  replies land in their own chats.
 
   The wall-clock ceiling is deliberately loose — it guards against order-of-
   magnitude regressions, not an SLA.

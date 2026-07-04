@@ -18,6 +18,8 @@ struct CachedFilter {
 
 static FILTER_CACHE: OnceLock<Mutex<HashMap<String, CachedFilter>>> = OnceLock::new();
 
+const MAX_FILTER_CACHE_ENTRIES: usize = 1024;
+
 /// Compiles a SignalsGateway CEL filter without executing it.
 pub fn validate_filter_source(source: &str) -> KernelResult<()> {
     compile_filter(source).map(|_| ())
@@ -66,16 +68,23 @@ fn lookup_cached_filter_program(source: &str) -> Option<Arc<Program>> {
 
 fn store_cached_filter_program(source: &str, program: &Arc<Program>) {
     let cache = FILTER_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = match cache.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
 
-    if let Ok(mut guard) = cache.try_lock() {
-        guard.insert(
-            source.to_owned(),
-            CachedFilter {
-                source: source.to_owned(),
-                program: Arc::clone(program),
-            },
-        );
+    if !guard.contains_key(source) && guard.len() >= MAX_FILTER_CACHE_ENTRIES {
+        if let Some(old_source) = guard.keys().next().cloned() {
+            guard.remove(&old_source);
+        }
     }
+    guard.insert(
+        source.to_owned(),
+        CachedFilter {
+            source: source.to_owned(),
+            program: Arc::clone(program),
+        },
+    );
 }
 
 fn build_filter_context(context_json: JsonValue) -> KernelResult<Context<'static>> {
@@ -200,6 +209,17 @@ mod tests {
         );
     }
 
+    #[test]
+    fn filter_cache_evicts_when_full() {
+        clear_filter_cache();
+
+        for index in 0..=MAX_FILTER_CACHE_ENTRIES {
+            cached_filter_program(&format!("binding.name == 'bot-{index}'")).unwrap();
+        }
+
+        assert_eq!(filter_cache_len(), MAX_FILTER_CACHE_ENTRIES);
+    }
+
     fn filter_context() -> JsonValue {
         json!({
             "binding": {
@@ -222,7 +242,7 @@ mod tests {
                     "id": "msg-1",
                     "thread_id": "thread-1",
                     "sender_key": "lark:user:alice",
-                    "actor_input_type": "im.message.addressed",
+                    "actor_event_type": "im.message.addressed",
                     "text": "hello world",
                     "metadata": {
                         "event_type": "message",
@@ -231,5 +251,15 @@ mod tests {
                 }
             }
         })
+    }
+
+    fn clear_filter_cache() {
+        let cache = FILTER_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        cache.lock().expect("filter cache lock").clear();
+    }
+
+    fn filter_cache_len() -> usize {
+        let cache = FILTER_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        cache.lock().expect("filter cache lock").len()
     }
 }

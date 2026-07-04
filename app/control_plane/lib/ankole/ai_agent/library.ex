@@ -250,14 +250,33 @@ defmodule Ankole.AIAgent.Library do
     do: {:error, :invalid_overlay}
 
   @doc """
-  Worker `skill_append` tool entry: replaces the agent's DB overlay text for a skill.
+  Worker `skill_append` tool entry: appends durable notes to the agent's DB overlay text.
   """
   @spec skill_append(String.t(), String.t(), String.t(), keyword()) ::
           {:ok, AgentSkillOverlay.t()} | {:error, term()}
   def skill_append(agent_uid, skill_name, content, opts \\ [])
 
-  def skill_append(agent_uid, skill_name, content, opts) when is_binary(content),
-    do: replace_skill_overlay(agent_uid, skill_name, %{"text" => content}, opts)
+  def skill_append(agent_uid, skill_name, content, opts) when is_binary(content) do
+    repo = Keyword.get(opts, :repo, Repo)
+
+    repo.transact(fn repo ->
+      with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
+           {:ok, sources} <- agent_skill_sources(agent_uid, opts),
+           {:ok, _result} <-
+             sync_agent_skills_in_tx(repo, agent_uid, sources, DateTime.utc_now(:microsecond)),
+           {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name),
+           {:ok, _skill} <- enabled_skill(repo, agent_uid, skill_name) do
+        existing =
+          repo
+          |> active_skill_overlay(agent_uid, skill_name)
+          |> skill_overlay_text()
+
+        replace_skill_overlay_in_tx(repo, agent_uid, skill_name, %{
+          "text" => append_skill_overlay_text(existing, content)
+        })
+      end
+    end)
+  end
 
   def skill_append(_agent_uid, _skill_name, _content, _opts), do: {:error, :invalid_content}
 
@@ -274,34 +293,6 @@ defmodule Ankole.AIAgent.Library do
          {:ok, _skill} <- enabled_skill(repo, agent_uid, skill_name) do
       {:ok, active_skill_overlay(repo, agent_uid, skill_name)}
     end
-  end
-
-  @doc """
-  Clears the active DB overlay for an enabled skill.
-  """
-  @spec clear_skill_overlay(String.t(), String.t(), keyword()) ::
-          {:ok, AgentSkillOverlay.t() | nil} | {:error, term()}
-  def clear_skill_overlay(agent_uid, skill_name, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
-
-    repo.transact(fn repo ->
-      with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
-           {:ok, sources} <- agent_skill_sources(agent_uid, opts),
-           {:ok, _result} <- sync_agent_skills_in_tx(repo, agent_uid, sources, now),
-           {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name),
-           {:ok, _skill} <- enabled_skill(repo, agent_uid, skill_name) do
-        case active_skill_overlay(repo, agent_uid, skill_name) do
-          %AgentSkillOverlay{} = overlay ->
-            overlay
-            |> AgentSkillOverlay.changeset(%{deleted_at: now})
-            |> repo.update()
-
-          nil ->
-            {:ok, nil}
-        end
-      end
-    end)
   end
 
   @doc """
@@ -740,7 +731,8 @@ defmodule Ankole.AIAgent.Library do
           updated_at: DateTime.utc_now(:microsecond)
         ]
       ],
-      conflict_target: {:unsafe_fragment, "(agent_uid, skill_name) WHERE deleted_at IS NULL"}
+      conflict_target: {:unsafe_fragment, "(agent_uid, skill_name) WHERE deleted_at IS NULL"},
+      returning: true
     )
   end
 
@@ -753,6 +745,18 @@ defmodule Ankole.AIAgent.Library do
   end
 
   defp skill_overlay_text(_overlay), do: nil
+
+  defp append_skill_overlay_text(nil, addition), do: String.trim(addition)
+
+  defp append_skill_overlay_text(existing, addition) when is_binary(existing) do
+    note = String.trim(addition)
+
+    cond do
+      existing == "" -> note
+      note == "" -> existing
+      true -> existing <> "\n\n" <> note
+    end
+  end
 
   defp overlay_json(%AgentSkillOverlay{overlay_json: overlay_json}) when is_map(overlay_json),
     do: overlay_json

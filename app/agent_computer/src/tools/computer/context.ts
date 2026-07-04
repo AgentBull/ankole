@@ -1,4 +1,5 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { dirname, normalize, resolve } from 'node:path'
 import { createHash } from 'node:crypto'
 import { bubblewrapArgv } from './bubblewrap'
@@ -20,7 +21,7 @@ export interface BackgroundCommandSnapshot {
   exitCode?: number
   startedAtUnixMs: number
   endedAtUnixMs?: number
-  output(mode?: CommandOutputMode, opts?: { signal?: AbortSignal }): Promise<string>
+  output(mode?: CommandOutputMode, opts?: { incremental?: boolean; signal?: AbortSignal }): Promise<string>
 }
 
 export interface ContainerComputer {
@@ -85,11 +86,16 @@ export interface ComputerToolContext {
    * conversations of one agent do not share execution state.
    */
   executionScopeId: string
+  /** Decrypted remote browser CDP config for this turn, resolved by control-plane RPC. */
+  browserRemoteCdpConfig?: Record<string, unknown> | null
+  /** Local browser idle release TTL in milliseconds, resolved by AppConfigure. */
+  localBrowserIdleTtlMs?: number
   /** Resolve-or-create the agent's container computer facade (memoized for the run). */
   getComputer: (signal?: AbortSignal) => Promise<ContainerComputer>
 }
 
 type MutableBackgroundCommand = {
+  scopeKey: string
   id: string
   command: string
   cwd: string
@@ -99,6 +105,8 @@ type MutableBackgroundCommand = {
   endedAtUnixMs?: number
   stdout: string
   stderr: string
+  observedStdoutChars: number
+  observedStderrChars: number
   process: ReturnType<typeof Bun.spawn>
 }
 
@@ -108,6 +116,7 @@ const BACKGROUND_OUTPUT_MAX_CHARS = 200_000
 // registry without bound. Running commands are never evicted.
 const BACKGROUND_COMMANDS_MAX = 64
 const backgroundCommands = new Map<string, MutableBackgroundCommand>()
+const WORKSPACE_VIRTUAL_ROOT = '/workspace'
 
 function evictFinishedBackgroundCommands(): void {
   if (backgroundCommands.size <= BACKGROUND_COMMANDS_MAX) return
@@ -123,26 +132,17 @@ function evictFinishedBackgroundCommands(): void {
 /**
  * Builds the container Computer facade over the mounted Ankole workspace.
  *
- * The migrated tools were written for a remote `Computer` session. In Ankole the AI SDK loop
- * already runs inside Agent Computer, so the same tool contract is satisfied by
+ * The migrated tools were written for a remote `Computer` session. In Ankole
+ * the model loop already runs inside Agent Computer, so the same tool contract is satisfied by
  * container filesystem/process/tmux operations rooted at `workspaceRoot`.
  */
-export function createContainerComputer(workspaceRoot: string): ContainerComputer {
+export function createContainerComputer(workspaceRoot: string, executionScopeId: string): ContainerComputer {
   const root = resolve(workspaceRoot)
+  const backgroundScopeKey = scopedBackgroundCommandKey(root, executionScopeId)
 
   const safePath = (path: string, cwd?: string): string => {
     const base = cwd ? workspacePath(root, cwd) : root
-    const normalized = normalize(path)
-    const resolved = normalized.startsWith('/workspace')
-      ? resolve(root, `.${normalized.slice('/workspace'.length)}`)
-      : normalized.startsWith('/')
-        ? resolve(root, `.${normalized}`)
-        : resolve(base, normalized)
-
-    if (resolved !== root && !resolved.startsWith(`${root}/`)) {
-      throw new Error('path escapes workspace root')
-    }
-    return resolved
+    return resolveWorkspacePath(root, path, base)
   }
 
   const runTmux = async (args: string[], opts?: { signal?: AbortSignal }): Promise<CommandFinished> =>
@@ -154,13 +154,13 @@ export function createContainerComputer(workspaceRoot: string): ContainerCompute
     },
     backgroundCommands: {
       start(input) {
-        return startBackgroundCommand(input, root)
+        return startBackgroundCommand(input, root, backgroundScopeKey)
       },
       status(id) {
-        return Promise.resolve(backgroundSnapshot(id))
+        return Promise.resolve(backgroundSnapshot(id, backgroundScopeKey))
       },
       kill(id) {
-        const command = backgroundCommands.get(id)
+        const command = scopedBackgroundCommand(id, backgroundScopeKey)
         if (!command) return Promise.resolve(null)
         if (command.status === 'running') {
           command.status = 'killed'
@@ -170,12 +170,16 @@ export function createContainerComputer(workspaceRoot: string): ContainerCompute
         return Promise.resolve(commandSnapshot(command))
       },
       list() {
-        return Promise.resolve(Array.from(backgroundCommands.values()).map(commandSnapshot))
+        return Promise.resolve(
+          Array.from(backgroundCommands.values())
+            .filter(command => command.scopeKey === backgroundScopeKey)
+            .map(commandSnapshot)
+        )
       }
     },
     async readFileToBuffer(input) {
       try {
-        return readFileSync(safePath(input.path, input.cwd))
+        return await readFile(safePath(input.path, input.cwd))
       } catch (error) {
         if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return null
         throw error
@@ -220,10 +224,16 @@ export function createContainerComputer(workspaceRoot: string): ContainerCompute
       },
       async send(name, opts, runOpts) {
         const keys = [...(opts.keys ?? [])]
-        if (opts.input !== undefined) keys.unshift(opts.input)
-        if (opts.enter ?? opts.input !== undefined) keys.push('Enter')
-        const result = await runTmux(['send-keys', '-t', name, ...keys], runOpts)
-        if (result.exitCode !== 0) throw new Error(await result.output('both', runOpts))
+        const shouldPressEnter = opts.enter ?? opts.input !== undefined
+        if (shouldPressEnter) keys.push('Enter')
+        if (opts.input !== undefined && opts.input.length > 0) {
+          const result = await runTmux(['send-keys', '-t', name, '-l', '--', opts.input], runOpts)
+          if (result.exitCode !== 0) throw new Error(await result.output('both', runOpts))
+        }
+        if (keys.length > 0) {
+          const result = await runTmux(['send-keys', '-t', name, ...keys], runOpts)
+          if (result.exitCode !== 0) throw new Error(await result.output('both', runOpts))
+        }
         return { name, status: 'sent' }
       },
       async capture(name, opts, runOpts) {
@@ -255,17 +265,24 @@ export function executionScopeTag(context: Pick<ComputerToolContext, 'executionS
 }
 
 function workspacePath(root: string, path: string): string {
-  const normalized = normalize(path)
-  const relative = normalized.startsWith('/workspace')
-    ? normalized.slice('/workspace'.length)
-    : normalized.startsWith('/')
-      ? normalized
-      : `/${normalized}`
-  const resolved = resolve(root, `.${relative}`)
+  return resolveWorkspacePath(root, path, root)
+}
+
+function resolveWorkspacePath(root: string, path: string, base: string): string {
+  const resolved = isWorkspaceVirtualPath(path)
+    ? resolve(root, `.${path.slice(WORKSPACE_VIRTUAL_ROOT.length)}`)
+    : path.startsWith('/')
+      ? resolve(root, `.${normalize(path)}`)
+      : resolve(base, normalize(path))
+
   if (resolved !== root && !resolved.startsWith(`${root}/`)) {
     throw new Error('path escapes workspace root')
   }
   return resolved
+}
+
+function isWorkspaceVirtualPath(path: string): boolean {
+  return path === WORKSPACE_VIRTUAL_ROOT || path.startsWith(`${WORKSPACE_VIRTUAL_ROOT}/`)
 }
 
 async function runBubblewrappedCommand(
@@ -382,7 +399,8 @@ async function startBackgroundCommand(
     timeoutMs?: number
     signal?: AbortSignal
   },
-  workspaceRoot: string
+  workspaceRoot: string,
+  scopeKey: string
 ): Promise<BackgroundCommandSnapshot> {
   if (input.signal?.aborted) {
     throw new Error('command aborted')
@@ -404,6 +422,7 @@ async function startBackgroundCommand(
   })
 
   const command: MutableBackgroundCommand = {
+    scopeKey,
     id,
     command: commandText,
     cwd,
@@ -411,16 +430,22 @@ async function startBackgroundCommand(
     startedAtUnixMs: Date.now(),
     stdout: '',
     stderr: '',
+    observedStdoutChars: 0,
+    observedStderrChars: 0,
     process: proc
   }
 
   backgroundCommands.set(id, command)
   evictFinishedBackgroundCommands()
   collectBackgroundStream(proc.stdout, chunk => {
-    command.stdout = appendBounded(command.stdout, chunk)
+    const next = appendBounded(command.stdout, chunk)
+    command.stdout = next.text
+    command.observedStdoutChars = Math.max(0, command.observedStdoutChars - next.droppedChars)
   })
   collectBackgroundStream(proc.stderr, chunk => {
-    command.stderr = appendBounded(command.stderr, chunk)
+    const next = appendBounded(command.stderr, chunk)
+    command.stderr = next.text
+    command.observedStderrChars = Math.max(0, command.observedStderrChars - next.droppedChars)
   })
   proc.exited.then(exitCode => {
     if (command.status === 'running') {
@@ -433,9 +458,19 @@ async function startBackgroundCommand(
   return commandSnapshot(command)
 }
 
-function backgroundSnapshot(id: string): BackgroundCommandSnapshot | null {
+function scopedBackgroundCommand(id: string, scopeKey: string): MutableBackgroundCommand | null {
   const command = backgroundCommands.get(id)
+  if (!command || command.scopeKey !== scopeKey) return null
+  return command
+}
+
+function backgroundSnapshot(id: string, scopeKey: string): BackgroundCommandSnapshot | null {
+  const command = scopedBackgroundCommand(id, scopeKey)
   return command ? commandSnapshot(command) : null
+}
+
+function scopedBackgroundCommandKey(workspaceRoot: string, executionScopeId: string): string {
+  return `${workspaceRoot}\u0000${executionScopeId}`
 }
 
 function commandSnapshot(command: MutableBackgroundCommand): BackgroundCommandSnapshot {
@@ -447,12 +482,32 @@ function commandSnapshot(command: MutableBackgroundCommand): BackgroundCommandSn
     ...(command.exitCode === undefined ? {} : { exitCode: command.exitCode }),
     startedAtUnixMs: command.startedAtUnixMs,
     ...(command.endedAtUnixMs === undefined ? {} : { endedAtUnixMs: command.endedAtUnixMs }),
-    async output(mode = 'both') {
+    async output(mode = 'both', opts) {
+      if (opts?.incremental) return incrementalBackgroundOutput(command, mode)
       if (mode === 'stdout') return command.stdout
       if (mode === 'stderr') return command.stderr
       return [command.stdout, command.stderr].filter(Boolean).join(command.stderr && command.stdout ? '\n' : '')
     }
   }
+}
+
+function incrementalBackgroundOutput(command: MutableBackgroundCommand, mode: CommandOutputMode): string {
+  if (mode === 'stdout') {
+    const output = command.stdout.slice(command.observedStdoutChars)
+    command.observedStdoutChars = command.stdout.length
+    return output
+  }
+  if (mode === 'stderr') {
+    const output = command.stderr.slice(command.observedStderrChars)
+    command.observedStderrChars = command.stderr.length
+    return output
+  }
+
+  const stdout = command.stdout.slice(command.observedStdoutChars)
+  const stderr = command.stderr.slice(command.observedStderrChars)
+  command.observedStdoutChars = command.stdout.length
+  command.observedStderrChars = command.stderr.length
+  return [stdout, stderr].filter(Boolean).join(stdout && stderr ? '\n' : '')
 }
 
 async function collectBackgroundStream(
@@ -475,10 +530,11 @@ async function collectBackgroundStream(
   }
 }
 
-function appendBounded(current: string, chunk: string): string {
+function appendBounded(current: string, chunk: string): { droppedChars: number; text: string } {
   const next = current + chunk
-  if (next.length <= BACKGROUND_OUTPUT_MAX_CHARS) return next
-  return next.slice(next.length - BACKGROUND_OUTPUT_MAX_CHARS)
+  if (next.length <= BACKGROUND_OUTPUT_MAX_CHARS) return { droppedChars: 0, text: next }
+  const droppedChars = next.length - BACKGROUND_OUTPUT_MAX_CHARS
+  return { droppedChars, text: next.slice(droppedChars) }
 }
 
 function commandEnv(inputEnv: Record<string, string> | undefined): Record<string, string> {

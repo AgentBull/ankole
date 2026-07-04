@@ -113,24 +113,6 @@ fn number_to_i64(value: &serde_json::Number, field: &str) -> KernelResult<i64> {
     }
 }
 
-pub(super) fn string_list(value: Option<&Value>) -> KernelResult<Vec<String>> {
-    array(value, "string array")?
-        .into_iter()
-        .map(|value| match value {
-            Value::String(text) => Ok(text.clone()),
-            _value => Err(KernelError::new("array values must be strings")),
-        })
-        .collect()
-}
-
-pub(super) fn array<'a>(value: Option<&'a Value>, field: &str) -> KernelResult<Vec<&'a Value>> {
-    match value {
-        Some(Value::Array(values)) => Ok(values.iter().collect()),
-        Some(Value::Null) | None => Ok(Vec::new()),
-        Some(_value) => Err(KernelError::new(format!("{field} must be an array"))),
-    }
-}
-
 pub(super) fn optional_message<T>(
     value: Option<&Value>,
     parser: fn(&Value) -> KernelResult<T>,
@@ -139,6 +121,28 @@ pub(super) fn optional_message<T>(
         Some(Value::Null) | None => Ok(None),
         Some(value) => parser(value).map(Some),
     }
+}
+
+pub(super) fn optional_string_list(
+    object: &Map<String, Value>,
+    field: &str,
+) -> KernelResult<Option<Vec<String>>> {
+    match object.get(field) {
+        Some(Value::Array(values)) => values
+            .iter()
+            .map(|value| match value {
+                Value::String(text) => Ok(text.clone()),
+                _value => Err(KernelError::new(format!("{field} must contain strings"))),
+            })
+            .collect::<KernelResult<Vec<_>>>()
+            .map(Some),
+        Some(Value::Null) | None => Ok(None),
+        Some(_value) => Err(KernelError::new(format!("{field} must be an array"))),
+    }
+}
+
+pub(super) fn string_list_to_json(values: &[String]) -> Value {
+    Value::Array(values.iter().cloned().map(Value::from).collect())
 }
 
 // Stores arbitrary JSON payload fields as bytes inside protobuf messages. This
@@ -184,15 +188,6 @@ pub(super) fn json_object<const N: usize>(entries: [(&str, Value); N]) -> Value 
         entries
             .into_iter()
             .map(|(key, value)| (key.to_string(), value))
-            .collect(),
-    )
-}
-
-pub(super) fn string_array(values: &[String]) -> Value {
-    Value::Array(
-        values
-            .iter()
-            .map(|value| Value::from(value.clone()))
             .collect(),
     )
 }

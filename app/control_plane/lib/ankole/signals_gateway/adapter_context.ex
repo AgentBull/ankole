@@ -67,7 +67,7 @@ defmodule Ankole.SignalsGateway.AdapterContext do
   Emits a provider action event for this binding.
 
   Actions represent explicit UI or command callbacks that should enter the same
-  ordered actor-input journal as messages.
+  ordered actor-event journal as messages.
   """
   @spec emit_action(t(), map(), keyword()) :: SignalsGateway.ingress_result()
   def emit_action(%__MODULE__{} = context, input, options \\ []) do

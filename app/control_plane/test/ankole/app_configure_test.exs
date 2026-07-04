@@ -86,101 +86,6 @@ defmodule Ankole.AppConfigureTest do
     assert {:ok, %{"enabled" => false, "limit" => 0}} = AppConfigure.get(definition)
   end
 
-  test "put_many_global_by_key/1 commits multiple validated rows and refreshes cache", %{
-    prefix: prefix
-  } do
-    string_definition =
-      AppConfigure.define(
-        key: key(prefix, "batch-string"),
-        encrypted: false,
-        schema: Schema.string()
-      )
-
-    integer_definition =
-      AppConfigure.define(
-        key: key(prefix, "batch-integer"),
-        encrypted: false,
-        schema: Schema.integer()
-      )
-
-    assert :ok = AppConfigure.register_definitions([string_definition, integer_definition])
-    string_key = string_definition.key
-    integer_key = integer_definition.key
-
-    assert {:ok,
-            %{
-              ^string_key => "value",
-              ^integer_key => 2
-            }} =
-             AppConfigure.put_many_global_by_key([
-               {string_definition.key, "stale"},
-               {string_definition.key, "value"},
-               {integer_definition.key, 2}
-             ])
-
-    assert %AppConfig{value: %{"type" => "plaintext", "value" => "value"}} =
-             get_row!("global", string_definition.key)
-
-    assert %AppConfig{value: %{"type" => "plaintext", "value" => 2}} =
-             get_row!("global", integer_definition.key)
-
-    assert {:ok, "value"} = AppConfigure.get(string_definition)
-    assert {:ok, 2} = AppConfigure.get(integer_definition)
-  end
-
-  test "put_many_global_by_key/1 validates the whole batch before writing any row", %{
-    prefix: prefix
-  } do
-    valid_definition =
-      AppConfigure.define(
-        key: key(prefix, "batch-valid"),
-        encrypted: false,
-        schema: Schema.string()
-      )
-
-    invalid_definition =
-      AppConfigure.define(
-        key: key(prefix, "batch-invalid"),
-        encrypted: false,
-        schema: Schema.integer()
-      )
-
-    assert :ok = AppConfigure.register_definitions([valid_definition, invalid_definition])
-
-    assert {:error, :not_integer} =
-             AppConfigure.put_many_global_by_key([
-               {valid_definition.key, "value"},
-               {invalid_definition.key, "not-an-integer"}
-             ])
-
-    refute Repo.exists?(from row in AppConfig, where: row.key == ^valid_definition.key)
-    refute Repo.exists?(from row in AppConfig, where: row.key == ^invalid_definition.key)
-  end
-
-  test "put_many_global_by_key/1 reports persisted-but-stale when cache projection fails", %{
-    prefix: prefix
-  } do
-    definition =
-      AppConfigure.define(
-        key: key(prefix, "batch-stale"),
-        encrypted: false,
-        schema: Schema.string()
-      )
-
-    assert :ok = AppConfigure.register_definitions([definition])
-    definition_key = definition.key
-
-    with_unregistered_cache(fn ->
-      assert {:ok,
-              {:persisted_but_stale, %{^definition_key => "value"},
-               {:app_configure_cache_projection_failed, "global", ^definition_key, _reason}}} =
-               AppConfigure.put_many_global_by_key(%{definition.key => "value"})
-
-      assert %AppConfig{value: %{"type" => "plaintext", "value" => "value"}} =
-               get_row!("global", definition.key)
-    end)
-  end
-
   test "resolves current agent, global, then code default", %{prefix: prefix} do
     definition =
       AppConfigure.define(
@@ -392,17 +297,6 @@ defmodule Ankole.AppConfigureTest do
     case GenServer.whereis(Cache) do
       nil -> :ok
       pid -> Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
-    end
-  end
-
-  defp with_unregistered_cache(fun) when is_function(fun, 0) do
-    pid = Process.whereis(Cache)
-    true = Process.unregister(Cache)
-
-    try do
-      fun.()
-    after
-      true = Process.register(pid, Cache)
     end
   end
 

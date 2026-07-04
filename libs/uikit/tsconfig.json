@@ -6,6 +6,5 @@
     "moduleResolution": "bundler",
     "types": ["react", "react-dom"]
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "exclude": ["src/stories/**/*"]
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
 }

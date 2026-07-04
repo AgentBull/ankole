@@ -1,6 +1,6 @@
 /**
- * V4A ("apply_patch") envelope parser — the multi-file patch format hermes' `patch`
- * tool accepts in `mode: 'patch'`. We parse Update/Add/Delete/Move; the patch tool
+ * V4A ("apply_patch") envelope parser — the multi-file patch format accepted
+ * by the `patch` tool in `mode: 'patch'`. We parse Update/Add/Delete/Move; the patch tool
  * applies Update/Add (Delete/Move need a file-delete API the worker doesn't expose
  * in v1).
  *
@@ -13,8 +13,15 @@
  * diff they carry no line-number ranges to trust.
  */
 
+export interface V4AHunk {
+  context?: string
+  endOfFile?: boolean
+  replace: string
+  search: string
+}
+
 export type V4AOperation =
-  | { kind: 'update'; path: string; hunks: Array<{ search: string; replace: string }> }
+  | { kind: 'update'; path: string; hunks: V4AHunk[] }
   | { kind: 'add'; path: string; content: string }
   | { kind: 'delete'; path: string }
   | { kind: 'move'; from: string; to: string }
@@ -55,6 +62,8 @@ export function parseV4APatch(patch: string): V4AOperation[] {
   const ops: V4AOperation[] = []
   let update: Extract<V4AOperation, { kind: 'update' }> | null = null
   let add: { path: string; content: string[] } | null = null
+  let context: string | undefined
+  let endOfFile = false
   let search: string[] = []
   let replace: string[] = []
   let inHunk = false
@@ -64,8 +73,15 @@ export function parseV4APatch(patch: string): V4AOperation[] {
   // no-op hunk that would match the entire file.
   const flushHunk = () => {
     if (update && inHunk && (search.length > 0 || replace.length > 0)) {
-      update.hunks.push({ search: search.join('\n'), replace: replace.join('\n') })
+      update.hunks.push({
+        ...(context === undefined ? {} : { context }),
+        ...(endOfFile ? { endOfFile } : {}),
+        search: search.join('\n'),
+        replace: replace.join('\n')
+      })
     }
+    context = undefined
+    endOfFile = false
     search = []
     replace = []
     inHunk = false
@@ -118,10 +134,16 @@ export function parseV4APatch(patch: string): V4AOperation[] {
       ops.push({ kind: 'move', from: move_[1]!.trim(), to: move_[2]!.trim() })
       continue
     }
-    // `@@` starts the next hunk within the same Update file. Its trailing text (a
-    // function header in real diffs) is not used to locate anything here, so it is dropped.
+    if (update && trimmed === '*** End of File') {
+      inHunk = true
+      endOfFile = true
+      continue
+    }
+    // `@@` starts the next hunk within the same Update file. Its trailing text is a
+    // context anchor used by the applier before matching the hunk body.
     if (trimmed.startsWith('@@')) {
       flushHunk()
+      context = trimmed === '@@' ? undefined : trimmed.replace(/^@@\s*/, '')
       inHunk = true
       continue
     }

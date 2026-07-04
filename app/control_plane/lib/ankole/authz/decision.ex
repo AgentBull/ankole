@@ -35,7 +35,6 @@ defmodule Ankole.AuthZ.Decision do
   def result(_decision), do: {:error, :invalid_decision}
 
   defp kernel_decision(%{} = decision), do: {:ok, decision}
-  defp kernel_decision({:error, reason}), do: {:error, reason}
   defp kernel_decision(_decision), do: {:error, :invalid_decision}
 
   defp emit_diagnostics(%{"diagnostics" => diagnostics}) when is_list(diagnostics) do

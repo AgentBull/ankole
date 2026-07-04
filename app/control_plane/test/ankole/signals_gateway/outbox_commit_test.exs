@@ -1,46 +1,46 @@
 defmodule Ankole.SignalsGatewayOutboxCommitTest do
   use Ankole.DataCase, async: false
 
-  alias Ankole.Actors
-  alias Ankole.Actors.ActorInput
-  alias Ankole.Actors.ActorInputConsumption
+  alias Ankole.Actors.ActorEvent
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.SignalEntry
   alias Ankole.SignalsGatewayFixtures.ModuleOutboxAdapter
 
+  import Ankole.ActorRuntimeCase, only: [complete_actor_event: 4]
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsGatewayFixtures
 
-  @base_time ~U[2026-06-23 08:00:00.000000Z]
+  @base_time ~U[2026-07-02 01:34:05.000000Z]
 
   describe "outbox commit and adapter normalization" do
     test "operation selection reports missing routes instead of inventing reply or post" do
       %{principal: agent} = agent_fixture()
-      binding_fixture(agent.uid, "bot", :ignore)
+      agent_uid = agent.uid
+      binding_fixture(agent_uid, "bot", :ignore)
 
-      %{actor_input: input} =
-        emit_addressed_actor_input(agent.uid, "bot", group_entry(%{explicit: true}))
+      %{actor_event: input} =
+        emit_addressed_actor_event(agent_uid, "bot", group_entry(%{explicit: true}))
 
-      assert {:ok, :reply} = SignalsGateway.outbox_operation_for_actor_input(input)
+      assert {:ok, :reply} = SignalsGateway.outbox_operation_for_actor_event(input)
 
       assert {:error, {:signal_channel_not_found, "missing-channel"}} =
-               SignalsGateway.outbox_operation_for_actor_input(%{
+               SignalsGateway.outbox_operation_for_actor_event(%{
                  input
                  | signal_channel_id: "missing-channel"
                })
 
-      assert {:error, {:signal_binding_not_found, agent.uid, "missing-bot"}} =
-               SignalsGateway.outbox_operation_for_actor_input(%{
+      assert {:error, {:signal_binding_not_found, ^agent_uid, "missing-bot"}} =
+               SignalsGateway.outbox_operation_for_actor_event(%{
                  input
                  | binding_name: "missing-bot"
                })
 
-      binding_fixture(agent.uid, "bad-adapter", :ignore, adapter: "missing-adapter")
+      binding_fixture(agent_uid, "bad-adapter", :ignore, adapter: "missing-adapter")
 
       assert {:error, {:outbox_adapter_not_found, "missing-adapter"}} =
-               SignalsGateway.outbox_operation_for_actor_input(%{
+               SignalsGateway.outbox_operation_for_actor_event(%{
                  input
                  | binding_name: "bad-adapter"
                })
@@ -54,35 +54,35 @@ defmodule Ankole.SignalsGatewayOutboxCommitTest do
                SignalsGateway.emit_entry(
                  agent.uid,
                  "webhook",
-                 webhook_entry(%{actor_input_type: "webhook.received"}),
+                 webhook_entry(%{actor_event_type: "webhook.received"}),
                  now: @base_time
                )
 
-      input = %ActorInput{
+      input = %ActorEvent{
         agent_uid: agent.uid,
         binding_name: "webhook",
         signal_channel_id: "webhook:incident-1",
-        provider_entry_id: "hook-1"
+        source_entry_id: "hook-1"
       }
 
       assert {:error, :outbox_reply_not_supported} =
-               SignalsGateway.outbox_operation_for_actor_input(input)
+               SignalsGateway.outbox_operation_for_actor_event(input)
     end
 
     test "actor consume can commit outbox intents in the same transaction" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
-      %{actor_input: input} =
-        emit_addressed_actor_input(agent.uid, "bot", group_entry(%{explicit: true}))
+      %{actor_event: input} =
+        emit_addressed_actor_event(agent.uid, "bot", group_entry(%{explicit: true}))
 
       assert {:ok, _consumed} =
-               Actors.consume_actor_input(
+               complete_actor_event(
                  agent.uid,
                  "bot",
-                 input.ingress_event_id,
+                 input.source_event_id,
                  actor_commit_opts(
-                   consumed_at: DateTime.add(@base_time, 1, :second),
+                   completed_at: DateTime.add(@base_time, 1, :second),
                    outbox_intents: [
                      %{
                        outbound_key: "actor-post-1",
@@ -102,23 +102,23 @@ defmodule Ankole.SignalsGatewayOutboxCommitTest do
 
       assert outbox.status == :created
       assert outbox.signal_channel_id == "lark:chat:group-a"
-      assert outbox.source_provider_entry_id == "msg-1"
+      assert outbox.reply_to_source_entry_id == "msg-1"
     end
 
     test "actor consume rejects invalid outbox intents without a partial commit" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
-      %{actor_input: input} =
-        emit_addressed_actor_input(agent.uid, "bot", group_entry(%{explicit: true}))
+      %{actor_event: input} =
+        emit_addressed_actor_event(agent.uid, "bot", group_entry(%{explicit: true}))
 
       assert {:error, :invalid_outbox_intent} =
-               Actors.consume_actor_input(
+               complete_actor_event(
                  agent.uid,
                  "bot",
-                 input.ingress_event_id,
+                 input.source_event_id,
                  actor_commit_opts(
-                   consumed_at: DateTime.add(@base_time, 1, :second),
+                   completed_at: DateTime.add(@base_time, 1, :second),
                    outbox_intents: [
                      %{
                        outbound_key: "valid-before-invalid",
@@ -130,13 +130,12 @@ defmodule Ankole.SignalsGatewayOutboxCommitTest do
                  )
                )
 
-      assert Repo.get_by!(ActorInput,
+      assert Repo.get_by!(ActorEvent,
                agent_uid: agent.uid,
                binding_name: "bot",
-               ingress_event_id: input.ingress_event_id
+               source_event_id: input.source_event_id
              )
 
-      assert Repo.aggregate(ActorInputConsumption, :count) == 0
       assert Repo.aggregate(OutboxEntry, :count) == 0
     end
 
@@ -148,7 +147,7 @@ defmodule Ankole.SignalsGatewayOutboxCommitTest do
                SignalsGateway.emit_entry(
                  agent.uid,
                  "webhook",
-                 webhook_entry(%{actor_input_type: "webhook.received"}),
+                 webhook_entry(%{actor_event_type: "webhook.received"}),
                  now: @base_time
                )
 
@@ -159,7 +158,7 @@ defmodule Ankole.SignalsGatewayOutboxCommitTest do
                  outbound_key: "reply-1",
                  operation: :reply,
                  signal_channel_id: "webhook:incident-1",
-                 source_provider_entry_id: "hook-1",
+                 reply_to_source_entry_id: "hook-1",
                  fallback_visible_text: "not possible"
                })
 
@@ -178,7 +177,7 @@ defmodule Ankole.SignalsGatewayOutboxCommitTest do
 
       refute Repo.get_by(SignalEntry,
                signal_channel_id: "webhook:incident-1",
-               provider_entry_id: "reply-1"
+               source_entry_id: "reply-1"
              )
     end
 
@@ -208,7 +207,7 @@ defmodule Ankole.SignalsGatewayOutboxCommitTest do
                  "unknown-capability",
                  %{
                    capabilities: ["post_entry", "made_up"],
-                   send: fn _outbox -> {:ok, %{provider_entry_id: "must-not-send"}} end
+                   send: fn _outbox -> {:ok, %{created_source_entry_id: "must-not-send"}} end
                  },
                  now: @base_time
                )
@@ -256,7 +255,7 @@ defmodule Ankole.SignalsGatewayOutboxCommitTest do
 
       assert Repo.get_by!(SignalEntry,
                signal_channel_id: "lark:chat:group-a",
-               provider_entry_id: "module-adapter-msg"
+               source_entry_id: "module-adapter-msg"
              ).text == "from module"
     end
 
@@ -314,7 +313,7 @@ defmodule Ankole.SignalsGatewayOutboxCommitTest do
 
       refute Repo.get_by(SignalEntry,
                signal_channel_id: "lark:chat:group-a",
-               provider_entry_id: "invalid-adapter-result"
+               source_entry_id: "invalid-adapter-result"
              )
     end
   end

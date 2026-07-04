@@ -6,8 +6,7 @@ import type { ReliableEnvelopeSender } from './runtime_fabric_sender'
 export const rpcMethods = {
   aiGatewayApiKeyForCreateOrFindByAgent: 'ai_gateway.api_key_for.create_or_find_by_agent',
   agentConversationContextResolve: 'agent_conversation.context.resolve',
-  conversationHistoryResolve: 'conversation.history.resolve',
-  conversationSummaryCommit: 'conversation.summary.commit',
+  appConfigureResolve: 'app_configure.resolve',
   scheduleCheckBackLaterCreate: 'schedule.check_back_later.create',
   scheduleCronList: 'schedule.cron.list',
   scheduleCronGet: 'schedule.cron.get',
@@ -19,9 +18,7 @@ export const rpcMethods = {
   scheduleCronRemove: 'schedule.cron.remove',
   scheduleCronRun: 'schedule.cron.run',
   skillsOverlayResolve: 'skills.overlay.resolve',
-  skillsOverlayReplace: 'skills.overlay.replace',
-  skillsOverlayClear: 'skills.overlay.clear',
-  workerRuntimeDescribe: 'worker.runtime.describe'
+  skillsOverlayReplace: 'skills.overlay.replace'
 } as const
 
 export type RpcMethod = (typeof rpcMethods)[keyof typeof rpcMethods]
@@ -58,16 +55,6 @@ export type RuntimeSkillSummary = {
   has_agent_overlay?: boolean
 }
 
-export type ConversationHistoryMessage = {
-  id?: string
-  role?: string
-  kind?: string
-  content?: unknown
-  metadata?: JsonObject
-  created_at?: string | null
-  covers_range?: JsonObject | null
-}
-
 export type AgentConversationContext = {
   request_id: string
   agent_uid: string
@@ -92,47 +79,6 @@ export type AgentConversationContext = {
 export type AgentConversationContextRequest = {
   request_id: string
   turn: ActorTurnRef
-}
-
-export type ConversationHistoryRequest = {
-  request_id: string
-  turn: ActorTurnRef
-  purpose: 'prompt' | 'compression'
-}
-
-export type ConversationHistoryResponse = {
-  request_id: string
-  agent_uid: string
-  session_id: string
-  conversation_id: string
-  conversation_started_at?: string | null
-  purpose: 'prompt' | 'compression'
-  messages: ConversationHistoryMessage[]
-}
-
-export type ConversationSummaryCommitRequest = {
-  request_id: string
-  turn: ActorTurnRef
-  summary: {
-    text: string
-    covered_message_ids: string[]
-  }
-  usage_json?: JsonObject
-  provider_metadata_json?: JsonObject
-}
-
-export type ConversationSummaryCommitResponse = {
-  request_id: string
-  status: string
-  llm_turn_id?: string
-  summary_message_id?: string
-  covered_message_ids?: string[]
-}
-
-export type ConversationSummaryCommitRejected = {
-  request_id: string
-  code: string
-  message?: string
 }
 
 export type ScheduleRpcRequest = JsonObject & {
@@ -184,31 +130,35 @@ export type AIGatewayApiKeyRejected = {
   message?: string
 }
 
-export type WorkerRuntimeDescribeRequest = {
+export type AppConfigureResolveRequest = {
   request_id: string
+  agent_uid: string
+  keys: string[]
 }
 
-export type WorkerRuntimeDescribeResponse = {
+export type AppConfigureResolution = {
+  value: unknown
+  source: 'agent' | 'global' | 'default' | string
+  scope?: string
+}
+
+export type AppConfigureResolveResponse = {
   request_id: string
-  worker_id: string
-  runtime: 'bun'
-  version: string
-  active_turns: number
-  workspace_roots: {
-    workspace: string
-    sessions: string
-    shared_fs: string
-    user_files: string
-    agent_installed_skills: string
-    builtin_skills: string
-  }
+  agent_uid: string
+  values: Record<string, AppConfigureResolution>
+}
+
+export type AppConfigureResolveRejected = {
+  request_id: string
+  agent_uid: string
+  code: string
+  message?: string
 }
 
 export type RpcPayloadByMethod = {
   [rpcMethods.aiGatewayApiKeyForCreateOrFindByAgent]: AIGatewayApiKeyRequest
   [rpcMethods.agentConversationContextResolve]: AgentConversationContextRequest
-  [rpcMethods.conversationHistoryResolve]: ConversationHistoryRequest
-  [rpcMethods.conversationSummaryCommit]: ConversationSummaryCommitRequest
+  [rpcMethods.appConfigureResolve]: AppConfigureResolveRequest
   [rpcMethods.scheduleCheckBackLaterCreate]: ScheduleRpcRequest
   [rpcMethods.scheduleCronList]: ScheduleRpcRequest
   [rpcMethods.scheduleCronGet]: ScheduleRpcRequest
@@ -221,8 +171,6 @@ export type RpcPayloadByMethod = {
   [rpcMethods.scheduleCronRun]: ScheduleRpcRequest
   [rpcMethods.skillsOverlayResolve]: SkillOverlayRequest
   [rpcMethods.skillsOverlayReplace]: SkillOverlayReplaceRequest
-  [rpcMethods.skillsOverlayClear]: SkillOverlayRequest
-  [rpcMethods.workerRuntimeDescribe]: WorkerRuntimeDescribeRequest
 }
 
 export const rpcTimeoutMs = 60_000
@@ -328,17 +276,11 @@ export async function handleWorkerRpcRequest(
 }
 
 export function dispatchWorkerRpcRequest(
-  config: WorkerConfig,
-  activeTurns: number,
+  _config: WorkerConfig,
+  _activeTurns: number,
   request: RpcRequest
 ): RpcResponse | RpcError {
   switch (request.method) {
-    case rpcMethods.workerRuntimeDescribe:
-      return {
-        request_id: request.request_id,
-        payload_json: describeWorkerRuntime(config, activeTurns, request)
-      }
-
     default:
       return {
         request_id: request.request_id,
@@ -359,27 +301,5 @@ function workerRpcReplyEnvelope(reply: RpcResponse | RpcError, requestId: string
     lane: 'LANE_RPC',
     durability: 'CONTROL_EPHEMERAL',
     body: 'code' in reply ? rpcErrorEnvelopeBody(reply) : rpcResponseEnvelopeBody(reply)
-  }
-}
-
-function describeWorkerRuntime(
-  config: WorkerConfig,
-  activeTurns: number,
-  request: RpcRequest
-): WorkerRuntimeDescribeResponse {
-  return {
-    request_id: request.request_id,
-    worker_id: config.workerId,
-    runtime: 'bun',
-    version: '0.1.0',
-    active_turns: activeTurns,
-    workspace_roots: {
-      workspace: config.workspaceRoot,
-      sessions: config.workspaceSessionsRoot,
-      shared_fs: config.sharedFsRoot,
-      user_files: config.userFilesRoot,
-      agent_installed_skills: config.agentInstalledSkillsRoot,
-      builtin_skills: config.builtinSkillsRoot
-    }
   }
 }

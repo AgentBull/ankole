@@ -41,11 +41,13 @@ defmodule Ankole.Schedule.Normalizer do
          requested_at: now,
          idempotency_key: idempotency_key,
          tool_call_id: tool_call_id,
-         source_llm_turn_id: Attrs.map_text(attrs, "source_llm_turn_id"),
-         source_actor_input_id: Attrs.map_text(attrs, "source_actor_input_id"),
+         # Source tables: origin_ai_message_id is ai_gateway_messages.id;
+         # source_actor_event_id is actor_events.id from the turn that scheduled it.
+         origin_ai_message_id: Attrs.map_text(attrs, "origin_ai_message_id"),
+         source_actor_event_id: Attrs.map_text(attrs, "source_actor_event_id"),
          signal_channel_id: Attrs.map_text(reply_route, "signal_channel_id"),
          provider_thread_id: Attrs.map_text(reply_route, "provider_thread_id"),
-         provider_entry_id: Attrs.map_text(reply_route, "provider_entry_id"),
+         source_entry_id: Attrs.map_text(reply_route, "source_entry_id"),
          source_provenance: Attrs.map_value(attrs, "source_provenance") || %{},
          wake_payload: %{
            "reason" => reason,
@@ -86,7 +88,7 @@ defmodule Ankole.Schedule.Normalizer do
          delivery: delivery,
          next_fire_at: next_fire_at_for_status(status, next_fire_at),
          idempotency_key: idempotency_key,
-         created_by: Attrs.map_value(attrs, "created_by") || %{"kind" => "operator_api"},
+         created_by: Keyword.get(opts, :created_by) || %{"kind" => "operator_api"},
          failure_policy: Attrs.map_value(attrs, "failure_policy") || %{}
        }}
     end

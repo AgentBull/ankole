@@ -3,6 +3,10 @@ defmodule Ankole.Plugins.LarkAdapter.Card do
   Rendering for provider-native and portable Lark card outbox payloads.
   """
 
+  alias Ankole.Plugins.LarkAdapter.MapHelpers
+
+  import MapHelpers, only: [fetch_value: 2, maybe_put_nonempty_map: 3]
+
   @action_value_version "ankole.interactive_output.action.v1"
 
   @doc """
@@ -53,7 +57,7 @@ defmodule Ankole.Plugins.LarkAdapter.Card do
   def system_divider_content(text, i18n \\ nil) do
     divider_text =
       %{"text" => text}
-      |> maybe_put("i18n_text", i18n)
+      |> maybe_put_nonempty_map("i18n_text", i18n)
 
     Ankole.JSON.encode!(%{
       "type" => "divider",
@@ -230,10 +234,6 @@ defmodule Ankole.Plugins.LarkAdapter.Card do
 
   defp append_all(list, values), do: list ++ values
 
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, _key, value) when is_map(value) and map_size(value) == 0, do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
   defp escape_markdown(text) do
     text
     |> String.replace("\\", "\\\\")
@@ -263,23 +263,5 @@ defmodule Ankole.Plugins.LarkAdapter.Card do
       value when is_integer(value) -> value
       _value -> nil
     end
-  end
-
-  defp fetch_value(map, key) when is_map(map) do
-    atom_key = atom_key(key)
-
-    # Portable payloads may come from JSON or local tests. Existing atom keys are
-    # accepted, but new atoms are never created from provider-controlled data.
-    cond do
-      Map.has_key?(map, key) -> Map.fetch!(map, key)
-      not is_nil(atom_key) and Map.has_key?(map, atom_key) -> Map.fetch!(map, atom_key)
-      true -> nil
-    end
-  end
-
-  defp atom_key(key) when is_binary(key) do
-    String.to_existing_atom(key)
-  rescue
-    ArgumentError -> nil
   end
 end

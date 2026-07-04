@@ -6,33 +6,37 @@ defmodule Ankole.ActorRuntime.TurnEnvelope do
   keeps the transport-facing envelope shape separate from those state machines.
   """
 
-  alias Ankole.Actors.ActorInput
-  alias Ankole.AIAgent.Schemas.LlmTurn
-  alias Ankole.ActorRuntime.Schemas.ActorInputDelivery
+  alias Ankole.Actors.ActorEvent
+  alias Ankole.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.ActorRuntime.Schemas.ActorSessionActivation
 
   @doc """
   Builds the compact fence that every worker reply must echo.
   """
-  def turn_ref(_repo, actor_key, %ActorSessionActivation{} = activation, %LlmTurn{} = llm_turn) do
+  def turn_ref(actor_key, %ActorSessionActivation{} = activation) do
     %{
       "actor" => actor_ref(actor_key),
       "activation_uid" => activation.activation_uid,
       "actor_epoch" => activation.actor_epoch,
-      "llm_turn_id" => llm_turn.id,
+      # Source table: actor_session_activations.current_actor_event_id stores
+      # actor_events.id for the currently running worker execution.
+      "actor_event_id" => activation.current_actor_event_id,
       "revision" => activation.revision
     }
   end
 
   @doc """
   Builds the actor lane envelope sent to the computer worker.
+
+  Each worker turn carries one actor event.
   """
-  def turn_start(turn_ref, actor_inputs, deliveries, %LlmTurn{} = llm_turn) do
+  def turn_start(turn_ref, %ActorEvent{} = actor_event, deliveries, turn_start_spec)
+      when is_map(turn_start_spec) do
     message_id =
       deliveries
       |> List.first()
       |> case do
-        %ActorInputDelivery{actor_lane_message_id: message_id} -> message_id
+        %ActorEventDelivery{actor_lane_message_id: message_id} -> message_id
         _delivery -> "turn-start-" <> Ecto.UUID.generate()
       end
 
@@ -47,9 +51,9 @@ defmodule Ankole.ActorRuntime.TurnEnvelope do
         "type" => "turn_start",
         "turn_start" => %{
           "turn" => turn_ref,
-          "inputs" => Enum.map(actor_inputs, &actor_input_envelope(&1, llm_turn)),
-          "model_ref" => turn_model_ref(llm_turn),
-          "request_context" => llm_turn.request_context || %{}
+          "actor_event" => actor_event_envelope(actor_event),
+          "model_ref" => turn_model_ref(turn_start_spec),
+          "request_context" => turn_request_context(turn_start_spec)
         }
       }
     }
@@ -57,8 +61,10 @@ defmodule Ankole.ActorRuntime.TurnEnvelope do
 
   @doc """
   Builds the mailbox-update envelope used for active steer commands.
+  Active steer carries the single already-journaled actor event that caused this
+  mailbox revision.
   """
-  def mailbox_updated(turn_ref, actor_inputs) when is_list(actor_inputs) do
+  def mailbox_updated(turn_ref, %ActorEvent{} = actor_event) do
     message_id = "mailbox-updated-" <> Ecto.UUID.generate()
 
     %{
@@ -72,11 +78,8 @@ defmodule Ankole.ActorRuntime.TurnEnvelope do
         "type" => "mailbox_updated",
         "mailbox_updated" => %{
           "turn" => turn_ref,
-          "inputs" => Enum.map(actor_inputs, &actor_input_envelope/1),
-          "actor" => turn_ref["actor"],
-          "activation_uid" => turn_ref["activation_uid"],
-          "actor_epoch" => turn_ref["actor_epoch"],
-          "reason" => "command.steer"
+          "reason" => "command.steer",
+          "actor_event" => actor_event_envelope(actor_event)
         }
       }
     }
@@ -116,31 +119,41 @@ defmodule Ankole.ActorRuntime.TurnEnvelope do
     }
   end
 
-  defp turn_model_ref(%LlmTurn{} = llm_turn) do
+  defp turn_model_ref(turn_start_spec) do
+    model_ref = map_get(turn_start_spec, :model_ref) || %{}
+
     %{
-      "profile" => llm_turn.profile,
-      "provider_id" =>
-        get_in(llm_turn.provider_metadata || %{}, ["provider_id"]) || llm_turn.provider,
-      "provider_kind" =>
-        get_in(llm_turn.provider_metadata || %{}, ["provider_kind"]) || llm_turn.provider,
-      "model" => llm_turn.model
+      "profile" => map_get(model_ref, :profile),
+      "provider_id" => map_get(model_ref, :provider_id),
+      "provider_kind" => map_get(model_ref, :provider_kind),
+      "model" => map_get(model_ref, :model),
+      "input_modalities" => map_get(model_ref, :input_modalities)
     }
+    |> maybe_put("vision_fallback_model_ref", map_get(model_ref, :vision_fallback_model_ref))
   end
 
-  defp actor_input_envelope(%ActorInput{} = actor_input, %LlmTurn{}),
-    do: actor_input_envelope(actor_input)
+  defp turn_request_context(turn_start_spec) do
+    map_get(turn_start_spec, :request_context) || %{}
+  end
 
-  defp actor_input_envelope(%ActorInput{} = actor_input) do
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp map_get(map, key) when is_atom(key) and is_map(map) do
+    Map.get(map, key) || Map.get(map, Atom.to_string(key))
+  end
+
+  defp actor_event_envelope(%ActorEvent{} = actor_event) do
     %{
-      "actor_input_id" => actor_input.id,
-      "live_queue_sequence" => actor_input.live_queue_sequence,
-      "type" => actor_input.type,
-      "ingress_event_id" => actor_input.ingress_event_id,
-      "binding_name" => actor_input.binding_name,
-      "signal_channel_id" => actor_input.signal_channel_id,
-      "provider_thread_id" => actor_input.provider_thread_id,
-      "provider_entry_id" => actor_input.provider_entry_id,
-      "payload_json" => actor_input.payload
+      "actor_event_id" => actor_event.id,
+      "queue_sequence" => actor_event.queue_sequence,
+      "type" => actor_event.type,
+      "source_event_id" => actor_event.source_event_id,
+      "binding_name" => actor_event.binding_name,
+      "signal_channel_id" => actor_event.signal_channel_id,
+      "provider_thread_id" => actor_event.provider_thread_id,
+      "source_entry_id" => actor_event.source_entry_id,
+      "payload_json" => actor_event.payload
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()

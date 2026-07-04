@@ -5,28 +5,32 @@ import { createContainerComputer, type ComputerToolContext } from './context'
 import { createInteractiveTerminalTool } from './interactive-terminal-tool'
 import { createPatchTool } from './patch-tool'
 import { createReadFileTool } from './read-file-tool'
-import { createReplyAttachmentTool, type ReplyAttachmentStore } from './reply-attachment-tool'
+import { createReplyAttachmentTool } from './reply-attachment-tool'
 
 export interface ComputerToolsBinding {
   agentUid: string
   conversationId?: string
   workspaceRoot: string
-  replyAttachmentStore?: ReplyAttachmentStore
+  browserRemoteCdpConfig?: Record<string, unknown> | null
+  localBrowserIdleTtlMs?: number
 }
 
 /**
  * Builds the run-bound tool list for Ankole Agent Computer.
  *
- * Ankole resolves a remote computer worker from the control plane. Ankole already
- * runs the AI SDK loop inside Agent Computer, so this factory keeps the migrated
+ * Ankole resolves a remote computer worker from the control plane. The model
+ * loop already runs inside Agent Computer, so this factory keeps the migrated
  * tool contracts but binds them to the container's `/workspace`.
  */
 export function createComputerTools(binding: ComputerToolsBinding): AgentTool<any>[] {
-  const computer = createContainerComputer(binding.workspaceRoot)
+  const executionScopeId = binding.conversationId ?? binding.agentUid
+  const computer = createContainerComputer(binding.workspaceRoot, executionScopeId)
   const context: ComputerToolContext = {
     agentUid: binding.agentUid,
     workspaceRoot: binding.workspaceRoot,
-    executionScopeId: binding.conversationId ?? binding.agentUid,
+    executionScopeId,
+    browserRemoteCdpConfig: binding.browserRemoteCdpConfig,
+    localBrowserIdleTtlMs: binding.localBrowserIdleTtlMs,
     getComputer: async () => computer
   }
 
@@ -36,6 +40,6 @@ export function createComputerTools(binding: ComputerToolsBinding): AgentTool<an
     createInteractiveTerminalTool(context),
     createReadFileTool(context),
     createPatchTool(context),
-    ...(binding.replyAttachmentStore ? [createReplyAttachmentTool(context, binding.replyAttachmentStore)] : [])
+    createReplyAttachmentTool(context)
   ]
 }

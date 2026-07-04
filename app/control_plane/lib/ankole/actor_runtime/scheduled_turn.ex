@@ -3,9 +3,9 @@ defmodule Ankole.ActorRuntime.ScheduledTurn do
 
   import Ankole.ActorRuntime.Common
 
-  alias Ankole.Actors.ActorInput
+  alias Ankole.Actors.ActorEvent
 
-  def opts(%ActorInput{type: type} = input, opts) do
+  def opts(%ActorEvent{type: type} = input, opts) do
     base_context = Keyword.get(opts, :request_context, %{})
     schedule_context = scheduled_turn_context(input)
 
@@ -18,8 +18,8 @@ defmodule Ankole.ActorRuntime.ScheduledTurn do
   defp scheduled_turn_kind("check_back_later.wakeup"), do: "checkback_generation"
   defp scheduled_turn_kind("cron.fire"), do: "scheduled_task"
 
-  defp scheduled_turn_context(%ActorInput{type: type} = input) do
-    data = actor_input_data(input)
+  defp scheduled_turn_context(%ActorEvent{type: type} = input) do
+    data = actor_event_data(input)
     wake_payload = map_value(data, "wake_payload") || %{}
     delivery = map_value(wake_payload, "delivery") || %{}
 
@@ -27,8 +27,8 @@ defmodule Ankole.ActorRuntime.ScheduledTurn do
       "turn_mode" => scheduled_turn_mode(type),
       "schedule_origin" =>
         reject_nil_values(%{
-          "actor_input_type" => type,
-          "actor_input_id" => input.id,
+          "actor_event_type" => type,
+          "actor_event_id" => input.id,
           "scheduled_event_id" => map_text(data, "scheduled_event_id"),
           "schedule_kind" => map_text(data, "schedule_kind"),
           "due_at" => map_text(data, "due_at"),
@@ -57,9 +57,9 @@ defmodule Ankole.ActorRuntime.ScheduledTurn do
       map_value(delivery, "quiet_success") == true
   end
 
-  defp actor_input_data(%ActorInput{payload: payload}) when is_map(payload) do
+  defp actor_event_data(%ActorEvent{payload: payload}) when is_map(payload) do
     map_value(payload, "data") || %{}
   end
 
-  defp actor_input_data(_input), do: %{}
+  defp actor_event_data(_event), do: %{}
 end

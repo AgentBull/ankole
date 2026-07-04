@@ -3,8 +3,13 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
   import AnkoleWeb.AIGatewayControllerTestHelpers, only: [decode_sse_events: 1]
 
+  alias Ankole.AIGateway.Compaction
   alias Ankole.AIGateway.Providers
+  alias Ankole.AIGateway.StatefulResponses
+  alias Ankole.AIGateway.Schemas.Message
+  alias Ankole.Actors.ActorEvent
   alias Ankole.Kernel.UniversalAIClient
+  alias Ankole.Repo
 
   test "responses dispatch rejects stateful HTTP fields before provider dispatch" do
     %{principal: agent} = agent_fixture()
@@ -14,7 +19,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
            %{"model" => "primary", "input" => "hello", "previous_response_id" => "resp_old"}},
           {"conversation",
            %{"model" => "primary", "input" => "hello", "conversation" => "conv_old"}},
-          {"store", %{"model" => "primary", "input" => "hello", "store" => true}}
+          {"store", %{"model" => "primary", "input" => "hello", "store" => true}},
+          {"store", %{"model" => "primary", "input" => "hello", "store" => false}}
         ] do
       assert {:error, {:stateful_http_field_forbidden, ^field}} =
                AIGateway.create_response(agent.uid, request)
@@ -66,7 +72,9 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              AIGateway.create_response(agent.uid, %{
                "model" => "primary",
                "input" => "hello",
-               "stream" => true
+               "stream" => true,
+               "service_tier" => "agent_computer",
+               "prompt_cache_key" => "cache-a"
              })
 
     assert_receive {:gateway_request, request}
@@ -76,7 +84,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert request.body["model"] == "gpt-5.5"
     assert request.body["stream"] == false
     assert request.body["input"] == "hello"
+    assert request.body["store"] == false
     assert request.body["reasoningEffort"] == "minimal"
+    refute Map.has_key?(request.body, "service_tier")
+    refute Map.has_key?(request.body, "prompt_cache_key")
 
     assert body["id"] == "resp_test"
     assert body["model"] == "gpt-5.5"
@@ -86,15 +97,30 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
   test "websocket responses require store true before continuation fields" do
     %{principal: agent} = agent_fixture()
+    previous_response_id = "resp_#{Ecto.UUID.generate()}"
+    conversation_id = "conv_#{Ecto.UUID.generate()}"
+
+    assert {:error, :stateful_anchor_conflict} =
+             AIGateway.open_websocket_stream(agent.uid, %{
+               "model" => "primary",
+               "input" => "hello",
+               "store" => true,
+               "conversation" => conversation_id,
+               "previous_response_id" => previous_response_id
+             })
 
     for request <- [
-          %{"model" => "primary", "input" => "hello", "previous_response_id" => "resp_old"},
-          %{"model" => "primary", "input" => "hello", "conversation" => "conv_old"},
+          %{
+            "model" => "primary",
+            "input" => "hello",
+            "previous_response_id" => previous_response_id
+          },
+          %{"model" => "primary", "input" => "hello", "conversation" => conversation_id},
           %{
             "model" => "primary",
             "input" => "hello",
             "store" => false,
-            "conversation" => "conv_old"
+            "conversation" => conversation_id
           }
         ] do
       assert {:error, :stateful_store_required} =
@@ -102,6 +128,1005 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     end
 
     refute_receive {:gateway_request, _request}
+  end
+
+  test "websocket stateful previous_response_id expands history without provider state fields" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-stateful-previous-websocket",
+               provider_kind: "openai",
+               base_url: "https://api.openai.test/v1",
+               connection_options: %{
+                 "api_key" => "sk-openai",
+                 "upstream_transport" => "websocket"
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-stateful-previous-websocket",
+               model: "gpt-5.5"
+             })
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "dispatch-previous-only")
+
+    image_url = "data:image/png;base64,iVBORw0KGgo="
+
+    request_items = [
+      %{
+        "id" => "msg_previous_user",
+        "type" => "message",
+        "role" => "user",
+        "content" => [
+          %{"type" => "input_text", "text" => "first user"},
+          %{"type" => "input_image", "image_url" => image_url}
+        ]
+      }
+    ]
+
+    {:ok, first} =
+      start_stateful_message(agent.uid, conversation, "dispatch-previous-a", request_items)
+
+    terminal_items = [
+      %{
+        "id" => "msg_previous_assistant",
+        "type" => "message",
+        "status" => "completed",
+        "role" => "assistant",
+        "content" => [
+          %{"type" => "output_text", "text" => "first assistant", "annotations" => []}
+        ]
+      }
+    ]
+
+    {:ok, first} = StatefulResponses.commit_complete(first, terminal_items)
+
+    current_input = [
+      %{
+        "type" => "message",
+        "role" => "user",
+        "content" => [%{"type" => "input_text", "text" => "next user"}]
+      }
+    ]
+
+    assert {:error, :invalid_anchor} =
+             AIGateway.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => current_input,
+               "store" => true,
+               "previous_response_id" => first.id
+             })
+
+    assert {:ok, request} =
+             AIGateway.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => current_input,
+               "store" => true,
+               "previous_response_id" => "resp_#{first.id}",
+               "prompt_cache_key" => "cache-ws",
+               "metadata" => %{
+                 "actor_event_id" => "internal-event-id",
+                 "kept" => "public"
+               }
+             })
+
+    provider_request = request.response_context.request
+
+    assert request.upstream.kind == :websocket_text
+    history_input = Enum.map(first.content, &Map.delete(&1, "id"))
+    assert provider_request["input"] == history_input ++ current_input
+
+    assert get_in(provider_request, ["input", Access.at(0), "content", Access.at(1)]) == %{
+             "type" => "input_image",
+             "image_url" => image_url
+           }
+
+    refute Enum.any?(
+             Enum.take(provider_request["input"], length(history_input)),
+             &Map.has_key?(&1, "id")
+           )
+
+    refute Map.has_key?(provider_request, "service_tier")
+    refute Map.has_key?(provider_request, "prompt_cache_key")
+    refute Map.has_key?(provider_request, "previous_response_id")
+    assert provider_request["store"] == false
+    refute Map.has_key?(provider_request, "conversation")
+    assert provider_request["metadata"] == %{"kept" => "public"}
+
+    assert {:ok, string_request} =
+             AIGateway.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => "next user as a string",
+               "store" => true,
+               "previous_response_id" => "resp_#{first.id}",
+               "metadata" => %{"actor_event_id" => "internal-event-id-string"}
+             })
+
+    assert string_request.response_context.request["input"] ==
+             history_input ++
+               [
+                 %{
+                   "type" => "message",
+                   "role" => "user",
+                   "content" => [%{"type" => "input_text", "text" => "next user as a string"}]
+                 }
+               ]
+  end
+
+  test "websocket stateful instructions are request-scoped and are not inherited" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-stateful-instructions",
+               provider_kind: "openai",
+               base_url: "https://api.openai.test/v1",
+               connection_options: %{
+                 "api_key" => "sk-openai",
+                 "upstream_transport" => "websocket"
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-stateful-instructions",
+               model: "gpt-5.5"
+             })
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "dispatch-instructions-scope")
+
+    actor_event =
+      actor_event_fixture(agent.uid, conversation.conversation_key, "instructions-a")
+
+    {:ok, first} =
+      StatefulResponses.start_response_run(%{
+        agent_uid: agent.uid,
+        conversation_id: conversation.id,
+        actor_event_id: actor_event.id,
+        request_items: [text_message("user", "first user")],
+        metadata: %{"instructions" => "old instruction"}
+      })
+
+    {:ok, first} =
+      StatefulResponses.commit_complete(first, [text_message("assistant", "first answer")])
+
+    current_input = [text_message("user", "next user")]
+
+    assert {:ok, request} =
+             AIGateway.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => current_input,
+               "store" => true,
+               "previous_response_id" => "resp_#{first.id}",
+               "metadata" => %{"actor_event_id" => "instructions-event"}
+             })
+
+    provider_request = request.response_context.request
+
+    assert provider_request["input"] == first.content ++ current_input
+    refute Map.has_key?(provider_request, "instructions")
+  end
+
+  test "websocket stateful max_tool_calls is enforced by durable actor-event history" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-stateful-max-tool-calls",
+               provider_kind: "openai",
+               base_url: "https://api.openai.test/v1",
+               connection_options: %{
+                 "api_key" => "sk-openai",
+                 "upstream_transport" => "websocket"
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-stateful-max-tool-calls",
+               model: "gpt-5.5"
+             })
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "dispatch-max-tool-calls")
+
+    actor_event =
+      actor_event_fixture(agent.uid, conversation.conversation_key, "max-tool-calls-event")
+
+    {:ok, first} =
+      StatefulResponses.start_response_run(%{
+        agent_uid: agent.uid,
+        conversation_id: conversation.id,
+        actor_event_id: actor_event.id,
+        request_items: [text_message("user", "use the tool once")]
+      })
+
+    function_call = %{
+      "type" => "function_call",
+      "call_id" => "call_lookup",
+      "name" => "lookup",
+      "arguments" => ~s({"query":"one"})
+    }
+
+    {:ok, first} = StatefulResponses.commit_complete(first, [function_call])
+
+    current_input = [
+      %{
+        "type" => "function_call_output",
+        "call_id" => "call_lookup",
+        "output" => ~s({"ok":true})
+      }
+    ]
+
+    tools = [
+      %{
+        "type" => "function",
+        "name" => "lookup",
+        "parameters" => %{"type" => "object", "properties" => %{}}
+      }
+    ]
+
+    base_request = %{
+      "model" => "primary",
+      "input" => current_input,
+      "store" => true,
+      "previous_response_id" => "resp_#{first.id}",
+      "tools" => tools,
+      "tool_choice" => "auto",
+      "parallel_tool_calls" => true,
+      "metadata" => %{"actor_event_id" => actor_event.id}
+    }
+
+    assert {:ok, allowed_request} =
+             AIGateway.prepare_websocket_request(
+               agent.uid,
+               Map.put(base_request, "max_tool_calls", 2)
+             )
+
+    allowed_provider_request = allowed_request.response_context.request
+    assert allowed_provider_request["tools"] == tools
+    assert allowed_provider_request["tool_choice"] == "auto"
+    assert allowed_provider_request["parallel_tool_calls"] == true
+    refute Map.has_key?(allowed_provider_request, "max_tool_calls")
+
+    assert {:ok, capped_request} =
+             AIGateway.prepare_websocket_request(
+               agent.uid,
+               Map.put(base_request, "max_tool_calls", 1)
+             )
+
+    capped_provider_request = capped_request.response_context.request
+    assert capped_provider_request["input"] == first.content ++ current_input
+    refute Map.has_key?(capped_provider_request, "tools")
+    refute Map.has_key?(capped_provider_request, "tool_choice")
+    refute Map.has_key?(capped_provider_request, "parallel_tool_calls")
+    refute Map.has_key?(capped_provider_request, "max_tool_calls")
+  end
+
+  test "websocket stateful max_tool_calls zero disables first-turn tools" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-stateful-max-tool-calls-zero",
+               provider_kind: "openai",
+               base_url: "https://api.openai.test/v1",
+               connection_options: %{
+                 "api_key" => "sk-openai",
+                 "upstream_transport" => "websocket"
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-stateful-max-tool-calls-zero",
+               model: "gpt-5.5"
+             })
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "dispatch-max-tool-calls-zero")
+
+    actor_event =
+      actor_event_fixture(agent.uid, conversation.conversation_key, "max-tool-calls-zero-event")
+
+    tools = [
+      %{
+        "type" => "function",
+        "name" => "lookup",
+        "parameters" => %{"type" => "object", "properties" => %{}}
+      }
+    ]
+
+    assert {:ok, request} =
+             AIGateway.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => [text_message("user", "do not call tools")],
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "tools" => tools,
+               "tool_choice" => "auto",
+               "parallel_tool_calls" => true,
+               "max_tool_calls" => 0,
+               "metadata" => %{"actor_event_id" => actor_event.id}
+             })
+
+    provider_request = request.response_context.request
+    refute Map.has_key?(provider_request, "tools")
+    refute Map.has_key?(provider_request, "tool_choice")
+    refute Map.has_key?(provider_request, "parallel_tool_calls")
+    refute Map.has_key?(provider_request, "max_tool_calls")
+  end
+
+  test "websocket stateful max_tool_calls count is not reset by compaction coverage" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-stateful-max-tool-calls-compaction",
+               provider_kind: "openai",
+               base_url: "https://api.openai.test/v1",
+               connection_options: %{
+                 "api_key" => "sk-openai",
+                 "upstream_transport" => "websocket"
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-stateful-max-tool-calls-compaction",
+               model: "gpt-5.5"
+             })
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "dispatch-max-tool-calls-compaction")
+
+    actor_event =
+      actor_event_fixture(
+        agent.uid,
+        conversation.conversation_key,
+        "max-tool-calls-compaction-event"
+      )
+
+    function_call = %{
+      "type" => "function_call",
+      "call_id" => "call_lookup_1",
+      "name" => "lookup",
+      "arguments" => ~s({"query":"one"})
+    }
+
+    {:ok, first} =
+      StatefulResponses.start_response_run(%{
+        agent_uid: agent.uid,
+        conversation_id: conversation.id,
+        actor_event_id: actor_event.id,
+        request_items: [text_message("user", "use the tool")]
+      })
+
+    {:ok, first} = StatefulResponses.commit_complete(first, [function_call])
+
+    {:ok, second} =
+      StatefulResponses.start_response_run(%{
+        agent_uid: agent.uid,
+        previous_response_id: "resp_#{first.id}",
+        actor_event_id: actor_event.id,
+        request_items: [
+          %{"type" => "function_call_output", "call_id" => "call_lookup_1", "output" => "ok"}
+        ]
+      })
+
+    {:ok, second} = StatefulResponses.commit_complete(second, [text_message("assistant", "tail")])
+
+    compaction =
+      %Message{}
+      |> Message.changeset(%{
+        agent_uid: agent.uid,
+        conversation_id: conversation.id,
+        type: "compaction",
+        status: "complete",
+        previous_message_id: second.id,
+        covers_until_message_id: first.id,
+        content: [%{"type" => "compaction", "summary" => "first tool round summarized"}],
+        metadata: %{"auto" => true}
+      })
+      |> Repo.insert!()
+
+    tools = [
+      %{
+        "type" => "function",
+        "name" => "lookup",
+        "parameters" => %{"type" => "object", "properties" => %{}}
+      }
+    ]
+
+    assert {:ok, request} =
+             AIGateway.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => [
+                 %{
+                   "type" => "function_call_output",
+                   "call_id" => "call_lookup_2",
+                   "output" => "ok"
+                 }
+               ],
+               "store" => true,
+               "previous_response_id" => "resp_#{compaction.id}",
+               "tools" => tools,
+               "tool_choice" => "auto",
+               "parallel_tool_calls" => true,
+               "max_tool_calls" => 1,
+               "metadata" => %{"actor_event_id" => actor_event.id}
+             })
+
+    provider_request = request.response_context.request
+    refute Map.has_key?(provider_request, "tools")
+    refute Map.has_key?(provider_request, "tool_choice")
+    refute Map.has_key?(provider_request, "parallel_tool_calls")
+  end
+
+  test "websocket stateful max_tool_calls rejects invalid values" do
+    %{principal: agent} = agent_fixture()
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "dispatch-invalid-max-tool-calls")
+
+    for invalid_value <- [-1, 1.5, "1"] do
+      assert {:error, :invalid_max_tool_calls} =
+               AIGateway.prepare_websocket_request(agent.uid, %{
+                 "model" => "primary",
+                 "input" => [text_message("user", "hello")],
+                 "store" => true,
+                 "conversation" => "conv_#{conversation.id}",
+                 "max_tool_calls" => invalid_value,
+                 "metadata" => %{"actor_event_id" => "invalid-max-tool-calls-event"}
+               })
+    end
+  end
+
+  test "websocket stateful conversation run stores latest visible leaf as durable anchor" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-stateful-conversation-anchor",
+               provider_kind: "openai",
+               base_url: "http://127.0.0.1:1/v1",
+               connection_options: %{
+                 "api_key" => "sk-openai",
+                 "upstream_transport" => "websocket"
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-stateful-conversation-anchor",
+               model: "gpt-main"
+             })
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "dispatch-conversation-anchor")
+
+    {:ok, first} =
+      start_stateful_message(agent.uid, conversation, "conversation-anchor-a", [
+        text_message("user", "first user"),
+        text_message("assistant", "first assistant")
+      ])
+
+    {:ok, first} = StatefulResponses.commit_complete(first, [])
+
+    actor_event =
+      actor_event_fixture(agent.uid, conversation.conversation_key, "conversation-anchor-b")
+
+    current_input = [text_message("user", "second user")]
+
+    assert {:error, _reason} =
+             AIGateway.open_websocket_stream(agent.uid, %{
+               "model" => "primary",
+               "input" => current_input,
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "metadata" => %{"actor_event_id" => actor_event.id}
+             })
+
+    [run] =
+      Repo.all(Message)
+      |> Enum.filter(&(get_in(&1.metadata, ["actor_event_id"]) == actor_event.id))
+
+    assert run.previous_message_id == first.id
+    assert run.status == "error"
+    assert run.content == current_input
+    assert run.metadata["error"]["stage"] == "socket_open"
+    assert is_nil(Repo.get!(ActorEvent, actor_event.id).completed_at)
+  end
+
+  test "compaction threshold follows model context ratio with a configurable cap" do
+    _result = Compaction.delete_config()
+
+    assert %{
+             tokens: 120_000,
+             context_length: 400_000,
+             effective_context_length: 400_000,
+             threshold: 0.50,
+             max_threshold_tokens: 120_000
+           } = Compaction.threshold_spec(%{"context_length" => 400_000}, %{})
+
+    assert %{
+             tokens: 64_000,
+             effective_context_length: 70_000
+           } =
+             Compaction.threshold_spec(%{"context_length" => 100_000}, %{
+               "max_output_tokens" => 30_000
+             })
+
+    with_compaction_config(threshold: 0.25, max_threshold_tokens: 200_000, tail_rows: 2)
+
+    assert %{
+             tokens: 100_000,
+             context_length: 400_000,
+             threshold: 0.25,
+             max_threshold_tokens: 200_000
+           } = Compaction.threshold_spec(%{"context_length" => 400_000}, %{})
+  end
+
+  test "websocket stateful history auto-compacts before creating the provider request" do
+    %{principal: agent} = agent_fixture()
+
+    with_compaction_config(threshold: 0.50, max_threshold_tokens: 10, tail_rows: 1)
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        assert request.path == "v1/responses"
+        assert request.body["model"] == "gpt-compact-light"
+
+        {:json, 200,
+         %{
+           "id" => "resp_summary",
+           "object" => "response",
+           "status" => "completed",
+           "output" => [
+             %{
+               "type" => "message",
+               "role" => "assistant",
+               "content" => [
+                 %{
+                   "type" => "output_text",
+                   "text" => "## Active Task\nPrior two turns were compressed.",
+                   "annotations" => []
+                 }
+               ]
+             }
+           ],
+           "usage" => %{"input_tokens" => 11, "output_tokens" => 7, "total_tokens" => 18}
+         }}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-auto-compaction",
+               provider_kind: "openai",
+               base_url: "#{base_url}/v1",
+               connection_options: %{
+                 "api_key" => "sk-openai",
+                 "upstream_transport" => "websocket",
+                 "transport" => %{"http_versions" => ["h1"], "compression" => ["gzip"]}
+               }
+             })
+
+    for {profile, model} <- [{"primary", "gpt-main"}, {"light", "gpt-compact-light"}] do
+      assert {:ok, _profile} =
+               ModelProfiles.put_model_profile(agent.uid, profile, %{
+                 provider_id: "openai-auto-compaction",
+                 model: model
+               })
+    end
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "dispatch-auto-compaction")
+
+    {:ok, m1} =
+      start_stateful_message(agent.uid, conversation, "compact-a", [
+        text_message("user", "first user message with enough detail"),
+        text_message("assistant", "first assistant answer")
+      ])
+
+    {:ok, m1} = StatefulResponses.commit_complete(m1, [], usage(24))
+
+    {:ok, m2} =
+      start_linked_stateful_message(agent.uid, conversation, m1, "compact-b", [
+        text_message("user", "second user message with enough detail"),
+        text_message("assistant", "second assistant answer")
+      ])
+
+    {:ok, m2} = StatefulResponses.commit_complete(m2, [], usage(24))
+
+    {:ok, m3} =
+      start_linked_stateful_message(agent.uid, conversation, m2, "compact-c", [
+        text_message("user", "third user message kept as tail"),
+        text_message("assistant", "third assistant answer kept as tail")
+      ])
+
+    {:ok, m3} = StatefulResponses.commit_complete(m3, [], usage(4))
+
+    current_input = [text_message("user", "new current request")]
+
+    assert {:ok, request} =
+             AIGateway.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => current_input,
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "metadata" => %{"actor_event_id" => "auto-compact-event"}
+             })
+
+    assert_receive {:gateway_request, summarizer_request}
+    summarizer_input = summarizer_request.body["input"]
+
+    assert summarizer_request.body["model"] == "gpt-compact-light"
+    assert summarizer_request.body["store"] == false
+    assert summarizer_request.body["instructions"] =~ "context summarization assistant"
+    assert summarizer_request.body["max_output_tokens"] == 2_048
+    assert summarizer_input =~ "first user message with enough detail"
+    assert summarizer_input =~ "first assistant answer"
+    assert summarizer_input =~ "second user message with enough detail"
+    assert summarizer_input =~ "second assistant answer"
+    refute summarizer_input =~ "third user message kept as tail"
+    refute summarizer_input =~ "third assistant answer kept as tail"
+    refute summarizer_input =~ "new current request"
+
+    provider_request = request.response_context.request
+    [compaction_item | rest] = provider_request["input"]
+
+    assert provider_request["store"] == false
+    assert compaction_item["type"] == "compaction"
+    assert compaction_item["summary"] == "## Active Task\nPrior two turns were compressed."
+    assert rest == m3.content ++ current_input
+
+    [compaction] =
+      Repo.all(Message)
+      |> Enum.filter(&(&1.type == "compaction"))
+
+    assert compaction.previous_message_id == m3.id
+    assert compaction.covers_until_message_id == m2.id
+    assert compaction.metadata["auto"] == true
+    assert get_in(compaction.metadata, ["summarizer", "usage", "total_tokens"]) == 18
+  end
+
+  test "websocket stateful overflow returns an explicit error when truncation is disabled" do
+    %{principal: agent} = agent_fixture()
+
+    with_compaction_config(threshold: 0.50, max_threshold_tokens: 10, tail_rows: 1)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-overflow-disabled",
+               provider_kind: "openai",
+               base_url: "https://api.openai.test/v1",
+               connection_options: %{
+                 "api_key" => "sk-openai",
+                 "upstream_transport" => "websocket"
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-overflow-disabled",
+               model: "gpt-main"
+             })
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "dispatch-overflow-disabled")
+
+    {:ok, message} =
+      start_stateful_message(agent.uid, conversation, "overflow-disabled", [
+        media_message("https://files.example.test/#{String.duplicate("large", 40)}.png")
+      ])
+
+    {:ok, _message} = StatefulResponses.commit_complete(message, [], usage(24))
+
+    assert {:error,
+            {:context_overflow,
+             %{
+               history_usage_tokens: history_usage_tokens,
+               token_threshold: 10,
+               truncation: "disabled",
+               reason: "no_compaction_candidate"
+             }}} =
+             AIGateway.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => [text_message("user", "new request")],
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "metadata" => %{"actor_event_id" => "overflow-disabled-event"}
+             })
+
+    assert history_usage_tokens > 10
+    refute Enum.any?(Repo.all(Message), &(&1.type == "compaction"))
+    refute_receive {:gateway_request, _request}
+  end
+
+  test "websocket stateful truncation auto drops older non-compactable history without changing durable anchor" do
+    %{principal: agent} = agent_fixture()
+
+    with_compaction_config(threshold: 0.50, max_threshold_tokens: 160, tail_rows: 1)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-truncation-auto",
+               provider_kind: "openai",
+               base_url: "http://127.0.0.1:1/v1",
+               connection_options: %{
+                 "api_key" => "sk-openai",
+                 "upstream_transport" => "websocket"
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-truncation-auto",
+               model: "gpt-main"
+             })
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "dispatch-truncation-auto")
+
+    media_url = "https://files.example.test/#{String.duplicate("large", 80)}.png"
+
+    {:ok, m1} =
+      start_stateful_message(agent.uid, conversation, "truncate-media", [
+        media_message(media_url)
+      ])
+
+    {:ok, m1} = StatefulResponses.commit_complete(m1, [], usage(180))
+
+    {:ok, m2} =
+      start_linked_stateful_message(agent.uid, conversation, m1, "truncate-tail", [
+        text_message("user", "tail user"),
+        text_message("assistant", "tail assistant")
+      ])
+
+    {:ok, m2} = StatefulResponses.commit_complete(m2, [], usage(20))
+
+    current_input = [text_message("user", "new request")]
+
+    assert {:ok, request} =
+             AIGateway.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => current_input,
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "truncation" => "auto",
+               "metadata" => %{"actor_event_id" => "truncate-auto-event"}
+             })
+
+    provider_request = request.response_context.request
+    assert provider_request["input"] == m2.content ++ current_input
+    assert provider_request["truncation"] == "auto"
+    refute Enum.any?(Repo.all(Message), &(&1.type == "compaction"))
+    refute_receive {:gateway_request, _request}
+
+    actor_event =
+      actor_event_fixture(agent.uid, conversation.conversation_key, "truncate-auto-durable")
+
+    assert {:error, _reason} =
+             AIGateway.open_websocket_stream(agent.uid, %{
+               "model" => "primary",
+               "input" => current_input,
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "truncation" => "auto",
+               "metadata" => %{"actor_event_id" => actor_event.id}
+             })
+
+    run =
+      Repo.one!(
+        from(message in Message,
+          where:
+            fragment("?->>'actor_event_id'", message.metadata) ==
+              ^actor_event.id
+        )
+      )
+
+    assert run.status == "error"
+    assert run.previous_message_id == m2.id
+    assert run.content == current_input
+    assert run.metadata["truncation"] == "auto"
+
+    assert %{
+             "dropped_message_count" => 1,
+             "dropped_opaque_message_count" => 1,
+             "dropped_opaque_messages" => [
+               %{
+                 "message_id" => dropped_message_id,
+                 "response_id" => dropped_response_id,
+                 "items" => [
+                   %{
+                     "type" => "input_image",
+                     "role" => "user",
+                     "refs" => %{"image_url" => ^media_url}
+                   }
+                 ]
+               }
+             ]
+           } = run.metadata["auto_truncation"]
+
+    assert dropped_message_id == m1.id
+    assert dropped_response_id == "resp_#{m1.id}"
+  end
+
+  test "websocket stateful truncation auto does not start history with orphaned tool output" do
+    %{principal: agent} = agent_fixture()
+
+    with_compaction_config(threshold: 0.50, max_threshold_tokens: 220, tail_rows: 1)
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        assert request.path == "v1/responses"
+        assert request.body["model"] == "gpt-main"
+
+        {:json, 200,
+         %{
+           "id" => "resp_empty_tool_summary",
+           "object" => "response",
+           "status" => "completed",
+           "output" => [],
+           "usage" => %{"input_tokens" => 9, "output_tokens" => 0, "total_tokens" => 9}
+         }}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-truncation-tool-output",
+               provider_kind: "openai",
+               base_url: "#{base_url}/v1",
+               connection_options: %{
+                 "api_key" => "sk-openai",
+                 "upstream_transport" => "websocket",
+                 "transport" => %{"http_versions" => ["h1"], "compression" => ["gzip"]}
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-truncation-tool-output",
+               model: "gpt-main"
+             })
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "dispatch-truncation-tool-output")
+
+    {:ok, m1} =
+      start_stateful_message(agent.uid, conversation, "tool-truncate-call", [
+        %{
+          "type" => "function_call",
+          "call_id" => "call_truncated",
+          "name" => "lookup",
+          "arguments" => Ankole.JSON.encode!(%{"query" => String.duplicate("wide ", 120)})
+        }
+      ])
+
+    {:ok, m1} = StatefulResponses.commit_complete(m1, [], usage(120))
+
+    {:ok, m2} =
+      start_linked_stateful_message(agent.uid, conversation, m1, "tool-truncate-output", [
+        %{
+          "type" => "function_call_output",
+          "call_id" => "call_truncated",
+          "output" => "tool output that must not become an orphaned prefix"
+        }
+      ])
+
+    {:ok, m2} = StatefulResponses.commit_complete(m2, [], usage(120))
+
+    {:ok, m3} =
+      start_linked_stateful_message(agent.uid, conversation, m2, "tool-truncate-tail", [
+        text_message("user", "latest tail")
+      ])
+
+    {:ok, _m3} = StatefulResponses.commit_complete(m3, [], usage(20))
+
+    current_input = [text_message("user", "new request")]
+
+    assert {:ok, request} =
+             AIGateway.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => current_input,
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "truncation" => "auto",
+               "metadata" => %{"actor_event_id" => "truncate-orphan-fco-event"}
+             })
+
+    assert_receive {:gateway_request, _summarizer_request}
+
+    provider_input = request.response_context.request["input"]
+    refute Enum.any?(provider_input, &(&1 in m1.content))
+    refute Enum.any?(provider_input, &(&1 in m2.content))
+    assert Enum.take(provider_input, -2) == m3.content ++ current_input
+  end
+
+  test "websocket stateful truncation auto falls back when summarizer fails" do
+    %{principal: agent} = agent_fixture()
+
+    with_compaction_config(threshold: 0.50, max_threshold_tokens: 160, tail_rows: 1)
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        assert request.path == "v1/responses"
+        assert request.body["model"] == "gpt-main"
+
+        {:json, 200,
+         %{
+           "id" => "resp_empty_summary",
+           "object" => "response",
+           "status" => "completed",
+           "output" => [],
+           "usage" => %{"input_tokens" => 9, "output_tokens" => 0, "total_tokens" => 9}
+         }}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-truncation-summarizer-fail",
+               provider_kind: "openai",
+               base_url: "#{base_url}/v1",
+               connection_options: %{
+                 "api_key" => "sk-openai",
+                 "upstream_transport" => "websocket",
+                 "transport" => %{"http_versions" => ["h1"], "compression" => ["gzip"]}
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-truncation-summarizer-fail",
+               model: "gpt-main"
+             })
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "dispatch-truncation-summary-fail")
+
+    {:ok, m1} =
+      start_stateful_message(agent.uid, conversation, "summary-fail-a", [
+        text_message("user", String.duplicate("first ", 20))
+      ])
+
+    {:ok, m1} = StatefulResponses.commit_complete(m1, [], usage(120))
+
+    {:ok, m2} =
+      start_linked_stateful_message(agent.uid, conversation, m1, "summary-fail-b", [
+        text_message("assistant", String.duplicate("second ", 20))
+      ])
+
+    {:ok, m2} = StatefulResponses.commit_complete(m2, [], usage(120))
+
+    {:ok, m3} =
+      start_linked_stateful_message(agent.uid, conversation, m2, "summary-fail-c", [
+        text_message("user", "latest tail")
+      ])
+
+    {:ok, m3} = StatefulResponses.commit_complete(m3, [], usage(20))
+
+    current_input = [text_message("user", "new request")]
+
+    assert {:ok, request} =
+             AIGateway.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => current_input,
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "truncation" => "auto",
+               "metadata" => %{"actor_event_id" => "truncate-summary-fail-event"}
+             })
+
+    assert_receive {:gateway_request, _summarizer_request}
+
+    provider_request = request.response_context.request
+    refute Enum.any?(provider_request["input"], &(&1 in m1.content))
+    assert Enum.take(provider_request["input"], -2) == m3.content ++ current_input
+    refute Enum.any?(Repo.all(Message), &(&1.type == "compaction"))
   end
 
   test "explicit provider selectors can carry request-scoped provider options" do
@@ -731,6 +1756,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     refute Map.has_key?(request, :websocket_initial_messages)
     assert request.response_context.model == "gpt-5.5"
     assert request.response_context.request["input"] == "hello"
+    assert request.response_context.request["store"] == false
     assert request.response_context.stream == true
   end
 
@@ -846,13 +1872,13 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     refute_receive {:gateway_request, _request}, 100
   end
 
-  test "openai-compatible requires base URL and records protocol choices" do
+  test "openai_compatible requires base URL and records protocol choices" do
     %{principal: agent} = agent_fixture()
 
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{
                provider_id: "openai-compatible-no-url",
-               provider_kind: "openai-compatible",
+               provider_kind: "openai_compatible",
                connection_options: %{"api_key" => "compatible-key"}
              })
 
@@ -873,7 +1899,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{
                provider_id: "openai-compatible-http1",
-               provider_kind: "openai-compatible",
+               provider_kind: "openai_compatible",
                base_url: http1_base_url,
                connection_options: %{
                  "api_key" => "compatible-key",
@@ -1135,6 +2161,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert request.headers["authorization"] == "Bearer entra-token"
     refute Map.has_key?(request.headers, "api-key")
     assert request.body["model"] == "gpt-5.5"
+    assert request.body["store"] == false
     assert List.last(events)["type"] == "response.completed"
     assert v1_body["id"] == "resp_azure_v1"
   end
@@ -1144,6 +2171,83 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       send(test_pid, {:gateway_request, request})
       response_fun.(request)
     end)
+  end
+
+  defp start_stateful_message(agent_uid, conversation, source_event_id, request_items) do
+    actor_event = actor_event_fixture(agent_uid, conversation.conversation_key, source_event_id)
+
+    StatefulResponses.start_response_run(%{
+      agent_uid: agent_uid,
+      conversation_id: conversation.id,
+      actor_event_id: actor_event.id,
+      request_items: request_items
+    })
+  end
+
+  defp start_linked_stateful_message(
+         agent_uid,
+         conversation,
+         previous,
+         source_event_id,
+         request_items
+       ) do
+    actor_event = actor_event_fixture(agent_uid, conversation.conversation_key, source_event_id)
+
+    StatefulResponses.start_response_run(%{
+      agent_uid: agent_uid,
+      previous_response_id: "resp_#{previous.id}",
+      actor_event_id: actor_event.id,
+      request_items: request_items
+    })
+  end
+
+  defp text_message(role, text) do
+    content_type = if role == "assistant", do: "output_text", else: "input_text"
+
+    %{
+      "type" => "message",
+      "role" => role,
+      "content" => [%{"type" => content_type, "text" => text, "annotations" => []}]
+    }
+  end
+
+  defp media_message(image_url) do
+    %{
+      "type" => "message",
+      "role" => "user",
+      "content" => [%{"type" => "input_image", "image_url" => image_url}]
+    }
+  end
+
+  defp usage(total_tokens), do: %{"usage" => %{"total_tokens" => total_tokens}}
+
+  defp with_compaction_config(config) do
+    assert {:ok, _config} = Compaction.put_config(Map.new(config))
+
+    on_exit(fn ->
+      _result = Compaction.delete_config()
+      :ok
+    end)
+  end
+
+  defp actor_event_fixture(agent_uid, session_id, source_event_id) do
+    now = DateTime.utc_now(:microsecond)
+
+    attrs = %{
+      agent_uid: agent_uid,
+      binding_name: "test-binding",
+      session_id: session_id,
+      source_event_id: "#{source_event_id}-#{System.unique_integer([:positive])}",
+      type: "im.message.addressed",
+      available_at: now,
+      queue_sequence: System.unique_integer([:positive]),
+      input_state: "open",
+      payload: %{"text" => source_event_id}
+    }
+
+    %ActorEvent{}
+    |> ActorEvent.changeset(attrs)
+    |> Repo.insert!()
   end
 
   defp collect_gateway_requests(0, requests), do: requests

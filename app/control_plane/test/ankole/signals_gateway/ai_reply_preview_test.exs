@@ -3,6 +3,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
 
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsGatewayFixtures
+  import Ecto.Query
 
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.Actors.ActorEvent
@@ -180,7 +181,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert :ok = AIReplyPreview.maybe_start_for(actor_event)
     [{pid, _value}] = Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, actor_event.id)
 
-    send(pid, {:ai_gateway_live, :response_started, %{}})
+    send(pid, {:ai_gateway_event, :response_started, Ecto.UUID.generate(), %{}})
     send(pid, {:ai_gateway_live, :output_text_delta, %{text: "checking the tool"}})
 
     assert_receive {:mock_provider_outbox_sent, initial}
@@ -206,7 +207,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
 
     refute Repo.get_by(SignalEntry, ai_message_id: first_message_id)
 
-    send(pid, {:ai_gateway_live, :response_started, %{}})
+    send(pid, {:ai_gateway_event, :response_started, Ecto.UUID.generate(), %{}})
 
     final_message_id = Ecto.UUID.generate()
 
@@ -224,10 +225,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
        }}
     )
 
-    assert_receive {:mock_provider_outbox_sent, final_edit}
-    assert final_edit.operation == :edit
-    assert final_edit.fallback_visible_text == ""
-    refute final_edit.fallback_visible_text == initial.fallback_visible_text
+    refute_receive {:mock_provider_outbox_sent, _final_edit}, 100
     refute Repo.get_by(SignalEntry, ai_message_id: final_message_id)
   end
 
@@ -268,9 +266,11 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
 
     assert_receive {:mock_provider_outbox_sent, flush_edit}
     assert flush_edit.operation == :edit
+    assert flush_edit.fallback_visible_text == "draft update"
     assert flush_edit.idempotency_key =~ ":flush:1"
     refute flush_edit.idempotency_key == initial.idempotency_key
     assert flush_edit.outbound_key == flush_edit.idempotency_key
+    assert final_reply_mirror_count(actor_event.id) == 0
 
     message_id = Ecto.UUID.generate()
 
@@ -299,6 +299,41 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert %SignalEntry{text: "final answer"} = wait_for_final_mirror(message_id)
   end
 
+  test "blank leading deltas do not create preview noise" do
+    MockSignalProviderOutbox.put_recipient(self())
+    on_exit(fn -> MockSignalProviderOutbox.delete_recipient() end)
+
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "mock", :ignore, adapter: "mock-provider")
+
+    %{actor_event: actor_event} =
+      emit_addressed_actor_event(
+        agent.uid,
+        "mock",
+        group_entry(%{
+          source_event_id: "preview-blank-delta-event",
+          signal_channel_id: "mock:chat:preview-blank-delta",
+          source_entry_id: "human-message-blank-delta",
+          provider_thread_id: "mock-thread-blank-delta",
+          explicit: true,
+          text: "ping"
+        })
+      )
+
+    assert :ok = AIReplyPreview.maybe_start_for(actor_event)
+    [{pid, _value}] = Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, actor_event.id)
+
+    send(pid, {:ai_gateway_live, :output_text_delta, %{text: "   "}})
+    send(pid, :flush_edit)
+    refute_receive {:mock_provider_outbox_sent, _outbox}, 100
+
+    send(pid, {:ai_gateway_live, :output_text_delta, %{text: " answer "}})
+
+    assert_receive {:mock_provider_outbox_sent, initial}
+    assert initial.operation == :reply
+    assert initial.fallback_visible_text == "answer"
+  end
+
   test "live response activity resets the preview lifetime timer" do
     MockSignalProviderOutbox.put_recipient(self())
     on_exit(fn -> MockSignalProviderOutbox.delete_recipient() end)
@@ -325,7 +360,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
 
     initial_ref = :sys.get_state(pid).lifetime_ref
 
-    send(pid, {:ai_gateway_live, :response_started, %{}})
+    send(pid, {:ai_gateway_event, :response_started, Ecto.UUID.generate(), %{}})
     started_ref = :sys.get_state(pid).lifetime_ref
     refute started_ref == initial_ref
 
@@ -432,6 +467,13 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
   end
 
   defp refute_final_mirror(_ai_message_id, 0), do: :ok
+
+  defp final_reply_mirror_count(actor_event_id) do
+    SignalEntry
+    |> where([entry], fragment("?->>'actor_event_id'", entry.metadata) == ^actor_event_id)
+    |> where([entry], fragment("?->>'source'", entry.metadata) == "ai_gateway_final_reply")
+    |> Repo.aggregate(:count, :source_entry_id)
+  end
 
   defp scheduled_actor_event_fixture(agent_uid, opts \\ []) do
     now = DateTime.utc_now(:microsecond)

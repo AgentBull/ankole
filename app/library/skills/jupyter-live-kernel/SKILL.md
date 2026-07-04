@@ -33,8 +33,8 @@ Prefer:
 Ankole Agent Computer images provide system Python, JupyterLab, ipykernel, and the hamelnb helper dependencies. A per-agent Python environment is optional and only for custom packages or version isolation.
 
 ```bash
-SCRIPT=/workspace/library-containers/skills/jupyter-live-kernel/scripts/jupyter_live_kernel.py
-BOOTSTRAP=/workspace/library-containers/skills/jupyter-live-kernel/scripts/ensure_python_env.sh
+SCRIPT=/repo/app/library/skills/jupyter-live-kernel/scripts/jupyter_live_kernel.py
+BOOTSTRAP=/repo/app/library/skills/jupyter-live-kernel/scripts/ensure_python_env.sh
 NOTEBOOK_DIR=/workspace/user-files/notebooks
 AGENT_PYTHON=/workspace/user-files/.ankole/python/bin/python
 ```
@@ -116,7 +116,7 @@ The upstream hamelnb script supports `uv run "$SCRIPT" ...` through inline metad
 Smoke test the bundled integration:
 
 ```bash
-bash /workspace/library-containers/skills/jupyter-live-kernel/scripts/smoke_live_kernel.sh
+bash /repo/app/library/skills/jupyter-live-kernel/scripts/smoke_live_kernel.sh
 ```
 
 ## Target Selection

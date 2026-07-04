@@ -30,7 +30,6 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
 
   require Logger
 
-  alias Ankole.ActorRuntime.CommitCoordinator
   alias Ankole.ActorRuntime.FileTransferLane
   alias Ankole.ActorRuntime.RPCLane
   alias Ankole.ActorRuntime.WorkerAdmission
@@ -186,7 +185,12 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
   end
 
   def handle_call(:stop_router, _from, %{router: router} = state) do
-    reply = RuntimeFabric.router_stop(router)
+    reply =
+      with :ok <- RuntimeFabric.router_stop(router),
+           {:ok, _stale_workers} <- WorkerAdmission.mark_all_routes_unusable(:router_stopped) do
+        :ok
+      end
+
     {:reply, reply, %{state | router: nil, router_endpoint: nil}}
   end
 
@@ -260,8 +264,9 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
   # The native ROUTER forwards inbound frames in two shapes. The 3-tuple is the
   # unauthenticated form (ZAP disabled, e.g. in tests): route + raw JSON only.
   # The 5-tuple is the production form: the transport has already verified the
-  # worker's pre-auth key and tells us which worker_id / key_revision the route
-  # belongs to, so lifecycle messages can be bound to a proven identity below.
+  # worker's ZAP pre-auth key and sends worker_id/key_revision as authentication
+  # metadata for the route. `key_revision` is an auth-boundary fact even though
+  # the current global worker key only has revision 1.
   def handle_info({:runtime_fabric_router_received, route, envelope_json}, state) do
     handle_router_received(route, nil, nil, envelope_json, state)
   end
@@ -588,13 +593,13 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
   end
 
   defp dispatch_router_envelope(
-         {:ok, route, %{"body" => %{"type" => "turn_final_proposal"}} = envelope},
+         {:ok, route, %{"body" => %{"type" => "turn_noop_completed"}} = envelope},
          _authenticated_route
        ) do
     envelope
     |> authorize_actor_lane_turn(route, :write)
-    |> with_authorized_envelope(&CommitCoordinator.commit_final_proposal/1)
-    |> log_router_result("turn_final_proposal", route)
+    |> with_authorized_envelope(&Ankole.ActorRuntime.handle_turn_noop_completed/1)
+    |> log_router_result("turn_noop_completed", route)
   end
 
   defp dispatch_router_envelope(
@@ -603,7 +608,7 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
        ) do
     envelope
     |> authorize_actor_lane_turn(route, :write)
-    |> with_authorized_envelope(&CommitCoordinator.handle_turn_error/1)
+    |> with_authorized_envelope(&Ankole.ActorRuntime.handle_turn_error/1)
     |> log_router_result("turn_error", route)
   end
 

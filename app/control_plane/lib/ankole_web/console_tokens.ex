@@ -8,6 +8,7 @@ defmodule AnkoleWeb.ConsoleTokens do
   """
 
   alias Ankole.Kernel, as: NativeKernel
+  alias Ankole.SecretKeyBase
 
   @issuer "ankole.control_plane"
   @audience "ankole.web_console"
@@ -164,7 +165,7 @@ defmodule AnkoleWeb.ConsoleTokens do
   defp signing_key(:refresh), do: derive_signing_key(@refresh_sub_key_id)
 
   defp derive_signing_key(sub_key_id) do
-    with {:ok, secret} <- root_secret(),
+    with {:ok, secret} <- SecretKeyBase.fetch(),
          key when is_binary(key) <- NativeKernel.derive_key(secret, sub_key_id, nil) do
       {:ok, key}
     else
@@ -224,20 +225,6 @@ defmodule AnkoleWeb.ConsoleTokens do
   end
 
   defp session_expires_at(_session), do: {:error, :invalid_admin_session_expiry}
-
-  # Reads the endpoint secret straight from config (not from a conn) because
-  # signing/verifying tokens is not always inside a request. All JWT keys derive
-  # from this one root secret via distinct sub-key ids.
-  defp root_secret do
-    :ankole
-    |> Application.get_env(AnkoleWeb.Endpoint, [])
-    |> Keyword.fetch(:secret_key_base)
-    |> case do
-      {:ok, secret} when is_binary(secret) and secret != "" -> {:ok, secret}
-      {:ok, _secret} -> {:error, :invalid_secret_key_base}
-      :error -> {:error, :missing_secret_key_base}
-    end
-  end
 
   defp now_seconds, do: System.system_time(:second)
 end

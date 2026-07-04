@@ -44,8 +44,9 @@ Usage: tools/e2e/run [--gate|--perf|--chaos|--real-provider|--real-llm|--all]
                      [--no-build] [--no-services]
 
 Runs the Ankole end-to-end suites from one entrypoint. Preflight checks Docker,
-builds the worker image when missing, and starts the devkit Postgres when the
-test database port is unreachable.
+builds the worker image when missing or stale against the current worker/kernel
+sources, and starts the devkit Postgres when the test database port is
+unreachable.
 
 Modes:
   --gate           Transport, main-flow, lifecycle, worker/computer, and
@@ -108,23 +109,60 @@ postgres_reachable() {
   (exec 3<>"/dev/tcp/127.0.0.1/$POSTGRES_PORT") 2>/dev/null && exec 3>&- && exec 3<&-
 }
 
+worker_source_hash() {
+  (
+    cd "$ROOT_DIR"
+    git ls-files -co --exclude-standard -z \
+      app/agent_computer \
+      app/kernel \
+      app/library \
+      package.json \
+      bun.lock |
+      while IFS= read -r -d '' file; do
+        [[ -f "$file" ]] && shasum "$file"
+      done |
+      shasum |
+      awk '{print $1}'
+  )
+}
+
+worker_image_hash() {
+  docker image inspect \
+    --format '{{ index .Config.Labels "ankole.e2e.source_hash" }}' \
+    "$WORKER_IMAGE" 2>/dev/null || true
+}
+
+build_worker_image() {
+  local source_hash="$1"
+
+  docker build \
+    --label "ankole.e2e.source_hash=$source_hash" \
+    -f "$ROOT_DIR/app/agent_computer/Dockerfile" \
+    -t "$WORKER_IMAGE" \
+    "$ROOT_DIR"
+}
+
 preflight_docker() {
   if ! docker info >/dev/null 2>&1; then
     echo "[e2e] Docker daemon is not reachable; the worker suites need Docker." >&2
     exit 1
   fi
 
-  if docker image inspect "$WORKER_IMAGE" >/dev/null 2>&1; then
+  local source_hash
+  source_hash="$(worker_source_hash)"
+
+  if docker image inspect "$WORKER_IMAGE" >/dev/null 2>&1 &&
+     [[ "$(worker_image_hash)" == "$source_hash" ]]; then
     return
   fi
 
   if [[ "$allow_build" -ne 1 ]]; then
-    echo "[e2e] Missing worker image $WORKER_IMAGE and --no-build was given." >&2
+    echo "[e2e] Missing or stale worker image $WORKER_IMAGE and --no-build was given." >&2
     exit 1
   fi
 
-  log "worker image $WORKER_IMAGE missing; building it"
-  docker build -f "$ROOT_DIR/app/agent_computer/Dockerfile" -t "$WORKER_IMAGE" "$ROOT_DIR"
+  log "worker image $WORKER_IMAGE missing or stale; building it"
+  build_worker_image "$source_hash"
 }
 
 preflight_postgres() {

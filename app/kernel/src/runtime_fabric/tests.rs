@@ -15,14 +15,35 @@ fn round_trips_turn_start() {
             "type": "turn_start",
             "turn_start": {
                 "turn": turn_ref(),
-                "inputs": [{
-                    "actor_input_id": "input-1",
-                    "live_queue_sequence": 1,
+                "actor_event": {
+                    "actor_event_id": "00000000-0000-0000-0000-000000000001",
+                    "queue_sequence": 1,
                     "type": "im.message.addressed",
-                    "ingress_event_id": "event-1",
-                    "provider_entry_id": "msg-1",
+                    "source_event_id": "event-1",
+                    "source_entry_id": "msg-1",
+                    "binding_name": "lark",
+                    "signal_channel_id": "lark:chat:group-a",
+                    "provider_thread_id": "thread-1",
                     "payload_json": {"text": "PING"}
-                }]
+                },
+                "model_ref": {
+                    "profile": "chat",
+                    "provider_id": "openrouter-main",
+                    "model": "openai/gpt-5.4-mini",
+                    "provider_kind": "openrouter",
+                    "input_modalities": ["text"],
+                    "vision_fallback_model_ref": {
+                        "profile": "vision_fallback",
+                        "provider_id": "openai-vision",
+                        "model": "gpt-5",
+                        "provider_kind": "openai",
+                        "input_modalities": ["text", "image"]
+                    }
+                },
+                "request_context": {
+                    "kind": "schedule",
+                    "silent_success_allowed": true
+                }
             }
         }
     });
@@ -32,13 +53,45 @@ fn round_trips_turn_start() {
 
     assert_eq!(decoded["body"]["type"], "turn_start");
     assert_eq!(
-        decoded["body"]["turn_start"]["inputs"][0]["payload_json"]["text"],
+        decoded["body"]["turn_start"]["actor_event"]["payload_json"]["text"],
         "PING"
+    );
+    assert_eq!(
+        decoded["body"]["turn_start"]["actor_event"]["binding_name"],
+        "lark"
+    );
+    assert_eq!(
+        decoded["body"]["turn_start"]["actor_event"]["signal_channel_id"],
+        "lark:chat:group-a"
+    );
+    assert_eq!(
+        decoded["body"]["turn_start"]["actor_event"]["provider_thread_id"],
+        "thread-1"
+    );
+    assert_eq!(
+        decoded["body"]["turn_start"]["model_ref"]["provider_kind"],
+        "openrouter"
+    );
+    assert_eq!(
+        decoded["body"]["turn_start"]["model_ref"]["input_modalities"],
+        json!(["text"])
+    );
+    assert_eq!(
+        decoded["body"]["turn_start"]["model_ref"]["vision_fallback_model_ref"]["profile"],
+        "vision_fallback"
+    );
+    assert_eq!(
+        decoded["body"]["turn_start"]["model_ref"]["vision_fallback_model_ref"]["input_modalities"],
+        json!(["text", "image"])
+    );
+    assert_eq!(
+        decoded["body"]["turn_start"]["request_context"]["silent_success_allowed"],
+        true
     );
 }
 
 #[test]
-fn round_trips_mailbox_updated_with_turn_inputs() {
+fn round_trips_mailbox_updated() {
     let envelope = json!({
         "protocol_version": 1,
         "message_id": "mailbox-updated-1",
@@ -49,14 +102,15 @@ fn round_trips_mailbox_updated_with_turn_inputs() {
             "type": "mailbox_updated",
             "mailbox_updated": {
                 "turn": turn_ref(),
-                "inputs": [{
-                    "actor_input_id": "steer-1",
-                    "live_queue_sequence": 2,
+                "reason": "command.steer",
+                "actor_event": {
+                    "actor_event_id": "22222222-2222-2222-2222-222222222222",
+                    "queue_sequence": 2,
                     "type": "command.steer",
-                    "ingress_event_id": "event-steer-1",
-                    "payload_json": {"data": {"command": {"argsText": "change course"}}}
-                }],
-                "reason": "command.steer"
+                    "source_event_id": "evt-steer-1",
+                    "source_entry_id": "msg-steer-1",
+                    "payload_json": {"text": "change course"}
+                }
             }
         }
     });
@@ -66,91 +120,57 @@ fn round_trips_mailbox_updated_with_turn_inputs() {
 
     assert_eq!(decoded["body"]["type"], "mailbox_updated");
     assert_eq!(
-        decoded["body"]["mailbox_updated"]["turn"]["llm_turn_id"],
+        decoded["body"]["mailbox_updated"]["turn"]["actor_event_id"],
         "11111111-1111-1111-1111-111111111111"
     );
     assert_eq!(
-        decoded["body"]["mailbox_updated"]["inputs"][0]["payload_json"]["data"]["command"]["argsText"],
+        decoded["body"]["mailbox_updated"]["reason"],
+        "command.steer"
+    );
+    assert_eq!(
+        decoded["body"]["mailbox_updated"]["actor_event"]["payload_json"]["text"],
         "change course"
     );
 }
 
 #[test]
-fn round_trips_turn_final_proposal_telemetry() {
+fn rejects_mailbox_updated_without_actor_event() {
     let envelope = json!({
         "protocol_version": 1,
-        "message_id": "turn-final-1",
-        "correlation_id": "turn-start-1",
+        "message_id": "mailbox-updated-missing-event",
+        "correlation_id": "mailbox-updated-missing-event",
         "lane": "LANE_TURN",
-        "durability": "CONTROL_DURABLE",
+        "durability": "CONTROL_EPHEMERAL",
         "body": {
-            "type": "turn_final_proposal",
-            "turn_final_proposal": {
+            "type": "mailbox_updated",
+            "mailbox_updated": {
                 "turn": turn_ref(),
-                "messages": [],
-                "reply": {
-                    "text": "done",
-                    "attachments": [{
-                        "agent_computer_path": "/workspace/user-files/reports/a.txt",
-                        "user_files_relative_path": "reports/a.txt",
-                        "name": "report.txt",
-                        "mime_type": "text/plain",
-                        "size": 16,
-                        "xxh3_128": "abc123"
-                    }]
-                },
-                "usage_json": {
-                    "input": 11,
-                    "output": 7,
-                    "totalTokens": 18
-                },
-                "provider_metadata_json": {
-                    "response_id": "resp_123",
-                    "response_model": "google/gemini-3.5-flash"
-                },
-                "stop_reason": "stop",
-                "tool_results_json": [{
-                    "tool_call_id": "call_1",
-                    "tool_name": "command",
-                    "is_error": false
-                }]
+                "reason": "command.steer"
             }
         }
     });
 
-    let encoded = encode_envelope(envelope).unwrap();
-    let decoded = decode_envelope(&encoded).unwrap();
-    let proposal = &decoded["body"]["turn_final_proposal"];
-
-    assert_eq!(decoded["body"]["type"], "turn_final_proposal");
-    assert_eq!(proposal["usage_json"]["input"], 11);
-    assert_eq!(proposal["usage_json"]["totalTokens"], 18);
-    assert_eq!(
-        proposal["provider_metadata_json"]["response_id"],
-        "resp_123"
+    let error = encode_envelope(envelope).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("mailbox_updated.actor_event is required")
     );
-    assert_eq!(proposal["stop_reason"], "stop");
-    assert_eq!(proposal["tool_results_json"][0]["tool_name"], "command");
-    assert_eq!(
-        proposal["reply"]["attachments"][0]["user_files_relative_path"],
-        "reports/a.txt"
-    );
-    assert_eq!(proposal["reply"]["attachments"][0]["size"], 16);
 }
 
 #[test]
-fn round_trips_turn_final_proposal_without_reply_for_silent_commit() {
+fn round_trips_turn_noop_completed() {
     let envelope = json!({
         "protocol_version": 1,
-        "message_id": "turn-final-silent-1",
-        "correlation_id": "turn-start-1",
+        "message_id": "turn-noop-completed-1",
+        "correlation_id": "turn-noop-completed-1",
         "lane": "LANE_TURN",
-        "durability": "CONTROL_DURABLE",
+        "durability": "CONTROL_REPLAYABLE",
         "body": {
-            "type": "turn_final_proposal",
-            "turn_final_proposal": {
+            "type": "turn_noop_completed",
+            "turn_noop_completed": {
                 "turn": turn_ref(),
-                "messages": []
+                "reason": "ambient_silent"
             }
         }
     });
@@ -158,8 +178,15 @@ fn round_trips_turn_final_proposal_without_reply_for_silent_commit() {
     let encoded = encode_envelope(envelope).unwrap();
     let decoded = decode_envelope(&encoded).unwrap();
 
-    assert_eq!(decoded["body"]["type"], "turn_final_proposal");
-    assert!(decoded["body"]["turn_final_proposal"]["reply"].is_null());
+    assert_eq!(decoded["body"]["type"], "turn_noop_completed");
+    assert_eq!(
+        decoded["body"]["turn_noop_completed"]["turn"]["actor_event_id"],
+        "11111111-1111-1111-1111-111111111111"
+    );
+    assert_eq!(
+        decoded["body"]["turn_noop_completed"]["reason"],
+        "ambient_silent"
+    );
 }
 
 #[test]
@@ -175,13 +202,13 @@ fn json_byte_fields_preserve_json_strings() {
             "type": "turn_start",
             "turn_start": {
                 "turn": turn_ref(),
-                "inputs": [{
-                    "actor_input_id": "input-1",
-                    "live_queue_sequence": 1,
+                "actor_event": {
+                    "actor_event_id": "00000000-0000-0000-0000-000000000001",
+                    "queue_sequence": 1,
                     "type": "im.message.addressed",
-                    "ingress_event_id": "event-1",
+                    "source_event_id": "event-1",
                     "payload_json": "null"
-                }]
+                }
             }
         }
     });
@@ -190,7 +217,7 @@ fn json_byte_fields_preserve_json_strings() {
     let decoded = decode_envelope(&encoded).unwrap();
 
     assert_eq!(
-        decoded["body"]["turn_start"]["inputs"][0]["payload_json"],
+        decoded["body"]["turn_start"]["actor_event"]["payload_json"],
         "null"
     );
 }
@@ -229,12 +256,12 @@ fn rejects_turn_start_with_wrong_lane_or_durability() {
             "type": "turn_start",
             "turn_start": {
                 "turn": turn_ref(),
-                "inputs": [{
-                    "actor_input_id": "input-1",
-                    "live_queue_sequence": 1,
+                "actor_event": {
+                    "actor_event_id": "00000000-0000-0000-0000-000000000001",
+                    "queue_sequence": 1,
                     "type": "im.message.addressed",
-                    "ingress_event_id": "event-1"
-                }]
+                    "source_event_id": "event-1"
+                }
             }
         }
     });
@@ -265,31 +292,6 @@ fn rejects_worker_progress_internal_event_kinds() {
     let error = encode_envelope(envelope).unwrap_err().to_string();
 
     assert!(error.contains("worker_progress kind"));
-}
-
-#[test]
-fn rejects_actor_key_profile_fields() {
-    let mut turn = turn_ref();
-    turn["actor"]["display_name"] = json!("ReleaseBot");
-
-    let envelope = json!({
-        "protocol_version": 1,
-        "message_id": "turn-start-1",
-        "correlation_id": "turn-start-1",
-        "lane": "LANE_TURN",
-        "durability": "CONTROL_REPLAYABLE",
-        "body": {
-            "type": "turn_start",
-            "turn_start": {
-                "turn": turn,
-                "inputs": []
-            }
-        }
-    });
-
-    let error = encode_envelope(envelope).unwrap_err().to_string();
-
-    assert!(error.contains("ActorKey must not carry display_name"));
 }
 
 #[test]
@@ -450,7 +452,7 @@ fn turn_ref() -> Value {
         },
         "activation_uid": "activation-1",
         "actor_epoch": 1,
-        "llm_turn_id": "11111111-1111-1111-1111-111111111111",
+        "actor_event_id": "11111111-1111-1111-1111-111111111111",
         "revision": 0
     })
 }

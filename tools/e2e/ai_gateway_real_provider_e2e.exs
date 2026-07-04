@@ -19,7 +19,8 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
       MIX_ENV=test OPEN_ROUTER_API_KEY=... mix e2e.ai_gateway_real_provider -- --providers=openrouter
       MIX_ENV=test mix run ../../tools/e2e/ai_gateway_real_provider_e2e.exs -- --list
 
-  Provider names are `openrouter`, `jina`, and `google`.
+  Provider names are `openrouter`, `jina`, `google`, `alibaba_cn`,
+  `volcengine_ark`, `xiaomi_mimo`, and `zai_coding_plan`.
   Use `--providers=available` to run the groups whose required API keys are
   present in the environment.
 
@@ -31,7 +32,15 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   import Plug.Conn
 
   @endpoint AnkoleWeb.Endpoint
-  @provider_names [:openrouter, :jina, :google]
+  @provider_names [
+    :openrouter,
+    :jina,
+    :google,
+    :alibaba_cn,
+    :volcengine_ark,
+    :xiaomi_mimo,
+    :zai_coding_plan
+  ]
   @results_path Path.expand(
                   "../../app/control_plane/tmp/ai_gateway_real_provider_e2e_results.jsonl",
                   __DIR__
@@ -41,8 +50,12 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   @openrouter_llm_model "qwen/qwen3.5-flash-02-23"
   @openrouter_embedding_model "perplexity/pplx-embed-v1-0.6b"
   @openrouter_rerank_model "cohere/rerank-4-fast"
+  @alibaba_cn_llm_model "qwen-plus"
+  @volcengine_ark_llm_model "doubao-seed-1-6"
+  @xiaomi_mimo_llm_model "mimo-v2.5"
+  @zai_coding_plan_llm_model "glm-4.7"
 
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.Principals
@@ -89,6 +102,10 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
       OPENROUTER_API_KEY or OPEN_ROUTER_API_KEY   OpenRouter LLM, embedding, and rerank
       JINA_API_KEY                                Jina embeddings and rerank
       GOOGLE_AI_STUDIO_API_KEY                    Google AI Studio OpenAI-compatible API
+      DASHSCOPE_API_KEY or ALIBABA_CN_API_KEY     Alibaba Cloud DashScope compatible API
+      VOLCENGINE_ARK_API_KEY                      Volcengine Ark OpenAI-compatible API
+      XIAOMI_MIMO_API_KEY                         Xiaomi MiMo Anthropic-compatible API
+      ZAI_CODING_PLAN_API_KEY or ZAI_API_KEY      Z.AI coding OpenAI-compatible API
       AI_GATEWAY_E2E_CONCURRENCY                  Concurrent case max concurrency, default 6
 
     Models are hardcoded; there are no model override variables.
@@ -124,6 +141,10 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   defp provider_name!("openrouter"), do: :openrouter
   defp provider_name!("jina"), do: :jina
   defp provider_name!("google"), do: :google
+  defp provider_name!("alibaba_cn"), do: :alibaba_cn
+  defp provider_name!("volcengine_ark"), do: :volcengine_ark
+  defp provider_name!("xiaomi_mimo"), do: :xiaomi_mimo
+  defp provider_name!("zai_coding_plan"), do: :zai_coding_plan
 
   defp provider_name!(name) do
     raise "unknown provider group #{inspect(name)}; expected #{Enum.join(@provider_names, ", ")}"
@@ -146,6 +167,10 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   defp credential_env_names(:openrouter), do: ["OPENROUTER_API_KEY", "OPEN_ROUTER_API_KEY"]
   defp credential_env_names(:jina), do: ["JINA_API_KEY"]
   defp credential_env_names(:google), do: ["GOOGLE_AI_STUDIO_API_KEY"]
+  defp credential_env_names(:alibaba_cn), do: ["DASHSCOPE_API_KEY", "ALIBABA_CN_API_KEY"]
+  defp credential_env_names(:volcengine_ark), do: ["VOLCENGINE_ARK_API_KEY"]
+  defp credential_env_names(:xiaomi_mimo), do: ["XIAOMI_MIMO_API_KEY"]
+  defp credential_env_names(:zai_coding_plan), do: ["ZAI_CODING_PLAN_API_KEY", "ZAI_API_KEY"]
 
   defp setup_runtime(providers, credentials) do
     suffix = unique_suffix()
@@ -155,6 +180,10 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
       :openrouter, setup -> setup_openrouter(setup, credentials.openrouter)
       :jina, setup -> setup_jina(setup, credentials.jina)
       :google, setup -> setup_google(setup, credentials.google)
+      :alibaba_cn, setup -> setup_alibaba_cn(setup, credentials.alibaba_cn)
+      :volcengine_ark, setup -> setup_volcengine_ark(setup, credentials.volcengine_ark)
+      :xiaomi_mimo, setup -> setup_xiaomi_mimo(setup, credentials.xiaomi_mimo)
+      :zai_coding_plan, setup -> setup_zai_coding_plan(setup, credentials.zai_coding_plan)
     end)
   end
 
@@ -261,6 +290,82 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
     Map.put(setup, :google_agent, agent)
   end
 
+  defp setup_alibaba_cn(%{suffix: suffix} = setup, credential) do
+    provider_id = "e2e-alibaba-cn-#{suffix}"
+
+    create_provider!(%{
+      provider_id: provider_id,
+      provider_kind: "alibaba_cn",
+      connection_options: %{"api_key" => credential}
+    })
+
+    agent = create_agent!("e2e-alibaba-cn-agent-#{suffix}", %{})
+
+    put_profile!(agent.uid, "primary", %{
+      provider_id: provider_id,
+      model: @alibaba_cn_llm_model
+    })
+
+    Map.put(setup, :alibaba_cn_agent, agent)
+  end
+
+  defp setup_volcengine_ark(%{suffix: suffix} = setup, credential) do
+    provider_id = "e2e-volcengine-ark-#{suffix}"
+
+    create_provider!(%{
+      provider_id: provider_id,
+      provider_kind: "volcengine_ark",
+      connection_options: %{"api_key" => credential}
+    })
+
+    agent = create_agent!("e2e-volcengine-ark-agent-#{suffix}", %{})
+
+    put_profile!(agent.uid, "primary", %{
+      provider_id: provider_id,
+      model: @volcengine_ark_llm_model
+    })
+
+    Map.put(setup, :volcengine_ark_agent, agent)
+  end
+
+  defp setup_xiaomi_mimo(%{suffix: suffix} = setup, credential) do
+    provider_id = "e2e-xiaomi-mimo-#{suffix}"
+
+    create_provider!(%{
+      provider_id: provider_id,
+      provider_kind: "xiaomi_mimo",
+      connection_options: %{"api_key" => credential}
+    })
+
+    agent = create_agent!("e2e-xiaomi-mimo-agent-#{suffix}", %{})
+
+    put_profile!(agent.uid, "primary", %{
+      provider_id: provider_id,
+      model: @xiaomi_mimo_llm_model
+    })
+
+    Map.put(setup, :xiaomi_mimo_agent, agent)
+  end
+
+  defp setup_zai_coding_plan(%{suffix: suffix} = setup, credential) do
+    provider_id = "e2e-zai-coding-plan-#{suffix}"
+
+    create_provider!(%{
+      provider_id: provider_id,
+      provider_kind: "zai_coding_plan",
+      connection_options: %{"api_key" => credential}
+    })
+
+    agent = create_agent!("e2e-zai-coding-plan-agent-#{suffix}", %{})
+
+    put_profile!(agent.uid, "primary", %{
+      provider_id: provider_id,
+      model: @zai_coding_plan_llm_model
+    })
+
+    Map.put(setup, :zai_coding_plan_agent, agent)
+  end
+
   defp fake_setup(:openrouter) do
     %{
       openrouter_provider: "fake-openrouter",
@@ -273,12 +378,22 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
 
   defp fake_setup(:jina), do: %{jina_agent: %{uid: "fake-jina-agent"}}
   defp fake_setup(:google), do: %{google_agent: %{uid: "fake-google-agent"}}
+  defp fake_setup(:alibaba_cn), do: %{alibaba_cn_agent: %{uid: "fake-alibaba-cn-agent"}}
+
+  defp fake_setup(:volcengine_ark),
+    do: %{volcengine_ark_agent: %{uid: "fake-volcengine-ark-agent"}}
+
+  defp fake_setup(:xiaomi_mimo), do: %{xiaomi_mimo_agent: %{uid: "fake-xiaomi-mimo-agent"}}
+
+  defp fake_setup(:zai_coding_plan),
+    do: %{zai_coding_plan_agent: %{uid: "fake-zai-coding-plan-agent"}}
 
   defp cases(setup, image) do
     []
     |> add_openrouter_cases(setup, image)
     |> add_jina_cases(setup)
     |> add_google_cases(setup, image)
+    |> add_china_market_cases(setup)
     |> Enum.reverse()
   end
 
@@ -362,6 +477,20 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   end
 
   defp add_google_cases(cases, _setup, _image), do: cases
+
+  defp add_china_market_cases(cases, setup) do
+    cases
+    |> maybe_add_llm_case("alibaba_cn.llm_text", setup[:alibaba_cn_agent])
+    |> maybe_add_llm_case("volcengine_ark.llm_text", setup[:volcengine_ark_agent])
+    |> maybe_add_llm_case("xiaomi_mimo.llm_text", setup[:xiaomi_mimo_agent])
+    |> maybe_add_llm_case("zai_coding_plan.llm_text", setup[:zai_coding_plan_agent])
+  end
+
+  defp maybe_add_llm_case(cases, _name, nil), do: cases
+
+  defp maybe_add_llm_case(cases, name, agent) do
+    [{name, fn -> case_llm_direct(agent, "primary") end} | cases]
+  end
 
   defp case_models_http(agent) do
     conn =

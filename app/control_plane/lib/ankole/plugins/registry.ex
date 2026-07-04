@@ -111,6 +111,7 @@ defmodule Ankole.Plugins.Registry do
          active_specs <- active_specs(specs, disabled_ids),
          :ok <- ensure_unique_adapter_declarations(active_specs),
          :ok <- register_plugin_config(active_specs) do
+      maybe_refresh_ai_gateway_provider_cache(opts, active_specs)
       {:ok, build_state(specs, active_specs, disabled_ids)}
     else
       {:error, reason} -> {:stop, reason}
@@ -222,6 +223,20 @@ defmodule Ankole.Plugins.Registry do
     specs
     |> Enum.flat_map(& &1.app_config_patterns)
     |> AppConfigure.register_patterns()
+  end
+
+  defp maybe_refresh_ai_gateway_provider_cache(opts, active_specs) do
+    case Keyword.get(opts, :name, __MODULE__) do
+      __MODULE__ ->
+        active_specs
+        |> Enum.flat_map(& &1.adapter_declarations)
+        |> Ankole.AIGateway.Providers.refresh_from_adapter_declarations()
+
+        :ok
+
+      _other_registry ->
+        :ok
+    end
   end
 
   defp build_state(specs, active_specs, disabled_ids) do

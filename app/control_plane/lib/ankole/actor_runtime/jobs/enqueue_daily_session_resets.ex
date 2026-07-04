@@ -1,6 +1,6 @@
 defmodule Ankole.ActorRuntime.Jobs.EnqueueDailySessionResets do
   @moduledoc """
-  Control-plane cron job that appends due `session.reset_due` actor inputs.
+  Control-plane cron job that appends due `session.reset_due` actor events.
   """
 
   use Oban.Worker,

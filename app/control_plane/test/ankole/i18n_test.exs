@@ -17,6 +17,7 @@ defmodule Ankole.I18nTest do
     Cache.clear_for_test()
     :ok = Config.ensure_registered()
     :ok = Ankole.I18n.Catalog.reload_locales!()
+    put_test_catalogs()
 
     on_exit(fn ->
       :ok = Ankole.I18n.Catalog.reload_locales!()
@@ -28,19 +29,19 @@ defmodule Ankole.I18nTest do
   describe "t/3" do
     test "returns the default-locale message" do
       {:ok, _tag} = I18n.put_locale("en-US")
-      assert I18n.t("examples.greeting", %{"name" => "Alice"}) == "Hello, Alice!"
+      assert I18n.t("test.greeting", %{"name" => "Alice"}) == "Hello, Alice!"
     end
 
     test "explicit locale option overrides the process locale" do
       {:ok, _tag} = I18n.put_locale("en-US")
 
-      assert I18n.t("examples.greeting", %{"name" => "Alice"}, locale: "zh-Hans-CN") ==
+      assert I18n.t("test.greeting", %{"name" => "Alice"}, locale: "zh-Hans-CN") ==
                "你好，Alice！"
     end
 
     test "scope option prepends to the key" do
       {:ok, _tag} = I18n.put_locale("en-US")
-      assert I18n.t("greeting", %{"name" => "Bob"}, scope: "examples") == "Hello, Bob!"
+      assert I18n.t("greeting", %{"name" => "Bob"}, scope: "test") == "Hello, Bob!"
     end
 
     test "missing key returns the key literal and logs" do
@@ -57,10 +58,10 @@ defmodule Ankole.I18nTest do
     test "MF2 plural messages format through Localize" do
       {:ok, _tag} = I18n.put_locale("en-US")
 
-      assert I18n.t("errors.validation.length.string.min", %{"count" => 1}) ==
+      assert I18n.t("test.length.string.min", %{"count" => 1}) ==
                "should be at least 1 character"
 
-      assert I18n.t("errors.validation.length.string.min", %{"count" => 7}) ==
+      assert I18n.t("test.length.string.min", %{"count" => 7}) ==
                "should be at least 7 characters"
     end
   end
@@ -68,7 +69,7 @@ defmodule Ankole.I18nTest do
   describe "translate/3" do
     test "returns {:ok, string} for a valid key" do
       assert {:ok, "Hello, Dave!"} =
-               I18n.translate("examples.greeting", %{"name" => "Dave"}, locale: "en-US")
+               I18n.translate("test.greeting", %{"name" => "Dave"}, locale: "en-US")
     end
 
     test "returns {:error, _} for a missing key without logging" do
@@ -84,7 +85,7 @@ defmodule Ankole.I18nTest do
 
       log =
         capture_log([level: :warning], fn ->
-          assert I18n.t("examples.greeting", %{"name" => "Grace"}, locale: "xx-Test") ==
+          assert I18n.t("test.greeting", %{"name" => "Grace"}, locale: "xx-Test") ==
                    "Hello, Grace!"
         end)
 
@@ -103,11 +104,11 @@ defmodule Ankole.I18nTest do
 
       result =
         I18n.with_locale("zh-Hans-CN", fn ->
-          I18n.t("examples.greeting", %{"name" => "Carol"})
+          I18n.t("test.greeting", %{"name" => "Carol"})
         end)
 
       assert result == "你好，Carol！"
-      assert I18n.t("examples.greeting", %{"name" => "Carol"}) == "Hello, Carol!"
+      assert I18n.t("test.greeting", %{"name" => "Carol"}) == "Hello, Carol!"
     end
 
     test "put_default_locale/1 persists through AppConfigure and reloads Localize" do
@@ -152,6 +153,38 @@ defmodule Ankole.I18nTest do
     case GenServer.whereis(Cache) do
       nil -> :ok
       pid -> Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
+    end
+  end
+
+  defp put_test_catalogs do
+    Resolver.put_catalog(
+      "en-US",
+      %{
+        "test.greeting" => canonical_message!("Hello, {$name}!"),
+        "test.length.string.min" =>
+          canonical_message!("""
+          .input {$count :integer}
+          .match $count
+            1 {{should be at least 1 character}}
+            * {{should be at least {$count} characters}}
+          """)
+      },
+      %{}
+    )
+
+    Resolver.put_catalog(
+      "zh-Hans-CN",
+      %{
+        "test.greeting" => canonical_message!("你好，{$name}！")
+      },
+      %{fallback: "en-US"}
+    )
+  end
+
+  defp canonical_message!(message) do
+    case Localize.Message.canonical_message(message) do
+      {:ok, canonical} -> canonical
+      canonical when is_binary(canonical) -> canonical
     end
   end
 end

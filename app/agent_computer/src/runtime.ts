@@ -11,6 +11,7 @@ export type WorkerConfig = {
   userFilesRoot: string
   agentInstalledSkillsRoot: string
   builtinSkillsRoot: string
+  maxConcurrentTurns: number
 }
 
 const defaultWorkspaceRoot = '/workspace'
@@ -19,7 +20,8 @@ const defaultSharedFsRoot = '/workspace/shared'
 const defaultUserFilesRoot = '/workspace/shared/user-files'
 const defaultAgentInstalledSkillsRoot = '/workspace/shared/skills/agents'
 const defaultBuiltinSkillsRoot = '/repo/app/library/skills'
-const actorSpecificEnv = ['ANKOLE_AGENT_UID', 'ANKOLE_SESSION_ID', 'ANKOLE_ACTOR_EPOCH', 'ANKOLE_LLM_TURN_ID']
+const defaultMaxConcurrentTurns = 9
+const actorSpecificEnv = ['ANKOLE_AGENT_UID', 'ANKOLE_SESSION_ID', 'ANKOLE_ACTOR_EPOCH']
 const defaultContainerMarkerPath = '/etc/ankole-agent-computer-container'
 
 /**
@@ -44,12 +46,13 @@ export function parseWorkerEnv(env: Record<string, string | undefined> = Bun.env
   return {
     ...parseRuntimeFabricUrl(requiredEnv(env, 'RUNTIME_FABRIC_URL')),
     workerId: requiredEnv(env, 'WORKER_ID'),
-    workspaceRoot: defaultWorkspaceRoot,
-    workspaceSessionsRoot: defaultWorkspaceSessionsRoot,
-    sharedFsRoot: defaultSharedFsRoot,
-    userFilesRoot: defaultUserFilesRoot,
-    agentInstalledSkillsRoot: defaultAgentInstalledSkillsRoot,
-    builtinSkillsRoot: defaultBuiltinSkillsRoot
+    workspaceRoot: optionalEnv(env, 'ANKOLE_WORKSPACE_ROOT', defaultWorkspaceRoot),
+    workspaceSessionsRoot: optionalEnv(env, 'ANKOLE_WORKSPACE_SESSIONS_ROOT', defaultWorkspaceSessionsRoot),
+    sharedFsRoot: optionalEnv(env, 'ANKOLE_SHARED_FS_ROOT', defaultSharedFsRoot),
+    userFilesRoot: optionalEnv(env, 'ANKOLE_USER_FILES_ROOT', defaultUserFilesRoot),
+    agentInstalledSkillsRoot: optionalEnv(env, 'ANKOLE_AGENT_INSTALLED_SKILLS_ROOT', defaultAgentInstalledSkillsRoot),
+    builtinSkillsRoot: optionalEnv(env, 'ANKOLE_BUILTIN_SKILLS_ROOT', defaultBuiltinSkillsRoot),
+    maxConcurrentTurns: optionalPositiveIntegerEnv(env, 'ANKOLE_MAX_CONCURRENT_TURNS', defaultMaxConcurrentTurns)
   }
 }
 
@@ -70,6 +73,11 @@ function assertContainerRuntime(containerMarkerPath: string): void {
   if (!existsSync(containerMarkerPath)) {
     throw new Error('Agent Computer worker must run inside the Ankole Agent Computer Docker image')
   }
+}
+
+function optionalEnv(env: Record<string, string | undefined>, key: string, fallback: string): string {
+  const value = env[key]?.trim()
+  return value ? value : fallback
 }
 
 export function parseRuntimeFabricUrl(value: string): Pick<WorkerConfig, 'endpoint' | 'workerAuthKey'> {
@@ -109,7 +117,12 @@ export function parseRuntimeFabricUrl(value: string): Pick<WorkerConfig, 'endpoi
  * Runtime and version are observability metadata. They are not used as
  * feature negotiation because the worker pool is homogeneous by image.
  */
-export function workerReadyEnvelope(config: WorkerConfig, availableTurnSlots = 1): RuntimeFabricEnvelope {
+export function workerReadyEnvelope(
+  config: WorkerConfig,
+  availableTurnSlots = config.maxConcurrentTurns
+): RuntimeFabricEnvelope {
+  const available = clampAvailableSlots(config, availableTurnSlots)
+
   return {
     protocol_version: 1,
     message_id: `worker-ready-${crypto.randomUUID()}`,
@@ -122,7 +135,8 @@ export function workerReadyEnvelope(config: WorkerConfig, availableTurnSlots = 1
         runtime: 'bun',
         version: '0.1.0',
         capacity_json: {
-          available_turn_slots: availableTurnSlots
+          max_turns: config.maxConcurrentTurns,
+          available_turn_slots: available
         }
       }
     }
@@ -166,9 +180,11 @@ export function workerHeartbeatEnvelope(
  */
 export function workerCapacityEnvelope(
   config: WorkerConfig,
-  availableTurnSlots = 1,
+  availableTurnSlots = config.maxConcurrentTurns,
   activeTurns = 0
 ): RuntimeFabricEnvelope {
+  const available = clampAvailableSlots(config, availableTurnSlots)
+
   return {
     protocol_version: 1,
     message_id: `worker-capacity-${crypto.randomUUID()}`,
@@ -178,9 +194,10 @@ export function workerCapacityEnvelope(
       type: 'worker_capacity',
       worker_capacity: {
         worker_id: config.workerId,
-        available_turn_slots: availableTurnSlots,
+        available_turn_slots: available,
         capacity_json: {
-          available_turn_slots: availableTurnSlots
+          max_turns: config.maxConcurrentTurns,
+          available_turn_slots: available
         },
         load_json: {
           active_turns: activeTurns
@@ -197,4 +214,21 @@ function requiredEnv(env: Record<string, string | undefined>, key: string): stri
   }
 
   return value
+}
+
+function optionalPositiveIntegerEnv(env: Record<string, string | undefined>, key: string, fallback: number): number {
+  const raw = env[key]?.trim()
+  if (!raw) return fallback
+
+  const value = Number(raw)
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`${key} must be a positive integer`)
+  }
+
+  return value
+}
+
+function clampAvailableSlots(config: WorkerConfig, availableTurnSlots: number): number {
+  if (!Number.isInteger(availableTurnSlots)) return 0
+  return Math.max(0, Math.min(config.maxConcurrentTurns, availableTurnSlots))
 }

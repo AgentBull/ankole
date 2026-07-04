@@ -11,7 +11,7 @@ defmodule Ankole.AIGateway.ChinaMarketAIProvidersTest do
   alias Ankole.Plugins.ChinaMarketAIProviders.Providers.ZaiCodingPlan
   alias Ankole.Plugins.Spec
 
-  @zai_user_agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) CherryStudio/1.8.2 Chrome/146.0.7680.188 Electron/41.2.1 Safari/537.36"
+  @zai_default_user_agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) CherryStudio/1.8.2 Chrome/146.0.7680.188 Electron/41.2.1 Safari/537.36"
   @providers [
     {"xiaomi_mimo", XiaomiMiMo, "https://api.xiaomimimo.com/anthropic", :anthropic_messages},
     {"volcengine_ark", VolcengineArk, "https://ark.cn-beijing.volces.com/api/v3",
@@ -53,6 +53,19 @@ defmodule Ankole.AIGateway.ChinaMarketAIProvidersTest do
       assert capability.prepare == :prepare_language_model
       assert "api_key" in setting_keys(definition)
     end
+
+    for module <- [AlibabaCN, VolcengineArk, ZaiCodingPlan] do
+      keys = setting_keys(module.provider_definition())
+
+      refute "include_usage" in keys
+      refute "supports_structured_outputs" in keys
+    end
+
+    volcengine_keys = setting_keys(VolcengineArk.provider_definition())
+    assert "thinking" in volcengine_keys
+    refute "reasoningEffort" in volcengine_keys
+    refute "textVerbosity" in volcengine_keys
+    refute "strictJsonSchema" in volcengine_keys
   end
 
   test "volcengine ark builds an OpenAI-compatible chat request" do
@@ -60,7 +73,7 @@ defmodule Ankole.AIGateway.ChinaMarketAIProvidersTest do
              prepared_spec(VolcengineArk,
                model: "doubao-seed-1-6",
                connection_options: %{"api_key" => "ark-key"},
-               provider_options: %{"reasoning" => %{"effort" => "high"}},
+               provider_options: %{"thinking" => %{"type" => "enabled"}},
                request: %{"input" => "hello"},
                stream?: true
              )
@@ -71,7 +84,7 @@ defmodule Ankole.AIGateway.ChinaMarketAIProvidersTest do
     assert headers(spec)["authorization"] == "Bearer ark-key"
     assert spec.response_context.model == "doubao-seed-1-6"
     assert spec.response_context.stream == true
-    assert spec.response_context.provider_options == %{"reasoning" => %{"effort" => "high"}}
+    assert spec.response_context.provider_options == %{"thinking" => %{"type" => "enabled"}}
   end
 
   test "alibaba cn preserves DashScope request options for the OpenAI chat resolver" do
@@ -139,7 +152,7 @@ defmodule Ankole.AIGateway.ChinaMarketAIProvidersTest do
     assert spec.api_resolver == :openai_chat_completions
     assert spec.upstream.url == "https://api.z.ai/api/coding/paas/v4/chat/completions"
     assert headers(spec)["authorization"] == "Bearer zai-key"
-    assert headers(spec)["user-agent"] == @zai_user_agent
+    assert headers(spec)["user-agent"] == @zai_default_user_agent
     assert spec.response_context.provider_options == %{"thinking" => %{"type" => "disabled"}}
 
     assert spec.upstream.timeout == %{
@@ -163,8 +176,23 @@ defmodule Ankole.AIGateway.ChinaMarketAIProvidersTest do
 
     assert spec.upstream.url == "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions"
     assert headers(spec)["authorization"] == "Bearer zai-key"
-    assert headers(spec)["user-agent"] == @zai_user_agent
+    assert headers(spec)["user-agent"] == @zai_default_user_agent
     assert spec.response_context.provider_options == %{"thinking" => %{"type" => "enabled"}}
+  end
+
+  test "zai coding plan user agent is operator-configurable" do
+    assert {:ok, spec} =
+             prepared_spec(ZaiCodingPlan,
+               model: "glm-4.7",
+               connection_options: %{
+                 "api_key" => "zai-key",
+                 "user_agent" => "AnkoleProviderSmoke/1.0"
+               },
+               provider_options: %{"thinking" => %{"type" => "disabled"}},
+               request: %{"input" => "hello"}
+             )
+
+    assert headers(spec)["user-agent"] == "AnkoleProviderSmoke/1.0"
   end
 
   defp prepared_spec(module, opts) do

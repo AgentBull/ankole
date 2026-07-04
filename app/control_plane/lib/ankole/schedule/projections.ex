@@ -44,20 +44,43 @@ defmodule Ankole.Schedule.Projections do
       "cron_schedule_id" => event.cron_schedule_id,
       "cron_fire_slot_at" => Planner.datetime(event.cron_fire_slot_at),
       "tool_call_id" => event.tool_call_id,
-      "source_llm_turn_id" => event.source_llm_turn_id,
-      "source_actor_input_id" => event.source_actor_input_id,
+      "origin_ai_message_id" => event.origin_ai_message_id,
+      "source_actor_event_id" => event.source_actor_event_id,
       "signal_channel_id" => event.signal_channel_id,
       "provider_thread_id" => event.provider_thread_id,
-      "provider_entry_id" => event.provider_entry_id,
+      "source_entry_id" => event.source_entry_id,
       "source_provenance" => event.source_provenance || %{},
       "wake_payload" => event.wake_payload || %{},
       "oban_job_id" => event.oban_job_id,
-      "actor_input_id" => event.actor_input_id,
+      "actor_event_id" => event.actor_event_id,
       "fire_attempts" => event.fire_attempts,
       "fire_claimed_at" => Planner.datetime(event.fire_claimed_at),
       "fired_at" => Planner.datetime(event.fired_at),
       "cancelled_at" => Planner.datetime(event.cancelled_at),
       "last_fire_error" => event.last_fire_error || %{},
+      "inserted_at" => Planner.datetime(event.inserted_at),
+      "updated_at" => Planner.datetime(event.updated_at)
+    }
+  end
+
+  @spec event_model_projection(ScheduledEvent.t()) :: map()
+  def event_model_projection(%ScheduledEvent{} = event) do
+    %{
+      "id" => event.id,
+      "kind" => event.kind,
+      "status" => event.status,
+      "due_at" => Planner.datetime(event.due_at),
+      "timezone" => event.timezone,
+      "requested_at" => Planner.datetime(event.requested_at),
+      "cron_schedule_id" => event.cron_schedule_id,
+      "cron_fire_slot_at" => Planner.datetime(event.cron_fire_slot_at),
+      "signal_channel_id" => event.signal_channel_id,
+      "provider_thread_id" => event.provider_thread_id,
+      "source_entry_id" => event.source_entry_id,
+      "wake_payload" => event.wake_payload || %{},
+      "actor_event_id" => event.actor_event_id,
+      "fired_at" => Planner.datetime(event.fired_at),
+      "cancelled_at" => Planner.datetime(event.cancelled_at),
       "inserted_at" => Planner.datetime(event.inserted_at),
       "updated_at" => Planner.datetime(event.updated_at)
     }

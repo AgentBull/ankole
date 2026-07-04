@@ -2,62 +2,6 @@ defmodule Ankole.ActorRuntime.TransportTest do
   use Ankole.ActorRuntimeCase
 
   describe "transport, admission, and bootstrap" do
-    test "channel reply mode uses post outbox operation when entry reply is unavailable" do
-      %{principal: agent} = agent_fixture()
-      binding_fixture(agent.uid, "bot", :ignore)
-      route = unique_route()
-
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
-      assert {:ok, _worker} = admit_worker(route)
-
-      assert {:ok, %{actor_input: input}} =
-               emit_entry(
-                 agent.uid,
-                 "bot",
-                 group_entry(%{
-                   text: "PING",
-                   explicit: true,
-                   channel: %{kind: :im_group, reply_mode: :channel, name: "Ops"}
-                 }),
-                 now: @base_time
-               )
-
-      assert {:ok, %{llm_turn: llm_turn}} =
-               ActorRuntime.process_ready_inputs_once(
-                 now: DateTime.add(@base_time, 1, :second),
-                 lease_seconds: @long_lease_seconds
-               )
-
-      assert_receive {:actor_lane, envelope}
-      assert %ActorInputDelivery{state: "sent"} = wait_for_delivery_state(input.id, "sent")
-      turn_start = envelope["body"]["turn_start"]
-      turn_ref = turn_start["turn"]
-      input_ids = Enum.map(turn_start["inputs"], & &1["actor_input_id"])
-
-      assert {:ok, [_delivery]} =
-               ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{
-                   "turn" => turn_ref,
-                   "accepted_actor_input_ids" => input_ids
-                 }
-               })
-
-      assert {:ok, %{status: :committed}} =
-               ActorRuntime.commit_final_proposal(%{
-                 "turn_final_proposal" => %{
-                   "turn" => turn_ref,
-                   "messages" => [],
-                   "reply" => %{"text" => "PONG"}
-                 }
-               })
-
-      llm_turn_id = llm_turn.id
-
-      assert %OutboxEntry{operation: :post, llm_turn_id: ^llm_turn_id} =
-               Repo.one!(from(outbox in OutboxEntry))
-    end
-
     test "broker uses ZeroMQ mandatory route outcome when router is running" do
       assert {:ok, endpoint} =
                Broker.start_router("tcp://127.0.0.1:*",
@@ -80,9 +24,9 @@ defmodule Ankole.ActorRuntime.TransportTest do
 
       task =
         Task.async(fn ->
-          ActorRuntime.request_worker_rpc(
+          Broker.request_rpc(
             route,
-            "worker.runtime.describe",
+            "test.probe",
             %{"probe" => true},
             timeout_ms: 200
           )
@@ -97,7 +41,7 @@ defmodule Ankole.ActorRuntime.TransportTest do
                       }},
                      200
 
-      assert request["method"] == "worker.runtime.describe"
+      assert request["method"] == "test.probe"
       assert request["payload_json"] == %{"probe" => true}
       request_id = request["request_id"]
 
@@ -121,6 +65,35 @@ defmodule Ankole.ActorRuntime.TransportTest do
       )
 
       assert {:ok, %{"runtime" => "bun", "active_turns" => 0}} = Task.await(task, 500)
+    end
+
+    test "ambient may_intervene turns use the light model profile" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :may_intervene)
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_event: input}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "the strategy may need a backtest"}),
+                 now: @base_time
+               )
+
+      assert input.type == "im.message.may_intervene"
+
+      assert {:ok, %{send_outcome: "sent_or_queued"}} =
+               process_ready_events_once(
+                 now: DateTime.add(@base_time, 20, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_lane, envelope}
+      assert get_in(envelope, ["body", "turn_start", "model_ref", "profile"]) == "light"
     end
 
     test "worker heartbeat and capacity update only the authenticated worker projection" do
@@ -172,7 +145,7 @@ defmodule Ankole.ActorRuntime.TransportTest do
       on_exit(fn -> Broker.unregister_local_worker(route) end)
       assert {:ok, _worker} = admit_worker(route)
 
-      assert {:ok, %{actor_input: input}} =
+      assert {:ok, %{actor_event: input}} =
                emit_entry(
                  agent.uid,
                  "bot",
@@ -181,7 +154,7 @@ defmodule Ankole.ActorRuntime.TransportTest do
                )
 
       assert {:ok, %{send_outcome: "sent_or_queued"}} =
-               ActorRuntime.process_ready_inputs_once(
+               process_ready_events_once(
                  now: DateTime.add(@base_time, 1, :second),
                  lease_seconds: @long_lease_seconds
                )
@@ -190,9 +163,8 @@ defmodule Ankole.ActorRuntime.TransportTest do
 
       turn_start = envelope["body"]["turn_start"]
       turn_ref = turn_start["turn"]
-      accepted_ids = Enum.map(turn_start["inputs"], & &1["actor_input_id"])
 
-      assert %ActorInputDelivery{state: "sent"} = wait_for_delivery_state(input.id, "sent")
+      assert %ActorEventDelivery{state: "sent"} = wait_for_delivery_state(input.id, "sent")
       assert {:ok, _wrong_worker} = admit_worker(wrong_route)
 
       accepted_envelope = %{
@@ -204,8 +176,7 @@ defmodule Ankole.ActorRuntime.TransportTest do
         "body" => %{
           "type" => "turn_accepted",
           "turn_accepted" => %{
-            "turn" => turn_ref,
-            "accepted_actor_input_ids" => accepted_ids
+            "turn" => turn_ref
           }
         }
       }
@@ -218,8 +189,8 @@ defmodule Ankole.ActorRuntime.TransportTest do
 
       :sys.get_state(Broker)
 
-      assert %ActorInputDelivery{state: "sent"} =
-               Repo.get_by!(ActorInputDelivery, actor_input_id: input.id)
+      assert %ActorEventDelivery{state: "sent"} =
+               Repo.get_by!(ActorEventDelivery, actor_event_id: input.id)
 
       send(
         Broker,
@@ -228,8 +199,154 @@ defmodule Ankole.ActorRuntime.TransportTest do
 
       :sys.get_state(Broker)
 
-      assert %ActorInputDelivery{state: "accepted"} =
-               Repo.get_by!(ActorInputDelivery, actor_input_id: input.id)
+      assert %ActorEventDelivery{state: "accepted"} =
+               Repo.get_by!(ActorEventDelivery, actor_event_id: input.id)
+    end
+
+    test "broker ignores obsolete worker final proposals" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_event: input}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "PING", explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, %{send_outcome: "sent_or_queued"}} =
+               process_ready_events_once(
+                 now: DateTime.add(@base_time, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_lane, envelope}
+      turn_ref = envelope["body"]["turn_start"]["turn"]
+      assert %ActorEventDelivery{state: "sent"} = wait_for_delivery_state(input.id, "sent")
+
+      proposal_envelope = %{
+        "protocol_version" => 1,
+        "message_id" => "obsolete-turn-final-proposal",
+        "correlation_id" => envelope["message_id"],
+        "lane" => "LANE_TURN",
+        "durability" => "CONTROL_DURABLE",
+        "body" => %{
+          "type" => "turn_final_proposal",
+          "turn_final_proposal" => %{
+            "turn" => turn_ref,
+            "messages" => [],
+            "reply" => %{"text" => "PONG"}
+          }
+        }
+      }
+
+      send(
+        Broker,
+        {:runtime_fabric_router_received, route, nil, nil, Torque.encode!(proposal_envelope)}
+      )
+
+      :sys.get_state(Broker)
+      assert is_nil(Repo.get!(ActorEvent, input.id).completed_at)
+
+      assert %ActorEventDelivery{state: "sent"} =
+               Repo.get_by!(ActorEventDelivery, actor_event_id: input.id)
+
+      refute Repo.exists?(from(outbox in OutboxEntry))
+
+      refute Repo.exists?(
+               from(message in Message,
+                 where: fragment("?->>'actor_event_id'", message.metadata) == ^input.id
+               )
+             )
+    end
+
+    test "broker accepts terminal worker writes after active steer bumps revision" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_event: input}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "observe only", explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, %{send_outcome: "sent_or_queued"}} =
+               process_ready_events_once(
+                 now: DateTime.add(@base_time, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_lane, envelope}, 2_000
+      turn_ref = envelope["body"]["turn_start"]["turn"]
+
+      assert {:ok, [_delivery]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{"turn" => turn_ref}
+               })
+
+      assert {:ok, %{actor_event: steer_event}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "/steer stay quiet", explicit: true}),
+                 now: DateTime.add(@base_time, 2, :second)
+               )
+
+      assert {:ok, %{status: :active_steer_nudged, send_outcome: "sent_or_queued"}} =
+               process_ready_events_once(now: DateTime.add(@base_time, 3, :second))
+
+      assert_receive {:actor_lane, mailbox_envelope}, 2_000
+      assert mailbox_envelope["body"]["type"] == "mailbox_updated"
+
+      assert mailbox_envelope["body"]["mailbox_updated"]["actor_event"]["actor_event_id"] ==
+               steer_event.id
+
+      mailbox = mailbox_envelope["body"]["mailbox_updated"]
+
+      assert {:ok, [%ActorEventDelivery{state: "accepted", actor_event_id: steer_id}]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{"turn" => mailbox["turn"]}
+               })
+
+      assert steer_id == steer_event.id
+
+      noop_envelope = %{
+        "protocol_version" => 1,
+        "message_id" => "turn-noop-after-steer",
+        "correlation_id" => envelope["message_id"],
+        "lane" => "LANE_TURN",
+        "durability" => "CONTROL_REPLAYABLE",
+        "body" => %{
+          "type" => "turn_noop_completed",
+          "turn_noop_completed" => %{
+            "turn" => turn_ref,
+            "reason" => "ambient_silent"
+          }
+        }
+      }
+
+      send(
+        Broker,
+        {:runtime_fabric_router_received, route, nil, nil, Torque.encode!(noop_envelope)}
+      )
+
+      :sys.get_state(Broker)
+
+      assert %DateTime{} = Repo.get!(ActorEvent, input.id).completed_at
+      assert %DateTime{} = Repo.get!(ActorEvent, steer_event.id).completed_at
     end
 
     test "worker admission rejects duplicate live route ownership" do

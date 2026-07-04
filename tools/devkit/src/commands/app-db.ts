@@ -12,11 +12,12 @@ import {
 const commonDbFlags = {
   name: {
     type: 'string',
-    description: 'Database name. Defaults to the database in app/.env.local or app/.env.development.'
+    description:
+      'Database name. Defaults to the database in app/control_plane/.env.local or app/control_plane/.env.development.'
   },
   'start-services': {
     type: 'boolean',
-    description: 'Start the Compose services (Postgres, Redis) before the database operation.',
+    description: 'Start the Compose services before the database operation.',
     default: true
   },
   pull: {
@@ -69,9 +70,9 @@ const dropDatabase = async (databaseName: string): Promise<void> => {
   ])
 }
 
-/** Runs the app's local migration script with development env loaded. */
+/** Runs the control plane Ecto migrations with development env loaded. */
 const runAppMigrations = async (): Promise<void> => {
-  await runChild('bun', ['run', 'migrate:local'], {
+  await runChild('mix', ['ecto.migrate'], {
     cwd: appRootPath,
     env: loadAppDevelopmentEnv()
   })
@@ -142,7 +143,7 @@ export function appDbCommand(): Crust {
           },
           migrate: {
             type: 'boolean',
-            description: 'Run app Drizzle migrations after recreating the database.',
+            description: 'Run control-plane Ecto migrations after recreating the database.',
             default: true
           }
         })
@@ -165,7 +166,7 @@ export function appDbCommand(): Crust {
     )
     .command('migrate', cmd =>
       cmd
-        .meta({ description: 'Run app Drizzle migrations against the configured local database.' })
+        .meta({ description: 'Run control-plane Ecto migrations against the configured local database.' })
         .run(() => runAppMigrations())
     )
 }

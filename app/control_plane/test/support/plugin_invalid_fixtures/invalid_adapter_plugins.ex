@@ -159,7 +159,7 @@ defmodule Ankole.PluginFixtures.MissingAIGatewayEmbeddingPreparePlugin do
     [
       %{
         contract_id: "ai_gateway.provider",
-        id: "missing-embedding-prepare",
+        id: "missing_embedding_prepare",
         module: __MODULE__
       }
     ]
@@ -167,7 +167,7 @@ defmodule Ankole.PluginFixtures.MissingAIGatewayEmbeddingPreparePlugin do
 
   def provider_definition do
     %Ankole.AIGateway.ProviderDefinition{
-      provider_kind: "missing-embedding-prepare",
+      provider_kind: "missing_embedding_prepare",
       label: %{"default" => "Missing Embedding Prepare"},
       module: __MODULE__,
       base_url: "https://example.test",
@@ -183,6 +183,48 @@ defmodule Ankole.PluginFixtures.MissingAIGatewayEmbeddingPreparePlugin do
           upstream: :json,
           api_resolver: :openai_embeddings,
           prepare: :prepare_embedding_model
+        }
+      ]
+    }
+  end
+
+  def prepare_language_model(_ctx), do: %{}
+end
+
+defmodule Ankole.PluginFixtures.KebabAIGatewayProviderKindPlugin do
+  @moduledoc false
+
+  @behaviour Ankole.Plugins.Plugin
+
+  @impl true
+  def plugin_id, do: "kebab-ai-gateway-provider-kind"
+
+  @impl true
+  def api_version, do: 1
+
+  @impl true
+  def adapter_declarations do
+    [
+      %{
+        contract_id: "ai_gateway.provider",
+        id: "kebab-provider",
+        module: __MODULE__
+      }
+    ]
+  end
+
+  def provider_definition do
+    %Ankole.AIGateway.ProviderDefinition{
+      provider_kind: "kebab-provider",
+      label: %{"default" => "Kebab Provider Kind"},
+      module: __MODULE__,
+      base_url: "https://example.test",
+      capabilities: [
+        %Ankole.AIGateway.ProviderDefinition.Capability{
+          kind: :language_model,
+          upstream: :sse,
+          api_resolver: :openai_responses,
+          prepare: :prepare_language_model
         }
       ]
     }

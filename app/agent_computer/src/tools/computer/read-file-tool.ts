@@ -1,6 +1,5 @@
 import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../../core'
-import { buildTool } from '../build-tool'
 import type { ComputerToolContext } from './context'
 import { MAX_READ_CHARS, looksBinary, numberLines } from './format'
 
@@ -27,14 +26,11 @@ interface ReadFileDetails {
  * cannot flood the context window.
  */
 export function createReadFileTool(context: ComputerToolContext): AgentTool<typeof ReadFileParams, ReadFileDetails> {
-  return buildTool({
+  return {
     name: 'read_file',
-    label: 'Read File',
     description:
       "Read a text file from the computer with line numbers and pagination. Use this instead of cat/head/tail in command or interactive_terminal. Output format: 'LINE_NUM|CONTENT'. Relative paths resolve from cwd/workdir, defaulting to /workspace. Use offset and limit for large files; reads over about 100K characters are rejected so you can narrow the range. Cannot read images or binary files.",
     schema: ReadFileParams,
-    // Pure read with no side effects, so it may run in parallel with other reads and is
-    // marked read-only/non-destructive for the permission layer.
     executionMode: 'parallel',
     isReadOnly: true,
     isDestructive: false,
@@ -69,7 +65,7 @@ export function createReadFileTool(context: ComputerToolContext): AgentTool<type
       // Default window is the first 500 lines from line 1; the model widens or moves it
       // via offset/limit. Line numbering happens here, before the size check, because the
       // rendered (numbered) text is what counts against the budget.
-      const { text, totalLines, truncated } = numberLines(
+      const { endLine, startLine, text, totalLines, truncated } = numberLines(
         buffer.toString('utf-8'),
         params.offset ?? 1,
         params.limit ?? 500
@@ -91,11 +87,16 @@ export function createReadFileTool(context: ComputerToolContext): AgentTool<type
 
       // When more lines remain past this page, append a hint so the model knows to
       // continue with a higher offset instead of assuming it saw the whole file.
-      const hint = truncated ? '\n... [more lines — use offset to continue reading] ...' : ''
+      const hint =
+        text.length === 0 && totalLines > 0
+          ? `\n[showing lines ${startLine}-${endLine} of ${totalLines}; offset is past end of file]`
+          : truncated
+            ? `\n... [showing lines ${startLine}-${endLine} of ${totalLines} — continue with offset=${endLine + 1}] ...`
+            : `\n[${totalLines} lines total]`
       return {
         content: [{ type: 'text', text: text + hint }],
         details: { path: params.path, found: true, totalLines, truncated }
       }
     }
-  })
+  }
 }

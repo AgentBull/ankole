@@ -48,10 +48,21 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert %AgentSkillOverlay{overlay_json: %{"text" => "Prefer page-by-page verification."}} =
              Repo.get!(AgentSkillOverlay, overlay.id)
 
+    assert {:ok, overlay} =
+             Library.skill_append(agent.uid, "nano-pdf", "Use render output as final evidence.")
+
+    assert %AgentSkillOverlay{
+             overlay_json: %{
+               "text" =>
+                 "Prefer page-by-page verification.\n\nUse render output as final evidence."
+             }
+           } = Repo.get!(AgentSkillOverlay, overlay.id)
+
     assert {:ok, skill} = Library.skill_view(agent.uid, "nano-pdf")
     assert skill["has_agent_overlay"]
     assert skill["content"] =~ "Agent-specific additions"
     assert skill["content"] =~ "Prefer page-by-page verification."
+    assert skill["content"] =~ "Use render output as final evidence."
 
     assert {:error, :skill_file_not_found} =
              Library.skill_view(agent.uid, "nano-pdf", "AGENT_APPEND.md")

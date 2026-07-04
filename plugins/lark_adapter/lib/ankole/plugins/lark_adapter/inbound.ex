@@ -3,19 +3,28 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   Feishu/Lark inbound normalization into SignalsGateway adapter APIs.
   """
 
-  import Ecto.Query, warn: false
-
   require Logger
 
   alias Ankole.ActorRuntime
   alias Ankole.JSON
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.Emoji
-  alias Ankole.Repo
+  alias Ankole.Plugins.LarkAdapter.MapHelpers
+  alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.AdapterContext
-  alias Ankole.SignalsGateway.SignalEntry
   alias FeishuOpenAPI.CardAction
   alias FeishuOpenAPI.Event
+
+  import MapHelpers,
+    only: [
+      collect_results: 1,
+      compact_map: 1,
+      fetch_list: 2,
+      fetch_map: 3,
+      fetch_value: 2,
+      maybe_put: 3,
+      optional_text: 2
+    ]
 
   @recent_attachment_window_seconds 120
   @max_backfilled_attachments 3
@@ -102,7 +111,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
         {:ignore, :provider_self_sender}
 
       false ->
-        with {:ok, provider_entry_id} <- required_text(message, "message_id"),
+        with {:ok, source_entry_id} <- required_text(message, "message_id"),
              {:ok, chat_id} <- required_text(message, "chat_id"),
              {:ok, author} <- author(sender, sender_ids, event, consumer),
              {:ok, text} <- message_text(message),
@@ -113,7 +122,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
              channel_kind <- channel_kind(message),
              signal_channel_id <- signal_channel_id(chat_id),
              provider_thread_id <-
-               provider_thread_id(chat_id, root_id(message, provider_entry_id)),
+               provider_thread_id(chat_id, root_id(message, source_entry_id)),
              attachments <-
                maybe_backfill_attachments(
                  attachments,
@@ -127,8 +136,8 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
              {:ok, attachments} <- maybe_materialize_attachments(attachments, message, consumer) do
           {:ok,
            %{
-             ingress_event_id: event.id || provider_entry_id,
-             provider_entry_id: provider_entry_id,
+             source_event_id: event.id || source_entry_id,
+             source_entry_id: source_entry_id,
              signal_channel_id: signal_channel_id,
              provider_thread_id: provider_thread_id,
              channel: %{
@@ -189,13 +198,13 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     content = event.content || %{}
     message = fetch_map(content, "message", content)
 
-    with {:ok, provider_entry_id} <- required_text(message, "message_id"),
+    with {:ok, source_entry_id} <- required_text(message, "message_id"),
          {:ok, chat_id} <- required_text(message, "chat_id") do
       input = %{
-        ingress_event_id: event.id || "recall:#{provider_entry_id}",
+        source_event_id: event.id || "recall:#{source_entry_id}",
         signal_channel_id: signal_channel_id(chat_id),
-        provider_entry_id: provider_entry_id,
-        provider_thread_id: provider_thread_id(chat_id, root_id(message, provider_entry_id)),
+        source_entry_id: source_entry_id,
+        provider_thread_id: provider_thread_id(chat_id, root_id(message, source_entry_id)),
         channel: %{
           kind: channel_kind(message),
           reply_mode: :entry,
@@ -219,13 +228,13 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     operator_id = optional_text(operator, "user_id") || optional_text(content, "operator_user_id")
 
     with {:ok, actor_key} <- operator_actor_key(operator_id),
-         {:ok, provider_entry_id} <- required_text(message, "message_id"),
+         {:ok, source_entry_id} <- required_text(message, "message_id"),
          {:ok, chat_id} <- required_text(message, "chat_id"),
          raw_reaction_key <- reaction_key(content) do
       input = %{
-        ingress_event_id: event.id || "reaction:#{action}:#{provider_entry_id}:#{actor_key}",
+        source_event_id: event.id || "reaction:#{action}:#{source_entry_id}:#{actor_key}",
         signal_channel_id: signal_channel_id(chat_id),
-        provider_entry_id: provider_entry_id,
+        source_entry_id: source_entry_id,
         reaction_key: Emoji.normalize(raw_reaction_key),
         raw_reaction_key: raw_reaction_key,
         actor_key: actor_key,
@@ -254,17 +263,17 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
          {:ok, chat_id} <- required_text(action, "open_chat_id"),
          {:ok, action_id} <- card_action_id(action, event) do
       input = %{
-        ingress_event_id: event.id || action_id,
+        source_event_id: event.id || action_id,
         action_id: action_id,
         signal_channel_id: signal_channel_id(chat_id),
-        provider_entry_id: action.open_message_id,
+        source_entry_id: action.open_message_id,
         provider_thread_id: provider_thread_id(chat_id, action.open_message_id || action_id),
-        actor_input_type: "signal.action.invoked",
+        actor_event_type: "signal.action.invoked",
         action: %{
           "name" => action_name(action),
           "value" => action_value(action),
           "operator_id" => operator_id,
-          "provider_entry_id" => action.open_message_id
+          "source_entry_id" => action.open_message_id
         },
         raw_payload: compact_map(action.raw)
       }
@@ -357,6 +366,10 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
       case message_type do
         "text" -> optional_text(content, "text") || optional_text(message, "text")
         "post" -> post_text(content)
+        "sticker" -> "<|sticker|>"
+        "location" -> location_text(content)
+        "share_chat" -> share_chat_text(content)
+        "share_user" -> share_user_text(content)
         _type -> nil
       end
 
@@ -383,7 +396,68 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
 
   defp post_part_text(%{"text" => text}) when is_binary(text), do: text
   defp post_part_text(%{"href" => href}) when is_binary(href), do: href
+  defp post_part_text(%{"tag" => "img"}), do: "[image]"
+  defp post_part_text(%{"tag" => "media"}), do: "[video]"
+
+  defp post_part_text(%{"tag" => "emotion", "emoji_type" => emoji}) when is_binary(emoji),
+    do: "[#{emoji}]"
+
+  defp post_part_text(%{"tag" => "emotion", "emoji_key" => emoji}) when is_binary(emoji),
+    do: "[#{emoji}]"
+
   defp post_part_text(_part), do: nil
+
+  defp location_text(content) do
+    fields =
+      [
+        tagged_text("name", optional_text(content, "name") || optional_text(content, "title")),
+        tagged_text("address", optional_text(content, "address")),
+        tagged_text("latitude", fetch_value(content, "latitude") || fetch_value(content, "lat")),
+        tagged_text("longitude", fetch_value(content, "longitude") || fetch_value(content, "lng"))
+      ]
+      |> Enum.reject(&is_nil/1)
+
+    case fields do
+      [] -> "<|location|>"
+      fields -> "<|location|> #{Enum.join(fields, " ")}"
+    end
+  end
+
+  defp share_chat_text(content) do
+    fields =
+      [
+        tagged_text("chat_id", optional_text(content, "chat_id")),
+        tagged_text("title", optional_text(content, "title") || optional_text(content, "name"))
+      ]
+      |> Enum.reject(&is_nil/1)
+
+    case fields do
+      [] -> "<|share_chat|>"
+      fields -> "<|share_chat|> #{Enum.join(fields, " ")}"
+    end
+  end
+
+  defp share_user_text(content) do
+    fields =
+      [
+        tagged_text(
+          "user_id",
+          optional_text(content, "user_id") || optional_text(content, "open_id")
+        ),
+        tagged_text("name", optional_text(content, "name"))
+      ]
+      |> Enum.reject(&is_nil/1)
+
+    case fields do
+      [] -> "<|share_user|>"
+      fields -> "<|share_user|> #{Enum.join(fields, " ")}"
+    end
+  end
+
+  defp tagged_text(_key, nil), do: nil
+  defp tagged_text(key, value) when is_binary(value) and value != "", do: "#{key}=#{value}"
+  defp tagged_text(key, value) when is_number(value), do: "#{key}=#{value}"
+  defp tagged_text(_key, _value), do: nil
 
   defp attachments(message) do
     message_type = optional_text(message, "message_type")
@@ -394,13 +468,39 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
         type when type in ["image", "file", "audio", "media", "video"] ->
           [resource_attachment(type, content, message)]
 
+        "post" ->
+          post_resource_attachments(content, message)
+
         _type ->
           []
       end
       |> Enum.reject(&is_nil/1)
+      |> Enum.uniq_by(& &1["provider_ref"])
 
     {:ok, attachments}
   end
+
+  defp post_resource_attachments(%{"content" => blocks}, message) when is_list(blocks) do
+    blocks
+    |> List.flatten()
+    |> Enum.flat_map(&post_part_attachments(&1, message))
+  end
+
+  defp post_resource_attachments(_content, _message), do: []
+
+  defp post_part_attachments(%{"tag" => "img", "image_key" => image_key}, message)
+       when is_binary(image_key) do
+    [resource_attachment("image", %{"image_key" => image_key}, message)]
+  end
+
+  defp post_part_attachments(%{"tag" => "media"} = part, message) do
+    case resource_attachment("media", part, message) do
+      nil -> []
+      attachment -> [attachment]
+    end
+  end
+
+  defp post_part_attachments(_part, _message), do: []
 
   defp resource_attachment(type, content, message) do
     key =
@@ -462,14 +562,14 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     |> compact_map()
   end
 
-  # Lark events can contain mentions for another bot in the same group. When
-  # the binding knows this app's bot identity, only a matching mention should
-  # mark the message as addressed for this agent. Without configured ids we keep
-  # the older generic behavior: any structured bot mention belongs to the binding.
+  # Lark events can contain mentions for another bot in the same group. A group
+  # mention only addresses this binding when the mention matches a configured
+  # bot identity; missing identity config must fail closed so multiple agents in
+  # the same group do not all claim the same @bot.
   defp mark_local_bot_mention(mention, %{config: config, context: %AdapterContext{} = context}) do
     cond do
       not bot_identity_configured?(config) ->
-        mention
+        Map.put(mention, "targets_current_agent", false)
 
       mention_targets_configured_bot?(mention, config) ->
         Map.put(mention, "agent_uid", context.agent_uid)
@@ -593,31 +693,23 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   defp sanitize_path_segment(_value), do: "unnamed"
 
   defp recent_attachment_intent?(text) when is_binary(text) do
+    # Lark sends attachment-only messages separately from the later textual
+    # mention ("use the file above"). Keep this heuristic local to the adapter
+    # because it depends on provider-language UX, while the actual mirror query
+    # stays behind SignalsGateway.recent_entry_attachments/4.
     Regex.match?(~r/(上面|前面|文件|图片|附件|above|previous|file|image|attachment)/i, text)
   end
 
   defp recent_attachment_intent?(_text), do: false
 
   defp recent_attachments(signal_channel_id, author, provider_time, consumer) do
-    since =
-      DateTime.add(
-        provider_time,
-        -Map.fetch!(consumer, :recent_attachment_window_seconds),
-        :second
-      )
-
     max = Map.fetch!(consumer, :max_backfilled_attachments)
     author_id = author["id"]
 
-    SignalEntry
-    |> where([entry], entry.signal_channel_id == ^signal_channel_id)
-    |> where([entry], entry.provider_time >= ^since and entry.provider_time <= ^provider_time)
-    |> order_by([entry], desc: entry.provider_time)
-    |> limit(20)
-    |> Repo.all()
-    |> Enum.filter(&(get_in(&1.author || %{}, ["id"]) == author_id))
-    |> Enum.flat_map(&(&1.attachments || []))
-    |> Enum.take(max)
+    SignalsGateway.recent_entry_attachments(signal_channel_id, author_id, provider_time,
+      window_seconds: Map.fetch!(consumer, :recent_attachment_window_seconds),
+      limit: max
+    )
   end
 
   defp formatted_content(nil), do: %{}
@@ -629,12 +721,11 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     do: Enum.any?(mentions, &mention_targets_current_binding?(&1, consumer))
 
   defp mention_targets_current_binding?(mention, %{
-         config: config,
          context: %AdapterContext{} = context
        })
        when is_map(mention) do
     case optional_text(mention, "agent_uid") do
-      nil -> not bot_identity_configured?(config)
+      nil -> false
       agent_uid -> agent_uid == context.agent_uid
     end
   end
@@ -671,10 +762,10 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     end
   end
 
-  defp root_id(message, provider_entry_id) do
+  defp root_id(message, source_entry_id) do
     optional_text(message, "root_id") ||
       optional_text(message, "parent_id") ||
-      provider_entry_id
+      source_entry_id
   end
 
   defp signal_channel_id(chat_id), do: "lark:#{encode_id(chat_id)}"
@@ -788,72 +879,6 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     end
   end
 
-  defp optional_text(map, key) do
-    case fetch_value(map, key) do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          trimmed -> trimmed
-        end
-
-      _value ->
-        nil
-    end
-  end
-
-  defp fetch_map(map, key, default) when is_map(map) do
-    case fetch_value(map, key) do
-      value when is_map(value) -> value
-      _value -> default
-    end
-  end
-
-  defp fetch_list(map, key) when is_map(map) do
-    case fetch_value(map, key) do
-      value when is_list(value) -> value
-      _value -> []
-    end
-  end
-
-  defp fetch_value(map, key) when is_map(map) do
-    atom_key = atom_key(key)
-
-    cond do
-      Map.has_key?(map, key) -> Map.fetch!(map, key)
-      not is_nil(atom_key) and Map.has_key?(map, atom_key) -> Map.fetch!(map, atom_key)
-      true -> nil
-    end
-  end
-
-  defp atom_key(key) when is_binary(key) do
-    String.to_existing_atom(key)
-  rescue
-    ArgumentError -> nil
-  end
-
-  defp atom_key(_key), do: nil
-
-  defp compact_map(map) when is_map(map) do
-    map
-    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-    |> Map.new()
-  end
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, _key, ""), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
   defp blank_to_nil(""), do: nil
   defp blank_to_nil(value), do: value
-
-  defp collect_results(results) do
-    Enum.reduce_while(results, {:ok, []}, fn
-      {:ok, value}, {:ok, acc} -> {:cont, {:ok, [value | acc]}}
-      {:error, _reason} = error, _acc -> {:halt, error}
-    end)
-    |> case do
-      {:ok, values} -> {:ok, Enum.reverse(values)}
-      {:error, _reason} = error -> error
-    end
-  end
 end

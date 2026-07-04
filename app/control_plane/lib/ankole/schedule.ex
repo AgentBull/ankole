@@ -3,7 +3,7 @@ defmodule Ankole.Schedule do
   Control-plane schedule subsystem.
 
   Schedule owns durable time semantics. Oban jobs are wake edges; the domain
-  tables and ActorInput idempotency are the correctness boundary.
+  tables and ActorEvent idempotency are the correctness boundary.
   """
 
   alias Ankole.Schedule.Checkbacks
@@ -89,7 +89,7 @@ defmodule Ankole.Schedule do
   defdelegate cancel_due_cron_events_for_reset_in_tx(repo, actor_key, reset_at, now), to: Cron
 
   @doc """
-  Fires a due scheduled event by appending an ActorInput.
+  Fires a due scheduled event by appending an ActorEvent.
   """
   @spec fire_due_event(Ecto.UUID.t(), keyword()) ::
           {:ok, %{status: :fired | :noop | :cancelled, scheduled_event: ScheduledEvent.t() | nil}}
@@ -137,6 +137,12 @@ defmodule Ankole.Schedule do
   """
   @spec event_projection(ScheduledEvent.t()) :: map()
   defdelegate event_projection(event), to: Projections
+
+  @doc """
+  Returns the model-visible scheduled event projection for schedule RPC responses.
+  """
+  @spec event_model_projection(ScheduledEvent.t()) :: map()
+  defdelegate event_model_projection(event), to: Projections
 
   @doc """
   Computes the next fire time after a reference time for a schedule payload.

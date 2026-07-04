@@ -1,7 +1,6 @@
 import { z } from 'zod'
 import { isPlainObject } from '@pleisto/active-support'
 import type { AgentTool, AgentToolResult } from '../core'
-import { buildTool } from './build-tool'
 
 const VALID_STATUSES = ['pending', 'in_progress', 'completed', 'cancelled'] as const
 const VALID_STATUS_SET = new Set<string>(VALID_STATUSES)
@@ -145,38 +144,9 @@ export class TodoStore {
     return this.read()
   }
 
-  /** Reloads the list from persisted tool details after a restart/compaction. Non-array input is ignored. */
-  hydrate(todos: unknown): void {
-    if (!Array.isArray(todos)) return
-    this.write(todos, false)
-  }
-
   snapshot(): TodoToolDetails {
     const todos = this.read()
     return { todos, summary: summarizeTodos(todos) }
-  }
-
-  /**
-   * Compact view of just the unfinished items, re-injected into the context
-   * each turn so the model keeps seeing its plan even after compaction dropped
-   * the original tool results. Returns undefined when nothing is active, so the
-   * caller can skip adding an empty block.
-   */
-  formatActiveSnapshot(): string | undefined {
-    const active = this.items.filter(item => item.status === 'pending' || item.status === 'in_progress')
-    if (active.length === 0) return undefined
-
-    const marker = {
-      pending: '[ ]',
-      in_progress: '[>]',
-      completed: '[x]',
-      cancelled: '[~]'
-    } satisfies Record<TodoStatus, string>
-
-    return [
-      '[Your active task list was preserved for this conversation]',
-      ...active.map(item => `- ${marker[item.status]} ${item.id}. ${item.content} (${item.status})`)
-    ].join('\n')
   }
 
   // Coerces one untrusted item into a well-formed TodoItem. Missing id/content
@@ -212,14 +182,11 @@ export class TodoStore {
  * Builds the `todo` tool over a run-scoped store. Reading and writing share one
  * entry point: a write only happens when `todos` is present, otherwise the call
  * is a pure read. Either way the full current list is returned, so the model
- * always sees the post-write state. Not read-only (it mutates the plan) but not
- * destructive — nothing outside the session is touched. Sequential so two writes
- * in one batch cannot interleave and corrupt the list.
+ * always sees the post-write state.
  */
 export function createTodoTool(store: TodoStore): AgentTool<typeof TodoParams, TodoToolDetails> {
-  return buildTool({
+  return {
     name: 'todo',
-    label: 'Todo',
     description: DESCRIPTION,
     schema: TodoParams,
     executionMode: 'sequential',
@@ -233,7 +200,7 @@ export function createTodoTool(store: TodoStore): AgentTool<typeof TodoParams, T
         details
       }
     }
-  })
+  }
 }
 
 export function summarizeTodos(todos: TodoItem[]): TodoSummary {
@@ -244,20 +211,6 @@ export function summarizeTodos(todos: TodoItem[]): TodoSummary {
     completed: todos.filter(item => item.status === 'completed').length,
     cancelled: todos.filter(item => item.status === 'cancelled').length
   }
-}
-
-/**
- * Recovers the todo list out of a persisted tool-result `details` blob (used
- * when rebuilding the store from the trajectory). Runs the blob back through a
- * throwaway store so the same normalization/caps apply. Returns undefined when
- * the blob is not a recognizable todo result.
- */
-export function todoItemsFromToolDetails(details: unknown): TodoItem[] | undefined {
-  if (!isPlainObject(details)) return undefined
-  if (!Array.isArray(details.todos)) return undefined
-  const store = new TodoStore()
-  store.hydrate(details.todos)
-  return store.read()
 }
 
 // Reads one field off an untrusted item as a trimmed string. Anything that is

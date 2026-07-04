@@ -415,17 +415,6 @@ defmodule Ankole.ActorRuntime.FileTransferLaneTest do
         # Sanity: the worker-side decode recovers exactly the original content.
         ^decoded = content
 
-        {path, decoded} =
-          Agent.get(stored, fn state ->
-            {state.begin.path, zstd_decode_chunks!(state.chunks)}
-          end)
-
-        chunk_count = Agent.get(stored, fn state -> length(state.chunks) end)
-        ^chunk_count = 2
-
-        # Sanity: the worker-side decode recovers exactly the original content.
-        ^decoded = content
-
         FileTransferLane.handle_worker_frame(route_auth, [
           protocol,
           "WRITE_COMMITTED",

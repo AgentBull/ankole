@@ -1,5 +1,24 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { normalize, resolve } from 'node:path'
+import {
+  assertSafeBrowserUrl,
+  browserDoctor,
+  browserBack,
+  browserClick,
+  browserExtractFromSession,
+  browserFindInSession,
+  browserNavigate,
+  browserPress,
+  browserScreenshot,
+  browserScroll,
+  browserSelect,
+  browserSnapshot,
+  browserStatus,
+  browserType,
+  browserWait,
+  launchBrowserSession,
+  redactBrowserJson
+} from './browser_cdp'
 
 type JsonObject = Record<string, unknown>
 
@@ -19,6 +38,32 @@ async function dispatch(commandName: string, args: string[]): Promise<JsonObject
   switch (commandName) {
     case 'doctor':
       return doctor()
+    case 'launch':
+      return await launch(args)
+    case 'status':
+      return await status(args)
+    case 'navigate':
+      return await navigate(args)
+    case 'snapshot':
+      return await snapshot(args)
+    case 'find':
+      return await find(args)
+    case 'click':
+      return await click(args)
+    case 'type':
+      return await typeText(args)
+    case 'press':
+      return await press(args)
+    case 'scroll':
+      return await scroll(args)
+    case 'select':
+      return await select(args)
+    case 'wait':
+      return await wait(args)
+    case 'back':
+      return await back(args)
+    case 'screenshot':
+      return await screenshot(args)
     case 'open':
       return await openUrl(args)
     case 'extract':
@@ -30,16 +75,115 @@ async function dispatch(commandName: string, args: string[]): Promise<JsonObject
   }
 }
 
+async function launch(args: string[]): Promise<JsonObject> {
+  return await launchBrowserSession({
+    session: takeValue(args, '--session'),
+    headless: !takeFlag(args, '--headed')
+  })
+}
+
+async function status(args: string[]): Promise<JsonObject> {
+  return await browserStatus({ session: takeValue(args, '--session') })
+}
+
+async function navigate(args: string[]): Promise<JsonObject> {
+  const url = takeValue(args, '--url') || args[0]
+  if (!url) throw new Error('navigate requires --url')
+  return await browserNavigate({
+    session: takeValue(args, '--session'),
+    taskId: takeValue(args, '--task-id'),
+    url,
+    screenshot: takeFlag(args, '--screenshot')
+  })
+}
+
+async function snapshot(args: string[]): Promise<JsonObject> {
+  return await browserSnapshot({
+    session: takeValue(args, '--session'),
+    full: takeFlag(args, '--full')
+  })
+}
+
+async function find(args: string[]): Promise<JsonObject> {
+  const query = takeValue(args, '--query') || args[0]
+  if (!query) throw new Error('find requires --query')
+  return await browserFindInSession({
+    session: takeValue(args, '--session'),
+    query,
+    contextLines: optionalInt(takeValue(args, '--context-lines')),
+    matchLimit: optionalInt(takeValue(args, '--match-limit')),
+    caseSensitive: takeFlag(args, '--case-sensitive')
+  })
+}
+
+async function click(args: string[]): Promise<JsonObject> {
+  const ref = takeValue(args, '--ref') || args[0]
+  if (!ref) throw new Error('click requires --ref')
+  return await browserClick({ session: takeValue(args, '--session'), ref })
+}
+
+async function typeText(args: string[]): Promise<JsonObject> {
+  const ref = takeValue(args, '--ref') || args[0]
+  const text = takeValue(args, '--text') || args[1]
+  if (!ref) throw new Error('type requires --ref')
+  if (text === undefined) throw new Error('type requires --text')
+  return await browserType({ session: takeValue(args, '--session'), ref, text })
+}
+
+async function press(args: string[]): Promise<JsonObject> {
+  const key = takeValue(args, '--key') || args[0]
+  if (!key) throw new Error('press requires --key')
+  return await browserPress({ session: takeValue(args, '--session'), key })
+}
+
+async function scroll(args: string[]): Promise<JsonObject> {
+  return await browserScroll({
+    session: takeValue(args, '--session'),
+    ref: takeValue(args, '--ref'),
+    direction: takeValue(args, '--direction'),
+    pixels: optionalInt(takeValue(args, '--pixels'))
+  })
+}
+
+async function select(args: string[]): Promise<JsonObject> {
+  const ref = takeValue(args, '--ref') || args[0]
+  const value = takeValue(args, '--value') || args[1]
+  if (!ref) throw new Error('select requires --ref')
+  if (value === undefined) throw new Error('select requires --value')
+  return await browserSelect({ session: takeValue(args, '--session'), ref, value })
+}
+
+async function wait(args: string[]): Promise<JsonObject> {
+  return await browserWait({
+    session: takeValue(args, '--session'),
+    kind: takeValue(args, '--kind'),
+    text: takeValue(args, '--text'),
+    selector: takeValue(args, '--selector'),
+    timeoutMs: optionalInt(takeValue(args, '--timeout-ms'))
+  })
+}
+
+async function back(args: string[]): Promise<JsonObject> {
+  return await browserBack({ session: takeValue(args, '--session') })
+}
+
+async function screenshot(args: string[]): Promise<JsonObject> {
+  return await browserScreenshot({
+    session: takeValue(args, '--session'),
+    taskId: takeValue(args, '--task-id'),
+    path: takeValue(args, '--path')
+  })
+}
+
 function doctor(): JsonObject {
-  const chromium = findChromium()
+  const browser = browserDoctor()
   const python = spawnCapture(['python3', '--version'])
   const captureDir = safePath(defaultOutDir())
   mkdirSync(captureDir, { recursive: true })
 
   return {
-    ok: python.exit_code === 0,
-    backend: chromium ? 'chromium' : 'fetch',
-    chromium_path: chromium,
+    ...browser,
+    ok: python.exit_code === 0 && browser.ok === true,
     capture_dir: defaultOutDir(),
     python: python.stdout.trim() || python.stderr.trim() || null
   }
@@ -50,77 +194,28 @@ async function openUrl(args: string[]): Promise<JsonObject> {
   if (!url) {
     throw new Error('open requires --url')
   }
+  assertSafeBrowserUrl(url)
 
   const taskId = takeValue(args, '--task-id')
   const session = takeValue(args, '--session')
-  takeValue(args, '--profile-session')
-  takeValue(args, '--profile-mode')
-  takeValue(args, '--headless')
-  takeValue(args, '--wait-until')
-  takeValue(args, '--wait-after-ms')
-  takeValue(args, '--timeout-ms')
-  takeFlag(args, '--auto-fetch')
 
   const outDir = takeValue(args, '--out-dir') || captureDir(session, taskId)
   const outDirPath = safePath(outDir)
   mkdirSync(outDirPath, { recursive: true })
   const htmlPath = resolve(outDirPath, 'latest.html')
   const textPath = resolve(outDirPath, 'latest.txt')
-  const screenshotPath = resolve(outDirPath, 'latest.png')
 
-  const chromium = findChromium()
-  if (chromium) {
-    const profileDir = resolve(outDirPath, 'profile')
-    mkdirSync(profileDir, { recursive: true })
-    const rendered = spawnCapture([
-      'timeout',
-      '30s',
-      chromium,
-      '--headless=new',
-      '--disable-gpu',
-      '--no-sandbox',
-      '--disable-dev-shm-usage',
-      `--user-data-dir=${profileDir}`,
-      '--window-size=1280,800',
-      `--screenshot=${screenshotPath}`,
-      '--dump-dom',
-      url
-    ])
-
-    if (rendered.exit_code === 0 && rendered.stdout.trim()) {
-      writeFileSync(htmlPath, rendered.stdout)
-      const text = htmlToText(rendered.stdout)
-      writeFileSync(textPath, text)
-      return {
-        ok: true,
-        backend: 'chromium',
-        url,
-        html_path: toWorkspacePath(htmlPath),
-        text_path: toWorkspacePath(textPath),
-        screenshot_path: existsSync(screenshotPath) ? toWorkspacePath(screenshotPath) : null,
-        text: truncate(text)
-      }
-    }
-  }
-
-  const response = await fetch(url, {
-    headers: {
-      'User-Agent': 'Ankole Agent Computer'
-    }
-  })
-  const html = await response.text()
-  writeFileSync(htmlPath, html)
-  const text = htmlToText(html)
+  const navigated = await browserNavigate({ session, taskId, url, screenshot: true })
+  const extracted = await browserExtractFromSession({ session, taskId })
+  const text = typeof extracted?.text === 'string' ? extracted.text : ''
+  writeFileSync(htmlPath, '')
   writeFileSync(textPath, text)
 
   return {
-    ok: response.ok,
-    backend: 'fetch',
+    ...navigated,
     url,
-    status: response.status,
     html_path: toWorkspacePath(htmlPath),
     text_path: toWorkspacePath(textPath),
-    screenshot_path: null,
     text: truncate(text)
   }
 }
@@ -129,34 +224,11 @@ async function extract(args: string[]): Promise<JsonObject> {
   const url = takeValue(args, '--url')
   const taskId = takeValue(args, '--task-id')
   const session = takeValue(args, '--session')
-  takeValue(args, '--profile-session')
-  takeValue(args, '--profile-mode')
-  takeValue(args, '--headless')
-  takeValue(args, '--wait-until')
-  takeValue(args, '--wait-after-ms')
-  takeValue(args, '--timeout-ms')
-  takeFlag(args, '--auto-fetch')
-
-  if (url) {
-    await openUrl(['--url', url, ...(session ? ['--session', session] : []), ...(taskId ? ['--task-id', taskId] : [])])
-  }
-
-  const path = takeValue(args, '--path') || `${captureDir(session, taskId)}/latest.txt`
   const pattern = takeValue(args, '--pattern')
-  const text = readFileSync(safePath(path), 'utf8')
-  const extracted = pattern
-    ? text
-        .split(/\r?\n/)
-        .filter(line => line.toLowerCase().includes(pattern.toLowerCase()))
-        .join('\n')
-    : text
 
-  return {
-    ok: true,
-    path,
-    pattern: pattern || null,
-    text: truncate(extracted)
-  }
+  const extracted = await browserExtractFromSession({ session, url, taskId, pattern })
+  if (!extracted) throw new Error('No active browser session; run browser_navigate first.')
+  return extracted
 }
 
 function run(args: string[]): JsonObject {
@@ -167,12 +239,7 @@ function run(args: string[]): JsonObject {
 
   const startUrl = takeValue(args, '--start-url')
   takeValue(args, '--session')
-  takeValue(args, '--profile-session')
   takeValue(args, '--task-id')
-  takeValue(args, '--profile-mode')
-  takeValue(args, '--headless')
-  takeValue(args, '--timeout-ms')
-  takeFlag(args, '--auto-fetch')
 
   const workdir = safePath(takeValue(args, '--workdir') || '/workspace')
   mkdirSync(workdir, { recursive: true })
@@ -190,20 +257,6 @@ function run(args: string[]): JsonObject {
     stdout: truncate(result.stdout),
     stderr: truncate(result.stderr)
   }
-}
-
-function findChromium(): string | null {
-  if (process.env.ANKOLE_BROWSER_BACKEND === 'fetch') {
-    return null
-  }
-
-  for (const candidate of ['chromium', 'chromium-browser', 'google-chrome', 'google-chrome-stable']) {
-    const found = spawnCapture(['bash', '-lc', `command -v ${candidate}`])
-    if (found.exit_code === 0 && found.stdout.trim()) {
-      return found.stdout.trim()
-    }
-  }
-  return null
 }
 
 function spawnCapture(
@@ -264,21 +317,6 @@ function toWorkspacePath(path: string): string {
   return path
 }
 
-function htmlToText(html: string): string {
-  return html
-    .replaceAll(/<script[\s\S]*?<\/script>/gi, '\n')
-    .replaceAll(/<style[\s\S]*?<\/style>/gi, '\n')
-    .replaceAll(/<[^>]+>/g, '\n')
-    .replaceAll(/&nbsp;/g, ' ')
-    .replaceAll(/&amp;/g, '&')
-    .replaceAll(/&lt;/g, '<')
-    .replaceAll(/&gt;/g, '>')
-    .split(/\r?\n/)
-    .map(line => line.trim())
-    .filter(Boolean)
-    .join('\n')
-}
-
 function truncate(text: string): string {
   return text.length > 8_000 ? `${text.slice(0, 8_000)}\n[truncated]` : text
 }
@@ -310,11 +348,18 @@ function takeValue(args: string[], flag: string): string | undefined {
   return value
 }
 
+function optionalInt(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined
+  const parsed = Number.parseInt(value, 10)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
 function writeResult(result: JsonObject | string, exitCode = 0): void {
+  const redacted = typeof result === 'string' ? result : redactBrowserJson(result)
   if (jsonOutput || typeof result !== 'string') {
-    process.stdout.write(`${JSON.stringify(result)}\n`)
+    process.stdout.write(`${JSON.stringify(redacted)}\n`)
   } else {
-    process.stdout.write(`${result}\n`)
+    process.stdout.write(`${redacted}\n`)
   }
   process.exit(exitCode)
 }

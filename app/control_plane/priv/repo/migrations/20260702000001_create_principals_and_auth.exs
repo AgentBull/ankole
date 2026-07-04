@@ -1,18 +1,18 @@
 defmodule Ankole.Repo.Migrations.CreatePrincipalsAndAuth do
-  # 基础身份与授权层。
+  # Identity and authorization tables for one Ankole installation.
   #
-  # 这一组迁移建立 Ankole 安装级的所有权主体与权限模型：
-  #   - principals / human_users / agents           身份三件套（统一 uid 主键）
-  #   - principal_external_identities               外部平台身份绑定
-  #   - principal_groups / memberships / bindings   授权分组
-  #   - permission_grants                           资源-动作授权
+  # This migration creates the persistent accountability model:
+  #   - principals / human_users / agents: shared uid core plus profile tables
+  #   - principal_external_identities: provider, channel, and login bindings
+  #   - principal_groups / memberships / bindings: static or computed groups
+  #   - permission_grants: resource/action rules evaluated by AuthZ
   #
-  # Principal uid 是全安装范围的小写主键（见 AGENTS.md「Principal/AuthZ」约定），
-  # 所有引用它的外键都用 references(:principals, column: :uid, type: :text)。
+  # Principal uid is the installation-wide lowercase text key, so every foreign
+  # key points at principals.uid instead of introducing a parallel shadow id.
   use Ecto.Migration
 
   def change do
-    # ── 枚举类型 ──────────────────────────────────────────────
+    # Native enum types keep policy and identity states constrained in Postgres.
     execute(
       "CREATE TYPE principal_type AS ENUM ('human', 'agent')",
       "DROP TYPE principal_type"
@@ -45,7 +45,7 @@ defmodule Ankole.Repo.Migrations.CreatePrincipalsAndAuth do
       "DROP TYPE principal_group_kind"
     )
 
-    # ── principals：一切主体的小写 uid 主键 ───────────────────
+    # principals is the shared accountable-subject table for humans and agents.
     create table(:principals, primary_key: false) do
       add :uid, :text, primary_key: true
       add :type, :principal_type, null: false
@@ -70,7 +70,7 @@ defmodule Ankole.Repo.Migrations.CreatePrincipalsAndAuth do
       avatar_url: "Optional avatar image URL for UI rendering."
     })
 
-    # ── human_users：人类主体扩展字段 ─────────────────────────
+    # Human profile data stays separate from the principal accountability row.
     create table(:human_users, primary_key: false) do
       add :principal_uid,
           references(:principals, column: :uid, type: :text, on_delete: :delete_all),
@@ -102,7 +102,7 @@ defmodule Ankole.Repo.Migrations.CreatePrincipalsAndAuth do
       job_title: "Operator-visible role or title for the human."
     })
 
-    # ── agents：AI 代理主体扩展字段 ───────────────────────────
+    # Agent profile data extends principals for actors that can run work.
     create table(:agents, primary_key: false) do
       add :uid,
           references(:principals, column: :uid, type: :text, on_delete: :delete_all),
@@ -120,7 +120,7 @@ defmodule Ankole.Repo.Migrations.CreatePrincipalsAndAuth do
 
     create index(:agents, [:created_by_principal_uid])
 
-    # 加速「哪些 agent 用到了某个 provider」的反查（GIN on jsonb path）。
+    # Allows reverse lookup from provider rows to agents that reference them in model options.
     execute(
       """
       CREATE INDEX agents_ai_agent_model_provider_ids_index
@@ -147,7 +147,7 @@ defmodule Ankole.Repo.Migrations.CreatePrincipalsAndAuth do
       created_by_principal_uid: "Human or agent principal that created this agent."
     })
 
-    # ── principal_external_identities：外部身份绑定 ──────────
+    # External identities encode channel actors and provider-wide subjects differently.
     create table(:principal_external_identities, primary_key: false) do
       add :id, :uuid, primary_key: true
 
@@ -182,7 +182,7 @@ defmodule Ankole.Repo.Migrations.CreatePrincipalsAndAuth do
              where: "kind <> 'channel_actor'"
            )
 
-    # channel_actor 形状与非 channel_actor 形状互斥：一组字段必填另一组必空。
+    # channel_actor rows use adapter/channel/external_id; other identities use provider/external_id.
     create constraint(
              :principal_external_identities,
              :principal_external_identities_shape,
@@ -233,7 +233,7 @@ defmodule Ankole.Repo.Migrations.CreatePrincipalsAndAuth do
       metadata: "Provider-specific identity facts kept outside the stable contract."
     })
 
-    # ── principal_groups：授权分组 ────────────────────────────
+    # Principal groups collect direct or computed membership for grants.
     create table(:principal_groups, primary_key: false) do
       add :id, :uuid, primary_key: true
       add :name, :text, null: false
@@ -261,7 +261,7 @@ defmodule Ankole.Repo.Migrations.CreatePrincipalsAndAuth do
              check: "length(btrim(display_name)) > 0"
            )
 
-    # static 组不能有 computed_condition；computed 组必须有非空 condition。
+    # Static groups store explicit rows; computed groups must carry a membership expression.
     create constraint(:principal_groups, :principal_groups_computed_condition_by_kind,
              check: """
              (
@@ -293,7 +293,7 @@ defmodule Ankole.Repo.Migrations.CreatePrincipalsAndAuth do
       metadata: "Group metadata that is useful but not part of authorization matching."
     })
 
-    # ── principal_group_memberships：静态组成员 ───────────────
+    # Static memberships are persisted rows; computed membership is evaluated from group conditions.
     create table(:principal_group_memberships, primary_key: false) do
       add :principal_uid,
           references(:principals, column: :uid, type: :text, on_delete: :delete_all),
@@ -315,7 +315,7 @@ defmodule Ankole.Repo.Migrations.CreatePrincipalsAndAuth do
       group_id: "Group receiving the principal membership."
     })
 
-    # ── principal_group_external_bindings：外部分组绑定 ──────
+    # External group bindings map provider group ids into Ankole authorization groups.
     create table(:principal_group_external_bindings, primary_key: false) do
       add :provider, :text, primary_key: true
       add :external_id, :text, primary_key: true
@@ -367,7 +367,7 @@ defmodule Ankole.Repo.Migrations.CreatePrincipalsAndAuth do
       metadata: "Provider-specific binding facts kept outside the stable contract."
     })
 
-    # ── permission_grants：资源-动作授权 ──────────────────────
+    # Grants bind one principal or group to a resource/action rule.
     create table(:permission_grants, primary_key: false) do
       add :id, :uuid, primary_key: true
 
@@ -401,7 +401,7 @@ defmodule Ankole.Repo.Migrations.CreatePrincipalsAndAuth do
              where: "group_id IS NOT NULL"
            )
 
-    # 一条 grant 必须归属且仅归属一个主体：principal 或 group，二选一。
+    # A grant must have exactly one owner, either a principal or a group.
     create constraint(:permission_grants, :permission_grants_owner_shape,
              check: """
              (
@@ -424,7 +424,7 @@ defmodule Ankole.Repo.Migrations.CreatePrincipalsAndAuth do
              check: "length(btrim(action)) > 0"
            )
 
-    # action 不允许含冒号——冒号是 resource:action 分隔符，混入会破坏解析。
+    # Actions cannot contain ':' because AuthZ parses resource:action with ':' as the separator.
     create constraint(:permission_grants, :permission_grants_action_no_colon,
              check: "position(':' in action) = 0"
            )
@@ -450,8 +450,8 @@ defmodule Ankole.Repo.Migrations.CreatePrincipalsAndAuth do
     })
   end
 
-  # ── COMMENT 辅助函数：给表/列写文档注释 ───────────────────
-  # 用 execute 正反向，确保 down 时能清理。identifier 做标识符转义防注入。
+  # These helpers write PostgreSQL comments during replay and remove them on rollback.
+  # identifier/literal keep generated SQL quoted instead of trusting caller input.
 
   defp comment_table(table, comment) do
     execute(

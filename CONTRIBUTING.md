@@ -11,18 +11,18 @@ Thank you for your interest in contributing to Ankole! We welcome bug reports, f
 - **Bun `1.3.14`** — pinned via `packageManager` in `package.json`; CI uses the same. Bun is the package manager, test runner, and bundler for the TypeScript/Bun workspaces, and the entry point for control-plane scripts.
 - **Elixir / Erlang (OTP)** — required for the Phoenix control plane under `app/control_plane`.
 - **Rust toolchain** (stable, with `clippy` and `rustfmt`) — required for the native kernel under `app/kernel`, which is loaded by Elixir (Rustler) and Bun (N-API).
-- **Docker** — used to run local PostgreSQL and Redis through the devkit Compose file, and to build/run the Agent Computer worker image.
+- **Docker** — used to run local PostgreSQL through the devkit Compose file, and to build/run the Agent Computer worker image.
 
 ### First run
 
 ```sh
 bun install              # install deps; also sets core.hooksPath via the prepare script
-bun run services:start   # start local PostgreSQL + Redis (devkit Docker Compose)
+bun run services:start   # start local PostgreSQL (devkit Docker Compose)
 bun run control-plane:setup   # mix setup: deps.get + ecto.create + ecto.migrate + seeds
 bun run control-plane:dev     # start the Phoenix control plane with hot reload
 ```
 
-The control plane owns durable state through Ecto migrations under `app/control_plane/priv/repo/migrations`. To drop, recreate, and migrate the local database, run `bun run control-plane -- ecto.reset`. The devkit Compose file lives at `tools/devkit/external-services.docker-compose.yml`.
+The control plane owns durable state through Ecto migrations under `app/control_plane/priv/repo/migrations`. To drop, recreate, and migrate the local database, run `bun run control-plane:ecto:reset`. The devkit Compose file lives at `tools/devkit/external-services.docker-compose.yml`.
 
 ### Git hooks
 
@@ -52,11 +52,17 @@ bun run feishu-openapi:test
 bun run control-plane:test        # mix test
 ```
 
-Heavier end-to-end checks are available but not part of the default gate:
+Heavier end-to-end checks are available but not part of the default gate. The
+one entrypoint is `tools/e2e/run` (also exposed as `bun run e2e`); preflight
+builds the worker image and starts the devkit Postgres when they are missing:
 
 ```sh
-bun run agent-computer:e2e        # control-plane-side worker runtime end-to-end (Docker-backed)
-bun run --filter @ankole/control-plane e2e:actor-runtime-worker
+tools/e2e/run                       # gate suites: transport, main flow, lifecycle, worker/computer, schedule
+tools/e2e/run --perf                # concurrency/throughput baseline
+tools/e2e/run --chaos               # worker kill, fabric restart, redelivery, send-failure chaos
+tools/e2e/run --real-provider --providers=available
+ANKOLE_REAL_LLM_E2E=1 OPENROUTER_API_KEY=... tools/e2e/run --real-llm
+tools/e2e/run --all                 # everything above, real suites only when keys exist
 ```
 
 ### Repository toolkit (`kit`)
@@ -67,7 +73,7 @@ Most repo chores go through the devkit, exposed as `bun run kit`:
 bun run kit --help          # list all commands
 bun run services:status     # local services state
 bun run workspace:update    # regenerate the VS Code workspace file
-bun run analyze all          # static analysis across the workspaces
+bun run analyze              # static analysis across the workspaces
 ```
 
 The Compose file lives at `tools/devkit/external-services.docker-compose.yml`.

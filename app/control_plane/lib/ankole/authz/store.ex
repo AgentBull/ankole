@@ -19,12 +19,12 @@ defmodule Ankole.AuthZ.Store do
     end
   end
 
-  def add_principal_to_group(repo, principal_uid, group_id_or_name) do
+  def add_principal_to_group(repo, principal_uid, group_id_or_name, admin_group_name) do
     with {:ok, group} <- fetch_group_for_update(repo, group_id_or_name),
          :ok <- ensure_static_group(group),
-         {:ok, principal_uid} <- Principals.normalize_uid(principal_uid),
-         :ok <- ensure_principal_exists(repo, principal_uid) do
-      insert_membership(repo, group.id, principal_uid)
+         {:ok, principal} <- fetch_principal_for_update(repo, principal_uid),
+         :ok <- ensure_group_accepts_principal(group, principal, admin_group_name) do
+      insert_membership(repo, group.id, principal.uid)
     end
   end
 
@@ -65,6 +65,30 @@ defmodule Ankole.AuthZ.Store do
     end
   end
 
+  def sync_external_directory_group_memberships(repo, provider, principal_uid, external_ids)
+      when is_list(external_ids) do
+    with {:ok, provider} <- Input.normalize_provider(provider),
+         {:ok, external_ids} <- normalize_external_ids(external_ids),
+         {:ok, principal} <- fetch_principal_for_update(repo, principal_uid) do
+      managed_group_ids = managed_external_directory_group_ids(repo, provider, "department")
+
+      desired_group_ids =
+        desired_external_directory_group_ids(repo, provider, external_ids, "department")
+
+      stale_group_ids = managed_group_ids -- desired_group_ids
+
+      with :ok <- insert_memberships(repo, desired_group_ids, principal.uid) do
+        removed_memberships = delete_memberships(repo, principal.uid, stale_group_ids)
+
+        {:ok,
+         %{
+           synced_group_ids: desired_group_ids,
+           removed_memberships: removed_memberships
+         }}
+      end
+    end
+  end
+
   def ensure_can_disable_principal(principal_uid, repo, admin_group_name) do
     with {:ok, principal_uid} <- Principals.normalize_uid(principal_uid),
          {:ok, principal} <- fetch_principal_for_update(repo, principal_uid) do
@@ -82,13 +106,6 @@ defmodule Ankole.AuthZ.Store do
     %Membership{}
     |> Membership.changeset(%{group_id: group_id, principal_uid: principal_uid})
     |> repo.insert(on_conflict: :nothing, conflict_target: [:principal_uid, :group_id])
-  end
-
-  def ensure_principal_exists(repo, principal_uid) do
-    case repo.get(Principal, principal_uid) do
-      %Principal{} -> :ok
-      nil -> {:error, :principal_not_found}
-    end
   end
 
   def fetch_principal(repo, principal_uid) do
@@ -159,6 +176,17 @@ defmodule Ankole.AuthZ.Store do
   def ensure_static_group(%Group{kind: :static}), do: :ok
   def ensure_static_group(%Group{kind: :computed}), do: {:error, :computed_group}
 
+  defp ensure_group_accepts_principal(
+         %Group{name: group_name, built_in: true},
+         %Principal{} = principal,
+         admin_group_name
+       )
+       when group_name == admin_group_name do
+    ensure_active_human(principal)
+  end
+
+  defp ensure_group_accepts_principal(%Group{}, %Principal{}, _admin_group_name), do: :ok
+
   def ensure_operator_group(%Group{built_in: false}), do: :ok
   def ensure_operator_group(%Group{built_in: true}), do: {:error, :built_in_group}
 
@@ -200,6 +228,80 @@ defmodule Ankole.AuthZ.Store do
       :error ->
         :ok
     end
+  end
+
+  defp normalize_external_ids(external_ids) do
+    external_ids
+    |> Enum.reduce_while({:ok, []}, fn external_id, {:ok, acc} ->
+      case Input.normalize_required_text(external_id) do
+        {:ok, external_id} -> {:cont, {:ok, [external_id | acc]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, external_ids} ->
+        {:ok, external_ids |> Enum.reverse() |> Enum.uniq()}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp managed_external_directory_group_ids(repo, provider, kind) do
+    Group
+    |> external_directory_group_scope(provider, kind)
+    |> select([group], group.id)
+    |> order_by([group], asc: group.id)
+    |> repo.all()
+  end
+
+  defp desired_external_directory_group_ids(_repo, _provider, [], _kind), do: []
+
+  defp desired_external_directory_group_ids(repo, provider, external_ids, kind) do
+    ExternalBinding
+    |> join(:inner, [binding], group in Group, on: group.id == binding.group_id)
+    |> where(
+      [binding, group],
+      binding.provider == ^provider and binding.external_id in ^external_ids and
+        group.kind == :static and group.built_in == false and
+        fragment("?->'external_directory'->>'provider' = ?", group.metadata, ^provider) and
+        fragment("?->'external_directory'->>'kind' = ?", group.metadata, ^kind)
+    )
+    |> distinct(true)
+    |> select([_binding, group], group.id)
+    |> order_by([_binding, group], asc: group.id)
+    |> repo.all()
+  end
+
+  defp external_directory_group_scope(queryable, provider, kind) do
+    queryable
+    |> where(
+      [group],
+      group.kind == :static and group.built_in == false and
+        fragment("?->'external_directory'->>'provider' = ?", group.metadata, ^provider) and
+        fragment("?->'external_directory'->>'kind' = ?", group.metadata, ^kind)
+    )
+  end
+
+  defp insert_memberships(repo, group_ids, principal_uid) do
+    Enum.reduce_while(group_ids, :ok, fn group_id, :ok ->
+      case insert_membership(repo, group_id, principal_uid) do
+        {:ok, _membership} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp delete_memberships(_repo, _principal_uid, []), do: 0
+
+  defp delete_memberships(repo, principal_uid, group_ids) do
+    {count, _rows} =
+      repo.delete_all(
+        from membership in Membership,
+          where: membership.principal_uid == ^principal_uid and membership.group_id in ^group_ids
+      )
+
+    count
   end
 
   defp remove_membership(

@@ -2,11 +2,12 @@ defmodule AnkoleWeb.ConsolePolicy do
   @moduledoc """
   Authorization boundary for console REST API actions.
 
-  Console authorization keeps the coarse active-admin identity gate, then routes
-  concrete resource/action checks through `Ankole.AuthZ`.
+  The console API pipeline already verifies the bearer token and re-checks that
+  the subject is still an active human admin. This module keeps the explicit
+  AuthZ decision path alive for resource/action checks without doing per-request
+  grant repair.
   """
 
-  alias Ankole.AdminAuth
   alias Ankole.AuthZ
 
   @type resource :: String.t()
@@ -18,9 +19,7 @@ defmodule AnkoleWeb.ConsolePolicy do
   @spec authorize(Plug.Conn.t(), resource(), action()) :: :ok | {:error, :forbidden}
   def authorize(%Plug.Conn{assigns: %{current_principal_uid: principal_uid}}, resource, action)
       when is_binary(principal_uid) do
-    with true <- AdminAuth.active_human_admin?(principal_uid),
-         :ok <- AuthZ.ensure_console_admin_grants(),
-         :ok <-
+    with :ok <-
            AuthZ.authorize(principal_uid, resource, action, %{
              "surface" => "console_rest"
            }) do

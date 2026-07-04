@@ -1,6 +1,6 @@
 defmodule Ankole.ActorRuntime.ActivationManager do
   @moduledoc """
-  Polls the durable actor input journal and wakes session controllers.
+  Polls the durable actor event journal and wakes session controllers.
   """
 
   use GenServer
@@ -9,8 +9,6 @@ defmodule Ankole.ActorRuntime.ActivationManager do
 
   alias Ankole.Actors
   alias Ankole.ActorRuntime.SessionController
-  alias Ankole.SignalsGateway
-
   # 500ms poll keeps recovery latency low without hammering the journal; the
   # `wake/0` cast handles the hot path, so this is mainly a safety net.
   @default_interval_ms 500
@@ -33,9 +31,6 @@ defmodule Ankole.ActorRuntime.ActivationManager do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
     limit = Keyword.get(opts, :limit, @default_limit)
 
-    {:ok, _finalized_batches} =
-      SignalsGateway.finalize_due_inbound_batches(now: now, limit: limit)
-
     results =
       now
       |> Actors.list_ready_actor_keys(limit)
@@ -45,10 +40,10 @@ defmodule Ankole.ActorRuntime.ActivationManager do
   end
 
   @doc """
-  Best-effort wakeup after ingress commits actor input.
+  Best-effort wakeup after ingress commits actor event.
 
   The periodic poll is still the source of recovery. The wake call only lowers
-  latency after a signal adapter commits new actor input.
+  latency after a signal adapter commits new actor event.
   """
   @spec wake() :: :ok
   def wake do
@@ -89,7 +84,7 @@ defmodule Ankole.ActorRuntime.ActivationManager do
   end
 
   # Polling fans out to per-actor session controllers so one slow actor does not
-  # serialize all ready input behind this manager process.
+  # serialize all ready event admission behind this manager process.
   defp poll(state) do
     {:ok, _results} = run_once(limit: state.limit)
     :ok

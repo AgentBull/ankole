@@ -5,18 +5,17 @@ package ankole.runtime_fabric.v1;
 message ActorKey {
   string agent_uid = 1;
   string session_id = 2;
-  reserved 3, 4;
 }
 
 message ActorTurnRef {
-  // The control plane checks this turn fence before accepting worker output.
-  // Actor identity, activation, epoch, and turn id identify the turn; revision is
-  // an exact acceptance guard for first delivery and a monotonic guard across
-  // later mailbox/retry updates.
+  // The control plane checks this fence before accepting worker output. Actor
+  // identity, activation, epoch, and the actor-event id identify the run; revision
+  // is an exact acceptance guard for first delivery and a monotonic guard across
+  // later mailbox/retry updates. One worker execution processes one actor event.
   ActorKey actor = 1;
   string activation_uid = 2;
   uint64 actor_epoch = 3;
-  string llm_turn_id = 4;
+  string actor_event_id = 4;
   uint32 revision = 5;
 }
 
@@ -42,7 +41,6 @@ message Envelope {
   uint32 protocol_version = 1;
   string message_id = 2;
   string correlation_id = 3;
-  reserved 4;
   Lane lane = 5;
   // Host wall-clock metadata for logs and metrics; not a replay or ordering
   // fence.
@@ -61,20 +59,14 @@ message Envelope {
     TurnAccepted turn_accepted = 33;
     TurnControl turn_control = 34;
     WorkerProgress worker_progress = 35;
-    TurnFinalProposal turn_final_proposal = 40;
     TurnError turn_error = 41;
+    TurnNoopCompleted turn_noop_completed = 42;
     ControlShutdown control_shutdown = 50;
     RpcRequest rpc_request = 70;
     RpcResponse rpc_response = 71;
     RpcError rpc_error = 72;
   }
 
-  // Field 32 was intentionally skipped to avoid reusing a removed
-  // ActorInputDeliver-style design where single-input delivery was the protocol
-  // body. Current turns carry the accepted input set instead.
-  reserved 32;
-  reserved 60, 61;
-  reserved 100 to 199;
 }
 
 message AgentComputerWorkerReady {
@@ -101,46 +93,50 @@ message AgentComputerWorkerCapacity {
   uint32 available_turn_slots = 4;
 }
 
-message ActorInputEnvelope {
-  // This references the durable actor input row; it is not a replacement for
-  // the control-plane input journal.
-  string actor_input_id = 1;
-  uint64 live_queue_sequence = 2;
+message ActorEventEnvelope {
+  // References the durable actor-event row. One worker execution processes
+  // exactly one actor_event_id.
+  string actor_event_id = 1;
+  uint64 queue_sequence = 2;
   string type = 3;
-  string ingress_event_id = 4;
-  string provider_entry_id = 5;
+  string source_event_id = 4;
+  string source_entry_id = 5;
   bytes payload_json = 6;
+  string binding_name = 7;
+  string signal_channel_id = 8;
+  string provider_thread_id = 9;
 }
 
 message TurnStart {
-  // Starts one local computer turn for an ordered actor-input set.
+  // Starts one local computer run for a single actor event.
   ActorTurnRef turn = 1;
-  repeated ActorInputEnvelope inputs = 2;
+  ActorEventEnvelope actor_event = 2;
   TurnModelRef model_ref = 3;
+  bytes request_context_json = 4;
 }
 
 message TurnModelRef {
   string profile = 1;
   string provider_id = 2;
   string model = 3;
+  string provider_kind = 4;
+  repeated string input_modalities = 5;
+  TurnModelRef vision_fallback_model_ref = 6;
 }
 
 message MailboxUpdated {
-  // Actor fields mirror turn.actor/activation/epoch for flat consumers. The
-  // turn reference remains the authoritative fence for actor-lane handlers.
-  ActorKey actor = 1;
-  string activation_uid = 2;
-  uint64 actor_epoch = 3;
-  string reason = 4;
-  ActorTurnRef turn = 5;
-  repeated ActorInputEnvelope inputs = 6;
+  // Mid-run injections carry exactly one already-journaled actor event.
+  string reason = 1;
+  ActorTurnRef turn = 2;
+  ActorEventEnvelope actor_event = 3;
 }
 
 message TurnAccepted {
-  // Confirms the exact actor inputs the worker accepted before it proposes
-  // output. The control plane requires this before final commit.
+  // Confirms the delivery revision the worker accepted. Terminal commits may
+  // race ahead on the AIGateway path, so acceptance is used to decide which
+  // mid-run mailbox events can be completed with the current turn, not as a
+  // hard prerequisite for the final commit itself.
   ActorTurnRef turn = 1;
-  repeated string accepted_actor_input_ids = 2;
 }
 
 message TurnControl {
@@ -156,44 +152,16 @@ message WorkerProgress {
   bytes refs_json = 4;
 }
 
-message ProposedMessage {
-  string role = 1;
-  bytes content_json = 2;
-  bytes metadata_json = 3;
-}
-
-message ProposedReply {
-  string text = 1;
-  bytes content_json = 2;
-  repeated ProposedReplyAttachment attachments = 3;
-}
-
-message ProposedReplyAttachment {
-  string agent_computer_path = 1;
-  string user_files_relative_path = 2;
-  string name = 3;
-  string mime_type = 4;
-  optional uint64 size = 5;
-  string xxh3_128 = 6;
-}
-
-message TurnFinalProposal {
-  // Worker output is still a proposal. The control plane owns the durable
-  // transcript commit after checking the turn fence and delivery projections.
-  ActorTurnRef turn = 1;
-  repeated ProposedMessage messages = 2;
-  ProposedReply reply = 3;
-  bytes usage_json = 4;
-  bytes provider_metadata_json = 5;
-  string stop_reason = 6;
-  bytes tool_results_json = 7;
-}
-
 message TurnError {
   ActorTurnRef turn = 1;
   string code = 2;
   string message = 3;
   bytes details_json = 4;
+}
+
+message TurnNoopCompleted {
+  ActorTurnRef turn = 1;
+  string reason = 2;
 }
 
 message ControlShutdown {

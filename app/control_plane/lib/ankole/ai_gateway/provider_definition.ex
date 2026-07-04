@@ -58,7 +58,8 @@ defmodule Ankole.AIGateway.ProviderDefinition do
       :timeout_ms
     ]
 
-    @type kind :: :language_model | :embedding_model | :rerank_model
+    @type kind ::
+            :language_model | :embedding_model | :rerank_model | :web_search | :web_fetch
 
     @typedoc """
     Capability metadata used to route a public model capability to provider
@@ -116,4 +117,6 @@ defmodule Ankole.AIGateway.ProviderDefinition do
   def capability_name(:language_model), do: "llm"
   def capability_name(:embedding_model), do: "embedding"
   def capability_name(:rerank_model), do: "rerank"
+  def capability_name(:web_search), do: "web_search"
+  def capability_name(:web_fetch), do: "web_fetch"
 end

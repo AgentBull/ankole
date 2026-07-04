@@ -97,6 +97,24 @@ export const UNUSED_REPO_PATH_PREFIX = /^(app|libs|plugins|tools)\//
 
 export const UNUSED_KNIP_ARGS = ['--no-progress', '--reporter', 'compact', '--files', '--no-config-hints'] as const
 
+// ---------------------------------------------------------------------------
+// structure: konsistent
+// ---------------------------------------------------------------------------
+
+export const STRUCTURE_KONSISTENT_CONFIG_PATH = 'konsistent.json'
+export const STRUCTURE_KONSISTENT_VALIDATE_ARGS = [
+  'validate',
+  '--config-path',
+  STRUCTURE_KONSISTENT_CONFIG_PATH
+] as const
+export const STRUCTURE_KONSISTENT_CHECK_ARGS = [
+  'check',
+  '--config-path',
+  STRUCTURE_KONSISTENT_CONFIG_PATH,
+  '--format=json',
+  '--max-diagnostics=1000'
+] as const
+
 export interface UnusedAllowEntry {
   file: string
   owner: string

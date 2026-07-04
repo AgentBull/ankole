@@ -111,7 +111,7 @@ defmodule Ankole.Plugins.LarkAdapter do
           "oidc_authorization",
           "oidc_code_exchange",
           "user_full_sync",
-          "department_full_sync",
+          "department_access_check",
           "contact_realtime_sync"
         ]
       }
@@ -144,10 +144,7 @@ defmodule Ankole.Plugins.LarkAdapter do
       ),
       field("userName", "Output display name", :string, default: "Lark / Feishu"),
       field("botOpenId", "Bot open_id", :string, []),
-      field("botUserId", "Bot user_id", :string, []),
-      field("streamingEnabled", "Streaming cards", :boolean, default: true),
-      field("streamUpdateIntervalMs", "Streaming update interval", :integer, default: 800),
-      field("streamBufferThreshold", "Streaming buffer threshold", :integer, default: 24)
+      field("botUserId", "Bot user_id", :string, [])
     ]
   end
 

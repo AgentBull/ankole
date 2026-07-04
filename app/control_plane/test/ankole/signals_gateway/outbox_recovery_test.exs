@@ -10,7 +10,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsGatewayFixtures
 
-  @base_time ~U[2026-06-23 08:00:00.000000Z]
+  @base_time ~U[2026-07-02 01:34:05.000000Z]
 
   describe "outbox recovery retry and cleanup" do
     test "in-flight outbox recovers by reconciliation or marks unknown when unprovable" do
@@ -30,7 +30,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  operation: :post,
                  signal_channel_id: "lark:chat:group-a",
                  fallback_visible_text: "maybe sent",
-                 provider_entry_id: "maybe-provider-id"
+                 created_source_entry_id: "maybe-provider-id"
                })
 
       {:ok, _sending} =
@@ -41,7 +41,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
         })
         |> Repo.update()
 
-      assert {:ok, unknown} =
+      assert {:ok, still_sending} =
                SignalsGateway.dispatch_outbox(
                  agent.uid,
                  "bot",
@@ -50,11 +50,22 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  now: DateTime.add(@base_time, 1, :second)
                )
 
+      assert still_sending.status == :sending
+
+      assert {:ok, unknown} =
+               SignalsGateway.dispatch_outbox(
+                 agent.uid,
+                 "bot",
+                 "started-unknown",
+                 %{capabilities: [:post_entry]},
+                 now: DateTime.add(@base_time, 61, :second)
+               )
+
       assert unknown.status == :unknown_after_send
 
       refute Repo.get_by(SignalEntry,
                signal_channel_id: "lark:chat:group-a",
-               provider_entry_id: "maybe-provider-id"
+               source_entry_id: "maybe-provider-id"
              )
 
       assert {:ok, reconcile_seed} =
@@ -65,7 +76,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  operation: :post,
                  signal_channel_id: "lark:chat:group-a",
                  fallback_visible_text: "confirmed",
-                 provider_entry_id: "confirmed-provider-id"
+                 created_source_entry_id: "confirmed-provider-id"
                })
 
       {:ok, _sending} =
@@ -84,10 +95,10 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  %{
                    capabilities: [:post_entry, :outbound_reconciliation],
                    reconcile: fn _outbox ->
-                     {:ok, %{provider_entry_id: "confirmed-provider-id"}}
+                     {:ok, %{created_source_entry_id: "confirmed-provider-id"}}
                    end
                  },
-                 now: DateTime.add(@base_time, 1, :second)
+                 now: DateTime.add(@base_time, 61, :second)
                )
 
       assert recovered.status == :succeeded
@@ -95,7 +106,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
       assert Repo.get_by!(
                SignalEntry,
                signal_channel_id: "lark:chat:group-a",
-               provider_entry_id: "confirmed-provider-id"
+               source_entry_id: "confirmed-provider-id"
              ).text == "confirmed"
     end
 
@@ -116,7 +127,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  operation: :post,
                  signal_channel_id: "lark:chat:group-a",
                  fallback_visible_text: "maybe sent",
-                 provider_entry_id: "maybe-sent-provider-id"
+                 created_source_entry_id: "maybe-sent-provider-id"
                })
 
       {:ok, _sending} =
@@ -136,7 +147,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                    capabilities: [:post_entry, :outbound_reconciliation],
                    reconcile: fn _outbox -> :ok end
                  },
-                 now: DateTime.add(@base_time, 1, :second)
+                 now: DateTime.add(@base_time, 61, :second)
                )
 
       assert unknown.status == :unknown_after_send
@@ -161,7 +172,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  operation: :post,
                  signal_channel_id: "lark:chat:group-a",
                  fallback_visible_text: "confirmed by reconcile",
-                 provider_entry_id: "stale-provider-id"
+                 created_source_entry_id: "stale-provider-id"
                })
 
       due_now = DateTime.add(@base_time, 61, :second)
@@ -182,7 +193,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  operation: :post,
                  signal_channel_id: "lark:chat:group-a",
                  fallback_visible_text: "still in flight",
-                 provider_entry_id: "fresh-provider-id"
+                 created_source_entry_id: "fresh-provider-id"
                })
 
       {:ok, _fresh} =
@@ -203,7 +214,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                     %{
                       capabilities: [:post_entry, :outbound_reconciliation],
                       reconcile: fn _outbox ->
-                        {:ok, %{provider_entry_id: "stale-provider-id"}}
+                        {:ok, %{created_source_entry_id: "stale-provider-id"}}
                       end
                     }}
                  end,
@@ -214,7 +225,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
       assert Repo.get_by!(
                SignalEntry,
                signal_channel_id: "lark:chat:group-a",
-               provider_entry_id: "stale-provider-id"
+               source_entry_id: "stale-provider-id"
              ).text == "confirmed by reconcile"
     end
 
@@ -268,7 +279,9 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                    {:ok,
                     %{
                       capabilities: [:post_entry],
-                      send: fn _outbox -> {:ok, %{provider_entry_id: "retry-provider-id"}} end
+                      send: fn _outbox ->
+                        {:ok, %{created_source_entry_id: "retry-provider-id"}}
+                      end
                     }}
                  end,
                  now: due_now,
@@ -284,7 +297,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                SignalsGateway.emit_entry_removed(
                  agent.uid,
                  "bot",
-                 lifecycle_entry(%{ingress_event_id: "delete-expiring"}),
+                 lifecycle_entry(%{source_event_id: "delete-expiring"}),
                  now: @base_time
                )
 

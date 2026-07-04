@@ -1,6 +1,5 @@
 import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../../core'
-import { buildTool } from '../build-tool'
 import { executionScopeTag, type ComputerToolContext } from './context'
 import { truncateOutput } from './format'
 
@@ -50,6 +49,20 @@ const InteractiveTerminalParams = z.object({
     .boolean()
     .optional()
     .describe('For action=send, append Enter after input. Default true when input is present.'),
+  captureAfterMs: z
+    .number()
+    .int()
+    .min(0)
+    .max(5000)
+    .optional()
+    .describe('For action=send, wait this many ms then capture the screen. Default 250; set 0 to skip.'),
+  captureLines: z
+    .number()
+    .int()
+    .min(1)
+    .max(2000)
+    .optional()
+    .describe('Lines to capture after action=send. Default 80.'),
   workdir: z.string().optional().describe('Start directory for action=start. Default /workspace.'),
   lines: z.number().int().min(1).max(2000).optional().describe('Lines to capture for action=capture. Default 80.'),
   cols: z.number().int().min(40).max(300).optional().describe('Terminal columns for action=start. Default 140.'),
@@ -91,13 +104,13 @@ function requireSession(session: string | undefined): string {
 export function createInteractiveTerminalTool(
   context: ComputerToolContext
 ): AgentTool<typeof InteractiveTerminalParams, InteractiveTerminalDetails> {
-  return buildTool({
+  return {
     name: 'interactive_terminal',
-    label: 'Interactive Terminal',
     description:
       'Manage recoverable interactive terminal sessions in the computer for TTY/TUI programs, REPLs, full-screen CLIs, and interactive installers. These sessions are backed internally by tmux so they can be captured and resumed through this tool; use this tool rather than calling tmux directly. Use start to launch a session, send to provide text or terminal keys, capture to inspect the screen, and kill when done. Use command for non-interactive shell commands. Do not use this for simple file reads or edits; use read_file and patch.',
     schema: InteractiveTerminalParams,
     executionMode: 'sequential',
+    isReadOnly: false,
     isDestructive: true,
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<InteractiveTerminalDetails>> {
       const computer = await context.getComputer(signal)
@@ -142,14 +155,24 @@ export function createInteractiveTerminalTool(
           const session = requireSession(params.session)
           const keys = [...(params.keys ?? [])]
           if (params.input === undefined && keys.length === 0) throw new Error('input or keys is required for send')
+          const scopedName = scopedTmuxName(context, session)
           const terminal = await computer.terminals.send(
-            scopedTmuxName(context, session),
+            scopedName,
             { input: params.input, keys, enter: params.enter },
             { signal }
           )
           const name = unscopedTmuxName(context, terminal.name)
+          const captureAfterMs = params.captureAfterMs ?? 250
+          if (captureAfterMs === 0) {
+            return jsonResult(
+              { session: name, status: terminal.status },
+              { action: 'send', session: name, status: terminal.status }
+            )
+          }
+          await sleep(captureAfterMs, signal)
+          const capture = await computer.terminals.capture(scopedName, { lines: params.captureLines ?? 80 }, { signal })
           return jsonResult(
-            { session: name, status: terminal.status },
+            { session: name, status: terminal.status, screen: truncateOutput(capture.screen) },
             { action: 'send', session: name, status: terminal.status }
           )
         }
@@ -176,5 +199,21 @@ export function createInteractiveTerminalTool(
           throw new Error(`unsupported interactive_terminal action: ${String(params.action)}`)
       }
     }
+  }
+}
+
+async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms <= 0) return
+  if (signal?.aborted) throw new Error('interactive_terminal send aborted')
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(resolve, ms)
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer)
+        reject(new Error('interactive_terminal send aborted'))
+      },
+      { once: true }
+    )
   })
 }

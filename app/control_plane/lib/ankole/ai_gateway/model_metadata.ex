@@ -27,7 +27,8 @@ defmodule Ankole.AIGateway.ModelMetadata do
     "azure_openai" => "azure",
     "claude" => "anthropic",
     "gemini" => "google",
-    "google_ai_studio_openai" => "google"
+    "google_ai_studio_openai" => "google",
+    "xiaomi_mimo" => "xiaomi"
   }
 
   @spec list_provider_model_metadata(Provider.t(), keyword()) :: {:ok, [map()]}
@@ -173,6 +174,10 @@ defmodule Ankole.AIGateway.ModelMetadata do
 
   defp list_source_models(_provider, :fallback, _opts), do: {:ok, []}
 
+  defp list_source_models(_provider, {:static, models}, _opts) when is_list(models) do
+    {:ok, Enum.map(models, &ensure_openrouter_defaults/1)}
+  end
+
   defp list_source_models(%Provider{} = provider, {:openrouter, source}, opts)
        when is_map(source) do
     key =
@@ -208,6 +213,13 @@ defmodule Ankole.AIGateway.ModelMetadata do
     end
   end
 
+  defp source_model(%Provider{}, {:static, models}, model_id, _opts) when is_list(models) do
+    case Enum.find(models, &static_model_match?(&1, model_id)) do
+      model when is_map(model) -> {:ok, ensure_openrouter_defaults(model)}
+      nil -> {:error, :model_metadata_not_found}
+    end
+  end
+
   defp source_model(%Provider{} = provider, {:openrouter, _source} = source, model_id, opts) do
     with {:ok, models} <- list_source_models(provider, source, opts),
          %{} = metadata <- Enum.find(models, &(Map.get(&1, "id") == model_id)) do
@@ -221,6 +233,10 @@ defmodule Ankole.AIGateway.ModelMetadata do
     do: {:error, :model_metadata_not_found}
 
   defp source_model(_provider, _source, _model_id, _opts), do: {:error, :model_metadata_not_found}
+
+  defp static_model_match?(metadata, model_id) when is_map(metadata) do
+    metadata["id"] == model_id or model_id in List.wrap(metadata["aliases"])
+  end
 
   defp cached_fetch(key, ttl_ms, force_refresh?, fetch_fun) do
     lookup = if force_refresh?, do: :miss, else: Cache.lookup(key)

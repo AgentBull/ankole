@@ -6,7 +6,10 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
   import AnkoleWeb.AIGatewayControllerTestHelpers
 
   alias Ankole.AIGateway.ProviderConfigs
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.StatefulResponses
+  alias Ankole.AIGateway.ModelProfiles
+  alias Ankole.AIGateway.Schemas.Message
+  alias Ankole.Repo
   alias AnkoleWeb.AIGatewayTokens
 
   defmodule NativeResponsesUpstreamPlug do
@@ -82,6 +85,286 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       |> post(~p"/api/v1/ai-gateway/responses", %{"model" => "primary", "input" => "hello"})
 
     assert %{"error" => %{"code" => "invalid_token"}} = json_response(conn, 401)
+  end
+
+  test "responses retrieve returns an agent-scoped stored response resource", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+
+    input_item = %{
+      "id" => "msg_retrieve_input",
+      "type" => "message",
+      "status" => "completed",
+      "role" => "user",
+      "content" => [%{"type" => "input_text", "text" => "Ping"}]
+    }
+
+    first_output_item = %{
+      "id" => "msg_retrieve_first_output",
+      "type" => "message",
+      "status" => "completed",
+      "role" => "assistant",
+      "content" => [%{"type" => "output_text", "text" => "Pong", "annotations" => []}]
+    }
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "retrieve-response-controller")
+
+    {:ok, first} =
+      StatefulResponses.start_response_run(%{
+        agent_uid: agent.uid,
+        conversation_id: conversation.id,
+        request_items: [input_item],
+        metadata: %{"model" => "gpt-test", "visible" => "yes"}
+      })
+
+    assert {:ok, first} =
+             StatefulResponses.commit_complete(first, [first_output_item], %{
+               "usage" => response_usage_fixture()
+             })
+
+    second_input_item = %{
+      "id" => "call_retrieve_output",
+      "type" => "function_call_output",
+      "status" => "completed",
+      "call_id" => "call_retrieve",
+      "output" => "tool result"
+    }
+
+    second_output_item = %{
+      "id" => "msg_retrieve_second_output",
+      "type" => "message",
+      "status" => "completed",
+      "role" => "assistant",
+      "content" => [%{"type" => "output_text", "text" => "Done", "annotations" => []}]
+    }
+
+    {:ok, second} =
+      StatefulResponses.start_response_run(%{
+        agent_uid: agent.uid,
+        previous_response_id: "resp_#{first.id}",
+        request_items: [second_input_item],
+        metadata: %{"model" => "gpt-test", "visible" => "yes"}
+      })
+
+    assert {:ok, second} =
+             StatefulResponses.commit_complete(second, [second_output_item], %{
+               "usage" => response_usage_fixture(),
+               "provider_metadata" => %{"id" => "provider_resp_second", "model" => "gpt-test"},
+               "stop_reason" => "stop"
+             })
+
+    conn =
+      conn
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> get("/api/v1/ai-gateway/responses/resp_#{second.id}")
+
+    body = json_response(conn, 200)
+    assert_openresponses_response_resource(body)
+    assert body["id"] == "resp_#{second.id}"
+    assert body["previous_response_id"] == "resp_#{first.id}"
+    assert body["conversation"]["id"] == "conv_#{conversation.id}"
+    assert body["model"] == "gpt-test"
+    assert body["metadata"] == %{"visible" => "yes"}
+    assert body["input"] == [second_input_item]
+    assert body["output"] == [second_output_item]
+    assert body["provider_metadata"] == %{"id" => "provider_resp_second", "model" => "gpt-test"}
+
+    assert body["tool_results"] == [
+             %{
+               "id" => "call_retrieve_output",
+               "status" => "completed",
+               "call_id" => "call_retrieve",
+               "output" => "tool result"
+             }
+           ]
+
+    assert body["stop_reason"] == "stop"
+  end
+
+  test "responses retrieve keeps role-only request input out of output", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+
+    input_item = %{"role" => "user", "content" => "Hello"}
+
+    output_item = %{
+      "id" => "msg_retrieve_role_only_output",
+      "type" => "message",
+      "status" => "completed",
+      "role" => "assistant",
+      "content" => [%{"type" => "output_text", "text" => "Hi", "annotations" => []}]
+    }
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "retrieve-role-only-input")
+
+    {:ok, message} =
+      StatefulResponses.start_response_run(%{
+        agent_uid: agent.uid,
+        conversation_id: conversation.id,
+        request_items: [input_item],
+        metadata: %{"model" => "gpt-test"}
+      })
+
+    assert {:ok, message} =
+             StatefulResponses.commit_complete(message, [output_item], %{
+               "usage" => response_usage_fixture()
+             })
+
+    conn =
+      conn
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> get("/api/v1/ai-gateway/responses/resp_#{message.id}")
+
+    body = json_response(conn, 200)
+    assert body["input"] == [input_item]
+    assert body["output"] == [output_item]
+  end
+
+  test "responses retrieve does not expose another agent's stored response", %{conn: conn} do
+    %{principal: owner} = agent_fixture()
+    %{principal: intruder} = agent_fixture()
+    assert {:ok, intruder_key} = AIGatewayTokens.mint_for_agent(intruder.uid)
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(owner.uid, "retrieve-response-cross-agent")
+
+    {:ok, message} =
+      StatefulResponses.start_response_run(%{
+        agent_uid: owner.uid,
+        conversation_id: conversation.id,
+        request_items: [
+          %{
+            "id" => "msg_cross_agent_input",
+            "type" => "message",
+            "status" => "completed",
+            "role" => "user",
+            "content" => [%{"type" => "input_text", "text" => "secret"}]
+          }
+        ],
+        metadata: %{"model" => "gpt-test"}
+      })
+
+    assert {:ok, message} =
+             StatefulResponses.commit_complete(
+               message,
+               [
+                 %{
+                   "id" => "msg_cross_agent_output",
+                   "type" => "message",
+                   "status" => "completed",
+                   "role" => "assistant",
+                   "content" => [
+                     %{"type" => "output_text", "text" => "hidden", "annotations" => []}
+                   ]
+                 }
+               ],
+               %{"usage" => response_usage_fixture()}
+             )
+
+    conn =
+      conn
+      |> put_req_header("authorization", "Bearer #{intruder_key.api_key}")
+      |> get("/api/v1/ai-gateway/responses/resp_#{message.id}")
+
+    assert %{"error" => %{"code" => "not_found"}} = json_response(conn, 404)
+  end
+
+  test "responses retrieve returns in_progress for generating rows and rejects temporary ids", %{
+    conn: conn
+  } do
+    %{principal: agent} = agent_fixture()
+    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "retrieve-response-not-terminal")
+
+    {:ok, generating} =
+      StatefulResponses.start_response_run(%{
+        agent_uid: agent.uid,
+        conversation_id: conversation.id,
+        request_items: [
+          %{
+            "id" => "msg_generating_input",
+            "type" => "message",
+            "status" => "completed",
+            "role" => "user",
+            "content" => [%{"type" => "input_text", "text" => "still running"}]
+          }
+        ],
+        metadata: %{"model" => "gpt-test"}
+      })
+
+    generating
+    |> Ecto.Changeset.change(
+      content:
+        generating.content ++
+          [
+            %{
+              "id" => "msg_partial_output",
+              "type" => "message",
+              "status" => "in_progress",
+              "role" => "assistant",
+              "content" => [%{"type" => "output_text", "text" => "partial"}]
+            }
+          ]
+    )
+    |> Repo.update!()
+
+    generating_conn =
+      conn
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> get("/api/v1/ai-gateway/responses/resp_#{generating.id}")
+
+    assert %{
+             "id" => "resp_" <> _,
+             "object" => "response",
+             "status" => "in_progress",
+             "input" => [
+               %{
+                 "id" => "msg_generating_input",
+                 "content" => [%{"text" => "still running", "type" => "input_text"}]
+               }
+             ],
+             "output" => []
+           } = json_response(generating_conn, 200)
+
+    tmp_conn =
+      build_conn()
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> get("/api/v1/ai-gateway/responses/tmp_resp_#{Ecto.UUID.generate()}")
+
+    assert %{"error" => %{"code" => "not_found"}} = json_response(tmp_conn, 404)
+
+    raw_conn =
+      build_conn()
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> get("/api/v1/ai-gateway/responses/#{generating.id}")
+
+    assert %{"error" => %{"code" => "not_found"}} = json_response(raw_conn, 404)
+  end
+
+  test "responses delete and cancel endpoints are not implemented", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    response_id = "resp_#{Ecto.UUID.generate()}"
+
+    delete_conn =
+      conn
+      |> recycle()
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> delete("/api/v1/ai-gateway/responses/#{response_id}")
+
+    assert response(delete_conn, 404)
+
+    cancel_conn =
+      conn
+      |> recycle()
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> post("/api/v1/ai-gateway/responses/#{response_id}/cancel", %{})
+
+    assert response(cancel_conn, 404)
   end
 
   test "models endpoint returns OpenRouter-shaped selectors for an agent token", %{conn: conn} do
@@ -174,6 +457,184 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert MapSet.member?(selectors, "primary")
     assert MapSet.member?(selectors, "embedding.default")
     assert MapSet.member?(selectors, "rerank.default")
+  end
+
+  test "web tool endpoints use provider-backed AIGateway profiles", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+    test_pid = self()
+
+    base_url =
+      start_recording_upstream(test_pid, fn
+        %{path: "v1/search"} ->
+          {:json, 200,
+           %{
+             "results" => [
+               %{
+                 "title" => "Ankole Web",
+                 "url" => "https://example.com/ankole",
+                 "excerpts" => ["AIGateway web search"]
+               }
+             ]
+           }}
+
+        %{path: "v1/extract"} ->
+          {:json, 200,
+           %{
+             "results" => [
+               %{
+                 "title" => "Ankole Web",
+                 "url" => "https://example.com/ankole",
+                 "excerpts" => ["Extracted page text"]
+               }
+             ]
+           }}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "parallel-web-main",
+               provider_kind: "parallel",
+               base_url: base_url,
+               connection_options: %{"api_key" => "parallel-key"}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "web_search", %{
+               provider_id: "parallel-web-main",
+               model: "default"
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "web_fetch", %{
+               provider_id: "parallel-web-main",
+               model: "default"
+             })
+
+    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+
+    conn =
+      conn
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> get(~p"/api/v1/ai-gateway/web_tools")
+
+    assert %{
+             "web_search" => %{"available" => true, "model" => "web_search.default"},
+             "web_fetch" => %{"available" => true, "model" => "web_fetch.default"}
+           } = json_response(conn, 200)
+
+    conn =
+      conn
+      |> recycle()
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> post(~p"/api/v1/ai-gateway/web_search", %{
+        "model" => "web_search.default",
+        "query" => "ankole web",
+        "limit" => 2
+      })
+
+    assert %{
+             "success" => true,
+             "query" => "ankole web",
+             "results" => [%{"title" => "Ankole Web", "snippet" => "AIGateway web search"}]
+           } = json_response(conn, 200)
+
+    assert_receive {:gateway_request, search_request}
+    assert search_request.path == "v1/search"
+    assert search_request.headers["x-api-key"] == "parallel-key"
+    assert search_request.body["objective"] == "ankole web"
+    assert search_request.body["advanced_settings"]["max_results"] == 2
+    refute Map.has_key?(search_request.body, "model")
+
+    conn =
+      conn
+      |> recycle()
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> post(~p"/api/v1/ai-gateway/web_fetch", %{
+        "model" => "web_fetch.default",
+        "urls" => ["https://example.com/ankole"]
+      })
+
+    assert %{
+             "success" => true,
+             "results" => [
+               %{"url" => "https://example.com/ankole", "text" => "Extracted page text"}
+             ]
+           } = json_response(conn, 200)
+
+    assert_receive {:gateway_request, extract_request}
+    assert extract_request.path == "v1/extract"
+    assert extract_request.body["urls"] == ["https://example.com/ankole"]
+    refute Map.has_key?(extract_request.body, "model")
+  end
+
+  test "web_fetch rejects non-public URLs before provider dispatch", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "parallel-web-private-url",
+               provider_kind: "parallel",
+               connection_options: %{"api_key" => "parallel-key"}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "web_fetch", %{
+               provider_id: "parallel-web-private-url",
+               model: "default"
+             })
+
+    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+
+    conn =
+      conn
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> post(~p"/api/v1/ai-gateway/web_fetch", %{
+        "model" => "web_fetch.default",
+        "urls" => ["https://127.0.0.1/private"]
+      })
+
+    assert %{"error" => %{"code" => "invalid_urls"}} = json_response(conn, 400)
+  end
+
+  test "web_search validates query and limit before provider dispatch", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "parallel-web-invalid-request",
+               provider_kind: "parallel",
+               connection_options: %{"api_key" => "parallel-key"}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "web_search", %{
+               provider_id: "parallel-web-invalid-request",
+               model: "default"
+             })
+
+    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+
+    conn =
+      conn
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> post(~p"/api/v1/ai-gateway/web_search", %{
+        "model" => "web_search.default",
+        "query" => ""
+      })
+
+    assert %{"error" => %{"code" => "missing_query"}} = json_response(conn, 400)
+
+    conn =
+      conn
+      |> recycle()
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> post(~p"/api/v1/ai-gateway/web_search", %{
+        "model" => "web_search.default",
+        "query" => "ankole",
+        "limit" => 101
+      })
+
+    assert %{"error" => %{"code" => "invalid_limit"}} = json_response(conn, 400)
   end
 
   test "models endpoint lists duplicate configured providers and skips admin aliases", %{
@@ -330,6 +791,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert_receive {:gateway_request, request}
     assert request.path == "v1/responses"
     assert request.body["stream"] == true
+    assert request.body["store"] == false
 
     assert %{"type" => "response.completed", "response" => body} = List.last(events)
     assert_openresponses_response_resource(body)
@@ -346,6 +808,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
           {"conversation",
            %{"model" => "primary", "input" => "hello", "conversation" => "conv_old"}},
           {"store", %{"model" => "primary", "input" => "hello", "store" => true}},
+          {"store", %{"model" => "primary", "input" => "hello", "store" => false}},
           {"previous_response_id",
            %{
              "model" => "primary",
@@ -603,6 +1066,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert_receive {:gateway_request, request}
     assert request.path == "v1/responses"
     assert request.body["stream"] == false
+    assert request.body["store"] == false
   end
 
   test "responses endpoint covers upstream OpenResponses stateless HTTP templates" do
@@ -733,11 +1197,14 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       "reasoning" => %{"effort" => nil, "summary" => nil},
       "user" => nil,
       "usage" => response_usage_fixture(),
+      "provider_metadata" => %{},
+      "tool_results" => [],
+      "stop_reason" => nil,
       "max_output_tokens" => nil,
       "max_tool_calls" => nil,
       "store" => true,
       "background" => false,
-      "service_tier" => "default",
+      "service_tier" => nil,
       "metadata" => %{},
       "safety_identifier" => nil,
       "prompt_cache_key" => nil,
@@ -753,7 +1220,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert Enum.any?(body["output"], &(&1["phase"] == "final_answer"))
   end
 
-  test "stateful compact endpoint is explicitly outside AIGateway v1", %{conn: conn} do
+  test "compact endpoint rejects stateless compact", %{conn: conn} do
     %{principal: agent} = agent_fixture()
     assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
 
@@ -766,7 +1233,99 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
         "input" => [%{"type" => "message", "role" => "user", "content" => "compact this"}]
       })
 
-    assert response(conn, 404)
+    assert %{"error" => %{"code" => "unsupported_stateless_compact"}} = json_response(conn, 400)
+  end
+
+  test "compact endpoint writes a stateful compaction row", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "compact-response-controller")
+
+    {:ok, anchor} =
+      StatefulResponses.start_response_run(%{
+        agent_uid: agent.uid,
+        conversation_id: conversation.id,
+        request_items: [
+          %{
+            "id" => "msg_compact_input",
+            "type" => "message",
+            "status" => "completed",
+            "role" => "user",
+            "content" => [%{"type" => "input_text", "text" => "long prior context"}]
+          }
+        ],
+        metadata: %{"model" => "gpt-test"}
+      })
+
+    assert {:ok, anchor} =
+             StatefulResponses.commit_complete(
+               anchor,
+               [
+                 %{
+                   "id" => "msg_compact_output",
+                   "type" => "message",
+                   "status" => "completed",
+                   "role" => "assistant",
+                   "content" => [
+                     %{"type" => "output_text", "text" => "prior answer", "annotations" => []}
+                   ]
+                 }
+               ],
+               %{"usage" => response_usage_fixture()}
+             )
+
+    raw_anchor_conn =
+      build_conn()
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> put_req_header("content-type", "application/json")
+      |> post("/api/v1/ai-gateway/responses/compact", %{
+        "previous_response_id" => anchor.id,
+        "input" => [%{"type" => "compaction", "summary" => "raw id should fail"}]
+      })
+
+    assert %{"error" => %{"code" => "invalid_previous_response_id"}} =
+             json_response(raw_anchor_conn, 400)
+
+    conn =
+      conn
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> put_req_header("content-type", "application/json")
+      |> post("/api/v1/ai-gateway/responses/compact", %{
+        "previous_response_id" => "resp_#{anchor.id}",
+        "input" => [
+          %{
+            "type" => "compaction",
+            "summary" => "Prior context says the answer was prior answer."
+          }
+        ],
+        "metadata" => %{"visible" => "compact"}
+      })
+
+    body = json_response(conn, 200)
+    assert_openresponses_response_resource(body)
+    assert body["previous_response_id"] == "resp_#{anchor.id}"
+    assert body["conversation"]["id"] == "conv_#{conversation.id}"
+    assert body["metadata"] == %{"visible" => "compact"}
+
+    [compaction_item] = body["output"]
+    assert compaction_item["type"] == "compaction"
+    assert compaction_item["id"] == "cmp_#{String.replace_prefix(body["id"], "resp_", "")}"
+    assert compaction_item["summary"] == "Prior context says the answer was prior answer."
+
+    row_id = String.replace_prefix(body["id"], "resp_", "")
+    assert %Message{} = row = Repo.get!(Message, row_id)
+    assert row.type == "compaction"
+    assert row.status == "complete"
+    assert row.previous_message_id == anchor.id
+    assert row.covers_until_message_id == anchor.id
+    assert row.content == [compaction_item]
+
+    assert StatefulResponses.expand_history(conversation.id, previous_response_id: body["id"]) ==
+             [
+               row
+             ]
   end
 
   defp start_recording_upstream(test_pid, response_fun) do

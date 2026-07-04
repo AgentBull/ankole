@@ -9,30 +9,17 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: just4local-dev
-      POSTGRES_DB: ankole_development
+      POSTGRES_DB: ankole_dev
     ports:
-      - "${ANKOLE_POSTGRES_PORT:-5433}:5432"
+      - "5433:5432"
     volumes:
       - postgres_for_ankole_data:/var/lib/pgsql/18/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d ankole_development"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ankole_dev"]
       interval: 2s
       timeout: 5s
       retries: 30
 
-  redis:
-    image: redis:latest
-    command: ["redis-server", "--appendonly", "yes"]
-    ports:
-      - "${ANKOLE_REDIS_PORT:-6379}:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 2s
-      timeout: 5s
-      retries: 30
 
 volumes:
   postgres_for_ankole_data:
-  redis_data:

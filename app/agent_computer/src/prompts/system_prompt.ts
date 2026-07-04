@@ -73,7 +73,7 @@ function missionSection(mission: string): string {
 }
 
 /**
- * Emits per-run facts the model needs but cannot infer: exact agent/session/turn
+ * Emits per-run facts the model needs but cannot infer: exact agent/session/event
  * identity, timezone, and optional channel/date information.
  */
 function runtimeContextSection(opts: BuildAgentSystemPromptOptions): string {
@@ -84,7 +84,7 @@ function runtimeContextSection(opts: BuildAgentSystemPromptOptions): string {
     `Agent display name: ${agentDisplayName(opts)}`,
     'Use this exact Agent UID when a tool or skill asks for the current agent identity.',
     `Session ID: ${opts.turnStart.turn.actor.session_id}`,
-    `LLM turn ID: ${opts.turnStart.turn.llm_turn_id}`,
+    `Actor event ID: ${opts.turnStart.turn.actor_event_id}`,
     `Current timezone: ${timezone}`
   ]
   const role = agentRole(opts)
@@ -178,18 +178,18 @@ function toolsSection(): string {
 <about_computer>
 These tools operate on your Ankole Agent Computer: an agent-owned execution environment backed by a container. It exposes a stable /workspace view and is your place for files, commands, browser automation, skill overlays, and generated artifacts. It is not the user's personal device unless files or artifacts are explicitly exchanged.
 
-Current worker-image baseline: Python 3.12-compatible tooling via the agent Python environment, Bun 1.3.14 for JavaScript/TypeScript work, Chromium/Xvfb for browser automation, LibreOffice/Pandoc/Poppler/QPDF for document work, and common shell/dev utilities such as jq, bash, git, rg, and tmux. Verify exact versions with a quick command when the task depends on them.
+Current worker-image baseline: Python 3.12-compatible tooling via the agent Python environment, Bun 1.3.14 for JavaScript/TypeScript work, Chromium/CDP for browser automation, LibreOffice/Pandoc/Poppler/QPDF for document work, and common shell/dev utilities such as jq, bash, git, rg, and tmux. Verify exact versions with a quick command when the task depends on them.
 
 Persistence model: /workspace/user-files is durable shared filesystem storage for uploaded files, deliverables, browser artifacts, and per-agent environment/package deltas. Enabled skills are loaded only through skill_view; built-in skill files come from worker image assets, agent-installed skill files come from managed shared skill storage, and skill overlays are PG semantic state resolved through RuntimeFabric. SOUL, MISSION, and conversation state are also RuntimeFabric state, not files for the worker to edit directly. /workspace/temp is non-persistent scratch/runtime state. Recoverable interactive_terminal sessions are backed internally by tmux and also belong to this non-persistent runtime layer; use the interactive_terminal tool to start, send, capture, and kill them rather than calling tmux directly.
 
 Use \`read_file\` for paginated text reads and \`patch\` for targeted edits.
+For \`patch\`, use replace mode for one precise edit and \`mode='patch'\` V4A for multi-file, multi-site, or larger edits.
 Use \`command\` for stateless one-shot shell work.
 Use \`interactive_terminal\` for TTY/TUI programs, REPLs, and long-running interactive processes.
-Use \`browser_*\` for rendered or stateful browser work inside the same computer.
-Use \`reply_attachment\` when a file under /workspace/user-files should be sent as a native attachment in your final external reply.
+Use \`browser_*\` for rendered browser work inside the same computer. Browser sessions are persistent per execution scope through the configured CDP backend: local Chromium by default, or an operator-configured remote CDP service. Observe pages with \`browser_snapshot\`, use \`browser_find\` to search long rendered pages, then act on the latest element refs with tools such as \`browser_click\` and \`browser_type\`.
 Use \`check_back_later\` for one delayed self-wakeup tied to the current provider route.
 Use \`cron\` for recurring schedules; it supports listing, adding, updating, pausing, resuming, removing, manual run, and run history.
-Use \`skill_view\` to load enabled skills and \`skill_append\` to replace this agent's DB-backed overlay for an enabled skill.
+Use \`skill_view\` to load enabled skills and \`skill_append\` to append durable notes to this agent's DB-backed overlay for an enabled skill.
 Treat the computer as a trusted Ankole work environment with useful isolation boundaries, not as a hardened security sandbox.
 </about_computer>
 

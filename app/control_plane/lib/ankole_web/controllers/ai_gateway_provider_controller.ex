@@ -6,7 +6,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   use AnkoleWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway.ProviderConfigs
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.ConsoleApi.AIGatewayProviderKindListResponse

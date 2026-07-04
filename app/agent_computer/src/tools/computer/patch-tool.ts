@@ -16,11 +16,10 @@
 
 import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../../core'
-import { buildTool } from '../build-tool'
 import type { ComputerToolContext, ContainerComputer } from './context'
 import { unifiedDiff } from './diff'
 import { splitWritePath } from './format'
-import { findUniqueFuzzyMatch } from './fuzzy-match'
+import { findClosestLineMatches, findScopedFuzzyMatch, findUniqueFuzzyMatch } from './fuzzy-match'
 import { parseV4APatch } from './v4a'
 
 const PatchParams = z.object({
@@ -29,7 +28,10 @@ const PatchParams = z.object({
     .optional()
     .describe("'replace' (default): find a unique string and replace it. 'patch': apply a V4A multi-file patch."),
   path: z.string().optional().describe('File to edit (replace mode).'),
-  old_string: z.string().optional().describe('Exact text to find (replace mode).'),
+  old_string: z
+    .string()
+    .optional()
+    .describe("Exact text to find (replace mode); use '' only to create a missing file."),
   new_string: z.string().optional().describe('Replacement text; empty string deletes the match (replace mode).'),
   replace_all: z
     .boolean()
@@ -50,6 +52,17 @@ interface PatchDetails {
   filesModified: string[]
 }
 
+const patchFailureCounts = new Map<string, number>()
+
+class PatchMatchError extends Error {
+  constructor(
+    readonly path: string,
+    message: string
+  ) {
+    super(message)
+  }
+}
+
 /**
  * The encoding-sensitive parts of a text file captured before editing, so they can be
  * reattached after. Matching and diffing happen on `normalized` (always LF, no BOM);
@@ -65,24 +78,32 @@ interface TextFileSnapshot {
 
 /** Builds the `patch` tool bound to a run's computer session. */
 export function createPatchTool(context: ComputerToolContext): AgentTool<typeof PatchParams, PatchDetails> {
-  return buildTool({
+  return {
     name: 'patch',
-    label: 'Patch',
     description:
-      "Targeted edits to files in the computer. Use this instead of sed/awk/perl/python scripts or heredocs for editing. Returns a unified diff. REPLACE MODE (default): pass path, old_string, and new_string; old_string must match uniquely unless replace_all=true, so include surrounding context lines. Use new_string='' to delete the match. PATCH MODE (mode='patch'): apply a V4A multi-file patch with *** Begin Patch / *** End Patch. Relative paths resolve from cwd/workdir, defaulting to /workspace.",
+      "Targeted edits to files in the computer. Use this instead of sed/awk/perl/python scripts or heredocs for editing. Returns a unified diff. REPLACE MODE (default): use for one precise edit; pass path, old_string, and new_string; old_string must match uniquely unless replace_all=true, so include surrounding context lines. Use new_string='' to delete the match. Use old_string='' only to create a file that does not exist. PATCH MODE (mode='patch'): use for multi-file, multi-site, or larger edits; apply a V4A patch with *** Begin Patch / *** End Patch. Relative paths resolve from cwd/workdir, defaulting to /workspace.",
     schema: PatchParams,
-    // Edits a file, so it must run after any in-flight reads/writes settle and is
-    // flagged destructive for the permission layer.
     executionMode: 'sequential',
+    isReadOnly: false,
     isDestructive: true,
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<PatchDetails>> {
       const computer = await context.getComputer(signal)
-      // `replace` is the default; only an explicit `mode: 'patch'` takes the V4A path.
-      return (params.mode ?? 'replace') === 'patch'
-        ? applyV4A(computer, params, signal)
-        : applyReplace(computer, params, signal)
+      try {
+        // `replace` is the default; only an explicit `mode: 'patch'` takes the V4A path.
+        const result =
+          (params.mode ?? 'replace') === 'patch'
+            ? await applyV4A(computer, params, signal)
+            : await applyReplace(computer, params, signal)
+        resetPatchFailures(context.executionScopeId, result.details.filesModified)
+        return result
+      } catch (error) {
+        if (error instanceof PatchMatchError) {
+          throw new Error(recordPatchFailure(context.executionScopeId, error.path, error.message))
+        }
+        throw error
+      }
     }
-  })
+  }
 }
 
 /**
@@ -148,14 +169,27 @@ async function applyReplace(
   }
   const cwd = patchCwd(params)
   const buffer = await computer.readFileToBuffer({ path: params.path, cwd }, { signal })
-  if (!buffer) throw new Error(`File not found: ${params.path}`)
+  const needle = params.old_string.replace(/\r\n/g, '\n')
+  const replacement = params.new_string.replace(/\r\n/g, '\n')
+  if (!buffer) {
+    if (needle.length !== 0) throw new Error(`File not found: ${params.path}`)
+    const target = splitWritePath(params.path, cwd)
+    await computer.fs.writeFiles(
+      [{ path: target.relative, content: restoreTextFile({ hasBom: false, lineEnding: '\n' }, replacement) }],
+      { cwd: target.cwd, signal }
+    )
+    const diff = await unifiedDiff('', replacement, params.path)
+    return {
+      content: [{ type: 'text', text: `Created ${params.path}.\n${diff}` }],
+      details: { mode: 'replace', filesModified: [params.path] }
+    }
+  }
 
   const snapshot = snapshotTextFile(buffer)
   const original = snapshot.normalized
-  // Normalize the model's strings to LF too, so matching compares like with like
-  // regardless of the file's stored line ending.
-  const needle = params.old_string.replace(/\r\n/g, '\n')
-  const replacement = params.new_string.replace(/\r\n/g, '\n')
+  if (needle.length === 0) {
+    throw new Error(`old_string='' is only valid for creating a missing file; ${params.path} already exists.`)
+  }
 
   const occurrences = countOccurrences(original, needle)
   // Only reach for fuzzy matching when an exact match found nothing AND we are doing a
@@ -163,7 +197,7 @@ async function applyReplace(
   // and fuzzy matching has no meaning for a bulk swap.
   const fuzzyMatch = occurrences === 0 && !params.replace_all ? findUniqueFuzzyMatch(original, needle) : undefined
   if (occurrences === 0 && !fuzzyMatch) {
-    throw new Error(`Could not find old_string in ${params.path}.`)
+    throw new PatchMatchError(params.path, formatNoMatchError('old_string', params.path, original, needle))
   }
   // More than one exact hit and no `replace_all`: ambiguous. Fail loudly and tell the
   // model how to fix it (more context, or opt into replace_all) instead of guessing.
@@ -195,7 +229,7 @@ async function applyReplace(
   // Report how many were changed (all of them for replace_all, otherwise exactly one)
   // and show the edit as a diff the user can scan.
   const count = params.replace_all ? occurrences : 1
-  const diff = unifiedDiff(original, updated, params.path)
+  const diff = await unifiedDiff(original, updated, params.path)
   return {
     content: [
       { type: 'text', text: `Patched ${params.path} (${count} replacement${count === 1 ? '' : 's'}).\n${diff}` }
@@ -266,12 +300,21 @@ async function applyV4A(
     // by its context (fuzzy match), then spliced in; locating against the already-edited
     // text means earlier hunks correctly shift the offsets seen by later ones. A hunk
     // that does not match uniquely aborts the whole patch (still phase 1, nothing written).
+    let cursor = 0
     for (const hunk of operation.hunks) {
       const search = hunk.search.replace(/\r\n/g, '\n')
       const replacement = hunk.replace.replace(/\r\n/g, '\n')
-      const match = findUniqueFuzzyMatch(after, search)
-      if (!match) throw new Error(`patch hunk did not match uniquely in ${operation.path}`)
-      after = replaceRange(after, match.start, match.end, replacement)
+      const match = findScopedFuzzyMatch(after, search, {
+        context: hunk.context,
+        endOfFile: hunk.endOfFile,
+        start: cursor
+      })
+      if (!match) {
+        throw new PatchMatchError(operation.path, formatNoMatchError('patch hunk', operation.path, after, search))
+      }
+      const scopedReplacement = formatScopedReplacement(after, match.start, match.end, replacement)
+      after = replaceRange(after, match.start, match.end, scopedReplacement)
+      cursor = match.start + scopedReplacement.length
     }
     writes.push({ path: operation.path, relative: target.relative, cwd: target.cwd, snapshot, before, after })
   }
@@ -284,7 +327,7 @@ async function applyV4A(
       cwd: write.cwd,
       signal
     })
-    diffs.push(unifiedDiff(write.before, write.after, write.path))
+    diffs.push(await unifiedDiff(write.before, write.after, write.path))
   }
   return {
     content: [{ type: 'text', text: `Applied V4A patch to ${writes.length} file(s):\n\n${diffs.join('\n\n')}` }],
@@ -295,4 +338,47 @@ async function applyV4A(
 /** Resolves the base directory, accepting `workdir` as an alias for `cwd` (command-tool parity). */
 function patchCwd(params: Pick<PatchInput, 'cwd' | 'workdir'>): string | undefined {
   return params.cwd ?? params.workdir
+}
+
+function patchFailureKey(scopeId: string, path: string): string {
+  return `${scopeId}\0${path}`
+}
+
+function resetPatchFailures(scopeId: string, paths: string[]): void {
+  for (const path of paths) patchFailureCounts.delete(patchFailureKey(scopeId, path))
+}
+
+function recordPatchFailure(scopeId: string, path: string, message: string): string {
+  const key = patchFailureKey(scopeId, path)
+  const count = (patchFailureCounts.get(key) ?? 0) + 1
+  patchFailureCounts.set(key, count)
+  if (count < 3) return message
+  return `${message}\nRepeated patch failures for ${path}: stop retrying small variants of the same target. Re-read the file with read_file, include longer unique context, or rewrite the whole file when that is simpler.`
+}
+
+function formatScopedReplacement(source: string, start: number, end: number, replacement: string): string {
+  if (start !== end || replacement.length === 0) return replacement
+  const prefix = start > 0 && source[start - 1] !== '\n' ? '\n' : ''
+  const suffix = start < source.length && !replacement.endsWith('\n') ? '\n' : ''
+  return `${prefix}${replacement}${suffix}`
+}
+
+function formatNoMatchError(kind: 'old_string' | 'patch hunk', path: string, content: string, needle: string): string {
+  const lines = content.split('\n')
+  if (lines.at(-1) === '') lines.pop()
+  const closest = findClosestLineMatches(content, needle, { contextLines: 2, limit: 3 })
+  const header =
+    kind === 'old_string'
+      ? `Could not find old_string in ${path} (${lines.length} lines).`
+      : `patch hunk did not match in ${path} (${lines.length} lines).`
+  if (closest.length === 0) {
+    return `${header} Add more surrounding context or verify the current file with read_file.`
+  }
+  const snippets = closest
+    .map((match, index) => {
+      const body = match.snippet.map(line => `${line.lineNumber}|${line.text}`).join('\n')
+      return `Closest match ${index + 1} near line ${match.lineNumber}:\n${body}`
+    })
+    .join('\n\n')
+  return `${header} Did you mean one of these sections?\n${snippets}\nAdd more surrounding context or verify the current file with read_file.`
 }

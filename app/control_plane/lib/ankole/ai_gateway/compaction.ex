@@ -2,9 +2,8 @@ defmodule Ankole.AIGateway.Compaction do
   @moduledoc """
   AIGateway-owned automatic history compaction.
 
-  The token estimate is intentionally heuristic: characters / 4 plus a small
-  per-item overhead. That keeps v1 dependency-free while still making overflow
-  decisions proportional to the provider-facing prompt size.
+  Automatic token decisions use provider-returned usage stored on AIGateway
+  messages. AIGateway does not estimate token counts from content.
   """
 
   alias Ankole.AppConfigure
@@ -26,7 +25,6 @@ defmodule Ankole.AIGateway.Compaction do
   @minimum_context_length 64_000
   @small_context_trigger_ratio 0.85
   @default_tail_rows 2
-  @per_item_overhead_tokens 12
   @summarizer_max_output_tokens 2_048
   @opaque_ref_keys ~w(agent_computer_path blob_ref content_type file_id file_url filename id image_url media_type mime_type name path provider_file_id provider_ref provider_uri storage_ref uri url)
   @max_ref_chars 512
@@ -135,7 +133,7 @@ defmodule Ankole.AIGateway.Compaction do
         runtime \\ %{}
       )
       when is_list(history) and is_list(current_input) and is_map(request) do
-    total_tokens = estimate_tokens(messages_to_items(history) ++ current_input)
+    total_tokens = history_usage_tokens(history)
     threshold = threshold_spec(runtime, request)
 
     if total_tokens <= threshold.tokens do
@@ -145,7 +143,6 @@ defmodule Ankole.AIGateway.Compaction do
         agent_uid,
         conversation_id,
         history,
-        current_input,
         request,
         total_tokens,
         threshold
@@ -166,7 +163,7 @@ defmodule Ankole.AIGateway.Compaction do
           | {:error, term()}
   def compact_conversation(agent_uid, conversation_id, request \\ %{}) when is_map(request) do
     history = StatefulResponses.expand_history(conversation_id)
-    total_tokens = estimate_tokens(messages_to_items(history))
+    total_tokens = history_usage_tokens(history)
 
     with {:ok, candidate} <- compaction_candidate(history),
          {:ok, summary} <- summarize_candidate(agent_uid, candidate, request),
@@ -201,33 +198,10 @@ defmodule Ankole.AIGateway.Compaction do
     end
   end
 
-  @spec estimate_tokens(term()) :: non_neg_integer()
-  def estimate_tokens(value) when is_list(value) do
-    Enum.reduce(value, 0, &(&2 + estimate_tokens(&1) + @per_item_overhead_tokens))
-  end
-
-  def estimate_tokens(value) when is_map(value) do
-    value
-    |> Ankole.JSON.encode!()
-    |> estimate_tokens()
-  end
-
-  def estimate_tokens(value) when is_binary(value) do
-    value
-    |> String.length()
-    |> div(4)
-    |> max(1)
-  end
-
-  def estimate_tokens(nil), do: 0
-  def estimate_tokens(value) when is_number(value) or is_boolean(value), do: 1
-  def estimate_tokens(_value), do: 0
-
   defp compact_history(
          agent_uid,
          conversation_id,
          history,
-         current_input,
          request,
          total_tokens,
          threshold
@@ -256,7 +230,7 @@ defmodule Ankole.AIGateway.Compaction do
            "auto_compaction" => %{
              "response_id" => previous_response_id,
              "covers_until_response_id" => "resp_#{candidate.covers_until.id}",
-             "estimated_input_tokens_before" => total_tokens,
+             "history_usage_tokens_before" => total_tokens,
              "token_threshold" => threshold.tokens,
              "context_length" => threshold.context_length,
              "threshold" => threshold.threshold,
@@ -270,7 +244,6 @@ defmodule Ankole.AIGateway.Compaction do
       {:error, :no_compaction_candidate} ->
         overflow_fallback(
           history,
-          current_input,
           request,
           total_tokens,
           :no_compaction_candidate,
@@ -278,7 +251,7 @@ defmodule Ankole.AIGateway.Compaction do
         )
 
       {:error, reason} ->
-        overflow_fallback(history, current_input, request, total_tokens, reason, threshold)
+        overflow_fallback(history, request, total_tokens, reason, threshold)
     end
   end
 
@@ -291,46 +264,38 @@ defmodule Ankole.AIGateway.Compaction do
     }
   end
 
-  defp overflow_fallback(history, current_input, request, total_tokens, reason, threshold) do
+  defp overflow_fallback(history, request, total_tokens, reason, threshold) do
     if auto_truncation?(request) do
-      truncate_history(history, current_input, request, total_tokens, reason, threshold)
+      truncate_history(history, request, total_tokens, reason, threshold)
     else
       {:error, context_overflow(total_tokens, reason, "disabled", threshold)}
     end
   end
 
-  defp truncate_history(history, current_input, request, total_tokens, reason, threshold) do
-    current_input_tokens = estimate_tokens(current_input)
+  defp truncate_history(history, request, total_tokens, reason, threshold) do
+    truncated_history = truncate_history_to_budget(history, threshold.tokens)
+    truncated_tokens = history_usage_tokens(truncated_history)
 
-    cond do
-      current_input_tokens > threshold.tokens ->
-        {:error, context_overflow(total_tokens, :current_input_overflow, "auto", threshold)}
+    auto_truncation =
+      auto_truncation_metadata(
+        history,
+        truncated_history,
+        total_tokens,
+        truncated_tokens,
+        reason,
+        threshold
+      )
 
-      true ->
-        truncated_history = truncate_history_to_budget(history, current_input, threshold.tokens)
-        truncated_tokens = estimate_tokens(messages_to_items(truncated_history) ++ current_input)
-
-        auto_truncation =
-          auto_truncation_metadata(
-            history,
-            truncated_history,
-            total_tokens,
-            truncated_tokens,
-            reason,
-            threshold
-          )
-
-        {:ok,
-         %{
-           history: truncated_history,
-           previous_response_id: previous_response_id_for(history, request),
-           compaction: nil,
-           run_metadata: %{
-             "truncation" => "auto",
-             "auto_truncation" => auto_truncation
-           }
-         }}
-    end
+    {:ok,
+     %{
+       history: truncated_history,
+       previous_response_id: previous_response_id_for(history, request),
+       compaction: nil,
+       run_metadata: %{
+         "truncation" => "auto",
+         "auto_truncation" => auto_truncation
+       }
+     }}
   end
 
   defp auto_truncation_metadata(
@@ -345,8 +310,8 @@ defmodule Ankole.AIGateway.Compaction do
 
     %{
       "reason" => overflow_reason(reason),
-      "estimated_input_tokens_before" => total_tokens,
-      "estimated_input_tokens_after" => truncated_tokens,
+      "history_usage_tokens_before" => total_tokens,
+      "history_usage_tokens_after" => truncated_tokens,
       "token_threshold" => threshold.tokens,
       "context_length" => threshold.context_length,
       "threshold" => threshold.threshold,
@@ -470,12 +435,12 @@ defmodule Ankole.AIGateway.Compaction do
 
   defp maybe_mark_missing_ref(map, _refs), do: map
 
-  defp truncate_history_to_budget(history, current_input, threshold) do
+  defp truncate_history_to_budget(history, threshold) do
     history
     |> truncation_candidates()
     |> Enum.find([], fn candidate ->
       tool_call_prefix_valid?(messages_to_items(candidate)) and
-        estimate_tokens(messages_to_items(candidate) ++ current_input) <= threshold
+        history_usage_tokens(candidate) <= threshold
     end)
   end
 
@@ -536,7 +501,7 @@ defmodule Ankole.AIGateway.Compaction do
   defp context_overflow(total_tokens, reason, truncation, threshold) do
     {:context_overflow,
      %{
-       estimated_input_tokens: total_tokens,
+       history_usage_tokens: total_tokens,
        token_threshold: threshold.tokens,
        context_length: threshold.context_length,
        threshold: threshold.threshold,
@@ -692,11 +657,36 @@ defmodule Ankole.AIGateway.Compaction do
         "selector" => summary.selector,
         "usage" => summary.usage
       },
-      "estimated_input_tokens_before" => total_tokens,
+      "history_usage_tokens_before" => total_tokens,
       "covered_message_count" => length(candidate.prefix)
     }
     |> Map.merge(flags)
   end
+
+  defp history_usage_tokens(messages) do
+    Enum.reduce(messages, 0, fn
+      %Message{} = message, total -> total + message_usage_tokens(message)
+      _message, total -> total
+    end)
+  end
+
+  defp message_usage_tokens(%Message{metadata: %{} = metadata}) do
+    metadata
+    |> Map.get("usage")
+    |> usage_tokens()
+  end
+
+  defp message_usage_tokens(_message), do: 0
+
+  defp usage_tokens(%{"total_tokens" => tokens}) when is_integer(tokens) and tokens >= 0,
+    do: tokens
+
+  defp usage_tokens(%{"input_tokens" => input_tokens, "output_tokens" => output_tokens})
+       when is_integer(input_tokens) and input_tokens >= 0 and is_integer(output_tokens) and
+              output_tokens >= 0,
+       do: input_tokens + output_tokens
+
+  defp usage_tokens(_usage), do: 0
 
   defp request_metadata(%{"metadata" => metadata}) when is_map(metadata), do: metadata
   defp request_metadata(_request), do: %{}

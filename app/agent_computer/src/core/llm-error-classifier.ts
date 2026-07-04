@@ -16,13 +16,11 @@ export interface LlmErrorClassification {
   retryable: boolean
   /**
    * Advisory hint that the fix is to shrink the context, not to retry (set only for `overflow`).
-   * Currently informational — the runtime acts on `kind`/`retryable`; no caller reads this field yet.
    */
   shouldCompress: boolean
   /**
    * Advisory hint that switching to a fallback provider could help. True for every class except
-   * `overflow` (a context that overflows one model will overflow its peer). Like `shouldCompress`,
-   * this is not yet consumed by any caller.
+   * `overflow` (a context that overflows one model will overflow its peer).
    */
   shouldFallbackProvider: boolean
 }
@@ -56,6 +54,7 @@ export function classifyLlmError(error: unknown): LlmErrorClassification {
   if (
     status === 429 ||
     includesAny(code, ['429', 'rate_limit', 'rate-limit', 'ratelimit', 'resource_exhausted', 'throttlingexception']) ||
+    containsHttpStatus(message, 429) ||
     includesAny(message, [
       'rate limit',
       'rate_limit',
@@ -90,6 +89,10 @@ export function classifyLlmError(error: unknown): LlmErrorClassification {
       'connection error',
       'network error',
       'failed to connect',
+      'aigateway websocket transport error',
+      'aigateway websocket closed before open',
+      'aigateway websocket closed before response.completed',
+      'llm provider call aborted',
       'econnreset',
       'und_err_socket',
       'und_err_connect',
@@ -145,7 +148,8 @@ export function classifyLlmError(error: unknown): LlmErrorClassification {
       '上下文长度',
       '请压缩上下文',
       '超过最大上下文'
-    ])
+    ]) ||
+    includesAny(code, ['context_overflow', 'context_length_exceeded', 'context_window_exceeded'])
   ) {
     return classified('overflow', false, true, false)
   }
@@ -159,6 +163,18 @@ export function classifyLlmError(error: unknown): LlmErrorClassification {
 /** Convenience predicate used on the retry hot path; equivalent to `classifyLlmError(error).retryable`. */
 export function isRetryableLlmError(error: unknown): boolean {
   return classifyLlmError(error).retryable
+}
+
+/**
+ * Local retries re-issue the request from inside the worker. Most retryable LLM errors are safe here,
+ * but the AIGateway WebSocket adapter marks failures that happened after `response.create` was sent as
+ * durable-only retries so the control plane can redeliver from the actor event fence instead.
+ */
+export function isLocallyRetryableLlmError(error: unknown): boolean {
+  if (!isRetryableLlmError(error)) return false
+
+  const hint = localRetryableHint(error)
+  return hint ?? true
 }
 
 function classified(
@@ -181,6 +197,19 @@ function messageFromError(error: unknown): string {
 
 function includesAny(text: string, needles: string[]): boolean {
   return needles.some(needle => text.includes(needle))
+}
+
+function containsHttpStatus(text: string, status: number): boolean {
+  return new RegExp(`(^|\\D)${status}(\\D|$)`).test(text)
+}
+
+function localRetryableHint(error: unknown): boolean | undefined {
+  if (!error || typeof error !== 'object') return undefined
+  const record = error as Record<string, unknown>
+  const details = record.details
+  if (!details || typeof details !== 'object' || Array.isArray(details)) return undefined
+  const value = (details as Record<string, unknown>).local_retryable
+  return typeof value === 'boolean' ? value : undefined
 }
 
 // Walks the error and its `cause`/`error`/`response` children looking for the first property in `keys`

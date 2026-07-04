@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT="${SCRIPT:-/workspace/library-containers/skills/jupyter-live-kernel/scripts/jupyter_live_kernel.py}"
+SCRIPT="${SCRIPT:-/repo/app/library/skills/jupyter-live-kernel/scripts/jupyter_live_kernel.py}"
 NOTEBOOK_DIR="${NOTEBOOK_DIR:-/workspace/user-files/notebooks}"
 PORT="${PORT:-8888}"
 NOTEBOOK_PATH="${NOTEBOOK_PATH:-scratch.ipynb}"

@@ -4,6 +4,7 @@ defmodule Ankole.AppConfigure.Crypto do
   """
 
   alias Ankole.Kernel, as: NativeKernel
+  alias Ankole.SecretKeyBase
 
   @doc """
   Encrypts one JSON-compatible value for a concrete AppConfigure row.
@@ -45,20 +46,9 @@ defmodule Ankole.AppConfigure.Crypto do
   # may contain separator characters. The serialized pair keeps key derivation
   # unambiguous without adding a custom escaping format.
   defp row_key(scope, key) do
-    with {:ok, secret} <- root_secret() do
+    with {:ok, secret} <- SecretKeyBase.fetch() do
       context = Ankole.JSON.encode!([scope, key])
       {:ok, NativeKernel.derive_key(secret, "app_configure", context)}
-    end
-  end
-
-  defp root_secret do
-    :ankole
-    |> Application.get_env(AnkoleWeb.Endpoint, [])
-    |> Keyword.fetch(:secret_key_base)
-    |> case do
-      {:ok, secret} when is_binary(secret) and secret != "" -> {:ok, secret}
-      {:ok, _secret} -> {:error, :invalid_secret_key_base}
-      :error -> {:error, :missing_secret_key_base}
     end
   end
 end

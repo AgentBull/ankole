@@ -77,7 +77,7 @@ defmodule Ankole.AuthZ do
   @spec add_principal_to_group(String.t(), String.t()) :: {:ok, Membership.t()} | {:error, term()}
   def add_principal_to_group(principal_uid, group_id_or_name) do
     Repo.transact(fn repo ->
-      Store.add_principal_to_group(repo, principal_uid, group_id_or_name)
+      Store.add_principal_to_group(repo, principal_uid, group_id_or_name, Root.admin_group_name())
     end)
   end
 
@@ -110,6 +110,25 @@ defmodule Ankole.AuthZ do
   @spec external_group_ids(String.t(), String.t()) :: [String.t()]
   def external_group_ids(provider, external_id) do
     Store.external_group_ids(Repo, provider, external_id)
+  end
+
+  @doc """
+  Reconciles one Principal's identity-provider-owned department group memberships.
+
+  The provider binding table maps external department ids to Principal groups.
+  Only operator-created static groups explicitly marked with
+  `metadata["external_directory"]["provider"] == provider` and
+  `metadata["external_directory"]["kind"] == "department"` are changed; manual
+  groups and unmarked bindings are left untouched.
+  """
+  @spec sync_external_directory_group_memberships(String.t(), String.t(), [String.t()]) ::
+          {:ok, %{synced_group_ids: [String.t()], removed_memberships: non_neg_integer()}}
+          | {:error, term()}
+  def sync_external_directory_group_memberships(provider, principal_uid, external_ids)
+      when is_binary(provider) and is_list(external_ids) do
+    Repo.transact(fn repo ->
+      Store.sync_external_directory_group_memberships(repo, provider, principal_uid, external_ids)
+    end)
   end
 
   @doc """

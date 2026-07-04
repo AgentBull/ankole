@@ -7,6 +7,7 @@ defmodule AnkoleWeb.AIGatewayTokens do
   """
 
   alias Ankole.Kernel, as: NativeKernel
+  alias Ankole.SecretKeyBase
 
   @issuer "ankole.control_plane"
   @audience "ankole.ai_gateway"
@@ -89,7 +90,7 @@ defmodule AnkoleWeb.AIGatewayTokens do
   def verify_api_key(_token), do: {:error, :invalid_token}
 
   defp signing_key do
-    with {:ok, secret} <- root_secret(),
+    with {:ok, secret} <- SecretKeyBase.fetch(),
          key when is_binary(key) <- NativeKernel.derive_key(secret, @sub_key_id, nil) do
       {:ok, key}
     else
@@ -115,17 +116,6 @@ defmodule AnkoleWeb.AIGatewayTokens do
       {:ok, ^expected} -> :ok
       {:ok, _value} -> {:error, {:invalid_claim, key}}
       :error -> {:error, {:missing_claim, key}}
-    end
-  end
-
-  defp root_secret do
-    :ankole
-    |> Application.get_env(AnkoleWeb.Endpoint, [])
-    |> Keyword.fetch(:secret_key_base)
-    |> case do
-      {:ok, secret} when is_binary(secret) and secret != "" -> {:ok, secret}
-      {:ok, _secret} -> {:error, :invalid_secret_key_base}
-      :error -> {:error, :missing_secret_key_base}
     end
   end
 

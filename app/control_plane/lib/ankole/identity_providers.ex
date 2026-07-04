@@ -26,6 +26,10 @@ defmodule Ankole.IdentityProviders do
   def list_setup_adapters do
     disabled_ids = disabled_plugin_ids()
 
+    # The plugin registry applies the disabled list only when the process boots:
+    # active children/config registration are startup-time effects. Setup is an
+    # operator-facing catalog, so it also filters the persisted disabled ids live
+    # and avoids offering a plugin that will be inactive after the next restart.
     Plugins.list_active()
     |> Enum.reject(&MapSet.member?(disabled_ids, &1.id))
     |> Enum.flat_map(&setup_adapters_for_plugin/1)

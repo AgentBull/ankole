@@ -12,7 +12,7 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   import Ankole.E2E.Harness
   import Ankole.E2E.Scenarios.RealLLM
 
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway
 
   # Models are deliberately hardcoded (no env overrides): the suite gates a
@@ -45,6 +45,94 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
       :reply,
       "om_real_skill_1"
     )
+  end
+
+  @tag timeout: 900_000
+  @tag ownership_timeout: 900_000
+  @tag :real_llm
+  @tag :browser_tool
+  test "real OpenRouter LLM completes a browser-only OpenRouter pricing task" do
+    ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!())
+
+    result = run_real_lark_openrouter_browser_turn(ctx)
+
+    assert_lark_final_reply(
+      ctx.fake_feishu,
+      result.reply,
+      "ANKOLE_OPENROUTER_BROWSER_OK",
+      :reply,
+      "om_real_openrouter_browser_1"
+    )
+  end
+
+  @tag timeout: 600_000
+  @tag ownership_timeout: 600_000
+  @tag :real_llm
+  @tag :browser_tool
+  @tag :web_fetch_local_browser
+  test "real OpenRouter LLM uses web_fetch through local browser" do
+    ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!())
+
+    result = run_real_lark_web_fetch_local_browser_turn(ctx)
+
+    assert_lark_final_reply(
+      ctx.fake_feishu,
+      result.reply,
+      "ANKOLE_WEB_FETCH_LOCAL_BROWSER_OK",
+      :reply,
+      "om_real_web_fetch_local_browser_1"
+    )
+  end
+
+  @tag timeout: 600_000
+  @tag ownership_timeout: 600_000
+  @tag :real_llm
+  @tag :terminal_tools_real_llm
+  test "real OpenRouter LLM completes a multi-step terminal tools task" do
+    ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!())
+
+    result = run_real_lark_terminal_tools_turn(ctx)
+
+    assert_lark_final_reply(
+      ctx.fake_feishu,
+      result.reply,
+      "ANKOLE_TERMINAL_TOOLS_REAL_OK",
+      :reply,
+      "om_real_terminal_tools_1"
+    )
+  end
+
+  @tag timeout: 600_000
+  @tag ownership_timeout: 600_000
+  @tag :real_llm
+  test "real OpenRouter LLM handles Lark post images and vision fallback" do
+    ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!())
+
+    direct = run_real_lark_post_image_direct_vision_turn(ctx)
+    direct_text = direct.reply.text || ""
+
+    assert_lark_final_reply(
+      ctx.fake_feishu,
+      direct.reply,
+      direct_text,
+      :reply,
+      "om_real_image_direct_1"
+    )
+
+    assert_vision_false_reply!(direct_text)
+
+    fallback = run_real_lark_post_image_vision_fallback_turn(ctx)
+    fallback_text = fallback.reply.text || ""
+
+    assert_lark_final_reply(
+      ctx.fake_feishu,
+      fallback.reply,
+      fallback_text,
+      :reply,
+      "om_real_image_fallback_1"
+    )
+
+    assert_vision_false_reply!(fallback_text)
   end
 
   @tag timeout: 300_000
@@ -89,5 +177,15 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
     assert length(results) >= 1
     assert Enum.all?(results, &is_integer(&1["index"]))
     assert Enum.all?(results, &is_number(&1["relevance_score"]))
+  end
+
+  defp assert_vision_false_reply!(text) do
+    normalized = String.downcase(text || "")
+
+    assert String.contains?(normalized, "false"),
+           "expected vision reply to say false, got: #{inspect(text)}"
+
+    refute Regex.match?(~r/\btrue\b/, normalized),
+           "expected vision reply not to say true, got: #{inspect(text)}"
   end
 end

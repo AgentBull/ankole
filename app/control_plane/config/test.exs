@@ -6,11 +6,8 @@ import Config
 # to provide built-in test partitioning in CI environment.
 # Run `mix help test` for more information.
 config :ankole, Ankole.Repo,
-  username: "postgres",
-  password: System.get_env("POSTGRES_PASSWORD") || "just4local-dev",
-  hostname: "localhost",
-  port: String.to_integer(System.get_env("POSTGRES_PORT") || "5433"),
-  database: "ankole_test#{System.get_env("MIX_TEST_PARTITION")}",
+  url: Ankole.Config.Bootstrap.env!("DATABASE_URL"),
+  database: "ankole_test#{Ankole.Config.Bootstrap.env_string("MIX_TEST_PARTITION")}",
   template: "template0",
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: System.schedulers_online() * 2
@@ -19,7 +16,6 @@ config :ankole, Ankole.Repo,
 # you can enable the server option below.
 config :ankole, AnkoleWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],
-  secret_key_base: "pNdEoLgeHw7PFI4SPNUmpfQd9aSHC/ykyYxHb0aoktuN1EO9rRoNfvdcHtKiKe1M",
   server: false
 
 config :ankole, AnkoleWeb.Assets, dev_server: "http://assets.test"
@@ -41,3 +37,7 @@ config :ankole, :actor_runtime,
   reconciler: [enabled: false],
   watchdog: [enabled: false],
   outbox_dispatcher: [enabled: false]
+
+config :ankole, :signals_gateway,
+  inbound_batch_finalizer: [enabled: false],
+  recovery_scan: [enabled: false]

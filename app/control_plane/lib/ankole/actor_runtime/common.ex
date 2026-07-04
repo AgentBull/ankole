@@ -28,7 +28,7 @@ defmodule Ankole.ActorRuntime.Common do
   def fetch_actor_session_id(turn_ref),
     do: turn_ref |> fetch_map!("actor") |> fetch_text!("session_id")
 
-  def fetch_turn_id(turn_ref), do: fetch_text!(turn_ref, "llm_turn_id")
+  def fetch_turn_id(turn_ref), do: fetch_text!(turn_ref, "actor_event_id")
 
   def fetch_text!(map, key) do
     case fetch_text(map, key) do

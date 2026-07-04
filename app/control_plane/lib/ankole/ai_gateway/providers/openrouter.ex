@@ -19,12 +19,8 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
     setting(:api_key, encrypted: true)
     setting(:headers, type: :map)
     setting(:query_params, type: :map)
-    setting(:include_usage, type: :boolean)
-    setting(:supports_structured_outputs, type: :boolean)
     setting(:app_referer, default: @default_referer)
     setting(:app_title, default: @default_title)
-    setting(:referer)
-    setting(:title)
 
     setting(:user, scope: :request)
     setting(:reasoning, scope: :request)
@@ -155,8 +151,8 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
 
   defp attribution(ctx) do
     {
-      ctx.settings[:app_referer] || ctx.settings[:referer] || @default_referer,
-      ctx.settings[:app_title] || ctx.settings[:title] || @default_title
+      ctx.settings[:app_referer] || @default_referer,
+      ctx.settings[:app_title] || @default_title
     }
   end
 end

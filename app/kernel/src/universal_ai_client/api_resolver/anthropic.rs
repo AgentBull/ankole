@@ -531,7 +531,7 @@ fn anthropic_body_to_response(context: &ResponseContext, body: Value) -> Value {
 }
 
 fn build_anthropic_body(context: &ResponseContext) -> Map<String, Value> {
-    let request = context.resolved_request_object();
+    let request = context.resolved_provider_request_object();
     let mut body = context
         .provider_options
         .as_object()
@@ -655,7 +655,8 @@ fn anthropic_content(content: Option<&Value>) -> Value {
                             }
                             Value::Object(result)
                         }
-                        _type => json!({ "type": "text", "text": value_to_text(part) }),
+                        Some("input_image" | "image_url" | "image") => anthropic_image_part(map),
+                        _type => unsupported_anthropic_content_part(map, part),
                     }
                 })
                 .collect(),
@@ -663,6 +664,102 @@ fn anthropic_content(content: Option<&Value>) -> Value {
         Some(value) => json!([{ "type": "text", "text": value_to_text(value) }]),
         None => json!([]),
     }
+}
+
+fn anthropic_image_part(map: &Map<String, Value>) -> Value {
+    let Some(url) = anthropic_image_url(map) else {
+        return anthropic_image_placeholder();
+    };
+
+    if let Some((media_type, data)) = parse_image_data_url(&url) {
+        return json!({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": media_type,
+                "data": data
+            }
+        });
+    }
+
+    if url.starts_with("https://") || url.starts_with("http://") {
+        return json!({
+            "type": "image",
+            "source": {
+                "type": "url",
+                "url": url
+            }
+        });
+    }
+
+    anthropic_image_placeholder()
+}
+
+fn anthropic_image_url(map: &Map<String, Value>) -> Option<String> {
+    for key in ["image_url", "url", "image"] {
+        if let Some(url) = map.get(key).and_then(image_url_value) {
+            return Some(url);
+        }
+    }
+    None
+}
+
+fn image_url_value(value: &Value) -> Option<String> {
+    match value {
+        Value::String(url) if !url.trim().is_empty() => Some(url.clone()),
+        Value::Object(map) => map
+            .get("url")
+            .and_then(Value::as_str)
+            .filter(|url| !url.trim().is_empty())
+            .map(ToOwned::to_owned),
+        _value => None,
+    }
+}
+
+fn parse_image_data_url(url: &str) -> Option<(String, String)> {
+    let (metadata, data) = url.strip_prefix("data:")?.split_once(',')?;
+    let (media_type, encoding) = metadata.rsplit_once(';')?;
+    if encoding != "base64" || !media_type.starts_with("image/") || data.trim().is_empty() {
+        return None;
+    }
+    Some((media_type.to_string(), data.to_string()))
+}
+
+fn unsupported_anthropic_content_part(map: &Map<String, Value>, part: &Value) -> Value {
+    if binaryish_content_part(map) {
+        return anthropic_image_placeholder();
+    }
+
+    json!({ "type": "text", "text": value_to_text(part) })
+}
+
+fn binaryish_content_part(map: &Map<String, Value>) -> bool {
+    let binaryish_keys = [
+        "image",
+        "image_url",
+        "file",
+        "file_data",
+        "data",
+        "bytes",
+        "base64",
+        "b64_json",
+    ];
+    if binaryish_keys.iter().any(|key| map.contains_key(*key)) {
+        return true;
+    }
+
+    map.get("type")
+        .and_then(Value::as_str)
+        .map(|part_type| {
+            ["image", "file", "audio", "video"]
+                .iter()
+                .any(|needle| part_type.contains(needle))
+        })
+        .unwrap_or(false)
+}
+
+fn anthropic_image_placeholder() -> Value {
+    json!({ "type": "text", "text": "[image content omitted: unsupported image source]" })
 }
 
 fn anthropic_tools(tools: Option<&Value>) -> Option<Value> {

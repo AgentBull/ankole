@@ -40,7 +40,8 @@ AuthZ does not own:
 - channel actor verification;
 - setup sessions, OIDC handshakes, or one-time login codes;
 - chat room/message projection, delivery, or outbox state;
-- agent conversations, LLM turns, memory, mission, soul, or runtime profiles;
+- agent conversations, AI gateway messages, memory, mission, soul, or runtime
+  profiles;
 - AppConfigure values or plugin configuration.
 
 Those subsystems may call AuthZ and store `principal_uid` references, but AuthZ

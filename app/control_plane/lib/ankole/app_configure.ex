@@ -18,7 +18,6 @@ defmodule Ankole.AppConfigure do
   @agent_scope_prefix "agent:"
 
   @type definition :: Definition.t() | PatternDefinition.t()
-  @type stale_write :: {:persisted_but_stale, %{String.t() => term()}, term()}
   @type console_item :: map()
 
   @doc """
@@ -137,29 +136,6 @@ defmodule Ankole.AppConfigure do
   def put_global_by_key(key, value) when is_binary(key) do
     with {:ok, registered} <- Registry.require_key(key) do
       put(@global_scope, key, registered, value)
-    end
-  end
-
-  @doc """
-  Stores multiple concrete keys in `global` inside one database transaction.
-
-  All keys are validated and encoded before any row is written. If the database
-  commit succeeds but the local cache projection cannot be refreshed, the result
-  is still tagged as `:persisted_but_stale` so setup or operator flows can report
-  that runtime readers may need a refresh.
-  """
-  @spec put_many_global_by_key(map() | [{String.t(), term()}]) ::
-          {:ok, %{String.t() => term()} | stale_write()} | {:error, term()}
-  def put_many_global_by_key(entries) when is_map(entries) do
-    entries
-    |> Map.to_list()
-    |> put_many_global_by_key()
-  end
-
-  def put_many_global_by_key(entries) when is_list(entries) do
-    with {:ok, prepared_entries} <- prepare_many_entries(@global_scope, entries),
-         {:ok, values_by_key} <- persist_many_entries(prepared_entries) do
-      refresh_many_after_commit(prepared_entries, values_by_key)
     end
   end
 
@@ -407,68 +383,6 @@ defmodule Ankole.AppConfigure do
          :ok <- Cache.put_row(scope, key, envelope) do
       {:ok, parsed}
     end
-  end
-
-  defp prepare_many_entries(scope, entries) do
-    entries
-    |> Enum.reduce_while({:ok, %{}}, fn
-      {key, value}, {:ok, acc} when is_binary(key) ->
-        with {:ok, registered} <- Registry.require_key(key),
-             :ok <- ensure_scope(registered, scope),
-             {:ok, envelope, parsed} <- Codec.dump(registered, scope, key, value) do
-          prepared = %{scope: scope, key: key, envelope: envelope, parsed: parsed}
-          {:cont, {:ok, Map.put(acc, key, prepared)}}
-        else
-          {:error, _reason} = error -> {:halt, error}
-        end
-
-      _entry, _acc ->
-        {:halt, {:error, :invalid_entries}}
-    end)
-    |> case do
-      {:ok, entries_by_key} -> {:ok, Map.values(entries_by_key)}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp persist_many_entries([]), do: {:ok, %{}}
-
-  defp persist_many_entries(prepared_entries) do
-    Repo.transact(fn repo ->
-      prepared_entries
-      |> Enum.reduce_while({:ok, %{}}, fn prepared, {:ok, acc} ->
-        case upsert_row(repo, prepared.scope, prepared.key, prepared.envelope) do
-          :ok -> {:cont, {:ok, Map.put(acc, prepared.key, prepared.parsed)}}
-          {:error, _reason} = error -> {:halt, error}
-        end
-      end)
-    end)
-  end
-
-  defp refresh_many_after_commit(prepared_entries, values_by_key) do
-    prepared_entries
-    |> Enum.flat_map(&refresh_prepared_entry/1)
-    |> case do
-      [] -> {:ok, values_by_key}
-      [failure] -> {:ok, {:persisted_but_stale, values_by_key, failure}}
-      failures -> {:ok, {:persisted_but_stale, values_by_key, failures}}
-    end
-  end
-
-  defp refresh_prepared_entry(prepared) do
-    case safe_cache_put_row(prepared.scope, prepared.key, prepared.envelope) do
-      :ok ->
-        []
-
-      {:error, reason} ->
-        [{:app_configure_cache_projection_failed, prepared.scope, prepared.key, reason}]
-    end
-  end
-
-  defp safe_cache_put_row(scope, key, envelope) do
-    Cache.put_row(scope, key, envelope)
-  catch
-    :exit, reason -> {:error, reason}
   end
 
   defp upsert_row(scope, key, envelope) do

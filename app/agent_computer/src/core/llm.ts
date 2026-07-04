@@ -1,26 +1,19 @@
 /**
- * Worker LLM layer — built directly on the official `openai` npm package.
+ * Worker LLM wire adapter for AIGateway Responses.
  *
- * The worker talks to AIGateway's OpenAI-compatible Responses surface.
- * This module defines the worker-local message/tool types and the single
- * entry point `callModel()` that wraps `openai.responses.create()`.
- *
- * Per plan §4.1-4.2: the worker drives the Responses loop by calling the
- * model, executing tools locally, and feeding results back — but it does
- * NOT own history expansion, compaction, or stop-strategy state. Those
- * live in AIGateway (StatefulResponses). The worker just:
- *   1. Calls response.create with current input items.
- *   2. Gets function_call items back.
- *   3. Executes tools.
- *   4. Feeds function_call_output on the next response.create.
- *   5. Stops when no function_call is returned.
+ * This file only adapts worker-local tool/input shapes to response.create wire
+ * frames. History, anchors, stop strategy, and durable persistence belong to
+ * AIGateway StatefulResponses, not the worker.
  */
 
 import OpenAI from 'openai'
+import { Buffer } from 'node:buffer'
 import { z } from 'zod'
 import type {
   ResponseCreateParams,
+  ResponseInputMessageContentList,
   ResponseInputItem,
+  ResponseOutputItem,
   ResponseOutputMessage,
   ResponseFunctionToolCall,
   Response as OpenAIResponse
@@ -125,10 +118,45 @@ export interface ModelConfig {
   name: string
   /** Provider id for logging. */
   provider: string
+  /** Optional AIGateway WebSocket transport for stateful response.create runs. */
+  responseWebSocket?: ResponseWebSocketTransport
+}
+
+export type ResponseWebSocketTransport = {
+  kind: 'aigateway-websocket'
+  url: string
+  authorization: (options?: ResponseWebSocketAuthorizationOptions) => Promise<string> | string
+  createWebSocket?: ResponseWebSocketFactory
+}
+
+export type ResponseWebSocketAuthorizationOptions = {
+  forceRefresh?: boolean
+}
+
+export type ResponseWebSocketFactory = (url: string, init: { headers: Record<string, string> }) => ResponseWebSocketLike
+
+export type ResponseWebSocketLike = {
+  readyState?: number
+  send(data: string): void
+  close(code?: number, reason?: string): void
+  addEventListener(type: 'open', listener: (event: Event) => void, options?: { once?: boolean }): void
+  addEventListener(type: 'message', listener: (event: MessageEvent) => void, options?: { once?: boolean }): void
+  addEventListener(type: 'error', listener: (event: Event) => void, options?: { once?: boolean }): void
+  addEventListener(type: 'close', listener: (event: CloseEvent) => void, options?: { once?: boolean }): void
+  removeEventListener?(type: string, listener: (event: unknown) => void): void
+}
+
+export type ResponseWebSocketSession = {
+  call(params: ResponseCreateParams, options: CallModelOptions): Promise<ModelCallResult>
+  recordToolResults(
+    params: ResponseCreateParams,
+    options: ToolResultsRecordWebSocketOptions
+  ): Promise<ToolResultsRecordResult>
+  close(): void
 }
 
 /**
- * Creates a ModelConfig that wraps an OpenAI SDK client pointed at AIGateway.
+ * Creates a ModelConfig pointed at AIGateway.
  *
  * Usage:
  * ```ts
@@ -147,6 +175,7 @@ export function createModel(opts: {
   name?: string
   provider?: string
   fetch?: typeof fetch
+  responseWebSocket?: ResponseWebSocketTransport
 }): ModelConfig {
   const client = new OpenAI({
     apiKey: opts.apiKey,
@@ -158,7 +187,8 @@ export function createModel(opts: {
     client,
     selector: opts.selector,
     name: opts.name ?? (opts.selector.includes('/') ? opts.selector.split('/').pop()! : opts.selector),
-    provider: opts.provider ?? 'ai-gateway'
+    provider: opts.provider ?? 'ai-gateway',
+    responseWebSocket: opts.responseWebSocket
   }
 }
 
@@ -190,10 +220,40 @@ export interface CallModelOptions {
   maxOutputTokens?: number
   /** Temperature. */
   temperature?: number
+  /** Responses API text controls, including structured output format. */
+  text?: ResponseCreateParams['text']
   /** Abort signal. */
   abortSignal?: AbortSignal
   /** Called just before the HTTP request is sent. */
   beforeCall?: (payload: ResponseCreateParams) => void | Promise<void>
+  /** Called for each streamed text delta when the transport streams events. */
+  onTextDelta?: (delta: string) => void
+  /** Stateful AIGateway context; stateful calls must use the WebSocket transport. */
+  stateful?: StatefulResponseContext
+  /** Turn-local stateful WebSocket session shared across response.create rounds. */
+  responseWebSocketSession?: ResponseWebSocketSession
+}
+
+export type StatefulResponseContext = {
+  actorEventId: string
+  conversationId?: string
+  previousResponseId?: string
+  truncation?: 'auto' | 'disabled'
+  metadata?: Record<string, unknown>
+}
+
+export class AIGatewayWebSocketError extends Error {
+  readonly code?: string
+  readonly status?: number
+  readonly details?: unknown
+
+  constructor(message: string, opts: { code?: string; status?: number; details?: unknown } = {}) {
+    super(message)
+    this.name = 'AIGatewayWebSocketError'
+    this.code = opts.code
+    this.status = opts.status
+    this.details = opts.details
+  }
 }
 
 /**
@@ -210,6 +270,21 @@ export interface ModelCallResult {
   responseId?: string
 }
 
+export interface ToolResultsRecordOptions {
+  messages: Message[]
+  stateful: StatefulResponseContext
+  abortSignal?: AbortSignal
+  responseWebSocketSession?: ResponseWebSocketSession
+}
+
+export interface ToolResultsRecordWebSocketOptions {
+  abortSignal?: AbortSignal
+}
+
+export interface ToolResultsRecordResult {
+  responseId: string
+}
+
 /**
  * Calls the model via `openai.responses.create()`.
  *
@@ -223,7 +298,7 @@ export interface ModelCallResult {
  */
 export async function callModel(model: ModelConfig, options: CallModelOptions): Promise<ModelCallResult> {
   // Build the input items from worker messages.
-  const input = toResponseInput(options.messages, options.instructions)
+  const input = toResponseInput(options.messages)
 
   // Build tool definitions for the API.
   const tools = options.tools
@@ -239,138 +314,42 @@ export async function callModel(model: ModelConfig, options: CallModelOptions): 
   const params: ResponseCreateParams = {
     model: model.selector,
     input,
+    ...(options.instructions ? { instructions: options.instructions } : {}),
     ...(tools?.length ? { tools } : {}),
     ...(options.maxOutputTokens ? { max_output_tokens: options.maxOutputTokens } : {}),
-    ...(options.temperature !== undefined ? { temperature: options.temperature } : {})
+    ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
+    ...(options.text ? { text: options.text } : {})
+  }
+
+  if (options.stateful) {
+    const statefulParams = statefulResponseParams(params, options.stateful)
+    await options.beforeCall?.(statefulParams)
+    return callModelOverWebSocket(model, statefulParams, options)
   }
 
   await options.beforeCall?.(params)
 
-  const response = await model.client.responses.create(params as never)
+  const requestOptions = options.abortSignal ? { signal: options.abortSignal } : undefined
+  const response = await model.client.responses.create(params as never, requestOptions)
 
   const result = parseResponse(response, model.name)
   result.responseId = response.id
   return result
 }
 
-// ── Streaming model call ──────────────────────────────────────────
+export async function recordToolResults(
+  model: ModelConfig,
+  options: ToolResultsRecordOptions
+): Promise<ToolResultsRecordResult> {
+  const input = toResponseInput(options.messages)
+  const params = statefulToolResultsRecordParams(model, input, options.stateful)
+  const session = options.responseWebSocketSession ?? createResponseWebSocketSession(model)
 
-export interface StreamModelOptions extends CallModelOptions {
-  /** Called for each text delta as it arrives. */
-  onTextDelta?: (delta: string) => void
-  /** Called for each function call as it completes. */
-  onFunctionCall?: (call: ResponseFunctionToolCall) => void
-}
-
-/**
- * Streams a model response via `openai.responses.create({ stream: true })`.
- *
- * Same contract as `callModel` but with live callbacks for text/tool deltas.
- */
-export async function streamModel(model: ModelConfig, options: StreamModelOptions): Promise<ModelCallResult> {
-  const input = toResponseInput(options.messages, options.instructions)
-
-  const tools = options.tools
-    ? Object.values(options.tools).map(t => ({
-        type: 'function' as const,
-        name: t.name,
-        description: t.description,
-        parameters: zodToJSONSchema(t.parameters),
-        strict: false
-      }))
-    : undefined
-
-  const params: ResponseCreateParams = {
-    model: model.selector,
-    input,
-    stream: true,
-    ...(tools?.length ? { tools } : {}),
-    ...(options.maxOutputTokens ? { max_output_tokens: options.maxOutputTokens } : {}),
-    ...(options.temperature !== undefined ? { temperature: options.temperature } : {})
+  try {
+    return await session.recordToolResults(params, { abortSignal: options.abortSignal })
+  } finally {
+    if (!options.responseWebSocketSession) session.close()
   }
-
-  await options.beforeCall?.(params)
-
-  // Use the SDK's streaming mode and iterate over events.
-  // The SDK returns a Stream<ResponseStreamEvent> when stream:true.
-  // We cast to a minimal event shape for processing.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const stream = (await model.client.responses.create(params as never)) as any
-
-  // Accumulate from the stream events.
-  let textBuffer = ''
-  const functionCalls: ResponseFunctionToolCall[] = []
-  let usage: ModelUsage = { ...ZERO_USAGE }
-  let responseId: string | undefined
-
-  for await (const event of stream) {
-    const evt = event as Record<string, unknown>
-    switch (evt.type) {
-      case 'response.output_text.delta': {
-        const delta = evt.delta as string | undefined
-        if (delta) {
-          textBuffer += delta
-          options.onTextDelta?.(delta)
-        }
-        break
-      }
-      case 'response.function_call_arguments.done': {
-        const call: ResponseFunctionToolCall = {
-          id: (evt.call_id as string) ?? (evt.item_id as string) ?? '',
-          call_id: (evt.call_id as string) ?? '',
-          type: 'function_call',
-          name: (evt.name as string) ?? '',
-          arguments: (evt.arguments as string) ?? '{}'
-        }
-        functionCalls.push(call)
-        options.onFunctionCall?.(call)
-        break
-      }
-      case 'response.completed': {
-        const response = evt.response as
-          | {
-              id?: string
-              usage?: {
-                input_tokens?: number
-                output_tokens?: number
-                output_tokens_details?: { reasoning?: number }
-                input_tokens_details?: { cached?: number }
-              }
-            }
-          | undefined
-        responseId = response?.id
-        const u = response?.usage
-        if (u) {
-          usage = {
-            inputTokens: u.input_tokens ?? 0,
-            outputTokens: u.output_tokens ?? 0,
-            reasoningTokens: u.output_tokens_details?.reasoning,
-            cachedInputTokens: u.input_tokens_details?.cached
-          }
-        }
-        break
-      }
-    }
-  }
-
-  const message: AssistantMessage = {
-    role: 'assistant',
-    content: textBuffer ? [{ type: 'text', text: textBuffer }] : [],
-    toolCalls:
-      functionCalls.length > 0
-        ? functionCalls.map(fc => ({
-            id: fc.call_id || fc.id || '',
-            type: 'function' as const,
-            name: fc.name,
-            arguments: fc.arguments
-          }))
-        : undefined,
-    usage,
-    stopReason: functionCalls.length > 0 ? 'toolUse' : 'stop',
-    model: model.name
-  }
-
-  return { message, functionCalls, hasToolCalls: functionCalls.length > 0, responseId }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────
@@ -378,17 +357,12 @@ export async function streamModel(model: ModelConfig, options: StreamModelOption
 /**
  * Converts worker-local Message[] to OpenAI ResponseInputItem[].
  */
-function toResponseInput(messages: Message[], instructions?: string): ResponseInputItem[] {
+function toResponseInput(messages: Message[]): ResponseInputItem[] {
   const items: ResponseInputItem[] = []
-
-  if (instructions) {
-    items.push({ role: 'system', content: instructions } as ResponseInputItem)
-  }
 
   for (const msg of messages) {
     if (msg.role === 'user') {
-      const content =
-        typeof msg.content === 'string' ? msg.content : msg.content.map(p => (p.type === 'text' ? p.text : '')).join('')
+      const content = typeof msg.content === 'string' ? msg.content : responseInputContentParts(msg.content)
       items.push({ role: 'user', content } as ResponseInputItem)
     } else if (msg.role === 'assistant') {
       const text = msg.content.map(p => p.text).join('')
@@ -417,12 +391,534 @@ function toResponseInput(messages: Message[], instructions?: string): ResponseIn
   return items
 }
 
+function responseInputContentParts(parts: ContentPart[]): ResponseInputMessageContentList {
+  const content: ResponseInputMessageContentList = []
+  for (const part of parts) {
+    if (part.type === 'image') {
+      content.push({ type: 'input_image', image_url: imageContentUrl(part), detail: 'auto' })
+      continue
+    }
+    content.push({ type: 'input_text', text: part.text })
+  }
+  return content
+}
+
+function imageContentUrl(part: ImageContent): string {
+  if (typeof part.image === 'string') return part.image
+  if (part.image instanceof URL) return part.image.toString()
+
+  return `data:${part.mimeType ?? 'image/png'};base64,${Buffer.from(imageBytes(part.image)).toString('base64')}`
+}
+
+function imageBytes(value: Uint8Array | BufferSource): Uint8Array {
+  if (value instanceof Uint8Array) return value
+  if (value instanceof ArrayBuffer) return new Uint8Array(value)
+  if (ArrayBuffer.isView(value)) {
+    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+  }
+  return new Uint8Array(value as ArrayBuffer)
+}
+
 /**
  * Parses a completed response into worker-local types.
  */
 function parseResponse(response: OpenAIResponse, modelName: string): ModelCallResult {
   const output = response.output ?? []
-  const functionCalls: ResponseFunctionToolCall[] = []
+  const usage = usageFromResponse(response.usage)
+  const result = parseOutputItems(output, modelName, usage, response.status === 'failed' ? 'error' : undefined)
+  result.responseId = response.id
+  return result
+}
+
+function statefulResponseParams(params: ResponseCreateParams, stateful: StatefulResponseContext): ResponseCreateParams {
+  const metadata = {
+    ...stateful.metadata,
+    actor_event_id: stateful.actorEventId
+  }
+
+  const request = {
+    ...params,
+    store: true,
+    metadata
+  } as ResponseCreateParams & Record<string, unknown>
+
+  if (stateful.previousResponseId) {
+    request.previous_response_id = stateful.previousResponseId
+  } else if (stateful.conversationId) {
+    request.conversation = `conv_${stateful.conversationId}`
+  } else {
+    throw new Error('stateful response.create requires a conversationId or previousResponseId')
+  }
+
+  if (stateful.truncation) {
+    request.truncation = stateful.truncation
+  }
+
+  return request as ResponseCreateParams
+}
+
+function statefulToolResultsRecordParams(
+  model: ModelConfig,
+  input: ResponseInputItem[],
+  stateful: StatefulResponseContext
+): ResponseCreateParams {
+  if (!stateful.previousResponseId) {
+    throw new Error('stateful tool result recording requires a previousResponseId')
+  }
+
+  return {
+    model: model.selector,
+    input,
+    store: true,
+    previous_response_id: stateful.previousResponseId,
+    metadata: {
+      ...stateful.metadata,
+      actor_event_id: stateful.actorEventId
+    }
+  } as ResponseCreateParams
+}
+
+async function callModelOverWebSocket(
+  model: ModelConfig,
+  params: ResponseCreateParams,
+  options: CallModelOptions
+): Promise<ModelCallResult> {
+  const session = options.responseWebSocketSession ?? createResponseWebSocketSession(model)
+
+  try {
+    return await session.call(params, options)
+  } finally {
+    if (!options.responseWebSocketSession) session.close()
+  }
+}
+
+export function createResponseWebSocketSession(model: ModelConfig): ResponseWebSocketSession {
+  return new DefaultResponseWebSocketSession(model)
+}
+
+class DefaultResponseWebSocketSession implements ResponseWebSocketSession {
+  private socket: ResponseWebSocketLike | undefined
+  private opening: Promise<ResponseWebSocketLike> | undefined
+  private opened = false
+  private closed = false
+  private inFlight = false
+  private forceRefreshAuthorization = false
+
+  constructor(private readonly model: ModelConfig) {}
+
+  async call(params: ResponseCreateParams, options: CallModelOptions): Promise<ModelCallResult> {
+    if (this.inFlight) {
+      throw new Error('AIGateway WebSocket session already has an active response.create')
+    }
+
+    this.inFlight = true
+
+    try {
+      const socket = await this.ensureOpen()
+      return await responseCreateOverOpenWebSocket(this.model, socket, params, options, () => this.discardSocket())
+    } catch (error) {
+      if (shouldRefreshAuthorizationAfterWebSocketOpenFailure(error)) {
+        this.forceRefreshAuthorization = true
+      }
+      throw error
+    } finally {
+      this.inFlight = false
+    }
+  }
+
+  async recordToolResults(
+    params: ResponseCreateParams,
+    options: ToolResultsRecordWebSocketOptions
+  ): Promise<ToolResultsRecordResult> {
+    if (this.inFlight) {
+      throw new Error('AIGateway WebSocket session already has an active request')
+    }
+
+    this.inFlight = true
+
+    try {
+      const socket = await this.ensureOpen()
+      return await recordToolResultsOverOpenWebSocket(socket, params, options, () => this.discardSocket())
+    } catch (error) {
+      if (shouldRefreshAuthorizationAfterWebSocketOpenFailure(error)) {
+        this.forceRefreshAuthorization = true
+      }
+      throw error
+    } finally {
+      this.inFlight = false
+    }
+  }
+
+  close(): void {
+    this.closed = true
+    this.closeSocket()
+  }
+
+  private async ensureOpen(): Promise<ResponseWebSocketLike> {
+    if (this.closed) {
+      throw new Error('AIGateway WebSocket session is closed')
+    }
+
+    if (this.socket && this.opened && this.socket.readyState !== 3) {
+      return this.socket
+    }
+
+    if (this.opening) return this.opening
+
+    this.opening = this.openFreshSocket().finally(() => {
+      this.opening = undefined
+    })
+
+    return this.opening
+  }
+
+  private async openFreshSocket(): Promise<ResponseWebSocketLike> {
+    const transport = this.model.responseWebSocket
+    if (!transport) {
+      throw new Error('stateful response.create requires an AIGateway WebSocket transport')
+    }
+
+    const authorization = await transport.authorization(
+      this.forceRefreshAuthorization ? { forceRefresh: true } : undefined
+    )
+    this.forceRefreshAuthorization = false
+    const socket = createResponseWebSocket(transport, authorization)
+    this.socket = socket
+    this.opened = false
+
+    return await new Promise<ResponseWebSocketLike>((resolve, reject) => {
+      let settled = false
+
+      const cleanup = () => {
+        socket.removeEventListener?.('open', onOpen as (event: unknown) => void)
+        socket.removeEventListener?.('error', onError as (event: unknown) => void)
+        socket.removeEventListener?.('close', onClose as (event: unknown) => void)
+      }
+
+      const fail = (error: Error) => {
+        if (settled) return
+        settled = true
+        cleanup()
+        this.discardSocket()
+        reject(error)
+      }
+
+      const onOpen = () => {
+        if (settled) return
+        settled = true
+        this.opened = true
+        cleanup()
+        resolve(socket)
+      }
+
+      const onError = () =>
+        fail(webSocketTransportError('AIGateway WebSocket transport error', 'transport_error_before_open', true))
+
+      const onClose = (event: CloseEvent) => {
+        const suffix = event.reason ? `: ${event.reason}` : ''
+        fail(webSocketTransportError(`AIGateway WebSocket closed before open${suffix}`, 'closed_before_open', true))
+      }
+
+      socket.addEventListener('open', onOpen, { once: true })
+      socket.addEventListener('error', onError, { once: true })
+      socket.addEventListener('close', onClose, { once: true })
+    })
+  }
+
+  private discardSocket(): void {
+    this.closeSocket()
+    this.socket = undefined
+    this.opened = false
+  }
+
+  private closeSocket(): void {
+    if (!this.socket) return
+
+    try {
+      this.socket.close()
+    } catch {
+      // ignore close races after terminal frames or failures
+    }
+  }
+}
+
+async function responseCreateOverOpenWebSocket(
+  model: ModelConfig,
+  socket: ResponseWebSocketLike,
+  params: ResponseCreateParams,
+  options: CallModelOptions,
+  discardSocket: () => void
+): Promise<ModelCallResult> {
+  const requestPayload = JSON.stringify({ type: 'response.create', ...params })
+
+  return await new Promise<ModelCallResult>((resolve, reject) => {
+    let settled = false
+    let textBuffer = ''
+    let responseId: string | undefined
+    let usage: ModelUsage | undefined
+    let terminalStatus: StopReason | undefined
+    let terminalErrorText: string | undefined
+    const stableItems: ResponseOutputItem[] = []
+    const functionCallsById = new Map<string, ResponseFunctionToolCall>()
+
+    const cleanup = () => {
+      options.abortSignal?.removeEventListener('abort', onAbort)
+      socket.removeEventListener?.('message', onMessage as (event: unknown) => void)
+      socket.removeEventListener?.('error', onError as (event: unknown) => void)
+      socket.removeEventListener?.('close', onClose as (event: unknown) => void)
+    }
+
+    const finish = (result: ModelCallResult) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      resolve(result)
+    }
+
+    const fail = (error: Error) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      discardSocket()
+      reject(error)
+    }
+
+    const onAbort = () => fail(webSocketTransportError('LLM provider call aborted', 'aborted', false))
+
+    const onMessage = (event: MessageEvent) => {
+      const frameText = webSocketFrameText(event.data)
+      let frame: Record<string, unknown>
+      try {
+        frame = JSON.parse(frameText) as Record<string, unknown>
+      } catch {
+        return
+      }
+
+      switch (frame.type) {
+        case 'response.output_text.delta': {
+          const delta = typeof frame.delta === 'string' ? frame.delta : ''
+          textBuffer += delta
+          options.onTextDelta?.(delta)
+          return
+        }
+
+        case 'response.output_item.done': {
+          const item = recordValue(frame.item)
+          if (item) {
+            stableItems.push(item as unknown as ResponseOutputItem)
+            rememberFunctionCall(functionCallsById, item)
+          }
+          return
+        }
+
+        case 'response.completed':
+        case 'response.failed':
+        case 'response.incomplete': {
+          const response = recordValue(frame.response)
+          const output = arrayValue(response?.output) as ResponseOutputItem[] | undefined
+          const terminalItems = output && output.length > 0 ? output : stableItems
+          const responseStatus = typeof response?.status === 'string' ? response.status : undefined
+          responseId = typeof response?.id === 'string' ? response.id : responseId
+          usage = usageFromResponse(recordValue(response?.usage))
+          terminalStatus = frame.type === 'response.completed' && responseStatus !== 'failed' ? undefined : 'error'
+          terminalErrorText = terminalErrorMessage(response, frame)
+
+          const result = parseOutputItems(
+            terminalItems,
+            model.name,
+            usage,
+            terminalStatus,
+            textBuffer,
+            terminalErrorText,
+            [...functionCallsById.values()]
+          )
+          result.responseId = responseId
+          finish(result)
+          return
+        }
+
+        case 'error': {
+          fail(aigatewayErrorFromFrame(frame))
+          return
+        }
+
+        default:
+          return
+      }
+    }
+
+    const onError = () =>
+      fail(webSocketTransportError('AIGateway WebSocket transport error', 'transport_error_after_open', false))
+
+    const onClose = (event: CloseEvent) => {
+      if (settled) return
+      const suffix = event.reason ? `: ${event.reason}` : ''
+      fail(
+        webSocketTransportError(
+          `AIGateway WebSocket closed before response.completed${suffix}`,
+          'closed_before_terminal',
+          false
+        )
+      )
+    }
+
+    options.abortSignal?.addEventListener('abort', onAbort, { once: true })
+    if (options.abortSignal?.aborted) {
+      onAbort()
+      return
+    }
+
+    socket.addEventListener('message', onMessage)
+    socket.addEventListener('error', onError, { once: true })
+    socket.addEventListener('close', onClose, { once: true })
+
+    try {
+      socket.send(requestPayload)
+    } catch (error) {
+      fail(webSocketTransportError(errorMessage(error), 'send_failed', false))
+    }
+  })
+}
+
+async function recordToolResultsOverOpenWebSocket(
+  socket: ResponseWebSocketLike,
+  params: ResponseCreateParams,
+  options: ToolResultsRecordWebSocketOptions,
+  discardSocket: () => void
+): Promise<ToolResultsRecordResult> {
+  const requestPayload = JSON.stringify({ type: 'response.tool_results.record', ...params })
+
+  return await new Promise<ToolResultsRecordResult>((resolve, reject) => {
+    let settled = false
+
+    const cleanup = () => {
+      options.abortSignal?.removeEventListener('abort', onAbort)
+      socket.removeEventListener?.('message', onMessage as (event: unknown) => void)
+      socket.removeEventListener?.('error', onError as (event: unknown) => void)
+      socket.removeEventListener?.('close', onClose as (event: unknown) => void)
+    }
+
+    const finish = (result: ToolResultsRecordResult) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      resolve(result)
+    }
+
+    const fail = (error: Error, discard = true) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      if (discard) discardSocket()
+      reject(error)
+    }
+
+    const onAbort = () => fail(webSocketTransportError('Tool result recording aborted', 'aborted', false))
+
+    const onMessage = (event: MessageEvent) => {
+      const frameText = webSocketFrameText(event.data)
+      let frame: Record<string, unknown>
+      try {
+        frame = JSON.parse(frameText) as Record<string, unknown>
+      } catch {
+        return
+      }
+
+      switch (frame.type) {
+        case 'response.tool_results.recorded': {
+          const response = recordValue(frame.response)
+          const responseId = stringValue(response?.id) ?? stringValue(frame.response_id)
+          if (!responseId) {
+            fail(
+              new AIGatewayWebSocketError('AIGateway tool result record ack did not include response.id', {
+                code: 'missing_recorded_response_id'
+              }),
+              false
+            )
+            return
+          }
+          finish({ responseId })
+          return
+        }
+
+        case 'error': {
+          fail(aigatewayErrorFromFrame(frame), false)
+          return
+        }
+
+        default:
+          return
+      }
+    }
+
+    const onError = () =>
+      fail(webSocketTransportError('AIGateway WebSocket transport error', 'tool_results_record_transport_error', true))
+
+    const onClose = (event: CloseEvent) => {
+      if (settled) return
+      const suffix = event.reason ? `: ${event.reason}` : ''
+      fail(
+        webSocketTransportError(
+          `AIGateway WebSocket closed before response.tool_results.recorded${suffix}`,
+          'tool_results_record_closed_before_ack',
+          true
+        )
+      )
+    }
+
+    options.abortSignal?.addEventListener('abort', onAbort, { once: true })
+    if (options.abortSignal?.aborted) {
+      onAbort()
+      return
+    }
+
+    socket.addEventListener('message', onMessage)
+    socket.addEventListener('error', onError, { once: true })
+    socket.addEventListener('close', onClose, { once: true })
+
+    try {
+      socket.send(requestPayload)
+    } catch (error) {
+      fail(webSocketTransportError(errorMessage(error), 'tool_results_record_send_failed', true))
+    }
+  })
+}
+
+function createResponseWebSocket(transport: ResponseWebSocketTransport, authorization: string): ResponseWebSocketLike {
+  const init = { headers: { authorization } }
+  if (transport.createWebSocket) return transport.createWebSocket(transport.url, init)
+  return new WebSocket(transport.url, init as never) as ResponseWebSocketLike
+}
+
+function webSocketTransportError(message: string, stage: string, localRetryable: boolean): AIGatewayWebSocketError {
+  return new AIGatewayWebSocketError(message, {
+    code: `aigateway_websocket_${stage}`,
+    details: {
+      stage,
+      retryable: true,
+      local_retryable: localRetryable
+    }
+  })
+}
+
+function shouldRefreshAuthorizationAfterWebSocketOpenFailure(error: unknown): boolean {
+  if (!(error instanceof AIGatewayWebSocketError)) return false
+  const details = recordValue(error.details)
+  const stage = stringValue(details?.stage)
+  return details?.local_retryable === true && stage !== undefined && stage.endsWith('_before_open')
+}
+
+function parseOutputItems(
+  output: ResponseOutputItem[],
+  modelName: string,
+  usage: ModelUsage | undefined,
+  terminalStatus?: StopReason,
+  textFallback = '',
+  errorMessage?: string,
+  fallbackFunctionCalls: ResponseFunctionToolCall[] = []
+): ModelCallResult {
+  const functionCalls: ResponseFunctionToolCall[] = [...fallbackFunctionCalls]
+  const seenFunctionCallIds = new Set(functionCalls.map(responseFunctionCallKey).filter(Boolean))
   const textParts: string[] = []
 
   for (const item of output) {
@@ -434,35 +930,135 @@ function parseResponse(response: OpenAIResponse, modelName: string): ModelCallRe
         }
       }
     } else if (item.type === 'function_call') {
-      functionCalls.push(item as ResponseFunctionToolCall)
+      const call = item as ResponseFunctionToolCall
+      const id = responseFunctionCallKey(call)
+      if (id && !seenFunctionCallIds.has(id)) {
+        functionCalls.push(call)
+        seenFunctionCallIds.add(id)
+      }
     }
   }
 
-  const usage: ModelUsage | undefined = response.usage
-    ? {
-        inputTokens: response.usage.input_tokens ?? 0,
-        outputTokens: response.usage.output_tokens ?? 0
-      }
-    : undefined
-
+  const text = textParts.join('') || textFallback
+  const stopReason = terminalStatus ?? (functionCalls.length > 0 ? 'toolUse' : 'stop')
   const message: AssistantMessage = {
     role: 'assistant',
-    content: textParts.length > 0 ? [{ type: 'text', text: textParts.join('') }] : [],
+    content: text ? [{ type: 'text', text }] : [],
     toolCalls:
       functionCalls.length > 0
         ? functionCalls.map(fc => ({
-            id: fc.call_id || fc.id || '',
+            id: responseFunctionCallKey(fc) || '',
             type: 'function' as const,
             name: fc.name,
             arguments: fc.arguments
           }))
         : undefined,
     usage,
-    stopReason: functionCalls.length > 0 ? 'toolUse' : response.status === 'failed' ? 'error' : 'stop',
-    model: modelName
+    stopReason,
+    model: modelName,
+    ...(errorMessage ? { errorMessage } : {})
   }
 
-  return { message, functionCalls, hasToolCalls: functionCalls.length > 0, responseId: response.id }
+  return { message, functionCalls, hasToolCalls: functionCalls.length > 0 }
+}
+
+function rememberFunctionCall(calls: Map<string, ResponseFunctionToolCall>, item: Record<string, unknown>): void {
+  if (item.type !== 'function_call') return
+  const call = item as unknown as ResponseFunctionToolCall
+  const callId = responseFunctionCallKey(call)
+  if (callId) calls.set(callId, call)
+}
+
+function responseFunctionCallKey(call: Pick<ResponseFunctionToolCall, 'call_id' | 'id'>): string | undefined {
+  return call.call_id || call.id
+}
+
+function usageFromResponse(usage: unknown): ModelUsage | undefined {
+  const value = recordValue(usage)
+  if (!value) return undefined
+
+  const outputDetails = recordValue(value.output_tokens_details)
+  const inputDetails = recordValue(value.input_tokens_details)
+
+  return {
+    inputTokens: numberValue(value.input_tokens) ?? 0,
+    outputTokens: numberValue(value.output_tokens) ?? 0,
+    reasoningTokens: numberValue(outputDetails?.reasoning),
+    cachedInputTokens: numberValue(inputDetails?.cached)
+  }
+}
+
+function terminalErrorMessage(
+  response: Record<string, unknown> | undefined,
+  frame: Record<string, unknown>
+): string | undefined {
+  const error = recordValue(response?.error) ?? recordValue(frame.error)
+  const status =
+    numberValue(error?.status) ??
+    numberValue(error?.status_code) ??
+    numberValue(error?.http_status) ??
+    numberValue(frame.status)
+  const code = stringValue(error?.code) ?? stringValue(frame.code)
+  const message = stringValue(error?.message)
+
+  if (status !== undefined || code || message) {
+    return [
+      'AIGateway response failed',
+      status !== undefined ? `status=${status}` : undefined,
+      code ? `code=${code}` : undefined,
+      message
+    ]
+      .filter(Boolean)
+      .join(' ')
+  }
+
+  const incomplete = recordValue(response?.incomplete_details)
+  if (typeof incomplete?.reason === 'string') return incomplete.reason
+  return undefined
+}
+
+function aigatewayErrorFromFrame(frame: Record<string, unknown>): AIGatewayWebSocketError {
+  const error = recordValue(frame.error)
+
+  return new AIGatewayWebSocketError(errorFrameMessage(frame), {
+    code: stringValue(error?.code) ?? stringValue(frame.code),
+    status: numberValue(frame.status) ?? numberValue(error?.status),
+    details:
+      recordValue(error?.details_json) ??
+      recordValue(error?.details) ??
+      recordValue(frame.details_json) ??
+      recordValue(frame.details)
+  })
+}
+
+function errorFrameMessage(frame: Record<string, unknown>): string {
+  const error = recordValue(frame.error)
+  if (typeof error?.message === 'string') return error.message
+  if (typeof frame.message === 'string') return frame.message
+  return 'AIGateway WebSocket returned an error frame'
+}
+
+function webSocketFrameText(data: unknown): string {
+  if (typeof data === 'string') return data
+  if (data instanceof Uint8Array) return new TextDecoder().decode(data)
+  if (data instanceof ArrayBuffer) return new TextDecoder().decode(data)
+  return String(data)
+}
+
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined
+}
+
+function arrayValue(value: unknown): unknown[] | undefined {
+  return Array.isArray(value) ? value : undefined
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === 'number' ? value : undefined
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined
 }
 
 /**
@@ -476,18 +1072,33 @@ export function zodToJSONSchema(schema: z.ZodType): Record<string, unknown> {
  * Validates tool call arguments against a Zod schema.
  */
 export function validateToolArguments(args: string, schema: z.ZodType): unknown {
+  let decoded: unknown
   try {
-    return schema.parse(JSON.parse(args))
-  } catch {
-    return JSON.parse(args)
+    decoded = JSON.parse(args)
+  } catch (error) {
+    throw new Error(`tool arguments must be valid JSON: ${errorMessage(error)}`)
   }
+
+  return schema.parse(decoded)
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 /**
  * Helper to create a user message.
  */
-export function userMessage(content: string): UserMessage {
+export function userMessage(content: string | ContentPart[]): UserMessage {
   return { role: 'user', content }
+}
+
+export function assistantText(message: AssistantMessage | undefined): string {
+  if (!message) return ''
+  return message.content
+    .map(block => block.text)
+    .join('\n')
+    .trim()
 }
 
 /**

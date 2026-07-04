@@ -1,11 +1,27 @@
 import type { TurnModelRef, TurnStart } from '../../actor_lane'
-import type { Model } from '../../ai-gateway-client/ankole'
-import { createAIGatewayResponsesModel } from '../../ai-gateway-client/ai-gateway-provider'
+import type { ModelConfig } from '../llm'
+import { createModel } from '../llm'
 import type { AIGatewayApiKeyRejected, AIGatewayApiKeyResponse } from '../../rpc_lane'
 
 const aiGatewayApiKeyRefreshSkewMs = 60_000
 
-export type AIGatewayApiKeyRefresher = () => Promise<AIGatewayApiKeyResponse | AIGatewayApiKeyRejected>
+export type AIGatewayApiKeyRefreshOptions = {
+  forceRefresh?: boolean
+}
+
+export type AIGatewayApiKeyRefresher = (
+  options?: AIGatewayApiKeyRefreshOptions
+) => Promise<AIGatewayApiKeyResponse | AIGatewayApiKeyRejected>
+
+export type AIGatewayFetch = (
+  input: Parameters<typeof fetch>[0],
+  init?: Parameters<typeof fetch>[1]
+) => Promise<Response>
+
+export interface AIGatewayHttpClient {
+  baseURL: string
+  fetch: AIGatewayFetch
+}
 
 export function assertAIGatewayApiKeyMatchesTurn(turnStart: TurnStart, apiKey: AIGatewayApiKeyResponse): void {
   if (
@@ -18,33 +34,40 @@ export function assertAIGatewayApiKeyMatchesTurn(turnStart: TurnStart, apiKey: A
   }
 }
 
+/**
+ * Creates a ModelConfig pointed at AIGateway.
+ */
 export function runtimeModelFromAIGatewayApiKey(
   modelRef: TurnModelRef,
   apiKey: AIGatewayApiKeyResponse,
-  selector = aiGatewayModelSelector(modelRef),
   refreshApiKey?: AIGatewayApiKeyRefresher
-): Model {
-  const modelSelector = selector
-  const baseUrl = apiKey.base_url.replace(/\/+$/, '')
-  const gatewayFetch = aiGatewayFetch(apiKey, refreshApiKey) as unknown as typeof fetch
-  const sdkModel = createAIGatewayResponsesModel(
-    {
-      name: 'ankole-ai-gateway',
-      apiKey: apiKey.api_key,
-      baseURL: baseUrl,
-      fetch: gatewayFetch
-    },
-    modelSelector
-  )
+): ModelConfig {
+  const selector = aiGatewayModelSelector(modelRef)
+  const { baseURL, fetch: gatewayFetch } = aiGatewayHttpClientFromApiKey(apiKey, refreshApiKey)
+  const authorization = aiGatewayAuthorization(apiKey, refreshApiKey)
 
+  return createModel({
+    apiKey: apiKey.api_key,
+    baseURL,
+    selector,
+    name: modelRef.model,
+    provider: modelRef.provider_id,
+    fetch: gatewayFetch as never,
+    responseWebSocket: {
+      kind: 'aigateway-websocket',
+      url: aiGatewayWebSocketUrl(baseURL),
+      authorization
+    }
+  })
+}
+
+export function aiGatewayHttpClientFromApiKey(
+  apiKey: AIGatewayApiKeyResponse,
+  refreshApiKey?: AIGatewayApiKeyRefresher
+): AIGatewayHttpClient {
   return {
-    id: modelSelector,
-    name: selector === `${modelRef.provider_id}/${modelRef.model}` ? modelRef.model : selector,
-    api: 'open-responses',
-    provider: 'ai-gateway',
-    baseUrl,
-    input: ['text', 'image'],
-    sdkModel
+    baseURL: apiKey.base_url.replace(/\/+$/, ''),
+    fetch: aiGatewayFetch(apiKey, refreshApiKey)
   }
 }
 
@@ -56,19 +79,11 @@ export function aiGatewayModelSelector(modelRef: TurnModelRef): string {
   return `${modelRef.provider_id}/${modelRef.model}`
 }
 
-function aiGatewayFetch(initialApiKey: AIGatewayApiKeyResponse, refreshApiKey?: AIGatewayApiKeyRefresher) {
+function aiGatewayFetch(
+  initialApiKey: AIGatewayApiKeyResponse,
+  refreshApiKey?: AIGatewayApiKeyRefresher
+): AIGatewayFetch {
   let currentApiKey = initialApiKey
-
-  async function refreshOrThrow(): Promise<void> {
-    if (!refreshApiKey) {
-      throw new Error('AIGateway API key expired and no refresh callback is available')
-    }
-    const refreshed = await refreshApiKey()
-    if ('code' in refreshed) {
-      throw new Error(`AIGateway API key rejected: ${refreshed.code} ${refreshed.message ?? ''}`.trim())
-    }
-    currentApiKey = refreshed
-  }
 
   function sendWithKey(input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) {
     const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined))
@@ -79,24 +94,60 @@ function aiGatewayFetch(initialApiKey: AIGatewayApiKeyResponse, refreshApiKey?: 
   return async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
     // Proactive refresh: rotate the key before it expires, within the local skew window.
     if (currentApiKey.expires_at * 1000 <= Date.now() + aiGatewayApiKeyRefreshSkewMs) {
-      await refreshOrThrow()
+      currentApiKey = await refreshApiKeyOrThrow(refreshApiKey)
     }
 
     const response = await sendWithKey(input, init)
 
-    // Reactive refresh: a key can be revoked server-side before its stated expiry. On a 401 the
-    // request has not started streaming, so refetch the key once and retry the request, instead of
-    // hard-failing the turn when an operator rotates or revokes the worker key mid-session.
+    // Reactive refresh: a key can be revoked server-side before its stated expiry.
     if (response.status === 401 && refreshApiKey) {
       try {
         await response.body?.cancel()
       } catch {
         // ignore: discarding the unauthorized response body before retrying
       }
-      await refreshOrThrow()
+      currentApiKey = await refreshApiKeyOrThrow(refreshApiKey, { forceRefresh: true })
       return sendWithKey(input, init)
     }
 
     return response
   }
+}
+
+function aiGatewayAuthorization(initialApiKey: AIGatewayApiKeyResponse, refreshApiKey?: AIGatewayApiKeyRefresher) {
+  let currentApiKey = initialApiKey
+
+  return async (options?: AIGatewayApiKeyRefreshOptions) => {
+    if (options?.forceRefresh && refreshApiKey) {
+      currentApiKey = await refreshApiKeyOrThrow(refreshApiKey, { forceRefresh: true })
+    } else if (currentApiKey.expires_at * 1000 <= Date.now() + aiGatewayApiKeyRefreshSkewMs) {
+      currentApiKey = await refreshApiKeyOrThrow(refreshApiKey)
+    }
+
+    return `Bearer ${currentApiKey.api_key}`
+  }
+}
+
+async function refreshApiKeyOrThrow(
+  refreshApiKey?: AIGatewayApiKeyRefresher,
+  options?: AIGatewayApiKeyRefreshOptions
+): Promise<AIGatewayApiKeyResponse> {
+  if (!refreshApiKey) {
+    throw new Error('AIGateway API key expired and no refresh callback is available')
+  }
+  const refreshed = await refreshApiKey(options)
+  if ('code' in refreshed) {
+    throw new Error(`AIGateway API key rejected: ${refreshed.code} ${refreshed.message ?? ''}`.trim())
+  }
+  return refreshed
+}
+
+function aiGatewayWebSocketUrl(baseUrl: string): string {
+  const url = new URL(`${baseUrl.replace(/\/+$/, '')}/responses`)
+  if (url.protocol === 'http:') {
+    url.protocol = 'ws:'
+  } else if (url.protocol === 'https:') {
+    url.protocol = 'wss:'
+  }
+  return url.toString()
 }

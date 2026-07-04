@@ -5,16 +5,25 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
 
   @behaviour Ankole.SignalsGateway.OutboxAdapter
 
-  import Ecto.Query, warn: false
-
   alias Ankole.ActorRuntime
   alias Ankole.Plugins.LarkAdapter.Card
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.Emoji
-  alias Ankole.Repo
+  alias Ankole.Plugins.LarkAdapter.MapHelpers
+  alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.OutboxEntry
-  alias Ankole.SignalsGateway.SignalBinding
   alias FeishuOpenAPI.Error
+
+  import MapHelpers,
+    only: [
+      compact_map: 1,
+      fetch_list: 2,
+      fetch_value: 2,
+      maybe_put: 3,
+      optional_text: 2
+    ]
+
+  @max_text_message_chars 4_000
 
   @impl true
   def capabilities do
@@ -36,26 +45,26 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     with {:ok, config} <- config_for_outbox(outbox),
          client <- Config.client(config),
          {:ok, outbox} <- materialize_outbound_attachments(outbox, client),
-         {:ok, request} <- request_for_outbox(outbox) do
-      request
-      |> perform(client)
-      |> maybe_reply_fallback(client, outbox, request)
+         {:ok, requests} <- requests_for_outbox(outbox) do
+      requests
+      |> perform_requests(client, outbox)
+      |> with_materialized_payload(outbox.payload)
     end
   end
 
   @impl true
-  def reconcile(%OutboxEntry{provider_entry_id: nil}), do: :unknown
+  def reconcile(%OutboxEntry{created_source_entry_id: nil}), do: :unknown
 
   def reconcile(%OutboxEntry{} = outbox) do
     with {:ok, config} <- config_for_outbox(outbox),
          client <- Config.client(config) do
       case FeishuOpenAPI.get(client, "im/v1/messages/:message_id",
-             path_params: %{message_id: outbox.provider_entry_id}
+             path_params: %{message_id: outbox.created_source_entry_id}
            ) do
         {:ok, body} ->
           {:ok,
            %{
-             provider_entry_id: outbox.provider_entry_id,
+             created_source_entry_id: outbox.created_source_entry_id,
              raw_payload: body,
              recovery_state: %{"exists" => true}
            }}
@@ -73,41 +82,59 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
   Builds the provider REST request for an outbox row without sending it.
   """
   @spec request_for_outbox(OutboxEntry.t()) :: {:ok, map()} | {:error, term()}
-  def request_for_outbox(%OutboxEntry{operation: :post} = outbox) do
-    with {:ok, body} <- message_body(outbox) do
-      {:ok, message_request(:post, "im/v1/messages", outbox, body)}
+  def request_for_outbox(%OutboxEntry{} = outbox) do
+    with {:ok, [request | _]} <- requests_for_outbox(outbox) do
+      {:ok, request}
     end
   end
 
-  def request_for_outbox(%OutboxEntry{operation: :reply} = outbox) do
+  @doc """
+  Builds one or more provider REST requests for an outbox row without sending them.
+
+  Lark text posts/replies have a practical per-message size limit. Large text is
+  split into deterministic follow-up posts, while non-text operations stay as a
+  single request.
+  """
+  @spec requests_for_outbox(OutboxEntry.t()) :: {:ok, [map()]} | {:error, term()}
+  def requests_for_outbox(%OutboxEntry{operation: :post} = outbox) do
+    with {:ok, body} <- message_body(outbox) do
+      {:ok, message_requests(:post, "im/v1/messages", outbox, body)}
+    end
+  end
+
+  def requests_for_outbox(%OutboxEntry{operation: :reply} = outbox) do
     with {:ok, body} <- message_body(outbox) do
       {:ok,
-       message_request(:post, "im/v1/messages", outbox, body,
-         reply_to: outbox.source_provider_entry_id
+       message_requests(:post, "im/v1/messages", outbox, body,
+         reply_to: outbox.reply_to_source_entry_id
        )}
     end
   end
 
-  def request_for_outbox(%OutboxEntry{operation: :edit} = outbox) do
+  def requests_for_outbox(%OutboxEntry{operation: :edit} = outbox) do
     {:ok,
-     %{
-       method: :put,
-       path: "im/v1/messages/:message_id",
-       path_params: %{message_id: outbox.target_provider_entry_id},
-       body: text_body(outbox)
-     }}
+     [
+       %{
+         method: :put,
+         path: "im/v1/messages/:message_id",
+         path_params: %{message_id: outbox.target_source_entry_id},
+         body: text_body(outbox)
+       }
+     ]}
   end
 
-  def request_for_outbox(%OutboxEntry{operation: :delete} = outbox) do
+  def requests_for_outbox(%OutboxEntry{operation: :delete} = outbox) do
     {:ok,
-     %{
-       method: :delete,
-       path: "im/v1/messages/:message_id",
-       path_params: %{message_id: outbox.target_provider_entry_id}
-     }}
+     [
+       %{
+         method: :delete,
+         path: "im/v1/messages/:message_id",
+         path_params: %{message_id: outbox.target_source_entry_id}
+       }
+     ]}
   end
 
-  def request_for_outbox(%OutboxEntry{operation: operation} = outbox)
+  def requests_for_outbox(%OutboxEntry{operation: operation} = outbox)
       when operation in [:reaction_add, :reaction_remove] do
     reaction_key =
       outbox.payload
@@ -120,7 +147,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
           %{
             method: :post,
             path: "im/v1/messages/:message_id/reactions",
-            path_params: %{message_id: outbox.target_provider_entry_id},
+            path_params: %{message_id: outbox.target_source_entry_id},
             body: %{reaction_type: %{emoji_type: reaction_key}}
           }
 
@@ -129,16 +156,16 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
             method: :delete,
             path: "im/v1/messages/:message_id/reactions/:reaction_id",
             path_params: %{
-              message_id: outbox.target_provider_entry_id,
+              message_id: outbox.target_source_entry_id,
               reaction_id: reaction_key
             }
           }
       end
 
-    {:ok, request}
+    {:ok, [request]}
   end
 
-  def request_for_outbox(%OutboxEntry{operation: :divider} = outbox) do
+  def requests_for_outbox(%OutboxEntry{operation: :divider} = outbox) do
     text =
       outbox.fallback_visible_text
       |> to_string()
@@ -150,10 +177,10 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
       content: Card.system_divider_content(text, divider_i18n(outbox.payload))
     }
 
-    {:ok, message_request(:post, "im/v1/messages", outbox, body)}
+    {:ok, [message_request(:post, "im/v1/messages", outbox, body)]}
   end
 
-  def request_for_outbox(%OutboxEntry{operation: :card} = outbox) do
+  def requests_for_outbox(%OutboxEntry{operation: :card} = outbox) do
     with {:ok, card} <- Card.render(outbox.payload) do
       body = %{
         receive_id: chat_id_from_channel(outbox.signal_channel_id),
@@ -162,13 +189,38 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
       }
 
       {:ok,
-       message_request(:post, "im/v1/messages", outbox, body,
-         reply_to: outbox.source_provider_entry_id
-       )}
+       [
+         message_request(:post, "im/v1/messages", outbox, body,
+           reply_to: outbox.reply_to_source_entry_id
+         )
+       ]}
     end
   end
 
-  def request_for_outbox(_outbox), do: {:error, :unsupported_outbox_operation}
+  def requests_for_outbox(_outbox), do: {:error, :unsupported_outbox_operation}
+
+  defp perform_requests([request], client, outbox) do
+    request
+    |> perform(client)
+    |> maybe_reply_fallback(client, outbox, request)
+  end
+
+  defp perform_requests(requests, client, outbox) when is_list(requests) do
+    requests
+    |> Enum.reduce_while([], fn request, results ->
+      case request |> perform(client) |> maybe_reply_fallback(client, outbox, request) do
+        {:ok, result} -> {:cont, [result | results]}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:error, _reason} = error ->
+        error
+
+      results ->
+        {:ok, combined_send_results(Enum.reverse(results))}
+    end
+  end
 
   defp perform(%{method: method, path: path} = request, client) do
     opts =
@@ -209,7 +261,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
   defp normalize_send_response({:ok, %{"data" => data} = body}) when is_map(data) do
     {:ok,
      %{
-       provider_entry_id: data["message_id"],
+       created_source_entry_id: data["message_id"],
        provider_thread_id: data["root_id"],
        raw_payload: body
      }
@@ -219,6 +271,30 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
   defp normalize_send_response({:ok, body}), do: {:ok, %{raw_payload: body}}
   defp normalize_send_response({:error, reason}), do: {:error, reason}
 
+  defp combined_send_results([result]), do: result
+
+  defp combined_send_results(results) do
+    first = List.first(results) || %{}
+
+    %{
+      created_source_entry_id: first[:created_source_entry_id],
+      provider_thread_id: first[:provider_thread_id],
+      raw_payload: %{
+        "split" => true,
+        "chunks" => Enum.map(results, &raw_payload/1)
+      }
+    }
+    |> compact_map()
+  end
+
+  defp raw_payload(result) when is_map(result),
+    do: Map.get(result, :raw_payload) || Map.get(result, "raw_payload") || result
+
+  defp with_materialized_payload({:ok, result}, payload) when is_map(result) and is_map(payload),
+    do: {:ok, Map.put(result, :payload, payload)}
+
+  defp with_materialized_payload(result, _payload), do: result
+
   defp message_request(method, path, outbox, body, opts \\ []) do
     reply_to = Keyword.get(opts, :reply_to)
     path = if is_binary(reply_to), do: "im/v1/messages/:message_id/reply", else: path
@@ -227,7 +303,8 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     path_params =
       if is_binary(reply_to), do: Map.put(path_params, :message_id, reply_to), else: path_params
 
-    base_body = maybe_put(body, :uuid, outbox.idempotency_key)
+    idempotency_key = Keyword.get(opts, :idempotency_key, outbox.idempotency_key)
+    base_body = maybe_put(body, :uuid, idempotency_key)
 
     # Replies and new messages use different Lark API shapes. Keeping the branch
     # here makes every outbox operation share one idempotency/body path.
@@ -252,6 +329,60 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
         }
     end
   end
+
+  defp message_requests(method, path, %OutboxEntry{} = outbox, %{msg_type: "text"} = body, opts) do
+    text =
+      outbox.fallback_visible_text
+      |> to_string()
+      |> split_lark_text()
+
+    text
+    |> Enum.with_index(1)
+    |> Enum.map(fn {chunk, index} ->
+      chunk_outbox = %OutboxEntry{
+        outbox
+        | fallback_visible_text: chunk,
+          idempotency_key: chunk_idempotency_key(outbox.idempotency_key, index)
+      }
+
+      chunk_opts =
+        if index == 1 do
+          opts
+        else
+          Keyword.delete(opts, :reply_to)
+        end
+
+      message_request(
+        method,
+        path,
+        chunk_outbox,
+        %{body | content: Card.text_content(chunk)},
+        chunk_opts
+      )
+    end)
+  end
+
+  defp message_requests(method, path, outbox, body, opts) do
+    [message_request(method, path, outbox, body, opts)]
+  end
+
+  defp message_requests(method, path, outbox, body),
+    do: message_requests(method, path, outbox, body, [])
+
+  defp split_lark_text(text) do
+    text
+    |> String.graphemes()
+    |> Enum.chunk_every(@max_text_message_chars)
+    |> Enum.map(&Enum.join/1)
+    |> case do
+      [] -> [""]
+      chunks -> chunks
+    end
+  end
+
+  defp chunk_idempotency_key(nil, _index), do: nil
+  defp chunk_idempotency_key(key, 1), do: key
+  defp chunk_idempotency_key(key, index), do: "#{key}:part:#{index}"
 
   defp text_body(%{fallback_visible_text: text}) when is_binary(text) do
     %{msg_type: "text", content: Card.text_content(text)}
@@ -356,73 +487,17 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
   defp divider_i18n(_payload), do: nil
 
   defp config_for_outbox(%OutboxEntry{} = outbox) do
-    with %SignalBinding{} = binding <- binding_for_outbox(outbox),
-         {:ok, config} <- Config.load_chat_config_ref(binding.config_ref) do
+    with {:ok, config_ref} <- SignalsGateway.outbox_binding_config_ref(outbox),
+         {:ok, config} <- Config.load_chat_config_ref(config_ref) do
       {:ok, config}
     else
-      nil -> {:error, :binding_not_found}
       :error -> {:error, :binding_config_not_found}
       {:error, _reason} = error -> error
     end
   end
 
-  defp binding_for_outbox(outbox) do
-    Repo.one(
-      from binding in SignalBinding,
-        where: binding.agent_uid == ^outbox.agent_uid and binding.name == ^outbox.binding_name
-    )
-  end
-
   defp chat_id_from_channel("lark:" <> encoded), do: URI.decode(encoded)
   defp chat_id_from_channel(value), do: value
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, _key, ""), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
-  defp fetch_value(map, key) when is_map(map) do
-    atom_key = atom_key(key)
-
-    cond do
-      Map.has_key?(map, key) -> Map.fetch!(map, key)
-      not is_nil(atom_key) and Map.has_key?(map, atom_key) -> Map.fetch!(map, atom_key)
-      true -> nil
-    end
-  end
-
-  defp optional_text(map, key) do
-    case fetch_value(map, key) do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          text -> text
-        end
-
-      _value ->
-        nil
-    end
-  end
-
-  defp fetch_list(map, key) when is_map(map) do
-    case fetch_value(map, key) do
-      value when is_list(value) -> value
-      _value -> []
-    end
-  end
-
-  defp fetch_list(_map, _key), do: []
-
-  defp atom_key(key) when is_binary(key) do
-    String.to_existing_atom(key)
-  rescue
-    ArgumentError -> nil
-  end
-
-  defp compact_map(map) do
-    map
-    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-    |> Map.new()
-  end
 
   defp error_not_found?(%Error{} = error), do: target_gone_error?(error)
 end

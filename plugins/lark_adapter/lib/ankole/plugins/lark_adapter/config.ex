@@ -5,6 +5,7 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
 
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Schema
+  alias Ankole.Plugins.LarkAdapter.MapHelpers
   alias FeishuOpenAPI.Client
 
   @chat_key_pattern ~r/\Asignals_gateway\.lark\.bindings\.[A-Za-z0-9_.:-]+\z/
@@ -59,31 +60,25 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
     with {:ok, app_id} <- required_string(value, "appId"),
          {:ok, app_secret} <- required_string(value, "appSecret"),
          {:ok, domain} <- enum_string(value, "domain", @domains, "feishu"),
+         {:ok, base_url} <- optional_base_url(value, "baseUrl"),
          {:ok, group_message_mode} <-
            enum_string(value, "group_message_mode", @group_message_modes, "observe_all"),
          {:ok, platform_subject_namespace} <-
            optional_string(value, "platformSubjectNamespace", "lark-main"),
          {:ok, user_name} <- optional_string(value, "userName", "Lark / Feishu"),
          {:ok, bot_open_id} <- optional_string(value, "botOpenId", nil),
-         {:ok, bot_user_id} <- optional_string(value, "botUserId", nil),
-         {:ok, streaming_enabled} <- optional_boolean(value, "streamingEnabled", true),
-         {:ok, stream_update_interval_ms} <-
-           integer_between(value, "streamUpdateIntervalMs", 800, 100, 60_000),
-         {:ok, stream_buffer_threshold} <-
-           integer_between(value, "streamBufferThreshold", 24, 1, 10_000) do
+         {:ok, bot_user_id} <- optional_string(value, "botUserId", nil) do
       {:ok,
        %{
          "appId" => app_id,
          "appSecret" => app_secret,
          "domain" => domain,
+         "baseUrl" => base_url,
          "group_message_mode" => group_message_mode,
          "platformSubjectNamespace" => platform_subject_namespace,
          "userName" => user_name,
          "botOpenId" => bot_open_id,
-         "botUserId" => bot_user_id,
-         "streamingEnabled" => streaming_enabled,
-         "streamUpdateIntervalMs" => stream_update_interval_ms,
-         "streamBufferThreshold" => stream_buffer_threshold
+         "botUserId" => bot_user_id
        }}
     end
   end
@@ -98,8 +93,8 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
     with {:ok, app_id} <- required_string(value, "appId"),
          {:ok, app_secret} <- required_string(value, "appSecret"),
          {:ok, domain} <- enum_string(value, "domain", @domains, "feishu"),
-         oidc <- fetch_map(value, "oidc", %{}),
-         sync <- fetch_map(value, "sync", %{}),
+         oidc <- MapHelpers.fetch_map(value, "oidc", %{}),
+         sync <- MapHelpers.fetch_map(value, "sync", %{}),
          {:ok, oidc_enabled} <- optional_boolean(oidc, "enabled", true),
          {:ok, oidc_scopes} <- string_array(oidc, "scopes", @default_oidc_scopes),
          {:ok, sync_users} <- optional_boolean(sync, "users", true),
@@ -151,13 +146,24 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
 
   @doc """
   Builds a FeishuOpenAPI client without exposing the secret in inspect output.
+
+  A configured `baseUrl` overrides the domain-derived provider URL for both the
+  WS endpoint discovery and HTTP calls; explicit `opts` still win over config.
   """
   @spec client(chat_config() | identity_config(), keyword()) :: Client.t()
   def client(config, opts \\ []) when is_map(config) do
+    base_opts =
+      case Map.get(config, "baseUrl") do
+        base_url when is_binary(base_url) -> [base_url: base_url]
+        _absent -> []
+      end
+
     Client.new(
       Map.fetch!(config, "appId"),
       fn -> Map.fetch!(config, "appSecret") end,
-      Keyword.merge([domain: domain_atom(Map.fetch!(config, "domain"))], opts)
+      [domain: domain_atom(Map.fetch!(config, "domain"))]
+      |> Keyword.merge(base_opts)
+      |> Keyword.merge(opts)
     )
   end
 
@@ -204,7 +210,7 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   defp app_config_key(key) when is_binary(key), do: {:ok, key}
 
   defp required_string(map, key) do
-    case fetch_value(map, key) do
+    case MapHelpers.fetch_value(map, key) do
       value when is_binary(value) ->
         case String.trim(value) do
           "" -> {:error, {:missing, key}}
@@ -216,8 +222,27 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
     end
   end
 
+  defp optional_base_url(map, key) do
+    with {:ok, value} <- optional_string(map, key, nil) do
+      case value do
+        nil ->
+          {:ok, nil}
+
+        url ->
+          case URI.parse(url) do
+            %URI{scheme: scheme, host: host}
+            when scheme in ["http", "https"] and is_binary(host) ->
+              {:ok, url}
+
+            _uri ->
+              {:error, {:invalid_base_url, key}}
+          end
+      end
+    end
+  end
+
   defp optional_string(map, key, default) do
-    case fetch_value(map, key) do
+    case MapHelpers.fetch_value(map, key) do
       value when is_binary(value) ->
         case String.trim(value) do
           "" -> {:ok, default}
@@ -242,7 +267,7 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   end
 
   defp optional_boolean(map, key, default) do
-    case fetch_value(map, key) do
+    case MapHelpers.fetch_value(map, key) do
       value when is_boolean(value) -> {:ok, value}
       nil -> {:ok, default}
       _value -> {:error, {:invalid_boolean, key}}
@@ -250,7 +275,7 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   end
 
   defp integer_between(map, key, default, min, max) do
-    case fetch_value(map, key) do
+    case MapHelpers.fetch_value(map, key) do
       value when is_integer(value) and value >= min and value <= max -> {:ok, value}
       nil -> {:ok, default}
       _value -> {:error, {:invalid_integer_range, key, min, max}}
@@ -258,7 +283,7 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   end
 
   defp string_array(map, key, default) do
-    case fetch_value(map, key) do
+    case MapHelpers.fetch_value(map, key) do
       values when is_list(values) ->
         case Enum.all?(values, &is_binary/1) do
           true -> {:ok, values}
@@ -271,31 +296,5 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
       _value ->
         {:error, {:invalid_string_array, key}}
     end
-  end
-
-  defp fetch_map(map, key, default) do
-    case fetch_value(map, key) do
-      value when is_map(value) -> value
-      nil -> default
-      _value -> default
-    end
-  end
-
-  defp fetch_value(map, key) do
-    atom_key = atom_key(key)
-
-    # Config may arrive from JSON with string keys or from tests/setup helpers
-    # with atom keys. `to_existing_atom` below avoids creating atoms from input.
-    cond do
-      Map.has_key?(map, key) -> Map.fetch!(map, key)
-      not is_nil(atom_key) and Map.has_key?(map, atom_key) -> Map.fetch!(map, atom_key)
-      true -> nil
-    end
-  end
-
-  defp atom_key(key) when is_binary(key) do
-    String.to_existing_atom(key)
-  rescue
-    ArgumentError -> nil
   end
 end

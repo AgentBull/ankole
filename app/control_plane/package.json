@@ -16,7 +16,6 @@
     "fmt:check": "mix format --check-formatted",
     "lint": "mix format --check-formatted && MIX_ENV=test mix compile --warnings-as-errors --no-all-warnings",
     "test": "mix test",
-    "e2e:actor-runtime-worker": "mix e2e.actor_runtime_worker",
     "precommit": "mix precommit",
     "routes": "mix phx.routes",
     "ecto:create": "mix ecto.create",

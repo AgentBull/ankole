@@ -363,7 +363,7 @@ defmodule AnkoleWeb.AIGatewayControllerTestHelpers do
     assert is_binary(body["status"])
     assert is_nil(body["incomplete_details"]) or is_map(body["incomplete_details"])
     assert is_binary(body["model"])
-    assert is_nil(body["previous_response_id"])
+    assert is_nil(body["previous_response_id"]) or is_binary(body["previous_response_id"])
     assert is_nil(body["instructions"]) or is_binary(body["instructions"])
     assert is_list(body["input"])
     assert is_list(body["output"])
@@ -383,11 +383,14 @@ defmodule AnkoleWeb.AIGatewayControllerTestHelpers do
     assert Map.has_key?(body["reasoning"], "summary")
     assert is_nil(body["user"]) or is_binary(body["user"])
     assert_response_usage(body["usage"])
+    assert is_nil(body["provider_metadata"]) or is_map(body["provider_metadata"])
+    assert is_nil(body["tool_results"]) or is_list(body["tool_results"])
+    assert is_nil(body["stop_reason"]) or is_binary(body["stop_reason"])
     assert is_nil(body["max_output_tokens"]) or is_integer(body["max_output_tokens"])
     assert is_nil(body["max_tool_calls"]) or is_integer(body["max_tool_calls"])
     assert is_boolean(body["store"])
     assert is_boolean(body["background"])
-    assert is_binary(body["service_tier"])
+    assert is_nil(body["service_tier"]) or is_binary(body["service_tier"])
     assert is_map(body["metadata"])
     assert is_nil(body["safety_identifier"]) or is_binary(body["safety_identifier"])
     assert is_nil(body["prompt_cache_key"]) or is_binary(body["prompt_cache_key"])
@@ -467,6 +470,11 @@ defmodule AnkoleWeb.AIGatewayControllerTestHelpers do
     assert is_binary(item["name"])
     assert is_binary(item["arguments"])
     assert item["status"] in ["in_progress", "completed", "incomplete"]
+  end
+
+  defp assert_openresponses_output_item(%{"type" => "compaction"} = item) do
+    assert is_binary(item["id"])
+    assert is_binary(item["summary"]) or is_list(item["content"])
   end
 
   defp assert_openresponses_output_item(item),

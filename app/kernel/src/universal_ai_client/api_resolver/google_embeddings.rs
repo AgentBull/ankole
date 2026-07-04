@@ -17,7 +17,7 @@ impl ApiProtocol for GoogleEmbeddings {
 }
 
 fn build_google_embeddings_body(context: &ResponseContext) -> Map<String, Value> {
-    let request = context.resolved_request_object();
+    let request = context.resolved_provider_request_object();
     let model = google_embedding_model_name(&context.model);
 
     match request.get("input") {

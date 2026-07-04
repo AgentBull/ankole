@@ -4,15 +4,15 @@ defmodule Ankole.ActorRuntime.SessionReset do
   import Ecto.Query, warn: false
   import Ankole.ActorRuntime.Common, only: [collect_results: 1]
 
-  alias Ankole.AIAgent
-  alias Ankole.AIAgent.Schemas.Conversation
+  alias Ankole.AIGateway.Conversations
+  alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.Actors
-  alias Ankole.Actors.ActorInput
-  alias Ankole.ActorRuntime.Schemas.ActorInputDelivery
+  alias Ankole.Actors.ActorEvent
+  alias Ankole.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.ActorRuntime.TurnLifecycle
   alias Ankole.Repo
   alias Ankole.Schedule
-  alias Ankole.SignalsGateway.ActorInputTypes
+  alias Ankole.SignalsGateway.ActorEventTypes
   alias Ankole.SystemConfig
 
   @daily_reset_time ~T[04:30:00]
@@ -46,14 +46,14 @@ defmodule Ankole.ActorRuntime.SessionReset do
       |> Enum.map(&enqueue_session_reset_due_in_tx(repo, &1, boundary_at, now, opts))
       |> collect_results()
       |> case do
-        {:ok, inputs} ->
+        {:ok, events} ->
           {:ok,
            %{
              status: :enqueued,
              boundary_at: boundary_at,
              timezone: timezone,
              due_sessions: length(conversations),
-             actor_inputs: inputs
+             actor_events: events
            }}
 
         {:error, _reason} = error ->
@@ -165,24 +165,27 @@ defmodule Ankole.ActorRuntime.SessionReset do
     binding_name = Keyword.get(opts, :binding_name, @session_lifecycle_binding_name)
     event_id = session_reset_due_event_id(conversation, boundary_at)
 
-    Actors.append_actor_input_in_tx(repo, %{
-      agent_uid: conversation.agent_uid,
-      binding_name: binding_name,
-      session_id: conversation.conversation_key,
-      ingress_event_id: event_id,
-      type: "session.reset_due",
-      available_at: now,
-      sender_key: nil,
-      payload:
-        session_reset_due_payload(
-          conversation,
-          event_id,
-          boundary_at,
-          timezone,
-          now,
-          binding_name
-        )
-    })
+    with {:ok, reset_time} <- daily_reset_time(opts) do
+      Actors.append_actor_event_in_tx(repo, %{
+        agent_uid: conversation.agent_uid,
+        binding_name: binding_name,
+        session_id: conversation.conversation_key,
+        source_event_id: event_id,
+        type: "session.reset_due",
+        available_at: now,
+        sender_key: nil,
+        payload:
+          session_reset_due_payload(
+            conversation,
+            event_id,
+            boundary_at,
+            timezone,
+            reset_time,
+            now,
+            binding_name
+          )
+      })
+    end
   end
 
   defp session_reset_due_event_id(%Conversation{} = conversation, %DateTime{} = boundary_at) do
@@ -199,6 +202,7 @@ defmodule Ankole.ActorRuntime.SessionReset do
          event_id,
          %DateTime{} = boundary_at,
          timezone,
+         %Time{} = reset_time,
          %DateTime{} = now,
          binding_name
        ) do
@@ -219,46 +223,50 @@ defmodule Ankole.ActorRuntime.SessionReset do
           "kind" => "daily",
           "boundary_at" => DateTime.to_iso8601(boundary_at),
           "timezone" => timezone,
-          "local_time" => "04:30"
+          "local_time" => reset_time_label(reset_time)
         }
       }
     }
   end
 
-  def process_due(actor_key, %ActorInput{} = input, opts) do
+  defp reset_time_label(%Time{} = reset_time) do
+    reset_time
+    |> Time.to_iso8601()
+    |> String.replace_suffix(":00", "")
+  end
+
+  def process_due(actor_key, %ActorEvent{} = input, opts) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
     reset_at = reset_boundary_at(input, now)
 
     Repo.transact(fn repo ->
-      with %ActorInput{} = input <- TurnLifecycle.lock_actor_input(repo, input.id),
+      with %ActorEvent{} = input <- TurnLifecycle.lock_actor_event(repo, input.id),
            false <- TurnLifecycle.session_has_running_work?(repo, actor_key),
            {:ok, closed_conversation} <- close_current_session_for_reset(repo, actor_key, now),
            {:ok, conversation} <-
              ensure_successor_conversation(repo, actor_key, closed_conversation),
-           {:ok, stale_inputs} <- discard_stale_system_inputs_after_reset(repo, actor_key, input),
+           {:ok, stale_events} <- discard_stale_system_events_after_reset(repo, actor_key, input),
            {:ok, cron_reset} <-
              Schedule.cancel_due_cron_events_for_reset_in_tx(repo, actor_key, reset_at, now),
-           {:ok, consumption} <-
-             Actors.consume_session_lifecycle_input_in_tx(repo, input,
-               conversation_id: closed_conversation && closed_conversation.id,
-               consumed_at: now
-             ) do
+           {:ok, completed_event} <-
+             Actors.complete_session_lifecycle_event_in_tx(repo, input, completed_at: now) do
         {:ok,
          %{
            status: :session_reset,
-           reset_input: input,
+           reset_event: input,
            closed_conversation: closed_conversation,
            conversation: conversation,
-           stale_system_inputs: stale_inputs,
+           stale_system_events: stale_events,
            cron_reset: cron_reset,
-           consumption: consumption
+           actor_event: completed_event
          }}
       else
         nil ->
           {:ok, %{status: :idle}}
 
         true ->
-          {:ok, %{status: :waiting_for_generation, reason: :session_reset_due, input: input}}
+          {:ok,
+           %{status: :waiting_for_generation, reason: :session_reset_due, actor_event: input}}
 
         {:error, _reason} = error ->
           error
@@ -266,7 +274,7 @@ defmodule Ankole.ActorRuntime.SessionReset do
     end)
   end
 
-  defp reset_boundary_at(%ActorInput{payload: payload, available_at: available_at}, fallback)
+  defp reset_boundary_at(%ActorEvent{payload: payload, available_at: available_at}, fallback)
        when is_map(payload) do
     case get_in(payload, ["data", "reset", "boundary_at"]) do
       boundary_at when is_binary(boundary_at) ->
@@ -283,30 +291,22 @@ defmodule Ankole.ActorRuntime.SessionReset do
     end
   end
 
-  defp reset_boundary_at(%ActorInput{available_at: available_at}, fallback),
+  defp reset_boundary_at(%ActorEvent{available_at: available_at}, fallback),
     do: available_at || fallback
 
   defp close_current_session_for_reset(repo, actor_key, now) do
     case TurnLifecycle.active_conversation_for_update(repo, actor_key) do
       %Conversation{} = conversation ->
-        lease_id = TurnLifecycle.generation_lease_id(conversation.generation || %{})
-
-        generation =
-          TurnLifecycle.cancel_generation(
-            conversation.generation || %{},
-            now,
-            "session.reset_due"
-          )
+        actor_event_id = current_actor_event_id_for_actor(repo, actor_key)
 
         with {:ok, conversation} <-
                conversation
-               |> Conversation.changeset(%{generation: generation, ended_at: now})
+               |> Conversation.changeset(%{ended_at: now})
                |> repo.update(),
              {:ok, _cancelled_turn} <-
-               TurnLifecycle.cancel_started_turn_for_lease(
+               TurnLifecycle.cancel_started_turn_for_actor_event(
                  repo,
-                 conversation,
-                 lease_id,
+                 actor_event_id,
                  now,
                  "session.reset_due"
                ) do
@@ -318,47 +318,54 @@ defmodule Ankole.ActorRuntime.SessionReset do
     end
   end
 
+  defp current_actor_event_id_for_actor(repo, actor_key) do
+    case TurnLifecycle.live_activation(repo, actor_key) do
+      %{current_actor_event_id: actor_event_id} when is_binary(actor_event_id) -> actor_event_id
+      _activation -> nil
+    end
+  end
+
   defp ensure_successor_conversation(_repo, _actor_key, nil), do: {:ok, nil}
 
   defp ensure_successor_conversation(repo, actor_key, %Conversation{}) do
-    AIAgent.ensure_conversation_in_tx(repo, actor_key.agent_uid, actor_key.session_id)
+    Conversations.ensure_conversation_in_tx(repo, actor_key.agent_uid, actor_key.session_id)
   end
 
-  defp discard_stale_system_inputs_after_reset(repo, actor_key, %ActorInput{} = reset_input) do
-    stale_inputs =
-      ActorInput
+  defp discard_stale_system_events_after_reset(repo, actor_key, %ActorEvent{} = reset_event) do
+    stale_events =
+      ActorEvent
       |> where([input], input.agent_uid == ^actor_key.agent_uid)
       |> where([input], input.session_id == ^actor_key.session_id)
       |> where([input], input.input_state == "open")
-      |> where([input], input.live_queue_sequence > ^reset_input.live_queue_sequence)
-      |> order_by([input], asc: input.live_queue_sequence)
+      |> where([input], input.queue_sequence > ^reset_event.queue_sequence)
+      |> order_by([input], asc: input.queue_sequence)
       |> lock("FOR UPDATE")
       |> repo.all()
-      |> Enum.filter(&ActorInputTypes.stale_after_session_reset?/1)
+      |> Enum.filter(&ActorEventTypes.stale_after_session_reset?/1)
 
-    stale_input_ids = Enum.map(stale_inputs, & &1.id)
+    stale_event_ids = Enum.map(stale_events, & &1.id)
 
-    with :ok <- delete_delivery_projections(repo, stale_input_ids),
-         :ok <- delete_actor_inputs(repo, stale_input_ids) do
-      {:ok, stale_inputs}
+    with :ok <- delete_delivery_projections(repo, stale_event_ids),
+         :ok <- delete_actor_events(repo, stale_event_ids) do
+      {:ok, stale_events}
     end
   end
 
   defp delete_delivery_projections(_repo, []), do: :ok
 
-  defp delete_delivery_projections(repo, actor_input_ids) do
-    ActorInputDelivery
-    |> where([delivery], delivery.actor_input_id in ^actor_input_ids)
+  defp delete_delivery_projections(repo, actor_event_ids) do
+    ActorEventDelivery
+    |> where([delivery], delivery.actor_event_id in ^actor_event_ids)
     |> repo.delete_all()
 
     :ok
   end
 
-  defp delete_actor_inputs(_repo, []), do: :ok
+  defp delete_actor_events(_repo, []), do: :ok
 
-  defp delete_actor_inputs(repo, actor_input_ids) do
-    ActorInput
-    |> where([input], input.id in ^actor_input_ids)
+  defp delete_actor_events(repo, actor_event_ids) do
+    ActorEvent
+    |> where([input], input.id in ^actor_event_ids)
     |> repo.delete_all()
 
     :ok

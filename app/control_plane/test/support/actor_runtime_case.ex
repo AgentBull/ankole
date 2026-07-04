@@ -4,19 +4,25 @@ defmodule Ankole.ActorRuntimeCase do
   use ExUnit.CaseTemplate
 
   import ExUnit.Assertions
+  import Ecto.Query, warn: false
 
   alias Ankole.AIGateway.ProviderConfigs
-  alias Ankole.AIAgent.ModelProfiles
-  alias Ankole.AIAgent.Schemas.LlmTurn
+  alias Ankole.AIGateway.StatefulResponses
+  alias Ankole.AIGateway.ModelProfiles
+  alias Ankole.AIGateway.Schemas.Conversation
+  alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Actors
   alias Ankole.Actors.ActorEvent
   alias Ankole.ActorRuntime
   alias Ankole.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.ActorRuntime.Schemas.AgentComputerWorker
+  alias Ankole.PluginFixtures.MockSignalProviderPlugin
+  alias Ankole.Plugins.Spec
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.InboundBatch
   alias Ankole.SignalsGateway.OutboxEntry
+  alias Ankole.SignalsGateway.SignalEntry
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
 
@@ -25,16 +31,21 @@ defmodule Ankole.ActorRuntimeCase do
       use Ankole.DataCase, async: false
 
       import Ecto.Query, warn: false
-      import Ankole.ActorRuntimeCase
+
+      import Ankole.ActorRuntimeCase,
+        except: [
+          use_mock_signal_provider_plugin: 1,
+          wait_for_final_mirror: 1,
+          wait_for_final_mirror: 2
+        ]
 
       alias Ankole.AIGateway.ProviderConfigs, warn: false
-      alias Ankole.AIAgent.ModelProfiles, warn: false
-      alias Ankole.AIAgent.Schemas.Conversation, warn: false
-      alias Ankole.AIAgent.Schemas.LlmTurn, warn: false
-      alias Ankole.AIAgent.Schemas.Message, warn: false
+      alias Ankole.AIGateway.StatefulResponses, warn: false
+      alias Ankole.AIGateway.ModelProfiles, warn: false
+      alias Ankole.AIGateway.Schemas.Conversation, warn: false
+      alias Ankole.AIGateway.Schemas.Message, warn: false
       alias Ankole.Actors, warn: false
       alias Ankole.Actors.ActorEvent, warn: false
-      alias Ankole.Actors.ActorInputConsumption, warn: false
       alias Ankole.ActorRuntime, warn: false
       alias Ankole.ActorRuntime.ActivationManager, warn: false
       alias Ankole.ActorRuntime.OutboxDispatcher, warn: false
@@ -102,18 +113,37 @@ defmodule Ankole.ActorRuntimeCase do
     fixture
   end
 
-  def binding_fixture(agent_uid, name, policy) do
+  def binding_fixture(agent_uid, name, policy, opts \\ []) do
     {:ok, binding} =
       SignalsGateway.upsert_binding(%{
         agent_uid: agent_uid,
         name: name,
-        adapter: "lark",
+        adapter: Keyword.get(opts, :adapter, "lark"),
         config_ref: "app-config://#{name}",
         filters: %{},
         unaddressed_group_message_policy: policy
       })
 
     binding
+  end
+
+  def use_mock_signal_provider_plugin(_context) do
+    original_state = :sys.get_state(Ankole.Plugins.Registry)
+    {:ok, spec} = Spec.from_module(MockSignalProviderPlugin)
+
+    :sys.replace_state(Ankole.Plugins.Registry, fn _state ->
+      %{
+        discovered: %{spec.id => spec},
+        active: %{spec.id => spec},
+        disabled_ids: MapSet.new()
+      }
+    end)
+
+    on_exit(fn ->
+      :sys.replace_state(Ankole.Plugins.Registry, fn _state -> original_state end)
+    end)
+
+    :ok
   end
 
   def emit_entry(agent_uid, binding_name, input, opts) do
@@ -139,11 +169,11 @@ defmodule Ankole.ActorRuntimeCase do
     )
   end
 
-  def append_runtime_actor_input(agent_uid, session_id, type, opts) do
+  def append_runtime_actor_event(agent_uid, session_id, type, opts) do
     now = Keyword.fetch!(opts, :now)
     source_event_id = "#{type}-#{System.unique_integer([:positive])}"
 
-    Actors.append_actor_input(%{
+    Actors.append_actor_event(%{
       agent_uid: agent_uid,
       binding_name: "control-plane:test",
       session_id: session_id,
@@ -165,6 +195,41 @@ defmodule Ankole.ActorRuntimeCase do
         }
       }
     })
+  end
+
+  def process_ready_events_once(opts \\ []) do
+    opts = Keyword.put(opts, :limit, 1)
+
+    case Ankole.ActorRuntime.ActivationManager.run_once(opts) do
+      {:ok, []} -> {:ok, %{status: :idle}}
+      {:ok, [result | _rest]} -> result
+    end
+  end
+
+  def complete_actor_event(agent_uid, binding_name, source_event_id, opts \\ []) do
+    completed_at = Keyword.get(opts, :completed_at, DateTime.utc_now(:microsecond))
+
+    Repo.transact(fn repo ->
+      query =
+        from(event in ActorEvent,
+          where:
+            event.agent_uid == ^agent_uid and event.binding_name == ^binding_name and
+              event.source_event_id == ^source_event_id,
+          lock: "FOR UPDATE"
+        )
+
+      case repo.one(query) do
+        %ActorEvent{} = actor_event ->
+          Actors.complete_actor_event_in_tx(
+            repo,
+            actor_event,
+            Keyword.put(opts, :completed_at, completed_at)
+          )
+
+        nil ->
+          {:error, :actor_event_not_found}
+      end
+    end)
   end
 
   def lifecycle_entry(overrides) do
@@ -190,93 +255,6 @@ defmodule Ankole.ActorRuntimeCase do
 
   def runtime_fabric_kernel_dir do
     Path.expand("../../../kernel", __DIR__)
-  end
-
-  def runtime_fabric_attachment_worker_script do
-    ~S"""
-    const endpoint = process.env.ANKOLE_RF_ENDPOINT
-    const identity = process.env.ANKOLE_RF_IDENTITY
-    const workerId = process.env.ANKOLE_RF_WORKER_ID
-    const token = process.env.ANKOLE_RF_TOKEN
-
-    for (const [name, value] of Object.entries({ endpoint, identity, workerId, token })) {
-      if (!value) throw new Error(`missing ${name}`)
-    }
-
-    const { RuntimeFabricDealer, runtimeFabricDecodeEnvelope } = await import('./index.js')
-    const dealer = new RuntimeFabricDealer(endpoint, identity, workerId, token)
-
-    function envelope(type, payload, lane, durability, correlationId = '') {
-      return {
-        protocol_version: 1,
-        message_id: `${type}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-        correlation_id: correlationId,
-        lane,
-        sent_at_unix_ms: Date.now(),
-        durability,
-        body: {
-          type,
-          [type]: payload,
-        },
-      }
-    }
-
-    dealer.sendEnvelope(envelope('worker_ready', {
-      worker_id: workerId,
-      runtime: 'bun',
-      version: 'test',
-      capacity_json: { available_turn_slots: 1 },
-    }, 'LANE_CONTROL', 'CONTROL_EPHEMERAL'))
-
-    let turnEnvelope = null
-    const deadline = Date.now() + 4000
-
-    while (Date.now() < deadline) {
-      const payload = dealer.recv(100)
-      if (!payload) continue
-
-      const decoded = runtimeFabricDecodeEnvelope(payload)
-      if (decoded.body?.type === 'turn_start') {
-        turnEnvelope = decoded
-        break
-      }
-    }
-
-    if (!turnEnvelope) {
-      throw new Error('timed out waiting for turn_start')
-    }
-
-    const turnStart = turnEnvelope.body.turn_start
-    const turn = turnStart.turn
-    if (!turnStart.actor_event) {
-      throw new Error('turn_start.actor_event is required')
-    }
-
-    dealer.sendEnvelope(envelope('turn_accepted', {
-      turn,
-    }, 'LANE_TURN', 'CONTROL_REPLAYABLE', turnEnvelope.message_id))
-
-    dealer.sendEnvelope(envelope('turn_final_proposal', {
-      turn,
-      messages: [],
-      reply: {
-        text: 'Here is the report.',
-        content_json: [{ type: 'text', text: 'Here is the report.' }],
-        attachments: [{
-          agent_computer_path: '/workspace/user-files/reports/a.txt',
-          user_files_relative_path: 'reports/a.txt',
-          name: 'report.txt',
-          mime_type: 'text/plain',
-          size: 16,
-        }],
-      },
-      stop_reason: 'stop',
-      tool_results_json: [],
-    }, 'LANE_TURN', 'CONTROL_DURABLE', turnEnvelope.message_id))
-
-    dealer.stop()
-    console.log('worker-complete')
-    """
   end
 
   def worker_ready_envelope do
@@ -322,21 +300,21 @@ defmodule Ankole.ActorRuntimeCase do
     flunk("runtime fabric worker #{worker_id} was not admitted")
   end
 
-  def wait_for_attachment_outbox(actor_input_id, attempts \\ 100)
+  def wait_for_attachment_outbox(actor_event_id, attempts \\ 100)
 
-  def wait_for_attachment_outbox(actor_input_id, attempts) when attempts > 0 do
-    case Repo.get_by(OutboxEntry, source_actor_event_id: actor_input_id) do
+  def wait_for_attachment_outbox(actor_event_id, attempts) when attempts > 0 do
+    case Repo.get_by(OutboxEntry, source_actor_event_id: actor_event_id) do
       %OutboxEntry{payload: %{"attachments" => [_ | _]}} = outbox ->
         outbox
 
       _value ->
         Process.sleep(10)
-        wait_for_attachment_outbox(actor_input_id, attempts - 1)
+        wait_for_attachment_outbox(actor_event_id, attempts - 1)
     end
   end
 
-  def wait_for_attachment_outbox(actor_input_id, 0) do
-    flunk("attachment outbox for actor input #{actor_input_id} was not committed")
+  def wait_for_attachment_outbox(actor_event_id, 0) do
+    flunk("attachment outbox for actor event #{actor_event_id} was not committed")
   end
 
   def wait_for_delivery_state(actor_event_id, state, attempts \\ 100)
@@ -356,32 +334,125 @@ defmodule Ankole.ActorRuntimeCase do
     flunk("delivery #{actor_event_id} did not reach #{state}")
   end
 
-  def wait_for_turn_status(actor_event_id, status, attempts \\ 100)
+  def insert_generating_ai_message_for_actor_event!(%ActorEvent{} = actor_event, opts \\ []) do
+    now = Keyword.get(opts, :now, @base_time)
+    conversation = active_conversation_for_actor_event!(actor_event)
 
-  def wait_for_turn_status(actor_event_id, status, attempts) when attempts > 0 do
-    # Phase 1: map old status names to the new ai_gateway_messages values.
-    mapped = map_turn_status(status)
+    Repo.insert!(%Message{
+      agent_uid: actor_event.agent_uid,
+      conversation_id: conversation.id,
+      type: "message",
+      status: "generating",
+      content: Keyword.get(opts, :content, []),
+      metadata:
+        %{"actor_event_id" => actor_event.id}
+        |> Map.merge(Keyword.get(opts, :metadata, %{})),
+      inserted_at: now,
+      updated_at: now
+    })
+  end
 
-    case Repo.get!(LlmTurn, actor_event_id) do
-      %LlmTurn{status: ^mapped} = turn ->
-        turn
+  def start_aigateway_run_for_turn!(turn_ref, opts \\ []) do
+    agent_uid = get_in(turn_ref, ["actor", "agent_uid"])
+    session_id = get_in(turn_ref, ["actor", "session_id"])
+    actor_event_id = Map.fetch!(turn_ref, "actor_event_id")
+    request_items = Keyword.get(opts, :request_items, [])
 
-      %LlmTurn{} ->
-        Process.sleep(10)
-        wait_for_turn_status(actor_event_id, status, attempts - 1)
+    {:ok, conversation} = StatefulResponses.ensure_conversation(agent_uid, session_id)
+
+    {:ok, run} =
+      StatefulResponses.start_response_run(%{
+        agent_uid: agent_uid,
+        conversation_id: conversation.id,
+        actor_event_id: actor_event_id,
+        request_items: request_items
+      })
+
+    run
+  end
+
+  def complete_aigateway_turn!(turn_ref, text, opts \\ []) do
+    run =
+      case Keyword.get(opts, :run) do
+        %Message{} = run -> run
+        nil -> start_aigateway_run_for_turn!(turn_ref, opts)
+      end
+
+    output_items =
+      Keyword.get(opts, :output_items, [
+        %{
+          "type" => "message",
+          "role" => "assistant",
+          "content" => [%{"type" => "output_text", "text" => text}]
+        }
+      ])
+
+    {:ok, committed} = StatefulResponses.commit_complete(run, output_items)
+
+    if Keyword.get(opts, :wait_for_mirror, false) do
+      wait_for_final_mirror(committed.id)
+    end
+
+    committed
+  end
+
+  def wait_for_final_mirror(ai_message_id, attempts \\ 20)
+
+  def wait_for_final_mirror(ai_message_id, attempts) when attempts > 0 do
+    case Repo.get_by(SignalEntry, ai_message_id: ai_message_id) do
+      %SignalEntry{} = entry ->
+        entry
+
+      nil ->
+        Process.sleep(50)
+        wait_for_final_mirror(ai_message_id, attempts - 1)
     end
   end
 
-  def wait_for_turn_status(actor_event_id, status, 0) do
-    flunk("llm turn #{actor_event_id} did not reach #{status}")
+  def wait_for_final_mirror(ai_message_id, 0) do
+    flunk("expected final mirror for ai_message_id=#{ai_message_id}")
   end
 
-  # Phase 1: maps old turn status names to the new ai_gateway_messages values.
-  defp map_turn_status("started"), do: "generating"
-  defp map_turn_status("succeeded"), do: "complete"
-  defp map_turn_status("failed"), do: "error"
-  defp map_turn_status("cancelled"), do: "error"
-  defp map_turn_status(other), do: other
+  defp active_conversation_for_actor_event!(%ActorEvent{} = actor_event) do
+    Conversation
+    |> where([conversation], conversation.agent_uid == ^actor_event.agent_uid)
+    |> where([conversation], conversation.conversation_key == ^actor_event.session_id)
+    |> where([conversation], is_nil(conversation.ended_at))
+    |> Repo.one!()
+  end
+
+  def ai_message_for_actor_event!(actor_event_id) do
+    Message
+    |> where([message], fragment("?->>'actor_event_id'", message.metadata) == ^actor_event_id)
+    |> Repo.one!()
+  end
+
+  def wait_for_ai_message_status(actor_event_id, status, attempts \\ 100)
+
+  def wait_for_ai_message_status(actor_event_id, status, attempts) when attempts > 0 do
+    case ai_message_for_actor_event(actor_event_id) do
+      %Message{status: ^status} = message ->
+        message
+
+      %Message{} ->
+        Process.sleep(10)
+        wait_for_ai_message_status(actor_event_id, status, attempts - 1)
+
+      nil ->
+        Process.sleep(10)
+        wait_for_ai_message_status(actor_event_id, status, attempts - 1)
+    end
+  end
+
+  def wait_for_ai_message_status(actor_event_id, status, 0) do
+    flunk("ai message for actor event #{actor_event_id} did not reach #{status}")
+  end
+
+  defp ai_message_for_actor_event(actor_event_id) do
+    Message
+    |> where([message], fragment("?->>'actor_event_id'", message.metadata) == ^actor_event_id)
+    |> Repo.one()
+  end
 
   defp maybe_finalize_test_inbound_batch(%{inbound_batch: %InboundBatch{} = batch} = result) do
     finalize_result =
@@ -390,59 +461,32 @@ defmodule Ankole.ActorRuntimeCase do
       )
 
     with {:ok, finalized_results} <- finalize_result,
-         %ActorEvent{} = actor_input <- finalized_actor_input(finalized_results, batch.id) do
-      Map.put(result, :actor_input, actor_input)
+         %ActorEvent{} = actor_event <- finalized_actor_event(finalized_results, batch.id) do
+      Map.put(result, :actor_event, actor_event)
     else
-      _no_actor_input ->
-        # Phase 1: the finalize path may have completed but not returned the
-        # actor event in a discoverable way. Directly create the actor event
-        # from the batch's last entry, bypassing the finalize machinery.
-        force_create_actor_event_from_batch(batch, result)
+      _no_actor_event ->
+        attach_existing_actor_event_from_batch(batch, result)
     end
   end
 
   defp maybe_finalize_test_inbound_batch(result), do: result
 
-  # When the normal finalize path doesn't produce an actor event, the
-  # ActivationManager may have already finalized the batch and created one.
-  # Try to find it via the batch's actor_event_id, then fall back to creating.
-  defp force_create_actor_event_from_batch(%InboundBatch{} = batch, result) do
-    import Ecto.Query
-
-    # 1. Reload the batch — it may have been finalized by ActivationManager.
+  defp attach_existing_actor_event_from_batch(%InboundBatch{} = batch, result) do
     case Repo.get(InboundBatch, batch.id) do
       %InboundBatch{actor_event_id: id} when is_binary(id) and byte_size(id) > 0 ->
-        # The batch was finalized and has an actor_event_id.
         case Repo.get(ActorEvent, id) do
-          %ActorEvent{} = ae -> Map.put(result, :actor_input, ae)
-          nil -> create_actor_event_from_batch(batch, result)
+          %ActorEvent{} = ae -> Map.put(result, :actor_event, ae)
+          nil -> result
         end
 
       _ ->
-        # Batch not finalized or no actor_event_id. Try to find existing.
-        case Repo.one(
-               from(a in ActorEvent,
-                 where: a.agent_uid == ^batch.agent_uid and a.session_id == ^batch.session_id,
-                 order_by: [desc: a.inserted_at],
-                 limit: 1
-               )
-             ) do
-          %ActorEvent{} = existing -> Map.put(result, :actor_input, existing)
-          nil -> create_actor_event_from_batch(batch, result)
-        end
+        result
     end
   end
 
-  defp create_actor_event_from_batch(%InboundBatch{} = _batch, result) do
-    # Phase 1: Do NOT create a new actor event — the ActivationManager likely
-    # already created one. Just return the result without actor_input.
-    # The caller should handle the nil case.
-    result
-  end
-
-  defp finalized_actor_input(finalized_results, batch_id) do
+  defp finalized_actor_event(finalized_results, batch_id) do
     Enum.find_value(finalized_results, fn
-      %{inbound_batch: %InboundBatch{id: ^batch_id}, actor_input: %ActorEvent{} = input} ->
+      %{inbound_batch: %InboundBatch{id: ^batch_id}, actor_event: %ActorEvent{} = input} ->
         input
 
       _result ->

@@ -3,10 +3,10 @@ defmodule Ankole.SignalsGatewayFixtures do
 
   import ExUnit.Assertions
 
-  alias Ankole.Actors.ActorInput
+  alias Ankole.Actors.ActorEvent
   alias Ankole.SignalsGateway
 
-  @base_time ~U[2026-06-23 08:00:00.000000Z]
+  @base_time ~U[2026-07-02 01:34:05.000000Z]
 
   defmodule ModuleOutboxAdapter do
     @moduledoc false
@@ -15,7 +15,7 @@ defmodule Ankole.SignalsGatewayFixtures do
 
     def capabilities, do: [:post_entry]
 
-    def send(_outbox), do: {:ok, %{provider_entry_id: "module-adapter-msg"}}
+    def send(_outbox), do: {:ok, %{created_source_entry_id: "module-adapter-msg"}}
   end
 
   def base_time, do: @base_time
@@ -23,7 +23,7 @@ defmodule Ankole.SignalsGatewayFixtures do
   def actor_commit_opts(opts) do
     Keyword.merge(
       [
-        llm_turn_id: Ecto.UUID.generate(),
+        actor_event_id: Ecto.UUID.generate(),
         activation_uid:
           "test-activation-" <> Integer.to_string(System.unique_integer([:positive])),
         actor_epoch: 1,
@@ -33,7 +33,7 @@ defmodule Ankole.SignalsGatewayFixtures do
     )
   end
 
-  def emit_addressed_actor_input(agent_uid, binding_name, entry, now \\ @base_time) do
+  def emit_addressed_actor_event(agent_uid, binding_name, entry, now \\ @base_time) do
     assert {:ok, %{status: :accepted, inbound_batch: batch}} =
              SignalsGateway.emit_entry(agent_uid, binding_name, entry, now: now)
 
@@ -42,14 +42,14 @@ defmodule Ankole.SignalsGatewayFixtures do
                now: DateTime.add(now, 600, :millisecond)
              )
 
-    actor_input =
+    actor_event =
       Enum.find_value(results, fn
-        %{actor_input: %ActorInput{} = input} -> input
+        %{actor_event: %ActorEvent{} = input} -> input
         _result -> nil
       end)
 
-    assert %ActorInput{} = actor_input
-    %{inbound_batch: batch, actor_input: actor_input}
+    assert %ActorEvent{} = actor_event
+    %{inbound_batch: batch, actor_event: actor_event}
   end
 
   def binding_fixture(agent_uid, name, policy, opts \\ []) do
@@ -70,9 +70,9 @@ defmodule Ankole.SignalsGatewayFixtures do
   def group_entry(overrides \\ %{}) do
     Map.merge(
       %{
-        ingress_event_id: "evt-1",
+        source_event_id: "evt-1",
         signal_channel_id: "lark:chat:group-a",
-        provider_entry_id: "msg-1",
+        source_entry_id: "msg-1",
         provider_thread_id: "thread-1",
         channel: %{kind: :im_group, reply_mode: :entry, name: "Ops"},
         text: "hello",
@@ -86,9 +86,9 @@ defmodule Ankole.SignalsGatewayFixtures do
   def lifecycle_entry(overrides) do
     Map.merge(
       %{
-        ingress_event_id: "delete-1",
+        source_event_id: "delete-1",
         signal_channel_id: "lark:chat:group-a",
-        provider_entry_id: "msg-1",
+        source_entry_id: "msg-1",
         provider_thread_id: "thread-1",
         channel: %{kind: :im_group, reply_mode: :entry, name: "Ops"}
       },
@@ -99,12 +99,12 @@ defmodule Ankole.SignalsGatewayFixtures do
   def webhook_entry(overrides) do
     Map.merge(
       %{
-        ingress_event_id: "hook-event-1",
+        source_event_id: "hook-event-1",
         signal_channel_id: "webhook:incident-1",
-        provider_entry_id: "hook-1",
+        source_entry_id: "hook-1",
         channel: %{kind: :webhook_endpoint, reply_mode: :none, name: "Incident hook"},
         text: "incident opened",
-        actor_input_type: "webhook.received",
+        actor_event_type: "webhook.received",
         provider_time: @base_time
       },
       overrides

@@ -42,7 +42,8 @@ export function stripAnsi(text: string): string {
  * middle. Tail gets the larger share because a command's outcome — errors, the final
  * summary, the prompt that returned — is usually at the end, while the head still
  * preserves how it started. Cleans ANSI/binary first so the budget is spent on real
- * text, not control bytes. The 40/60 split matches hermes for parity.
+ * text, not control bytes. The 40/60 split preserves the old tool behavior for
+ * parity.
  */
 export function truncateOutput(text: string, max = MAX_OUTPUT_CHARS): string {
   const cleaned = sanitizeBinaryOutput(stripAnsi(text))
@@ -63,6 +64,8 @@ export function truncateOutput(text: string, max = MAX_OUTPUT_CHARS): string {
 }
 
 export interface NumberedLines {
+  endLine: number
+  startLine: number
   text: string
   totalLines: number
   truncated: boolean
@@ -85,6 +88,7 @@ export function numberLines(content: string, offset: number, limit: number): Num
   const totalLines = lines.length
   const start = Math.max(1, offset)
   const slice = lines.slice(start - 1, start - 1 + limit)
+  const endLine = slice.length === 0 ? start - 1 : start + slice.length - 1
   const text = slice
     .map((line, index) => {
       const lineNumber = start + index
@@ -100,7 +104,7 @@ export function numberLines(content: string, offset: number, limit: number): Num
     .join('\n')
   // `truncated` is true when the page stopped short of the end of file (more to read),
   // computed from where the slice ended rather than whether `limit` was hit.
-  return { text, totalLines, truncated: totalLines > start - 1 + slice.length }
+  return { endLine, startLine: start, text, totalLines, truncated: totalLines > start - 1 + slice.length }
 }
 
 /**

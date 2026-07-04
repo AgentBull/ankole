@@ -1,15 +1,13 @@
 defmodule Ankole.Repo.Migrations.CreateActorSchedule do
-  # 定时调度：cron schedule + concrete fire attempts。
+  # Actor scheduling stores recurring definitions and concrete fire attempts.
   #
-  # Phase 1 字段改名（见 new-plan.md §2.1）：
-  #   - source_llm_turn_id 删除（不再有 llm_turn 概念）
-  #   - actor_input_id → actor_event_id
-  #   - source_actor_input_id → source_actor_event_id
-  #   - 新增 origin_ai_message_id（schedule 源自 AI/tool message 时记录）
+  # actor_event_id records the work item appended by a fire attempt, source_actor_event_id
+  # records the triggering actor event, and origin_ai_message_id links schedules created
+  # from AI/tool output back to the stored message that requested them.
   use Ecto.Migration
 
   def up do
-    # ── actor_cron_schedules：循环调度定义 ──────────────────
+    # Recurring schedule definitions own future slots; fire attempts are stored separately.
     create table(:actor_cron_schedules, primary_key: false) do
       add :id, :uuid, primary_key: true
       add :status, :text, null: false
@@ -82,7 +80,7 @@ defmodule Ankole.Repo.Migrations.CreateActorSchedule do
              check: "jsonb_typeof(failure_policy) = 'object'"
            )
 
-    # ── actor_scheduled_events：具体的 fire 尝试 ─────────────
+    # Concrete fire attempts survive terminal state for audit, retry, and idempotency checks.
     create table(:actor_scheduled_events, primary_key: false) do
       add :id, :uuid, primary_key: true
       add :kind, :text, null: false
@@ -103,18 +101,18 @@ defmodule Ankole.Repo.Migrations.CreateActorSchedule do
 
       add :cron_fire_slot_at, :utc_datetime_usec
       add :tool_call_id, :text
-      # Phase 1：删除 source_llm_turn_id。
-      add :source_actor_event_id, :uuid
+      add :source_actor_event_id, references(:actor_events, type: :uuid, on_delete: :nilify_all)
       add :signal_channel_id, :text
       add :provider_thread_id, :text
       add :source_entry_id, :text
       add :source_provenance, :map, null: false, default: %{}
       add :wake_payload, :map, null: false, default: %{}
       add :oban_job_id, :bigint
-      # Phase 1：actor_input_id → actor_event_id。
-      add :actor_event_id, :uuid
-      # Phase 1 新增：schedule 源自 AI/tool message 时记录对应的 stored message id。
-      add :origin_ai_message_id, :uuid
+      add :actor_event_id, references(:actor_events, type: :uuid, on_delete: :nilify_all)
+      # Stored message that requested the schedule when it came from AI/tool output.
+      add :origin_ai_message_id,
+          references(:ai_gateway_messages, type: :uuid, on_delete: :nilify_all)
+
       add :fire_attempts, :integer, null: false, default: 0
       add :fire_claimed_at, :utc_datetime_usec
       add :fired_at, :utc_datetime_usec
@@ -145,6 +143,16 @@ defmodule Ankole.Repo.Migrations.CreateActorSchedule do
 
     create index(:actor_scheduled_events, [:actor_event_id],
              name: :actor_scheduled_events_actor_event_index
+           )
+
+    create index(:actor_scheduled_events, [:source_actor_event_id],
+             name: :actor_scheduled_events_source_actor_event_index,
+             where: "source_actor_event_id IS NOT NULL"
+           )
+
+    create index(:actor_scheduled_events, [:origin_ai_message_id],
+             name: :actor_scheduled_events_origin_ai_message_index,
+             where: "origin_ai_message_id IS NOT NULL"
            )
 
     create index(:actor_scheduled_events, [:oban_job_id],

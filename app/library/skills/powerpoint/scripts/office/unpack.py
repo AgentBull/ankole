@@ -1,7 +1,7 @@
 """Unpack a DOCX, PPTX, or XLSX file into a directory and pretty-print XML.
 
 Usage:
-    python scripts/office/unpack.py input.pptx unpacked/
+    python /repo/app/library/skills/powerpoint/scripts/office/unpack.py input.pptx unpacked/
 """
 
 import argparse

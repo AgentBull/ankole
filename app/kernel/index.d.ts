@@ -12,19 +12,6 @@ export declare class RuntimeFabricDealer {
 }
 export type JsRuntimeFabricDealer = RuntimeFabricDealer
 
-/**
- * Decrypts a compact AEAD token and returns the plaintext as a Buffer.
- *
- * Returning a Buffer avoids forcing arbitrary plaintext bytes through UTF-8.
- */
-export declare function aeadDecrypt(cipher: string, key: string): Buffer
-
-/** Encrypts a JS string or Buffer with the shared AEAD token format. */
-export declare function aeadEncrypt(plain: string | Buffer, key: string): string
-
-/** Converts Unicode text into a best-effort ASCII representation for JS callers. */
-export declare function anyAscii(input: string): string
-
 /** Authorizes one exact action on one concrete resource. */
 export declare function authzAuthorize(snapshot: any): any
 
@@ -40,76 +27,6 @@ export declare function authzValidateCondition(condition: string): boolean
 /** Returns whether a resource pattern is valid. */
 export declare function authzValidateResourcePattern(pattern: string): boolean
 
-/** Decodes Base58 text and returns the raw bytes as a Buffer. */
-export declare function base58Decode(input: string): Buffer
-
-/** Encodes a JS string or Buffer as Base58 text. */
-export declare function base58Encode(input: string | Buffer): string
-
-/** Decodes padding-free URL-safe Base64 and returns the raw bytes as a Buffer. */
-export declare function base64UrlSafeDecode(input: string): Buffer
-
-/** Encodes a JS string or Buffer with URL-safe Base64 and no padding. */
-export declare function base64UrlSafeEncode(input: string | Buffer): string
-
-/**
- * Hashes data with BLAKE3 and returns the digest in Base58 form.
- *
- * The custom TypeScript argument annotation keeps the generated declaration
- * ergonomic while the Rust signature still uses napi-rs `Either` for decoding.
- */
-export declare function bs58Hash(data: string | Buffer, salt?: string): string
-
-/**
- * Computes CRC32 over a Buffer-like value or string.
- *
- * This signature allows borrowed byte slices for binary input so large Buffers
- * do not need the extra allocation used by the more general `bytes_from_either`
- * helper.
- */
-export declare function crc32(input: Uint8Array | string, initialState?: number | undefined | null): number
-
-/** Computes CRC32 and formats it as lowercase hexadecimal text. */
-export declare function crc32Hex(input: Uint8Array | string, initialState?: number | undefined | null): string
-
-/**
- * Derives a deterministic BLAKE3 sub-key for JS callers.
- *
- * `context` stays optional at the JS boundary, but the shared implementation always receives an
- * explicit `Option` so omitted and empty-string contexts remain distinguishable.
- */
-export declare function deriveKey(keySeed: string | Buffer, subKeyId: string, context?: string): string
-
-/** Generates a random UUIDv4 encoded as lowercase Base36. */
-export declare function genBase36UUID(): string
-
-/** Generates a random 32-byte hex key for kernel cryptographic helpers. */
-export declare function generateKey(): string
-
-/** Hashes data with BLAKE3 and returns the digest as lowercase hex text. */
-export declare function genericHash(data: string | Buffer, salt?: string): string
-
-/** Generates a random UUIDv4 encoded from raw UUID bytes as Base58. */
-export declare function genShortUUID(): string
-
-/** Generates a standard hyphenated UUIDv4 string. */
-export declare function genUUID(): string
-
-/** Generates a standard hyphenated UUIDv7 string. */
-export declare function genUUIDv7(): string
-
-/** Decodes a JWT header without validating the token signature. */
-export declare function jwtDecodeHeader(token: string): any
-
-/** Signs JSON claims with a JSON JWT header and string-or-buffer key. */
-export declare function jwtSign(claims: any, key: string | Buffer, header?: any): string
-
-/** Verifies a JWT with a string-or-buffer key and JSON validation options. */
-export declare function jwtVerify(token: string, key: string | Buffer, validation?: any): any
-
-/** Parses and validates an international phone number, returning E.164 text. */
-export declare function phoneNormalizeE164(phone: string): string
-
 /** Decodes RuntimeFabric v1 protobuf bytes into a JSON-shaped envelope. */
 export declare function runtimeFabricDecodeEnvelope(bytes: Buffer): any
 
@@ -122,8 +39,8 @@ export declare function signalsGatewayFilterMatch(filterSource: string, context:
 /** Returns whether a SignalsGateway CEL admission filter compiles. */
 export declare function signalsGatewayValidateFilter(filterSource: string): boolean
 
-/** Computes XXH3 128-bit over a JS string or Buffer. */
-export declare function xxh3_128_hex(data: string | Buffer): string
+/** Computes a standard unified text diff body using the native kernel diff primitive. */
+export declare function unifiedTextDiff(before: string, after: string, contextLines: number): Promise<string>
 
 /** Computes the non-cryptographic XXH3 128-bit observation fingerprint. */
 export declare function xxh3File128Hex(path: string): string

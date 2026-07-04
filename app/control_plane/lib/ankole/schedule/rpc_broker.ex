@@ -3,9 +3,10 @@ defmodule Ankole.Schedule.RPCBroker do
   RuntimeFabric RPC entry point for worker-originated schedule requests.
   """
 
-  alias Ankole.AIAgent.Schemas.LlmTurn
-  alias Ankole.Actors.ActorInput
-  alias Ankole.Actors.ActorInputConsumption
+  import Ecto.Query, warn: false
+
+  alias Ankole.AIGateway.Schemas.Message
+  alias Ankole.Actors.ActorEvent
   alias Ankole.Repo
   alias Ankole.Schedule
 
@@ -84,7 +85,7 @@ defmodule Ankole.Schedule.RPCBroker do
          "runs" =>
            cron_schedule_id
            |> Schedule.list_cron_runs(list_limit(request, "limit", 25))
-           |> Enum.map(&Schedule.event_projection/1)
+           |> Enum.map(&Schedule.event_model_projection/1)
        }}
     end
   end
@@ -95,7 +96,9 @@ defmodule Ankole.Schedule.RPCBroker do
          :ok <- reject_cron_origin_broad_mutation(turn),
          {agent_uid, session_id} <- actor_identity(turn),
          {:ok, attrs} <- cron_attrs(request, turn, agent_uid, session_id),
-         {:ok, %{status: status, cron_schedule: schedule}} <- Schedule.create_cron_schedule(attrs) do
+         created_by <- turn_created_by(turn),
+         {:ok, %{status: status, cron_schedule: schedule}} <-
+           Schedule.create_cron_schedule(attrs, created_by: created_by) do
       {:ok,
        %{"status" => cron_create_status(status), "schedule" => Schedule.cron_projection(schedule)}}
     end
@@ -158,7 +161,7 @@ defmodule Ankole.Schedule.RPCBroker do
       {:ok,
        %{
          "status" => rpc_status(status),
-         "scheduled_event" => Schedule.event_projection(event)
+         "scheduled_event" => Schedule.event_model_projection(event)
        }}
     end
   end
@@ -196,11 +199,15 @@ defmodule Ankole.Schedule.RPCBroker do
          "check" => text(request, "check"),
          "context_summary" => text(request, "context_summary"),
          "reply_route" => reply_route,
-         "source_llm_turn_id" => text(turn, "llm_turn_id"),
-         "source_actor_input_id" => source.actor_input_id,
+         # Source tables: current_ai_message_id resolves ai_gateway_messages.id;
+         # source.actor_event_id is the actor_events.id currently being served.
+         "origin_ai_message_id" => current_ai_message_id(turn),
+         "source_actor_event_id" => source.actor_event_id,
          "source_provenance" => %{
            "rpc_request_id" => text(request, "request_id"),
            "transport_route" => route,
+           # Source table: these fence values are copied from the turn_ref
+           # originally produced from actor_session_activations.
            "activation_uid" => text(turn, "activation_uid"),
            "actor_epoch" => integer(turn, "actor_epoch"),
            "revision" => integer(turn, "revision")
@@ -209,7 +216,7 @@ defmodule Ankole.Schedule.RPCBroker do
     end
   end
 
-  defp cron_attrs(request, turn, agent_uid, session_id) do
+  defp cron_attrs(request, _turn, agent_uid, session_id) do
     with {:ok, idempotency_key} <- required_text(request, "idempotency_key"),
          {:ok, binding_name} <- required_text(request, "binding_name") do
       {:ok,
@@ -222,80 +229,51 @@ defmodule Ankole.Schedule.RPCBroker do
          "payload" => map_value(request, "payload") || %{},
          "delivery" => map_value(request, "delivery"),
          "idempotency_key" => idempotency_key,
-         "created_by" => %{
-           "kind" => "turn",
-           "llm_turn_id" => text(turn, "llm_turn_id"),
-           "activation_uid" => text(turn, "activation_uid")
-         },
          "failure_policy" => map_value(request, "failure_policy") || %{}
        }}
     end
+  end
+
+  defp turn_created_by(turn) do
+    %{
+      "kind" => "turn",
+      # Source tables: actor_event_id is actor_events.id, origin_ai_message_id
+      # is ai_gateway_messages.id, and activation_uid is the live activation row.
+      "actor_event_id" => text(turn, "actor_event_id"),
+      "origin_ai_message_id" => current_ai_message_id(turn),
+      "activation_uid" => text(turn, "activation_uid")
+    }
   end
 
   defp validate_reply_route(_turn, reply_route) when not is_map(reply_route),
     do: {:error, :invalid_reply_route}
 
   defp validate_reply_route(turn, reply_route) do
-    with {:ok, turn_row} <- fetch_turn(turn),
-         source_ids <- turn_actor_input_ids(turn_row),
-         {:ok, source} <- find_reply_source(source_ids, reply_route) do
+    with {:ok, source} <- turn_reply_source(turn),
+         true <- reply_route_matches?(source, reply_route) do
       {:ok, source}
+    else
+      false -> {:error, :reply_route_not_in_turn}
+      {:error, _reason} = error -> error
     end
   end
 
-  defp fetch_turn(turn) do
-    case Repo.get(LlmTurn, text(turn, "llm_turn_id")) do
-      %LlmTurn{} = llm_turn -> {:ok, llm_turn}
-      nil -> {:error, :llm_turn_not_found}
+  defp turn_reply_source(turn) do
+    case actor_event_reply_source(text(turn, "actor_event_id")) do
+      nil -> {:error, :reply_route_not_in_turn}
+      source -> {:ok, source}
     end
   end
 
-  defp turn_actor_input_ids(%LlmTurn{request_refs: refs}) when is_list(refs) do
-    refs
-    |> Enum.flat_map(fn
-      %{"actor_input_id" => actor_input_id} when is_binary(actor_input_id) -> [actor_input_id]
-      %{actor_input_id: actor_input_id} when is_binary(actor_input_id) -> [actor_input_id]
-      _ref -> []
-    end)
-    |> Enum.uniq()
-  end
-
-  defp turn_actor_input_ids(_turn), do: []
-
-  defp find_reply_source([], _reply_route), do: {:error, :reply_route_not_in_turn}
-
-  defp find_reply_source([actor_input_id | rest], reply_route) do
-    case actor_input_reply_source(actor_input_id) do
-      nil ->
-        find_reply_source(rest, reply_route)
-
-      source ->
-        case reply_route_matches?(source, reply_route) do
-          true -> {:ok, source}
-          false -> find_reply_source(rest, reply_route)
-        end
-    end
-  end
-
-  defp actor_input_reply_source(actor_input_id) do
-    case Repo.get(ActorInput, actor_input_id) ||
-           Repo.get_by(ActorInputConsumption, actor_input_id: actor_input_id) do
-      %ActorInput{} = input ->
+  defp actor_event_reply_source(actor_event_id) do
+    case Repo.get(ActorEvent, actor_event_id) do
+      %ActorEvent{} = input ->
         %{
-          actor_input_id: input.id,
+          actor_event_id: input.id,
           binding_name: input.binding_name,
           signal_channel_id: input.signal_channel_id,
           provider_thread_id: input.provider_thread_id,
-          provider_entry_id: input.provider_entry_id
-        }
-
-      %ActorInputConsumption{} = input ->
-        %{
-          actor_input_id: input.actor_input_id,
-          binding_name: input.binding_name,
-          signal_channel_id: input.signal_channel_id,
-          provider_thread_id: input.provider_thread_id,
-          provider_entry_id: input.provider_entry_id
+          source_entry_id: input.source_entry_id
         }
 
       nil ->
@@ -307,7 +285,7 @@ defmodule Ankole.Schedule.RPCBroker do
     text(reply_route, "binding_name") == source.binding_name and
       text(reply_route, "signal_channel_id") == source.signal_channel_id and
       nullable_text(reply_route, "provider_thread_id") == source.provider_thread_id and
-      nullable_text(reply_route, "provider_entry_id") == source.provider_entry_id
+      nullable_text(reply_route, "source_entry_id") == source.source_entry_id
   end
 
   defp cron_belongs_to_turn(schedule, turn) do
@@ -327,10 +305,12 @@ defmodule Ankole.Schedule.RPCBroker do
   end
 
   defp cron_origin_schedule_id(turn) do
-    with {:ok, %LlmTurn{request_context: context}} <- fetch_turn(turn) do
-      get_in(context || %{}, ["schedule_origin", "cron_schedule_id"])
-    else
-      _error -> nil
+    case Repo.get(ActorEvent, text(turn, "actor_event_id")) do
+      %ActorEvent{payload: payload} when is_map(payload) ->
+        get_in(payload, ["data", "cron_schedule_id"])
+
+      _event ->
+        nil
     end
   end
 
@@ -345,6 +325,26 @@ defmodule Ankole.Schedule.RPCBroker do
        do: {String.downcase(agent_uid), session_id}
 
   defp actor_identity(_turn), do: {"", ""}
+
+  defp current_ai_message_id(turn) do
+    {agent_uid, _session_id} = actor_identity(turn)
+
+    case text(turn, "actor_event_id") do
+      actor_event_id when is_binary(actor_event_id) and actor_event_id != "" ->
+        Message
+        |> where([message], message.agent_uid == ^agent_uid)
+        |> where([message], message.type == "message")
+        |> where([message], message.status in ["generating", "complete"])
+        |> where([message], fragment("?->>'actor_event_id'", message.metadata) == ^actor_event_id)
+        |> order_by([message], desc: message.inserted_at, desc: message.id)
+        |> limit(1)
+        |> select([message], message.id)
+        |> Repo.one()
+
+      _missing ->
+        nil
+    end
+  end
 
   defp stringify_keys(map) do
     Map.new(map, fn

@@ -27,7 +27,8 @@ Principals does not own:
 
 - permission grants, groups, computed group rules, or authorization decisions;
 - chat room/message projection, delivery, or outbox state;
-- agent conversations, LLM turns, memory, mission, soul, or runtime profiles;
+- agent conversations, AI gateway messages, memory, mission, soul, or runtime
+  profiles;
 - AppConfigure values or plugin configuration;
 - bootstrap environment variables;
 - admin web sessions, OIDC handshakes, or one-time login code storage.

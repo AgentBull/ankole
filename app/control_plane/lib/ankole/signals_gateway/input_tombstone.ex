@@ -7,7 +7,7 @@ defmodule Ankole.SignalsGateway.InputTombstone do
   with) a retried "message received" for the same entry, which would otherwise
   resurrect a message the human already retracted. When the gateway processes a
   removal event it drops a tombstone keyed by
-  `{agent_uid, binding_name, signal_channel_id, provider_entry_id}`; a later
+  `{agent_uid, binding_name, signal_channel_id, source_entry_id}`; a later
   receive for that key is dropped while the tombstone is live (see
   `SignalsGateway.active_tombstone?/3`).
 
@@ -43,7 +43,7 @@ defmodule Ankole.SignalsGateway.InputTombstone do
       type: :string,
       primary_key: true
 
-    field :provider_entry_id, :string, primary_key: true
+    field :source_entry_id, :string, primary_key: true
     # Wall-clock expiry of the guard. A receive arriving at-or-before this
     # instant is dropped; after it, the cleanup job deletes the row and normal
     # ingress resumes for that entry.
@@ -62,22 +62,22 @@ defmodule Ankole.SignalsGateway.InputTombstone do
       :agent_uid,
       :binding_name,
       :signal_channel_id,
-      :provider_entry_id,
+      :source_entry_id,
       :tombstoned_until
     ])
-    |> normalize_blank([:agent_uid, :binding_name, :signal_channel_id, :provider_entry_id])
+    |> normalize_blank([:agent_uid, :binding_name, :signal_channel_id, :source_entry_id])
     |> normalize_uid(:agent_uid)
     |> validate_required([
       :agent_uid,
       :binding_name,
       :signal_channel_id,
-      :provider_entry_id,
+      :source_entry_id,
       :tombstoned_until
     ])
     |> foreign_key_constraint(:agent_uid)
     |> foreign_key_constraint(:signal_channel_id)
     |> unique_constraint(
-      [:agent_uid, :binding_name, :signal_channel_id, :provider_entry_id],
+      [:agent_uid, :binding_name, :signal_channel_id, :source_entry_id],
       name: :signal_gateway_input_tombstones_pkey
     )
   end

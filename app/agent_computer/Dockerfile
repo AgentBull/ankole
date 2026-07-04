@@ -34,21 +34,21 @@ COPY app/agent_computer ./app/agent_computer
 
 RUN set -eux; \
   for attempt in 1 2 3; do \
-    if bun install --no-save; then exit 0; fi; \
+    if timeout 120s bun install --no-save; then exit 0; fi; \
     rm -rf /root/.bun/install/cache /tmp/bun-*; \
     sleep $((attempt * 5)); \
   done; \
-  bun install --no-save
+  timeout 120s bun install --no-save
 
 WORKDIR /repo/app/agent_computer
 
 RUN set -eux; \
   for attempt in 1 2 3; do \
-    if bun install --no-save; then exit 0; fi; \
+    if timeout 120s bun install --no-save; then exit 0; fi; \
     rm -rf /root/.bun/install/cache /tmp/bun-*; \
     sleep $((attempt * 5)); \
   done; \
-  bun install --no-save
+  timeout 120s bun install --no-save
 
 WORKDIR /repo/app/kernel
 
@@ -88,25 +88,6 @@ RUN sed -i \
     grep \
     jq \
     less \
-    libasound2 \
-    libatk-bridge2.0-0 \
-    libatk1.0-0 \
-    libcups2 \
-    libdbus-glib-1-2 \
-    libgbm1 \
-    libgl1 \
-    libglib2.0-0 \
-    libgtk-3-0 \
-    libnss3 \
-    libpango-1.0-0 \
-    libpangocairo-1.0-0 \
-    libx11-xcb1 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxrandr2 \
-    libxss1 \
-    libxt6 \
     libzmq5 \
     libreoffice-impress \
     lsof \
@@ -127,43 +108,48 @@ RUN sed -i \
     tree \
     unzip \
     util-linux \
-    xvfb \
     xz-utils \
     zip \
     zstd \
+  && rm -rf /var/lib/apt/lists/* \
   && mkdir -p /workspace/shared/user-files /workspace/shared/skills/agents /workspace/.sessions \
-  && chmod -R 0775 /workspace \
-  && rm -rf /var/lib/apt/lists/*
+  && chmod -R 0775 /workspace
 
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
   && python3 -m venv /opt/ankole-python \
-  && /root/.local/bin/uv pip install --python /opt/ankole-python/bin/python \
-    blake3 \
-    defusedxml \
-    duckdb \
-    imageio \
-    ipykernel \
-    jupyter-client \
-    jupyter-server \
-    jupyterlab \
-    "markitdown[pptx]" \
-    matplotlib \
-    matplotlib-inline \
-    nano-pdf \
-    nbformat \
-    numpy \
-    opencv-python-headless \
-    openpyxl \
-    pandas \
-    pillow \
-    polars \
-    pyarrow \
-    pydantic \
-    python-docx \
-    python-pptx \
-    requests \
-    scipy \
-    websocket-client \
+  && for attempt in 1 2 3; do \
+    if /root/.local/bin/uv pip install --python /opt/ankole-python/bin/python \
+      blake3 \
+      defusedxml \
+      duckdb \
+      imageio \
+      ipykernel \
+      jupyter-client \
+      jupyter-server \
+      jupyterlab \
+      "markitdown[pptx]" \
+      matplotlib \
+      matplotlib-inline \
+      nano-pdf \
+      nbformat \
+      numpy \
+      opencv-python-headless \
+      openpyxl \
+      pandas \
+      pillow \
+      polars \
+      pyarrow \
+      pydantic \
+      python-docx \
+      python-pptx \
+      requests \
+      scipy \
+      websocket-client; then \
+      break; \
+    fi; \
+    if [ "$attempt" = "3" ]; then exit 1; fi; \
+    sleep $((attempt * 10)); \
+  done \
   && find /opt/ankole-python/bin -maxdepth 1 -type f -perm /111 -exec ln -sf {} /usr/local/bin/ \; \
   && rm -f /usr/local/bin/python /usr/local/bin/python3 \
   && printf '%s\n' '#!/usr/bin/env sh' 'exec /opt/ankole-python/bin/python "$@"' > /usr/local/bin/python \
@@ -186,7 +172,6 @@ RUN chmod +x ./app/agent_computer/bin/ankole-browser \
 WORKDIR /repo/app/agent_computer
 
 ENV NODE_ENV=production
-ENV ANKOLE_AGENT_COMPUTER_CONTAINER=1
 ENV ANKOLE_WORKSPACE_ROOT=/workspace
 ENV ANKOLE_SHARED_FS_ROOT=/workspace/shared
 ENV ANKOLE_USER_FILES_ROOT=/workspace/shared/user-files
@@ -196,5 +181,5 @@ ENV ANKOLE_WORKSPACE_SESSIONS_ROOT=/workspace/.sessions
 ENV ANKOLE_AGENT_COMPUTER_BUN_WORKDIR=/repo/app/agent_computer
 ENV PATH="/opt/ankole-python/bin:/root/.local/bin:${PATH}"
 
-ENTRYPOINT ["tini", "--"]
+ENTRYPOINT ["tini", "-g", "--"]
 CMD ["bun", "src/main.ts"]

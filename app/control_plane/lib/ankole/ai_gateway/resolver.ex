@@ -8,13 +8,13 @@ defmodule Ankole.AIGateway.Resolver do
   model profiles themselves.
   """
 
-  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway.ModelSelectors
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.Providers
   alias Ankole.Principals
 
-  @llm_aliases ~w(primary light heavy)
+  @llm_aliases ~w(primary light heavy vision_fallback)
 
   @doc """
   Resolves the request `model` field for one agent and capability.
@@ -35,7 +35,7 @@ defmodule Ankole.AIGateway.Resolver do
   end
 
   defp resolve_model(agent_uid, capability, selector, request)
-       when capability in ["embedding", "rerank"] do
+       when capability in ["embedding", "rerank", "web_search", "web_fetch"] do
     case explicit_provider_selector(selector) do
       {:ok, provider_id, model} ->
         resolve_provider_model(agent_uid, capability, selector, provider_id, model, request)
@@ -110,7 +110,10 @@ defmodule Ankole.AIGateway.Resolver do
           "provider" => provider
         }
 
-      {:ok, maybe_put_profile(runtime, binding)}
+      {:ok,
+       runtime
+       |> maybe_put_profile(binding)
+       |> maybe_put_context_length(binding)}
     end
   end
 
@@ -179,6 +182,16 @@ defmodule Ankole.AIGateway.Resolver do
     case fetch_any(binding, "profile") do
       {:ok, profile} when is_binary(profile) -> Map.put(runtime, "profile", profile)
       _value -> runtime
+    end
+  end
+
+  defp maybe_put_context_length(runtime, binding) do
+    case fetch_any(binding, "context_length") do
+      {:ok, context_length} when is_integer(context_length) and context_length > 0 ->
+        Map.put(runtime, "context_length", context_length)
+
+      _value ->
+        runtime
     end
   end
 

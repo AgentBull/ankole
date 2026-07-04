@@ -83,6 +83,19 @@ defmodule Ankole.SignalsGateway.RecoveryScanTest do
           content: [%{"type" => "function_call", "call_id" => "call-1"}]
         )
 
+      tool_result_journal =
+        message_fixture(agent.uid, conversation.id, event,
+          status: "complete",
+          metadata: %{"tool_result_journal" => true},
+          content: [
+            %{
+              "type" => "message",
+              "role" => "assistant",
+              "content" => [%{"type" => "output_text", "text" => "tool output journal"}]
+            }
+          ]
+        )
+
       mirrored = message_fixture(agent.uid, conversation.id, event, status: "complete")
       signal_entry_fixture("recovery-scan-channel", "provider-final", mirrored.id)
 
@@ -94,6 +107,7 @@ defmodule Ankole.SignalsGateway.RecoveryScanTest do
         input_only.id,
         input_plus_output.id,
         function_call.id,
+        tool_result_journal.id,
         mirrored.id
       ])
 
@@ -106,6 +120,7 @@ defmodule Ankole.SignalsGateway.RecoveryScanTest do
       refute silent_success.id in ids
       refute input_only.id in ids
       refute function_call.id in ids
+      refute tool_result_journal.id in ids
       refute mirrored.id in ids
     end
 
@@ -414,7 +429,9 @@ defmodule Ankole.SignalsGateway.RecoveryScanTest do
               "content" => [%{"type" => "output_text", "text" => "hello"}]
             }
           ]),
-        metadata: %{"actor_event_id" => event.id}
+        metadata:
+          %{"actor_event_id" => event.id}
+          |> Map.merge(Keyword.get(opts, :metadata, %{}))
       }
 
     %Message{}

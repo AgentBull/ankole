@@ -26,9 +26,16 @@ defmodule Ankole.ActorRuntime.Jobs.FireScheduledEvent do
     end)
   end
 
-  defp do_perform(%Oban.Job{args: %{"scheduled_event_id" => scheduled_event_id}})
+  defp do_perform(%Oban.Job{
+         args: %{"scheduled_event_id" => scheduled_event_id},
+         attempt: attempt,
+         max_attempts: max_attempts
+       })
        when is_binary(scheduled_event_id) do
-    case Schedule.fire_due_event(scheduled_event_id) do
+    case Schedule.fire_due_event(scheduled_event_id,
+           attempt: attempt,
+           max_attempts: max_attempts
+         ) do
       {:ok, %{status: :fired}} ->
         ActivationManager.wake()
         :ok
