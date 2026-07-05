@@ -23,6 +23,7 @@ pub enum ApiResolverKind {
     ParallelWebFetch,
     BrightDataSerpWebSearch,
     AgentbullWebSearch,
+    JinaSearchWebSearch,
     JinaReaderWebFetch,
 }
 
@@ -44,6 +45,7 @@ impl ApiResolverKind {
             Self::ParallelWebFetch => "parallel_web_fetch",
             Self::BrightDataSerpWebSearch => "bright_data_serp_web_search",
             Self::AgentbullWebSearch => "agentbull_web_search",
+            Self::JinaSearchWebSearch => "jina_search_web_search",
             Self::JinaReaderWebFetch => "jina_reader_web_fetch",
         }
     }

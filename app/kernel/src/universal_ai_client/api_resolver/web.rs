@@ -11,6 +11,9 @@ struct BrightDataSerpWebSearch;
 struct AgentBullWebSearch;
 
 #[derive(Debug)]
+struct JinaSearchWebSearch;
+
+#[derive(Debug)]
 struct JinaReaderWebFetch;
 
 impl ApiProtocol for ParallelWebSearch {
@@ -70,6 +73,21 @@ impl ApiProtocol for AgentBullWebSearch {
         body: Value,
     ) -> Result<Value, StreamError> {
         normalize_agentbull_search_body(context, status, body)
+    }
+}
+
+impl ApiProtocol for JinaSearchWebSearch {
+    fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
+        Ok(jina_search_body(context))
+    }
+
+    fn on_provider_body(
+        &mut self,
+        context: &ResponseContext,
+        status: u16,
+        body: Value,
+    ) -> Result<Value, StreamError> {
+        normalize_jina_search_body(context, status, body)
     }
 }
 
@@ -184,6 +202,28 @@ fn agentbull_search_body(context: &ResponseContext) -> Map<String, Value> {
     body
 }
 
+fn jina_search_body(context: &ResponseContext) -> Map<String, Value> {
+    let request = context.resolved_provider_request_object();
+    let mut body = Map::new();
+
+    body.insert("q".to_string(), json!(request_string(&request, "query")));
+    body.insert("num".to_string(), json!(request_limit(&request)));
+
+    for key in [
+        "gl",
+        "location",
+        "hl",
+        "page",
+        "noCache",
+        "respondWith",
+        "engine",
+    ] {
+        maybe_put_from(&mut body, &request, key);
+    }
+
+    body
+}
+
 fn jina_reader_extract_body(context: &ResponseContext) -> Map<String, Value> {
     let request = context.resolved_provider_request_object();
     let url = request
@@ -271,6 +311,30 @@ fn normalize_agentbull_search_body(
                 .iter()
                 .enumerate()
                 .map(|(index, item)| normalize_agentbull_result(index, item))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Ok(search_response(context, results))
+}
+
+fn normalize_jina_search_body(
+    context: &ResponseContext,
+    status: u16,
+    body: Value,
+) -> Result<Value, StreamError> {
+    let object = checked_provider_object(status, body, "Jina Search")?;
+    let source = object
+        .get("results")
+        .or_else(|| object.get("data"))
+        .or_else(|| object.get("items"));
+    let results = source
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .enumerate()
+                .map(|(index, item)| normalize_jina_search_result(index, item))
                 .collect()
         })
         .unwrap_or_default();
@@ -419,6 +483,33 @@ fn normalize_agentbull_result(index: usize, item: &Value) -> Value {
         result.insert("score".to_string(), score.clone());
     }
     result
+}
+
+fn normalize_jina_search_result(index: usize, item: &Value) -> Value {
+    let Some(map) = item.as_object() else {
+        return search_result(index, "", "", value_to_text(item), None);
+    };
+    let snippet = map
+        .get("snippet")
+        .or_else(|| map.get("description"))
+        .or_else(|| map.get("mainContent"))
+        .or_else(|| map.get("content"))
+        .map(value_to_text)
+        .unwrap_or_default();
+
+    search_result(
+        index,
+        map.get("title").and_then(Value::as_str).unwrap_or_default(),
+        map.get("url")
+            .or_else(|| map.get("link"))
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+        snippet,
+        map.get("published_at")
+            .or_else(|| map.get("publishedAt"))
+            .or_else(|| map.get("date"))
+            .and_then(Value::as_str),
+    )
 }
 
 fn search_result(

@@ -30,6 +30,7 @@ defmodule Ankole.AIGateway.Providers do
     Ankole.AIGateway.Providers.Parallel,
     Ankole.AIGateway.Providers.BrightDataSERP,
     Ankole.AIGateway.Providers.AgentBullCloud,
+    Ankole.AIGateway.Providers.JinaSearch,
     Ankole.AIGateway.Providers.JinaReader
   ]
 

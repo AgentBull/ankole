@@ -31,6 +31,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert "parallel" in provider_kinds
     assert "bright_data_serp" in provider_kinds
     assert "agentbull_cloud" in provider_kinds
+    assert "jina_search" in provider_kinds
     assert "jina_reader" in provider_kinds
     assert "claude" in provider_kinds
     assert "azure_openai" in provider_kinds
@@ -41,6 +42,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     google_ai_studio = Enum.find(kinds, &(&1["provider_kind"] == "google_ai_studio_openai"))
     azure_openai = Enum.find(kinds, &(&1["provider_kind"] == "azure_openai"))
     parallel = Enum.find(kinds, &(&1["provider_kind"] == "parallel"))
+    jina_search = Enum.find(kinds, &(&1["provider_kind"] == "jina_search"))
     jina_reader = Enum.find(kinds, &(&1["provider_kind"] == "jina_reader"))
     bright_data_serp = Enum.find(kinds, &(&1["provider_kind"] == "bright_data_serp"))
     agentbull_cloud = Enum.find(kinds, &(&1["provider_kind"] == "agentbull_cloud"))
@@ -51,6 +53,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert "embedding" in google_ai_studio["capabilities"]
     assert "web_search" in parallel["capabilities"]
     assert "web_fetch" in parallel["capabilities"]
+    assert "web_search" in jina_search["capabilities"]
     assert "web_fetch" in jina_reader["capabilities"]
     assert "web_search" in bright_data_serp["capabilities"]
     assert "web_search" in agentbull_cloud["capabilities"]
@@ -314,6 +317,13 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{
+               provider_id: "jina-search-main",
+               provider_kind: "jina_search",
+               connection_options: %{"api_key" => "jina-search-key"}
+             })
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
                provider_id: "jina-reader-main",
                provider_kind: "jina_reader",
                connection_options: %{"api_key" => "jina-reader-key"}
@@ -393,16 +403,17 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     assert {:ok, %{profile: web_search_profile}} =
              ModelProfiles.put_model_profile(agent.uid, "web_search", %{
-               provider_id: "parallel-main",
+               provider_id: "jina-search-main",
                model: "default"
              })
 
-    assert web_search_profile["provider_id"] == "parallel-main"
+    assert web_search_profile["provider_id"] == "jina-search-main"
 
     assert {:ok, web_search_runtime_profile} =
              ModelProfiles.resolve_runtime_profile(agent.uid, "web_search")
 
     assert web_search_runtime_profile["capability"] == "web_search"
+    assert web_search_runtime_profile["provider_kind"] == "jina_search"
 
     assert {:ok, %{profile: web_fetch_profile}} =
              ModelProfiles.put_model_profile(agent.uid, "web_fetch", %{

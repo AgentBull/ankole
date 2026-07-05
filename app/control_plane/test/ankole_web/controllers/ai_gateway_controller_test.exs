@@ -596,6 +596,67 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert %{"error" => %{"code" => "invalid_urls"}} = json_response(conn, 400)
   end
 
+  test "web_search can use Jina Search as a provider-backed profile", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+    test_pid = self()
+
+    base_url =
+      start_recording_upstream(test_pid, fn %{path: "search"} ->
+        {:json, 200,
+         %{
+           "results" => [
+             %{
+               "title" => "Ankole Search",
+               "url" => "https://example.com/search",
+               "mainContent" => "Jina search result body"
+             }
+           ]
+         }}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "jina-search-web-main",
+               provider_kind: "jina_search",
+               base_url: base_url,
+               connection_options: %{"api_key" => "jina-key"}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "web_search", %{
+               provider_id: "jina-search-web-main",
+               model: "default",
+               provider_options: %{"gl" => "us", "hl" => "en"}
+             })
+
+    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+
+    conn =
+      conn
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> post(~p"/api/v1/ai-gateway/web_search", %{
+        "model" => "web_search.default",
+        "query" => "ankole web",
+        "limit" => 3
+      })
+
+    assert %{
+             "success" => true,
+             "query" => "ankole web",
+             "results" => [%{"title" => "Ankole Search", "snippet" => "Jina search result body"}]
+           } = json_response(conn, 200)
+
+    assert_receive {:gateway_request, search_request}
+    assert search_request.path == "search"
+    assert search_request.headers["authorization"] == "Bearer jina-key"
+    assert search_request.headers["content-type"] == "application/json"
+    assert search_request.body["q"] == "ankole web"
+    assert search_request.body["num"] == 3
+    assert search_request.body["gl"] == "us"
+    assert search_request.body["hl"] == "en"
+    refute Map.has_key?(search_request.body, "model")
+  end
+
   test "web_search validates query and limit before provider dispatch", %{conn: conn} do
     %{principal: agent} = agent_fixture()
 

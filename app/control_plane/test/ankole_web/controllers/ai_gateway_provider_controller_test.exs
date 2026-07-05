@@ -46,6 +46,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     openai_compatible = Enum.find(sources, &(&1["provider_kind"] == "openai_compatible"))
     azure_openai = Enum.find(sources, &(&1["provider_kind"] == "azure_openai"))
     parallel = Enum.find(sources, &(&1["provider_kind"] == "parallel"))
+    jina_search = Enum.find(sources, &(&1["provider_kind"] == "jina_search"))
     jina_reader = Enum.find(sources, &(&1["provider_kind"] == "jina_reader"))
 
     assert "llm" in openrouter["capabilities"]
@@ -53,6 +54,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     assert "rerank" in openrouter["capabilities"]
     assert "web_search" in parallel["capabilities"]
     assert "web_fetch" in parallel["capabilities"]
+    assert "web_search" in jina_search["capabilities"]
     assert "web_fetch" in jina_reader["capabilities"]
 
     assert "transport" in openai_compatible["connection_options"]

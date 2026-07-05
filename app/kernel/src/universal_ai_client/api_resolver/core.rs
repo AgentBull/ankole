@@ -127,6 +127,7 @@ fn make_protocol(kind: ApiResolverKind, context: &ResponseContext) -> Box<dyn Ap
         ApiResolverKind::ParallelWebFetch => Box::new(ParallelWebFetch),
         ApiResolverKind::BrightDataSerpWebSearch => Box::new(BrightDataSerpWebSearch),
         ApiResolverKind::AgentbullWebSearch => Box::new(AgentBullWebSearch),
+        ApiResolverKind::JinaSearchWebSearch => Box::new(JinaSearchWebSearch),
         ApiResolverKind::JinaReaderWebFetch => Box::new(JinaReaderWebFetch),
     }
 }
