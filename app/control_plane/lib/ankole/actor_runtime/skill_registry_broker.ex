@@ -17,7 +17,7 @@ defmodule Ankole.ActorRuntime.SkillRegistryBroker do
     with {:ok, turn} <- turn_ref(request),
          {agent_uid, session_id} <- actor_identity(turn),
          observations when is_list(observations) <- list_value(request, "observations"),
-         :ok <- WorkerRouteAuth.authorize_turn_route(turn, route, :read) do
+         :ok <- WorkerRouteAuth.authorize_turn_route(turn, route, :write) do
       case Library.replace_installed_skill_observations(agent_uid, observations) do
         {:ok, result} ->
           {:ok,
@@ -49,7 +49,7 @@ defmodule Ankole.ActorRuntime.SkillRegistryBroker do
 
   defp actor_identity(%{"actor" => %{"agent_uid" => agent_uid, "session_id" => session_id}})
        when is_binary(agent_uid) and is_binary(session_id),
-       do: {String.downcase(agent_uid), session_id}
+       do: {agent_uid, session_id}
 
   defp actor_identity(_turn), do: {"", ""}
 

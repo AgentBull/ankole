@@ -17,7 +17,7 @@ defmodule Ankole.AIAgent.LibraryTest do
   test "syncs the first-party builtin skills into the catalog" do
     assert {:ok, skills} = Library.enabled_skills_for_agent(agent_fixture().principal.uid)
 
-    assert Enum.map(skills, & &1["skill_name"]) == ~w(jupyter-live-kernel nano-pdf powerpoint)
+    assert Enum.map(skills, & &1["skill_name"]) == ~w(jupyter-live-kernel nano-pdf ppt-master)
     assert Enum.all?(skills, & &1["default_enabled"])
 
     assert Enum.find(skills, &(&1["skill_name"] == "jupyter-live-kernel"))["category"] ==
@@ -140,7 +140,7 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert {:ok, _skill} = Library.skill_view(agent.uid, "nano-pdf")
   end
 
-  test "source reader uses runtime roots, internal shadowing, and fixed scan exclusions" do
+  test "source reader uses runtime roots, internal shadowing, and metadata-only fingerprints" do
     root = tmp_library_root!("source-reader")
     public_skill = Path.join([root, "library", "skills", "shadowed"])
     public_only_skill = Path.join([root, "library", "skills", "public-only"])
@@ -156,6 +156,8 @@ defmodule Ankole.AIAgent.LibraryTest do
     File.write!(Path.join([internal_skill, "node_modules", "ignored.txt"]), "must not be scanned")
     File.mkdir_p!(Path.join(internal_skill, "__pycache__"))
     File.write!(Path.join([internal_skill, "__pycache__", "ignored.pyc"]), "must not be scanned")
+    File.mkdir_p!(Path.join(internal_skill, "references"))
+    File.write!(Path.join([internal_skill, "references", "guide.md"]), "original reference")
 
     with_library_config(
       library_root: Path.join(root, "library"),
@@ -163,17 +165,51 @@ defmodule Ankole.AIAgent.LibraryTest do
     )
 
     assert {:ok, sources} = SourceReader.read_builtin_skill_sources()
+    catalog_hash = SourceReader.catalog_hash(sources)
     assert Enum.map(sources, & &1.name) == ["public-only", "shadowed"]
 
     shadowed = Enum.find(sources, &(&1.name == "shadowed"))
     assert shadowed.description == "Internal description."
     assert shadowed.metadata["skill_root"] == "internal"
+    assert Enum.map(shadowed.files, & &1.path) == ["SKILL.md"]
     refute Enum.any?(shadowed.files, &String.starts_with?(&1.path, "target/"))
     refute Enum.any?(shadowed.files, &String.starts_with?(&1.path, "node_modules/"))
     refute Enum.any?(shadowed.files, &String.starts_with?(&1.path, "__pycache__/"))
 
     assert {:ok, content} = SourceReader.read_builtin_skill_file("shadowed", "SKILL.md")
     assert content =~ "# Internal"
+
+    assert {:ok, reference} =
+             SourceReader.read_builtin_skill_file("shadowed", "references/guide.md")
+
+    assert reference == "original reference"
+
+    File.write!(Path.join([internal_skill, "references", "guide.md"]), "changed reference")
+    assert {:ok, sources_after_reference_change} = SourceReader.read_builtin_skill_sources()
+    assert SourceReader.catalog_hash(sources_after_reference_change) == catalog_hash
+
+    assert Enum.find(sources_after_reference_change, &(&1.name == "shadowed")).source_hash ==
+             shadowed.source_hash
+
+    File.write!(Path.join([internal_skill, "SKILL.md"]), """
+    ---
+    name: shadowed
+    description: Internal description changed.
+    default_enabled: true
+    category: test
+    ---
+
+    # Internal
+    """)
+
+    assert {:ok, sources_after_skill_change} = SourceReader.read_builtin_skill_sources()
+    assert SourceReader.catalog_hash(sources_after_skill_change) != catalog_hash
+
+    %{principal: agent} = agent_fixture()
+    assert {:ok, prompt_skills} = Library.skills_for_system_prompt(agent.uid)
+    prompt_shadowed = Enum.find(prompt_skills, &(&1["skill_name"] == "shadowed"))
+    assert prompt_shadowed["skill_root"] == "internal"
+    assert prompt_shadowed["metadata"]["skill_root"] == "internal"
 
     with_library_config(
       library_root: Path.join(root, "library"),

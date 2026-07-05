@@ -33,6 +33,26 @@ export async function runChild(command: string, args: string[], options: SpawnOp
   })
 }
 
+const mixShellScript = [
+  'if [ -f "$HOME/.kiex/elixirs/elixir-1.20.1-29.env" ]; then',
+  '  source "$HOME/.kiex/elixirs/elixir-1.20.1-29.env"',
+  'fi',
+  'exec "$@"'
+].join('\n')
+
+export function mixCommand(args: string[]): { command: string; args: string[] } {
+  return {
+    command: '/bin/bash',
+    args: ['-lc', mixShellScript, 'ankole-mix', 'mix', ...args]
+  }
+}
+
+/** Runs a Mix command with Ankole's local Elixir toolchain when it is installed. */
+export async function runMix(args: string[], options: SpawnOptions = {}): Promise<void> {
+  const mix = mixCommand(args)
+  await runChild(mix.command, mix.args, options)
+}
+
 export type CapturedChild = {
   status: number | null
   stdout: string
@@ -68,6 +88,12 @@ export async function runChildCaptured(
     child.on('error', error => resolve({ status: null, stdout, stderr, error }))
     child.on('close', code => resolve({ status: code, stdout, stderr }))
   })
+}
+
+/** Captures a Mix command with the same local toolchain setup as {@link runMix}. */
+export async function runMixCaptured(args: string[], options: SpawnOptions = {}): Promise<CapturedChild> {
+  const mix = mixCommand(args)
+  return await runChildCaptured(mix.command, mix.args, options)
 }
 
 /**

@@ -79,6 +79,7 @@ export type TextTurnLoopOptions = {
   requestSkillOverlay?: SkillOverlayRequester
   replaceSkillOverlay?: SkillOverlayReplaceRequester
   replaceInstalledSkillObservations?: InstalledSkillReplaceRequester
+  installedSkillSyncMemoTtlMs?: number
   agentConversationContext?: AgentConversationContext
   pollSteering?: () => TurnSteerUpdate[]
   abortSignal?: AbortSignal

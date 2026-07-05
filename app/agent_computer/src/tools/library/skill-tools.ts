@@ -1,4 +1,3 @@
-import { existsSync } from 'node:fs'
 import { join, normalize, resolve } from 'node:path'
 import { readFile } from 'node:fs/promises'
 import { z } from 'zod'
@@ -217,16 +216,16 @@ function skillFilesystemRoot(skill: RuntimeSkillSummary, opts: CreateSkillToolsO
   const relativePath = normalizeSkillRelativePath(skill.relative_path || skill.skill_name)
   const sourceKind = skill.source_kind || 'builtin'
   if (sourceKind === 'builtin') {
-    if (skill.metadata?.skill_root === 'internal') {
+    const skillRoot = skillRootName(skill)
+    if (skillRoot === 'internal') {
       if (!opts.skillRoots.internalSkillsRoot) {
         throw new Error(`internal skill root is not configured for builtin skill: ${skill.skill_name}`)
       }
       return join(opts.skillRoots.internalSkillsRoot, relativePath)
     }
 
-    if (skill.metadata?.skill_root !== 'library' && opts.skillRoots.internalSkillsRoot) {
-      const internalPath = join(opts.skillRoots.internalSkillsRoot, relativePath)
-      if (existsSync(internalPath)) return internalPath
+    if (skillRoot && skillRoot !== 'library') {
+      throw new Error(`unsupported builtin skill root ${skillRoot}: ${skill.skill_name}`)
     }
 
     return join(opts.skillRoots.builtinSkillsRoot, relativePath)
@@ -237,6 +236,12 @@ function skillFilesystemRoot(skill: RuntimeSkillSummary, opts: CreateSkillToolsO
   }
 
   throw new Error(`unsupported skill source_kind: ${sourceKind}`)
+}
+
+function skillRootName(skill: RuntimeSkillSummary): string | undefined {
+  if (typeof skill.skill_root === 'string' && skill.skill_root.length > 0) return skill.skill_root
+  const metadataRoot = skill.metadata?.['skill_root']
+  return typeof metadataRoot === 'string' && metadataRoot.length > 0 ? metadataRoot : undefined
 }
 
 /**

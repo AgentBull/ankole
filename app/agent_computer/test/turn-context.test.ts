@@ -70,10 +70,14 @@ describe('@ankole/agent-computer turn context', () => {
       expect(order).toEqual(['replace', 'context', 'context'])
       expect(pushedObservations).toHaveLength(1)
 
+      await resolveAgentConversationContext(turnStart, { ...opts, installedSkillSyncMemoTtlMs: 0 })
+      expect(order).toEqual(['replace', 'context', 'context', 'replace', 'context'])
+      expect(pushedObservations).toHaveLength(2)
+
       rmSync(skillDir, { recursive: true, force: true })
       await resolveAgentConversationContext(turnStart, opts)
-      expect(pushedObservations).toHaveLength(2)
-      expect(pushedObservations[1]).toEqual([])
+      expect(pushedObservations).toHaveLength(3)
+      expect(pushedObservations[2]).toEqual([])
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

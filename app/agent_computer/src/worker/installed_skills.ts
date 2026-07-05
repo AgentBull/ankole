@@ -190,7 +190,8 @@ async function readSkillFileFingerprints(
   diagnostics: InstalledSkillDiagnostic[]
 ): Promise<SkillFileFingerprint[]> {
   const files: SkillFileFingerprint[] = []
-  await readSkillFileFingerprintsRecursive(skillDir, '', files, diagnostics)
+  const state = { limitReported: false }
+  await readSkillFileFingerprintsRecursive(skillDir, '', files, diagnostics, state)
   return files.sort((a, b) => a.path.localeCompare(b.path))
 }
 
@@ -198,7 +199,8 @@ async function readSkillFileFingerprintsRecursive(
   skillDir: string,
   relativeDir: string,
   files: SkillFileFingerprint[],
-  diagnostics: InstalledSkillDiagnostic[]
+  diagnostics: InstalledSkillDiagnostic[],
+  state: { limitReported: boolean }
 ): Promise<void> {
   if (files.length >= maxFilesPerSkill) return
 
@@ -207,13 +209,16 @@ async function readSkillFileFingerprintsRecursive(
 
   for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
     if (files.length >= maxFilesPerSkill) {
-      diagnostics.push(
-        diagnostic(
-          'installed_skill_file_limit_reached',
-          `installed skill scan truncated at ${maxFilesPerSkill} files`,
-          dir
+      if (!state.limitReported) {
+        state.limitReported = true
+        diagnostics.push(
+          diagnostic(
+            'installed_skill_file_limit_reached',
+            `installed skill scan truncated at ${maxFilesPerSkill} files`,
+            dir
+          )
         )
-      )
+      }
       return
     }
 
@@ -228,7 +233,7 @@ async function readSkillFileFingerprintsRecursive(
     }
 
     if (entry.isDirectory()) {
-      await readSkillFileFingerprintsRecursive(skillDir, relativePath, files, diagnostics)
+      await readSkillFileFingerprintsRecursive(skillDir, relativePath, files, diagnostics, state)
       continue
     }
 

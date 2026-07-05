@@ -2,6 +2,7 @@ import { Crust } from '@crustjs/core'
 import { didYouMeanPlugin, helpPlugin } from '@crustjs/plugins'
 import { analyzeCommand } from './commands/analyze'
 import { appDbCommand } from './commands/app-db'
+import { devCommand } from './commands/dev'
 import { externalServicesCommand } from './commands/external-services'
 import { generateCommand, runGenerate } from './commands/generate'
 import { isCICommand } from './commands/is-ci'
@@ -26,6 +27,7 @@ let app = new Crust('bun run kit')
 
 app = app.command(externalServicesCommand())
 app = app.command(appDbCommand())
+app = app.command(devCommand())
 app = app.command(analyzeCommand())
 
 try {

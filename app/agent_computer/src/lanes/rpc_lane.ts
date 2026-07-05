@@ -59,6 +59,7 @@ export type RuntimeSkillSummary = {
   default_enabled?: boolean
   source_kind?: 'builtin' | 'installed' | string
   relative_path?: string
+  skill_root?: 'library' | 'internal' | string
   metadata?: JsonObject
   category?: string
   tags?: unknown[]

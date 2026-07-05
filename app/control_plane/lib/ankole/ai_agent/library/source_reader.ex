@@ -14,7 +14,6 @@ defmodule Ankole.AIAgent.Library.SourceReader do
   @skill_file "SKILL.md"
   @soul_file "SOUL.md"
   @mission_file "MISSION.md"
-  @excluded_entries MapSet.new(~w(target node_modules __pycache__))
   # Used only if the bundled SOUL/MISSION templates are unreadable, so a fresh
   # agent still gets a usable (if minimal) persona rather than failing to seed.
   @fallback_soul "You are an Ankole AI colleague. Reply in plain text."
@@ -169,13 +168,13 @@ defmodule Ankole.AIAgent.Library.SourceReader do
   end
 
   @doc """
-  Hashes the full builtin catalog source set.
+  Hashes the builtin catalog metadata source set.
   """
   @spec catalog_hash([map()]) :: String.t()
   def catalog_hash(sources) do
     sources
     |> Enum.flat_map(fn source ->
-      [source.name, source.source_hash | Enum.flat_map(source.files, &[&1.path, &1.content_hash])]
+      [source.name, source.source_hash]
     end)
     |> stable_hash()
   end
@@ -279,14 +278,13 @@ defmodule Ankole.AIAgent.Library.SourceReader do
     with {:ok, normalized_relative_path} <- normalize_virtual_path(relative_path),
          true <- File.dir?(root) || {:error, {:missing_skill_dir, relative_path}},
          {:ok, raw_skill} <- File.read(skill_path),
-         {:ok, files} <- read_text_files_recursive(root),
          {:ok, metadata} <-
            parse_skill_metadata(raw_skill, Path.basename(normalized_relative_path)) do
+      skill_hash = hash(raw_skill)
+      files = [%{path: @skill_file, content: raw_skill, content_hash: skill_hash}]
+
       source_hash =
-        files
-        |> Enum.flat_map(fn file -> [file.path, file.content_hash] end)
-        |> then(&[root_label | &1])
-        |> stable_hash()
+        stable_hash([root_label, normalized_relative_path, @skill_file, skill_hash])
 
       {:ok,
        %{
@@ -326,46 +324,6 @@ defmodule Ankole.AIAgent.Library.SourceReader do
 
         true ->
           {:error, :invalid_library_path}
-      end
-    end
-  end
-
-  defp read_text_files_recursive(root, relative \\ "") do
-    dir = Path.join(root, relative)
-
-    with {:ok, entries} <- File.ls(dir) do
-      entries
-      |> Enum.sort()
-      |> Enum.reject(&String.starts_with?(&1, "."))
-      |> Enum.reduce_while({:ok, []}, fn entry, {:ok, acc} ->
-        child_relative = Path.join(relative, entry)
-        child = Path.join(root, child_relative)
-
-        cond do
-          excluded_entry?(entry) ->
-            {:cont, {:ok, acc}}
-
-          File.dir?(child) ->
-            case read_text_files_recursive(root, child_relative) do
-              {:ok, files} -> {:cont, {:ok, Enum.reverse(files, acc)}}
-              {:error, _reason} = error -> {:halt, error}
-            end
-
-          File.regular?(child) ->
-            with {:ok, content} <- File.read(child),
-                 {:ok, path} <- normalize_virtual_path(child_relative) do
-              {:cont, {:ok, [%{path: path, content: content, content_hash: hash(content)} | acc]}}
-            else
-              {:error, _reason} = error -> {:halt, error}
-            end
-
-          true ->
-            {:cont, {:ok, acc}}
-        end
-      end)
-      |> case do
-        {:ok, files} -> {:ok, Enum.reverse(files)}
-        {:error, _reason} = error -> error
       end
     end
   end
@@ -548,10 +506,6 @@ defmodule Ankole.AIAgent.Library.SourceReader do
       ttl when is_integer(ttl) and ttl > 0 -> ttl
       _ttl -> 0
     end
-  end
-
-  defp excluded_entry?(entry) do
-    String.starts_with?(entry, ".") or MapSet.member?(@excluded_entries, entry)
   end
 
   defp collect_results(results) do

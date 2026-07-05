@@ -447,6 +447,59 @@ defmodule Ankole.ActorRuntime.TransportTest do
       refute command =~ "--agent-uid"
     end
 
+    test "worker bootstrap exposes a structured docker run spec" do
+      assert {:ok, spec} =
+               WorkerBootstrap.docker_run_spec(
+                 endpoint: "tcp://host.docker.internal:6010",
+                 worker_id: "worker-dev",
+                 image: "ankole-agent-computer:0.1.0",
+                 workspace_root: "var/ankole-dev/worker"
+               )
+
+      assert %{
+               worker_id: "worker-dev",
+               image: "ankole-agent-computer:0.1.0",
+               workspace_root: "var/ankole-dev/worker",
+               env: %{
+                 "WORKER_ID" => "worker-dev",
+                 "RUNTIME_FABRIC_URL" => runtime_fabric_url
+               },
+               runtime_fabric_url: runtime_fabric_url,
+               docker_runtime_args: [
+                 "--cap-add",
+                 "SYS_ADMIN",
+                 "--security-opt",
+                 "seccomp=unconfined",
+                 "--security-opt",
+                 "systempaths=unconfined",
+                 "--add-host",
+                 "host.docker.internal=host-gateway"
+               ],
+               workspace_setup_dirs: [
+                 "var/ankole-dev/worker/shared/user-files",
+                 "var/ankole-dev/worker/shared/skills/agents",
+                 "var/ankole-dev/worker/sessions"
+               ],
+               workspace_mounts: [
+                 %{
+                   source: "var/ankole-dev/worker/shared",
+                   target: "/workspace/shared",
+                   readonly: false
+                 },
+                 %{
+                   source: "var/ankole-dev/worker/sessions",
+                   target: "/workspace/.sessions",
+                   readonly: false
+                 }
+               ]
+             } = spec
+
+      assert runtime_fabric_url =~ "tcp://:"
+      assert runtime_fabric_url =~ "@host.docker.internal:6010"
+      refute Map.has_key?(spec.env, "DATABASE_URL")
+      refute Map.has_key?(spec.env, "ANKOLE_AGENT_UID")
+    end
+
     test "worker bootstrap embeds the global worker auth key without exposing Postgres" do
       assert {:ok, command} =
                WorkerBootstrap.docker_run_command(

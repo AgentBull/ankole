@@ -56,6 +56,17 @@ COPY --from=build /repo/node_modules ./node_modules
 COPY --from=build /repo/app/agent_computer/node_modules ./app/agent_computer/node_modules
 COPY tsconfig.base.json ./tsconfig.base.json
 COPY app/library ./app/library
+
+RUN set -eux; \
+  for attempt in 1 2 3; do \
+    if /root/.local/bin/uv pip install --python /opt/ankole-python/bin/python \
+      -r app/library/skills/ppt-master/requirements.txt; then \
+      break; \
+    fi; \
+    if [ "$attempt" = "3" ]; then exit 1; fi; \
+    sleep $((attempt * 10)); \
+  done
+
 COPY app/agent_computer/package.json ./app/agent_computer/package.json
 COPY app/agent_computer/tsconfig.json ./app/agent_computer/tsconfig.json
 COPY app/agent_computer/bin ./app/agent_computer/bin

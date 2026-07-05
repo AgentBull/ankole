@@ -14,7 +14,7 @@ defmodule Ankole.E2E.FakeOpenAISkillScenarios do
 
   def tool_call_for(:skill_view_all_tool, 1), do: skill_view_tool_call("jupyter-live-kernel")
   def tool_call_for(:skill_view_all_tool, 2), do: skill_view_tool_call("nano-pdf")
-  def tool_call_for(:skill_view_all_tool, 3), do: skill_view_tool_call("powerpoint")
+  def tool_call_for(:skill_view_all_tool, 3), do: skill_view_tool_call("ppt-master")
 
   def tool_call_for(:skill_append_tool, 1) do
     %{

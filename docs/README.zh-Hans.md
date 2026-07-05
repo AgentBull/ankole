@@ -153,7 +153,7 @@ Kernel 从同一个 crate 编译两次：一次作为 Elixir 的 Rustler NIF（�
 
 ### Memory：channel 记忆和历史召回
 
-`Ankole.Memory`（`lib/ankole/memory.ex`）。Layer A 是当前 channel 的人工策展短记忆，经 `memory_note` tool 写入 `memory_notes`，按 `{agent_uid, channel}` 限 40 条、单条 500 字符，并注入 addressed 与 ambient turn。Layer B 用 `signal_gateway_entries` 做 ground truth：Phase 1 提供 BM25 `memory_search` 与按时段 `memory_browse`；Phase 2 用 `memory_episodes` + embedding 增强排序，失败时降级回 BM25。
+`Ankole.Memory`（`lib/ankole/memory.ex`）。Layer A 是当前 channel 的人工策展短记忆，经 `memory_note` tool 写入 `memory_notes`，按 `{agent_uid, channel}` 限 40 条、单条 500 字符，并注入 addressed 与 ambient turn。Layer B 用 `signal_gateway_entries` 做 ground truth：Phase 1 提供 BM25 `memory_search` 与按时段 `memory_browse`；Phase 2 用 `memory_episodes` + embedding 增强排序，失败时降级回 BM25。设计入口见 `design-docs/memory/Basic.md`，详细 v1 设计见 `internals/docs/Memory.zh.md`。
 
 拥有的表：`memory_notes`、`memory_episodes`、`memory_channel_cursors`。
 
@@ -351,7 +351,7 @@ E2E harness（`tools/e2e/`）跑一个 fake 飞书平台，它用真实 WS 协�
 1. 本文。
 2. `design-docs/AIGateway.md`：如果你改 AI 侧，包括 provider、有状态消息日志、tool loop、compaction。
 3. `design-docs/SignalsGateway.md`：如果你改 IM/provider 侧，包括入口、batch、命令、流式送达、恢复。
-4. `internals/docs/Memory.zh.md`：如果你改 channel 记忆、历史召回、BM25/vector 检索或 memory tools。
+4. `design-docs/memory/Basic.md`：如果你改 channel 记忆、历史召回、BM25/vector 检索或 memory tools；详细 v1 设计见 `internals/docs/Memory.zh.md`。
 5. `design-docs/RuntimeFabric.md` 和 `design-docs/Schedule.md`：当你改传输或时间。
 6. `design-docs/Principal.md`、`design-docs/AuthZ.md`、`design-docs/AppConfiguration.md`、`design-docs/Plugins.md`、`design-docs/I18n.md`：按需查阅。
 7. `TradeoffsAndKnownLimits.md`：尽早读一遍。它记录了一些看起来像 gap 但已经定下来的决策：at-least-once 流式送达、两规则安全模型、派生续接、chars/4 预算、当前的非目标。
@@ -363,7 +363,7 @@ E2E harness（`tools/e2e/`）跑一个 fake 飞书平台，它用真实 WS 协�
 | `docs/README.md` | 任何内容：system map、code-level map、change guide、glossary |
 | `design-docs/AIGateway.md` | Provider、message log、tool loop、compaction |
 | `design-docs/SignalsGateway.md` | Ingress、mirror、outbox、delivery、命令 |
-| `internals/docs/Memory.zh.md` | Channel note、历史召回、BM25/vector search |
+| `design-docs/memory/Basic.md` | Channel note、历史召回、BM25/vector search |
 | `design-docs/RuntimeFabric.md` | Envelope、lane、socket、文件传输 |
 | `design-docs/Schedule.md` | Checkback、cron、Oban 唤醒边 |
 | `design-docs/Principal.md`、`design-docs/AuthZ.md` | 身份、group、grant、CEL |

@@ -286,6 +286,7 @@ defmodule Ankole.Memory do
         |> where([episode], episode.embedding_state == "pending")
         |> order_by([episode], asc: episode.inserted_at, asc: episode.id)
         |> limit(^limit)
+        |> select([episode], struct(episode, [:id, :topic, :summary]))
         |> Repo.all()
 
       count =
@@ -390,15 +391,17 @@ defmodule Ankole.Memory do
   end
 
   defp channels_with_unprocessed_entries(limit, recall_config) do
+    silence_minutes = Map.fetch!(recall_config, "episode_silence_minutes")
+    tail_guard_minutes = Map.fetch!(recall_config, "episode_tail_guard_minutes")
+    backlog_rows = Map.fetch!(recall_config, "episode_backlog_rows")
+
     silence_cutoff =
       DateTime.utc_now(:microsecond)
-      |> DateTime.add(-Map.get(recall_config, "episode_silence_minutes", 30) * 60, :second)
+      |> DateTime.add(-silence_minutes * 60, :second)
 
     tail_cutoff =
       DateTime.utc_now(:microsecond)
-      |> DateTime.add(-Map.get(recall_config, "episode_tail_guard_minutes", 360) * 60, :second)
-
-    backlog_rows = Map.get(recall_config, "episode_backlog_rows", 200)
+      |> DateTime.add(-tail_guard_minutes * 60, :second)
 
     sql = """
     WITH pending AS (
@@ -432,15 +435,15 @@ defmodule Ankole.Memory do
   end
 
   defp mark_unprocessed_channels_unavailable(reason, limit) do
-    recall_config =
-      case Config.recall() do
-        {:ok, config} -> config
-        {:error, _reason} -> %{}
-      end
+    case Config.recall() do
+      {:ok, recall_config} ->
+        limit
+        |> channels_with_unprocessed_entries(recall_config)
+        |> Enum.each(&mark_channel_unavailable(&1, reason))
 
-    limit
-    |> channels_with_unprocessed_entries(recall_config)
-    |> Enum.each(&mark_channel_unavailable(&1, reason))
+      {:error, _reason} ->
+        :ok
+    end
   end
 
   defp summary_window(signal_channel_id, recall_config) do
@@ -502,8 +505,7 @@ defmodule Ankole.Memory do
 
     kept_young_tail_reversed = Enum.drop(young_tail_reversed, tail_guard_rows)
 
-    (rest_reversed ++ kept_young_tail_reversed)
-    |> Enum.reverse()
+    Enum.reverse(rest_reversed) ++ Enum.reverse(kept_young_tail_reversed)
   end
 
   defp take_until_token_budget(entries, max_rows, max_tokens) do
@@ -685,8 +687,8 @@ defmodule Ankole.Memory do
   defp validate_deferred_source_ids(source_ids, entries, recall_config)
        when is_list(source_ids) do
     allowed = entries |> Enum.map(& &1.source_entry_id) |> MapSet.new()
-    tail_rows = Map.get(recall_config, "episode_tail_guard_rows", 20)
-    tail_minutes = Map.get(recall_config, "episode_tail_guard_minutes", 360)
+    tail_rows = Map.fetch!(recall_config, "episode_tail_guard_rows")
+    tail_minutes = Map.fetch!(recall_config, "episode_tail_guard_minutes")
     age_cutoff = DateTime.utc_now(:microsecond) |> DateTime.add(-tail_minutes * 60, :second)
 
     tail_allowed =
@@ -810,12 +812,12 @@ defmodule Ankole.Memory do
         Repo.query!(
           """
           UPDATE memory_episodes
-          SET embedding = $2::vector,
+          SET embedding = $2::text::vector,
               embedding_dimensions = $3,
               embedding_state = 'synced',
               embedding_error = NULL,
               updated_at = now()
-          WHERE id = $1
+          WHERE id = $1::text::uuid
           """,
           [episode.id, vector_literal, dimensions]
         )
@@ -1089,7 +1091,10 @@ defmodule Ankole.Memory do
     do: {[], [@model_unavailable_reason]}
 
   defp embed_query(model_agent_uid, query) do
-    case AIGateway.create_embeddings(model_agent_uid, %{"input" => query}) do
+    case AIGateway.create_embeddings(model_agent_uid, %{
+           "model" => "embedding.default",
+           "input" => query
+         }) do
       {:ok, %{body: %{"data" => [%{"embedding" => embedding} | _]}}} when is_list(embedding) ->
         {:ok, embedding, length(embedding)}
 
@@ -1113,14 +1118,14 @@ defmodule Ankole.Memory do
 
     sql = """
     SELECT
-     id,
+     id::text,
      signal_channel_id,
      topic,
      summary,
      source_entry_ids,
      started_at,
      ended_at,
-     1 - (embedding::vector(#{dimensions}) <=> $1::vector(#{dimensions})) AS score
+     1 - (embedding::vector(#{dimensions}) <=> ($1::text)::vector(#{dimensions})) AS score
     FROM memory_episodes
     WHERE embedding_state = 'synced'
       AND embedding_dimensions = $2
@@ -1128,7 +1133,7 @@ defmodule Ankole.Memory do
       AND embedding IS NOT NULL
       AND ($5::timestamptz IS NULL OR ended_at >= $5)
       AND ($6::timestamptz IS NULL OR started_at <= $6)
-    ORDER BY embedding::vector(#{dimensions}) <=> $1::vector(#{dimensions})
+    ORDER BY embedding::vector(#{dimensions}) <=> ($1::text)::vector(#{dimensions})
     LIMIT $4
     """
 
@@ -1455,14 +1460,9 @@ defmodule Ankole.Memory do
   end
 
   defp hot_context_exclusion(signal_channel_id, actor_event) do
-    recall_config =
-      case Config.recall() do
-        {:ok, config} -> config
-        {:error, _reason} -> %{}
-      end
-
-    hours = Map.get(recall_config, "hot_context_hours", 2)
-    latest_count = Map.get(recall_config, "hot_context_entries", 80)
+    {:ok, recall_config} = Config.recall()
+    hours = Map.fetch!(recall_config, "hot_context_hours")
+    latest_count = Map.fetch!(recall_config, "hot_context_entries")
     current_time = current_event_time(actor_event)
     cutoff = DateTime.add(current_time, -hours * 60 * 60, :second)
 

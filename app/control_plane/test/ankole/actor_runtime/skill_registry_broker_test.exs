@@ -81,7 +81,7 @@ defmodule Ankole.ActorRuntime.SkillRegistryBrokerTest do
       assert error["code"] == "worker_not_assigned_to_turn"
     end
 
-    test "allows pre-context registry sync without a turn write revision fence" do
+    test "rejects stale write revisions" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
       route = unique_route()
@@ -96,10 +96,10 @@ defmodule Ankole.ActorRuntime.SkillRegistryBrokerTest do
       assert {:ok, envelope} =
                RPCLane.handle_request(
                  %{
-                   "request_id" => "rpc-installed-skills-pre-context",
+                   "request_id" => "rpc-installed-skills-stale",
                    "method" => "skills.installed.replace",
                    "payload_json" => %{
-                     "request_id" => "installed-skills-pre-context",
+                     "request_id" => "installed-skills-stale",
                      "turn" => pre_context_turn_ref,
                      "observations" => []
                    }
@@ -107,9 +107,9 @@ defmodule Ankole.ActorRuntime.SkillRegistryBrokerTest do
                  route
                )
 
-      payload = get_in(envelope, ["body", "rpc_response", "payload_json"])
-      assert payload["request_id"] == "installed-skills-pre-context"
-      assert payload["agent_uid"] == agent.uid
+      error = get_in(envelope, ["body", "rpc_error"])
+      assert error["request_id"] == "installed-skills-stale"
+      assert error["code"] == "stale_revision"
     end
 
     test "returns a typed error for invalid observations" do

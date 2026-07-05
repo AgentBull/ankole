@@ -4,7 +4,13 @@ import { logWorkerEvent } from '../../worker/logging'
 import { scanInstalledSkills } from '../../worker/installed_skills'
 import type { TextTurnLoopOptions } from './turn_options'
 
-const installedSkillSyncMemo = new Map<string, string>()
+type InstalledSkillSyncMemo = {
+  fingerprint: string
+  syncedAtMs: number
+}
+
+const installedSkillSyncMemo = new Map<string, InstalledSkillSyncMemo>()
+const defaultInstalledSkillSyncMemoTtlMs = 60_000
 
 /**
  * Returns the already-resolved conversation context or asks the control plane.
@@ -17,6 +23,8 @@ export async function resolveAgentConversationContext(
   turnStart: TurnStart,
   opts: TextTurnLoopOptions
 ): Promise<AgentConversationContext> {
+  // Installed skills are filesystem facts owned by the worker. Keep the PG
+  // registry fresh even when a test or specialized caller injects context.
   await syncInstalledSkillsBeforeContext(turnStart, opts)
   if (opts.agentConversationContext) return opts.agentConversationContext
   if (!opts.requestAgentConversationContext) {
@@ -41,7 +49,7 @@ async function syncInstalledSkillsBeforeContext(turnStart: TurnStart, opts: Text
       logWorkerEvent('worker.installed_skill_diagnostic', { agent_uid: agentUid, diagnostic }, 'stderr')
     }
 
-    if (installedSkillSyncMemo.get(agentUid) === scan.fingerprint) return
+    if (installedSkillSyncMemoFresh(agentUid, scan.fingerprint, opts)) return
 
     await opts.replaceInstalledSkillObservations({
       request_id: `skills-installed-replace-${crypto.randomUUID()}`,
@@ -49,7 +57,7 @@ async function syncInstalledSkillsBeforeContext(turnStart: TurnStart, opts: Text
       observations: scan.observations
     })
 
-    installedSkillSyncMemo.set(agentUid, scan.fingerprint)
+    installedSkillSyncMemo.set(agentUid, { fingerprint: scan.fingerprint, syncedAtMs: Date.now() })
   } catch (error) {
     logWorkerEvent(
       'worker.installed_skill_sync_failed',
@@ -60,4 +68,12 @@ async function syncInstalledSkillsBeforeContext(turnStart: TurnStart, opts: Text
       'stderr'
     )
   }
+}
+
+function installedSkillSyncMemoFresh(agentUid: string, fingerprint: string, opts: TextTurnLoopOptions): boolean {
+  const memo = installedSkillSyncMemo.get(agentUid)
+  if (!memo || memo.fingerprint !== fingerprint) return false
+
+  const ttlMs = opts.installedSkillSyncMemoTtlMs ?? defaultInstalledSkillSyncMemoTtlMs
+  return ttlMs > 0 && Date.now() - memo.syncedAtMs < ttlMs
 }

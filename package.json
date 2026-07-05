@@ -15,7 +15,7 @@
     "services:start": "bun run kit external-services start",
     "services:stop": "bun run kit external-services stop",
     "services:status": "bun run kit external-services status",
-    "dev": "turbo run dev",
+    "dev": "bun run kit dev",
     "build": "turbo run build",
     "test": "turbo run test",
     "lint": "oxlint && turbo run lint",

@@ -4,7 +4,7 @@ import {
   appRootPath,
   loadAppDevelopmentEnv,
   resolveAppDatabaseName,
-  runChild,
+  runMix,
   runCompose,
   startComposeServices
 } from '../utils'
@@ -33,7 +33,7 @@ const commonDbFlags = {
 } as const
 
 /** Creates the local app database inside the devkit Postgres container. */
-const createDatabase = async (databaseName: string): Promise<void> => {
+export const createLocalAppDatabase = async (databaseName: string): Promise<void> => {
   await runCompose([
     'exec',
     '-T',
@@ -71,8 +71,8 @@ const dropDatabase = async (databaseName: string): Promise<void> => {
 }
 
 /** Runs the control plane Ecto migrations with development env loaded. */
-const runAppMigrations = async (): Promise<void> => {
-  await runChild('mix', ['ecto.migrate'], {
+export const runAppMigrations = async (): Promise<void> => {
+  await runMix(['ecto.migrate'], {
     cwd: appRootPath,
     env: loadAppDevelopmentEnv()
   })
@@ -104,7 +104,7 @@ export function appDbCommand(): Crust {
               waitTimeout: flags['wait-timeout']
             })
           }
-          await createDatabase(databaseName)
+          await createLocalAppDatabase(databaseName)
         })
     )
     .command('drop', cmd =>
@@ -158,7 +158,7 @@ export function appDbCommand(): Crust {
             })
           }
           await dropDatabase(databaseName)
-          await createDatabase(databaseName)
+          await createLocalAppDatabase(databaseName)
           // Migration is optional so callers can recreate an empty database for
           // debugging schema generation or failed migration states.
           if (flags.migrate) await runAppMigrations()

@@ -86,6 +86,30 @@ describe('@ankole/agent-computer installed skill scanner', () => {
       rmSync(root, { recursive: true, force: true })
     }
   })
+
+  it('reports the per-skill file limit once', async () => {
+    const root = tempRoot('installed-skill-file-limit')
+    try {
+      const agentUid = 'agent-file-limit'
+      const skillDir = join(root, agentUid, 'agent-notes')
+      writeSkill(skillDir, {
+        name: 'agent-notes',
+        description: 'Agent installed notes.'
+      })
+      mkdirSync(join(skillDir, 'references'), { recursive: true })
+      for (let index = 0; index < 520; index += 1) {
+        writeFileSync(join(skillDir, 'references', `file-${index}.md`), `# File ${index}\n`)
+      }
+
+      const scan = await scanInstalledSkills(root, agentUid)
+      expect(scan.observations[0]?.file_count).toBe(512)
+      expect(
+        scan.diagnostics.filter(diagnostic => diagnostic.code === 'installed_skill_file_limit_reached')
+      ).toHaveLength(1)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })
 
 function tempRoot(name: string): string {

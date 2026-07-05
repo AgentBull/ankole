@@ -38,7 +38,7 @@ import {
   responseImageUnavailableText
 } from './vision'
 
-const DEFAULT_MAX_TOOL_ROUNDS = 16
+const DEFAULT_MAX_TOOL_ROUNDS = 64
 const EMPTY_AFTER_TOOL_NUDGE_TEXT =
   'You just executed tool calls but returned an empty response. Please process the tool results above and continue with the task.'
 const TOOL_ROUND_LIMIT_SYNTHESIS_TEXT =

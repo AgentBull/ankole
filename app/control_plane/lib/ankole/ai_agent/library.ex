@@ -348,6 +348,8 @@ defmodule Ankole.AIAgent.Library do
     with {:ok, skills} <- enabled_skills_for_agent(agent_uid, opts) do
       {:ok,
        Enum.map(skills, fn skill ->
+         metadata = skill["metadata"] || %{}
+
          %{
            "skill_name" => skill["skill_name"],
            "name" => skill["skill_name"],
@@ -355,9 +357,10 @@ defmodule Ankole.AIAgent.Library do
            "category" => skill["category"],
            "source_kind" => skill["source_kind"],
            "relative_path" => skill["relative_path"],
+           "skill_root" => metadata["skill_root"],
            "skill_uri" => skill_uri(skill["skill_name"], @skill_file),
-           "disable_model_invocation" =>
-             get_in(skill, ["metadata", "disable_model_invocation"]) == true
+           "metadata" => metadata,
+           "disable_model_invocation" => metadata["disable_model_invocation"] == true
          }
        end)}
     end

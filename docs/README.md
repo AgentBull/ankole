@@ -90,7 +90,8 @@ Seven pieces, one sentence each:
   `ai_gateway_conversations`. Read `design-docs/AIGateway.md`.
 - **Memory** (Elixir + Bun tools) owns curated channel notes and historical
   recall over provider mirrors. Owns `memory_notes`, `memory_episodes`, and
-  `memory_channel_cursors`. Read `internals/docs/Memory.zh.md`.
+  `memory_channel_cursors`. Read `design-docs/memory/Basic.md`; the detailed
+  v1 design lives in `internals/docs/Memory.zh.md`.
 - **RuntimeFabric** (Rust + ZeroMQ) is the live transport between the control
   plane and workers: turn envelopes, RPC, file bytes. It is never durable
   truth. Read `design-docs/RuntimeFabric.md`.
@@ -725,8 +726,9 @@ doc first, then the code.
    stateful message log, the tool loop, compaction.
 3. `design-docs/SignalsGateway.md` — if you work on the IM/provider side:
    ingress, batching, commands, streamed delivery, recovery.
-4. `internals/docs/Memory.zh.md` — if you work on channel memory, historical
-   recall, BM25/vector retrieval, or memory tools.
+4. `design-docs/memory/Basic.md` — if you work on channel memory, historical
+   recall, BM25/vector retrieval, or memory tools. Use
+   `internals/docs/Memory.zh.md` for the detailed v1 design.
 5. `design-docs/RuntimeFabric.md` and `design-docs/Schedule.md` — transport
    and time, when you touch them.
 6. `design-docs/Principal.md`, `design-docs/AuthZ.md`,
@@ -744,7 +746,7 @@ doc first, then the code.
 | `docs/README.md` | Anything — the system map, code-level map, change guide, and glossary |
 | `design-docs/AIGateway.md` | Providers, message log, tool loop, compaction |
 | `design-docs/SignalsGateway.md` | Ingress, mirrors, outbox, delivery, commands |
-| `internals/docs/Memory.zh.md` | Channel notes, historical recall, BM25/vector search |
+| `design-docs/memory/Basic.md` | Channel notes, historical recall, BM25/vector search |
 | `design-docs/RuntimeFabric.md` | Envelopes, lanes, sockets, file transfer |
 | `design-docs/Schedule.md` | Checkbacks, cron, Oban wake edge |
 | `design-docs/Principal.md`, `design-docs/AuthZ.md` | Identity, groups, grants, CEL |
