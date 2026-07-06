@@ -47,9 +47,6 @@ defmodule Ankole.ActorRuntimeCase do
       alias Ankole.Actors, warn: false
       alias Ankole.Actors.ActorEvent, warn: false
       alias Ankole.ActorRuntime, warn: false
-      alias Ankole.ActorRuntime.ActivationManager, warn: false
-      alias Ankole.ActorRuntime.OutboxDispatcher, warn: false
-      alias Ankole.ActorRuntime.Reconciler, warn: false
       alias Ankole.ActorRuntime.RPCLane, warn: false
       alias Ankole.ActorRuntime.Schemas.ActorEventDelivery, warn: false
       alias Ankole.ActorRuntime.Schemas.ActorSessionActivation, warn: false
@@ -198,13 +195,50 @@ defmodule Ankole.ActorRuntimeCase do
   end
 
   def process_ready_events_once(opts \\ []) do
-    opts = Keyword.put(opts, :limit, 1)
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+    limit = Keyword.get(opts, :limit, 1)
 
-    case Ankole.ActorRuntime.ActivationManager.run_once(opts) do
-      {:ok, []} -> {:ok, %{status: :idle}}
-      {:ok, [result | _rest]} -> result
+    results =
+      Ankole.ActorRuntime.runtime_event_snapshot()
+      |> Enum.filter(&actor_session_ready_due?(&1, now))
+      |> Enum.take(limit)
+      |> Enum.map(fn {_channel, payload} ->
+        Ankole.ActorRuntime.process_ready_event_for_actor(
+          %{
+            agent_uid: payload["agent_uid"],
+            session_id: payload["session_id"]
+          },
+          opts
+        )
+      end)
+
+    case results do
+      [] -> {:ok, %{status: :idle}}
+      [result | _rest] -> result
     end
   end
+
+  defp actor_session_ready_due?(
+         {channel, %{"agent_uid" => agent_uid, "session_id" => session_id} = payload},
+         now
+       )
+       when is_binary(agent_uid) and is_binary(session_id) do
+    channel == Ankole.RuntimeEvents.actor_session_ready_channel() and
+      due_at?(payload["due_at"], now)
+  end
+
+  defp actor_session_ready_due?(_event, _now), do: false
+
+  defp due_at?(nil, _now), do: true
+
+  defp due_at?(value, now) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, due_at, _offset} -> DateTime.compare(due_at, now) != :gt
+      {:error, _reason} -> false
+    end
+  end
+
+  defp due_at?(_value, _now), do: false
 
   def complete_actor_event(agent_uid, binding_name, source_event_id, opts \\ []) do
     completed_at = Keyword.get(opts, :completed_at, DateTime.utc_now(:microsecond))
@@ -390,10 +424,39 @@ defmodule Ankole.ActorRuntimeCase do
     {:ok, committed} = StatefulResponses.commit_complete(run, output_items)
 
     if Keyword.get(opts, :wait_for_mirror, false) do
+      dispatch_final_reply_outbox!(committed.id)
       wait_for_final_mirror(committed.id)
     end
 
     committed
+  end
+
+  def dispatch_final_reply_outbox!(ai_message_id) do
+    case Repo.get_by(OutboxEntry, outbound_key: "ai-reply:#{ai_message_id}") do
+      %OutboxEntry{} = outbox ->
+        assert {:ok, %OutboxEntry{status: :succeeded}} =
+                 SignalsGateway.dispatch_outbox(
+                   outbox.agent_uid,
+                   outbox.binding_name,
+                   outbox.outbound_key,
+                   %{
+                     capabilities: [:post_entry, :reply_entry, :edit_entry],
+                     send: fn outbox ->
+                       {:ok,
+                        %{
+                          created_source_entry_id:
+                            outbox.target_source_entry_id || "test-final-#{ai_message_id}",
+                          raw_payload: %{"provider" => "test"}
+                        }}
+                     end
+                   }
+                 )
+
+        :ok
+
+      nil ->
+        :ok
+    end
   end
 
   def wait_for_final_mirror(ai_message_id, attempts \\ 20)
@@ -456,7 +519,7 @@ defmodule Ankole.ActorRuntimeCase do
 
   defp maybe_finalize_test_inbound_batch(%{inbound_batch: %InboundBatch{} = batch} = result) do
     finalize_result =
-      SignalsGateway.finalize_due_inbound_batches(
+      Ankole.SignalsGatewayFixtures.finalize_due_inbound_batch_events(
         now: DateTime.add(batch.available_at, 1, :microsecond)
       )
 

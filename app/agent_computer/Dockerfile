@@ -59,7 +59,7 @@ COPY app/library ./app/library
 
 RUN set -eux; \
   for attempt in 1 2 3; do \
-    if /root/.local/bin/uv pip install --python /opt/ankole-python/bin/python \
+    if /usr/local/bin/uv pip install --python /opt/ankole-python/bin/python \
       -r app/library/skills/ppt-master/requirements.txt; then \
       break; \
     fi; \
@@ -76,9 +76,34 @@ RUN chmod +x ./app/agent_computer/bin/ankole-browser \
   && ln -sf /repo/app/agent_computer/bin/ankole-browser /usr/local/bin/ankole-browser \
   && printf '%s\n' 'ankole-agent-computer' > /etc/ankole-agent-computer-container
 
+RUN set -eux; \
+  printf '%s\n' \
+    'export CODEX_UNSAFE_ALLOW_NO_SANDBOX=1' \
+    'if [ -n "${BASH_VERSION:-}" ]; then' \
+    '  shopt -s expand_aliases 2>/dev/null || true' \
+    'fi' \
+    "alias node='bun'" \
+    > /etc/profile.d/ankole-agent-computer.sh; \
+  chmod 0644 /etc/profile.d/ankole-agent-computer.sh; \
+  printf '%s\n' \
+    '[ -r /etc/profile.d/ankole-agent-computer.sh ] && . /etc/profile.d/ankole-agent-computer.sh' \
+    >> /etc/bash.bashrc; \
+  printf '%s\n' \
+    '[ -r /etc/profile.d/ankole-agent-computer.sh ] && . /etc/profile.d/ankole-agent-computer.sh' \
+    >> /root/.bashrc; \
+  printf '%s\n' \
+    '[ -r /etc/profile.d/ankole-agent-computer.sh ] && . /etc/profile.d/ankole-agent-computer.sh' \
+    >> /root/.profile; \
+  printf '%s\n' '#!/usr/bin/env sh' 'exec /usr/local/bin/bun "$@"' > /usr/local/bin/node; \
+  chmod +x /usr/local/bin/node
+
 WORKDIR /repo/app/agent_computer
 
 ENV NODE_ENV=production
+ENV CODEX_UNSAFE_ALLOW_NO_SANDBOX=1
+ENV BASH_ENV=/etc/profile.d/ankole-agent-computer.sh
+ENV ENV=/etc/profile.d/ankole-agent-computer.sh
+ENV SHELL=/bin/bash
 ENV ANKOLE_WORKSPACE_ROOT=/workspace
 ENV ANKOLE_SHARED_FS_ROOT=/workspace/shared
 ENV ANKOLE_USER_FILES_ROOT=/workspace/shared/user-files
@@ -86,7 +111,7 @@ ENV ANKOLE_AGENT_INSTALLED_SKILLS_ROOT=/workspace/shared/skills/agents
 ENV ANKOLE_BUILTIN_SKILLS_ROOT=/repo/app/library/skills
 ENV ANKOLE_WORKSPACE_SESSIONS_ROOT=/workspace/.sessions
 ENV ANKOLE_AGENT_COMPUTER_BUN_WORKDIR=/repo/app/agent_computer
-ENV PATH="/opt/ankole-python/bin:/root/.cargo/bin:/root/.bun/bin:/root/.local/bin:${PATH}"
+ENV PATH="/opt/ankole-python/bin:/root/.cargo/bin:${PATH}"
 
 ENTRYPOINT ["tini", "-g", "--"]
 CMD ["bun", "src/main.ts"]

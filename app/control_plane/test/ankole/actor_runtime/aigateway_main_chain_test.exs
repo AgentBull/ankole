@@ -130,6 +130,7 @@ defmodule Ankole.ActorRuntime.AIGatewayMainChainTest do
     assert %DateTime{} = Repo.get!(ActorEvent, actor_event.id).completed_at
     assert live_delivery_count(actor_event.id) == 0
 
+    dispatch_final_reply_outbox!(final_committed.id)
     mirror = wait_for_final_mirror(final_committed.id)
     assert mirror.signal_channel_id == actor_event.signal_channel_id
     assert mirror.text == "It is sunny in Shanghai."
@@ -241,6 +242,7 @@ defmodule Ankole.ActorRuntime.AIGatewayMainChainTest do
     assert outbox.payload["text"] == "CHAOS_REPLY_ATTACHMENT_OK"
     assert outbox.payload["attachments"] == [attachment]
 
+    dispatch_final_reply_outbox!(final_committed.id)
     mirror = wait_for_final_mirror(final_committed.id)
     assert mirror.text == "CHAOS_REPLY_ATTACHMENT_OK"
   end
@@ -359,6 +361,7 @@ defmodule Ankole.ActorRuntime.AIGatewayMainChainTest do
     assert outbox.payload["attachments"] == [attachment]
     refute Repo.get_by(OutboxEntry, outbound_key: "ai-reply-attachment:#{journal.id}:0")
 
+    dispatch_final_reply_outbox!(final_committed.id)
     mirror = wait_for_final_mirror(final_committed.id)
     assert mirror.text == "SALES_CHART_ATTACHED"
   end

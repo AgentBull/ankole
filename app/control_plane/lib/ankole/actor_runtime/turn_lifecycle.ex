@@ -18,6 +18,7 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
   alias Ankole.ActorRuntime.WorkerAdmission
   alias Ankole.ActorRuntime.WorkerPool
   alias Ankole.Repo
+  alias Ankole.RuntimeEvents
 
   @live_activation_statuses ~w(starting active draining)
   @activation_progress_lease_seconds 300
@@ -41,22 +42,14 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
     actor_key = normalize_actor_key(actor_key)
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
-    with {:ok, assignment} <- WorkerPool.assign_worker(actor_key) do
+    with {:ok, assignment} <- WorkerPool.assign_worker(actor_key),
+         {:ok, conversation} <-
+           Conversations.ensure_conversation(actor_key.agent_uid, actor_key.session_id),
+         {:ok, turn_start_spec} <- Conversations.build_turn_start_spec(conversation, opts) do
       Repo.transact(fn repo ->
         with {:ok, activation} <- ensure_activation(repo, actor_key, assignment, now, opts),
-             {:ok, conversation} <-
-               Conversations.ensure_conversation_in_tx(
-                 repo,
-                 actor_key.agent_uid,
-                 actor_key.session_id
-               ),
              %Conversation{} = conversation <-
                Conversations.lock_conversation(repo, conversation.id),
-             {:ok, turn_result} <-
-               build_turn_start_spec_in_tx(
-                 conversation,
-                 opts ++ [now: now]
-               ),
              {:ok, activation} <-
                bind_activation_turn(repo, activation, actor_event.id, now),
              {:ok, deliveries} <-
@@ -74,17 +67,19 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
               turn_ref,
               actor_event,
               deliveries,
-              turn_result.turn_start_spec
+              turn_start_spec
             )
 
           {:ok,
-           Map.merge(turn_result, %{
+           %{
              activation: activation,
              assignment: assignment,
+             conversation: conversation,
              deliveries: deliveries,
              turn_ref: turn_ref,
+             turn_start_spec: turn_start_spec,
              envelope: envelope
-           })}
+           }}
         else
           nil -> {:error, :conversation_not_found}
           {:error, _reason} = error -> error
@@ -402,6 +397,77 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
     end
   end
 
+  @doc false
+  @spec runtime_event_snapshot() :: [{String.t(), map()}]
+  def runtime_event_snapshot do
+    activation_deadline_events() ++ ai_message_deadline_events()
+  end
+
+  @doc false
+  @spec fail_activation_if_expired(String.t(), keyword()) ::
+          {:ok, ActorSessionActivation.t()} | {:error, term()}
+  def fail_activation_if_expired(activation_uid, opts \\ []) when is_binary(activation_uid) do
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+    lease_grace_seconds = Keyword.get(opts, :lease_grace_seconds, 0)
+    cutoff = DateTime.add(now, -lease_grace_seconds, :second)
+
+    Repo.transact(fn repo ->
+      case lock_activation_by_uid(repo, activation_uid) do
+        %ActorSessionActivation{} = activation ->
+          cond do
+            activation.status not in @live_activation_statuses ->
+              {:error, :activation_not_due}
+
+            DateTime.compare(activation.lease_expires_at, cutoff) == :gt ->
+              {:error, :activation_not_due}
+
+            true ->
+              fail_expired_activation(repo, activation, now)
+          end
+
+        nil ->
+          {:error, :activation_not_found}
+      end
+    end)
+  end
+
+  @doc false
+  @spec reconcile_projection_lost_started_turn(String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def reconcile_projection_lost_started_turn(message_id, opts \\ []) when is_binary(message_id) do
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+
+    Repo.transact(fn repo ->
+      case lock_generating_message(repo, message_id) do
+        %Message{} = message ->
+          cond do
+            not StatefulResponses.generating_message_stale?(message, now) ->
+              {:error, :message_not_due}
+
+            live_projection_exists?(repo, message) ->
+              {:ok, %{status: :live_projection_present, message: message}}
+
+            true ->
+              with {:ok, failed_turn} <-
+                     fail_generating_message(repo, message, now, :actor_runtime_projection_lost),
+                   {_count, _rows} <-
+                     supersede_turn_deliveries_by_actor_event_id(
+                       turn_actor_event_id(failed_turn),
+                       repo,
+                       now,
+                       :actor_runtime_projection_lost
+                     ),
+                   :ok <- notify_actor_event_ready(repo, turn_actor_event_id(failed_turn), now) do
+                {:ok, %{status: :projection_lost_failed, message: failed_turn}}
+              end
+          end
+
+        nil ->
+          {:error, :message_not_found}
+      end
+    end)
+  end
+
   # Reuses a live activation when its lease is valid, otherwise fails the old
   # activation before creating a new actor epoch. The epoch is the cheap fence
   # that makes late worker replies harmless.
@@ -467,6 +533,7 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
       last_actor_heartbeat_at: now
     })
     |> repo.update()
+    |> notify_activation_deadline(repo)
   end
 
   defp later_datetime(left, right) do
@@ -502,6 +569,7 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
       metadata: %{}
     })
     |> repo.insert()
+    |> notify_activation_deadline(repo)
   end
 
   # Keeps a live activation attached to the current worker assignment without
@@ -560,9 +628,8 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
     |> collect_results()
   end
 
-  # Records a concrete attempt to deliver an actor event to a worker turn. Older
-  # failed/superseded rows for the same event are compacted after the new fence
-  # exists so watchdog scans do not see a gap.
+  # Records a concrete attempt to deliver an actor event to a worker turn, then
+  # compacts obsolete failed/superseded attempts for the same event.
   def create_event_delivery_in_tx(
         repo,
         actor_event,
@@ -616,22 +683,6 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
     end
   end
 
-  # Builds the worker-facing model/request spec. AIGateway owns durable
-  # response rows; ActorRuntime only prepares the transport envelope.
-  defp build_turn_start_spec_in_tx(conversation, opts) do
-    case Conversations.build_turn_start_spec(conversation, opts) do
-      {:ok, turn_start_spec} ->
-        {:ok,
-         %{
-           conversation: conversation,
-           turn_start_spec: turn_start_spec
-         }}
-
-      {:error, _reason} = error ->
-        error
-    end
-  end
-
   # Locks the live activation for this actor key so activation reuse, expiry,
   # and replacement stay serialized.
   def live_activation(repo, actor_key) do
@@ -641,6 +692,93 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
     |> where([activation], activation.status in ["starting", "active", "draining"])
     |> lock("FOR UPDATE")
     |> repo.one()
+  end
+
+  defp lock_activation_by_uid(repo, activation_uid) do
+    ActorSessionActivation
+    |> where([activation], activation.activation_uid == ^activation_uid)
+    |> lock("FOR UPDATE")
+    |> repo.one()
+  end
+
+  defp lock_generating_message(repo, message_id) do
+    Message
+    |> where([message], message.id == ^message_id)
+    |> where([message], message.type == "message")
+    |> where([message], message.status == "generating")
+    |> lock("FOR UPDATE")
+    |> repo.one()
+  end
+
+  defp activation_deadline_events do
+    ActorSessionActivation
+    |> where([activation], activation.status in ^@live_activation_statuses)
+    |> Repo.all()
+    |> Enum.map(fn activation ->
+      {RuntimeEvents.activation_deadline_channel(),
+       %{
+         "activation_uid" => activation.activation_uid,
+         "agent_uid" => activation.agent_uid,
+         "session_id" => activation.session_id,
+         "lease_expires_at" => RuntimeEvents.encode_datetime(activation.lease_expires_at)
+       }}
+    end)
+  end
+
+  defp ai_message_deadline_events do
+    Message
+    |> where([message], message.type == "message")
+    |> where([message], message.status == "generating")
+    |> Repo.all()
+    |> Enum.map(fn message ->
+      {RuntimeEvents.ai_message_deadline_channel(),
+       %{
+         "message_id" => message.id,
+         "orphan_at" => RuntimeEvents.encode_datetime(ai_message_orphan_at(message))
+       }}
+    end)
+  end
+
+  defp ai_message_orphan_at(%Message{} = message) do
+    base_at = message.updated_at || message.inserted_at || DateTime.utc_now(:microsecond)
+    DateTime.add(base_at, StatefulResponses.orphaned_generating_grace_seconds(), :second)
+  end
+
+  defp notify_activation_deadline({:ok, %ActorSessionActivation{} = activation}, repo) do
+    with :ok <- RuntimeEvents.notify_activation_deadline(repo, activation) do
+      {:ok, activation}
+    end
+  end
+
+  defp notify_activation_deadline({:error, _reason} = error, _repo), do: error
+
+  defp notify_actor_event_ready({:ok, %ActorEvent{} = event}, repo) do
+    with :ok <-
+           RuntimeEvents.notify_actor_session_ready(
+             repo,
+             event.agent_uid,
+             event.session_id,
+             event.available_at
+           ) do
+      {:ok, event}
+    end
+  end
+
+  defp notify_actor_event_ready({:error, _reason} = error, _repo), do: error
+
+  defp notify_actor_event_ready(_repo, nil, _now), do: :ok
+
+  defp notify_actor_event_ready(repo, actor_event_id, now) when is_binary(actor_event_id) do
+    case repo.get(ActorEvent, actor_event_id) do
+      %ActorEvent{completed_at: nil} = event ->
+        RuntimeEvents.notify_actor_session_ready(repo, event.agent_uid, event.session_id, now)
+
+      %ActorEvent{} ->
+        :ok
+
+      nil ->
+        :ok
+    end
   end
 
   # Resolves the activation named by a worker turn reference. The turn_ref is
@@ -806,6 +944,7 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
       event
       |> ActorEvent.changeset(%{available_at: retry_available_at})
       |> repo.update()
+      |> notify_actor_event_ready(repo)
     else
       {:ok, event}
     end
@@ -935,28 +1074,6 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
     |> repo.one()
   end
 
-  # Converts expired activation leases into explicit failures. The grace window
-  # is an operator tradeoff: tests can set it to zero, while production can allow
-  # small clock or scheduling delays before retrying a turn.
-  def fail_expired_activations(repo, now, lease_grace_seconds) do
-    cutoff = DateTime.add(now, -lease_grace_seconds, :second)
-
-    activations =
-      ActorSessionActivation
-      |> where([activation], activation.status in ^@live_activation_statuses)
-      |> where([activation], activation.lease_expires_at <= ^cutoff)
-      |> lock("FOR UPDATE")
-      |> repo.all()
-
-    activations
-    |> Enum.map(&fail_expired_activation(repo, &1, now))
-    |> collect_results()
-    |> case do
-      {:ok, activations} -> {:ok, length(activations)}
-      {:error, _reason} = error -> error
-    end
-  end
-
   # Fails an activation that never bound an actor event. There is no AIGateway
   # generating row or delivery fence to clear, so only the activation projection
   # is stopped.
@@ -1009,42 +1126,20 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
   end
 
   defp fail_activation(repo, %ActorSessionActivation{} = activation, reason, now) do
-    activation
-    |> ActorSessionActivation.changeset(%{
-      status: "failed",
-      current_actor_event_id: nil,
-      stopped_at: now,
-      stop_reason: inspect(reason)
-    })
-    |> repo.update()
-  end
+    actor_event_id = activation.current_actor_event_id
 
-  # Repairs the only intentionally weak guarantee in this path: AIGateway
-  # message rows are durable, while actor-runtime projections are retry-oriented.
-  # A generating row without activation and delivery fences is failed so the
-  # user story can retry from the actor event instead of waiting forever.
-  def reconcile_projection_lost_started_turns_in_tx(repo, now) do
-    repo
-    |> StatefulResponses.stale_generating_messages(now)
-    |> Enum.reduce_while({:ok, 0}, fn turn, {:ok, count} ->
-      case live_projection_exists?(repo, turn) do
-        true ->
-          {:cont, {:ok, count}}
-
-        false ->
-          {:ok, failed_turn} =
-            fail_generating_message(repo, turn, now, :actor_runtime_projection_lost)
-
-          supersede_turn_deliveries_by_actor_event_id(
-            turn_actor_event_id(failed_turn),
-            repo,
-            now,
-            :actor_runtime_projection_lost
-          )
-
-          {:cont, {:ok, count + 1}}
-      end
-    end)
+    with {:ok, activation} <-
+           activation
+           |> ActorSessionActivation.changeset(%{
+             status: "failed",
+             current_actor_event_id: nil,
+             stopped_at: now,
+             stop_reason: inspect(reason)
+           })
+           |> repo.update(),
+         :ok <- notify_actor_event_ready(repo, actor_event_id, now) do
+      {:ok, activation}
+    end
   end
 
   # Marks live delivery projections obsolete without deleting them. Keeping the
@@ -1288,10 +1383,4 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
 
   defp delivery_revision_matches?(revision, turn_revision, :minimum_revision),
     do: revision >= turn_revision
-
-  def reconcile_projection_lost_started_turns(opts \\ []) do
-    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
-
-    Repo.transact(fn repo -> reconcile_projection_lost_started_turns_in_tx(repo, now) end)
-  end
 end

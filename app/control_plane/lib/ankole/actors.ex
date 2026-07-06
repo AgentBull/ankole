@@ -20,6 +20,7 @@ defmodule Ankole.Actors do
   alias Ecto.Adapters.SQL
   alias Ankole.Actors.ActorEvent
   alias Ankole.Repo
+  alias Ankole.RuntimeEvents
   alias Ankole.SignalsGateway.ActorEventTypes
   alias Ankole.SignalsGateway.InputTombstone
   alias Ankole.SignalsGateway.OutboxEntry
@@ -50,14 +51,24 @@ defmodule Ankole.Actors do
   def append_actor_event_in_tx(repo, attrs) when is_map(attrs) do
     attrs = put_queue_sequence(repo, attrs)
 
-    %ActorEvent{}
-    |> ActorEvent.changeset(attrs)
-    |> repo.insert(
-      on_conflict: :nothing,
-      conflict_target: [:agent_uid, :binding_name, :source_event_id],
-      returning: true
-    )
-    |> inserted_or_existing(repo, attrs)
+    with {:ok, %ActorEvent{} = event} <-
+           %ActorEvent{}
+           |> ActorEvent.changeset(attrs)
+           |> repo.insert(
+             on_conflict: :nothing,
+             conflict_target: [:agent_uid, :binding_name, :source_event_id],
+             returning: true
+           )
+           |> inserted_or_existing(repo, attrs),
+         :ok <-
+           RuntimeEvents.notify_actor_session_ready(
+             repo,
+             event.agent_uid,
+             event.session_id,
+             event.available_at
+           ) do
+      {:ok, event}
+    end
   end
 
   @doc """
@@ -77,6 +88,13 @@ defmodule Ankole.Actors do
              repo,
              actor_event,
              Keyword.put(opts, :completed_at, completed_at)
+           ),
+         :ok <-
+           RuntimeEvents.notify_actor_session_ready(
+             repo,
+             completed_event.agent_uid,
+             completed_event.session_id,
+             completed_at
            ) do
       {:ok, completed_event}
     end
@@ -151,7 +169,16 @@ defmodule Ankole.Actors do
   end
 
   def mark_event_completed_in_tx(repo, %ActorEvent{} = actor_event, completed_at) do
-    mark_event_completed(repo, actor_event, completed_at)
+    with {:ok, %ActorEvent{} = event} <- mark_event_completed(repo, actor_event, completed_at),
+         :ok <-
+           RuntimeEvents.notify_actor_session_ready(
+             repo,
+             event.agent_uid,
+             event.session_id,
+             completed_at
+           ) do
+      {:ok, event}
+    end
   end
 
   @doc """
@@ -170,12 +197,22 @@ defmodule Ankole.Actors do
       do: {:ok, actor_event}
 
   def mark_event_dead_letter_in_tx(repo, %ActorEvent{} = actor_event, dead_letter_at) do
-    actor_event
-    |> ActorEvent.changeset(%{
-      input_state: "dead_letter",
-      dead_letter_at: dead_letter_at
-    })
-    |> repo.update()
+    with {:ok, %ActorEvent{} = event} <-
+           actor_event
+           |> ActorEvent.changeset(%{
+             input_state: "dead_letter",
+             dead_letter_at: dead_letter_at
+           })
+           |> repo.update(),
+         :ok <-
+           RuntimeEvents.notify_actor_session_ready(
+             repo,
+             event.agent_uid,
+             event.session_id,
+             dead_letter_at
+           ) do
+      {:ok, event}
+    end
   end
 
   defp mark_event_completed(repo, %ActorEvent{} = actor_event, completed_at) do
@@ -331,46 +368,27 @@ defmodule Ankole.Actors do
     end
   end
 
-  @doc """
-  Reads ready actors that currently have no live input delivery.
-
-  The delivery anti-join is the backpressure point between queued input and
-  in-flight worker turns. Open inputs with live delivery projections should not
-  start another turn.
-  """
-  @spec list_ready_actor_keys(DateTime.t(), pos_integer()) :: [
-          %{agent_uid: String.t(), session_id: String.t()}
-        ]
-  def list_ready_actor_keys(now \\ DateTime.utc_now(:microsecond), limit \\ 100)
-      when is_integer(limit) and limit > 0 do
-    delivery_states = ["created", "sent", "accepted"]
-
-    live_delivery_wakeup_types =
-      ActorEventTypes.live_turn_command_types() ++ ["session.reset_due"]
-
+  @doc false
+  @spec runtime_event_snapshot() :: [{String.t(), map()}]
+  def runtime_event_snapshot do
     ActorEvent
     |> where([input], input.input_state == "open")
     |> where([input], is_nil(input.completed_at))
-    |> where([input], input.available_at <= ^now)
-    |> join(:left, [input], delivery in "actor_event_deliveries",
-      on: delivery.actor_event_id == input.id and delivery.state in ^delivery_states
-    )
-    |> where([_input, delivery], is_nil(delivery.id))
-    |> join(:left, [input, _delivery], session_delivery in "actor_event_deliveries",
-      on:
-        session_delivery.agent_uid == input.agent_uid and
-          session_delivery.session_id == input.session_id and
-          session_delivery.state in ^delivery_states
-    )
-    |> where(
-      [input, _delivery, session_delivery],
-      input.type in ^live_delivery_wakeup_types or is_nil(session_delivery.id)
-    )
-    |> distinct([input], [input.agent_uid, input.session_id])
-    |> order_by([input], asc: input.agent_uid, asc: input.session_id)
-    |> limit(^limit)
-    |> select([input], %{agent_uid: input.agent_uid, session_id: input.session_id})
+    |> group_by([input], [input.agent_uid, input.session_id])
+    |> select([input], %{
+      agent_uid: input.agent_uid,
+      session_id: input.session_id,
+      due_at: min(input.available_at)
+    })
     |> Repo.all()
+    |> Enum.map(fn %{agent_uid: agent_uid, session_id: session_id, due_at: due_at} ->
+      {RuntimeEvents.actor_session_ready_channel(),
+       %{
+         "agent_uid" => agent_uid,
+         "session_id" => session_id,
+         "due_at" => RuntimeEvents.encode_datetime(due_at)
+       }}
+    end)
   end
 
   # Accepts an explicit queue sequence for fixtures and replay tools.

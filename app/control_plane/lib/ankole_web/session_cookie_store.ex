@@ -8,9 +8,8 @@ defmodule AnkoleWeb.SessionCookieStore do
 
   @behaviour Plug.Session.Store
 
-  require Logger
-
   alias Ankole.Kernel, as: NativeKernel
+  alias Ankole.Logging
 
   @sid :ankole_aead_cookie
   @sub_key_id "phoenix.session_cookie"
@@ -106,9 +105,51 @@ defmodule AnkoleWeb.SessionCookieStore do
   defp log_decode_failure(false, _reason), do: :ok
 
   defp log_decode_failure(level, reason) do
-    Logger.log(
-      level,
-      "AnkoleWeb.SessionCookieStore could not decrypt incoming session cookie. Reason: #{inspect(reason)}"
-    )
+    fields = %{reason: inspect(reason)}
+
+    case level do
+      :debug ->
+        Logging.debug("web.session_cookie.decode_failed", "session cookie decode failed", fields)
+
+      :info ->
+        Logging.info("web.session_cookie.decode_failed", "session cookie decode failed", fields)
+
+      :notice ->
+        Logging.notice("web.session_cookie.decode_failed", "session cookie decode failed", fields)
+
+      :warning ->
+        Logging.warning(
+          "web.session_cookie.decode_failed",
+          "session cookie decode failed",
+          fields
+        )
+
+      :error ->
+        Logging.error("web.session_cookie.decode_failed", "session cookie decode failed", fields)
+
+      :critical ->
+        Logging.critical(
+          "web.session_cookie.decode_failed",
+          "session cookie decode failed",
+          fields
+        )
+
+      :alert ->
+        Logging.alert("web.session_cookie.decode_failed", "session cookie decode failed", fields)
+
+      :emergency ->
+        Logging.emergency(
+          "web.session_cookie.decode_failed",
+          "session cookie decode failed",
+          fields
+        )
+
+      _other ->
+        Logging.warning(
+          "web.session_cookie.decode_failed",
+          "session cookie decode failed",
+          fields
+        )
+    end
   end
 end

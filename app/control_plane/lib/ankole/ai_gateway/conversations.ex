@@ -5,6 +5,7 @@ defmodule Ankole.AIGateway.Conversations do
 
   import Ecto.Query, warn: false
 
+  alias Ankole.AIGateway.AgentConfig
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AIGateway.ModelMetadata
   alias Ankole.AIGateway.ModelProfiles
@@ -67,12 +68,21 @@ defmodule Ankole.AIGateway.Conversations do
           {:ok, map()} | {:error, term()}
   def build_turn_start_spec(%Conversation{} = conversation, opts \\ []) do
     with {:ok, model_ref} <-
-           turn_model_ref(conversation.agent_uid, Keyword.get(opts, :profile, "primary")) do
+           turn_model_ref(conversation.agent_uid, Keyword.get(opts, :profile, "primary")),
+         {:ok, agent_runtime_policy} <-
+           AgentConfig.runtime_policy(conversation.agent_uid,
+             max_completion_tokens: model_ref["max_completion_tokens"]
+           ) do
       {:ok,
        %{
          model_ref: model_ref,
          request_context:
-           request_context(conversation, model_ref, Keyword.get(opts, :request_context, %{}))
+           request_context(
+             conversation,
+             model_ref,
+             agent_runtime_policy,
+             Keyword.get(opts, :request_context, %{})
+           )
        }}
     end
   end
@@ -103,7 +113,12 @@ defmodule Ankole.AIGateway.Conversations do
     end
   end
 
-  defp request_context(%Conversation{} = conversation, model_ref, extra_context)
+  defp request_context(
+         %Conversation{} = conversation,
+         model_ref,
+         agent_runtime_policy,
+         extra_context
+       )
        when is_map(extra_context) do
     %{
       "actor_key" => %{
@@ -113,10 +128,16 @@ defmodule Ankole.AIGateway.Conversations do
       "model_ref" => model_ref
     }
     |> Map.merge(extra_context)
+    |> Map.put("ai_agent", agent_runtime_policy)
   end
 
-  defp request_context(%Conversation{} = conversation, model_ref, _extra_context) do
-    request_context(conversation, model_ref, %{})
+  defp request_context(
+         %Conversation{} = conversation,
+         model_ref,
+         agent_runtime_policy,
+         _extra_context
+       ) do
+    request_context(conversation, model_ref, agent_runtime_policy, %{})
   end
 
   defp turn_model_ref(agent_uid, profile) do
@@ -143,6 +164,10 @@ defmodule Ankole.AIGateway.Conversations do
       "model" => runtime_profile["model"],
       "input_modalities" => input_modalities_for_runtime_profile(runtime_profile)
     }
+    |> maybe_put(
+      "max_completion_tokens",
+      max_completion_tokens_for_runtime_profile(runtime_profile)
+    )
   end
 
   defp maybe_put_vision_fallback_model_ref(model_ref, agent_uid) do
@@ -192,4 +217,42 @@ defmodule Ankole.AIGateway.Conversations do
   end
 
   defp input_modalities(_provider, _model), do: ["text"]
+
+  defp max_completion_tokens_for_runtime_profile(%{
+         "provider" => %Provider{} = provider,
+         "model" => model
+       }) do
+    max_completion_tokens(provider, model)
+  end
+
+  defp max_completion_tokens_for_runtime_profile(%{
+         "provider_id" => provider_id,
+         "model" => model
+       })
+       when is_binary(provider_id) do
+    case ProviderConfigs.fetch_active_provider(provider_id) do
+      {:ok, provider} -> max_completion_tokens(provider, model)
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp max_completion_tokens_for_runtime_profile(_runtime_profile), do: nil
+
+  defp max_completion_tokens(%Provider{} = provider, model) when is_binary(model) do
+    case ModelMetadata.model_metadata(provider, model) do
+      {:ok, %{"top_provider" => %{"max_completion_tokens" => value}}} ->
+        positive_integer(value)
+
+      _metadata ->
+        nil
+    end
+  end
+
+  defp max_completion_tokens(_provider, _model), do: nil
+
+  defp positive_integer(value) when is_integer(value) and value > 0, do: value
+  defp positive_integer(_value), do: nil
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

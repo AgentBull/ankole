@@ -11,14 +11,13 @@ defmodule Ankole.CodexDelegations do
 
   alias Ecto.Adapters.SQL
 
-  alias Ankole.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.CodexDelegations.Schemas.Delegation
   alias Ankole.CodexDelegations.Schemas.Event
   alias Ankole.Principals
   alias Ankole.Repo
 
   @max_running_per_agent 3
-  @terminal_statuses ~w(succeeded failed stopped timeout)
+  @terminal_statuses ~w(succeeded failed stopped)
   @running_statuses ~w(running waiting_on_user)
   @sensitive_keys MapSet.new(~w(
                     authorization
@@ -283,27 +282,30 @@ defmodule Ankole.CodexDelegations do
   end
 
   @doc """
-  Fails Codex delegations whose owner worker route has gone stale.
+  Fails running Codex delegations owned by one worker route.
   """
-  @spec fail_stale_worker_delegations(module(), DateTime.t()) ::
+  @spec fail_worker_route_delegations(module(), String.t() | nil, DateTime.t(), String.t()) ::
           {:ok, non_neg_integer()} | {:error, term()}
-  def fail_stale_worker_delegations(repo, %DateTime{} = now) do
-    stale_delegations =
+  def fail_worker_route_delegations(_repo, route, _now, _worker_status)
+      when not is_binary(route) or route == "",
+      do: {:ok, 0}
+
+  def fail_worker_route_delegations(repo, route, %DateTime{} = now, worker_status)
+      when is_binary(worker_status) do
+    delegations =
       repo.all(
         from delegation in Delegation,
-          join: worker in AgentComputerWorker,
-          on: fragment("?->>? = ?", delegation.metadata, "worker_route", worker.transport_route),
           where: delegation.status in ^@running_statuses,
-          where: worker.status in ["stale", "stopped"],
-          select: {delegation, worker.transport_route, worker.status}
+          where: fragment("?->>? = ?", delegation.metadata, "worker_route", ^route),
+          lock: "FOR UPDATE"
       )
 
-    stale_delegations
-    |> Enum.reduce_while({:ok, 0}, fn {delegation, worker_route, worker_status}, {:ok, count} ->
+    delegations
+    |> Enum.reduce_while({:ok, 0}, fn delegation, {:ok, count} ->
       error = %{
         "code" => "owner_worker_stale",
         "reason" => "Codex delegation owner worker is no longer live",
-        "worker_route" => worker_route,
+        "worker_route" => route,
         "worker_status" => worker_status
       }
 

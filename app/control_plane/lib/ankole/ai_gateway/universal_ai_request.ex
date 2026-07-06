@@ -9,7 +9,7 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
   alias Ankole.Kernel.UniversalAIClient
 
   @default_timeout_ms 60_000
-  @non_stream_model_timeout_ms 300_000
+  @model_request_timeout_ms 30 * 60 * 1_000
   @receive_grace_ms 1_000
   @raw_timeout_ms 15_000
 
@@ -392,17 +392,17 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
       true ->
         %{
           connect_ms: @default_timeout_ms,
-          first_byte_ms: @default_timeout_ms,
-          idle_ms: @default_timeout_ms,
+          first_byte_ms: @model_request_timeout_ms,
+          idle_ms: @model_request_timeout_ms,
           total_ms: nil
         }
 
       _stream? ->
         %{
           connect_ms: @default_timeout_ms,
-          first_byte_ms: @non_stream_model_timeout_ms,
-          idle_ms: @non_stream_model_timeout_ms,
-          total_ms: @non_stream_model_timeout_ms
+          first_byte_ms: @model_request_timeout_ms,
+          idle_ms: @model_request_timeout_ms,
+          total_ms: @model_request_timeout_ms
         }
     end
   end
@@ -420,9 +420,10 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
   defp capability_timeout_ms(%{"capability" => %{"timeout_ms" => timeout_ms}}), do: timeout_ms
   defp capability_timeout_ms(_ctx), do: nil
 
-  # Model streams intentionally have no total timeout. Non-streaming calls have
-  # wider first-byte, idle, and total caps for high-thinking models, while still
-  # bounding slow-drip upstream bodies.
+  # Model streams intentionally have no total timeout. Streaming and
+  # non-streaming model calls share a wide first-byte/idle budget for
+  # high-thinking models; non-streaming calls also need a total cap because the
+  # response body is collected before it reaches the worker.
   defp total_timeout_ms(ctx, timeout_ms) do
     case map_get(ctx, :stream?) do
       true -> nil

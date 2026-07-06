@@ -7,9 +7,8 @@ defmodule Ankole.AppConfigure.Cache do
 
   import Ecto.Query
 
-  require Logger
-
   alias Ankole.AppConfigure.AppConfig
+  alias Ankole.Logging
   alias Ankole.Repo
 
   @table :ankole_app_configure_cache
@@ -125,8 +124,12 @@ defmodule Ankole.AppConfigure.Cache do
     :ok
   rescue
     error ->
-      Logger.warning(
-        "Ankole.AppConfigure.Cache failed to load from database: #{Exception.message(error)}"
+      Logging.warning(
+        "app_configure.cache.load_failed",
+        "app configure cache failed to load from database",
+        %{
+          error: Exception.message(error)
+        }
       )
 
       {:error, {:load_failed, Exception.message(error)}}

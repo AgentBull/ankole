@@ -1,7 +1,6 @@
 defmodule Ankole.SignalsGateway.Ingress do
   @moduledoc false
 
-  alias Ankole.ActorRuntime.ActivationManager
   alias Ankole.ActorRuntime.TurnRetry
   alias Ankole.Actors
   alias Ankole.Actors.ActorEvent
@@ -12,7 +11,6 @@ defmodule Ankole.SignalsGateway.Ingress do
   alias Ankole.SignalsGateway.Commands
   alias Ankole.SignalsGateway.FactNormalizer
   alias Ankole.SignalsGateway.InboundBatches
-  alias Ankole.SignalsGateway.InboundBatchFinalizer
   alias Ankole.SignalsGateway.IngressPipeline
   alias Ankole.SignalsGateway.Projection
   alias Ankole.SignalsGateway.Binding
@@ -45,8 +43,7 @@ defmodule Ankole.SignalsGateway.Ingress do
          :match <- IngressPipeline.filter(binding, fact) do
       binding
       |> accept_entry(fact, now)
-      |> wake_inbound_batch_finalizer()
-      |> wake_actor_runtime()
+      |> maybe_start_preview_handlers()
     else
       :no_match -> {:ok, %{status: :filtered}}
       {:error, _reason} = error -> error
@@ -140,42 +137,19 @@ defmodule Ankole.SignalsGateway.Ingress do
           {:ok, actor_event_append_result(append_result, %{signal_channel: channel})}
         end
       end)
-      |> wake_actor_runtime()
+      |> maybe_start_preview_handlers()
     else
       :no_match -> {:ok, %{status: :filtered}}
       {:error, _reason} = error -> error
     end
   end
 
-  defp wake_actor_runtime({:ok, result} = wrapped) when is_map(result) do
-    preview_started? = AIReplyPreview.maybe_start_result_handlers(result)
-
-    if result[:status] == :accepted or preview_started? do
-      ActivationManager.wake()
-    end
-
+  defp maybe_start_preview_handlers({:ok, result} = wrapped) when is_map(result) do
+    _preview_started? = AIReplyPreview.maybe_start_result_handlers(result)
     wrapped
   end
 
-  defp wake_actor_runtime(result), do: result
-
-  defp wake_inbound_batch_finalizer({:ok, %{inbound_batch: _batch}} = result) do
-    InboundBatchFinalizer.wake()
-    result
-  end
-
-  defp wake_inbound_batch_finalizer({:ok, %{finalized_actor_events: [_ | _]}} = result) do
-    InboundBatchFinalizer.wake()
-    result
-  end
-
-  defp wake_inbound_batch_finalizer({:ok, %{updated_inbound_batches: count}} = result)
-       when count > 0 do
-    InboundBatchFinalizer.wake()
-    result
-  end
-
-  defp wake_inbound_batch_finalizer(result), do: result
+  defp maybe_start_preview_handlers(result), do: result
 
   defp emit_lifecycle(agent_uid, binding_name, input, provider_lifecycle_kind, options) do
     now = Keyword.get(options, :now, DateTime.utc_now(:microsecond))
@@ -187,8 +161,7 @@ defmodule Ankole.SignalsGateway.Ingress do
       binding
       |> accept_lifecycle(fact, now)
       |> TurnRetry.dispatch_retry_controls()
-      |> wake_inbound_batch_finalizer()
-      |> wake_actor_runtime()
+      |> maybe_start_preview_handlers()
     else
       :no_match -> {:ok, %{status: :filtered}}
       {:error, _reason} = error -> error

@@ -34,7 +34,7 @@ export function createReplyAttachmentTool(
   return {
     name: 'reply_attachment',
     description:
-      'Attach one file from /workspace/user-files to the final provider reply. Use after creating a deliverable file that the user should receive in the current chat.',
+      "You can send files natively: to deliver a file to the user, call reply_attachment with a local path under /workspace/user-files (e.g. path='/workspace/user-files/report.pdf'). The file will be sent as a native attachment in the current provider reply.",
     schema: ReplyAttachmentParams,
     executionMode: 'sequential',
     isReadOnly: false,

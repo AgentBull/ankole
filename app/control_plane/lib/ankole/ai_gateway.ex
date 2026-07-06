@@ -38,6 +38,8 @@ defmodule Ankole.AIGateway do
     stop_reason response incomplete_details tool_result_journal tool_result_idempotency_key
   )
 
+  @tool_result_record_db_retry_delays_ms [50, 100, 200, 400, 800, 1_600]
+
   @type gateway_response :: %{
           required(:status) => pos_integer(),
           required(:body) => map(),
@@ -118,7 +120,7 @@ defmodule Ankole.AIGateway do
     with :ok <- validate_tool_results_record_shape(request),
          {:ok, current_input} <- normalize_stateful_input(Map.get(request, "input")),
          {:ok, %Message{} = message} <-
-           StatefulResponses.record_tool_results(%{
+           record_tool_results_with_transient_db_retry(%{
              agent_uid: agent_uid,
              actor_event_id: actor_event_id,
              previous_response_id: previous_response_id,
@@ -130,6 +132,45 @@ defmodule Ankole.AIGateway do
   end
 
   def record_tool_results(_agent_uid, _request), do: {:error, :invalid_request_body}
+
+  defp record_tool_results_with_transient_db_retry(attrs) do
+    with_transient_db_checkout_retry(@tool_result_record_db_retry_delays_ms, fn ->
+      StatefulResponses.record_tool_results(attrs)
+    end)
+  end
+
+  defp with_transient_db_checkout_retry(delays_ms, fun) do
+    fun.()
+  rescue
+    error in DBConnection.ConnectionError ->
+      if transient_db_checkout_error?(error) do
+        retry_transient_db_checkout(delays_ms, Exception.message(error), fun)
+      else
+        reraise error, __STACKTRACE__
+      end
+  end
+
+  defp retry_transient_db_checkout([delay_ms | rest], _message, fun) do
+    Process.sleep(delay_ms)
+    with_transient_db_checkout_retry(rest, fun)
+  end
+
+  defp retry_transient_db_checkout([], message, _fun) do
+    {:error,
+     {:tool_results_record_unavailable,
+      %{
+        "stage" => "tool_results_record",
+        "retryable" => true,
+        "message" => message
+      }}}
+  end
+
+  defp transient_db_checkout_error?(%DBConnection.ConnectionError{} = error) do
+    message = Exception.message(error)
+
+    String.contains?(message, "could not checkout the connection") and
+      String.contains?(message, "connection not available")
+  end
 
   @doc false
   @spec open_sse_stream(String.t(), map(), keyword()) ::
@@ -238,11 +279,16 @@ defmodule Ankole.AIGateway do
          {:ok, conversation} <-
            resolve_stateful_request_conversation(agent_uid, conversation_id, previous_response_id),
          :ok <- StatefulResponses.validate_response_anchor(conversation.id, previous_response_id),
+         effective_previous_response_id <-
+           effective_previous_response_id(conversation.id, previous_response_id),
          {:ok, current_input} <- normalize_stateful_input(Map.get(request, "input")),
          history <-
            StatefulResponses.expand_history(conversation.id,
-             previous_response_id: previous_response_id
+             previous_response_id: effective_previous_response_id,
+             protected_tail_items: current_input
            ),
+         request <-
+           request_with_effective_previous_response_id(request, effective_previous_response_id),
          {:ok, compaction} <-
            Compaction.maybe_compact_history(
              agent_uid,
@@ -398,6 +444,22 @@ defmodule Ankole.AIGateway do
   end
 
   defp decode_conv_id("conv_" <> uuid), do: uuid
+
+  defp effective_previous_response_id(_conversation_id, previous_response_id)
+       when is_binary(previous_response_id),
+       do: previous_response_id
+
+  defp effective_previous_response_id(conversation_id, _missing_previous_response_id) do
+    case StatefulResponses.latest_visible_leaf(conversation_id) do
+      nil -> nil
+      message_id -> "resp_#{message_id}"
+    end
+  end
+
+  defp request_with_effective_previous_response_id(request, nil), do: request
+
+  defp request_with_effective_previous_response_id(request, previous_response_id),
+    do: Map.put(request, "previous_response_id", previous_response_id)
 
   defp maybe_start_websocket_stateful_run(nil), do: {:ok, nil}
 
@@ -697,17 +759,34 @@ defmodule Ankole.AIGateway do
   defp response_error(_status, _metadata), do: nil
 
   defp response_usage(%{} = usage) do
+    input_tokens = usage_integer(usage, ["input_tokens", "prompt_tokens", "inputTokens"])
+    output_tokens = usage_integer(usage, ["output_tokens", "completion_tokens", "outputTokens"])
+
+    total_tokens =
+      usage_integer(usage, ["total_tokens", "totalTokens"], input_tokens + output_tokens)
+
     %{
-      "input_tokens" => integer_or_zero(Map.get(usage, "input_tokens")),
-      "output_tokens" => integer_or_zero(Map.get(usage, "output_tokens")),
-      "total_tokens" => integer_or_zero(Map.get(usage, "total_tokens")),
+      "input_tokens" => input_tokens,
+      "output_tokens" => output_tokens,
+      "total_tokens" => total_tokens,
       "input_tokens_details" => %{
         "cached_tokens" =>
-          integer_or_zero(get_in(usage, ["input_tokens_details", "cached_tokens"]))
+          usage_integer(
+            map_or_empty(
+              Map.get(usage, "input_tokens_details") || Map.get(usage, "prompt_tokens_details")
+            ),
+            ["cached_tokens", "cached", "cachedInputTokens"]
+          )
       },
       "output_tokens_details" => %{
         "reasoning_tokens" =>
-          integer_or_zero(get_in(usage, ["output_tokens_details", "reasoning_tokens"]))
+          usage_integer(
+            map_or_empty(
+              Map.get(usage, "output_tokens_details") ||
+                Map.get(usage, "completion_tokens_details")
+            ),
+            ["reasoning_tokens", "reasoning", "reasoningTokens"]
+          )
       }
     }
   end
@@ -732,8 +811,18 @@ defmodule Ankole.AIGateway do
   defp map_or_empty(value) when is_map(value), do: value
   defp map_or_empty(_value), do: %{}
 
-  defp integer_or_zero(value) when is_integer(value), do: value
-  defp integer_or_zero(_value), do: 0
+  defp usage_integer(map, keys, default \\ 0)
+
+  defp usage_integer(map, keys, default) when is_map(map) and is_list(keys) do
+    Enum.find_value(keys, default, fn key ->
+      case Map.get(map, key) do
+        value when is_integer(value) and value >= 0 -> value
+        _value -> false
+      end
+    end)
+  end
+
+  defp usage_integer(_map, _keys, default), do: default
 
   defp prefixed_id(_prefix, nil), do: nil
   defp prefixed_id(prefix, id) when is_binary(id), do: prefix <> id

@@ -1,4 +1,4 @@
-import { type JsonObject, isRecord } from '../../fabric/fabric'
+import { err, isRecord, ok, Result, type JsonObject } from '@pleisto/active-support'
 
 export type JsonRpcMessage = JsonObject & {
   id?: string | number
@@ -21,6 +21,11 @@ type PendingRequest = {
   timeout: ReturnType<typeof setTimeout>
 }
 
+type JsonRpcLineError = {
+  line: string
+  message: string
+}
+
 type WritableFileSink = {
   write: (chunk: string | Uint8Array) => unknown
   end?: () => unknown
@@ -28,6 +33,7 @@ type WritableFileSink = {
 
 export type CodexAppServerClientOptions = {
   command?: string
+  commandArgv?: string[]
   args?: string[]
   cwd: string
   env: Record<string, string>
@@ -37,7 +43,13 @@ export type CodexAppServerClientOptions = {
   onServerRequest?: CodexServerRequestHandler
 }
 
-const requestTimeoutMs = 60_000
+// Hermes uses 10s for initialize, 15s for thread/start, and 30s for generic
+// app-server requests. Ankole keeps the same request classes but gives slower
+// cold-start and delegation paths a wider budget.
+const DEFAULT_REQUEST_TIMEOUT_MS = 60_000
+const INITIALIZE_REQUEST_TIMEOUT_MS = 15_000
+const THREAD_START_REQUEST_TIMEOUT_MS = 30_000
+const parseJsonLine = Result.fromThrowable((line: string) => JSON.parse(line) as unknown)
 
 export class CodexAppServerClient {
   private nextId = 1
@@ -48,16 +60,19 @@ export class CodexAppServerClient {
   private readonly encoder = new TextEncoder()
 
   constructor(private readonly opts: CodexAppServerClientOptions) {
-    this.proc = Bun.spawn(
-      [opts.command ?? process.env.ANKOLE_CODEX_BINARY ?? 'codex', 'app-server', '--stdio', ...(opts.args ?? [])],
-      {
-        cwd: opts.cwd,
-        env: opts.env,
-        stdin: 'pipe',
-        stdout: 'pipe',
-        stderr: 'pipe'
-      }
-    )
+    const commandArgv = opts.commandArgv ?? [
+      opts.command ?? process.env.ANKOLE_CODEX_BINARY ?? 'codex',
+      'app-server',
+      '--stdio',
+      ...(opts.args ?? [])
+    ]
+    this.proc = Bun.spawn(commandArgv, {
+      cwd: opts.cwd,
+      env: opts.env,
+      stdin: 'pipe',
+      stdout: 'pipe',
+      stderr: 'pipe'
+    })
     this.stdin =
       this.proc.stdin && typeof this.proc.stdin === 'object' ? (this.proc.stdin as WritableFileSink) : undefined
     void this.readStdout()
@@ -81,27 +96,31 @@ export class CodexAppServerClient {
   }
 
   async initialize(): Promise<void> {
-    await this.request('initialize', {
-      clientInfo: {
-        name: 'ankole_agent_computer',
-        title: 'Ankole Agent Computer',
-        version: '0.1.0'
+    await this.request(
+      'initialize',
+      {
+        clientInfo: {
+          name: 'ankole_agent_computer',
+          title: 'Ankole Agent Computer',
+          version: '0.1.0'
+        },
+        capabilities: {
+          experimentalApi: true
+        }
       },
-      capabilities: {
-        experimentalApi: true
-      }
-    })
+      INITIALIZE_REQUEST_TIMEOUT_MS
+    )
     await this.notify('initialized', {})
   }
 
-  async request(method: string, params: unknown): Promise<unknown> {
+  async request(method: string, params: unknown, timeoutMs = defaultRequestTimeoutMs(method)): Promise<unknown> {
     const id = this.nextId++
     const message = { method, id, params }
     const promise = new Promise<unknown>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pending.delete(id)
         reject(new Error(`codex app-server request timed out: ${method}`))
-      }, requestTimeoutMs)
+      }, timeoutMs)
       this.pending.set(id, { resolve, reject, timeout })
     })
 
@@ -160,20 +179,17 @@ export class CodexAppServerClient {
   }
 
   private handleLine(line: string): void {
-    let message: unknown
-
-    try {
-      message = JSON.parse(line)
-    } catch (error) {
+    const parsed = parseJsonRpcLine(line)
+    if (parsed.isErr()) {
       this.opts.onNotification?.({
         method: '$parse_error',
-        params: { line, error: error instanceof Error ? error.message : String(error) }
+        params: { line: parsed.error.line, error: parsed.error.message }
       })
       return
     }
 
-    if (!isRecord(message)) return
-    const rpc = message as JsonRpcMessage
+    const rpc = parsed.value
+    if (!rpc) return
     this.opts.audit?.('server_to_client', rpc)
 
     if (rpc.id !== undefined && (Object.hasOwn(rpc, 'result') || Object.hasOwn(rpc, 'error'))) {
@@ -184,12 +200,14 @@ export class CodexAppServerClient {
     if (typeof rpc.method === 'string' && rpc.id !== undefined) {
       const handler = this.opts.onServerRequest
       if (!handler) {
-        void this.respondError(rpc.id, -32601, `Codex server request is not implemented: ${rpc.method}`).catch(error => {
-          this.opts.onNotification?.({
-            method: '$server_request_error',
-            params: { error: error instanceof Error ? error.message : String(error) }
-          })
-        })
+        void this.respondError(rpc.id, -32601, `Codex server request is not implemented: ${rpc.method}`).catch(
+          error => {
+            this.opts.onNotification?.({
+              method: '$server_request_error',
+              params: { error: error instanceof Error ? error.message : String(error) }
+            })
+          }
+        )
         return
       }
 
@@ -229,6 +247,21 @@ export class CodexAppServerClient {
       this.pending.delete(id)
     }
   }
+}
+
+function defaultRequestTimeoutMs(method: string): number {
+  if (method === 'thread/start') return THREAD_START_REQUEST_TIMEOUT_MS
+  return DEFAULT_REQUEST_TIMEOUT_MS
+}
+
+function parseJsonRpcLine(line: string): Result<JsonRpcMessage | undefined, JsonRpcLineError> {
+  const parsed = parseJsonLine(line).mapErr(error => ({ line, message: errorText(error) }))
+  if (parsed.isErr()) {
+    return err(parsed.error)
+  }
+
+  const message = parsed.value
+  return ok(isRecord(message) ? (message as JsonRpcMessage) : undefined)
 }
 
 async function readJsonLines(stream: ReadableStream<Uint8Array> | null, onLine: (line: string) => void): Promise<void> {
@@ -279,4 +312,8 @@ async function readTextChunks(
 function jsonErrorMessage(error: unknown): string {
   if (isRecord(error) && typeof error.message === 'string') return error.message
   return JSON.stringify(error)
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }

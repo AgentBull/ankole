@@ -5,12 +5,11 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
 
   use GenServer
 
-  require Logger
-
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.ConnectionSupervisor
   alias Ankole.Plugins.LarkAdapter.IdentityProvider
   alias Ankole.Plugins.LarkAdapter.Inbound
+  alias Ankole.Logging
   alias Ankole.IdentityProviders.Config, as: IdentityProviderConfig
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.AdapterContext
@@ -87,8 +86,12 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
     result = reconcile_once(state.reconcile_opts)
 
     if result.errors != [] do
-      Logger.warning(
-        "lark adapter connection reconciliation completed with errors=#{inspect(result.errors)}"
+      Logging.warning(
+        "lark_adapter.connection_reconciliation.completed_with_errors",
+        "lark adapter connection reconciliation completed with errors",
+        %{
+          errors: result.errors
+        }
       )
     end
 
@@ -113,12 +116,12 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
   # map alongside any per-binding errors gathered along the way.
   defp connection_specs(bindings, opts) do
     bindings
-    |> Enum.reduce({%{}, []}, &add_binding_spec/2)
+    |> Enum.reduce({%{}, []}, fn binding, acc -> add_binding_spec(binding, acc, opts) end)
     |> add_identity_provider_specs(opts)
   end
 
-  defp add_binding_spec(%Binding{} = binding, {specs, errors}) do
-    case binding_connection_spec(binding) do
+  defp add_binding_spec(%Binding{} = binding, {specs, errors}, opts) do
+    case binding_connection_spec(binding, opts) do
       {:ok, key, spec} ->
         merge_connection_spec(
           specs,
@@ -164,8 +167,14 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
     end
   end
 
-  defp binding_connection_spec(%Binding{} = binding) do
+  defp binding_connection_spec(%Binding{} = binding, opts) do
     with {:ok, config} <- Config.load_chat_config_ref(binding.config_ref) do
+      config =
+        Config.resolve_runtime_bot_identity(
+          config,
+          Keyword.take(opts, [:bot_info_fetcher])
+        )
+
       context =
         AdapterContext.new(
           agent_uid: binding.agent_uid,

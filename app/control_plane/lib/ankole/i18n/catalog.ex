@@ -10,11 +10,10 @@ defmodule Ankole.I18n.Catalog do
 
   use GenServer
 
-  require Logger
-
   alias Ankole.I18n.Config
   alias Ankole.I18n.Loader
   alias Ankole.I18n.Resolver
+  alias Ankole.Logging
 
   @name __MODULE__
 
@@ -94,7 +93,11 @@ defmodule Ankole.I18n.Catalog do
 
   @impl true
   def handle_info(message, state) do
-    Logger.warning("Unexpected message in #{__MODULE__}: #{inspect(message)}")
+    Logging.warning("i18n.catalog.unexpected_message", "i18n catalog unexpected message", %{
+      module: inspect(__MODULE__),
+      message: inspect(message)
+    })
+
     {:noreply, state}
   end
 
@@ -105,9 +108,9 @@ defmodule Ankole.I18n.Catalog do
     locales = Loader.load_all(dir)
 
     if locales == %{} do
-      Logger.warning("no locale files found in #{dir}; Ankole.I18n will degrade to key literals",
-        domain: :i18n
-      )
+      Logging.warning("i18n.catalog.empty", "i18n catalog has no locale files", %{
+        locales_dir: dir
+      })
     end
 
     ids = Map.keys(locales)

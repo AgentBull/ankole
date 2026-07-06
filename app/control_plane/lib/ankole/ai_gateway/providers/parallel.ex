@@ -7,7 +7,7 @@ defmodule Ankole.AIGateway.Providers.Parallel do
 
   alias Ankole.AIGateway.UniversalAIRequest
 
-  @timeout_ms 30_000
+  @timeout_ms 120_000
 
   provider :parallel do
     label(%{"default" => "Parallel", "zh-Hans-CN" => "Parallel"})

@@ -1,19 +1,9 @@
 import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../../core'
-import { TEXT_TURN_TIMEOUT_MS } from '../../core/turns/turn_config'
 import type { BackgroundCommandSnapshot, ComputerToolContext } from './context'
 import { truncateOutput } from './format'
 
-const TOOL_TIMEOUT_MARGIN_MS = 15_000
-const ForegroundCommandTimeoutMaxSeconds = Math.max(
-  1,
-  Math.floor((TEXT_TURN_TIMEOUT_MS - TOOL_TIMEOUT_MARGIN_MS) / 1000)
-)
-const BackgroundCommandTimeoutMaxSeconds = 1800
-const SYSTEM_ROOT_TRAVERSAL_COMMANDS = new Set(['du', 'find', 'tree'])
-const RECURSIVE_LIST_COMMANDS = new Set(['ls'])
-const RECURSIVE_SEARCH_COMMANDS = new Set(['grep', 'egrep', 'fgrep', 'ag'])
-const RECURSIVE_BY_DEFAULT_SEARCH_COMMANDS = new Set(['rg'])
+const ForegroundCommandDefaultTimeoutSeconds = 180
 
 const CommandParams = z
   .object({
@@ -37,10 +27,9 @@ const CommandParams = z
       .number()
       .int()
       .min(1)
-      .max(BackgroundCommandTimeoutMaxSeconds)
       .optional()
       .describe(
-        `Max seconds to wait for the command. Foreground runs must fit the current text-turn budget (${ForegroundCommandTimeoutMaxSeconds}s max); use background=true for longer commands up to ${BackgroundCommandTimeoutMaxSeconds}s.`
+        `Max seconds to wait for the command. Default is ${ForegroundCommandDefaultTimeoutSeconds} for foreground runs. Background runs have no default command timeout; pass this only when you want an explicit budget.`
       ),
     env: z.record(z.string(), z.string()).optional().describe('Environment variables for this command only.')
   })
@@ -54,18 +43,6 @@ const CommandParams = z
         code: z.ZodIssueCode.custom,
         path: ['backgroundId'],
         message: 'backgroundId is required for status/kill'
-      })
-    }
-    if (
-      action === 'run' &&
-      params.background !== true &&
-      params.timeout !== undefined &&
-      params.timeout > ForegroundCommandTimeoutMaxSeconds
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['timeout'],
-        message: `foreground timeout must be <= ${ForegroundCommandTimeoutMaxSeconds}s; use background=true for longer commands`
       })
     }
   })
@@ -90,7 +67,7 @@ export function createCommandTool(context: ComputerToolContext): AgentTool<typeo
   return {
     name: 'command',
     description:
-      'Execute one stateless, non-interactive shell command in the computer. Use this for builds, installs, git, rg/find searches, package managers, scripts, network checks, and one-shot commands that should not depend on persistent cd/export/alias state. Set background=true for long-running non-interactive commands such as dev servers, then poll with action=status, list all with action=list, and stop with action=kill using the returned backgroundId. Do not use cat/head/tail to read files; use read_file. Do not use sed/awk/perl/python scripts or heredocs to edit files; use patch. Use interactive_terminal for direct TTY/TUI programs, REPLs, installers, and troubleshooting interactive CLIs.',
+      'Execute one stateless, non-interactive shell command in the computer. Use this for builds, tests, installs, git, rg/find searches, package managers, scripts, network checks, and one-shot commands that should not depend on persistent cd/export/alias state. If a required workflow says to run, build, test, or verify with a shell command, call this tool before saying that step ran or passed; future-tense text does not execute a command. Set background=true for long-running non-interactive commands such as dev servers, then poll with action=status, list all with action=list, and stop with action=kill using the returned backgroundId. Do not use cat/head/tail to read files; use read_file. Do not use sed/awk to edit files; use patch. Do not use echo/cat heredoc to create files; use patch. Use interactive_terminal for direct TTY/TUI programs, REPLs, installers, and troubleshooting interactive CLIs.',
     schema: CommandParams,
     executionMode: 'sequential',
     isReadOnly: false,
@@ -130,26 +107,19 @@ export function createCommandTool(context: ComputerToolContext): AgentTool<typeo
         return backgroundResult(snapshot, { incremental: action === 'status' })
       }
 
-      const rootTraversalRefusal = systemRootTraversalRefusal(params.command!)
-      if (rootTraversalRefusal) {
-        return {
-          content: [{ type: 'text', text: rootTraversalRefusal }],
-          details: { exitCode: 2 }
-        }
-      }
-
       // `-lc` runs a login shell so any profile sourced inside the sandbox is applied. The sandbox
       // starts from bubblewrap `--clearenv`: only a fixed set of vars (PATH/HOME/LANG/TERM/
       // ANKOLE_WORKSPACE_ROOT, plus validated caller env) is injected, so this is the sandbox
-      // environment, not the host user's. `timeout` is the worker-side execution budget in seconds
-      // (default 60), passed as ms; the worker kills the process when it elapses.
-      const timeoutSeconds = params.timeout ?? (params.background ? BackgroundCommandTimeoutMaxSeconds : 60)
+      // environment, not the host user's. `timeout`, when provided, is the
+      // command execution budget in seconds, passed as ms; the worker kills
+      // the process when it elapses.
+      const timeoutSeconds = params.timeout ?? (params.background ? undefined : ForegroundCommandDefaultTimeoutSeconds)
       const runInput = {
         cmd: 'bash',
         args: ['-lc', params.command!],
         cwd: params.workdir,
         env: params.env,
-        timeoutMs: timeoutSeconds * 1000,
+        timeoutMs: timeoutSeconds === undefined ? undefined : timeoutSeconds * 1000,
         signal
       }
 
@@ -158,10 +128,11 @@ export function createCommandTool(context: ComputerToolContext): AgentTool<typeo
         return backgroundResult(snapshot)
       }
 
+      const foregroundTimeoutSeconds = timeoutSeconds ?? ForegroundCommandDefaultTimeoutSeconds
       const startedAt = Date.now()
       const result = await computer.runCommand({
         ...runInput,
-        timeoutMs: timeoutSeconds * 1000
+        timeoutMs: foregroundTimeoutSeconds * 1000
       })
       const durationMs = Date.now() - startedAt
       // stdout and stderr are merged and truncated before going back to the model, so a runaway
@@ -173,7 +144,7 @@ export function createCommandTool(context: ComputerToolContext): AgentTool<typeo
         durationMs,
         exitCode: result.exitCode,
         output,
-        timeoutSeconds
+        timeoutSeconds: foregroundTimeoutSeconds
       })
       return {
         content: [{ type: 'text', text }],
@@ -181,144 +152,6 @@ export function createCommandTool(context: ComputerToolContext): AgentTool<typeo
       }
     }
   }
-}
-
-/**
- * Rejects obvious filesystem-wide scans before they reach the sandbox.
- *
- * This is deliberately conservative: it is not a full shell parser and only
- * blocks commands that plainly point common recursive walkers/searchers at `/`.
- * Workspace scans (`/workspace`, `.`, relative paths) still run through the
- * normal command path and keep the existing timeout/output truncation behavior.
- */
-function systemRootTraversalRefusal(command: string): string | undefined {
-  for (const segment of shellCommandSegments(command)) {
-    const words = unwrapCommandWords(shellWords(segment))
-    const commandName = commandBasename(words[0])
-    if (!commandName) continue
-
-    const args = words.slice(1)
-    if (!hasSystemRootPathArg(args)) continue
-
-    if (SYSTEM_ROOT_TRAVERSAL_COMMANDS.has(commandName)) {
-      return formatSystemRootTraversalRefusal(commandName)
-    }
-    if (RECURSIVE_LIST_COMMANDS.has(commandName) && hasRecursiveFlag(args)) {
-      return formatSystemRootTraversalRefusal(commandName)
-    }
-    if (RECURSIVE_SEARCH_COMMANDS.has(commandName) && hasRecursiveFlag(args) && hasPatternBeforeRoot(args)) {
-      return formatSystemRootTraversalRefusal(commandName)
-    }
-    if (RECURSIVE_BY_DEFAULT_SEARCH_COMMANDS.has(commandName) && hasSearchTargetBeforeRoot(args)) {
-      return formatSystemRootTraversalRefusal(commandName)
-    }
-  }
-
-  return undefined
-}
-
-function formatSystemRootTraversalRefusal(commandName: string): string {
-  return [
-    `Refused command: ${commandName} over the system root "/" is not allowed.`,
-    'Narrow the command to /workspace, a relative path, or a specific known subdirectory.'
-  ].join('\n')
-}
-
-function shellCommandSegments(command: string): string[] {
-  return command.split(/\n|&&|\|\||;|\|/g).map(segment => segment.trim())
-}
-
-function shellWords(segment: string): string[] {
-  const words: string[] = []
-  let current = ''
-  let quote: '"' | "'" | undefined
-  let escaped = false
-
-  for (const char of segment) {
-    if (escaped) {
-      current += char
-      escaped = false
-      continue
-    }
-    if (char === '\\' && quote !== "'") {
-      escaped = true
-      continue
-    }
-    if (quote) {
-      if (char === quote) quote = undefined
-      else current += char
-      continue
-    }
-    if (char === '"' || char === "'") {
-      quote = char
-      continue
-    }
-    if (/\s/.test(char)) {
-      if (current.length > 0) {
-        words.push(current)
-        current = ''
-      }
-      continue
-    }
-    current += char
-  }
-
-  if (current.length > 0) words.push(current)
-  return words
-}
-
-function unwrapCommandWords(words: string[]): string[] {
-  let remaining = skipEnvAssignments(words)
-  while (remaining.length > 0) {
-    const commandName = commandBasename(remaining[0])
-    if (commandName === 'env') {
-      remaining = skipEnvAssignments(remaining.slice(1))
-      continue
-    }
-    if (commandName === 'sudo' || commandName === 'command' || commandName === 'time' || commandName === 'nohup') {
-      remaining = remaining.slice(1)
-      continue
-    }
-    if (commandName === 'timeout') {
-      remaining = remaining.slice(2)
-      continue
-    }
-    break
-  }
-  return remaining
-}
-
-function skipEnvAssignments(words: string[]): string[] {
-  let index = 0
-  while (index < words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[index]!)) index += 1
-  return words.slice(index)
-}
-
-function commandBasename(word: string | undefined): string | undefined {
-  if (!word) return undefined
-  return word.replace(/^.*\//, '')
-}
-
-function hasSystemRootPathArg(args: string[]): boolean {
-  return args.some(isSystemRootPathArg)
-}
-
-function isSystemRootPathArg(arg: string): boolean {
-  return arg === '/' || arg === '/*'
-}
-
-function hasRecursiveFlag(args: string[]): boolean {
-  return args.some(arg => arg === '--recursive' || /^-[A-Za-z]*[Rr][A-Za-z]*$/.test(arg))
-}
-
-function hasPatternBeforeRoot(args: string[]): boolean {
-  const rootIndex = args.findIndex(isSystemRootPathArg)
-  return rootIndex > 0 && args.slice(0, rootIndex).some(arg => arg !== '--' && !arg.startsWith('-'))
-}
-
-function hasSearchTargetBeforeRoot(args: string[]): boolean {
-  if (args.includes('--files')) return true
-  return hasPatternBeforeRoot(args)
 }
 
 /**

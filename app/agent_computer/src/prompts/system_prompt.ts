@@ -11,6 +11,7 @@
  */
 import type { TurnStart } from '../lanes/actor_lane'
 import type { AgentConversationContext, RuntimeSkillSummary } from '../lanes/rpc_lane'
+import { isRecord, match, recordArg, type JsonObject } from '@pleisto/active-support'
 import { formatSkillsForSystemPrompt, type SkillPromptEntry } from './skills_prompt'
 
 export type BuildAgentSystemPromptOptions = {
@@ -53,13 +54,13 @@ export function buildAgentSystemPrompt(opts: BuildAgentSystemPromptOptions): str
   const skillPrompt = formatSkillsForSystemPrompt(skills)
 
   return [
-    `You are ${displayName}, an AI colleague powered by Ankole.`,
+    `You are ${displayName}, an AI colleague Agent powered by Ankole.`,
     soul.trim(),
     missionSection(mission),
     runtimeContextSection(opts),
     memoryNotesSection(opts),
     memoryRecallSection(opts),
-    completionContractSection(),
+    completionContractSection(opts),
     agentEnvironmentInfoPolicySection(),
     toolsSection(opts),
     skillPrompt.trim()
@@ -77,8 +78,8 @@ function missionSection(mission: string): string {
 }
 
 /**
- * Emits per-run facts the model needs but cannot infer: exact agent/session/event
- * identity, timezone, and optional channel/date information.
+ * Emits per-run facts the model needs but cannot infer: exact agent identity,
+ * timezone, and optional channel/date information.
  */
 function runtimeContextSection(opts: BuildAgentSystemPromptOptions): string {
   const timezone = opts.agentConversationContext?.conversation?.timezone || 'UTC'
@@ -87,8 +88,6 @@ function runtimeContextSection(opts: BuildAgentSystemPromptOptions): string {
     `Agent UID: ${opts.turnStart.turn.actor.agent_uid}`,
     `Agent display name: ${agentDisplayName(opts)}`,
     'Use this exact Agent UID when a tool or skill asks for the current agent identity.',
-    `Session ID: ${opts.turnStart.turn.actor.session_id}`,
-    `Actor event ID: ${opts.turnStart.turn.actor_event_id}`,
     `Current timezone: ${timezone}`
   ]
   const role = agentRole(opts)
@@ -205,18 +204,29 @@ function memoryRecallSection(opts: BuildAgentSystemPromptOptions): string {
 }
 
 /**
- * Outcome-first operating contract. Keep this short: tool-specific rules belong
- * in tool descriptions, and task-specific workflow comes from the user or skill.
+ * Outcome-first operating contract for long-lived IM agents.
  */
-function completionContractSection(): string {
+function completionContractSection(opts: BuildAgentSystemPromptOptions): string {
   return [
     '<completion_contract>',
-    'Work toward the requested outcome, not a proxy such as merely using a tool, producing a plausible answer, or making a small local change.',
-    'Before finishing, verify the result with evidence appropriate to the task. If verification is impossible, say what remains unverified.',
-    'Stop when the requested outcome is satisfied. Ask a concise clarification only when required information is missing and a reasonable assumption would be unsafe.',
-    'Before notable tool use, briefly say what you are about to check or change; skip preambles for trivial or repetitive tool calls.',
+    '# Completion contract',
+    'Answer directly when the trusted prompt context and conversation are sufficient.',
+    'Use tools when the user asks you to take an external action, inspect or change files, verify live state, fetch current external facts, or produce an artifact that depends on real execution.',
+    toolAvailable(opts, 'command')
+      ? 'For shell-backed work, call `command` before claiming that a command, build, test, install, or live system check ran or passed.'
+      : '',
+    toolAvailable(opts, 'read_file')
+      ? 'For file contents, use `read_file` or another file tool before making claims about unseen file text.'
+      : '',
+    toolAvailable(opts, 'web_search')
+      ? 'For current external facts such as weather, news, versions, prices, or policies, use `web_search` unless reliable current context was already provided.'
+      : '',
+    'If a tool, install, network call, or external dependency blocks the real path, report the blocker honestly and try a reasonable alternative when one is available. Never fabricate tool output, file contents, API responses, or execution results.',
+    'Before finalizing, check that the response satisfies the user request, uses provided Ankole context consistently, and names any assumptions or unverified parts that matter.',
     '</completion_contract>'
-  ].join('\n')
+  ]
+    .filter(Boolean)
+    .join('\n')
 }
 
 /**
@@ -244,12 +254,14 @@ function toolsSection(opts: BuildAgentSystemPromptOptions): string {
     toolAvailable(opts, 'patch')
       ? "For `patch`, use replace mode for one precise edit and `mode='patch'` V4A for multi-file, multi-site, or larger edits."
       : '',
-    toolAvailable(opts, 'command') ? 'Use `command` for stateless one-shot shell work.' : '',
+    toolAvailable(opts, 'command')
+      ? 'Use `command` for stateless one-shot shell work, including build, test, install, and verification commands requested by the user or required by the workflow.'
+      : '',
     toolAvailable(opts, 'interactive_terminal')
       ? 'Use `interactive_terminal` for TTY/TUI programs, REPLs, and long-running interactive processes.'
       : '',
     toolAvailable(opts, 'codex_delegate')
-      ? 'Use `codex_delegate` when a nested coding agent should investigate, edit, test, or self-iterate on software work inside this same computer. Prefer it for substantial coding tasks where delegation plus independent verification is useful; inspect its result and rerun the relevant tests yourself before reporting completion.'
+      ? 'Use `codex_delegate` to spawn a managed Codex subagent for an independent task, especially reasoning-heavy subtasks, self-contained software deliverables, work that would flood your context with intermediate data, or independent workstreams. Each subagent gets its own Codex app-server thread, terminal/tool context, and workdir, and returns a delegation snapshot as its task report.'
       : '',
     browserToolsAvailable(opts)
       ? 'Use `browser_*` for rendered browser work inside the same computer. Browser sessions are persistent per execution scope through the configured CDP backend: local Chromium by default, or an operator-configured remote CDP service. Observe pages with `browser_snapshot`, use `browser_find` to search long rendered pages, then act on the latest element refs with tools such as `browser_click` and `browser_type`.'
@@ -257,18 +269,21 @@ function toolsSection(opts: BuildAgentSystemPromptOptions): string {
     toolAvailable(opts, 'check_back_later')
       ? 'Use `check_back_later` for one delayed self-wakeup tied to the current provider route.'
       : '',
+    toolAvailable(opts, 'reply_attachment')
+      ? "You can send files natively: to deliver a file to the user, call `reply_attachment` with a local path under /workspace/user-files (e.g. path='/workspace/user-files/report.pdf'). The file will be sent as a native attachment in the current provider reply."
+      : '',
     toolAvailable(opts, 'cron')
       ? 'Use `cron` for recurring schedules; it supports listing, adding, updating, pausing, resuming, removing, manual run, and run history. If the user asks what recurring work, standing tasks, monitors, routines, or scheduled jobs exist in this conversation, use `cron` with action=list.'
       : '',
     toolAvailable(opts, 'memory_note')
-      ? 'Use `memory_note` to save, list, update, or forget curated durable facts for this agent in the current channel. If the user asks what you remember about this channel, use `memory_note` with action=list. A channel can have at most 40 notes and each note can have at most 500 characters; when the limit is reached, list/update/forget/merge notes before saving another one.'
+      ? 'Use `memory_note` to save, list, update, or forget curated durable facts for this agent in the current channel. Save proactively when the user states a preference, correction, personal detail, or stable fact about their environment, conventions, or workflow. If the user asks what you remember about this channel, use `memory_note` with action=list. A channel can have at most 40 notes and each note can have at most 500 characters; when the limit is reached, list/update/forget/merge notes before saving another one.'
       : '',
     toolAvailable(opts, 'memory_search')
       ? 'Use `memory_search` before answering about prior work, decisions, dates, people, preferences, or channel history.'
       : '',
     toolAvailable(opts, 'memory_browse') ? 'Use `memory_browse` for exact channel-history browsing.' : '',
     toolAvailable(opts, 'skill_view') && toolAvailable(opts, 'skill_append')
-      ? "Use `skill_view` to load enabled skills and `skill_append` to append durable notes to this agent's DB-backed overlay for an enabled skill. When loaded skill content refers to relative paths, resolve them from that skill's `directory` attribute and run commands with absolute paths."
+      ? "Use `skill_view` to load enabled skills and `skill_append` to append durable notes to this agent's DB-backed overlay for an enabled skill. The skill index is not inspection evidence: when the user asks to inspect, view, choose, recommend, or identify an available skill, pick the relevant listed skill and call `skill_view` before answering. When loaded skill content refers to relative paths, resolve them from that skill's `directory` attribute and run commands with absolute paths."
       : ''
   ].filter(Boolean)
 
@@ -345,20 +360,20 @@ function isSkillPromptEntry(skill: SkillPromptEntry | null): skill is SkillPromp
  * Formats current channel context into a compact prompt phrase.
  */
 function formatCurrentChannel(channel: CurrentChannelContext): string {
-  switch (channel.kind) {
-    case 'external_dm': {
+  return match(channel)
+    .with({ kind: 'external_dm' }, channel => {
       const label = platformLabel(channel.platform, 'DM')
       return channel.name ? `${label} with ${channel.name}` : label
-    }
-    case 'external_group': {
+    })
+    .with({ kind: 'external_group' }, channel => {
       const label = platformLabel(channel.platform, 'Group Chat')
       return channel.name ? `${label} "${channel.name}"` : label
-    }
-    case 'external_room': {
+    })
+    .with({ kind: 'external_room' }, channel => {
       const label = platformLabel(channel.platform, 'Channel')
       return channel.name ? `${label} "${channel.name}"` : label
-    }
-  }
+    })
+    .exhaustive()
 }
 
 /**
@@ -369,20 +384,10 @@ function platformLabel(platform: string | undefined, noun: string): string {
   return brand ? `${brand} ${noun}` : noun
 }
 
-type JsonRecord = Record<string, unknown>
-
-/**
- * Reads a nested JSON object field from prompt-building context.
- */
-function recordArg(args: JsonRecord | undefined, key: string): JsonRecord | undefined {
-  const value = args?.[key]
-  return isRecord(value) ? value : undefined
-}
-
 /**
  * Reads and trims a string field from prompt-building context.
  */
-function stringArg(args: JsonRecord | undefined, key: string): string | undefined {
+function stringArg(args: JsonObject | undefined, key: string): string | undefined {
   const value = args?.[key]
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined
 }
@@ -394,13 +399,6 @@ function parseDate(value: string | null | undefined): Date | undefined {
   if (!value) return undefined
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? undefined : date
-}
-
-/**
- * Narrows unknown values to JSON records for prompt building.
- */
-function isRecord(value: unknown): value is JsonRecord {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 /**

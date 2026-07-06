@@ -25,8 +25,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   alias Ankole.AIGateway
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.Kernel.UniversalAIClient
-
-  require Logger
+  alias Ankole.Logging
 
   @http_only_websocket_fields ~w(stream stream_options background)
 
@@ -191,6 +190,18 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
         event = universal_ai_request_failed_event(details)
         {:push, {:text, Ankole.JSON.encode!(event)}, state}
 
+      {:error, {:tool_results_record_unavailable, %{} = details}} ->
+        event =
+          error_event(
+            503,
+            "tool_results_record_unavailable",
+            "AIGateway could not persist tool results before the retry budget was exhausted.",
+            nil,
+            details
+          )
+
+        {:push, {:text, Ankole.JSON.encode!(event)}, state}
+
       {:error, reason} ->
         event = error_event(422, "ai_gateway_request_failed", inspect(reason))
         {:push, {:text, Ankole.JSON.encode!(event)}, state}
@@ -224,6 +235,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
 
     case AIGateway.record_tool_results(state.subject_uid, request) do
       {:ok, %{body: body}} ->
+        publish_tool_results_recorded(request)
         event = tool_results_recorded_event(body)
         {:push, {:text, Ankole.JSON.encode!(event)}, state}
 
@@ -470,6 +482,10 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   defp maybe_publish_typed_events(%{message_id: _message_id}, old_active, new_active, seq) do
     actor_event_id = get_in(new_active, [:stateful, :actor_event_id])
 
+    if actor_event_id do
+      publish_new_tool_calls(actor_event_id, old_active, new_active, seq)
+    end
+
     if actor_event_id && new_active.text_buffer != old_active.text_buffer do
       delta = text_delta_since(old_active.text_buffer, new_active.text_buffer)
 
@@ -483,6 +499,50 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
 
     :ok
   end
+
+  defp publish_new_tool_calls(actor_event_id, old_active, new_active, seq) do
+    old_items = Map.get(old_active, :accumulated_items, [])
+    new_items = Map.get(new_active, :accumulated_items, [])
+    old_count = length(old_items)
+
+    new_items
+    |> Enum.drop(old_count)
+    |> Enum.filter(&function_call_item?/1)
+    |> Enum.each(fn item ->
+      StatefulResponses.publish_typed_event(
+        actor_event_id,
+        :tool_call_started,
+        tool_activity_payload(item, seq)
+      )
+    end)
+  end
+
+  defp publish_tool_results_recorded(%{
+         "input" => input,
+         "metadata" => %{"actor_event_id" => actor_event_id}
+       })
+       when is_binary(actor_event_id) and is_list(input) do
+    input
+    |> Enum.filter(&function_call_output_item?/1)
+    |> Enum.each(fn item ->
+      StatefulResponses.publish_typed_event(
+        actor_event_id,
+        :tool_call_completed,
+        tool_activity_payload(item, nil)
+      )
+    end)
+  end
+
+  defp publish_tool_results_recorded(_body), do: :ok
+
+  defp tool_activity_payload(item, seq) do
+    item
+    |> Map.take(["call_id", "name", "output"])
+    |> maybe_put_payload("seq", seq)
+  end
+
+  defp maybe_put_payload(payload, _key, nil), do: payload
+  defp maybe_put_payload(payload, key, value), do: Map.put(payload, key, value)
 
   defp text_delta_since(old_text, new_text)
        when is_binary(old_text) and is_binary(new_text) do
@@ -686,6 +746,9 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   defp function_call_item?(%{"type" => "function_call"}), do: true
   defp function_call_item?(_item), do: false
 
+  defp function_call_output_item?(%{"type" => "function_call_output"}), do: true
+  defp function_call_output_item?(_item), do: false
+
   # ─────────────────────────────────────────────────────────────────
   # Response ID rewriting
   # ─────────────────────────────────────────────────────────────────
@@ -780,7 +843,15 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
         :ok
 
       {:error, reason} ->
-        Logger.warning("AIGateway response complete commit failed: #{inspect(reason)}")
+        Logging.warning(
+          "ai_gateway.socket.complete_commit_failed",
+          "AIGateway response complete commit failed",
+          %{
+            message_id: stateful.message_id,
+            reason: inspect(reason)
+          }
+        )
+
         commit_stateful_terminal_commit_failure(stateful, items, reason)
         {:error, reason}
     end
@@ -800,7 +871,15 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
         :ok
 
       {:error, reason} ->
-        Logger.warning("AIGateway response error commit failed: #{inspect(reason)}")
+        Logging.warning(
+          "ai_gateway.socket.error_commit_failed",
+          "AIGateway response error commit failed",
+          %{
+            message_id: stateful.message_id,
+            reason: inspect(reason)
+          }
+        )
+
         {:error, reason}
     end
   end

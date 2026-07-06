@@ -696,10 +696,10 @@ Manual compaction is `POST /responses/compact` with a `previous_response_id`:
 
 Auto-compaction runs inside the write path, at history expansion:
 
-- AIGateway estimates the provider-facing input budget as characters divided
-  by four, plus a fixed overhead per item. This is deliberately rough: it
-  avoids a tokenizer dependency, and the cost of estimating early or late is
-  one compaction sooner or later, not a correctness failure.
+- AIGateway budgets automatic compaction from upstream provider usage recorded
+  on history messages. `usage.total_tokens` is used when present; otherwise
+  normalized `input_tokens + output_tokens` is used. Missing usage metadata is
+  not replaced by a content-length heuristic.
 - Over the threshold, it selects the compactable prefix: `complete`
   text-bearing rows after the last valid compaction. It never covers
   `generating` rows, never covers `retracted` rows, and always keeps a recent

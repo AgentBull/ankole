@@ -3,8 +3,7 @@ defmodule Ankole.AuthZ.Decision do
 
   alias Ankole.AuthZ.Snapshot
   alias Ankole.Kernel, as: AnkoleKernel
-
-  require Logger
+  alias Ankole.Logging
 
   def authorize_decision(principal_uid, resource, action, context \\ %{}) do
     with {:ok, snapshot} <-
@@ -52,7 +51,7 @@ defmodule Ankole.AuthZ.Decision do
       reason: diagnostic["reason"]
     }
 
-    Logger.error("AuthZ invalid persisted data: #{inspect(metadata)}")
+    Logging.error("authz.invalid_persisted_data", "AuthZ invalid persisted data", metadata)
     :telemetry.execute([:ankole, :authz, :invalid_persisted_data], %{count: 1}, metadata)
   end
 

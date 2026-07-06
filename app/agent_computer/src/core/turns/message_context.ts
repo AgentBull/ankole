@@ -1,4 +1,4 @@
-import type { JsonObject } from '../../lanes/actor_lane'
+import { recordValue, type JsonObject } from '@pleisto/active-support'
 import type { TextContent, UserMessage } from '../llm'
 
 const AGENT_ENVIRONMENT_INFO_OPEN = '<agent_environment_info>'
@@ -151,7 +151,7 @@ function formatTimestamp(value: string, timezone?: string): string {
  * Narrows unknown values to JSON objects, using an empty object as fallback.
  */
 function objectValue(value: unknown): JsonObject {
-  return typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as JsonObject) : {}
+  return recordValue(value) ?? {}
 }
 
 /**

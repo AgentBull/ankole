@@ -9,9 +9,8 @@ defmodule Ankole.AuthZ.Root do
   alias Ankole.AuthZ.Group
   alias Ankole.AuthZ.Membership
   alias Ankole.AuthZ.Store
+  alias Ankole.Logging
   alias Ankole.Repo
-
-  require Logger
 
   @admin_group_name "admin"
   @all_humans_group_name "all_humans"
@@ -196,7 +195,14 @@ defmodule Ankole.AuthZ.Root do
         Enum.all?(row)
 
       {:error, reason} ->
-        Logger.debug("AuthZ root_initialized table check failed: #{inspect(reason)}")
+        Logging.debug(
+          "authz.root.storage_check_failed",
+          "AuthZ root initialized table check failed",
+          %{
+            reason: inspect(reason)
+          }
+        )
+
         false
     end
   end

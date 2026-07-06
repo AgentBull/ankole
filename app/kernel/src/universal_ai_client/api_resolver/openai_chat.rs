@@ -22,6 +22,8 @@ struct ChatState {
     tool_calls: BTreeMap<usize, ToolCall>,
     usage: Value,
     terminal: bool,
+    pending_status: Option<String>,
+    pending_incomplete_reason: Option<String>,
     next_output_index: usize,
 }
 
@@ -41,6 +43,8 @@ impl ChatState {
             tool_calls: BTreeMap::new(),
             usage: json!({}),
             terminal: false,
+            pending_status: None,
+            pending_incomplete_reason: None,
             next_output_index: 0,
         }
     }
@@ -60,15 +64,19 @@ impl ChatState {
             .unwrap_or_else(|| json!({}));
         let delta = choice.get("delta").cloned().unwrap_or_else(|| json!({}));
 
-        if let Some(content) = delta.get("content").and_then(Value::as_str) {
-            if !content.is_empty() {
-                events.extend(self.text_delta(content));
-            }
-        }
+        let terminal_pending = self.pending_status.is_some();
 
-        if let Some(tool_calls) = delta.get("tool_calls").and_then(Value::as_array) {
-            for tool_call in tool_calls {
-                events.extend(self.tool_call_delta(tool_call));
+        if !terminal_pending {
+            if let Some(content) = delta.get("content").and_then(Value::as_str) {
+                if !content.is_empty() {
+                    events.extend(self.text_delta(content));
+                }
+            }
+
+            if let Some(tool_calls) = delta.get("tool_calls").and_then(Value::as_array) {
+                for tool_call in tool_calls {
+                    events.extend(self.tool_call_delta(tool_call));
+                }
             }
         }
 
@@ -77,7 +85,8 @@ impl ChatState {
                 "length" => ("incomplete", Some("max_output_tokens")),
                 _reason => ("completed", None),
             };
-            events.extend(self.finish(context, status, reason));
+            self.pending_status = Some(status.to_string());
+            self.pending_incomplete_reason = reason.map(ToOwned::to_owned);
         }
 
         events
@@ -410,6 +419,11 @@ impl ApiProtocol for ChatState {
     }
 
     fn on_upstream_close(&mut self, context: &ResponseContext) -> Result<Vec<Value>, StreamError> {
+        if let Some(status) = self.pending_status.clone() {
+            let reason = self.pending_incomplete_reason.clone();
+            return Ok(self.finish(context, &status, reason.as_deref()));
+        }
+
         Ok(self.finish(context, "incomplete", Some("upstream_stream_closed")))
     }
 
@@ -475,18 +489,15 @@ fn chat_completion_body_to_response(context: &ResponseContext, body: Value) -> V
 fn chat_output_items(message: &Value) -> Value {
     let content = message.get("content").unwrap_or(&Value::Null);
     let mut items = Vec::new();
+    let content_parts = chat_assistant_content_parts(content);
 
-    if !content.as_str().is_none_or(|text| text.trim().is_empty()) && !content.is_null() {
+    if !content_parts.is_empty() {
         items.push(json!({
             "id": generated_id("msg"),
             "type": "message",
             "status": "completed",
             "role": "assistant",
-            "content": [{
-                "type": "output_text",
-                "text": value_to_string(content),
-                "annotations": []
-            }]
+            "content": content_parts
         }));
     }
 
@@ -515,6 +526,52 @@ fn chat_output_items(message: &Value) -> Value {
     }
 
     Value::Array(items)
+}
+
+fn chat_assistant_content_parts(content: &Value) -> Vec<Value> {
+    match content {
+        Value::String(text) => output_text_part(text).into_iter().collect(),
+        Value::Array(parts) => parts
+            .iter()
+            .filter_map(chat_assistant_content_part)
+            .collect(),
+        Value::Null => Vec::new(),
+        value => output_text_part(&value_to_string(value)).into_iter().collect(),
+    }
+}
+
+fn chat_assistant_content_part(part: &Value) -> Option<Value> {
+    match part {
+        Value::String(text) => output_text_part(text),
+        Value::Object(map) => match map.get("type").and_then(Value::as_str) {
+            Some("output_text" | "text" | "input_text") => map
+                .get("text")
+                .map(value_to_text)
+                .and_then(|text| output_text_part(&text)),
+            Some("refusal") => map
+                .get("refusal")
+                .or_else(|| map.get("text"))
+                .map(value_to_text)
+                .and_then(|text| output_text_part(&text)),
+            _type => map
+                .get("text")
+                .map(value_to_text)
+                .and_then(|text| output_text_part(&text)),
+        },
+        _part => None,
+    }
+}
+
+fn output_text_part(text: &str) -> Option<Value> {
+    if text.trim().is_empty() {
+        None
+    } else {
+        Some(json!({
+            "type": "output_text",
+            "text": text,
+            "annotations": []
+        }))
+    }
 }
 
 fn build_openai_chat_body(context: &ResponseContext) -> Map<String, Value> {
@@ -635,19 +692,33 @@ fn chat_messages(request: &Map<String, Value>) -> Value {
     match input {
         Some(Value::String(text)) => messages.push(json!({ "role": "user", "content": text })),
         Some(Value::Array(items)) => {
+            let mut pending_tool_calls = Vec::new();
             for item in items {
                 match item {
                     Value::Object(map) => {
+                        match map.get("type").and_then(Value::as_str) {
+                            Some("function_call") => {
+                                pending_tool_calls.push(chat_function_call(map));
+                                continue;
+                            }
+                            Some("function_call_output") => {
+                                flush_chat_tool_calls(&mut messages, &mut pending_tool_calls);
+                                messages.push(chat_function_call_output(map));
+                                continue;
+                            }
+                            _type => {}
+                        }
+
+                        flush_chat_tool_calls(&mut messages, &mut pending_tool_calls);
                         let role = map
                             .get("role")
                             .and_then(Value::as_str)
                             .map(normalize_chat_role);
                         let content = map.get("content");
                         match (role, content) {
-                            (Some(role), Some(content)) => messages.push(json!({
-                                "role": role,
-                                "content": chat_message_content(role, content)
-                            })),
+                            (Some(role), Some(content)) => {
+                                messages.push(chat_role_content_message(role, content, map))
+                            }
                             _ => messages.push(json!({
                                 "role": "user",
                                 "content": value_to_text(item)
@@ -655,10 +726,12 @@ fn chat_messages(request: &Map<String, Value>) -> Value {
                         }
                     }
                     value => {
+                        flush_chat_tool_calls(&mut messages, &mut pending_tool_calls);
                         messages.push(json!({ "role": "user", "content": value_to_text(value) }))
                     }
                 }
             }
+            flush_chat_tool_calls(&mut messages, &mut pending_tool_calls);
         }
         _input => {}
     }
@@ -666,10 +739,79 @@ fn chat_messages(request: &Map<String, Value>) -> Value {
     Value::Array(messages)
 }
 
+fn flush_chat_tool_calls(messages: &mut Vec<Value>, pending_tool_calls: &mut Vec<Value>) {
+    if pending_tool_calls.is_empty() {
+        return;
+    }
+
+    messages.push(json!({
+        "role": "assistant",
+        "content": Value::Null,
+        "tool_calls": std::mem::take(pending_tool_calls)
+    }));
+}
+
+fn chat_function_call(map: &Map<String, Value>) -> Value {
+    let call_id = map
+        .get("call_id")
+        .map(value_to_text)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| generated_id("call"));
+    let name = map
+        .get("name")
+        .map(value_to_text)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "unknown".to_string());
+    let arguments = map
+        .get("arguments")
+        .map(value_to_string)
+        .unwrap_or_else(|| "{}".to_string());
+
+    json!({
+        "id": call_id,
+        "type": "function",
+        "function": {
+            "name": name,
+            "arguments": arguments
+        }
+    })
+}
+
+fn chat_function_call_output(map: &Map<String, Value>) -> Value {
+    json!({
+        "role": "tool",
+        "tool_call_id": map.get("call_id").map(value_to_text).unwrap_or_default(),
+        "content": map.get("output").map(value_to_text).unwrap_or_default()
+    })
+}
+
+fn chat_role_content_message(role: &str, content: &Value, map: &Map<String, Value>) -> Value {
+    let mut message = Map::new();
+    message.insert("role".to_string(), json!(role));
+    message.insert(
+        "content".to_string(),
+        chat_message_content(role, content),
+    );
+
+    if role == "tool" {
+        if let Some(tool_call_id) = map
+            .get("tool_call_id")
+            .or_else(|| map.get("call_id"))
+            .map(value_to_text)
+            .filter(|value| !value.is_empty())
+        {
+            message.insert("tool_call_id".to_string(), json!(tool_call_id));
+        }
+    }
+
+    Value::Object(message)
+}
+
 fn normalize_chat_role(role: &str) -> &str {
     match role {
         "developer" | "system" => "system",
         "assistant" => "assistant",
+        "tool" => "tool",
         _role => "user",
     }
 }
@@ -680,7 +822,37 @@ fn chat_message_content(role: &str, content: &Value) -> Value {
             return Value::Array(parts.iter().map(chat_user_content_part).collect());
         }
     }
-    json!(value_to_text(content))
+
+    json!(chat_text_content(content))
+}
+
+fn chat_text_content(content: &Value) -> String {
+    match content {
+        Value::String(text) => text.clone(),
+        Value::Array(parts) => parts
+            .iter()
+            .filter_map(chat_text_content_part)
+            .collect::<Vec<_>>()
+            .join(""),
+        Value::Null => String::new(),
+        value => value_to_text(value),
+    }
+}
+
+fn chat_text_content_part(part: &Value) -> Option<String> {
+    match part {
+        Value::String(text) => Some(text.clone()),
+        Value::Object(map) => match map.get("type").and_then(Value::as_str) {
+            Some("input_text" | "output_text" | "text") => map.get("text").map(value_to_text),
+            Some("refusal") => map
+                .get("refusal")
+                .or_else(|| map.get("text"))
+                .map(value_to_text),
+            _type => map.get("text").map(value_to_text),
+        },
+        Value::Null => None,
+        value => Some(value_to_text(value)),
+    }
 }
 
 fn chat_user_content_part(part: &Value) -> Value {

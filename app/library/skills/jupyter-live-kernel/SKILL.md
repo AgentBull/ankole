@@ -48,6 +48,91 @@ uv pip install --python "$AGENT_PYTHON" <package>
 
 The bootstrap uses `uv venv --system-site-packages`, so the env sees the image baseline and stores only package deltas.
 
+## File Analysis And Artifact Delivery
+
+When the user asks for analysis of an uploaded file and expects a chart or file
+back, do not stop after saying that the server/session has started. Finish the
+artifact path first, verify it exists, then call `reply_attachment` when a file
+should be sent back.
+
+Prefer one foreground `command` call for this batch workflow. The command may
+start Jupyter in the background inside its own shell, but keep server startup,
+session creation, `jupyter_live_kernel.py execute`, artifact verification, and
+cleanup in that same shell command. Do not split "start Jupyter" and "execute
+analysis" into separate tool calls unless you use `interactive_terminal` to keep
+the server process alive.
+
+For readiness, use the explicit local REST API (`curl http://127.0.0.1:$PORT/...`)
+rather than `jupyter_live_kernel.py servers`; server discovery can miss a
+freshly-started server in constrained worker environments. When calling the
+hamelnb helper, pass `--server-url "http://127.0.0.1:$PORT/"` so it does not
+depend on discovery.
+
+For non-trivial multi-line Python, avoid shell-escaping the whole program into
+`--code`. For a disposable scratch script under `/workspace/temp`, create the
+code file inside the same foreground `command` with a single-quoted heredoc and
+then pass `--code-file`. This keeps ordinary Python syntax intact and avoids
+quoting bugs in f-strings, JSON, paths, or SQL. Use `patch` instead when
+modifying an existing user/repo file; this workflow is only for temporary
+generated analysis code.
+
+Minimal shape:
+
+```bash
+set -euo pipefail
+SCRIPT=/repo/app/library/skills/jupyter-live-kernel/scripts/jupyter_live_kernel.py
+NOTEBOOK_DIR=/workspace/user-files/notebooks
+NOTEBOOK_PATH=analysis.ipynb
+ANALYSIS_CODE_FILE=/workspace/temp/analysis_code.py
+PORT=8888
+ARTIFACT_PATH=/workspace/user-files/analysis/result.png
+export NOTEBOOK_DIR NOTEBOOK_PATH ARTIFACT_PATH
+mkdir -p "$NOTEBOOK_DIR" /workspace/temp "$(dirname "$ARTIFACT_PATH")"
+
+cat > "$ANALYSIS_CODE_FILE" <<'PY'
+# Task-specific Python goes here. Read uploaded inputs and write ARTIFACT_PATH.
+PY
+
+python -m jupyter lab \
+  --no-browser --ip=127.0.0.1 --port="$PORT" --port-retries=0 \
+  --notebook-dir="$NOTEBOOK_DIR" --allow-root \
+  --IdentityProvider.token='' --ServerApp.password='' \
+  --ServerApp.disable_check_xsrf=True \
+  > /workspace/temp/jupyter-analysis.log 2>&1 &
+jupyter_pid=$!
+cleanup() { kill "$jupyter_pid" >/dev/null 2>&1 || true; }
+trap cleanup EXIT
+
+for _ in $(seq 1 30); do
+  curl -sf "http://127.0.0.1:$PORT/api/sessions" >/dev/null && break
+  sleep 1
+done
+
+python - <<'PY'
+import json, pathlib, os
+path = pathlib.Path(os.environ.get("NOTEBOOK_DIR", "/workspace/user-files/notebooks")) / os.environ.get("NOTEBOOK_PATH", "analysis.ipynb")
+path.write_text(json.dumps({
+    "cells": [{"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [], "source": ""}],
+    "metadata": {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"}},
+    "nbformat": 4,
+    "nbformat_minor": 5
+}))
+PY
+
+curl -sf -X POST "http://127.0.0.1:$PORT/api/sessions" \
+  -H "Content-Type: application/json" \
+  -d "{\"path\":\"$NOTEBOOK_PATH\",\"type\":\"notebook\",\"name\":\"$NOTEBOOK_PATH\",\"kernel\":{\"name\":\"python3\"}}" \
+  >/workspace/temp/jupyter-analysis-session.json
+
+# ANALYSIS_CODE_FILE should contain task-specific Python code that reads the
+# uploaded input, computes the requested result, and writes ARTIFACT_PATH under
+# /workspace/user-files.
+python "$SCRIPT" execute --port "$PORT" --path "$NOTEBOOK_PATH" \
+  --server-url "http://127.0.0.1:$PORT/" --code-file "$ANALYSIS_CODE_FILE" --compact
+
+test -s "$ARTIFACT_PATH"
+```
+
 ## Start Jupyter
 
 Start one Jupyter server per agent workspace. In the computer container, root execution and local REST API access require explicit flags:

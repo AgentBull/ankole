@@ -47,8 +47,9 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
                 )
   @concurrency_timeout_ms 90_000
 
-  @openrouter_llm_model "qwen/qwen3.5-flash-02-23"
-  @openrouter_embedding_model "perplexity/pplx-embed-v1-0.6b"
+  @openrouter_llm_model "z-ai/glm-5.2"
+  @openrouter_vision_model "google/gemini-3.1-flash-lite"
+  @openrouter_embedding_model "qwen/qwen3-embedding-4b"
   @openrouter_rerank_model "cohere/rerank-4-fast"
   @alibaba_cn_llm_model "qwen-plus"
   @volcengine_ark_llm_model "doubao-seed-1-6"
@@ -224,16 +225,23 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
       model: llm_model
     })
 
+    put_profile!(agent.uid, "vision_fallback", %{
+      provider_id: provider_id,
+      model: @openrouter_vision_model
+    })
+
     setup
     |> Map.put(:openrouter_provider, provider_id)
     |> Map.put(:openrouter_agent, agent)
     |> Map.put(:openrouter_llm_model, llm_model)
+    |> Map.put(:openrouter_vision_model, @openrouter_vision_model)
     |> Map.put(:openrouter_embedding_model, embedding_model)
     |> Map.put(:openrouter_rerank_model, rerank_model)
   end
 
   defp setup_jina(%{suffix: suffix} = setup, credential) do
     provider_id = "e2e-jina-#{suffix}"
+    search_provider_id = "e2e-jina-search-#{suffix}"
 
     create_provider!(%{
       provider_id: provider_id,
@@ -246,6 +254,13 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
         "api_key" => credential,
         "transport" => %{"http_versions" => ["h1"], "compression" => ["zstd", "br", "gzip"]}
       }
+    })
+
+    create_provider!(%{
+      provider_id: search_provider_id,
+      provider_kind: "jina_search",
+      base_url: "https://s.jina.ai",
+      connection_options: %{"api_key" => credential}
     })
 
     agent =
@@ -266,6 +281,11 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
           }
         }
       )
+
+    put_profile!(agent.uid, "web_search", %{
+      provider_id: search_provider_id,
+      model: "default"
+    })
 
     Map.put(setup, :jina_agent, agent)
   end
@@ -371,6 +391,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
       openrouter_provider: "fake-openrouter",
       openrouter_agent: %{uid: "fake-openrouter-agent"},
       openrouter_llm_model: "fake-openrouter-model",
+      openrouter_vision_model: "fake-openrouter-vision-model",
       openrouter_embedding_model: "fake-openrouter-embedding-model",
       openrouter_rerank_model: "fake-openrouter-rerank-model"
     }
@@ -403,6 +424,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
            openrouter_agent: agent,
            openrouter_provider: provider,
            openrouter_llm_model: llm_model,
+           openrouter_vision_model: _vision_model,
            openrouter_embedding_model: embedding_model,
            openrouter_rerank_model: rerank_model
          },
@@ -417,7 +439,8 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
       {"openrouter.llm_structured_json", fn -> case_llm_structured_json(agent) end},
       {"openrouter.llm_http_sse", fn -> case_llm_http_sse(agent) end},
       {"openrouter.llm_function_call", fn -> case_llm_function_call(agent) end},
-      {"openrouter.llm_multimodal", fn -> case_llm_multimodal(agent, "primary", image) end},
+      {"openrouter.llm_multimodal",
+       fn -> case_llm_multimodal(agent, "vision_fallback", image) end},
       {"openrouter.embedding_batch",
        fn ->
          case_embedding(agent, "embedding.default", [
@@ -460,7 +483,8 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
        end},
       {"jina.rerank_return_documents_true", fn -> case_rerank(agent, "rerank.default", true) end},
       {"jina.rerank_return_documents_false",
-       fn -> case_rerank(agent, "rerank.default", false) end}
+       fn -> case_rerank(agent, "rerank.default", false) end},
+      {"jina_search.web_search", fn -> case_web_search(agent, "web_search.default") end}
       | cases
     ]
   end
@@ -519,12 +543,15 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
 
   defp case_llm_direct(agent, model) do
     {:ok, response} =
-      AIGateway.create_response(agent.uid, %{
-        "model" => model,
-        "input" => "Say hello in one short sentence.",
-        "max_output_tokens" => 64,
-        "temperature" => 0
-      })
+      AIGateway.create_response(
+        agent.uid,
+        %{
+          "model" => model,
+          "input" => "Say hello in one short sentence.",
+          "max_output_tokens" => 512,
+          "temperature" => 0
+        }
+      )
 
     summarize_llm_response(response.body)
   end
@@ -538,7 +565,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
         "model" => "primary",
         "input" => "Reply with one short sentence about stateless gateways.",
         "stream" => false,
-        "max_output_tokens" => 40
+        "max_output_tokens" => 512
       })
 
     conn
@@ -553,7 +580,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
         "input" =>
           "Return JSON for this object only: gateway=ankole, transport=sse, stable=true.",
         "extra_body" => %{"enable_thinking" => false},
-        "max_output_tokens" => 120,
+        "max_output_tokens" => 768,
         "temperature" => 0,
         "response_format" => %{
           "type" => "json_schema",
@@ -602,7 +629,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
         "model" => "primary",
         "input" => "Reply with exactly: streaming ok",
         "stream" => true,
-        "max_output_tokens" => 32
+        "max_output_tokens" => 512
       })
 
     response = response(conn, 200)
@@ -617,14 +644,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
     events = decode_sse_events(response)
     require!(length(events) >= 2, "SSE event count too low")
 
-    require!(
-      List.last(events)["type"] in [
-        "response.completed",
-        "response.failed",
-        "response.incomplete"
-      ],
-      "missing terminal response event"
-    )
+    require!(List.last(events)["type"] == "response.completed", "SSE response did not complete")
 
     Enum.each(events, fn event -> require!(event["type"] != nil, "SSE event missing type") end)
 
@@ -637,7 +657,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
         "model" => "primary",
         "input" => "Use the tool to look up the weather for Shanghai.",
         "extra_body" => %{"enable_thinking" => false},
-        "max_output_tokens" => 120,
+        "max_output_tokens" => 512,
         "temperature" => 0,
         "tools" => [
           %{
@@ -803,6 +823,36 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
     %{count: length(results), model: response.body["model"], top_index: hd(results)["index"]}
   end
 
+  defp case_web_search(agent, model) do
+    conn =
+      agent.uid
+      |> mint_agent_token!()
+      |> authed_conn()
+      |> post("/api/v1/ai-gateway/web_search", %{
+        "model" => model,
+        "query" => "Ankole agent operating system",
+        "limit" => 3
+      })
+
+    body = json_response!(conn, 200)
+    results = Map.get(body, "results", [])
+
+    require!(body["success"] == true, "web_search success flag was not true")
+    require!(body["query"] == "Ankole agent operating system", "web_search query mismatch")
+    require!(is_list(results) and results != [], "web_search returned no results")
+
+    first = List.first(results)
+    require!(is_binary(first["title"]) and first["title"] != "", "web_search missing title")
+    require!(is_binary(first["url"]) and first["url"] != "", "web_search missing url")
+
+    %{
+      count: length(results),
+      first_title: first["title"],
+      first_url: first["url"],
+      first_snippet_chars: String.length(first["snippet"] || "")
+    }
+  end
+
   defp case_openrouter_concurrent_multi_agent(provider, llm_model, embedding_model, rerank_model) do
     suffix = unique_suffix()
 
@@ -810,7 +860,11 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
       for index <- 1..4 do
         agent = create_agent!("e2e-openrouter-concurrent-#{suffix}-#{index}", %{})
 
-        put_profile!(agent.uid, "primary", %{provider_id: provider, model: llm_model})
+        put_profile!(agent.uid, "primary", %{
+          provider_id: provider,
+          model: llm_model
+        })
+
         put_profile!(agent.uid, "embedding", %{provider_id: provider, model: embedding_model})
         put_profile!(agent.uid, "rerank", %{provider_id: provider, model: rerank_model})
 
@@ -845,7 +899,11 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
     suffix = unique_suffix()
     agent = create_agent!("e2e-openrouter-chaos-#{suffix}", %{})
 
-    put_profile!(agent.uid, "primary", %{provider_id: provider, model: llm_model})
+    put_profile!(agent.uid, "primary", %{
+      provider_id: provider,
+      model: llm_model
+    })
+
     put_profile!(agent.uid, "embedding", %{provider_id: provider, model: embedding_model})
     put_profile!(agent.uid, "rerank", %{provider_id: provider, model: rerank_model})
 

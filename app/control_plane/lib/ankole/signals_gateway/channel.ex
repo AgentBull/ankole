@@ -29,7 +29,6 @@ defmodule Ankole.SignalsGateway.Channel do
 
     field :reply_mode, Ecto.Enum, values: [:none, :channel, :entry], default: :none
     field :name, :string
-    field :title, :string
     field :visibility, :string
     field :metadata, :map, default: %{}
     field :raw_payload, :map, default: %{}
@@ -52,14 +51,13 @@ defmodule Ankole.SignalsGateway.Channel do
       :kind,
       :reply_mode,
       :name,
-      :title,
       :visibility,
       :metadata,
       :raw_payload,
       :first_seen_at,
       :last_seen_at
     ])
-    |> normalize_blank([:id, :name, :title, :visibility])
+    |> normalize_blank([:id, :name, :visibility])
     |> validate_required([
       :id,
       :kind,

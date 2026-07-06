@@ -1,3 +1,4 @@
+import { match } from '@pleisto/active-support'
 import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../../core'
 import type { TurnStart } from '../../lanes/actor_lane'
@@ -5,16 +6,14 @@ import type { CodexRuntimeRequesters } from './manager'
 import { codexDelegationManager, type CodexDelegationSnapshot } from './manager'
 
 const CodexDelegateParams = z.object({
-  action: z.enum(['run', 'start', 'status', 'steer', 'stop']).describe('Codex delegation action.'),
+  action: z
+    .enum(['run', 'start', 'status', 'steer', 'stop'])
+    .describe(
+      'Codex delegation action. Use run for a foreground delegation that starts Codex and waits for a terminal result. Use start/status only for background delegation management.'
+    ),
   prompt: z.string().min(1).describe('Task prompt for run/start, or steer text for steer.').optional(),
   delegation_id: z.string().min(1).describe('Delegation id for status/steer/stop.').optional(),
   workdir: z.string().describe('Workspace-relative path or /workspace path for Codex to use.').optional(),
-  timeout_seconds: z
-    .number()
-    .int()
-    .positive()
-    .max(24 * 60 * 60)
-    .optional(),
   output_schema: z
     .record(z.string(), z.unknown())
     .describe('Optional JSON Schema for the final Codex answer.')
@@ -33,13 +32,38 @@ export type CodexDelegateToolOptions = CodexRuntimeRequesters & {
 }
 
 const DESCRIPTION = [
-  'Delegate coding work to a nested OpenAI Codex app-server agent running inside this Agent Computer.',
-  'Use for substantial code investigation, edits, tests, or self-iteration where a coding agent should work in the repo and report back.',
+  'Create one managed Codex subagent for an independent task.',
+  'Use codex_delegate when work benefits from isolated context or can proceed while you continue. Do not use it for simple single-step work -- just do that directly.',
+  'In Ankole, the managed subagent runs through the configured local Codex runtime with its own Codex app-server thread, toolset, and workdir.',
+  'Only the delegation snapshot returns to your context window; intermediate tool results stay inside the subagent task.',
+  '',
+  'TWO MODES (choose by action):',
+  '1. Foreground: action=run starts Codex and waits for a terminal result.',
+  '2. Background: action=start returns a delegation_id immediately; use status/steer/stop to manage that delegation.',
+  '',
+  'WHEN TO USE codex_delegate:',
+  '- Reasoning-heavy subtasks that need structured analysis, debugging, code review, or research synthesis',
+  '- Self-contained software deliverables that need an implementation and validation loop in their own workdir',
+  '- Tasks that would flood your context with intermediate data',
+  '- Independent workstreams that benefit from isolated context or can proceed while you continue',
+  '',
+  'WHEN NOT TO USE (use these instead):',
+  '- Mechanical multi-step work with no reasoning or implementation loop needed -> use command, read_file, patch, or another available tool',
+  '- Single tool call -> just call the tool directly',
+  '- Tasks needing user interaction -> subagents may ask for input, but the parent must steer or decide how to proceed',
+  '',
+  'IMPORTANT:',
+  '- Subagents have NO memory of your conversation. Pass all relevant info (file paths, error messages, constraints) via the prompt field.',
+  '- If the user is writing in a non-English language, or asked for output in a specific language / tone / style, say so in prompt (e.g. "respond in Chinese", "return output in Japanese"). Otherwise subagents default to English and their summaries will contaminate your final reply with the wrong language.',
+  '- Subagents complete the assigned task, use tools independently when needed, and report concise findings. A subagent may create artifacts and run its own validation inside the delegated task.',
+  '- Treat the delegation snapshot as the subagent task report. If the report lacks enough evidence for a user-visible claim, ask the subagent for a follow-up or inspect the relevant handle with available tools.',
+  '- The subagent model/auth/runtime is not selected per call here; it follows the configured local Codex runtime for this Agent Computer.',
+  '- Results are returned as a single delegation snapshot for this one delegated task.',
   '',
   'Actions:',
-  '- run: start Codex and wait until it succeeds/fails/times out or needs user input.',
-  '- start: enqueue a background Codex task and return a delegation_id immediately.',
-  '- status: inspect a known delegation.',
+  '- run: foreground mode. Start Codex and wait until it succeeds, fails, is stopped, or needs user input. After run returns a terminal status, do not call status or run again for the same subtask unless the user asked for a retry or you have a concrete new subtask.',
+  '- start: background mode. Enqueue a Codex task and return a delegation_id immediately.',
+  '- status: inspect a known background delegation created with start, or recover a known delegation after process/restart. This is not needed after a completed run call.',
   '- steer: answer a Codex question or steer an active Codex turn.',
   '- stop: cancel a queued or running delegation.',
   '',
@@ -72,8 +96,8 @@ async function executeCodexDelegate(
   opts: CodexDelegateToolOptions,
   signal?: AbortSignal
 ): Promise<CodexDelegationSnapshot> {
-  switch (params.action) {
-    case 'run': {
+  return match(params.action)
+    .with('run', async () => {
       const prompt = requiredPrompt(params)
       const snapshot = await codexDelegationManager.submit({
         turnStart: opts.turnStart,
@@ -82,39 +106,33 @@ async function executeCodexDelegate(
         request: {
           prompt,
           workdir: params.workdir,
-          timeoutSeconds: params.timeout_seconds,
           outputSchema: params.output_schema
         },
         requesters: opts,
         signal
       })
       return codexDelegationManager.wait(snapshot.delegation_id, signal)
-    }
-
-    case 'start':
-      return codexDelegationManager.submit({
+    })
+    .with('start', () =>
+      codexDelegationManager.submit({
         turnStart: opts.turnStart,
         workspaceRoot: opts.workspaceRoot,
         toolCallId,
         request: {
           prompt: requiredPrompt(params),
           workdir: params.workdir,
-          timeoutSeconds: params.timeout_seconds,
           outputSchema: params.output_schema
         },
         requesters: opts,
         signal
       })
-
-    case 'status':
-      return statusSnapshot(params.delegation_id, opts)
-
-    case 'steer':
-      return codexDelegationManager.steer(requiredDelegationId(params), requiredPrompt(params), params.answers)
-
-    case 'stop':
-      return codexDelegationManager.stop(requiredDelegationId(params))
-  }
+    )
+    .with('status', () => statusSnapshot(params.delegation_id, opts))
+    .with('steer', () =>
+      codexDelegationManager.steer(requiredDelegationId(params), requiredPrompt(params), params.answers)
+    )
+    .with('stop', () => codexDelegationManager.stop(requiredDelegationId(params)))
+    .exhaustive()
 }
 
 function requiredPrompt(params: CodexDelegateParams): string {

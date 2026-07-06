@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import type { JsonObject } from '../../fabric/fabric'
+import { isRecord, type JsonObject } from '@pleisto/active-support'
 import type { AIGatewayApiKeyResponse } from '../../lanes/rpc_lane'
 
 export const CodexConfigOverrideKey = 'agent_computer.codex.config_override'
@@ -27,15 +27,15 @@ export type MaterializedCodexConfig = {
 }
 
 export function parseCodexConfigOverride(value: unknown): CodexConfigOverride | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const object = value as Record<string, unknown>
+  if (!isRecord(value)) return null
+  const object = value
   const mode = object.mode
   if (mode !== 'aigateway' && mode !== 'official_subscription') return null
 
   return {
     mode,
     ...(typeof object.config_toml === 'string' ? { config_toml: object.config_toml } : {}),
-    ...(typeof object.auth_json === 'string' || isJsonObject(object.auth_json) ? { auth_json: object.auth_json } : {}),
+    ...(typeof object.auth_json === 'string' || isRecord(object.auth_json) ? { auth_json: object.auth_json } : {}),
     ...(isStringRecord(object.env) ? { env: object.env } : {})
   } as CodexConfigOverride
 }
@@ -141,10 +141,6 @@ function safePathSegment(value: string): string {
   return value.replace(/[^a-zA-Z0-9._-]/g, '_')
 }
 
-function isJsonObject(value: unknown): value is JsonObject {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
 function isStringRecord(value: unknown): value is Record<string, string> {
-  return isJsonObject(value) && Object.values(value).every(entry => typeof entry === 'string')
+  return isRecord(value) && Object.values(value).every(entry => typeof entry === 'string')
 }

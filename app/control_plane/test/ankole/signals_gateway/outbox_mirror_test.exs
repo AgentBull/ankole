@@ -285,7 +285,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
                source_entry_id: "mirror-fails-after-send"
              )
 
-      assert log =~ "signals_gateway outbox mirror failed after provider send"
+      assert log =~ "signals gateway outbox mirror failed after provider send"
     end
 
     test "outbox reply edit delete reaction divider and card mirror only after success" do

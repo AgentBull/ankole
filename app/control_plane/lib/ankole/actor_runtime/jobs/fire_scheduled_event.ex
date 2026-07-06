@@ -12,7 +12,6 @@ defmodule Ankole.ActorRuntime.Jobs.FireScheduledEvent do
       states: :incomplete
     ]
 
-  alias Ankole.ActorRuntime.ActivationManager
   alias Ankole.Schedule
 
   @impl Oban.Worker
@@ -37,7 +36,6 @@ defmodule Ankole.ActorRuntime.Jobs.FireScheduledEvent do
            max_attempts: max_attempts
          ) do
       {:ok, %{status: :fired}} ->
-        ActivationManager.wake()
         :ok
 
       {:ok, %{status: :noop}} ->

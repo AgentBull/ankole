@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { CdpClient } from './client'
-import { BROWSER_NAVIGATION_ATTEMPTS, DEFAULT_WAIT_MS } from './constants'
+import { BROWSER_NAVIGATION_ATTEMPTS, DEFAULT_BROWSER_COMMAND_TIMEOUT_MS, DEFAULT_WAIT_MS } from './constants'
 import {
   createLocalBrowserContext,
   findChromium,
@@ -125,10 +125,15 @@ export async function releaseBrowserSession(
       const connection = await resolveConnectionForSession(session, meta, options)
       const cdp = await CdpClient.connect(connection.connectUrl, {
         headers: connection.headers,
-        timeoutMs: 5_000
+        timeoutMs: DEFAULT_BROWSER_COMMAND_TIMEOUT_MS
       })
       try {
-        await cdp.send('Target.disposeBrowserContext', { browserContextId: meta.browser_context_id }, undefined, 5_000)
+        await cdp.send(
+          'Target.disposeBrowserContext',
+          { browserContextId: meta.browser_context_id },
+          undefined,
+          DEFAULT_BROWSER_COMMAND_TIMEOUT_MS
+        )
         browserContextDisposed = true
       } finally {
         cdp.close()
@@ -246,11 +251,11 @@ export async function browserStatus(
     const connection = await resolveConnectionForSession(session, meta, options)
     const cdp = await CdpClient.connect(connection.connectUrl, {
       headers: connection.headers,
-      timeoutMs: 5_000
+      timeoutMs: DEFAULT_BROWSER_COMMAND_TIMEOUT_MS
     })
     let body: JsonObject
     try {
-      body = await cdp.send<JsonObject>('Browser.getVersion', {}, undefined, 5_000)
+      body = await cdp.send<JsonObject>('Browser.getVersion', {}, undefined, DEFAULT_BROWSER_COMMAND_TIMEOUT_MS)
     } finally {
       cdp.close()
     }
@@ -685,7 +690,7 @@ export async function browserWait(
     args.session,
     options,
     async (cdp, page, session, connection) => {
-      const timeoutMs = Math.max(1_000, Math.min(args.timeoutMs ?? DEFAULT_WAIT_MS, 120_000))
+      const timeoutMs = Math.max(1_000, args.timeoutMs ?? DEFAULT_WAIT_MS)
       const started = Date.now()
       let nextFallbackProbeAt = started + 2_000
       while (Date.now() - started < timeoutMs) {

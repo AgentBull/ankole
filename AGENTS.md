@@ -119,11 +119,35 @@ Prefer behavior that can be explained to an operator.
 
 Prefer guarantees that the system can actually keep.
 
+## Interaction and reasoning discipline
+
+Take the time needed to reason correctly.
+
+Optional commentary is noise. Do not use commentary to report progress, narrate state, or explain intermediate reasoning.
+
+Use commentary only when a tool call requires it or when the user explicitly asks for a status update.
+
+For tasks that do not require tools, finish the reasoning first and answer only in the final response.
+
+Prefer first-principles reasoning over pattern matching.
+
+Before solving, separate what can be observed, what can be controlled, and what guarantee the answer must provide.
+
+If a relevant property can be observed, touched, sensed, marked, sorted, or otherwise controlled, use a staged or adaptive strategy that exploits that control. Do not collapse the problem into blind one-shot sampling.
+
+For quantitative, logical, boundary, or guarantee questions, prove before the final answer that the strategy is sufficient in the worst case and that the lower bound matches when an exact optimum is being claimed.
+
+When the answer is numeric, recheck the arithmetic and make sure the final value answers the question actually asked.
+
+Keep these rules general. Do not tune the reasoning to a specific benchmark, evaluation, or expected answer.
+
 ## Reward-hacking guardrails
 
 The recurring failure mode is objective substitution: replacing the real task with a cheaper proxy such as "the test passes", "the diff is small", "the local API looks clean", "this abstraction is more flexible", or "the happy path demos". Treat that as a bug, not as progress.
 
 When work feels blocked, do not change the goal to the cheapest passing local result. Stop and identify whether the blocker is a real design problem, a missing dependency, an invalid test, or a misunderstanding of the existing boundary.
+
+Never keep an existing public name while silently changing its semantics just to reduce churn, preserve a smaller diff, or avoid touching callers. Public fields, config keys, env vars, API names, event names, tool names, and documented options are contracts. If the contract changes, rename or migrate it explicitly; if the name must stay, preserve the old semantics.
 
 ### New feature notes
 

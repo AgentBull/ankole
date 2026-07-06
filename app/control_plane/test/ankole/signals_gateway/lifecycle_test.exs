@@ -167,9 +167,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                )
 
       assert {:ok, [%{actor_event: original_input}]} =
-               SignalsGateway.finalize_due_inbound_batches(
-                 now: DateTime.add(@base_time, 800, :millisecond)
-               )
+               finalize_due_inbound_batch_events(now: DateTime.add(@base_time, 800, :millisecond))
 
       assert original_input.source_entry_id == "msg-batch-b"
 
@@ -355,8 +353,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                    channel: %{
                      kind: :im_group,
                      reply_mode: :entry,
-                     name: "Operations",
-                     title: "Ops Room",
+                     name: "Ops Room",
                      metadata: %{topic: "incidents"}
                    }
                  }),
@@ -378,8 +375,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
 
       assert channel.kind == :im_group
       assert channel.reply_mode == :entry
-      assert channel.name == "Operations"
-      assert channel.title == "Ops Room"
+      assert channel.name == "Ops Room"
       assert channel.metadata == %{"topic" => "incidents"}
     end
 

@@ -8,10 +8,9 @@ defmodule Ankole.I18n do
   that must stop on missing or invalid text should call `translate/3`.
   """
 
-  require Logger
-
   alias Ankole.I18n.Config
   alias Ankole.I18n.Resolver
+  alias Ankole.Logging
 
   @type key :: String.t()
   @type bindings :: map() | keyword()
@@ -32,12 +31,10 @@ defmodule Ankole.I18n do
 
     case Resolver.lookup(full_key, locale) do
       nil ->
-        Logger.error("i18n missing",
-          event: :i18n_missing,
+        Logging.error("i18n.missing", "i18n missing", %{
           key: full_key,
-          locale: locale,
-          domain: :i18n
-        )
+          locale: locale
+        })
 
         full_key
 
@@ -45,13 +42,11 @@ defmodule Ankole.I18n do
         format_or_fallback(message, bindings, locale, full_key)
 
       {resolved, message} ->
-        Logger.warning("i18n fallback",
-          event: :i18n_fallback,
+        Logging.warning("i18n.fallback", "i18n fallback", %{
           key: full_key,
           requested_locale: locale,
-          resolved_locale: resolved,
-          domain: :i18n
-        )
+          resolved_locale: resolved
+        })
 
         format_or_fallback(message, bindings, resolved, full_key)
     end
@@ -259,13 +254,11 @@ defmodule Ankole.I18n do
         formatted
 
       {:error, reason} ->
-        Logger.error("i18n format error",
-          event: :i18n_format_error,
+        Logging.error("i18n.format_error", "i18n format error", %{
           key: full_key,
           locale: locale,
-          reason: reason,
-          domain: :i18n
-        )
+          reason: inspect(reason)
+        })
 
         message
     end

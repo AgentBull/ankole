@@ -34,12 +34,4 @@ config :phoenix,
 
 config :ankole, Oban, testing: :manual, plugins: false, queues: false
 
-config :ankole, :actor_runtime,
-  activation_manager: [enabled: false],
-  reconciler: [enabled: false],
-  watchdog: [enabled: false],
-  outbox_dispatcher: [enabled: false]
-
-config :ankole, :signals_gateway,
-  inbound_batch_finalizer: [enabled: false],
-  recovery_scan: [enabled: false]
+config :ankole, :runtime_events, enabled: false

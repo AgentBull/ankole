@@ -9,9 +9,8 @@ defmodule Ankole.ActorRuntime.FileTransferLane do
 
   use GenServer
 
-  require Logger
-
   alias Ankole.ActorRuntime.Transport.Broker
+  alias Ankole.Logging
 
   @protocol "ANKOLE_FILE/1"
   @chunk_size 2 * 1024 * 1024
@@ -195,9 +194,12 @@ defmodule Ankole.ActorRuntime.FileTransferLane do
   @spec handle_worker_frame(route_auth(), [binary()]) :: :ok
   def handle_worker_frame(route_auth, [@protocol, command, transfer_id | _rest] = frames)
       when is_binary(command) and is_binary(transfer_id) do
-    Logger.debug(
-      "worker file lane frame route=#{inspect(route_auth.route)} command=#{inspect(command)} transfer_id=#{inspect(transfer_id)} frame_count=#{length(frames)}"
-    )
+    Logging.debug("runtime_fabric.file_lane.frame_received", "worker file lane frame received", %{
+      route: route_auth.route,
+      command: command,
+      transfer_id: transfer_id,
+      frame_count: length(frames)
+    })
 
     if pid = Process.whereis(__MODULE__) do
       GenServer.cast(pid, {:worker_frame, route_auth, frames})
@@ -207,9 +209,10 @@ defmodule Ankole.ActorRuntime.FileTransferLane do
   end
 
   def handle_worker_frame(route_auth, frames) do
-    Logger.warning(
-      "invalid worker file lane frame route=#{inspect(route_auth.route)} frame_count=#{length(frames)}"
-    )
+    Logging.warning("runtime_fabric.file_lane.invalid_frame", "invalid worker file lane frame", %{
+      route: route_auth.route,
+      frame_count: length(frames)
+    })
 
     :ok
   end
@@ -350,8 +353,15 @@ defmodule Ankole.ActorRuntime.FileTransferLane do
         :ok
 
       {:error, reason} ->
-        Logger.debug(
-          "worker file lane #{command} failed after timeout transfer_id=#{inspect(transfer_id)} reason=#{inspect(reason)}"
+        Logging.debug(
+          "runtime_fabric.file_lane.abort_failed_after_timeout",
+          "worker file lane abort failed after timeout",
+          %{
+            route: route,
+            command: command,
+            transfer_id: transfer_id,
+            reason: inspect(reason)
+          }
         )
     end
   end
@@ -363,21 +373,39 @@ defmodule Ankole.ActorRuntime.FileTransferLane do
         dispatch_response(response_command, transfer_id, rest, pending, state)
 
       {:ok, pending} ->
-        Logger.warning(
-          "worker file lane ignored mismatched route transfer_id=#{inspect(transfer_id)} expected=#{inspect(pending.route)} got=#{inspect(route_auth.route)}"
+        Logging.warning(
+          "runtime_fabric.file_lane.route_mismatch",
+          "worker file lane ignored mismatched route",
+          %{
+            transfer_id: transfer_id,
+            expected_route: pending.route,
+            route: route_auth.route
+          }
         )
 
         state
 
       :error ->
-        Logger.debug("worker file lane ignored unmatched transfer_id=#{inspect(transfer_id)}")
+        Logging.debug(
+          "runtime_fabric.file_lane.unmatched_transfer",
+          "worker file lane ignored unmatched transfer",
+          %{
+            transfer_id: transfer_id
+          }
+        )
+
         state
     end
   end
 
   defp handle_response(route_auth, frames, state) do
-    Logger.warning(
-      "invalid worker file lane response route=#{inspect(route_auth.route)} frame_count=#{length(frames)}"
+    Logging.warning(
+      "runtime_fabric.file_lane.invalid_response",
+      "invalid worker file lane response",
+      %{
+        route: route_auth.route,
+        frame_count: length(frames)
+      }
     )
 
     state
@@ -626,8 +654,13 @@ defmodule Ankole.ActorRuntime.FileTransferLane do
   end
 
   defp dispatch_response(command, transfer_id, _rest, _pending, state) do
-    Logger.warning(
-      "worker file lane ignored unsupported response command=#{inspect(command)} transfer_id=#{inspect(transfer_id)}"
+    Logging.warning(
+      "runtime_fabric.file_lane.unsupported_response",
+      "worker file lane ignored unsupported response",
+      %{
+        command: command,
+        transfer_id: transfer_id
+      }
     )
 
     state

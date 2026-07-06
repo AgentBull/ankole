@@ -26,7 +26,6 @@ defmodule Ankole.SignalsGateway.IngressFact do
     :channel_kind,
     :reply_mode,
     :channel_name,
-    :channel_title,
     :channel_visibility,
     :channel_metadata,
     :channel_raw_payload,

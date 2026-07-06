@@ -193,10 +193,10 @@ defmodule AnkoleWeb.Router do
   end
 
   # Browser-facing HTML. The `*path` catch-alls let each SPA own its own
-  # client-side routing: any deep link under /console, /setup, or /auth returns
-  # the same shell, and the React router takes over. SpaController re-checks
-  # setup/auth state on every shell request, so the access gate stays
-  # server-side rather than trusting the SPA to redirect.
+  # client-side routing: any deep link under /console or /setup returns the same
+  # shell, and the React router takes over. SpaController re-checks setup/auth
+  # state on every shell request, so the access gate stays server-side rather
+  # than trusting the SPA to redirect.
   scope "/", AnkoleWeb do
     pipe_through :browser
 
@@ -205,8 +205,6 @@ defmodule AnkoleWeb.Router do
     # The OIDC redirect lands here as a top-level browser navigation (not via the
     # SPA), so it carries the session cookie holding the pending OIDC state.
     get "/sessions/oidc/:provider_id/callback", AuthController, :oidc_callback
-    get "/auth", SpaController, :auth_redirect
-    get "/auth/*path", SpaController, :auth_redirect
     get "/console", SpaController, :console
     get "/console/*path", SpaController, :console
     get "/setup", SpaController, :setup

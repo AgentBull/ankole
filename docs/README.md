@@ -268,8 +268,8 @@ completed by AIGateway's terminal commit.
   lifecycle. On `start_response_run` it validates the anchor (exactly one of
   `conversation` / `previous_response_id`), expands history by walking the
   `previous_message_id` graph (skipping `retracted`, collapsing prefixes
-  covered by compaction rows), and auto-compacts when the chars/4 estimate is
-  over budget (`compaction.ex`, summarized with the agent's `light` profile).
+  covered by compaction rows), and auto-compacts when recorded provider usage
+  is over budget (`compaction.ex`, summarized with the agent's `light` profile).
   It then writes the row `status = "generating"`, streams provider chunks to
   PubSub, and commits terminally under an optimistic
   `WHERE status = 'generating'` guard. A terminal commit at the chain tail
@@ -335,7 +335,8 @@ The model-visible tool surface is deliberately narrow (see
 `docs/TradeoffsAndKnownLimits.md` before widening it): `todo`
 (`src/tools/todo/todo-tool.ts`); the computer tools `command`,
 `interactive_terminal`, `read_file`, `patch`, and `reply_attachment`
-(`src/tools/computer/`); the browser tools `browser_open`, `browser_run`,
+(`src/tools/computer/`); `codex_delegate` (`src/tools/codex/`); the browser
+tools `browser_open`, `browser_run`,
 `browser_extract`, and `browser_doctor` (`src/tools/browser/`); the schedule
 tools `check_back_later` and `cron` (`src/tools/schedule/schedule-tools.ts`); and the
 memory tools `memory_note`, `memory_search`, and `memory_browse`
@@ -345,6 +346,15 @@ commands run inside bubblewrap — strong mode preferred, weak mode with a
 startup warning, never unsandboxed (`src/tools/computer/bubblewrap.ts`).
 There is no MCP support in the current tree; if it arrives, it belongs at
 this worker boundary as another local tool source.
+
+Tool runtime bounds are tool-owned, not one global worker timeout. The
+`command` tool defaults foreground runs to `180s`; background runs return a
+`backgroundId` and have no default command timeout unless the caller passes
+`timeout`. Running background commands stay tracked until exit, `kill`, or
+worker shutdown. `codex_delegate` uses Codex app-server request-class budgets:
+`15s` for `initialize`, `30s` for `thread/start`, and `60s` for generic
+app-server requests. See `docs/TradeoffsAndKnownLimits.md` for the accepted
+tradeoff.
 
 The worker is stateless by contract: it holds the WebSocket, tool-local
 state, and the current turn; everything durable is a PostgreSQL row reached
@@ -707,7 +717,6 @@ but are decided. The ones newcomers trip over:
 - Continuation is derived from the message graph (latest visible leaf) —
   there is no stored cursor, no generation lease, and no half-stream
   recovery; a broken stream costs one round.
-- Token budgeting is chars/4 on purpose; no tokenizer dependency.
 - AIGateway security is two rules: the 30-day agent token proves identity,
   and every query filters by `agent_uid`. Workers are trusted first-party
   nodes; bubblewrap is the untrusted-process boundary, not the worker.
@@ -733,11 +742,11 @@ doc first, then the code.
    and time, when you touch them.
 6. `design-docs/Principal.md`, `design-docs/AuthZ.md`,
    `design-docs/AppConfiguration.md`, `design-docs/Plugins.md`,
-   `design-docs/I18n.md` — reference as needed.
+   `design-docs/I18n.md`, `design-docs/Logger.md` — reference as needed.
 7. `TradeoffsAndKnownLimits.md` — read once early. It records the decisions
    that look like gaps but are settled: at-least-once streamed delivery, the
-   two-rule security model, derived continuation, chars/4 budgeting, and the
-   current non-goals.
+   two-rule security model, derived continuation, usage-based AIGateway
+   compaction, and the current non-goals.
 
 ## Design Doc Index
 
@@ -753,4 +762,5 @@ doc first, then the code.
 | `design-docs/AppConfiguration.md` | Config keys, scopes, encryption |
 | `design-docs/Plugins.md`, `design-docs/plugins/FeishuAdapter.md` | Plugin contracts, the Lark adapter |
 | `design-docs/I18n.md` | Locale catalogs |
+| `design-docs/Logger.md` | Structured JSON logs, severity, labels, request and operation fields |
 | `docs/TradeoffsAndKnownLimits.md` | Any time behavior looks like a bug |

@@ -2,6 +2,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
   use Ankole.DataCase, async: false
 
   alias Ankole.Repo
+  alias Ankole.RuntimeEvents
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.InputTombstone
   alias Ankole.SignalsGateway.OutboxEntry
@@ -155,7 +156,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
       assert unknown.last_error["error"]["items"] |> hd() == "invalid_adapter_result"
     end
 
-    test "due outbox dispatch picks up stale in-flight sends for reconciliation" do
+    test "outbox runtime event dispatch picks up stale in-flight sends for reconciliation" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
@@ -204,22 +205,20 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
         })
         |> Repo.update()
 
-      assert [%OutboxEntry{outbound_key: "stale-sending"}] =
-               SignalsGateway.list_due_outbox(due_now, 10)
+      assert [%{"outbound_key" => "stale-sending"}] = due_outbox_events(due_now)
 
-      assert [{:ok, %OutboxEntry{status: :succeeded}}] =
-               SignalsGateway.dispatch_due_outbox(
-                 fn %OutboxEntry{binding_name: "bot"} ->
-                   {:ok,
-                    %{
-                      capabilities: [:post_entry, :outbound_reconciliation],
-                      reconcile: fn _outbox ->
-                        {:ok, %{created_source_entry_id: "stale-provider-id"}}
-                      end
-                    }}
-                 end,
-                 now: due_now,
-                 limit: 10
+      assert {:ok, %OutboxEntry{status: :succeeded}} =
+               SignalsGateway.dispatch_outbox(
+                 agent.uid,
+                 "bot",
+                 "stale-sending",
+                 %{
+                   capabilities: [:post_entry, :outbound_reconciliation],
+                   reconcile: fn _outbox ->
+                     {:ok, %{created_source_entry_id: "stale-provider-id"}}
+                   end
+                 },
+                 now: due_now
                )
 
       assert Repo.get_by!(
@@ -229,7 +228,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
              ).text == "confirmed by reconcile"
     end
 
-    test "due outbox dispatch honors retry backoff through a code resolver" do
+    test "outbox runtime event dispatch honors retry backoff" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
@@ -270,22 +269,20 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
 
       due_now = DateTime.add(failed.next_attempt_at, 1, :microsecond)
 
-      assert [%OutboxEntry{outbound_key: "post-retry"}] =
-               SignalsGateway.list_due_outbox(due_now, 10)
+      assert [%{"outbound_key" => "post-retry"}] = due_outbox_events(due_now)
 
-      assert [{:ok, %OutboxEntry{status: :succeeded}}] =
-               SignalsGateway.dispatch_due_outbox(
-                 fn %OutboxEntry{binding_name: "bot"} ->
-                   {:ok,
-                    %{
-                      capabilities: [:post_entry],
-                      send: fn _outbox ->
-                        {:ok, %{created_source_entry_id: "retry-provider-id"}}
-                      end
-                    }}
-                 end,
-                 now: due_now,
-                 limit: 10
+      assert {:ok, %OutboxEntry{status: :succeeded}} =
+               SignalsGateway.dispatch_outbox(
+                 agent.uid,
+                 "bot",
+                 "post-retry",
+                 %{
+                   capabilities: [:post_entry],
+                   send: fn _outbox ->
+                     {:ok, %{created_source_entry_id: "retry-provider-id"}}
+                   end
+                 },
+                 now: due_now
                )
     end
 
@@ -312,4 +309,23 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
       assert Repo.aggregate(InputTombstone, :count) == 0
     end
   end
+
+  defp due_outbox_events(now) do
+    SignalsGateway.runtime_event_snapshot()
+    |> Enum.filter(fn {channel, payload} ->
+      channel == RuntimeEvents.outbox_due_channel() and runtime_event_due?(payload, now)
+    end)
+    |> Enum.map(fn {_channel, payload} -> payload end)
+  end
+
+  defp runtime_event_due?(%{"due_at" => nil}, _now), do: true
+
+  defp runtime_event_due?(%{"due_at" => due_at}, now) when is_binary(due_at) do
+    case DateTime.from_iso8601(due_at) do
+      {:ok, due_at, _offset} -> DateTime.compare(due_at, now) != :gt
+      _invalid -> false
+    end
+  end
+
+  defp runtime_event_due?(_payload, _now), do: true
 end

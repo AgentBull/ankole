@@ -1,3 +1,4 @@
+import { match } from '@pleisto/active-support'
 import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../../core'
 import { executionScopeTag, type ComputerToolContext } from './context'
@@ -99,9 +100,8 @@ function requireSession(session: string | undefined): string {
  *
  * The difference that justifies a separate tool: these programs need a real terminal you can type
  * keystrokes into and read a rendered screen back from, and they outlive a single call. They are
- * backed by tmux on the worker so a session can be captured and resumed across turns; the model
- * drives them through start/send/capture/kill/list rather than ever touching tmux directly. Every
- * action maps to a tmux session whose name is scope-namespaced (see `scopedTmuxName`) and then
+ * backed by tmux on the worker so a session can be captured and resumed across turns. Every action
+ * maps to a tmux session whose name is scope-namespaced (see `scopedTmuxName`) and then
  * un-namespaced on the way out, so the model works in plain names while conversations stay isolated.
  */
 export function createInteractiveTerminalTool(
@@ -110,15 +110,15 @@ export function createInteractiveTerminalTool(
   return {
     name: 'interactive_terminal',
     description:
-      'Manage recoverable interactive terminal sessions in the computer for TTY/TUI programs, REPLs, full-screen CLIs, and interactive installers. These sessions are backed internally by tmux so they can be captured and resumed through this tool; use this tool rather than calling tmux directly. Use start to launch a session, send to provide text or terminal keys, capture to inspect the screen, and kill when done. Use command for non-interactive shell commands. Do not use this for simple file reads or edits; use read_file and patch.',
+      'Manage recoverable interactive terminal sessions in the computer for TTY/TUI programs, REPLs, full-screen CLIs, and interactive installers. These sessions are backed internally by tmux so they can be captured and resumed through this tool. Use start to launch a session, send to provide text or terminal keys, capture to inspect the screen, and kill when done. Use command for non-interactive shell commands. Do not use this for simple file reads or edits; use read_file and patch.',
     schema: InteractiveTerminalParams,
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: true,
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<InteractiveTerminalDetails>> {
       const computer = await context.getComputer(signal)
-      switch (params.action) {
-        case 'list': {
+      return match(params.action)
+        .with('list', async () => {
           // The worker lists every tmux session it holds across all conversations of this agent;
           // filter down to the ones tagged for the current scope so a conversation only ever sees
           // its own terminals.
@@ -136,8 +136,8 @@ export function createInteractiveTerminalTool(
             },
             { action: 'list' }
           )
-        }
-        case 'start': {
+        })
+        .with('start', async () => {
           const session = requireSession(params.session)
           const command = params.command?.trim() || 'bash'
           const workdir = params.workdir?.trim() || '/workspace'
@@ -153,8 +153,8 @@ export function createInteractiveTerminalTool(
             { session: name, status: terminal.status },
             { action: 'start', session: name, status: terminal.status }
           )
-        }
-        case 'send': {
+        })
+        .with('send', async () => {
           const session = requireSession(params.session)
           const keys = [...(params.keys ?? [])]
           if (params.input === undefined && keys.length === 0) throw new Error('input or keys is required for send')
@@ -178,8 +178,8 @@ export function createInteractiveTerminalTool(
             { session: name, status: terminal.status, screen: truncateOutput(capture.screen) },
             { action: 'send', session: name, status: terminal.status }
           )
-        }
-        case 'capture': {
+        })
+        .with('capture', async () => {
           const session = requireSession(params.session)
           const lines = params.lines ?? 80
           const capture = await computer.terminals.capture(scopedTmuxName(context, session), { lines }, { signal })
@@ -188,8 +188,8 @@ export function createInteractiveTerminalTool(
             { session: name, screen: truncateOutput(capture.screen) },
             { action: 'capture', session: name, status: 'captured' }
           )
-        }
-        case 'kill': {
+        })
+        .with('kill', async () => {
           const session = requireSession(params.session)
           const terminal = await computer.terminals.kill(scopedTmuxName(context, session), { signal })
           const name = unscopedTmuxName(context, terminal.name)
@@ -197,10 +197,8 @@ export function createInteractiveTerminalTool(
             { session: name, status: terminal.status },
             { action: 'kill', session: name, status: terminal.status }
           )
-        }
-        default:
-          throw new Error(`unsupported interactive_terminal action: ${String(params.action)}`)
-      }
+        })
+        .exhaustive()
     }
   }
 }

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
+import { compactRecord, deepString as rawDeepString, match } from '@pleisto/active-support'
 import { z } from 'zod'
 import type { ActorEventEnvelope, JsonObject, TurnStart } from '../../lanes/actor_lane'
-import { deepString as rawDeepString } from '../../common/json-utils'
 import type { AgentTool, AgentToolResult } from '../../core'
 import { rpcMethods, type RpcMethod, type ScheduleRpcRequest } from '../../lanes/rpc_lane'
 
@@ -202,51 +202,36 @@ function isCronOriginTurn(turnStart: TurnStart): boolean {
  * Maps the model-facing cron action to the control-plane RPC method.
  */
 function cronMethod(action: z.output<typeof CronParams>['action']): RpcMethod {
-  switch (action) {
-    case 'list':
-      return rpcMethods.scheduleCronList
-    case 'get':
-      return rpcMethods.scheduleCronGet
-    case 'runs':
-      return rpcMethods.scheduleCronRuns
-    case 'add':
-      return rpcMethods.scheduleCronAdd
-    case 'update':
-      return rpcMethods.scheduleCronUpdate
-    case 'pause':
-      return rpcMethods.scheduleCronPause
-    case 'resume':
-      return rpcMethods.scheduleCronResume
-    case 'remove':
-      return rpcMethods.scheduleCronRemove
-    case 'run':
-      return rpcMethods.scheduleCronRun
-  }
+  return match(action)
+    .with('list', () => rpcMethods.scheduleCronList)
+    .with('get', () => rpcMethods.scheduleCronGet)
+    .with('runs', () => rpcMethods.scheduleCronRuns)
+    .with('add', () => rpcMethods.scheduleCronAdd)
+    .with('update', () => rpcMethods.scheduleCronUpdate)
+    .with('pause', () => rpcMethods.scheduleCronPause)
+    .with('resume', () => rpcMethods.scheduleCronResume)
+    .with('remove', () => rpcMethods.scheduleCronRemove)
+    .with('run', () => rpcMethods.scheduleCronRun)
+    .exhaustive()
 }
 
 /**
  * Builds the action-specific cron RPC payload.
  */
 function cronPayload(params: z.output<typeof CronParams>, turnStart: TurnStart): JsonObject {
-  switch (params.action) {
-    case 'list':
-      return {}
-    case 'get':
-    case 'pause':
-    case 'resume':
-    case 'remove':
-    case 'run':
-      return { cron_schedule_id: requiredCronScheduleId(params) }
-    case 'runs':
-      return { cron_schedule_id: requiredCronScheduleId(params), ...(params.limit ? { limit: params.limit } : {}) }
-    case 'add':
-      return cronAddPayload(params, turnStart)
-    case 'update':
-      return {
-        cron_schedule_id: requiredCronScheduleId(params),
-        updates: cronUpdates(params, turnStart)
-      }
-  }
+  return match(params.action)
+    .with('list', () => ({}))
+    .with('get', 'pause', 'resume', 'remove', 'run', () => ({ cron_schedule_id: requiredCronScheduleId(params) }))
+    .with('runs', () => ({
+      cron_schedule_id: requiredCronScheduleId(params),
+      ...(params.limit ? { limit: params.limit } : {})
+    }))
+    .with('add', () => cronAddPayload(params, turnStart))
+    .with('update', () => ({
+      cron_schedule_id: requiredCronScheduleId(params),
+      updates: cronUpdates(params, turnStart)
+    }))
+    .exhaustive()
 }
 
 /**
@@ -346,7 +331,7 @@ function currentReplyRoute(turnStart: TurnStart): ReplyRoute | undefined {
  */
 function replyRouteFromInput(input: ActorEventEnvelope): ReplyRoute {
   const payload = input.payload_json
-  return compact({
+  return compactRecord({
     binding_name:
       input.binding_name ??
       deepString(payload, ['data', 'reply_route', 'binding_name']) ??
@@ -375,13 +360,6 @@ function jsonToolResult(details: JsonObject): AgentToolResult<ScheduleToolDetail
     content: [{ type: 'text', text: JSON.stringify(details) }],
     details
   }
-}
-
-/**
- * Removes undefined fields from a route-like object.
- */
-function compact<T extends Record<string, string | undefined>>(value: T): T {
-  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as T
 }
 
 /**

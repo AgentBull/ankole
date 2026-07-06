@@ -7,7 +7,7 @@
 
 import type { TurnStart } from '../../lanes/actor_lane'
 import { createCombinedAbortSignal } from '../../common/async'
-import { arrayPath } from '../../common/json-utils'
+import { arrayPath } from '@pleisto/active-support'
 import { recognizeAmbientIntervention } from './ambient_recognizer'
 import { assertAIGatewayApiKeyMatchesTurn, runtimeModelFromAIGatewayApiKey } from './model_runtime'
 import { runTextTurnLoop } from './text_turn'

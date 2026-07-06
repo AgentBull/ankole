@@ -1,4 +1,5 @@
-import { isRecord, type JsonObject, type RuntimeFabricEnvelope } from '../fabric/fabric'
+import { isRecord } from '@pleisto/active-support'
+import type { JsonObject, RuntimeFabricEnvelope } from '../fabric/fabric'
 
 export type { JsonObject } from '../fabric/fabric'
 
@@ -66,6 +67,7 @@ export type TurnModelRef = {
   model: string
   provider_kind?: string
   input_modalities?: string[]
+  max_completion_tokens?: number
   vision_fallback_model_ref?: TurnModelRef | null
 }
 

@@ -53,9 +53,8 @@ defmodule Ankole.SignalsGateway.Entry do
     field :first_seen_at, :utc_datetime_usec
     field :last_seen_at, :utc_datetime_usec
     # Stored ai_gateway_messages.id when this entry mirrors an outbound final AI
-    # reply. Set only after a successful final send/edit. Used by recovery
-    # catch-up scan to detect completed messages whose final reply was not yet
-    # mirrored. Does NOT flow back into ai_gateway_messages.
+    # reply. Set only after a successful final send/edit; it does not flow back
+    # into ai_gateway_messages.
     field :ai_message_id, Ecto.UUID
 
     timestamps()

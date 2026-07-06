@@ -149,6 +149,7 @@ defmodule Ankole.AIGateway.Compaction do
           agent_uid,
           conversation_id,
           history,
+          current_input,
           request,
           total_tokens,
           threshold
@@ -176,7 +177,7 @@ defmodule Ankole.AIGateway.Compaction do
 
   This is the control-plane `/compress` path. It reuses the same candidate and
   summarizer logic as automatic compaction, but it does not depend on the
-  current token estimate crossing the automatic threshold.
+  recorded history usage crossing the automatic threshold.
   """
   @spec compact_conversation(String.t(), binary(), map()) ::
           {:ok,
@@ -186,7 +187,7 @@ defmodule Ankole.AIGateway.Compaction do
     history = StatefulResponses.expand_history(conversation_id)
     total_tokens = history_usage_tokens(history)
 
-    with {:ok, candidate} <- compaction_candidate(history),
+    with {:ok, candidate} <- compaction_candidate(history, []),
          {:ok, summary} <- summarize_candidate(agent_uid, candidate, request),
          {:ok, compaction} <-
            StatefulResponses.compact_history_prefix(
@@ -223,11 +224,12 @@ defmodule Ankole.AIGateway.Compaction do
          agent_uid,
          conversation_id,
          history,
+         current_input,
          request,
          total_tokens,
          threshold
        ) do
-    with {:ok, candidate} <- compaction_candidate(history),
+    with {:ok, candidate} <- compaction_candidate(history, current_input),
          {:ok, summary} <- summarize_candidate(agent_uid, candidate, request),
          {:ok, compaction} <-
            StatefulResponses.compact_history_prefix(
@@ -580,13 +582,14 @@ defmodule Ankole.AIGateway.Compaction do
   defp overflow_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp overflow_reason(reason), do: inspect(reason)
 
-  defp compaction_candidate(history) do
+  defp compaction_candidate(history, current_input) do
     with %Message{} = anchor <- List.last(history),
          rows_after_compaction = rows_after_last_compaction(history),
          compressible_limit when compressible_limit > 0 <-
            length(rows_after_compaction) - tail_rows(),
          candidate_region = Enum.take(rows_after_compaction, compressible_limit),
          prefix = Enum.take_while(candidate_region, &text_compactable_message?/1),
+         prefix <- snap_prefix_to_tool_boundary(prefix, rows_after_compaction, current_input),
          %Message{} = covers_until <- List.last(prefix) do
       {:ok,
        %{
@@ -597,6 +600,56 @@ defmodule Ankole.AIGateway.Compaction do
        }}
     else
       _value -> {:error, :no_compaction_candidate}
+    end
+  end
+
+  defp snap_prefix_to_tool_boundary([], _rows_after_compaction, _current_input), do: []
+
+  defp snap_prefix_to_tool_boundary(prefix, rows_after_compaction, current_input) do
+    tail_messages = Enum.drop(rows_after_compaction, length(prefix))
+    split_call_ids = split_tool_call_ids(prefix, tail_messages, current_input)
+
+    if MapSet.size(split_call_ids) == 0 do
+      prefix
+    else
+      prefix
+      |> remove_suffix_through_tool_calls(split_call_ids)
+      |> snap_prefix_to_tool_boundary(rows_after_compaction, current_input)
+    end
+  end
+
+  defp split_tool_call_ids(prefix, tail_messages, current_input) do
+    prefix_call_ids =
+      prefix
+      |> messages_to_items()
+      |> item_call_ids("function_call")
+
+    tail_output_call_ids =
+      (messages_to_items(tail_messages) ++ input_items(current_input))
+      |> item_call_ids("function_call_output")
+
+    MapSet.intersection(prefix_call_ids, tail_output_call_ids)
+  end
+
+  defp remove_suffix_through_tool_calls(prefix, split_call_ids) do
+    prefix
+    |> Enum.reverse()
+    |> drop_until_split_tool_call(split_call_ids)
+    |> Enum.reverse()
+  end
+
+  defp drop_until_split_tool_call([], _split_call_ids), do: []
+
+  defp drop_until_split_tool_call([message | rest], split_call_ids) do
+    call_ids =
+      message
+      |> message_items()
+      |> item_call_ids("function_call")
+
+    if MapSet.disjoint?(call_ids, split_call_ids) do
+      drop_until_split_tool_call(rest, split_call_ids)
+    else
+      rest
     end
   end
 
@@ -744,15 +797,27 @@ defmodule Ankole.AIGateway.Compaction do
 
   defp message_usage_tokens(_message), do: 0
 
-  defp usage_tokens(%{"total_tokens" => tokens}) when is_integer(tokens) and tokens >= 0,
-    do: tokens
+  defp usage_tokens(%{} = usage) do
+    total_tokens = usage_integer(usage, ["total_tokens", "totalTokens"])
 
-  defp usage_tokens(%{"input_tokens" => input_tokens, "output_tokens" => output_tokens})
-       when is_integer(input_tokens) and input_tokens >= 0 and is_integer(output_tokens) and
-              output_tokens >= 0,
-       do: input_tokens + output_tokens
+    if total_tokens > 0 do
+      total_tokens
+    else
+      usage_integer(usage, ["input_tokens", "prompt_tokens", "inputTokens"]) +
+        usage_integer(usage, ["output_tokens", "completion_tokens", "outputTokens"])
+    end
+  end
 
   defp usage_tokens(_usage), do: 0
+
+  defp usage_integer(map, keys) when is_map(map) and is_list(keys) do
+    Enum.find_value(keys, 0, fn key ->
+      case Map.get(map, key) do
+        value when is_integer(value) and value >= 0 -> value
+        _value -> false
+      end
+    end)
+  end
 
   defp request_metadata(%{"metadata" => metadata}) when is_map(metadata), do: metadata
   defp request_metadata(_request), do: %{}
@@ -778,6 +843,14 @@ defmodule Ankole.AIGateway.Compaction do
   end
 
   defp item_text(%{"type" => "message", "role" => role, "content" => content}) do
+    "#{role}: #{content_text(content)}"
+  end
+
+  defp item_text(%{"type" => "message", "content" => content}) do
+    content_text(content)
+  end
+
+  defp item_text(%{"role" => role, "content" => content}) when is_binary(role) do
     "#{role}: #{content_text(content)}"
   end
 
@@ -823,6 +896,9 @@ defmodule Ankole.AIGateway.Compaction do
   defp text_compactable_item?(%{"type" => "message", "content" => content}),
     do: text_compactable_content?(content)
 
+  defp text_compactable_item?(%{"role" => role, "content" => content}) when is_binary(role),
+    do: text_compactable_content?(content)
+
   defp text_compactable_item?(%{"type" => type, "text" => text})
        when type in ["input_text", "output_text", "text"] and is_binary(text),
        do: true
@@ -849,6 +925,23 @@ defmodule Ankole.AIGateway.Compaction do
     Enum.flat_map(messages, fn
       %Message{content: content} when is_list(content) -> content
       _message -> []
+    end)
+  end
+
+  defp message_items(%Message{content: content}) when is_list(content), do: content
+  defp message_items(_message), do: []
+
+  defp input_items(items) when is_list(items), do: Enum.filter(items, &is_map/1)
+  defp input_items(_items), do: []
+
+  defp item_call_ids(items, item_type) do
+    items
+    |> Enum.reduce(MapSet.new(), fn
+      %{"type" => ^item_type, "call_id" => call_id}, acc when is_binary(call_id) ->
+        MapSet.put(acc, call_id)
+
+      _item, acc ->
+        acc
     end)
   end
 

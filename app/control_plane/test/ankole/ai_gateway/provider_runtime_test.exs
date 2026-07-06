@@ -4,6 +4,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AIAgent.Library
+  alias Ankole.AIGateway.AgentConfig
   alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ProviderConfigs.Provider
@@ -491,6 +492,57 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
            } = turn_start_spec.model_ref["vision_fallback_model_ref"]
 
     assert "image" in input_modalities
+  end
+
+  test "turn start specs include scoped agent runtime policy without creating a default output cap" do
+    %{principal: agent} = agent_fixture()
+    assert :ok = AgentConfig.ensure_registered()
+    max_output_tokens_definition = AgentConfig.max_output_tokens_definition()
+    inactivity_timeout_definition = AgentConfig.inactivity_timeout_ms_definition()
+    assert :ok = AppConfigure.delete_global(max_output_tokens_definition)
+    assert :ok = AppConfigure.delete_global(inactivity_timeout_definition)
+    assert :ok = AppConfigure.delete_for_agent(agent.uid, max_output_tokens_definition)
+    assert :ok = AppConfigure.delete_for_agent(agent.uid, inactivity_timeout_definition)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-agent-policy",
+               provider_kind: "openai",
+               connection_options: %{"api_key" => "sk-main"}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-agent-policy",
+               model: "gpt-4o-mini"
+             })
+
+    assert {:ok, conversation} =
+             Conversations.ensure_conversation(agent.uid, "session-agent-policy")
+
+    assert {:ok, turn_start_spec} = Conversations.build_turn_start_spec(conversation)
+
+    assert turn_start_spec.model_ref["max_completion_tokens"] == 16_384
+    assert get_in(turn_start_spec.request_context, ["ai_agent", "max_output_tokens"]) == nil
+
+    assert get_in(turn_start_spec.request_context, ["ai_agent", "inactivity_timeout_ms"]) ==
+             AgentConfig.default_inactivity_timeout_ms()
+
+    assert {:ok, 20_000} = AppConfigure.put_global(max_output_tokens_definition, 20_000)
+    assert {:ok, 120_000} = AppConfigure.put_global(inactivity_timeout_definition, 120_000)
+
+    assert {:ok, global_spec} = Conversations.build_turn_start_spec(conversation)
+    assert get_in(global_spec.request_context, ["ai_agent", "max_output_tokens"]) == 16_384
+    assert get_in(global_spec.request_context, ["ai_agent", "inactivity_timeout_ms"]) == 120_000
+
+    assert {:ok, 12_000} =
+             AppConfigure.put_for_agent(agent.uid, max_output_tokens_definition, 12_000)
+
+    assert {:ok, 0} = AppConfigure.put_for_agent(agent.uid, inactivity_timeout_definition, 0)
+
+    assert {:ok, agent_spec} = Conversations.build_turn_start_spec(conversation)
+    assert get_in(agent_spec.request_context, ["ai_agent", "max_output_tokens"]) == 12_000
+    assert get_in(agent_spec.request_context, ["ai_agent", "inactivity_timeout_ms"]) == 0
   end
 
   test "model profiles validate source-specific provider options and provider delete guard lists references" do

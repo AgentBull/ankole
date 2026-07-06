@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { relative } from 'node:path'
 import {
@@ -29,6 +29,11 @@ type BubblewrapArgvInput = {
   cwd: string
   env: Record<string, string>
   commandArgv: string[]
+  extraBinds?: Array<{
+    source: string
+    target: string
+    readonly?: boolean
+  }>
 }
 
 let cachedSupport: BubblewrapSupport | undefined
@@ -83,12 +88,28 @@ export function bubblewrapArgv(input: BubblewrapArgvInput, mode?: BubblewrapMode
     input.workspaceRoot,
     SANDBOX_WORKSPACE_ROOT,
     ...runtimeWorkspaceBinds(),
+    ...extraBindArgs(input.extraBinds ?? []),
     '--chdir',
     sandboxWorkspacePath(input.workspaceRoot, input.cwd),
     '--clearenv',
     ...Object.entries(input.env).flatMap(([key, value]) => ['--setenv', key, value]),
     ...input.commandArgv
   ]
+}
+
+function extraBindArgs(binds: NonNullable<BubblewrapArgvInput['extraBinds']>): string[] {
+  const args: string[] = []
+
+  for (const bind of binds) {
+    if (!existsSync(bind.source)) continue
+    pushDirs(
+      args,
+      parentDirs(bind.target).filter(dir => dir !== '/tmp' && dir !== SANDBOX_WORKSPACE_ROOT)
+    )
+    args.push(bind.readonly ? '--ro-bind' : '--bind', bind.source, bind.target)
+  }
+
+  return args
 }
 
 /**
@@ -182,6 +203,12 @@ function runtimeWorkspaceBinds(): string[] {
     binds.push('--ro-bind', `${agentComputerDir}/src`, `${agentComputerDir}/src`)
   }
 
+  const codexInstallRoot = codexGlobalPackageRoot()
+  if (existsSync(codexInstallRoot)) {
+    pushDirs(binds, parentDirs(codexInstallRoot))
+    binds.push('--ro-bind', codexInstallRoot, codexInstallRoot)
+  }
+
   const builtinSkillsRoot = process.env.ANKOLE_BUILTIN_SKILLS_ROOT
   if (builtinSkillsRoot && existsSync(builtinSkillsRoot)) {
     pushDirs(binds, ['/repo', '/repo/app', '/repo/app/library'])
@@ -204,6 +231,24 @@ function browserCliRuntimePresent(agentComputerDir: string): boolean {
   return (
     existsSync(`${agentComputerDir}/bin/ankole-browser`) && existsSync(`${agentComputerDir}/src/tools/browser/cli.ts`)
   )
+}
+
+/**
+ * Resolves Bun's global Codex package directory from the public `codex` executable.
+ */
+function codexGlobalPackageRoot(): string {
+  const bunGlobalOpenAiRoot = '/root/.bun/install/global/node_modules/@openai'
+  if (existsSync(bunGlobalOpenAiRoot)) return bunGlobalOpenAiRoot
+
+  const codexBin = '/usr/local/bin/codex'
+  if (!existsSync(codexBin)) return ''
+
+  const realPath = realpathSync(codexBin)
+  const marker = '/node_modules/@openai/'
+  const markerIndex = realPath.indexOf(marker)
+  if (markerIndex === -1) return ''
+
+  return realPath.slice(0, markerIndex + '/node_modules/@openai'.length)
 }
 
 /**
@@ -242,7 +287,16 @@ function readOnlySystemBinds(): string[] {
     .filter(path => existsSync(path))
     .flatMap(path => ['--ro-bind', path, path])
 
-  const fileBinds = ['/etc/hosts', '/etc/resolv.conf', '/etc/nsswitch.conf', '/etc/ssl', '/etc/ca-certificates']
+  const fileBinds = [
+    '/etc/hosts',
+    '/etc/resolv.conf',
+    '/etc/nsswitch.conf',
+    '/etc/profile',
+    '/etc/profile.d',
+    '/etc/bash.bashrc',
+    '/etc/ssl',
+    '/etc/ca-certificates'
+  ]
     .filter(path => existsSync(path))
     .flatMap(path => ['--ro-bind', path, path])
 

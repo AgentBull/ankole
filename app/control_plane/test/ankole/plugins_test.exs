@@ -14,6 +14,7 @@ defmodule Ankole.PluginsTest do
   alias Ankole.PluginFixtures.MissingIdentityCallbackPlugin
   alias Ankole.PluginFixtures.MissingAIGatewayEmbeddingPreparePlugin
   alias Ankole.PluginFixtures.MissingAIGatewayProviderDefinitionPlugin
+  alias Ankole.PluginFixtures.UnknownIdentityCapabilityPlugin
   alias Ankole.PluginFixtures.UnknownSignalsInboundCapabilityPlugin
   alias Ankole.Plugins
   alias Ankole.Plugins.Config
@@ -143,6 +144,11 @@ defmodule Ankole.PluginsTest do
             {UnknownSignalsInboundCapabilityPlugin,
              {:invalid_adapter_declaration, {:unknown_inbound_capability, "made_up"}}}} =
              Spec.from_module(UnknownSignalsInboundCapabilityPlugin)
+
+    assert {:error,
+            {UnknownIdentityCapabilityPlugin,
+             {:invalid_adapter_declaration, {:unknown_identity_capability, "made_up"}}}} =
+             Spec.from_module(UnknownIdentityCapabilityPlugin)
 
     assert {:error,
             {MissingAIGatewayProviderDefinitionPlugin,

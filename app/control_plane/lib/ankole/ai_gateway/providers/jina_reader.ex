@@ -7,7 +7,7 @@ defmodule Ankole.AIGateway.Providers.JinaReader do
 
   alias Ankole.AIGateway.UniversalAIRequest
 
-  @timeout_ms 30_000
+  @timeout_ms 120_000
 
   provider :jina_reader do
     label(%{"default" => "Jina Reader", "zh-Hans-CN" => "Jina Reader"})

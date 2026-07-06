@@ -4,7 +4,7 @@ import type { JsonObject } from '../fabric/fabric'
 import { isRuntimeFabricBackpressure, type ReliableEnvelopeSender } from '../fabric/sender'
 import type { ActorTurnRef, TurnStart, TurnSteerUpdate } from '../lanes/actor_lane'
 import type { WorkerConfig } from './config'
-import { logWorkerEvent } from './logging'
+import { workerLogger } from './logging'
 
 const turnProgressIntervalMs = 60_000
 
@@ -71,15 +71,11 @@ export async function sendTurnProgress(
   try {
     await sendEnvelope(workerProgressEnvelope(active.turnStart.turn, 'checkpoint', summary, active.correlationId))
   } catch (error) {
-    logWorkerEvent(
-      'worker.turn_progress_skipped',
-      {
-        actor_event_id: active.turnStart.turn.actor_event_id,
-        reason: isRuntimeFabricBackpressure(error) ? 'backpressure' : 'send_error',
-        error: error instanceof Error ? error.message : String(error)
-      },
-      'stderr'
-    )
+    workerLogger.warning('worker.turn_progress_skipped', 'worker turn progress skipped', {
+      actor_event_id: active.turnStart.turn.actor_event_id,
+      reason: isRuntimeFabricBackpressure(error) ? 'backpressure' : 'send_error',
+      error: error instanceof Error ? error : new Error(String(error))
+    })
   }
 }
 

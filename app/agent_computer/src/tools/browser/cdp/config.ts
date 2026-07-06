@@ -1,3 +1,4 @@
+import { isRecord, match, safeJsonParse } from '@pleisto/active-support'
 import { DEFAULT_CDP_CONNECT_TIMEOUT_MS, REMOTE_CONFIG_ENV } from './constants'
 import { redactBrowserJson, redactUrl } from './utils'
 import type { BrowserRuntimeOptions, JsonObject, RemoteBrowserCdpConfig, RemoteSessionResponse } from './types'
@@ -11,12 +12,12 @@ export function remoteBrowserCdpConfigFromEnv(
   const raw = env[REMOTE_CONFIG_ENV]
   if (!raw || raw.trim() === '' || raw.trim() === 'null') return null
 
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  } catch (error) {
-    throw new Error(`invalid ${REMOTE_CONFIG_ENV}: ${error instanceof Error ? error.message : String(error)}`)
-  }
+  const parsed = safeJsonParse(raw).match(
+    value => value,
+    error => {
+      throw new Error(`invalid ${REMOTE_CONFIG_ENV}: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  )
 
   return normalizeRemoteBrowserCdpConfig(parsed)
 }
@@ -47,13 +48,13 @@ export function redactRemoteBrowserConfig(config: RemoteBrowserCdpConfig): JsonO
  * Redacts URL-like fields after generic secret redaction has run.
  */
 function redactUrlFields(value: unknown): void {
-  if (!value || typeof value !== 'object') return
   if (Array.isArray(value)) {
     for (const item of value) redactUrlFields(item)
     return
   }
+  if (!isRecord(value)) return
 
-  for (const [key, item] of Object.entries(value as JsonObject)) {
+  for (const [key, item] of Object.entries(value)) {
     if (typeof item === 'string' && /(^url$|_url$|endpoint_url)/i.test(key)) {
       const record = value as JsonObject
       record[key] = redactUrl(item)
@@ -69,35 +70,35 @@ function redactUrlFields(value: unknown): void {
 function normalizeRemoteBrowserCdpConfig(value: unknown): RemoteBrowserCdpConfig {
   const record = objectRecord(value, 'remote browser CDP config')
   const adapter = stringField(record, 'adapter')
-  if (adapter === 'cdp_endpoint') {
-    return {
-      adapter,
+
+  return match(adapter)
+    .with('cdp_endpoint', () => ({
+      adapter: 'cdp_endpoint' as const,
       endpoint_url: validateUrl(stringField(record, 'endpoint_url'), ['ws:', 'wss:', 'http:', 'https:']),
       ...optionalHeaders(record, 'headers'),
       ...optionalTimeout(record)
-    }
-  }
-
-  if (adapter === 'cdp_session_request') {
-    const request = objectRecord(record['request'], 'remote browser CDP session request')
-    const response = normalizeSessionResponse(request['response'])
-    return {
-      adapter,
-      request: {
-        url: validateUrl(stringField(request, 'url'), ['http:', 'https:']),
-        method: optionalMethod(request),
-        ...optionalHeaders(request, 'headers'),
-        ...(request['body'] === undefined
-          ? {}
-          : { body: objectRecord(request['body'], 'remote browser CDP request body') }),
-        ...(response ? { response } : {})
-      },
-      ...optionalHeaders(record, 'headers'),
-      ...optionalTimeout(record)
-    }
-  }
-
-  throw new Error(`unsupported remote browser CDP adapter: ${adapter}`)
+    }))
+    .with('cdp_session_request', () => {
+      const request = objectRecord(record['request'], 'remote browser CDP session request')
+      const response = normalizeSessionResponse(request['response'])
+      return {
+        adapter: 'cdp_session_request' as const,
+        request: {
+          url: validateUrl(stringField(request, 'url'), ['http:', 'https:']),
+          method: optionalMethod(request),
+          ...optionalHeaders(request, 'headers'),
+          ...(request['body'] === undefined
+            ? {}
+            : { body: objectRecord(request['body'], 'remote browser CDP request body') }),
+          ...(response ? { response } : {})
+        },
+        ...optionalHeaders(record, 'headers'),
+        ...optionalTimeout(record)
+      }
+    })
+    .otherwise(() => {
+      throw new Error(`unsupported remote browser CDP adapter: ${adapter}`)
+    })
 }
 
 /**
@@ -107,15 +108,19 @@ function normalizeSessionResponse(value: unknown): RemoteSessionResponse | undef
   if (value === undefined) return undefined
   const response = objectRecord(value, 'remote browser CDP session response')
   const type = stringField(response, 'type')
-  if (type === 'text') return { type }
-  if (type === 'json') {
-    const path = response['path']
-    if (!Array.isArray(path) || !path.every(item => typeof item === 'string' && item.length > 0)) {
-      throw new Error('remote browser CDP session response path must be a non-empty string array')
-    }
-    return { type, path }
-  }
-  throw new Error(`unsupported remote browser CDP session response type: ${type}`)
+
+  return match(type)
+    .with('text', () => ({ type: 'text' as const }))
+    .with('json', () => {
+      const path = response['path']
+      if (!Array.isArray(path) || !path.every(item => typeof item === 'string' && item.length > 0)) {
+        throw new Error('remote browser CDP session response path must be a non-empty string array')
+      }
+      return { type: 'json' as const, path }
+    })
+    .otherwise(() => {
+      throw new Error(`unsupported remote browser CDP session response type: ${type}`)
+    })
 }
 
 /**
@@ -124,8 +129,11 @@ function normalizeSessionResponse(value: unknown): RemoteSessionResponse | undef
 function optionalMethod(record: JsonObject): 'GET' | 'POST' | undefined {
   const value = record['method']
   if (value === undefined) return undefined
-  if (value === 'GET' || value === 'POST') return value
-  throw new Error('remote browser CDP session request method must be GET or POST')
+  return match(value)
+    .with('GET', 'POST', method => method)
+    .otherwise(() => {
+      throw new Error('remote browser CDP session request method must be GET or POST')
+    })
 }
 
 /**
@@ -168,7 +176,7 @@ export function connectTimeoutMs(config: RemoteBrowserCdpConfig): number {
  * Requires a JSON object and labels validation failures.
  */
 function objectRecord(value: unknown, label: string): JsonObject {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label} must be a JSON object`)
+  if (!isRecord(value)) throw new Error(`${label} must be a JSON object`)
   return value as JsonObject
 }
 
@@ -197,7 +205,7 @@ function validateUrl(rawUrl: string, protocols: string[]): string {
  */
 export function valueAtJsonPath(value: unknown, path: string[]): unknown {
   return path.reduce((current, segment) => {
-    if (!current || typeof current !== 'object' || Array.isArray(current)) return undefined
-    return (current as JsonObject)[segment]
+    if (!isRecord(current)) return undefined
+    return current[segment]
   }, value)
 }

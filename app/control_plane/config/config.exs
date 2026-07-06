@@ -25,10 +25,18 @@ config :ankole, AnkoleWeb.Endpoint,
   ],
   pubsub_server: Ankole.PubSub
 
-# Configure Elixir's Logger
-config :logger, :default_formatter,
-  format: "$time $metadata[$level] $message\n",
-  metadata: [:request_id]
+# Configure Elixir's Logger for Docker/Kubernetes structured-log ingestion.
+config :logger, :default_handler,
+  formatter:
+    {Ankole.Logging.JSONFormatter,
+     %{
+       environment: Atom.to_string(config_env()),
+       labels: %{
+         "service" => "ankole-control-plane",
+         "component" => "control-plane",
+         "runtime" => "beam"
+       }
+     }}
 
 # Use the local Torque adapter for JSON parsing in Phoenix
 config :phoenix, :json_library, Ankole.JSON

@@ -7,6 +7,9 @@
 // message-only overflow check, because an overflow phrase ("too many tokens") can co-occur with a 429
 // or 413 and we want the transport-level class to win there.
 
+import { match, P } from '@pleisto/active-support'
+import { isRecord } from '@pleisto/active-support'
+
 /** Backend-independent failure class derived from a raw LLM error. */
 export type LlmErrorKind = 'auth' | 'overflow' | 'rate_limit' | 'server' | 'timeout' | 'unknown'
 
@@ -223,8 +226,8 @@ function localRetryableHint(error: unknown): boolean | undefined {
   if (!error || typeof error !== 'object') return undefined
   const record = error as Record<string, unknown>
   const details = record.details
-  if (!details || typeof details !== 'object' || Array.isArray(details)) return undefined
-  const value = (details as Record<string, unknown>).local_retryable
+  if (!isRecord(details)) return undefined
+  const value = details.local_retryable
   return typeof value === 'boolean' ? value : undefined
 }
 
@@ -259,18 +262,27 @@ function findErrorProperty<T>(
  */
 function collectMessages(error: unknown, messages: string[], seen: WeakSet<object>, depth = 0): void {
   if (error === undefined || error === null || depth > 25) return
-  if (typeof error === 'string') {
-    messages.push(error)
+  const scalarMessage = match(error)
+    .with(P.string, value => value)
+    .when(
+      value => typeof value !== 'object',
+      value => String(value)
+    )
+    .otherwise(() => undefined)
+  if (scalarMessage !== undefined) {
+    messages.push(scalarMessage)
     return
   }
-  if (typeof error !== 'object') {
-    messages.push(String(error))
-    return
-  }
+
   if (seen.has(error)) return
   seen.add(error)
   const record = error as Record<string, unknown>
-  if (error instanceof Error) messages.push(error.message)
-  else if (typeof record.message === 'string') messages.push(record.message)
+  match(error)
+    .when(
+      (value): value is Error => value instanceof Error,
+      value => messages.push(value.message)
+    )
+    .with({ message: P.string }, value => messages.push(value.message))
+    .otherwise(() => undefined)
   for (const key of ['cause', 'error', 'response']) collectMessages(record[key], messages, seen, depth + 1)
 }

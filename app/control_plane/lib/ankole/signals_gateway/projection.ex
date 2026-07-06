@@ -22,7 +22,6 @@ defmodule Ankole.SignalsGateway.Projection do
       kind: fact.channel_kind,
       reply_mode: fact.reply_mode,
       name: fact.channel_name,
-      title: fact.channel_title,
       visibility: fact.channel_visibility,
       metadata: fact.channel_metadata,
       raw_payload: fact.channel_raw_payload,
@@ -76,7 +75,6 @@ defmodule Ankole.SignalsGateway.Projection do
       | kind: preserve_enum(attrs.kind, :unknown, channel.kind),
         reply_mode: preserve_enum(attrs.reply_mode, :none, channel.reply_mode),
         name: attrs.name || channel.name,
-        title: attrs.title || channel.title,
         visibility: attrs.visibility || channel.visibility,
         metadata: preserve_empty_map(attrs.metadata, channel.metadata),
         raw_payload: preserve_empty_map(attrs.raw_payload, channel.raw_payload),
@@ -160,7 +158,8 @@ defmodule Ankole.SignalsGateway.Projection do
           fact.links
         ]),
       first_seen_at: now,
-      last_seen_at: now
+      last_seen_at: now,
+      ai_message_id: Map.get(fact, :ai_message_id)
     }
   end
 
@@ -379,7 +378,7 @@ defmodule Ankole.SignalsGateway.Projection do
   end
 
   def entry_metadata_text(fact) do
-    [fact.author, fact.metadata, fact.channel_name, fact.channel_title]
+    [fact.author, fact.metadata, fact.channel_name]
     |> List.flatten()
     |> Enum.map(&metadata_text_part/1)
     |> Enum.reject(&(&1 == ""))

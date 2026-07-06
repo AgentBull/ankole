@@ -13,7 +13,7 @@ defmodule Ankole.CodexDelegations.Schemas.Delegation do
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
-  @statuses ~w(queued running waiting_on_user succeeded failed stopped timeout)
+  @statuses ~w(queued running waiting_on_user succeeded failed stopped)
 
   schema "codex_delegations" do
     belongs_to(:agent, Principal,

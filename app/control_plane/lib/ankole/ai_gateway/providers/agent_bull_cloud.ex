@@ -7,7 +7,7 @@ defmodule Ankole.AIGateway.Providers.AgentBullCloud do
 
   alias Ankole.AIGateway.UniversalAIRequest
 
-  @timeout_ms 30_000
+  @timeout_ms 120_000
 
   provider :agentbull_cloud do
     label(%{"default" => "AgentBull Cloud", "zh-Hans-CN" => "AgentBull Cloud"})

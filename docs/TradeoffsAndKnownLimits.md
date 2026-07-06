@@ -198,10 +198,11 @@ become eligible once they age out or the backlog threshold is reached; this
 avoids low-volume channels producing empty summarizer jobs forever.
 
 Memory token budgeting uses the kernel `o200k_base` estimator from
-`tiktoken-rs`, independent of provider/model selection. This is separate from
-AIGateway compaction's older chars/4 tradeoff, except for the pre-compaction
-nudge that asks the normal agent/tool loop to persist durable facts via
-`memory_note` before automatic compaction proceeds.
+`tiktoken-rs`, independent of provider/model selection. AIGateway compaction
+is separate: it uses upstream provider usage metadata recorded on history
+messages, except for the pre-compaction nudge that asks the normal agent/tool
+loop to persist durable facts via `memory_note` before automatic compaction
+proceeds.
 
 Layer A notes are intentionally injected into the system prompt for the current
 channel. That makes them powerful and also means a channel participant who can
@@ -266,9 +267,10 @@ content version counter. A broken provider stream costs one round: the stale
 re-sent from the last `complete` anchor. Retry is a new `actor_event_id` with
 `retry_of_actor_event_id`, not a resurrected stream.
 
-Token budgeting is chars/4 plus a per-item overhead. This deliberately avoids a
-tokenizer dependency. The worst case is one compaction triggered early or late,
-which is a cost tradeoff, not a correctness risk.
+Token budgeting for automatic compaction uses upstream provider usage metadata
+already recorded on history messages. AIGateway does not estimate these counts
+from message content; when usage metadata is absent, it is not replaced by a
+character-length heuristic.
 
 Compaction covers text-bearing items only. A media item without an auditable
 summary or durable ref stays outside the covered prefix. When `truncation=auto`
@@ -367,11 +369,34 @@ The current tool surface is intentionally narrow:
 - `read_file`;
 - `interactive_terminal`;
 - `command`;
+- `codex_delegate`;
 - `reply_attachment`;
 - `skill_view`;
 - `skill_append`;
 - `check_back_later`;
 - `cron`.
+
+### Tool Runtime Bounds
+
+Ankole does not add a universal worker-side wall-clock timeout around every
+tool call. That is intentional and follows Hermes as the semantic reference:
+tools have their own lifecycle contracts, and the AI agent inactivity watchdog
+is a model/provider no-activity watchdog, not a blanket tool killer.
+
+For shell execution, the `command` tool has a foreground default of `180s`.
+Background command runs have no default command timeout. They are tracked by
+workspace and execution scope, expose `status`, `kill`, and `list`, and keep a
+bounded output tail. The in-memory registry evicts only finished entries when
+it exceeds its capacity; running background commands are not evicted or killed
+by that capacity rule. A caller can still pass `timeout` to opt into an
+explicit command budget.
+
+Codex delegation is a separate managed tool path. `codex_delegate` starts a
+Codex app-server subprocess and uses request-class timeouts rather than one
+global delegation timeout: `initialize` is `15s`, `thread/start` is `30s`, and
+generic app-server requests are `60s`. These are deliberately a little wider
+than Hermes' app-server request classes because Ankole's typical delegated
+tasks are longer and more likely to cold-start.
 
 The current skill surface is also explicit:
 

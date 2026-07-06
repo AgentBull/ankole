@@ -637,6 +637,51 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert is_nil(Repo.get!(ActorEvent, actor_event.id).completed_at)
   end
 
+  test "function call output item publishes tool activity preview event" do
+    {_agent, _conversation, actor_event, message} =
+      stateful_message("socket-tool-activity-start", [
+        %{
+          "type" => "message",
+          "role" => "user",
+          "content" => [%{"type" => "input_text", "text" => "search"}]
+        }
+      ])
+
+    :ok = Phoenix.PubSub.subscribe(Ankole.PubSub, "ai_gateway:actor_event:#{actor_event.id}")
+
+    ref = make_ref()
+    active = active_stream(ref, message, actor_event)
+
+    function_call = %{
+      "type" => "function_call",
+      "call_id" => "call_web_fetch",
+      "name" => "web_fetch",
+      "arguments" => ~s({"url":"https://example.test"})
+    }
+
+    chunk = %{
+      "type" => "response.output_item.done",
+      "sequence_number" => 7,
+      "item" => function_call
+    }
+
+    assert {:push, {:text, pushed}, _state} =
+             AIGatewayResponsesSocket.handle_info(
+               {:universal_ai_client, ref, :chunk, 7, :websocket_text,
+                Ankole.JSON.encode!(chunk)},
+               %{active_stream: active}
+             )
+
+    assert %{"type" => "response.output_item.done"} = Ankole.JSON.decode!(pushed)
+
+    assert_receive {:ai_gateway_live, :tool_call_started,
+                    %{
+                      "call_id" => "call_web_fetch",
+                      "name" => "web_fetch",
+                      "seq" => 7
+                    }}
+  end
+
   test "provider stream errors preserve accumulated partial response items" do
     {_agent, _conversation, actor_event, message} =
       stateful_message("socket-error-partial", [
@@ -842,6 +887,8 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
         }
       ])
 
+    :ok = Phoenix.PubSub.subscribe(Ankole.PubSub, "ai_gateway:actor_event:#{actor_event.id}")
+
     request =
       Ankole.JSON.encode!(%{
         "type" => "response.tool_results.record",
@@ -891,6 +938,9 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              Repo.get!(Message, message_id)
 
     assert anchor_id == anchor.id
+
+    assert_receive {:ai_gateway_live, :tool_call_completed,
+                    %{"call_id" => "call_socket_record", "output" => "recorded"}}
   end
 
   test "stateful response.create rejects duplicate actor event runs before provider open" do

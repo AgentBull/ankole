@@ -4,6 +4,7 @@ defmodule Ankole.SignalsGatewayFixtures do
   import ExUnit.Assertions
 
   alias Ankole.Actors.ActorEvent
+  alias Ankole.RuntimeEvents
   alias Ankole.SignalsGateway
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
@@ -38,9 +39,7 @@ defmodule Ankole.SignalsGatewayFixtures do
              SignalsGateway.emit_entry(agent_uid, binding_name, entry, now: now)
 
     assert {:ok, results} =
-             SignalsGateway.finalize_due_inbound_batches(
-               now: DateTime.add(now, 600, :millisecond)
-             )
+             finalize_due_inbound_batch_events(now: DateTime.add(now, 600, :millisecond))
 
     actor_event =
       Enum.find_value(results, fn
@@ -50,6 +49,32 @@ defmodule Ankole.SignalsGatewayFixtures do
 
     assert %ActorEvent{} = actor_event
     %{inbound_batch: batch, actor_event: actor_event}
+  end
+
+  def finalize_due_inbound_batch_events(opts \\ []) do
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+    limit = Keyword.get(opts, :limit, 500)
+
+    SignalsGateway.runtime_event_snapshot()
+    |> Enum.filter(fn {channel, payload} ->
+      channel == RuntimeEvents.inbound_batch_due_channel() and runtime_event_due?(payload, now)
+    end)
+    |> Enum.sort_by(fn {_channel, payload} ->
+      {Map.fetch!(payload, "due_at"), Map.fetch!(payload, "batch_id")}
+    end)
+    |> Enum.take(limit)
+    |> Enum.map(fn {_channel, payload} ->
+      SignalsGateway.finalize_inbound_batch_by_id(
+        Map.fetch!(payload, "batch_id"),
+        Map.fetch!(payload, "batch_revision"),
+        now: now
+      )
+      |> case do
+        {:ok, result} -> result
+        {:error, reason} -> %{status: :finalize_failed, error: reason, payload: payload}
+      end
+    end)
+    |> then(&{:ok, &1})
   end
 
   def binding_fixture(agent_uid, name, policy, opts \\ []) do
@@ -82,6 +107,17 @@ defmodule Ankole.SignalsGatewayFixtures do
       overrides
     )
   end
+
+  defp runtime_event_due?(%{"due_at" => nil}, _now), do: true
+
+  defp runtime_event_due?(%{"due_at" => due_at}, now) when is_binary(due_at) do
+    case DateTime.from_iso8601(due_at) do
+      {:ok, due_at, _offset} -> DateTime.compare(due_at, now) != :gt
+      _invalid -> false
+    end
+  end
+
+  defp runtime_event_due?(_payload, _now), do: true
 
   def lifecycle_entry(overrides) do
     Map.merge(

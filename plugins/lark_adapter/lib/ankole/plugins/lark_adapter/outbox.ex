@@ -112,15 +112,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
   end
 
   def requests_for_outbox(%OutboxEntry{operation: :edit} = outbox) do
-    {:ok,
-     [
-       %{
-         method: :put,
-         path: "im/v1/messages/:message_id",
-         path_params: %{message_id: outbox.target_source_entry_id},
-         body: text_body(outbox)
-       }
-     ]}
+    {:ok, edit_message_requests(outbox)}
   end
 
   def requests_for_outbox(%OutboxEntry{operation: :delete} = outbox) do
@@ -361,6 +353,41 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
 
   defp message_requests(method, path, outbox, body),
     do: message_requests(method, path, outbox, body, [])
+
+  defp edit_message_requests(%OutboxEntry{} = outbox) do
+    chunks =
+      outbox.fallback_visible_text
+      |> to_string()
+      |> split_lark_text()
+
+    chunks
+    |> Enum.with_index(1)
+    |> Enum.map(fn {chunk, index} ->
+      chunk_outbox = %OutboxEntry{
+        outbox
+        | fallback_visible_text: chunk,
+          idempotency_key: chunk_idempotency_key(outbox.idempotency_key, index)
+      }
+
+      case index do
+        1 ->
+          %{
+            method: :put,
+            path: "im/v1/messages/:message_id",
+            path_params: %{message_id: outbox.target_source_entry_id},
+            body: text_body(chunk_outbox)
+          }
+
+        _index ->
+          message_request(
+            :post,
+            "im/v1/messages",
+            chunk_outbox,
+            text_body(chunk_outbox)
+          )
+      end
+    end)
+  end
 
   defp split_lark_text(text) do
     text

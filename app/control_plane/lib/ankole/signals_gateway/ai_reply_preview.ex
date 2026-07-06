@@ -8,44 +8,40 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
        If the binding/channel needs IM-visible AI reply, a preview handler is
        started under DynamicSupervisor, registered by actor_event_id.
     2. The handler subscribes to `ai_gateway:actor_event:{actor_event_id}` PubSub.
-    3. On first `:output_text_delta`, it sends an initial IM preview message.
-    4. On subsequent deltas, it throttles IM edits (~1s flush).
+    3. On first `:output_text_delta` or tool activity event, it sends an
+       initial IM preview message.
+    4. On subsequent deltas, it throttles IM edits (~1s flush); tool activity
+       updates are edited immediately.
     5. On `:response_started`, clear the per-round delta buffer while keeping
        the existing provider preview handle.
     6. On `:response_completed`:
        - If the response contains function_call → continue (not the final round).
-       - If visible final text exists → finalize by editing or sending the
-         durable reply, then mirror it with `ai_message_id`.
-       - If visible final text is empty → terminate without sending an empty
-         provider edit or writing a mirror.
-    7. On `:response_failed`, retryable errors keep the handler alive for the
-       retry; non-retryable failures terminate the handler and leave any command
-       feedback or recovery path to the owning runtime.
+       - Otherwise stop; the AIGateway terminal commit writes the durable
+         final-reply outbox.
+    7. On `:response_failed`, retryable errors or still-open actor events keep
+       the handler alive for retry/fallback output; terminal non-retryable
+       failures terminate the handler and leave any command feedback or recovery
+       path to the owning runtime.
     8. Timeout: if no live activity arrives within the handler's lifetime,
-       it self-terminates. Recovery scan picks up the orphaned terminal row.
+       it self-terminates. Durable terminal delivery is owned by outbox.
   """
 
   use GenServer, restart: :temporary
 
   alias Ankole.AIGateway.StatefulResponses
-  alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Actors.ActorEvent
+  alias Ankole.Logging
   alias Ankole.Repo
   alias Ankole.SignalsGateway.AIReplyText
   alias Ankole.SignalsGateway.Outbox
   alias Ankole.SignalsGateway.OutboxAdapter
   alias Ankole.SignalsGateway.OutboxEntry
-  alias Ankole.SignalsGateway.Projection
-  alias Ankole.SignalsGateway.Sanitizer
-  alias Ankole.SignalsGateway.Entry
-
-  require Logger
 
   # How long to wait between IM edit flushes (milliseconds).
   @edit_flush_interval_ms 1_000
 
   # Handler idle lifetime cap (5 minutes). Live response activity resets this
-  # timer; if the handler goes quiet, recovery scan picks up any terminal row.
+  # timer; durable terminal delivery is owned by outbox.
   @max_lifetime_ms 5 * 60 * 1_000
   @im_visible_event_types ~w(im.message.addressed im.message.may_intervene command.new command.steer check_back_later.wakeup cron.fire)
 
@@ -91,9 +87,9 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   @doc """
   Returns true when an actor event can produce an IM-visible AI reply.
 
-  This predicate is shared by the live preview handler and recovery scan. Keep
-  it narrower than generic actor events: explicit command feedback and other
-  provider-visible side effects continue to use the outbox path instead.
+  This predicate keeps preview/final-reply delivery narrower than generic actor
+  events: explicit command feedback and other provider-visible side effects
+  continue to use the outbox path instead.
   """
   @spec im_visible_event?(ActorEvent.t()) :: boolean()
   def im_visible_event?(%ActorEvent{} = event) do
@@ -116,7 +112,12 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
         :ok
 
       {:error, reason} ->
-        Logger.debug("signals_gateway preview handler start skipped: #{inspect(reason)}")
+        Logging.debug(
+          "signals_gateway.ai_reply_preview.start_skipped",
+          "signals gateway preview handler start skipped",
+          actor_event_fields(event, %{reason: inspect(reason)})
+        )
+
         :ok
     end
   end
@@ -152,6 +153,12 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       actor_event: event,
       # Accumulated text from deltas (for preview + finalize).
       text_buffer: "",
+      # Current provider-visible preview text. Tool activity can update this
+      # before assistant text exists; final durability still comes from
+      # response content or text_buffer.
+      preview_text: "",
+      # Maps function call ids to provider tool names for later tool results.
+      tool_calls: %{},
       # The provider message id for the current preview (nil = no preview sent yet).
       preview_entry_id: nil,
       # Whether the preview has been established (first delta → send IM).
@@ -182,7 +189,8 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   def handle_info({:ai_gateway_live, :output_text_delta, %{text: delta}}, state) do
     state = reset_lifetime_timer(state)
     new_buffer = state.text_buffer <> delta
-    state = %{state | text_buffer: new_buffer}
+    preview_text = AIReplyText.normalize_visible_text(new_buffer)
+    state = %{state | text_buffer: new_buffer, preview_text: preview_text}
 
     state =
       cond do
@@ -190,8 +198,6 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
           state
 
         not state.preview_established ->
-          preview_text = AIReplyText.normalize_visible_text(new_buffer)
-
           if preview_text == "" do
             state
           else
@@ -205,7 +211,12 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
                 }
 
               {:error, reason} ->
-                Logger.warning("AIReplyPreview: failed to establish preview: #{inspect(reason)}")
+                Logging.warning(
+                  "signals_gateway.ai_reply_preview.establish_failed",
+                  "AI reply preview establish failed",
+                  preview_fields(state, %{reason: inspect(reason)})
+                )
+
                 state
             end
           end
@@ -216,6 +227,16 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       end
 
     {:noreply, state}
+  end
+
+  @impl GenServer
+  def handle_info({:ai_gateway_live, :tool_call_started, payload}, state) do
+    {:noreply, handle_tool_activity(state, :started, payload)}
+  end
+
+  @impl GenServer
+  def handle_info({:ai_gateway_live, :tool_call_completed, payload}, state) do
+    {:noreply, handle_tool_activity(state, :completed, payload)}
   end
 
   @impl GenServer
@@ -232,13 +253,18 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   end
 
   @impl GenServer
-  def handle_info({:ai_gateway_event, :response_failed, _message_id, %{error: error}}, state) do
-    Logger.info(
-      "AIReplyPreview: response failed for actor_event #{state.actor_event.id}: #{inspect(error)}"
+  def handle_info({:ai_gateway_event, :response_failed, message_id, %{error: error}}, state) do
+    Logging.info(
+      "signals_gateway.ai_reply_preview.response_failed",
+      "AI reply preview response failed",
+      preview_fields(state, %{
+        message_id: message_id,
+        error: inspect(error)
+      })
     )
 
-    if retryable_response_error?(error) do
-      {:noreply, state}
+    if retryable_response_error?(error) or actor_event_open?(state.actor_event.id) do
+      {:noreply, reset_lifetime_timer(state)}
     else
       # Error rows are not IM-visible by default; the preview handler simply
       # terminates.
@@ -248,7 +274,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
   @impl GenServer
   def handle_info(:flush_edit, state) do
-    text = AIReplyText.normalize_visible_text(state.text_buffer)
+    text = AIReplyText.normalize_visible_text(state.preview_text)
 
     state =
       if (text != "" and state.dirty) && state.preview_established && state.preview_entry_id do
@@ -259,7 +285,17 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
             %{state | dirty: false, edit_sequence: edit_sequence}
 
           {:error, reason} ->
-            Logger.debug("AIReplyPreview: edit failed (best-effort): #{inspect(reason)}")
+            Logging.debug(
+              "signals_gateway.ai_reply_preview.edit_failed",
+              "AI reply preview edit failed",
+              preview_fields(state, %{
+                preview_entry_id: state.preview_entry_id,
+                edit_key: edit_key,
+                edit_sequence: edit_sequence,
+                reason: inspect(reason)
+              })
+            )
+
             %{state | dirty: false, edit_sequence: edit_sequence}
         end
       else
@@ -273,8 +309,10 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
   @impl GenServer
   def handle_info({:lifetime_expired, lifetime_ref}, %{lifetime_ref: lifetime_ref} = state) do
-    Logger.info(
-      "AIReplyPreview: lifetime expired for actor_event #{state.actor_event.id}, terminating"
+    Logging.info(
+      "signals_gateway.ai_reply_preview.lifetime_expired",
+      "AI reply preview lifetime expired",
+      preview_fields(state)
     )
 
     {:stop, :normal, state}
@@ -304,6 +342,111 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     %{state | lifetime_ref: lifetime_ref, lifetime_timer: lifetime_timer}
   end
 
+  defp handle_tool_activity(%{silent_success_allowed: true} = state, _stage, _payload),
+    do: reset_lifetime_timer(state)
+
+  defp handle_tool_activity(state, stage, payload) when is_map(payload) do
+    state = reset_lifetime_timer(state)
+    call_id = normalize_optional_text(payload[:call_id] || payload["call_id"])
+    name = tool_activity_name(payload, call_id, state.tool_calls)
+    tool_calls = remember_tool_call(state.tool_calls, call_id, name)
+    text = tool_activity_text(stage, name)
+
+    state
+    |> Map.put(:tool_calls, tool_calls)
+    |> upsert_preview_text(text, "tool-#{stage}")
+  end
+
+  defp handle_tool_activity(state, _stage, _payload), do: reset_lifetime_timer(state)
+
+  defp upsert_preview_text(state, text, edit_prefix) do
+    case AIReplyText.normalize_visible_text(text) do
+      "" ->
+        state
+
+      preview_text ->
+        state = %{state | preview_text: preview_text}
+
+        cond do
+          not state.preview_established ->
+            case establish_preview(state.actor_event, preview_text) do
+              {:ok, entry_id} ->
+                %{state | preview_entry_id: entry_id, preview_established: true, dirty: false}
+
+              {:error, reason} ->
+                Logging.warning(
+                  "signals_gateway.ai_reply_preview.establish_failed",
+                  "AI reply preview establish failed",
+                  preview_fields(state, %{reason: inspect(reason)})
+                )
+
+                state
+            end
+
+          is_binary(state.preview_entry_id) ->
+            {edit_sequence, edit_key} = next_edit_key(state, edit_prefix)
+
+            case edit_preview(state.actor_event, state.preview_entry_id, preview_text, edit_key) do
+              :ok ->
+                %{state | dirty: false, edit_sequence: edit_sequence}
+
+              {:error, reason} ->
+                Logging.debug(
+                  "signals_gateway.ai_reply_preview.tool_activity_edit_failed",
+                  "AI reply preview tool activity edit failed",
+                  preview_fields(state, %{
+                    preview_entry_id: state.preview_entry_id,
+                    edit_key: edit_key,
+                    edit_sequence: edit_sequence,
+                    reason: inspect(reason)
+                  })
+                )
+
+                %{state | dirty: false, edit_sequence: edit_sequence}
+            end
+
+          true ->
+            state
+        end
+    end
+  end
+
+  defp remember_tool_call(tool_calls, call_id, name) when is_binary(call_id) and is_binary(name),
+    do: Map.put(tool_calls, call_id, name)
+
+  defp remember_tool_call(tool_calls, _call_id, _name), do: tool_calls
+
+  defp tool_activity_name(payload, call_id, tool_calls) do
+    normalize_optional_text(
+      payload[:name] || payload["name"] || payload[:tool] || payload["tool"]
+    ) ||
+      tool_name_from_output(payload[:output] || payload["output"]) ||
+      if(is_binary(call_id), do: Map.get(tool_calls, call_id)) ||
+      call_id ||
+      "tool"
+  end
+
+  defp tool_name_from_output(%{"tool" => tool}), do: normalize_optional_text(tool)
+  defp tool_name_from_output(%{tool: tool}), do: normalize_optional_text(tool)
+  defp tool_name_from_output(_output), do: nil
+
+  defp tool_activity_text(:started, name), do: "Calling tool: #{truncate_tool_name(name)}"
+
+  defp tool_activity_text(:completed, name),
+    do: "Finished tool: #{truncate_tool_name(name)}. Reading results."
+
+  defp tool_activity_text(_stage, name), do: "Working with tool: #{truncate_tool_name(name)}"
+
+  defp truncate_tool_name(name) do
+    name = normalize_optional_text(name) || "tool"
+
+    if String.length(name) > 80 do
+      String.slice(name, 0, 77) <> "..."
+    else
+      name
+    end
+  end
+
   # ─────────────────────────────────────────────────────────────────
   # IM interaction helpers (reuse OutboxAdapter)
   # ─────────────────────────────────────────────────────────────────
@@ -311,7 +454,8 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   # Sends the initial preview message to the provider.
   defp establish_preview(%ActorEvent{} = event, text) do
     with {:ok, result} <- send_new_reply(event, text, nil, "ai-preview:#{event.id}:initial"),
-         entry_id when is_binary(entry_id) <- created_source_entry_id(result) do
+         entry_id when is_binary(entry_id) <- created_source_entry_id(result),
+         :ok <- StatefulResponses.record_preview_source_entry(event.id, entry_id) do
       {:ok, entry_id}
     else
       nil -> {:error, :preview_entry_id_missing}
@@ -336,59 +480,15 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     end
   end
 
-  # Finalizes the reply: replaces preview with durable content and writes mirror.
-  defp finalize_reply(state, message_id, payload) do
-    %ActorEvent{} = event = state.actor_event
-    content = payload[:content] || []
-
-    text =
-      AIReplyText.visible_text(content) || AIReplyText.normalize_visible_text(state.text_buffer)
-
-    # Flush any remaining buffered text first.
-    state = flush_pending(state)
-
-    result =
-      cond do
-        text == "" ->
-          :ok
-
-        is_binary(state.preview_entry_id) ->
-          entry_id = state.preview_entry_id
-
-          with :ok <- edit_preview(event, entry_id, text, "final:#{message_id}"),
-               :ok <- mirror_final_reply(event, message_id, text, source_entry_id: entry_id) do
-            :ok
-          end
-
-        true ->
-          deliver_and_mirror_final_reply(event, message_id, text)
-      end
-
-    case result do
-      :ok ->
-        Logger.info(
-          "AIReplyPreview: finalized reply for actor_event #{event.id}, message #{message_id}"
-        )
-
-      {:error, reason} ->
-        Logger.warning(
-          "AIReplyPreview: final reply delivery failed for actor_event #{event.id}, message #{message_id}: #{inspect(Sanitizer.transport(reason), limit: 20)}"
-        )
-    end
+  # Terminal delivery is durable outbox-owned. The preview process only stops.
+  defp finalize_reply(state, message_id, _payload) do
+    Logging.info(
+      "signals_gateway.ai_reply_preview.terminal_observed",
+      "AI reply preview terminal event observed",
+      preview_fields(state, %{message_id: message_id})
+    )
 
     {:stop, :normal, state}
-  end
-
-  defp flush_pending(state) do
-    text = normalize_text(state.text_buffer)
-
-    if state.dirty && state.preview_entry_id && text != "" do
-      {edit_sequence, edit_key} = next_edit_key(state, "flush")
-      edit_preview(state.actor_event, state.preview_entry_id, text, edit_key)
-      %{state | dirty: false, edit_sequence: edit_sequence}
-    else
-      %{state | dirty: false}
-    end
   end
 
   defp next_edit_key(state, prefix) do
@@ -396,118 +496,17 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     {edit_sequence, "#{prefix}:#{edit_sequence}"}
   end
 
-  # ─────────────────────────────────────────────────────────────────
-  # Mirror helper (shared by live finalize + recovery scan + outbox)
-  # ─────────────────────────────────────────────────────────────────
-
-  @doc """
-  Sends a final reply if needed and records the `signal_gateway_entries.ai_message_id`
-  mirror only after provider delivery succeeds. Recovery scan calls this for
-  terminal rows whose live preview handler died before final delivery.
-  """
-  @spec deliver_and_mirror_final_reply(ActorEvent.t(), Message.t() | binary(), String.t()) ::
-          :ok | {:error, term()}
-  def deliver_and_mirror_final_reply(%ActorEvent{} = event, %Message{id: message_id}, text),
-    do: deliver_and_mirror_final_reply(event, message_id, text)
-
-  def deliver_and_mirror_final_reply(%ActorEvent{} = event, message_id, text)
-      when is_binary(message_id) do
-    with text when is_binary(text) and text != "" <- normalize_text(text),
-         {:ok, result} <- send_new_reply(event, text, message_id, "ai-reply:#{message_id}"),
-         source_entry_id when is_binary(source_entry_id) <- created_source_entry_id(result) do
-      mirror_final_reply(event, message_id, text,
-        source_entry_id: source_entry_id,
-        raw_payload: raw_payload(result)
-      )
-    else
-      "" -> {:error, :empty_final_reply_text}
-      nil -> {:error, :final_reply_entry_id_missing}
-      {:error, _reason} = error -> error
-      :unknown -> {:error, :provider_send_unknown}
-    end
+  defp preview_fields(state, extra \\ %{}) do
+    actor_event_fields(state.actor_event, extra)
   end
 
-  @doc """
-  Writes the final reply mirror into signal_gateway_entries with ai_message_id.
-
-  Called after a successful IM send/edit to record that the final reply
-  for this ai_gateway_messages row has been delivered to the provider.
-  This is the durable marker that recovery scan checks.
-  """
-  @spec mirror_final_reply(ActorEvent.t(), binary(), String.t(), keyword()) ::
-          :ok | {:error, term()}
-  def mirror_final_reply(%ActorEvent{} = event, ai_message_id, text, opts \\ []) do
-    with source_entry_id when is_binary(source_entry_id) <- source_entry_id(opts),
-         text when is_binary(text) and text != "" <- normalize_text(text) do
-      now = DateTime.utc_now(:microsecond)
-      raw_payload = Keyword.get(opts, :raw_payload, %{}) |> Sanitizer.transport()
-      author = %{"agent_uid" => event.agent_uid}
-
-      metadata = %{
-        "ai_message_id" => ai_message_id,
-        "actor_event_id" => event.id,
-        "source" => "ai_gateway_final_reply",
-        "provider_thread_id" => event.provider_thread_id
-      }
-
-      metadata = Enum.reject(metadata, fn {_key, value} -> is_nil(value) end) |> Map.new()
-
-      metadata_text =
-        Projection.entry_metadata_text(%{
-          author: author,
-          metadata: metadata,
-          channel_name: nil,
-          channel_title: nil
-        })
-
-      attrs = %{
-        signal_channel_id: event.signal_channel_id,
-        source_entry_id: source_entry_id,
-        text: text,
-        fallback_visible_text: text,
-        formatted_content: %{},
-        attachments: [],
-        links: [],
-        author: author,
-        mentions: [],
-        metadata: metadata,
-        raw_payload: raw_payload,
-        document_id: Projection.entry_document_id(event.signal_channel_id, source_entry_id),
-        search_text: text,
-        metadata_text: metadata_text,
-        content_hash: Projection.entry_content_hash([text, metadata_text, %{}, [], []]),
-        first_seen_at: now,
-        last_seen_at: now,
-        ai_message_id: ai_message_id
-      }
-
-      case %Entry{}
-           |> Entry.changeset(attrs)
-           |> Repo.insert(
-             on_conflict:
-               {:replace,
-                [
-                  :text,
-                  :fallback_visible_text,
-                  :metadata,
-                  :raw_payload,
-                  :document_id,
-                  :search_text,
-                  :metadata_text,
-                  :content_hash,
-                  :last_seen_at,
-                  :ai_message_id,
-                  :updated_at
-                ]},
-             conflict_target: [:signal_channel_id, :source_entry_id]
-           ) do
-        {:ok, _entry} -> :ok
-        {:error, _changeset} = error -> error
-      end
-    else
-      nil -> {:error, :final_reply_entry_id_missing}
-      "" -> {:error, :empty_final_reply_text}
-    end
+  defp actor_event_fields(%ActorEvent{} = event, extra) do
+    %{
+      actor_event_id: event.id,
+      agent_uid: event.agent_uid,
+      binding_name: event.binding_name
+    }
+    |> Map.merge(extra)
   end
 
   # ─────────────────────────────────────────────────────────────────
@@ -594,11 +593,6 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       optional_text(result, "created_source_entry_id")
   end
 
-  defp raw_payload(result) when is_map(result),
-    do: Map.get(result, :raw_payload) || Map.get(result, "raw_payload") || result
-
-  defp source_entry_id(opts), do: normalize_optional_text(Keyword.get(opts, :source_entry_id))
-
   defp normalize_text(text), do: AIReplyText.normalize_visible_text(text)
 
   defp normalize_optional_text(text) when is_binary(text) do
@@ -630,4 +624,12 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
   defp retryable_response_error?(%{"retryable" => true}), do: true
   defp retryable_response_error?(_error), do: false
+
+  defp actor_event_open?(actor_event_id) do
+    case Repo.get(ActorEvent, actor_event_id) do
+      %ActorEvent{completed_at: nil} -> true
+      %ActorEvent{} -> false
+      nil -> false
+    end
+  end
 end

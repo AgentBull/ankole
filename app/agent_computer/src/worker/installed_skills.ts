@@ -1,6 +1,8 @@
+import type { Dirent } from 'node:fs'
 import { lstat, readdir, readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { xxh3File128Hex, xxh3String128Hex } from '@ankole/kernel'
+import { match, ResultAsync } from '@pleisto/active-support'
 import type { JsonObject } from '../fabric/fabric'
 import type { InstalledSkillObservation } from '../lanes/rpc_lane'
 
@@ -36,13 +38,12 @@ export async function scanInstalledSkills(root: string, agentUid: string): Promi
   const agentDir = agentSkillRoot(root, agentUid, diagnostics)
   if (!agentDir) return emptyScan(diagnostics)
 
-  let entries
-  try {
-    entries = await readdir(agentDir, { withFileTypes: true })
-  } catch (error) {
-    if (nodeErrorCode(error) === 'ENOENT') return emptyScan(diagnostics)
-    throw error
+  const entriesResult = await readDirEntries(agentDir)
+  if (entriesResult.isErr()) {
+    if (nodeErrorCode(entriesResult.error) === 'ENOENT') return emptyScan(diagnostics)
+    throw entriesResult.error
   }
+  const entries = entriesResult.value
 
   const observations: InstalledSkillObservation[] = []
   let truncated = false
@@ -282,19 +283,21 @@ function stringScalar(frontmatter: SkillFrontmatter, key: string): string | unde
 }
 
 function booleanScalar(frontmatter: SkillFrontmatter, key: string, fallback: boolean): boolean | null {
-  const value = frontmatter[key]
-  if (value === undefined) return fallback
-  if (value === true || value === 'true' || value === 'TRUE') return true
-  if (value === false || value === 'false' || value === 'FALSE') return false
-  return null
+  return parseBooleanFrontmatter(frontmatter[key], fallback)
 }
 
 function optionalBooleanScalar(frontmatter: SkillFrontmatter, key: string): boolean | null | undefined {
-  const value = frontmatter[key]
-  if (value === undefined) return undefined
-  if (value === true || value === 'true' || value === 'TRUE') return true
-  if (value === false || value === 'false' || value === 'FALSE') return false
-  return null
+  return parseBooleanFrontmatter(frontmatter[key], undefined)
+}
+
+function parseBooleanFrontmatter(value: unknown, fallback: boolean): boolean | null
+function parseBooleanFrontmatter(value: unknown, fallback: undefined): boolean | null | undefined
+function parseBooleanFrontmatter(value: unknown, fallback: boolean | undefined): boolean | null | undefined {
+  return match(value)
+    .with(undefined, () => fallback)
+    .with(true, 'true', 'TRUE', () => true)
+    .with(false, 'false', 'FALSE', () => false)
+    .otherwise(() => null)
 }
 
 function tagsScalar(frontmatter: SkillFrontmatter): string[] {
@@ -346,6 +349,10 @@ function installedSkillsFingerprint(observations: InstalledSkillObservation[]): 
       .map(observation => `${observation.skill_name}\0${observation.relative_path}\0${observation.xxh3_128}`)
       .join('\0')
   )
+}
+
+function readDirEntries(path: string): ResultAsync<Dirent[], unknown> {
+  return ResultAsync.fromPromise(readdir(path, { withFileTypes: true }), error => error)
 }
 
 function emptyScan(diagnostics: InstalledSkillDiagnostic[]): InstalledSkillScanResult {

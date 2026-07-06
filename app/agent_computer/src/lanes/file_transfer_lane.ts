@@ -1,4 +1,5 @@
 import { xxh3File128Hex, zstdCompressBlock, zstdDecompressBlock } from '@ankole/kernel'
+import { match } from '@pleisto/active-support'
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readSync, rmSync, statSync } from 'node:fs'
 import { appendFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
@@ -118,54 +119,22 @@ export async function handleFileTransferFrame(
     }
 
     command = requiredTextFrame(frames[1], 'command')
-    switch (command) {
-      case 'WRITE_OPEN':
-        await handleWriteOpen(config, sender, state, transferId, frames)
-        return
-
-      case 'DATA':
-        await handleData(sender, state, transferId, frames)
-        return
-
-      case 'WRITE_COMMIT':
-        await handleWriteCommit(sender, state, transferId)
-        return
-
-      case 'WRITE_ABORT':
-        handleWriteAbort(sender, state, transferId)
-        return
-
-      case 'READ_OPEN':
-        handleReadOpen(config, sender, state, transferId, frames)
-        return
-
-      case 'READ_ABORT':
-        handleReadAbort(state, transferId)
-        return
-
-      case 'CREDIT':
-        sendReadData(sender, state, transferId, frames)
-        return
-
-      case 'STAT':
-        handleStat(config, sender, state, transferId, frames)
-        return
-
-      case 'DELETE':
-        await handleDelete(config, sender, state, transferId, frames)
-        return
-
-      case 'MOVE':
-        await handleMove(config, sender, state, transferId, frames)
-        return
-
-      case 'LIST':
-        handleList(config, sender, transferId, frames)
-        return
-
-      default:
+    await match(command)
+      .with('WRITE_OPEN', () => handleWriteOpen(config, sender, state, transferId, frames))
+      .with('DATA', () => handleData(sender, state, transferId, frames))
+      .with('WRITE_COMMIT', () => handleWriteCommit(sender, state, transferId))
+      .with('WRITE_ABORT', () => handleWriteAbort(sender, state, transferId))
+      .with('READ_OPEN', () => handleReadOpen(config, sender, state, transferId, frames))
+      .with('READ_ABORT', () => handleReadAbort(state, transferId))
+      .with('CREDIT', () => sendReadData(sender, state, transferId, frames))
+      .with('STAT', () => handleStat(config, sender, state, transferId, frames))
+      .with('DELETE', () => handleDelete(config, sender, state, transferId, frames))
+      .with('MOVE', () => handleMove(config, sender, state, transferId, frames))
+      .with('LIST', () => handleList(config, sender, transferId, frames))
+      .otherwise(() => {
         throw new Error(`unsupported file lane command: ${command}`)
-    }
+      })
+    return
   } catch (error) {
     if (command === 'DATA') {
       cleanupWriteTransfer(state, transferId)
@@ -761,14 +730,12 @@ function removePathBestEffort(path: string): void {
  * Maps the protocol's virtual roots to worker-owned filesystem roots.
  */
 function rootPathFor(config: WorkerConfig, root: string): string {
-  switch (root) {
-    case 'user_files':
-      return config.userFilesRoot
-    case 'agent_installed_skills':
-      return config.agentInstalledSkillsRoot
-    default:
+  return match(root)
+    .with('user_files', () => config.userFilesRoot)
+    .with('agent_installed_skills', () => config.agentInstalledSkillsRoot)
+    .otherwise(() => {
       throw new Error(`unsupported file root: ${root}`)
-  }
+    })
 }
 
 /**

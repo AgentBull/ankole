@@ -7,6 +7,7 @@ defmodule Ankole.ActorRuntime.ConversationCommandTest do
     test "/compress is parsed as command.compress for the worker" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
+      initial_message_count = Repo.aggregate(Message, :count)
 
       assert {:ok, %{actor_event: input}} =
                emit_entry(
@@ -23,7 +24,7 @@ defmodule Ankole.ActorRuntime.ConversationCommandTest do
       assert get_in(input.payload, ["data", "command", "raw"]) == "/compress"
       assert Repo.get(ActorEvent, input.id)
       assert Repo.aggregate(OutboxEntry, :count) == 0
-      assert Repo.aggregate(Message, :count) == 0
+      assert Repo.aggregate(Message, :count) == initial_message_count
     end
 
     test "/compress writes an AIGateway compaction fact and feedback outbox" do
@@ -146,6 +147,138 @@ defmodule Ankole.ActorRuntime.ConversationCommandTest do
                )
 
       refute_receive {:actor_lane, _envelope}, 100
+    end
+
+    test "/compress compacts real Responses role/content text items from live turns" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
+      test_pid = self()
+
+      base_url =
+        Ankole.AIGatewayCase.start_upstream_server(fn request ->
+          send(test_pid, {:gateway_request, request})
+
+          {:json, 200,
+           %{
+             "id" => "resp_real_role_content_compaction_summary",
+             "object" => "response",
+             "status" => "completed",
+             "output" => [
+               %{
+                 "type" => "message",
+                 "role" => "assistant",
+                 "content" => [
+                   %{"type" => "output_text", "text" => "Real role/content history compressed."}
+                 ]
+               }
+             ],
+             "usage" => %{"total_tokens" => 7}
+           }}
+        end)
+
+      provider_id = "compress-real-role-content-" <> Ecto.UUID.generate()
+
+      assert {:ok, _provider} =
+               ProviderConfigs.create_provider(%{
+                 provider_id: provider_id,
+                 provider_kind: "openai",
+                 base_url: "#{base_url}/v1",
+                 connection_options: %{"api_key" => "sk-compress"}
+               })
+
+      assert {:ok, _profile} =
+               ModelProfiles.put_model_profile(agent.uid, "light", %{
+                 provider_id: provider_id,
+                 model: "gpt-compress"
+               })
+
+      {:ok, conversation} =
+        StatefulResponses.ensure_conversation(agent.uid, "signal-channel:lark:chat:group-a")
+
+      old =
+        insert_complete_message!(
+          agent.uid,
+          conversation.id,
+          nil,
+          [
+            %{
+              "role" => "user",
+              "content" => [
+                %{"type" => "input_text", "text" => "phase code ANKOLE_REAL_E2E"}
+              ]
+            },
+            %{
+              "type" => "message",
+              "role" => "assistant",
+              "content" => [%{"type" => "output_text", "text" => "recorded"}]
+            }
+          ]
+        )
+
+      middle =
+        insert_complete_message!(
+          agent.uid,
+          conversation.id,
+          old.id,
+          [
+            %{
+              "role" => "user",
+              "content" => [%{"type" => "input_text", "text" => "window is Wednesday 19:30"}]
+            },
+            %{
+              "type" => "message",
+              "role" => "assistant",
+              "content" => [%{"type" => "output_text", "text" => "recorded"}]
+            }
+          ]
+        )
+
+      _tail =
+        insert_complete_message!(
+          agent.uid,
+          conversation.id,
+          middle.id,
+          [
+            %{
+              "role" => "user",
+              "content" => [%{"type" => "input_text", "text" => "owner is Ada"}]
+            },
+            %{
+              "type" => "message",
+              "role" => "assistant",
+              "content" => [%{"type" => "output_text", "text" => "recorded"}]
+            }
+          ]
+        )
+
+      assert {:ok, %{actor_event: compress_event}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "/compress", explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok,
+              %{
+                status: :command_consumed,
+                feedback: "Conversation compressed.",
+                message: %Message{} = compaction
+              }} =
+               process_ready_events_once(now: DateTime.add(@base_time, 1, :second))
+
+      assert_receive {:gateway_request, request}
+      assert request.path == "v1/responses"
+      assert request.body["input"] =~ "phase code ANKOLE_REAL_E2E"
+
+      assert compaction.type == "compaction"
+      assert compaction.previous_message_id != nil
+      assert compaction.covers_until_message_id == old.id
+
+      assert [%{"type" => "compaction", "summary" => "Real role/content history compressed."}] =
+               compaction.content
+
+      assert %DateTime{} = Repo.get!(ActorEvent, compress_event.id).completed_at
     end
 
     test "/compress waits for an active generation before compacting history" do
@@ -386,6 +519,7 @@ defmodule Ankole.ActorRuntime.ConversationCommandTest do
     test "/compress consumes the command when there is no compactable prefix" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
+      initial_message_count = Repo.aggregate(Message, :count)
 
       {:ok, _conversation} =
         StatefulResponses.ensure_conversation(agent.uid, "signal-channel:lark:chat:group-a")
@@ -410,7 +544,7 @@ defmodule Ankole.ActorRuntime.ConversationCommandTest do
       assert %OutboxEntry{payload: %{"text" => "Nothing to compress."}} =
                Repo.get_by!(OutboxEntry, source_actor_event_id: compress_event.id)
 
-      assert Repo.aggregate(Message, :count) == 0
+      assert Repo.aggregate(Message, :count) == initial_message_count
       refute_receive {:gateway_request, _request}, 100
       refute_receive {:actor_lane, _envelope}, 100
     end

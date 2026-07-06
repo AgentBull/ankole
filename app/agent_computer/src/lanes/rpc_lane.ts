@@ -1,5 +1,4 @@
 import type { ActorEventEnvelope, ActorTurnRef } from './actor_lane'
-import type { WorkerConfig } from '../worker/config'
 import type { JsonObject, RuntimeFabricEnvelope } from '../fabric/fabric'
 import type { ReliableEnvelopeSender } from '../fabric/sender'
 
@@ -432,13 +431,8 @@ export class RuntimeRpcClient {
 /**
  * Handles a control-plane-originated RPC request by sending an RPC reply.
  */
-export async function handleWorkerRpcRequest(
-  config: WorkerConfig,
-  sendEnvelope: ReliableEnvelopeSender,
-  activeTurns: number,
-  request: RpcRequest
-): Promise<void> {
-  await sendEnvelope(workerRpcReplyEnvelope(dispatchWorkerRpcRequest(config, activeTurns, request), request.request_id))
+export async function handleWorkerRpcRequest(sendEnvelope: ReliableEnvelopeSender, request: RpcRequest): Promise<void> {
+  await sendEnvelope(workerRpcReplyEnvelope(dispatchWorkerRpcRequest(request), request.request_id))
 }
 
 /**
@@ -447,21 +441,14 @@ export async function handleWorkerRpcRequest(
  * There are currently no worker-owned durable RPC methods. Unknown requests are
  * answered explicitly so caller bugs are visible instead of timing out.
  */
-export function dispatchWorkerRpcRequest(
-  _config: WorkerConfig,
-  _activeTurns: number,
-  request: RpcRequest
-): RpcResponse | RpcError {
-  switch (request.method) {
-    default:
-      return {
-        request_id: request.request_id,
-        code: 'unknown_rpc_method',
-        message: `unknown worker RPC method: ${request.method}`,
-        details_json: {
-          method: request.method
-        }
-      }
+export function dispatchWorkerRpcRequest(request: RpcRequest): RpcResponse | RpcError {
+  return {
+    request_id: request.request_id,
+    code: 'unknown_rpc_method',
+    message: `unknown worker RPC method: ${request.method}`,
+    details_json: {
+      method: request.method
+    }
   }
 }
 

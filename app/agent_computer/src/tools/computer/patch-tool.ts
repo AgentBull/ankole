@@ -8,7 +8,7 @@
  *  - `patch`: apply a multi-file V4A (`apply_patch`) envelope. Used when the model
  *    wants to express several edits, or edits across files, in one call.
  *
- * Why a dedicated tool instead of letting the model run sed/awk/python? Those are
+ * Why a dedicated tool instead of letting the model run sed/awk edits? Those are
  * easy to get subtly wrong (escaping, in-place flags, encoding) and produce no review
  * artifact. This tool matches against the real file, refuses ambiguous edits, and
  * returns a unified diff the user can read.
@@ -85,7 +85,7 @@ export function createPatchTool(context: ComputerToolContext): AgentTool<typeof 
   return {
     name: 'patch',
     description:
-      "Targeted edits to files in the computer. Use this instead of sed/awk/perl/python scripts or heredocs for editing. Returns a unified diff. REPLACE MODE (default): use for one precise edit; pass path, old_string, and new_string; old_string must match uniquely unless replace_all=true, so include surrounding context lines. Use new_string='' to delete the match. Use old_string='' only to create a file that does not exist. PATCH MODE (mode='patch'): use for multi-file, multi-site, or larger edits; apply a V4A patch with *** Begin Patch / *** End Patch. Relative paths resolve from cwd/workdir, defaulting to /workspace.",
+      "Targeted edits to files in the computer. Use this instead of sed/awk edits or echo/cat heredocs. Returns a unified diff. REPLACE MODE (default): use for one precise edit; pass path, old_string, and new_string; old_string must match uniquely unless replace_all=true, so include surrounding context lines. Use new_string='' to delete the match. Use old_string='' only to create a file that does not exist. PATCH MODE (mode='patch'): use for multi-file, multi-site, or larger edits; apply a V4A patch with *** Begin Patch / *** End Patch. Relative paths resolve from cwd/workdir, defaulting to /workspace.",
     schema: PatchParams,
     executionMode: 'sequential',
     isReadOnly: false,

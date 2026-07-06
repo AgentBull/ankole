@@ -48,7 +48,7 @@ defmodule Ankole.E2E.Scenarios.Ingress do
              )
 
     wait_for_event_ack!(fake_feishu, "evt_bot_echo_1")
-    finalize_due_inbound_batches!()
+    finalize_due_inbound_batch_events!()
 
     assert Repo.aggregate(ActorEvent, :count) == before_inputs
     assert Repo.aggregate(Entry, :count) == before_entries
@@ -69,7 +69,7 @@ defmodule Ankole.E2E.Scenarios.Ingress do
              )
 
     wait_for_event_ack!(fake_feishu, "evt_ignored_unaddressed_1")
-    finalize_due_inbound_batches!()
+    finalize_due_inbound_batch_events!()
 
     refute Repo.get_by(Entry,
              signal_channel_id: "lark:oc_chaos_ignore",
@@ -99,7 +99,7 @@ defmodule Ankole.E2E.Scenarios.Ingress do
     assert %Entry{text: "This observe_all line should be mirrored only."} =
              wait_for_signal_entry!("lark:oc_chaos_record", "om_record_only_1")
 
-    finalize_due_inbound_batches!()
+    finalize_due_inbound_batch_events!()
 
     refute Repo.get_by(ActorEvent,
              agent_uid: agent.uid,
@@ -239,7 +239,7 @@ defmodule Ankole.E2E.Scenarios.Ingress do
       other_agent_uid: secondary_agent.uid,
       event_id: "evt_multi_agent_a_1",
       message_id: "om_multi_agent_a_1",
-      mention: lark_bot_mention("ou_lark_bot_a", "_agent_a", "Agent A")
+      mention: lark_bot_mention("ou_lark_bot_a", "@_user_1", "Agent A")
     }
 
     primary_result = run_single_agent_mention(fake_feishu, container, primary)
@@ -257,7 +257,7 @@ defmodule Ankole.E2E.Scenarios.Ingress do
       other_agent_uid: agent.uid,
       event_id: "evt_multi_agent_b_1",
       message_id: "om_multi_agent_b_1",
-      mention: lark_bot_mention("ou_lark_bot_b", "_agent_b", "Agent B")
+      mention: lark_bot_mention("ou_lark_bot_b", "@_user_1", "Agent B")
     }
 
     secondary_result = run_single_agent_mention(fake_feishu, container, secondary)
@@ -282,7 +282,8 @@ defmodule Ankole.E2E.Scenarios.Ingress do
                message_id: args.message_id,
                chat_id: "oc_chaos_multi_agent",
                chat_type: "group",
-               text: "#{args.mention["key"]} Reply exactly CHAOS_DIRECT_OK. Do not call tools.",
+               text:
+                 "#{mention_text_prefix(args.mention)} Reply exactly CHAOS_DIRECT_OK. Do not call tools.",
                mentions: [args.mention],
                to_app: [multi_a_app_id(), secondary_app_id()],
                create_time_ms:
@@ -290,6 +291,7 @@ defmodule Ankole.E2E.Scenarios.Ingress do
              )
 
     input = actor_event_by_source_entry_id!(args.agent_uid, args.message_id)
+    assert_actor_entry_text_visible!(input, "Reply exactly CHAOS_DIRECT_OK. Do not call tools.")
 
     refute Repo.get_by(ActorEvent,
              agent_uid: args.other_agent_uid,
@@ -305,6 +307,18 @@ defmodule Ankole.E2E.Scenarios.Ingress do
     assert reply.text =~ "CHAOS_DIRECT_OK"
     assert_actor_event_completed!(input.id)
     %{input: input, reply: reply, message: message}
+  end
+
+  defp mention_text_prefix(%{"key" => "@" <> _rest = key}), do: key
+  defp mention_text_prefix(%{"key" => key}) when is_binary(key), do: "@#{key}"
+  defp mention_text_prefix(_mention), do: "@_user_1"
+
+  defp assert_actor_entry_text_visible!(%ActorEvent{} = input, expected_text) do
+    entry_text = get_in(input.payload, ["data", "entry", "text"])
+
+    assert entry_text == expected_text
+    refute entry_text =~ "_user_"
+    refute entry_text =~ "_agent_"
   end
 
   def run_followup_queue(%{

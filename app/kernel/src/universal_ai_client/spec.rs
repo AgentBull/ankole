@@ -491,11 +491,15 @@ fn default_connect_ms() -> u64 {
 }
 
 fn default_first_byte_ms() -> u64 {
-    30_000
+    default_model_request_timeout_ms()
 }
 
 fn default_idle_ms() -> u64 {
-    60_000
+    default_model_request_timeout_ms()
+}
+
+fn default_model_request_timeout_ms() -> u64 {
+    1_800_000
 }
 
 fn default_http_versions() -> Vec<HttpVersionPreference> {
@@ -566,6 +570,27 @@ fn validate_prepared_http_request(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stream_spec_default_timeout_uses_model_request_budget() {
+        let spec = StreamSpec::from_json(
+            r#"{
+              "api_resolver": "openai_chat_completions",
+              "upstream": {
+                "kind": "http_sse",
+                "method": "POST",
+                "url": "https://example.test/v1/chat/completions"
+              },
+              "downstream": "sse"
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(spec.upstream.timeout.connect_ms, 30_000);
+        assert_eq!(spec.upstream.timeout.first_byte_ms, 1_800_000);
+        assert_eq!(spec.upstream.timeout.idle_ms, 1_800_000);
+        assert_eq!(spec.upstream.timeout.total_ms, None);
+    }
 
     #[test]
     fn response_context_merges_provider_options_without_leaking_control_field() {

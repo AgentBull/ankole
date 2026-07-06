@@ -1,4 +1,5 @@
 import * as kernel from '../../kernel'
+import { match } from '@pleisto/active-support'
 import { mailboxUpdatedFromEnvelope, turnControlFromEnvelope, turnStartFromEnvelope } from './lanes/actor_lane'
 import { runTurnHandlers } from './core'
 import { turnAcceptedEnvelope, turnErrorEnvelope, turnNoopCompletedEnvelope } from './fabric/envelopes'
@@ -18,7 +19,7 @@ import {
   turnKey,
   type ActiveTurn
 } from './worker/active_turns'
-import { logWorkerEvent } from './worker/logging'
+import { workerLogger } from './worker/logging'
 import {
   replaceSkillOverlay,
   appendCodexDelegationEvent,
@@ -40,7 +41,7 @@ const heartbeatIntervalMs = 15_000
 try {
   await runWorker()
 } catch (error) {
-  logWorkerEvent('worker.error', { error: error instanceof Error ? error.message : String(error) }, 'stderr')
+  workerLogger.critical('worker.error', 'worker failed', { error: errorValue(error) })
   process.exit(1)
 }
 
@@ -72,7 +73,7 @@ async function runWorker(): Promise<void> {
   try {
     await sendEnvelope(workerReadyEnvelope(config, availableTurnSlots(config, activeTurns)))
     await sendEnvelope(workerCapacityEnvelope(config, availableTurnSlots(config, activeTurns), activeTurns.size))
-    logWorkerEvent('worker.ready_sent', {
+    workerLogger.notice('worker.ready_sent', 'worker ready sent', {
       endpoint: config.endpoint,
       worker_id: config.workerId
     })
@@ -98,8 +99,8 @@ async function runWorker(): Promise<void> {
 
       if (!frames[0]) continue
       const envelope = decodeEnvelope(frames[0])
-      logWorkerEvent('worker.envelope_received', {
-        type: envelope.body.type,
+      workerLogger.debug('worker.envelope_received', 'runtime fabric envelope received', {
+        envelope_type: envelope.body.type,
         message_id: envelope.message_id
       })
       await handleEnvelope(config, sendEnvelope, rpcClient, activeTurns, envelope)
@@ -118,19 +119,17 @@ async function runWorker(): Promise<void> {
 function logBubblewrapSupport(workspaceRoot: string): void {
   const support = resolveBubblewrapSupport(workspaceRoot)
   if (support.mode === 'strong') {
-    logWorkerEvent('worker.bubblewrap_ready', { mode: 'strong' })
+    workerLogger.info('worker.bubblewrap_ready', 'worker bubblewrap ready', { mode: 'strong' })
     return
   }
 
-  logWorkerEvent(
+  workerLogger.warning(
     'worker.bubblewrap_warning',
+    'Strong bubblewrap is unavailable; using weaker nested bubblewrap with the container procfs. Prefer Docker/Kubernetes settings that allow a fresh bwrap /proc mount.',
     {
       mode: 'weak',
-      strong_probe_error: support.strong.ok ? undefined : support.strong.reason,
-      message:
-        'Strong bubblewrap is unavailable; using weaker nested bubblewrap with the container procfs. Prefer Docker/Kubernetes settings that allow a fresh bwrap /proc mount.'
-    },
-    'stderr'
+      strong_probe_error: support.strong.ok ? undefined : support.strong.reason
+    }
   )
 }
 
@@ -151,12 +150,7 @@ async function sendHeartbeat(sendEnvelope: ReliableEnvelopeSender, heartbeat: Ru
       throw error
     }
 
-    process.stderr.write(
-      `${JSON.stringify({
-        event: 'worker.heartbeat_skipped',
-        reason: 'backpressure'
-      })}\n`
-    )
+    workerLogger.warning('worker.heartbeat_skipped', 'worker heartbeat skipped', { reason: 'backpressure' })
   }
 }
 
@@ -174,30 +168,18 @@ async function handleEnvelope(
   activeTurns: Map<string, ActiveTurn>,
   envelope: RuntimeFabricEnvelope
 ): Promise<void> {
-  switch (envelope.body.type) {
-    case 'rpc_response':
+  return match(envelope.body.type)
+    .with('rpc_response', () => {
       rpcClient.resolve(envelope.body.rpc_response as RpcResponse)
-      return
-
-    case 'rpc_error':
+    })
+    .with('rpc_error', () => {
       rpcClient.resolve(envelope.body.rpc_error as RpcError)
-      return
-
-    case 'rpc_request':
-      return handleWorkerRpcRequest(config, sendEnvelope, activeTurns.size, envelope.body.rpc_request as RpcRequest)
-
-    case 'turn_start':
-      return startTurn(config, sendEnvelope, rpcClient, activeTurns, envelope)
-
-    case 'mailbox_updated':
-      return handleMailboxUpdated(sendEnvelope, activeTurns, envelope)
-
-    case 'turn_control':
-      return handleTurnControl(activeTurns, envelope)
-
-    default:
-      return
-  }
+    })
+    .with('rpc_request', () => handleWorkerRpcRequest(sendEnvelope, envelope.body.rpc_request as RpcRequest))
+    .with('turn_start', () => startTurn(config, sendEnvelope, rpcClient, activeTurns, envelope))
+    .with('mailbox_updated', () => handleMailboxUpdated(sendEnvelope, activeTurns, envelope))
+    .with('turn_control', () => handleTurnControl(activeTurns, envelope))
+    .otherwise(() => undefined)
 }
 
 /**
@@ -216,9 +198,10 @@ async function startTurn(
 ): Promise<void> {
   const turnStart = turnStartFromEnvelope(envelope)
   const correlationId = envelope.message_id
-  logWorkerEvent('worker.turn_start_received', {
+  workerLogger.info('worker.turn_start_received', 'worker turn start received', {
     actor_event_id: turnStart.turn.actor_event_id,
-    input_count: 1
+    input_count: 1,
+    operation: turnOperation(turnStart.turn.actor_event_id, { first: true })
   })
 
   const activeKey = turnKey(turnStart.turn)
@@ -258,13 +241,11 @@ async function startTurn(
   await sendEnvelope(workerCapacityEnvelope(config, availableTurnSlots(config, activeTurns), activeTurns.size))
 
   void runActiveTurnTask(config, sendEnvelope, rpcClient, active, activeTurns).catch(error => {
-    process.stderr.write(
-      `${JSON.stringify({
-        event: 'worker.turn_completion_error',
-        actor_event_id: turnStart.turn.actor_event_id,
-        error: error instanceof Error ? error.message : String(error)
-      })}\n`
-    )
+    workerLogger.error('worker.turn_completion_error', 'worker turn completion task failed', {
+      actor_event_id: turnStart.turn.actor_event_id,
+      error: errorValue(error),
+      operation: turnOperation(turnStart.turn.actor_event_id, { last: true })
+    })
   })
 }
 
@@ -287,24 +268,27 @@ async function runActiveTurnTask(
   try {
     await runActiveTurn(config, sendEnvelope, rpcClient, active)
     if (active.controlledStopRequested) {
-      logWorkerEvent('worker.turn_controlled_stop', {
+      workerLogger.info('worker.turn_controlled_stop', 'worker turn controlled stop', {
         actor_event_id: turnStart.turn.actor_event_id,
         command: active.controlledStopCommand ?? 'unknown',
-        reason: active.controlledStopReason ?? 'controlled_stop'
+        reason: active.controlledStopReason ?? 'controlled_stop',
+        operation: turnOperation(turnStart.turn.actor_event_id, { last: true })
       })
       return
     }
 
-    logWorkerEvent('worker.turn_completed', {
-      actor_event_id: turnStart.turn.actor_event_id
+    workerLogger.info('worker.turn_completed', 'worker turn completed', {
+      actor_event_id: turnStart.turn.actor_event_id,
+      operation: turnOperation(turnStart.turn.actor_event_id, { last: true })
     })
   } catch (error) {
     if (active.controlledStopRequested) {
-      logWorkerEvent('worker.turn_controlled_stop', {
+      workerLogger.info('worker.turn_controlled_stop', 'worker turn controlled stop', {
         actor_event_id: turnStart.turn.actor_event_id,
         command: active.controlledStopCommand ?? 'unknown',
         reason: active.controlledStopReason ?? 'controlled_stop',
-        error: error instanceof Error ? error.message : String(error)
+        error: errorValue(error),
+        operation: turnOperation(turnStart.turn.actor_event_id, { last: true })
       })
       return
     }
@@ -314,14 +298,11 @@ async function runActiveTurnTask(
     await sendEnvelope(
       turnErrorEnvelope(turnStart.turn, 'worker_turn_failed', message, active.correlationId, turnFailureDetails(error))
     )
-    logWorkerEvent(
-      'worker.turn_failed',
-      {
-        actor_event_id: turnStart.turn.actor_event_id,
-        error: error instanceof Error ? error.message : String(error)
-      },
-      'stderr'
-    )
+    workerLogger.error('worker.turn_failed', 'worker turn failed', {
+      actor_event_id: turnStart.turn.actor_event_id,
+      error: errorValue(error),
+      operation: turnOperation(turnStart.turn.actor_event_id, { last: true })
+    })
   } finally {
     stopProgress()
     activeTurns.delete(turnKey(turnStart.turn))
@@ -343,8 +324,9 @@ async function runActiveTurn(
 ): Promise<void> {
   const turnStart = active.turnStart
   const workspaceRoot = prepareTurnWorkspace(config, turnStart)
-  logWorkerEvent('worker.turn_started', {
-    actor_event_id: turnStart.turn.actor_event_id
+  workerLogger.info('worker.turn_started', 'worker turn started', {
+    actor_event_id: turnStart.turn.actor_event_id,
+    operation: turnOperation(turnStart.turn.actor_event_id)
   })
 
   const result = await runTurnHandlers(turnStart, {
@@ -375,6 +357,18 @@ async function runActiveTurn(
   }
 }
 
+function errorValue(error: unknown): unknown {
+  return error instanceof Error ? error : new Error(String(error))
+}
+
+function turnOperation(actorEventId: string, flags: { first?: boolean; last?: boolean } = {}): Record<string, unknown> {
+  return {
+    id: actorEventId,
+    producer: 'ankole-worker/turn',
+    ...flags
+  }
+}
+
 /**
  * Adds an active steering update to the matching in-flight turn.
  *
@@ -387,9 +381,7 @@ async function handleMailboxUpdated(
   envelope: RuntimeFabricEnvelope
 ): Promise<void> {
   const update = mailboxUpdatedFromEnvelope(envelope)
-  if (!update.turn) {
-    return
-  }
+  if (!update.turn) return
 
   const active = activeTurns.get(turnKey(update.turn))
   if (!active) return

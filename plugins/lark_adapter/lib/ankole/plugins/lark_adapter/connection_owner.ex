@@ -5,8 +5,7 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionOwner do
 
   use GenServer
 
-  require Logger
-
+  alias Ankole.Logging
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.Dispatcher
 
@@ -129,8 +128,13 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionOwner do
 
   @impl true
   def handle_info({:EXIT, pid, reason}, %{ws_pid: pid} = state) do
-    Logger.error(
-      "lark adapter long-connection client exited key=#{inspect(state.key)} reason=#{inspect(reason)}"
+    Logging.error(
+      "lark_adapter.connection_owner.client_exited",
+      "lark adapter long-connection client exited",
+      %{
+        connection_key: inspect(state.key),
+        reason: inspect(reason)
+      }
     )
 
     {:stop, reason, %{state | ws_pid: nil}}

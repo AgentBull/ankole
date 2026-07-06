@@ -37,7 +37,7 @@ defmodule Ankole.ActorRuntime.SessionReset do
           {:ok, map()} | {:error, term()}
   def enqueue_daily_session_resets(%DateTime{} = boundary_at, opts) when is_list(opts) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
-    timezone = Keyword.get(opts, :timezone, "Etc/UTC")
+    timezone = Keyword.get(opts, :timezone, SystemConfig.default_timezone())
 
     Repo.transact(fn repo ->
       conversations = due_daily_reset_conversations(repo, boundary_at, opts)
@@ -161,7 +161,7 @@ defmodule Ankole.ActorRuntime.SessionReset do
          %DateTime{} = now,
          opts
        ) do
-    timezone = Keyword.get(opts, :timezone, "Etc/UTC")
+    timezone = Keyword.get(opts, :timezone, SystemConfig.default_timezone())
     binding_name = Keyword.get(opts, :binding_name, @session_lifecycle_binding_name)
     event_id = session_reset_due_event_id(conversation, boundary_at)
 

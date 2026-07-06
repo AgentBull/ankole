@@ -129,19 +129,12 @@ defmodule Ankole.SignalsGateway do
     to: Outbox
 
   @doc """
-  Lists outbox rows that are ready for a dispatch attempt.
+  Dispatches one outbox row by key using the registered signal adapter.
   """
-  @spec list_due_outbox(DateTime.t(), pos_integer()) :: [OutboxEntry.t()]
-  defdelegate list_due_outbox(now \\ DateTime.utc_now(:microsecond), limit \\ 50), to: Outbox
-
-  @doc """
-  Dispatches due outbox rows with a code-owned adapter resolver.
-  """
-  @spec dispatch_due_outbox(
-          (OutboxEntry.t() -> {:ok, map()} | map() | {:error, term()}),
-          keyword()
-        ) :: [term()]
-  defdelegate dispatch_due_outbox(adapter_resolver, options \\ []), to: Outbox
+  @spec dispatch_outbox_by_key(String.t(), String.t(), String.t(), keyword()) ::
+          {:ok, OutboxEntry.t()} | {:error, term()}
+  defdelegate dispatch_outbox_by_key(agent_uid, binding_name, outbound_key, options \\ []),
+    to: Outbox
 
   @doc """
   Removes expired SignalsGateway TTL state.
@@ -155,13 +148,20 @@ defmodule Ankole.SignalsGateway do
   @spec signal_session_id(String.t()) :: String.t()
   defdelegate signal_session_id(signal_channel_id), to: Utils
 
-  @doc """
-  Closes pending inbound IM batches whose quiet window has elapsed.
-  """
-  @spec finalize_due_inbound_batches(keyword()) :: {:ok, [map()]}
-  def finalize_due_inbound_batches(opts \\ []) do
-    {:ok, results} = InboundBatches.finalize_due_inbound_batches(opts)
-    Enum.each(results, &AIReplyPreview.maybe_start_result_handlers/1)
-    {:ok, results}
+  @doc false
+  @spec finalize_inbound_batch_by_id(String.t(), non_neg_integer(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def finalize_inbound_batch_by_id(batch_id, batch_revision, opts \\ []) do
+    with {:ok, result} <-
+           InboundBatches.finalize_inbound_batch_by_id(batch_id, batch_revision, opts) do
+      AIReplyPreview.maybe_start_result_handlers(result)
+      {:ok, result}
+    end
+  end
+
+  @doc false
+  @spec runtime_event_snapshot() :: [{String.t(), map()}]
+  def runtime_event_snapshot do
+    InboundBatches.runtime_event_snapshot() ++ Outbox.runtime_event_snapshot()
   end
 end

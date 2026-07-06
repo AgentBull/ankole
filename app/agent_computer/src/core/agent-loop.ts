@@ -13,8 +13,8 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto'
+import { safeJsonParse, safeJsonStringify } from '@pleisto/active-support'
 import { withRetry } from '../common/async'
-import { safeJsonStringify } from '../common/json-utils'
 import {
   callModel,
   assistantText,
@@ -38,16 +38,17 @@ import {
   responseImageUnavailableText
 } from './vision'
 
-const DEFAULT_MAX_TOOL_ROUNDS = 64
+const DEFAULT_MAX_MODEL_ITERATIONS = 90
+const DEFAULT_MAX_TOOL_ROUNDS = 90
 const EMPTY_AFTER_TOOL_NUDGE_TEXT =
   'You just executed tool calls but returned an empty response. Please process the tool results above and continue with the task.'
+const MODEL_ITERATION_LIMIT_SYNTHESIS_TEXT =
+  "You've reached the maximum number of tool-calling iterations allowed. Please provide a final response summarizing what you've found and accomplished so far, without calling any more tools."
 const TOOL_ROUND_LIMIT_SYNTHESIS_TEXT =
   'The tool round limit has been reached. Do not call more tools. Synthesize the best final answer from the tool results and conversation state already available. Be explicit about anything left incomplete or unverified.'
 const TOOL_ROUND_LIMIT_TOOL_OUTPUT_TEXT =
   'Tool call was not executed because the worker reached the maximum tool-round limit for this turn. Stop calling tools and synthesize a final answer from the information already available.'
 const TOOL_ERROR_RECOVERY_HINT = 'Analyze the error above and try a different approach.'
-const REPEATED_TOOL_FAILURE_NUDGE =
-  'The same tool call has failed repeatedly. Stop retrying the same tool with small variations; choose a different route, re-check the available context, or explain the remaining blocker.'
 const VOLATILE_TOOL_ARGUMENT_KEYS = new Set([
   'idempotency_key',
   'nonce',
@@ -68,10 +69,12 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AssistantMe
   let pendingMessages: Message[] = [...config.messages]
   let stateful = config.stateful
   let latestAssistant: AssistantMessage | undefined
+  let modelIterations = 0
   let toolRounds = 0
   let sawToolResults = false
   let nudgedEmptyAfterTools = false
   const repeatedFailureState: RepeatedToolFailureState = { count: 0 }
+  const maxModelIterations = config.maxModelIterations ?? DEFAULT_MAX_MODEL_ITERATIONS
   const maxToolRounds = config.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS
   const toolByName = config.tools?.length ? agentToolMap(config.tools) : undefined
   const responseWebSocketSession = config.model.responseWebSocket
@@ -80,6 +83,18 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AssistantMe
 
   try {
     while (true) {
+      if (modelIterations >= maxModelIterations) {
+        const synthesized = await synthesizeAfterModelIterationLimit({
+          config,
+          maxModelIterations,
+          responseWebSocketSession,
+          stateful
+        })
+        stateful = synthesized.stateful
+        latestAssistant = synthesized.message
+        break
+      }
+
       // Build tool definitions each round so the abort signal and local config
       // stay turn-scoped even though the schema objects are reusable.
       const tools = toolByName
@@ -99,8 +114,10 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AssistantMe
         : undefined
 
       // Call the model.
+      modelIterations += 1
       const result = await withRetry(
         async () => {
+          config.onActivity?.('model_call_start')
           const result = await callModel(config.model, {
             instructions: config.systemPrompt,
             messages: pendingMessages,
@@ -108,10 +125,15 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AssistantMe
             maxOutputTokens: config.maxTokens,
             temperature: config.temperature,
             abortSignal: config.abortSignal,
-            onTextDelta: config.onTextDelta,
+            onTextDelta: delta => {
+              config.onActivity?.('model_text_delta')
+              config.onTextDelta?.(delta)
+            },
+            onActivity: config.onActivity,
             stateful,
             responseWebSocketSession
           })
+          config.onActivity?.('model_call_done')
           const retryableError = retryableTerminalModelError(result.message)
           if (retryableError) throw retryableError
           return result
@@ -158,7 +180,9 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AssistantMe
       }
 
       const toolCalls = latestAssistant.toolCalls
-      const executedToolCalls = await executeToolCalls(toolCalls, toolByName, config)
+      const executedToolCalls = config.withActivitySuspended
+        ? await config.withActivitySuspended('tool_execution', () => executeToolCalls(toolCalls, toolByName, config))
+        : await executeToolCalls(toolCalls, toolByName, config)
       const toolResults = executedToolCalls.map(result => result.resultMsg)
       const toolFollowUpMessages = [
         ...executedToolCalls.flatMap(result => result.followUpMessages),
@@ -166,7 +190,10 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AssistantMe
       ]
 
       const toolJournalMessages: Message[] = [...toolResults, ...toolFollowUpMessages]
-      if (toolJournalMessages.length > 0) sawToolResults = true
+      if (toolJournalMessages.length > 0) {
+        sawToolResults = true
+        nudgedEmptyAfterTools = false
+      }
       let nextMessages: Message[] = toolJournalMessages
 
       // In stateful mode, tool results become a stored AIGateway response. The
@@ -174,13 +201,16 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AssistantMe
       // same function_call_output messages again.
       if (toolJournalMessages.length > 0 && stateful.previousResponseId && responseWebSocketSession) {
         const recorded = await withRetry(
-          () =>
-            recordToolResults(config.model, {
+          () => {
+            config.onActivity?.('tool_results_record_start')
+            return recordToolResults(config.model, {
               messages: toolJournalMessages,
               stateful,
               abortSignal: config.abortSignal,
+              onActivity: config.onActivity,
               responseWebSocketSession
-            }),
+            }).finally(() => config.onActivity?.('tool_results_record_done'))
+          },
           {
             maxAttempts: 2,
             signal: config.abortSignal,
@@ -259,6 +289,7 @@ function retryableTerminalModelError(message: AssistantMessage): Error | undefin
 }
 
 interface ExecutedToolCall {
+  toolName: string
   resultMsg: ToolResultMessage
   followUpMessages: UserMessage[]
   failure?: {
@@ -280,6 +311,13 @@ interface ToolLimitSynthesisInput {
   toolCalls: ToolCall[]
 }
 
+interface ModelIterationLimitSynthesisInput {
+  config: AgentLoopConfig
+  maxModelIterations: number
+  responseWebSocketSession: ReturnType<typeof createResponseWebSocketSession> | undefined
+  stateful: AgentLoopConfig['stateful']
+}
+
 /**
  * Converts a runaway tool request into one no-tools synthesis turn.
  *
@@ -299,13 +337,16 @@ async function synthesizeAfterToolRoundLimit(input: ToolLimitSynthesisInput): Pr
 
   if (input.toolCalls.length > 0 && stateful.previousResponseId && input.responseWebSocketSession) {
     const recorded = await withRetry(
-      () =>
-        recordToolResults(input.config.model, {
+      () => {
+        input.config.onActivity?.('tool_round_limit_record_start')
+        return recordToolResults(input.config.model, {
           messages: pendingMessages,
           stateful,
           abortSignal: input.config.abortSignal,
+          onActivity: input.config.onActivity,
           responseWebSocketSession: input.responseWebSocketSession
-        }),
+        }).finally(() => input.config.onActivity?.('tool_round_limit_record_done'))
+      },
       {
         maxAttempts: 2,
         signal: input.config.abortSignal,
@@ -322,17 +363,23 @@ async function synthesizeAfterToolRoundLimit(input: ToolLimitSynthesisInput): Pr
   }
 
   const result = await withRetry(
-    () =>
-      callModel(input.config.model, {
+    () => {
+      input.config.onActivity?.('tool_round_limit_synthesis_start')
+      return callModel(input.config.model, {
         instructions: input.config.systemPrompt,
         messages: pendingMessages,
         maxOutputTokens: input.config.maxTokens,
         temperature: input.config.temperature,
         abortSignal: input.config.abortSignal,
-        onTextDelta: input.config.onTextDelta,
+        onTextDelta: delta => {
+          input.config.onActivity?.('model_text_delta')
+          input.config.onTextDelta?.(delta)
+        },
+        onActivity: input.config.onActivity,
         stateful,
         responseWebSocketSession: input.responseWebSocketSession
-      }),
+      }).finally(() => input.config.onActivity?.('tool_round_limit_synthesis_done'))
+    },
     {
       maxAttempts: 2,
       signal: input.config.abortSignal,
@@ -351,6 +398,61 @@ async function synthesizeAfterToolRoundLimit(input: ToolLimitSynthesisInput): Pr
   return {
     // There is no public "interrupted" stop reason in the worker type. Marking
     // this as length preserves that the answer came from a bounded partial run.
+    message: result.message.stopReason === 'stop' ? { ...result.message, stopReason: 'length' } : result.message,
+    stateful
+  }
+}
+
+/**
+ * Mirrors Hermes' max-iteration finalizer: once the main model/API iteration
+ * budget is spent, make one final no-tools call asking the model to summarize.
+ */
+async function synthesizeAfterModelIterationLimit(input: ModelIterationLimitSynthesisInput): Promise<{
+  message: AssistantMessage
+  stateful: AgentLoopConfig['stateful']
+}> {
+  let stateful = input.stateful
+  const pendingMessages: Message[] = [
+    {
+      role: 'user' as const,
+      content: `${MODEL_ITERATION_LIMIT_SYNTHESIS_TEXT}\nmax_model_iterations=${input.maxModelIterations}`
+    }
+  ]
+
+  const result = await withRetry(
+    () => {
+      input.config.onActivity?.('model_iteration_limit_synthesis_start')
+      return callModel(input.config.model, {
+        instructions: input.config.systemPrompt,
+        messages: pendingMessages,
+        maxOutputTokens: input.config.maxTokens,
+        temperature: input.config.temperature,
+        abortSignal: input.config.abortSignal,
+        onTextDelta: delta => {
+          input.config.onActivity?.('model_text_delta')
+          input.config.onTextDelta?.(delta)
+        },
+        onActivity: input.config.onActivity,
+        stateful,
+        responseWebSocketSession: input.responseWebSocketSession
+      }).finally(() => input.config.onActivity?.('model_iteration_limit_synthesis_done'))
+    },
+    {
+      maxAttempts: 2,
+      signal: input.config.abortSignal,
+      isRetryable: isLocallyRetryableLlmError
+    }
+  )
+
+  if (result.responseId) {
+    stateful = {
+      ...stateful,
+      conversationId: undefined,
+      previousResponseId: result.responseId
+    }
+  }
+
+  return {
     message: result.message.stopReason === 'stop' ? { ...result.message, stopReason: 'length' } : result.message,
     stateful
   }
@@ -421,6 +523,7 @@ async function executeToolCall(
   if (!tool) {
     const message = `Unknown tool: ${toolCall.name}`
     return {
+      toolName: toolCall.name,
       resultMsg: {
         role: 'tool',
         toolCallId: toolCall.id,
@@ -440,6 +543,7 @@ async function executeToolCall(
   } catch (error) {
     const message = `Invalid arguments for tool ${toolCall.name}: ${errorMessage(error)}`
     return {
+      toolName: toolCall.name,
       resultMsg: {
         role: 'tool',
         toolCallId: toolCall.id,
@@ -459,6 +563,7 @@ async function executeToolCall(
   let failure: ExecutedToolCall['failure']
 
   try {
+    config.onActivity?.(`tool:${toolCall.name}:start`)
     toolResult = await tool.execute(toolCall.id, parsedArgs as never, config.abortSignal)
     const processed = await processToolResultForModel(toolResult, config)
     resultText = processed.outputText
@@ -474,9 +579,12 @@ async function executeToolCall(
       key: toolCallFailureKey(toolCall, 'runtime_error', parsedArgs),
       toolName: toolCall.name
     }
+  } finally {
+    config.onActivity?.(`tool:${toolCall.name}:done`)
   }
 
   return {
+    toolName: toolCall.name,
     resultMsg: {
       role: 'tool',
       toolCallId: toolCall.id,
@@ -520,11 +628,25 @@ function repeatedToolFailureNudges(results: ExecutedToolCall[], state: RepeatedT
     if (state.count === 2) {
       nudges.push({
         role: 'user',
-        content: `${REPEATED_TOOL_FAILURE_NUDGE}\nfailed_tool=${result.failure.toolName}`
+        content: repeatedToolFailureWarning(result.failure.toolName, state.count)
       })
     }
   }
   return nudges
+}
+
+function repeatedToolFailureWarning(toolName: string, count: number): string {
+  const common =
+    `${toolName} has failed ${count} times this turn. This looks like a loop. ` +
+    'Do not switch to text-only replies; keep using tools, but diagnose before retrying. ' +
+    'First inspect the latest error/output and verify your assumptions. '
+
+  const recovery =
+    toolName === 'command'
+      ? 'For terminal failures, run a small diagnostic such as `pwd && ls -la` in the same tool, then try an absolute path, a simpler command, a different working directory, or a different tool such as read_file/patch.'
+      : 'Try different arguments, a narrower query/path, an absolute path when relevant, or a different tool that can make progress. If the blocker is external, report the blocker after one diagnostic attempt instead of repeating the same failing path.'
+
+  return `[Tool loop warning: repeated_tool_failure; count=${count}; ${common}${recovery}]`
 }
 
 function toolCallFailureKey(toolCall: ToolCall, kind: string, args: unknown): string {
@@ -538,11 +660,10 @@ function toolCallFailureKey(toolCall: ToolCall, kind: string, args: unknown): st
 
 function parseToolArguments(args: unknown): unknown {
   if (typeof args !== 'string') return args
-  try {
-    return JSON.parse(args)
-  } catch {
-    return args
-  }
+  return safeJsonParse(args).match(
+    value => value,
+    () => args
+  )
 }
 
 function scrubVolatileToolArguments(value: unknown): unknown {
@@ -594,7 +715,7 @@ async function processToolResultForModel(
   if (summary) {
     return {
       outputText: toolImageOutputText(text, images.length),
-      followUpMessages: [{ role: 'user', content: `${imageSummaryBlock(summary)}` }]
+      followUpMessages: [{ role: 'user', content: `${imageSummaryBlock(summary, 'tool')}` }]
     }
   }
 

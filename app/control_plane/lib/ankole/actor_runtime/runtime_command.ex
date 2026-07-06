@@ -9,7 +9,6 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.Actors
   alias Ankole.Actors.ActorEvent
-  alias Ankole.ActorRuntime.OutboxDispatcher
   alias Ankole.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.ActorRuntime.Schemas.ActorSessionActivation
   alias Ankole.ActorRuntime.Schemas.ActorSessionWorkerAssignment
@@ -80,10 +79,6 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
     |> maybe_start_retry_preview()
     |> TurnRetry.dispatch_retry_controls()
     |> dispatch_stop_controls()
-    |> tap(fn
-      {:ok, %{status: :command_consumed}} -> OutboxDispatcher.wake()
-      _result -> :ok
-    end)
   end
 
   defp process_compress_command(actor_key, %ActorEvent{} = input, opts) do
@@ -106,10 +101,6 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
       {:error, :no_compaction_candidate} -> consume_compress_noop(input, now)
       {:error, _reason} = error -> error
     end
-    |> tap(fn
-      {:ok, %{status: :command_consumed}} -> OutboxDispatcher.wake()
-      _result -> :ok
-    end)
   end
 
   defp prepare_compress_command(actor_key, %ActorEvent{} = input, now) do

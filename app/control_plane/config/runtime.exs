@@ -41,6 +41,32 @@ if library_runtime_config != [] do
   config :ankole, Ankole.AIAgent.Library, library_runtime_config
 end
 
+case System.get_env("ANKOLE_LOG_LEVEL") do
+  nil ->
+    :ok
+
+  "" ->
+    :ok
+
+  value ->
+    level =
+      case value |> String.trim() |> String.downcase() do
+        "debug" -> :debug
+        "info" -> :info
+        "notice" -> :notice
+        "warn" -> :warning
+        "warning" -> :warning
+        "error" -> :error
+        "fatal" -> :critical
+        "critical" -> :critical
+        "alert" -> :alert
+        "emergency" -> :emergency
+        invalid -> raise "invalid ANKOLE_LOG_LEVEL=#{inspect(invalid)}"
+      end
+
+    config :logger, level: level
+end
+
 # config/runtime.exs is executed for all environments, including
 # during releases. It is executed after compilation and before the
 # system starts, so it is typically used to load production configuration
@@ -67,6 +93,15 @@ Ankole.Config.Bootstrap.validate_port!(port, "PORT")
 config :ankole, AnkoleWeb.Endpoint,
   http: [port: port],
   secret_key_base: Ankole.Config.Bootstrap.endpoint_secret_key_base!()
+
+case Ankole.Config.Bootstrap.env_string("ANKOLE_AI_GATEWAY_WORKER_FACING_BASE_URL") do
+  nil ->
+    :ok
+
+  worker_facing_base_url ->
+    config :ankole, Ankole.ActorRuntime.AIGatewayApiKeyBroker,
+      worker_facing_base_url: worker_facing_base_url
+end
 
 if config_env() == :prod do
   database_url = Ankole.Config.Bootstrap.env!("DATABASE_URL")

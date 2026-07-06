@@ -3,12 +3,9 @@ defmodule Ankole.ActorRuntime.Supervisor do
   Supervision root for control-plane actor-runtime services.
 
   This supervisor is the failure domain for the actor runtime. It uses
-  `:one_for_one`: each child is an independent concern (transport, naming,
-  per-actor controllers, and several recovery loops), so one crashing does not
-  invalidate the others' state. Durable correctness lives in Postgres, not in
-  these processes, so a single child restart is always safe to recover from
-  cold — the recovery loops below simply re-derive runtime state from the
-  ledger on their next tick.
+  `:one_for_one`: each child is an independent concern (transport, naming, and
+  per-actor controllers), so one crashing does not invalidate the others' state.
+  Durable correctness lives in Postgres, not in these processes.
   """
 
   use Supervisor
@@ -16,6 +13,7 @@ defmodule Ankole.ActorRuntime.Supervisor do
   alias Ankole.ActorRuntime.WorkerAuthKey
   alias Ankole.ActorRuntime.WorkerBrowserConfig
   alias Ankole.ActorRuntime.WorkerCodexConfig
+  alias Ankole.AIGateway.AgentConfig
 
   @doc """
   Starts actor-runtime services.
@@ -29,81 +27,22 @@ defmodule Ankole.ActorRuntime.Supervisor do
   @spec init(keyword()) :: {:ok, tuple()} | :ignore
   def init(opts) do
     WorkerAuthKey.ensure!()
+    :ok = AgentConfig.ensure_registered()
     :ok = WorkerBrowserConfig.ensure_registered()
     :ok = WorkerCodexConfig.ensure_registered()
     :ok = Ankole.Memory.ensure_registered()
 
-    runtime_opts = runtime_opts(opts)
-
     # The transport broker, directory, and dynamic supervisor are the core path:
-    # without them no actor turn can be sent or routed. The reconciler,
-    # activation manager, watchdog, and outbox dispatcher are repeatable recovery
-    # loops — each one re-reads the durable ledger and is idempotent, so tests
-    # that want to drive recovery by hand (or isolate one concern) switch them
-    # off via opts without breaking the core path.
-    children =
-      [
-        Ankole.ActorRuntime.FileTransferLane,
-        broker_child(opts),
-        Ankole.ActorRuntime.ActorDirectory,
-        Ankole.ActorRuntime.SessionSupervisor
-      ]
-      |> maybe_add_child(
-        reconciler_child(runtime_opts),
-        enabled?(runtime_opts, :reconciler, true)
-      )
-      |> maybe_add_child(
-        activation_manager_child(runtime_opts),
-        enabled?(runtime_opts, :activation_manager, true)
-      )
-      |> maybe_add_child(watchdog_child(runtime_opts), enabled?(runtime_opts, :watchdog, true))
-      |> maybe_add_child(
-        outbox_dispatcher_child(runtime_opts),
-        enabled?(runtime_opts, :outbox_dispatcher, true)
-      )
+    # without them no actor turn can be sent or routed. Runtime wakeups and
+    # deadline reconciliation are owned by `Ankole.RuntimeEvents.Supervisor`.
+    children = [
+      Ankole.ActorRuntime.FileTransferLane,
+      broker_child(opts),
+      Ankole.ActorRuntime.ActorDirectory,
+      Ankole.ActorRuntime.SessionSupervisor
+    ]
 
     Supervisor.init(children, strategy: :one_for_one)
-  end
-
-  defp runtime_opts(opts) do
-    Application.get_env(:ankole, :actor_runtime, [])
-    |> Keyword.merge(Keyword.get(opts, :runtime, []))
-  end
-
-  defp enabled?(opts, key, default) do
-    opts
-    |> Keyword.get(key, [])
-    |> case do
-      false -> false
-      child_opts when is_list(child_opts) -> Keyword.get(child_opts, :enabled, default)
-      _value -> default
-    end
-  end
-
-  defp maybe_add_child(children, _child, false), do: children
-  defp maybe_add_child(children, child, true), do: children ++ [child]
-
-  defp reconciler_child(opts) do
-    {Ankole.ActorRuntime.Reconciler, child_opts(opts, :reconciler)}
-  end
-
-  defp activation_manager_child(opts) do
-    {Ankole.ActorRuntime.ActivationManager, child_opts(opts, :activation_manager)}
-  end
-
-  defp watchdog_child(opts) do
-    {Ankole.ActorRuntime.Watchdog, child_opts(opts, :watchdog)}
-  end
-
-  defp outbox_dispatcher_child(opts) do
-    {Ankole.ActorRuntime.OutboxDispatcher, child_opts(opts, :outbox_dispatcher)}
-  end
-
-  defp child_opts(opts, key) do
-    case Keyword.get(opts, key, []) do
-      child_opts when is_list(child_opts) -> Keyword.delete(child_opts, :enabled)
-      _value -> []
-    end
   end
 
   # Decides whether the broker boots with a real ZeroMQ ROUTER or stays in

@@ -17,7 +17,6 @@ defmodule Ankole.E2E.Harness do
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.ActorRuntime.WorkerBrowserConfig
   alias Ankole.Actors.ActorEvent
-  alias Ankole.ActorRuntime.OutboxDispatcher
   alias Ankole.ActorRuntime.ReadyEventProcessor
   alias Ankole.ActorRuntime.Transport.Broker
   alias Ankole.AIGateway.ProviderConfigs
@@ -31,6 +30,7 @@ defmodule Ankole.E2E.Harness do
   alias Ankole.Plugins.LarkAdapter.Outbox, as: LarkOutbox
   alias Ankole.Principals
   alias Ankole.Repo
+  alias Ankole.RuntimeEvents
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Entry
@@ -190,7 +190,7 @@ defmodule Ankole.E2E.Harness do
           {domain, 3}
 
         api_key ->
-          {setup_lark_real_llm_domain!(api_key, fake_feishu), 1}
+          {setup_lark_real_llm_domain!(api_key, fake_feishu), 3}
       end
 
     {domain, connections} =
@@ -400,8 +400,7 @@ defmodule Ankole.E2E.Harness do
       assert {:ok, _profile} =
                ModelProfiles.put_model_profile(agent.uid, profile, %{
                  provider_id: provider_id,
-                 model: model,
-                 provider_options: %{"reasoning" => %{"effort" => "minimal", "exclude" => true}}
+                 model: model
                })
     end
 
@@ -413,7 +412,25 @@ defmodule Ankole.E2E.Harness do
         group_message_mode: "addressed_only"
       )
 
-    %{agent: agent, primary_binding: primary_binding, provider_id: provider_id}
+    record_binding =
+      upsert_lark_binding!(agent.uid, "lark-real-llm-record", :record_only, fake_feishu,
+        app_id: @record_app_id,
+        group_message_mode: "observe_all"
+      )
+
+    ambient_binding =
+      upsert_lark_binding!(agent.uid, "lark-real-llm-ambient", :may_intervene, fake_feishu,
+        app_id: @ambient_app_id,
+        group_message_mode: "may_intervene"
+      )
+
+    %{
+      agent: agent,
+      primary_binding: primary_binding,
+      record_binding: record_binding,
+      ambient_binding: ambient_binding,
+      provider_id: provider_id
+    }
   end
 
   defp maybe_put_real_llm_browser_cdp_config!(agent_uid) do
@@ -500,12 +517,12 @@ defmodule Ankole.E2E.Harness do
   @doc """
   Waits for one pending actor event created from a provider entry.
 
-  WS dispatch is asynchronous, so ingress facts must be polled. Batched inbound
-  work is finalized on every poll tick with a future `now`.
+  WS dispatch is asynchronous, so the test wait loop advances runtime-event
+  deadlines and then checks whether the exact actor event exists.
   """
   def actor_event_by_source_entry_id!(agent_uid, source_entry_id, timeout_ms \\ 20_000) do
     case WaitHelpers.wait_until(WaitHelpers.deadline(timeout_ms), fn ->
-           finalize_due_inbound_batches!()
+           finalize_due_inbound_batch_events!()
            pending_actor_event(agent_uid, source_entry_id)
          end) do
       {:ok, %ActorEvent{} = input} ->
@@ -585,13 +602,33 @@ defmodule Ankole.E2E.Harness do
 
   # -- turn driving -----------------------------------------------------------
 
-  def finalize_due_inbound_batches! do
-    assert {:ok, _results} =
-             SignalsGateway.finalize_due_inbound_batches(
-               now: DateTime.utc_now(:microsecond) |> DateTime.add(120, :second),
-               limit: 500
-             )
+  def finalize_due_inbound_batch_events! do
+    now = DateTime.utc_now(:microsecond) |> DateTime.add(120, :second)
+
+    SignalsGateway.runtime_event_snapshot()
+    |> Enum.filter(fn {channel, payload} ->
+      channel == RuntimeEvents.inbound_batch_due_channel() and runtime_event_due?(payload, now)
+    end)
+    |> Enum.each(fn {_channel, payload} ->
+      assert {:ok, _result} =
+               SignalsGateway.finalize_inbound_batch_by_id(
+                 Map.fetch!(payload, "batch_id"),
+                 Map.fetch!(payload, "batch_revision"),
+                 now: now
+               )
+    end)
   end
+
+  defp runtime_event_due?(%{"due_at" => nil}, _now), do: true
+
+  defp runtime_event_due?(%{"due_at" => due_at}, now) when is_binary(due_at) do
+    case DateTime.from_iso8601(due_at) do
+      {:ok, due_at, _offset} -> DateTime.compare(due_at, now) != :gt
+      _invalid -> false
+    end
+  end
+
+  defp runtime_event_due?(_payload, _now), do: true
 
   def process_ready_event_for_actor!(%ActorEvent{} = event, now) do
     ReadyEventProcessor.process_ready_event_for_actor(
@@ -622,11 +659,38 @@ defmodule Ankole.E2E.Harness do
   fake Feishu server).
   """
   def run_outbox_dispatch! do
-    OutboxDispatcher.run_once(
-      adapter_resolver: fn _outbox -> {:ok, LarkOutbox} end,
-      limit: 20
-    )
+    now = DateTime.utc_now(:microsecond)
+
+    SignalsGateway.runtime_event_snapshot()
+    |> Enum.filter(&outbox_due_event?(&1, now))
+    |> Enum.take(20)
+    |> Enum.map(fn {_channel, payload} ->
+      SignalsGateway.dispatch_outbox(
+        payload["agent_uid"],
+        payload["binding_name"],
+        payload["outbound_key"],
+        LarkOutbox,
+        now: now
+      )
+    end)
   end
+
+  defp outbox_due_event?({channel, payload}, now) when is_map(payload) do
+    channel == Ankole.RuntimeEvents.outbox_due_channel() and due_at?(payload["due_at"], now)
+  end
+
+  defp outbox_due_event?(_event, _now), do: false
+
+  defp due_at?(nil, _now), do: true
+
+  defp due_at?(value, now) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, due_at, _offset} -> DateTime.compare(due_at, now) != :gt
+      {:error, _reason} -> false
+    end
+  end
+
+  defp due_at?(_value, _now), do: false
 
   @doc """
   Dispatches one committed outbox row and asserts the message became visible on
@@ -926,7 +990,7 @@ defmodule Ankole.E2E.Harness do
 
   # -- misc ---------------------------------------------------------------------
 
-  def lark_bot_mention(open_id \\ "ou_bot", key \\ "_user_1", name \\ "Lark Chaos Bot"),
+  def lark_bot_mention(open_id \\ "ou_bot", key \\ "@_user_1", name \\ "Lark Chaos Bot"),
     do: %{"key" => key, "name" => name, "id" => %{"open_id" => open_id}}
 
   def openrouter_api_key! do

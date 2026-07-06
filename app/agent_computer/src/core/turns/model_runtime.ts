@@ -1,3 +1,4 @@
+import { match } from '@pleisto/active-support'
 import type { TurnModelRef, TurnStart } from '../../lanes/actor_lane'
 import type { ModelConfig } from '../llm'
 import { createModel } from '../llm'
@@ -141,10 +142,15 @@ function aiGatewayAuthorization(initialApiKey: AIGatewayApiKeyResponse, refreshA
   let currentApiKey = initialApiKey
 
   return async (options?: AIGatewayApiKeyRefreshOptions) => {
-    if (options?.forceRefresh && refreshApiKey) {
-      currentApiKey = await refreshApiKeyOrThrow(refreshApiKey, { forceRefresh: true })
-    } else if (currentApiKey.expires_at * 1000 <= Date.now() + aiGatewayApiKeyRefreshSkewMs) {
-      currentApiKey = await refreshApiKeyOrThrow(refreshApiKey)
+    const refreshed = await match({
+      force: Boolean(options?.forceRefresh && refreshApiKey),
+      stale: currentApiKey.expires_at * 1000 <= Date.now() + aiGatewayApiKeyRefreshSkewMs
+    })
+      .with({ force: true }, () => refreshApiKeyOrThrow(refreshApiKey, { forceRefresh: true }))
+      .with({ stale: true }, () => refreshApiKeyOrThrow(refreshApiKey))
+      .otherwise(() => undefined)
+    if (refreshed) {
+      currentApiKey = refreshed
     }
 
     return `Bearer ${currentApiKey.api_key}`
@@ -173,10 +179,13 @@ async function refreshApiKeyOrThrow(
  */
 function aiGatewayWebSocketUrl(baseUrl: string): string {
   const url = new URL(`${baseUrl.replace(/\/+$/, '')}/responses`)
-  if (url.protocol === 'http:') {
-    url.protocol = 'ws:'
-  } else if (url.protocol === 'https:') {
-    url.protocol = 'wss:'
-  }
+  match(url.protocol)
+    .with('http:', () => {
+      url.protocol = 'ws:'
+    })
+    .with('https:', () => {
+      url.protocol = 'wss:'
+    })
+    .otherwise(() => undefined)
   return url.toString()
 }

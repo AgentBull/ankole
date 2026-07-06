@@ -125,17 +125,7 @@ defmodule Ankole.E2E.DockerWorker do
     ]
   end
 
-  defp docker_worker_passthrough_env do
-    [
-      "ANKOLE_TEXT_TURN_TIMEOUT_MS"
-    ]
-    |> Enum.flat_map(fn key ->
-      case System.get_env(key) do
-        value when is_binary(value) and value != "" -> [{key, value}]
-        _value -> []
-      end
-    end)
-  end
+  defp docker_worker_passthrough_env, do: []
 
   # The mounted-source fast path intentionally reuses the current container
   # userspace while replacing Agent Computer scripts and TS sources. Override

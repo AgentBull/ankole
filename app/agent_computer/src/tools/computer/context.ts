@@ -317,9 +317,11 @@ async function runBubblewrappedCommand(
   }
 
   const cwd = input.cwd ? workspacePath(workspaceRoot, input.cwd) : workspaceRoot
-  const timeoutSeconds = Math.max(1, Math.ceil((input.timeoutMs ?? 60_000) / 1000))
   const env = commandEnv(input.env)
-  const commandArgv = ['timeout', `${timeoutSeconds}s`, input.cmd, ...(input.args ?? [])]
+  const commandArgv =
+    input.timeoutMs === undefined
+      ? [input.cmd, ...(input.args ?? [])]
+      : ['timeout', `${Math.max(1, Math.ceil(input.timeoutMs / 1000))}s`, input.cmd, ...(input.args ?? [])]
   const argv = bubblewrapArgv({ workspaceRoot, cwd, env, commandArgv })
 
   const proc = Bun.spawn(argv, {
@@ -427,9 +429,11 @@ async function startBackgroundCommand(
   }
 
   const cwd = input.cwd ? workspacePath(workspaceRoot, input.cwd) : workspaceRoot
-  const timeoutSeconds = Math.max(1, Math.ceil((input.timeoutMs ?? 1_800_000) / 1000))
   const env = commandEnv(input.env)
-  const commandArgv = ['timeout', `${timeoutSeconds}s`, input.cmd, ...(input.args ?? [])]
+  const commandArgv =
+    input.timeoutMs === undefined
+      ? [input.cmd, ...(input.args ?? [])]
+      : ['timeout', `${Math.max(1, Math.ceil(input.timeoutMs / 1000))}s`, input.cmd, ...(input.args ?? [])]
   const argv = bubblewrapArgv({ workspaceRoot, cwd, env, commandArgv })
   const id = `bg-${crypto.randomUUID()}`
   const commandText = [input.cmd, ...(input.args ?? [])].join(' ')
@@ -582,11 +586,16 @@ function appendBounded(current: string, chunk: string): { droppedChars: number; 
  * Builds the allowlisted command environment passed into bwrap.
  */
 function commandEnv(inputEnv: Record<string, string> | undefined): Record<string, string> {
+  const shellBootstrap = process.env.BASH_ENV ?? '/etc/profile.d/ankole-agent-computer.sh'
   const env: Record<string, string> = {
     PATH: commandPath(process.env.PATH),
     HOME: process.env.HOME ?? '/workspace',
     LANG: process.env.LANG ?? 'C.UTF-8',
     TERM: process.env.TERM ?? 'xterm-256color',
+    SHELL: process.env.SHELL ?? '/bin/bash',
+    BASH_ENV: shellBootstrap,
+    ENV: process.env.ENV ?? shellBootstrap,
+    CODEX_UNSAFE_ALLOW_NO_SANDBOX: process.env.CODEX_UNSAFE_ALLOW_NO_SANDBOX ?? '1',
     ANKOLE_WORKSPACE_ROOT: process.env.ANKOLE_WORKSPACE_ROOT ?? '/workspace'
   }
 

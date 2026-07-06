@@ -10,7 +10,7 @@ defmodule Ankole.ActorRuntime.CodexDelegationBroker do
   alias Ankole.CodexDelegations.Schemas.Delegation
   alias Ankole.CodexDelegations.Schemas.Event
 
-  @terminal_statuses ~w(succeeded failed stopped timeout)
+  @terminal_statuses ~w(succeeded failed stopped)
 
   @doc """
   Handles `codex.delegation.create`.

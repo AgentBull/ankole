@@ -171,7 +171,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
     # not create a second entry or a second actor event.
     assert :ok = FakeFeishu.State.user_sends_message(ctx.fake_feishu.state, attrs)
     wait_for_event_ack!(ctx.fake_feishu, "evt_chaos_redelivery_1")
-    finalize_due_inbound_batches!()
+    finalize_due_inbound_batch_events!()
 
     assert 1 ==
              ActorEvent
@@ -254,7 +254,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
   defp retry_until_sent!(input, now) do
     assert {:ok, _result} =
              wait_until(deadline(90_000), fn ->
-               {:ok, _summary} = ActorRuntime.watchdog_once(lease_grace_seconds: 0)
+               run_due_runtime_deadlines(now)
 
                case ReadyEventProcessor.process_ready_event_for_actor(
                       %{agent_uid: input.agent_uid, session_id: input.session_id},
@@ -268,6 +268,45 @@ defmodule Ankole.E2E.ChaosE2ETest do
              end),
            "input #{input.id} was never accepted by a live worker"
   end
+
+  defp run_due_runtime_deadlines(now) do
+    Ankole.ActorRuntime.runtime_event_snapshot()
+    |> Enum.each(fn
+      {channel, %{"worker_id" => worker_id} = payload}
+      when channel == "ankole_worker_deadline" ->
+        if due_at?(payload["stale_at"], now) do
+          _ = ActorRuntime.mark_worker_stale_if_due(worker_id, now: now, lease_grace_seconds: 0)
+        end
+
+        if due_at?(payload["delete_at"], now) do
+          _ = ActorRuntime.delete_worker_if_due(worker_id, now: now)
+        end
+
+      {channel, %{"activation_uid" => activation_uid} = payload}
+      when channel == "ankole_activation_deadline" ->
+        if due_at?(payload["lease_expires_at"], now) do
+          _ = ActorRuntime.fail_activation_if_expired(activation_uid, now: now)
+        end
+
+      {channel, %{"message_id" => message_id} = payload}
+      when channel == "ankole_ai_message_deadline" ->
+        if due_at?(payload["orphan_at"], now) do
+          _ = ActorRuntime.reconcile_projection_lost_started_turn(message_id, now: now)
+        end
+
+      _event ->
+        :ok
+    end)
+  end
+
+  defp due_at?(value, now) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, due_at, _offset} -> DateTime.compare(due_at, now) != :gt
+      {:error, _reason} -> false
+    end
+  end
+
+  defp due_at?(_value, _now), do: false
 
   defp restart_router_on_port!(router_port, worker_auth_key) do
     endpoint = "tcp://0.0.0.0:#{router_port}"

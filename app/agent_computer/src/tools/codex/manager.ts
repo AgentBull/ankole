@@ -1,3 +1,4 @@
+import { jsonObject, match } from '@pleisto/active-support'
 import { mkdirSync, rmSync } from 'node:fs'
 import { resolve, relative, join } from 'node:path'
 import type { JsonObject } from '../../fabric/fabric'
@@ -16,6 +17,7 @@ import type {
   CodexDelegationStatusUpdateRequest
 } from '../../lanes/rpc_lane'
 import type { TurnStart } from '../../lanes/actor_lane'
+import { bubblewrapArgv } from '../computer/bubblewrap'
 import { CodexAppServerClient, type JsonRpcMessage } from './app-server-client'
 import {
   CodexConfigOverrideKey,
@@ -24,19 +26,11 @@ import {
   parseCodexConfigOverride
 } from './config'
 
-export type CodexDelegationStatus =
-  | 'queued'
-  | 'running'
-  | 'waiting_on_user'
-  | 'succeeded'
-  | 'failed'
-  | 'stopped'
-  | 'timeout'
+export type CodexDelegationStatus = 'queued' | 'running' | 'waiting_on_user' | 'succeeded' | 'failed' | 'stopped'
 
 export type CodexDelegateRequest = {
   prompt: string
   workdir?: string
-  timeoutSeconds?: number
   outputSchema?: unknown
 }
 
@@ -102,7 +96,6 @@ type CodexJob = {
   workdir: string
   prompt: string
   outputSchema?: unknown
-  timeoutSeconds: number
   requesters: CodexRuntimeRequesters
   status: CodexDelegationStatus
   queuedAtUnixMs: number
@@ -123,9 +116,8 @@ type CodexJob = {
 }
 
 const maxRunningPerAgent = 3
-const defaultTimeoutSeconds = 30 * 60
 const queueRetryDelayMs = 1000
-const terminalStatuses = new Set<CodexDelegationStatus>(['succeeded', 'failed', 'stopped', 'timeout'])
+const terminalStatuses = new Set<CodexDelegationStatus>(['succeeded', 'failed', 'stopped'])
 
 export class CodexDelegationManager {
   private jobs = new Map<string, CodexJob>()
@@ -148,7 +140,7 @@ export class CodexDelegationManager {
       workdir,
       status: 'queued',
       metadata: {
-        output_schema: jsonObjectOrEmpty(opts.request.outputSchema),
+        output_schema: jsonObject(opts.request.outputSchema),
         prompt_chars: opts.request.prompt.length
       }
     })
@@ -165,7 +157,6 @@ export class CodexDelegationManager {
       workdir,
       prompt: opts.request.prompt,
       outputSchema: opts.request.outputSchema,
-      timeoutSeconds: opts.request.timeoutSeconds ?? defaultTimeoutSeconds,
       requesters: opts.requesters,
       status: 'queued',
       queuedAtUnixMs: Date.now(),
@@ -332,10 +323,24 @@ export class CodexDelegationManager {
       has_auth_json: override?.auth_json !== undefined
     })
 
+    const codexCwd = modelPath(job.workspaceRoot, job.workdir)
+    const codexHomeBind = codexHomeBindForSandbox(job.workspaceRoot, materialized.codexHome)
+    const sandboxEnv = codexSandboxEnv(job.workspaceRoot, materialized.env, codexHomeBind?.target)
     const client = new CodexAppServerClient({
-      cwd: job.workdir,
-      env: materialized.env,
-      args: codexConfigCliOverrides(),
+      cwd: job.workspaceRoot,
+      env: sandboxEnv,
+      commandArgv: bubblewrapArgv({
+        workspaceRoot: job.workspaceRoot,
+        cwd: job.workdir,
+        env: sandboxEnv,
+        extraBinds: codexHomeBind ? [codexHomeBind] : [],
+        commandArgv: [
+          ...codexCommandForSandbox(job.workspaceRoot),
+          'app-server',
+          '--stdio',
+          ...codexConfigCliOverrides()
+        ]
+      }),
       audit: (direction, message) => this.enqueueAudit(job, direction, 'json_rpc', { message }),
       onExit: error => this.handleClientExit(job, error),
       onNotification: message => this.handleNotification(job, message),
@@ -352,45 +357,34 @@ export class CodexDelegationManager {
     })
     job.client = client
 
-    const timeout = setTimeout(() => {
-      void this.finish(job, 'timeout', { error: `Codex delegation timed out after ${job.timeoutSeconds}s` }).catch(
-        error => this.recordAsyncError(job, error)
-      )
-      job.abortController.abort(new DOMException('codex delegation timed out', 'TimeoutError'))
-    }, job.timeoutSeconds * 1000)
+    await client.initialize()
+    const threadStart = (await client.request('thread/start', {
+      cwd: codexCwd,
+      approvalPolicy: 'never',
+      sandbox: 'danger-full-access',
+      threadSource: 'ankole',
+      ...(modelOverride ? { model: modelOverride } : {})
+    })) as JsonObject
 
-    try {
-      await client.initialize()
-      const threadStart = (await client.request('thread/start', {
-        cwd: job.workdir,
-        approvalPolicy: 'never',
-        sandbox: 'danger-full-access',
-        threadSource: 'ankole',
-        ...(modelOverride ? { model: modelOverride } : {})
-      })) as JsonObject
+    const thread = jsonObject(threadStart.thread)
+    job.codexThreadId = stringValue(thread.id)
+    if (!job.codexThreadId) throw new Error('codex app-server did not return a thread id')
+    await this.updateStatus(job, { status: 'running', codex_thread_id: job.codexThreadId })
 
-      const thread = jsonObject(threadStart.thread)
-      job.codexThreadId = stringValue(thread.id)
-      if (!job.codexThreadId) throw new Error('codex app-server did not return a thread id')
-      await this.updateStatus(job, { status: 'running', codex_thread_id: job.codexThreadId })
+    const turnStart = (await client.request('turn/start', {
+      threadId: job.codexThreadId,
+      input: textInput(job.prompt),
+      cwd: codexCwd,
+      approvalPolicy: 'never',
+      sandboxPolicy: { type: 'dangerFullAccess' },
+      ...(modelOverride ? { model: modelOverride } : {}),
+      ...(job.outputSchema ? { outputSchema: job.outputSchema } : {})
+    })) as JsonObject
+    const turn = jsonObject(turnStart.turn)
+    job.codexTurnId = stringValue(turn.id)
 
-      const turnStart = (await client.request('turn/start', {
-        threadId: job.codexThreadId,
-        input: textInput(job.prompt),
-        cwd: job.workdir,
-        approvalPolicy: 'never',
-        sandboxPolicy: { type: 'dangerFullAccess' },
-        ...(modelOverride ? { model: modelOverride } : {}),
-        ...(job.outputSchema ? { outputSchema: job.outputSchema } : {})
-      })) as JsonObject
-      const turn = jsonObject(turnStart.turn)
-      job.codexTurnId = stringValue(turn.id)
-
-      while (!terminalStatuses.has(job.status)) {
-        await waitForJobChange(job, job.abortController.signal)
-      }
-    } finally {
-      clearTimeout(timeout)
+    while (!terminalStatuses.has(job.status)) {
+      await waitForJobChange(job, job.abortController.signal)
     }
   }
 
@@ -415,8 +409,10 @@ export class CodexDelegationManager {
     if (method === 'turn/completed') {
       const turn = jsonObject(params.turn)
       const status = stringValue(turn.status)
-      const terminal: CodexDelegationStatus =
-        status === 'completed' ? 'succeeded' : status === 'interrupted' ? 'stopped' : 'failed'
+      const terminal: CodexDelegationStatus = match(status)
+        .with('completed', () => 'succeeded' as const)
+        .with('interrupted', () => 'stopped' as const)
+        .otherwise(() => 'failed')
       void this.finish(job, terminal, {
         codex_turn_status: status || 'unknown',
         output_text: job.outputText
@@ -710,6 +706,47 @@ function resolveCodexWorkdir(workspaceRoot: string, workdir?: string): string {
   return candidate
 }
 
+function codexSandboxEnv(
+  workspaceRoot: string,
+  env: Record<string, string>,
+  codexHomeSandboxPath?: string
+): Record<string, string> {
+  const shellBootstrap = process.env.BASH_ENV ?? env.BASH_ENV ?? '/etc/profile.d/ankole-agent-computer.sh'
+  const next = { ...env }
+  next.HOME = '/workspace'
+  next.ANKOLE_WORKSPACE_ROOT = '/workspace'
+  next.SHELL = process.env.SHELL ?? next.SHELL ?? '/bin/bash'
+  next.BASH_ENV = shellBootstrap
+  next.ENV = process.env.ENV ?? next.ENV ?? shellBootstrap
+  next.CODEX_UNSAFE_ALLOW_NO_SANDBOX = process.env.CODEX_UNSAFE_ALLOW_NO_SANDBOX ?? '1'
+  if (next.CODEX_HOME) next.CODEX_HOME = codexHomeSandboxPath ?? modelPath(workspaceRoot, next.CODEX_HOME)
+  return next
+}
+
+function codexHomeBindForSandbox(
+  workspaceRoot: string,
+  codexHome: string
+): { source: string; target: string; readonly?: boolean } | undefined {
+  if (insideWorkspace(workspaceRoot, codexHome)) return undefined
+  return { source: codexHome, target: resolve(codexHome) }
+}
+
+function insideWorkspace(workspaceRoot: string, path: string): boolean {
+  const root = resolve(workspaceRoot)
+  const resolved = resolve(path)
+  return resolved === root || resolved.startsWith(`${root}/`)
+}
+
+function codexCommandForSandbox(workspaceRoot: string): string[] {
+  const binary = process.env.ANKOLE_CODEX_BINARY
+  if (!binary) return ['codex']
+  if (!binary.startsWith('/')) return [binary]
+
+  const root = resolve(workspaceRoot)
+  const resolved = resolve(binary)
+  return [resolved === root || resolved.startsWith(`${root}/`) ? modelPath(workspaceRoot, resolved) : resolved]
+}
+
 function modelPath(workspaceRoot: string, path: string): string {
   const rel = relative(resolve(workspaceRoot), resolve(path))
   if (!rel || rel === '.') return '/workspace'
@@ -718,14 +755,6 @@ function modelPath(workspaceRoot: string, path: string): string {
 
 function textInput(text: string): Array<JsonObject> {
   return [{ type: 'text', text, text_elements: [] }]
-}
-
-function jsonObject(value: unknown): JsonObject {
-  return value && typeof value === 'object' && !Array.isArray(value) ? (value as JsonObject) : {}
-}
-
-function jsonObjectOrEmpty(value: unknown): JsonObject {
-  return jsonObject(value)
 }
 
 function stringValue(value: unknown): string | undefined {
@@ -737,8 +766,9 @@ function approvalRequestMethod(method: string): boolean {
 }
 
 function approvalRejection(method: string): JsonObject {
-  if (method === 'execCommandApproval' || method === 'applyPatchApproval') return { decision: 'denied' }
-  return { decision: 'decline' }
+  return match(method)
+    .with('execCommandApproval', 'applyPatchApproval', () => ({ decision: 'denied' }))
+    .otherwise(() => ({ decision: 'decline' }))
 }
 
 function userInputResponse(
@@ -754,7 +784,13 @@ function userInputResponse(
     const id = stringValue(questionObject.id)
     if (!id) continue
     const supplied = suppliedAnswers?.[id]
-    const values = Array.isArray(supplied) ? supplied : typeof supplied === 'string' ? [supplied] : [fallbackAnswer]
+    const values = match(supplied)
+      .when(Array.isArray, value => value)
+      .when(
+        value => typeof value === 'string',
+        value => [value]
+      )
+      .otherwise(() => [fallbackAnswer])
     answers[id] = { answers: values }
   }
 

@@ -5,9 +5,8 @@ defmodule Ankole.Setup.Bootstrap do
 
   use GenServer
 
-  require Logger
-
   alias Ankole.AuthZ
+  alias Ankole.Logging
   alias Ankole.Setup.Config
 
   @alphabet ~c"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -55,18 +54,39 @@ defmodule Ankole.Setup.Bootstrap do
           %{completed: true, activation_code: nil}
 
         {:ok, %{completed: false, activation_code: code}} ->
-          Logger.info("Ankole setup bootstrap activation code reset: #{code}")
+          Logging.notice(
+            "setup.bootstrap.activation_code_reset",
+            "setup bootstrap activation code reset",
+            %{
+              activation_code: code
+            }
+          )
+
           %{completed: false, activation_code: code}
 
         {:error, reason} ->
-          Logger.warning("Ankole setup bootstrap initialization skipped: #{inspect(reason)}")
+          Logging.warning(
+            "setup.bootstrap.initialization_skipped",
+            "setup bootstrap initialization skipped",
+            %{
+              reason: inspect(reason)
+            }
+          )
+
           %{completed: false, activation_code: nil, error: reason}
       end
 
     {:ok, state}
   rescue
     error ->
-      Logger.warning("Ankole setup bootstrap initialization failed: #{Exception.message(error)}")
+      Logging.warning(
+        "setup.bootstrap.initialization_failed",
+        "setup bootstrap initialization failed",
+        %{
+          error: Exception.message(error)
+        }
+      )
+
       {:ok, %{completed: false, activation_code: nil, error: Exception.message(error)}}
   end
 
@@ -91,7 +111,14 @@ defmodule Ankole.Setup.Bootstrap do
         :ok
 
       {:error, reason} ->
-        Logger.warning("Console admin grant startup repair skipped: #{inspect(reason)}")
+        Logging.warning(
+          "setup.bootstrap.console_admin_grant_repair_skipped",
+          "console admin grant startup repair skipped",
+          %{
+            reason: inspect(reason)
+          }
+        )
+
         :ok
     end
   end

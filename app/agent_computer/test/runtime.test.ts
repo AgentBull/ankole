@@ -209,14 +209,9 @@ describe('@ankole/agent-computer runtime', () => {
       payload_json: { probe: true }
     }
 
-    await handleWorkerRpcRequest(
-      workerConfig(),
-      async envelope => {
-        sent.push(envelope)
-      },
-      2,
-      request
-    )
+    await handleWorkerRpcRequest(async envelope => {
+      sent.push(envelope)
+    }, request)
 
     expect(sent).toHaveLength(1)
     expect(sent[0]!.lane).toBe('LANE_RPC')
@@ -234,11 +229,9 @@ describe('@ankole/agent-computer runtime', () => {
     const sent: ReturnType<typeof workerReadyEnvelope>[] = []
 
     await handleWorkerRpcRequest(
-      workerConfig(),
       async envelope => {
         sent.push(envelope)
       },
-      0,
       {
         request_id: 'worker-rpc-unknown',
         method: 'worker.unknown',

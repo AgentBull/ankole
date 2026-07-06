@@ -3,10 +3,9 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   Feishu/Lark inbound normalization into SignalsGateway adapter APIs.
   """
 
-  require Logger
-
   alias Ankole.ActorRuntime
   alias Ankole.JSON
+  alias Ankole.Logging
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.Emoji
   alias Ankole.Plugins.LarkAdapter.MapHelpers
@@ -114,10 +113,11 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
         with {:ok, source_entry_id} <- required_text(message, "message_id"),
              {:ok, chat_id} <- required_text(message, "chat_id"),
              {:ok, author} <- author(sender, sender_ids, event, consumer),
-             {:ok, text} <- message_text(message),
+             {:ok, raw_text} <- message_text(message),
              {:ok, attachments} <- attachments(message),
-             :ok <- material_message?(text, attachments),
              {:ok, mentions} <- mentions(message, consumer),
+             text <- visible_message_text(raw_text, mentions),
+             :ok <- material_message?(raw_text, attachments),
              provider_time <- provider_time(message, event),
              channel_kind <- channel_kind(message),
              signal_channel_id <- signal_channel_id(chat_id),
@@ -246,7 +246,15 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
       AdapterContext.emit_reaction(consumer.context, input)
     else
       {:error, :missing_operator_id} ->
-        Logger.warning("lark adapter ignored reaction without operator user id")
+        Logging.warning(
+          "lark_adapter.inbound.reaction_missing_operator",
+          "lark adapter ignored reaction without operator user id",
+          %{
+            event_id: event.id,
+            event_type: event.type
+          }
+        )
+
         {:ok, %{status: :ignored_missing_operator}}
 
       {:error, _reason} = error ->
@@ -281,7 +289,16 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
       AdapterContext.emit_action(consumer.context, input)
     else
       {:error, :missing_operator_id} ->
-        Logger.warning("lark adapter ignored card action without operator user id")
+        Logging.warning(
+          "lark_adapter.inbound.card_action_missing_operator",
+          "lark adapter ignored card action without operator user id",
+          %{
+            event_id: event.id,
+            event_type: event.type,
+            action_id: action.open_message_id
+          }
+        )
+
         {:ok, %{status: :ignored_missing_operator}}
 
       {:error, _reason} = error ->
@@ -378,6 +395,66 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
       nil -> {:ok, nil}
     end
   end
+
+  defp visible_message_text(nil, _mentions), do: nil
+
+  defp visible_message_text(text, mentions) when is_binary(text) do
+    text
+    |> strip_leading_current_bot_mentions(mentions)
+    |> render_structured_mentions(mentions)
+    |> String.trim_leading()
+    |> blank_to_nil()
+  end
+
+  defp strip_leading_current_bot_mentions(text, mentions) do
+    prefixes =
+      mentions
+      |> Enum.filter(&current_bot_mention?/1)
+      |> mention_prefixes()
+
+    strip_leading_prefixes(text, prefixes)
+  end
+
+  defp strip_leading_prefixes(text, []), do: text
+
+  defp strip_leading_prefixes(text, prefixes) do
+    stripped = String.trim_leading(text)
+
+    case Enum.find(prefixes, &String.starts_with?(stripped, &1)) do
+      nil ->
+        stripped
+
+      prefix ->
+        stripped
+        |> String.replace_prefix(prefix, "")
+        |> strip_leading_prefixes(prefixes)
+    end
+  end
+
+  defp render_structured_mentions(text, mentions) do
+    Enum.reduce(mentions, text, fn mention, acc ->
+      case mention_visible_name(mention) do
+        nil -> acc
+        name -> replace_mention_placeholders(acc, mention, name)
+      end
+    end)
+  end
+
+  defp replace_mention_placeholders(text, mention, name) do
+    mention
+    |> mention_placeholder_values()
+    |> Enum.reduce(text, fn placeholder, acc ->
+      String.replace(acc, placeholder, name)
+    end)
+  end
+
+  defp current_bot_mention?(mention) when is_map(mention),
+    do: present_text?(Map.get(mention, "agent_uid"))
+
+  defp current_bot_mention?(_mention), do: false
+
+  defp mention_visible_name(mention) when is_map(mention), do: optional_text(mention, "name")
+  defp mention_visible_name(_mention), do: nil
 
   defp material_message?(text, _attachments) when is_binary(text), do: :ok
   defp material_message?(nil, [_ | _]), do: :ok
@@ -649,16 +726,28 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
       |> maybe_put("size", result["size"])
     else
       reason ->
-        Logger.warning(
-          "lark attachment materialization skipped provider_ref=#{inspect(attachment["provider_ref"])} reason=#{inspect(reason)}"
+        Logging.warning(
+          "lark_adapter.attachment.materialization_skipped",
+          "lark attachment materialization skipped",
+          %{
+            provider_ref: attachment["provider_ref"],
+            source_message_id: attachment["source_message_id"],
+            file_key: attachment["file_key"],
+            reason: inspect(reason)
+          }
         )
 
         attachment
     end
   rescue
     error ->
-      Logger.warning(
-        "lark attachment materialization failed provider_ref=#{inspect(attachment["provider_ref"])} error=#{Exception.message(error)}"
+      Logging.warning(
+        "lark_adapter.attachment.materialization_failed",
+        "lark attachment materialization failed",
+        %{
+          provider_ref: attachment["provider_ref"],
+          error: Exception.message(error)
+        }
       )
 
       attachment
@@ -734,18 +823,29 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   defp mention_targets_current_binding?(_mention, _consumer), do: false
 
   defp bot_identity_configured?(config) when is_map(config),
-    do: present_text?(Map.get(config, "botOpenId")) or present_text?(Map.get(config, "botUserId"))
+    do:
+      present_text?(configured_bot_open_id(config)) or
+        present_text?(Map.get(config, "botUserId"))
 
   defp bot_identity_configured?(_config), do: false
 
   defp mention_targets_configured_bot?(mention, config) when is_map(mention) and is_map(config) do
-    matches_optional_id?(mention["open_id"], Map.get(config, "botOpenId")) or
+    bot_open_id = configured_bot_open_id(config)
+
+    matches_optional_id?(mention["open_id"], bot_open_id) or
+      matches_optional_id?(mention["id"], bot_open_id) or
       matches_optional_id?(mention["user_id"], Map.get(config, "botUserId")) or
-      matches_optional_id?(mention["id"], Map.get(config, "botUserId")) or
-      matches_optional_id?(mention["id"], Map.get(config, "botOpenId"))
+      matches_optional_id?(mention["id"], Map.get(config, "botUserId"))
   end
 
   defp mention_targets_configured_bot?(_mention, _config), do: false
+
+  defp configured_bot_open_id(config) when is_map(config) do
+    case optional_text(config, "botOpenId") do
+      nil -> optional_text(config, "runtimeBotOpenId")
+      open_id -> open_id
+    end
+  end
 
   defp matches_optional_id?(value, expected) when is_binary(value) and is_binary(expected),
     do: String.trim(value) != "" and value == expected
@@ -854,6 +954,15 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
 
     [key, at_prefixed_key(key), optional_text(mention, "name")]
     |> Enum.reject(&is_nil/1)
+  end
+
+  defp mention_placeholder_values(mention) do
+    key = optional_text(mention, "key")
+
+    [key, at_prefixed_key(key)]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.sort_by(&String.length/1, :desc)
   end
 
   defp at_prefixed_key("@" <> _rest), do: nil

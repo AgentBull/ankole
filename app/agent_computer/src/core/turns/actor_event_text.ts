@@ -1,14 +1,16 @@
-import type { JsonObject, TurnStart } from '../../lanes/actor_lane'
-import type { CurrentChannelContext } from '../../prompts/system_prompt'
 import {
   arrayPath,
   deepString,
   firstNumber,
   firstString,
   isRecord,
+  match,
   objectPath,
+  P,
   stringArg
-} from '../../common/json-utils'
+} from '@pleisto/active-support'
+import type { JsonObject, TurnStart } from '../../lanes/actor_lane'
+import type { CurrentChannelContext } from '../../prompts/system_prompt'
 
 /**
  * Renders a journaled actor event into the primary user text for the model.
@@ -119,16 +121,11 @@ function cronFireInputText(payload: JsonObject | undefined): string {
  * Maps provider channel kinds to the smaller prompt-facing channel vocabulary.
  */
 function channelKind(kind: string | undefined): CurrentChannelContext['kind'] | undefined {
-  switch (kind) {
-    case 'im_dm':
-      return 'external_dm'
-    case 'im_group':
-      return 'external_group'
-    case undefined:
-      return undefined
-    default:
-      return 'external_room'
-  }
+  return match(kind)
+    .with('im_dm', () => 'external_dm' as const)
+    .with('im_group', () => 'external_group' as const)
+    .with(undefined, () => undefined)
+    .otherwise(() => 'external_room')
 }
 
 /**
@@ -174,12 +171,15 @@ function attachmentLine(value: unknown, index: number): string | undefined {
 
   if (type) details.push(`type=${type}`)
   if (size !== undefined) details.push(`size=${size}`)
-  if (path) {
-    details.push(`path=${path}`)
-  } else if (reference) {
-    details.push(`provider_ref=${reference}`)
-    details.push('not_materialized_in_workspace=true')
-  }
+  match([path, reference] as const)
+    .with([P.string, P._], ([path]) => {
+      details.push(`path=${path}`)
+    })
+    .with([P._, P.string], ([, reference]) => {
+      details.push(`provider_ref=${reference}`)
+      details.push('not_materialized_in_workspace=true')
+    })
+    .otherwise(() => undefined)
 
   if (details.length === 0 && !name) return undefined
   return `- ${name || `attachment ${index + 1}`}: ${details.join(', ')}`

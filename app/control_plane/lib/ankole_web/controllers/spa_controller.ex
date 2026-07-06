@@ -57,16 +57,6 @@ defmodule AnkoleWeb.SpaController do
   end
 
   @doc """
-  Keeps the older `/auth` URL as a browser redirect to the sessions SPA.
-  """
-  def auth_redirect(conn, params) do
-    case setup_completed?() do
-      true -> redirect(conn, to: sessions_new_path(params))
-      false -> redirect(conn, to: ~p"/setup")
-    end
-  end
-
-  @doc """
   Serves the console SPA only for active human admins.
 
   This is the server-side authentication gate for the console — it is enforced

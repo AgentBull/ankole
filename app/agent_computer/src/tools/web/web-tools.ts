@@ -1,7 +1,7 @@
 import { z } from 'zod'
+import { deepString, isRecord, safeJsonParse, safeJsonStringify } from '@pleisto/active-support'
 import type { JsonObject } from '../../lanes/actor_lane'
 import { browserExtractFromSession, ensureBrowserSession, type BrowserRuntimeOptions } from '../browser/cdp'
-import { isRecord, safeJsonStringify } from '../../common/json-utils'
 import type { AgentTool, AgentToolResult } from '../../core'
 import type { AIGatewayHttpClient } from '../../core/turns/model_runtime'
 
@@ -20,6 +20,7 @@ interface WebToolsResponse {
 
 export interface CreateWebToolsOptions {
   aiGateway: AIGatewayHttpClient
+  abortSignal?: AbortSignal
   localBrowser?: LocalBrowserWebFetchOptions
 }
 
@@ -53,7 +54,7 @@ const WebFetchParams = z.object({
  * provider-backed because the worker does not own a search index.
  */
 export async function createWebTools(opts: CreateWebToolsOptions): Promise<AgentTool<any>[]> {
-  const availability = await fetchWebToolsAvailability(opts.aiGateway)
+  const availability = await fetchWebToolsAvailability(opts.aiGateway, opts.abortSignal)
   const tools: AgentTool<any>[] = []
 
   if (availability.web_search?.available && availability.web_search.model) {
@@ -102,7 +103,7 @@ function createWebSearchTool(
 
       return {
         content: [{ type: 'text', text: formatSearchResults(body) }],
-        details: jsonObject(body)
+        details: detailsObject(body)
       }
     }
   }
@@ -123,8 +124,8 @@ function createWebFetchTool(
   }
 ): AgentTool<typeof WebFetchParams, WebToolDetails> {
   const description = config.providerModel
-    ? 'Fetch readable text from public HTTPS web pages through AIGateway, falling back to the local browser when available.'
-    : 'Fetch readable text from public HTTPS web pages through the local browser.'
+    ? 'Fetch readable text from public HTTPS web pages through AIGateway, falling back to the local browser when available. Pass all needed URLs in one call.'
+    : 'Fetch readable text from public HTTPS web pages through the local browser. Pass all needed URLs in one call.'
 
   return {
     name: 'web_fetch',
@@ -159,7 +160,7 @@ function createWebFetchTool(
 
       return {
         content: [{ type: 'text', text: formatFetchResults(body) }],
-        details: jsonObject(body)
+        details: detailsObject(body)
       }
     }
   }
@@ -261,9 +262,12 @@ function normalizeLocalBrowserFetchResult(url: string, value: unknown): JsonObje
 /**
  * Reads the web-tool availability document from AIGateway.
  */
-async function fetchWebToolsAvailability(aiGateway: AIGatewayHttpClient): Promise<WebToolsResponse> {
+async function fetchWebToolsAvailability(
+  aiGateway: AIGatewayHttpClient,
+  signal?: AbortSignal
+): Promise<WebToolsResponse> {
   try {
-    const response = await aiGateway.fetch(aiGatewayUrl(aiGateway, '/web_tools'))
+    const response = await aiGateway.fetch(aiGatewayUrl(aiGateway, '/web_tools'), { signal })
     if (!response.ok) return {}
     const body = await response.json()
     return isRecord(body) ? (body as WebToolsResponse) : {}
@@ -354,11 +358,10 @@ function formatFetchResults(body: unknown): string {
  */
 function parseJson(text: string): unknown {
   if (!text) return {}
-  try {
-    return JSON.parse(text)
-  } catch {
-    return { raw: text }
-  }
+  return safeJsonParse(text).match(
+    value => value,
+    () => ({ raw: text })
+  )
 }
 
 /**
@@ -382,7 +385,7 @@ function aiGatewayUrl(aiGateway: AIGatewayHttpClient, path: string): string {
 /**
  * Ensures details are JSON-object-shaped for AgentToolResult.
  */
-function jsonObject(value: unknown): JsonObject {
+function detailsObject(value: unknown): JsonObject {
   return isRecord(value) ? value : { value }
 }
 
@@ -397,15 +400,6 @@ function stringField(record: JsonObject, key: string): string | undefined {
 /**
  * Reads a nested string from a JSON object.
  */
-function deepString(record: JsonObject, path: string[]): string | undefined {
-  let current: unknown = record
-  for (const key of path) {
-    if (!isRecord(current)) return undefined
-    current = current[key]
-  }
-  return typeof current === 'string' ? current : undefined
-}
-
 /**
  * Accepts only public HTTPS URLs for web_fetch.
  */

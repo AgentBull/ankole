@@ -39,7 +39,7 @@ export function formatSkillsForSystemPrompt(skills: SkillPromptEntry[]): string 
     '## Skills',
     '',
     `You have access to the following skills. Skills are task-specific instructions and references.
-Before performing a task or subtask you are already going to do, call \`skill_view(name)\` only if a listed skill covers that task, then follow the loaded instructions. Otherwise continue without a skill.`,
+Before performing a task or subtask you are already going to do, call \`skill_view(name)\` only if a listed skill covers that task, then follow the loaded instructions. If the user asks to inspect, view, choose, recommend, or identify an available skill, the index is only a routing aid: pick the relevant listed skill and call \`skill_view(name)\` before answering. Otherwise continue without a skill.`,
     '<available_skills>'
   ]
 

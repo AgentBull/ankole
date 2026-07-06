@@ -3,6 +3,7 @@ defmodule Ankole.ActorRuntime.DeliveryFenceTest do
 
   describe "delivery fences" do
     test "record_only input does not start an actor turn or emit PONG" do
+      initial_message_count = Repo.aggregate(Message, :count)
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :record_only)
       route = unique_route()
@@ -21,11 +22,12 @@ defmodule Ankole.ActorRuntime.DeliveryFenceTest do
                process_ready_events_once(now: DateTime.add(@base_time, 1, :second))
 
       assert Repo.aggregate(ActorEvent, :count) == 0
-      assert Repo.aggregate(Message, :count) == 0
+      assert Repo.aggregate(Message, :count) == initial_message_count
       assert Repo.aggregate(OutboxEntry, :count) == 0
     end
 
     test "future available_at actor event is not delivered before ready time" do
+      initial_message_count = Repo.aggregate(Message, :count)
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
       route = unique_route()
@@ -44,11 +46,12 @@ defmodule Ankole.ActorRuntime.DeliveryFenceTest do
 
       assert {:ok, %{status: :idle}} = process_ready_events_once(now: @base_time)
       assert Repo.aggregate(ActorEventDelivery, :count) == 0
-      assert Repo.aggregate(Message, :count) == 0
+      assert Repo.aggregate(Message, :count) == initial_message_count
       assert Repo.get!(ActorEvent, input.id).input_state == "open"
     end
 
     test "no worker available leaves ready event open without creating generation artifacts" do
+      initial_message_count = Repo.aggregate(Message, :count)
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
@@ -64,7 +67,7 @@ defmodule Ankole.ActorRuntime.DeliveryFenceTest do
                process_ready_events_once(now: DateTime.add(@base_time, 1, :second))
 
       assert Repo.get!(ActorEvent, input.id).input_state == "open"
-      assert Repo.aggregate(Message, :count) == 0
+      assert Repo.aggregate(Message, :count) == initial_message_count
       assert Repo.aggregate(ActorEventDelivery, :count) == 0
       assert Repo.aggregate(OutboxEntry, :count) == 0
     end
@@ -96,6 +99,7 @@ defmodule Ankole.ActorRuntime.DeliveryFenceTest do
     end
 
     test "route retry keeps the actor event open without materializing message rows" do
+      initial_message_count = Repo.aggregate(Message, :count)
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
       dead_route = unique_route()
@@ -116,7 +120,7 @@ defmodule Ankole.ActorRuntime.DeliveryFenceTest do
 
       assert first_turn_ref["actor_event_id"] == input.id
       assert Repo.get!(ActorEvent, input.id).input_state == "open"
-      assert Repo.aggregate(Message, :count) == 0
+      assert Repo.aggregate(Message, :count) == initial_message_count
 
       :ok = Broker.register_local_worker(live_route, self())
       on_exit(fn -> Broker.unregister_local_worker(live_route) end)
@@ -125,7 +129,7 @@ defmodule Ankole.ActorRuntime.DeliveryFenceTest do
       assert {:ok, %{send_outcome: "sent_or_queued"}} =
                process_ready_events_once(now: DateTime.add(@base_time, 2, :second))
 
-      assert Repo.aggregate(Message, :count) == 0
+      assert Repo.aggregate(Message, :count) == initial_message_count
 
       assert_receive {:actor_lane, envelope}
       assert envelope["body"]["turn_start"]["turn"]["actor_event_id"] == input.id
@@ -137,7 +141,7 @@ defmodule Ankole.ActorRuntime.DeliveryFenceTest do
       assert Enum.map(deliveries, & &1.attempt_no) == [2]
     end
 
-    test "ready actor key scan blocks ordinary events behind live session delivery" do
+    test "exact actor key readiness blocks ordinary events behind live session delivery" do
       %{principal: agent} = agent_fixture()
       session_id = "ready-scan-session"
 
@@ -153,15 +157,22 @@ defmodule Ankole.ActorRuntime.DeliveryFenceTest do
 
       insert_live_delivery!(live_event)
 
-      assert Actors.list_ready_actor_keys(DateTime.add(@base_time, 2, :second), 10) == []
+      refute Actors.next_ready_event(agent.uid, session_id, DateTime.add(@base_time, 2, :second),
+               live_delivery?: true
+             )
 
       assert {:ok, _stop_event} =
                append_runtime_actor_event(agent.uid, session_id, "command.stop",
                  now: DateTime.add(@base_time, 3, :second)
                )
 
-      assert [%{agent_uid: agent_uid, session_id: ^session_id}] =
-               Actors.list_ready_actor_keys(DateTime.add(@base_time, 4, :second), 10)
+      assert %ActorEvent{agent_uid: agent_uid, session_id: ^session_id, type: "command.stop"} =
+               Actors.next_ready_event(
+                 agent.uid,
+                 session_id,
+                 DateTime.add(@base_time, 4, :second),
+                 live_delivery?: true
+               )
 
       assert agent_uid == agent.uid
     end
@@ -234,10 +245,17 @@ defmodule Ankole.ActorRuntime.DeliveryFenceTest do
           now: DateTime.add(@base_time, 1, :second)
         )
 
-      assert {:ok, %{expired_activations: 1}} =
-               ActorRuntime.watchdog_once(
+      activation =
+        Repo.one!(
+          from(activation in ActorSessionActivation,
+            where: activation.current_actor_event_id == ^input.id
+          )
+        )
+
+      assert {:ok, %ActorSessionActivation{status: "failed"}} =
+               ActorRuntime.fail_activation_if_expired(
+                 activation.activation_uid,
                  now: DateTime.add(@base_time, 3, :second),
-                 stale_after_seconds: 86_400,
                  lease_grace_seconds: 0
                )
 
@@ -681,6 +699,7 @@ defmodule Ankole.ActorRuntime.DeliveryFenceTest do
     end
 
     test "expired activation rejects late worker completion without provider output" do
+      initial_message_count = Repo.aggregate(Message, :count)
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
       route = unique_route()
@@ -732,7 +751,7 @@ defmodule Ankole.ActorRuntime.DeliveryFenceTest do
 
       assert Repo.get!(ActorEvent, input.id).input_state == "open"
       assert is_nil(Repo.get!(ActorEvent, input.id).completed_at)
-      assert Repo.aggregate(Message, :count) == 0
+      assert Repo.aggregate(Message, :count) == initial_message_count
 
       assert Repo.aggregate(from(message in Message, where: message.role == "assistant"), :count) ==
                0

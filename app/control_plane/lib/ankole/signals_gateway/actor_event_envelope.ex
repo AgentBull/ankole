@@ -155,7 +155,6 @@ defmodule Ankole.SignalsGateway.ActorEventEnvelope do
       "kind" => Atom.to_string(channel.kind),
       "reply_mode" => Atom.to_string(channel.reply_mode),
       "name" => channel.name,
-      "title" => channel.title,
       "visibility" => channel.visibility
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)

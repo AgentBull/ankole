@@ -129,6 +129,7 @@ defmodule Ankole.ActorRuntime.TurnEnvelope do
       "model" => map_get(model_ref, :model),
       "input_modalities" => map_get(model_ref, :input_modalities)
     }
+    |> maybe_put("max_completion_tokens", map_get(model_ref, :max_completion_tokens))
     |> maybe_put("vision_fallback_model_ref", map_get(model_ref, :vision_fallback_model_ref))
   end
 

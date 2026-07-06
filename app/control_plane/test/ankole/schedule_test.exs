@@ -552,6 +552,7 @@ defmodule Ankole.ScheduleTest do
 
       committed = complete_turn_via_aigateway!(turn_ref, "Deployment finished cleanly.")
 
+      dispatch_final_reply_outbox!(committed.id)
       mirror = wait_for_final_mirror(committed.id)
       assert mirror.signal_channel_id == "mock:chat:e2e"
       assert mirror.text == "Deployment finished cleanly."
@@ -646,6 +647,7 @@ defmodule Ankole.ScheduleTest do
           "Scheduled the dashboard check for 07:00 Asia/Shanghai."
         )
 
+      dispatch_final_reply_outbox!(scheduled_ack.id)
       assert wait_for_final_mirror(scheduled_ack.id).signal_channel_id == "mock:chat:dashboard"
 
       [scheduled_event] = Schedule.list_cron_runs(cron_schedule_id, 10)
@@ -707,6 +709,7 @@ defmodule Ankole.ScheduleTest do
       """
 
       committed = complete_turn_via_aigateway!(cron_turn_ref, dashboard_report)
+      dispatch_final_reply_outbox!(committed.id)
       mirror = wait_for_final_mirror(committed.id)
 
       assert mirror.signal_channel_id == "mock:chat:dashboard"
@@ -830,6 +833,7 @@ defmodule Ankole.ScheduleTest do
       assert %Message{} =
                committed = complete_turn_via_aigateway!(turn_ref, "Daily digest is ready.")
 
+      dispatch_final_reply_outbox!(committed.id)
       mirror = wait_for_final_mirror(committed.id)
       assert mirror.signal_channel_id == "mock:chat:schedule"
       assert mirror.text == "Daily digest is ready."
@@ -1129,6 +1133,34 @@ defmodule Ankole.ScheduleTest do
     flunk("expected final mirror for ai_message_id=#{ai_message_id}")
   end
 
+  defp dispatch_final_reply_outbox!(ai_message_id) do
+    case Repo.get_by(OutboxEntry, outbound_key: "ai-reply:#{ai_message_id}") do
+      %OutboxEntry{} = outbox ->
+        assert {:ok, %OutboxEntry{status: :succeeded}} =
+                 SignalsGateway.dispatch_outbox(
+                   outbox.agent_uid,
+                   outbox.binding_name,
+                   outbox.outbound_key,
+                   %{
+                     capabilities: [:post_entry, :reply_entry, :edit_entry],
+                     send: fn outbox ->
+                       {:ok,
+                        %{
+                          created_source_entry_id:
+                            outbox.target_source_entry_id || "test-final-#{ai_message_id}",
+                          raw_payload: %{"provider" => "test"}
+                        }}
+                     end
+                   }
+                 )
+
+        :ok
+
+      nil ->
+        flunk("expected final reply outbox for ai_message_id=#{ai_message_id}")
+    end
+  end
+
   defp checkback_attrs(agent_uid, overrides) do
     Map.merge(
       %{
@@ -1223,7 +1255,9 @@ defmodule Ankole.ScheduleTest do
 
   defp maybe_finalize_test_inbound_batch(%{inbound_batch: %InboundBatch{} = batch} = result) do
     with {:ok, finalized_results} <-
-           SignalsGateway.finalize_due_inbound_batches(now: batch.available_at),
+           Ankole.SignalsGatewayFixtures.finalize_due_inbound_batch_events(
+             now: batch.available_at
+           ),
          %ActorEvent{} = actor_event <- finalized_actor_event(finalized_results, batch.id) do
       Map.put(result, :actor_event, actor_event)
     else

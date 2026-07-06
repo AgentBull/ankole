@@ -168,7 +168,7 @@ Kernel 从同一个 crate 编译两次：一次作为 Elixir 的 Rustler NIF（�
 `Ankole.AIGateway`（`lib/ankole/ai_gateway/`）。分成两半：
 
 - **Provider 边界。** `providers.ex` 注册内置 provider module（`providers/openai.ex`、`openai_compatible.ex`、`openrouter.ex`、`google_ai_studio_openai.ex`、`claude.ex`、`azure_openai.ex`、`jina.ex`），以及通过 `ai_gateway.provider` contract 发现的 plugin provider（目前包括 `plugins/china_market_ai_providers` 里的 `xiaomi_mimo`、`volcengine_ark`、`alibaba_cn`、`zai_coding_plan`）。Provider module 返回一个 `provider_definition()`（设置 schema、base URL、capability，以及用来构造 `UniversalAIRequest` 的 `prepare/1`）；真正发往上游的 HTTP/SSE 传输跑在 kernel 的 `universal_ai_client` 里（feature-gated 的 Rust、NIF 驱动）。Operator 实例存在 `ai_gateway_providers` 行里（加密凭证、base URL 覆盖）；agent 在 `agents.options["ai_agent"]["models"]` 里绑定 model alias（`primary`、`light`、`heavy`、`embedding`、`rerank`）。
-- **有状态 Responses 日志。** `stateful_responses.ex` 负责 run-row 生命周期：`start_response_run` 校验 anchor（`conversation` / `previous_response_id` 必须且只能有一个），通过 `previous_message_id` 图展开历史（跳过 `retracted`，折叠被 compaction 行覆盖的前缀），当 chars/4 估算超预算时自动 compaction（`compaction.ex`，用 agent 的 `light` profile 总结），写入 `status = "generating"` 的行，把 provider chunk 流式推到 PubSub，并用乐观的 `WHERE status = 'generating'` 守卫做 terminal commit。链尾的 terminal commit 还会设置 `actor_events.completed_at` 并清理 delivery。孤立的 `generating` 行会按 `updated_at` 的陈旧程度恢复成 `error`（300 秒宽限期）。
+- **有状态 Responses 日志。** `stateful_responses.ex` 负责 run-row 生命周期：`start_response_run` 校验 anchor（`conversation` / `previous_response_id` 必须且只能有一个），通过 `previous_message_id` 图展开历史（跳过 `retracted`，折叠被 compaction 行覆盖的前缀），当历史消息记录的 provider usage 超预算时自动 compaction（`compaction.ex`，用 agent 的 `light` profile 总结），写入 `status = "generating"` 的行，把 provider chunk 流式推到 PubSub，并用乐观的 `WHERE status = 'generating'` 守卫做 terminal commit。链尾的 terminal commit 还会设置 `actor_events.completed_at` 并清理 delivery。孤立的 `generating` 行会按 `updated_at` 的陈旧程度恢复成 `error`（300 秒宽限期）。
 
 Wire 接口是 OpenAI Responses 形状：worker 连接 `GET /api/v1/ai-gateway/responses`（WebSocket，`AnkoleWeb.AIGatewayResponsesSocket`），发送带 `store=true` 的 `response.create` frame；id 会被改写成 `resp_<message-row-uuid>`；HTTP 路由提供无状态调用、检索、手动 compaction、embedding 和 rerank。拥有的表：`ai_gateway_messages`、`ai_gateway_conversations`、`ai_gateway_providers`。
 
@@ -184,7 +184,9 @@ Worker->control-plane 的 RPC 方法注册在 `lib/ankole/actor_runtime/rpc_lane
 
 `app/agent_computer/src/`。`main.ts` 解析 env（`WORKER_ID`、形如 `tcp://:worker_auth_key@host:port` 的 `RUNTIME_FABRIC_URL`），启动 DEALER，宣告 `worker_ready`，每 15 秒发一次心跳，并分发 envelope。一个 `turn_start` 会跑 `core/turns/` 里的 turn pipeline（文本 turn 是 `text_turn.ts`）：通过 RPC 拿会话上下文和 AIGateway API key，构造 system prompt（`src/prompts/`），组装 tool，然后驱动 `core/agent-loop.ts`：通过官方 `openai` SDK 加自定义 WebSocket 传输，发起有状态路径的 `response.create`（`core/llm.ts`），在本地执行返回的 tool call，再用 `previous_response_id` 把 `function_call_output` item 链回去；没有 tool call 时停止。Steering 通过 `mailbox_updated` 到达，并在轮次之间注入；`turn_control` 会中止。
 
-Model 可见的 tool 接口有意保持很窄（扩大前先看 `docs/TradeoffsAndKnownLimits.md`）：`todo`（`src/tools/todo/todo-tool.ts`）；computer tool `command`、`interactive_terminal`、`read_file`、`patch`、`reply_attachment`（`src/tools/computer/`）；browser tool `browser_open`、`browser_run`、`browser_extract`、`browser_doctor`（`src/tools/browser/`）；schedule tool `check_back_later`、`cron`（`src/tools/schedule/schedule-tools.ts`）；memory tool `memory_note`、`memory_search`、`memory_browse`（`src/tools/memory/`）；skill tool `skill_view`、`skill_append`（`src/tools/library/`）。Shell 命令在 bubblewrap 里运行（优先 strong mode，启动时若为 weak mode 给警告，绝不无沙箱：`src/tools/computer/bubblewrap.ts`）。当前代码树没有 MCP 支持；如果以后加入，它应该作为另一个本地 tool 源，放在这个 worker 边界里。
+Model 可见的 tool 接口有意保持很窄（扩大前先看 `docs/TradeoffsAndKnownLimits.md`）：`todo`（`src/tools/todo/todo-tool.ts`）；computer tool `command`、`interactive_terminal`、`read_file`、`patch`、`reply_attachment`（`src/tools/computer/`）；`codex_delegate`（`src/tools/codex/`）；browser tool `browser_open`、`browser_run`、`browser_extract`、`browser_doctor`（`src/tools/browser/`）；schedule tool `check_back_later`、`cron`（`src/tools/schedule/schedule-tools.ts`）；memory tool `memory_note`、`memory_search`、`memory_browse`（`src/tools/memory/`）；skill tool `skill_view`、`skill_append`（`src/tools/library/`）。Shell 命令在 bubblewrap 里运行（优先 strong mode，启动时若为 weak mode 给警告，绝不无沙箱：`src/tools/computer/bubblewrap.ts`）。当前代码树没有 MCP 支持；如果以后加入，它应该作为另一个本地 tool 源，放在这个 worker 边界里。
+
+Tool 运行边界由各 tool 自己负责，不存在一个 worker 全局 wall-clock timeout。`command` tool 的 foreground 默认是 `180s`；background run 立即返回 `backgroundId`，默认不设置 command timeout，除非调用方显式传 `timeout`。运行中的后台命令会一直被跟踪，直到进程退出、被 `kill`，或 worker 自身结束。`codex_delegate` 使用 Codex app-server 的请求类别预算：`initialize` 为 `15s`，`thread/start` 为 `30s`，普通 app-server request 为 `60s`。这个取舍写在 `docs/TradeoffsAndKnownLimits.md`。
 
 按契约，worker 是无状态的：它持有 WebSocket、tool 本地状态和当前 turn；所有持久内容都是通过 RPC 或 AIGateway API 落到 PostgreSQL 的行。杀掉一个 worker，turn 会在别处重试。
 
@@ -339,7 +341,6 @@ E2E harness（`tools/e2e/`）跑一个 fake 飞书平台，它用真实 WS 协�
 
 - 流式 IM 送达是 at-least-once；恢复之前出现 stale 的预览卡片是接受的；error terminal 不发 IM 消息。
 - 续接从消息图派生（最新的 visible leaf）。没有存储游标，没有 generation 租约，也没有半流恢复；坏掉一条流的代价是一轮。
-- Token budget 故意用 chars/4；没有 tokenizer 依赖。
 - AIGateway 安全就两条规则：30 天 agent token 证明身份，每个查询都按 `agent_uid` 过滤。Worker 是可信的第一方节点；bubblewrap 才是不可信进程的边界，不是 worker。
 - 一个 WebSocket 同一时间只有一个在途 response；排序由 ActorRuntime 保证，不靠 AIGateway 锁。
 - ZeroMQ 永远不是持久队列；UNLOGGED 运行时表是可重建的投影，不是事实来源。
@@ -353,8 +354,7 @@ E2E harness（`tools/e2e/`）跑一个 fake 飞书平台，它用真实 WS 协�
 3. `design-docs/SignalsGateway.md`：如果你改 IM/provider 侧，包括入口、batch、命令、流式送达、恢复。
 4. `design-docs/memory/Basic.md`：如果你改 channel 记忆、历史召回、BM25/vector 检索或 memory tools；详细 v1 设计见 `internals/docs/Memory.zh.md`。
 5. `design-docs/RuntimeFabric.md` 和 `design-docs/Schedule.md`：当你改传输或时间。
-6. `design-docs/Principal.md`、`design-docs/AuthZ.md`、`design-docs/AppConfiguration.md`、`design-docs/Plugins.md`、`design-docs/I18n.md`：按需查阅。
-7. `TradeoffsAndKnownLimits.md`：尽早读一遍。它记录了一些看起来像 gap 但已经定下来的决策：at-least-once 流式送达、两规则安全模型、派生续接、chars/4 预算、当前的非目标。
+6. `design-docs/Principal.md`、`design-docs/AuthZ.md`、`design-docs/AppConfiguration.md`、`design-docs/Plugins.md`、`design-docs/I18n.md`、`design-docs/Logger.md`：按需查阅。
 
 ## Design Doc Index
 
@@ -370,4 +370,5 @@ E2E harness（`tools/e2e/`）跑一个 fake 飞书平台，它用真实 WS 协�
 | `design-docs/AppConfiguration.md` | 配置 key、scope、加密 |
 | `design-docs/Plugins.md`、`design-docs/plugins/FeishuAdapter.md` | Plugin contract、Lark adapter |
 | `design-docs/I18n.md` | 本地化目录 |
+| `design-docs/Logger.md` | 结构化 JSON 日志、severity、labels、请求和 operation 字段 |
 | `docs/TradeoffsAndKnownLimits.md` | 任何看起来像 bug 的行为 |

@@ -28,14 +28,13 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
 
   use GenServer
 
-  require Logger
-
   alias Ankole.ActorRuntime.FileTransferLane
   alias Ankole.ActorRuntime.RPCLane
   alias Ankole.ActorRuntime.WorkerAdmission
   alias Ankole.ActorRuntime.WorkerAuthKey
   alias Ankole.ActorRuntime.WorkerRouteAuth
   alias Ankole.Kernel.RuntimeFabric
+  alias Ankole.Logging
 
   @type handler :: (map() -> term()) | pid()
   @default_rpc_timeout_ms 60_000
@@ -255,7 +254,14 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
         {:noreply, state}
 
       {:error, reason} ->
-        Logger.error("failed to start runtime fabric router: #{inspect(reason)}")
+        Logging.error(
+          "runtime_fabric.router_start_failed",
+          "runtime fabric router start failed",
+          %{
+            reason: inspect(reason)
+          }
+        )
+
         {:noreply, state}
     end
   end
@@ -302,15 +308,23 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
   end
 
   def handle_info({:runtime_fabric_router_decode_failed, route, reason}, state) do
-    Logger.warning(
-      "runtime fabric decode failed route=#{inspect(route)} reason=#{inspect(reason)}"
+    Logging.warning(
+      "runtime_fabric.router_decode_failed",
+      "runtime fabric router decode failed",
+      %{
+        route: route,
+        reason: inspect(reason)
+      }
     )
 
     {:noreply, state}
   end
 
   def handle_info({:runtime_fabric_router_socket_error, reason}, state) do
-    Logger.warning("runtime fabric router socket error: #{inspect(reason)}")
+    Logging.warning("runtime_fabric.router_socket_error", "runtime fabric router socket error", %{
+      reason: inspect(reason)
+    })
+
     {:noreply, state}
   end
 
@@ -425,8 +439,13 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
   end
 
   defp send_rpc_response({:error, reason}, _router, route) do
-    Logger.warning(
-      "runtime fabric rpc_request handling failed route=#{inspect(route)} reason=#{inspect(reason)}"
+    Logging.warning(
+      "runtime_fabric.rpc_handling_failed",
+      "runtime fabric rpc request handling failed",
+      %{
+        route: route,
+        reason: inspect(reason)
+      }
     )
   end
 
@@ -452,15 +471,28 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
       update_in(state.rpc_waiters, &Map.delete(&1, request_id))
     else
       %{route: other_route} ->
-        Logger.warning(
-          "runtime fabric rpc reply route mismatch request_id=#{inspect(request_id)} expected=#{inspect(other_route)} got=#{inspect(route)}"
+        Logging.warning(
+          "runtime_fabric.rpc_reply_route_mismatch",
+          "runtime fabric rpc reply route mismatch",
+          %{
+            request_id: request_id,
+            expected_route: other_route,
+            route: route,
+            operation: rpc_operation(request_id)
+          }
         )
 
         state
 
       _value ->
-        Logger.debug(
-          "ignored runtime fabric rpc reply without waiter route=#{inspect(route)} request_id=#{inspect(request_id)}"
+        Logging.debug(
+          "runtime_fabric.rpc_reply_without_waiter",
+          "runtime fabric rpc reply without waiter",
+          %{
+            request_id: request_id,
+            route: route,
+            operation: rpc_operation(request_id)
+          }
         )
 
         state
@@ -616,12 +648,24 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
          {:ok, route, %{"body" => %{"type" => type}}},
          _authenticated_route
        ) do
-    Logger.debug("ignored actor lane envelope type=#{type} route=#{inspect(route)}")
+    Logging.debug(
+      "runtime_fabric.actor_lane_envelope_ignored",
+      "runtime fabric actor lane envelope ignored",
+      %{
+        type: type,
+        route: route
+      }
+    )
   end
 
   defp dispatch_router_envelope({:error, route, reason}, _authenticated_route) do
-    Logger.warning(
-      "failed to decode actor lane envelope route=#{inspect(route)} reason=#{inspect(reason)}"
+    Logging.warning(
+      "runtime_fabric.actor_lane_decode_failed",
+      "runtime fabric actor lane decode failed",
+      %{
+        route: route,
+        reason: inspect(reason)
+      }
     )
   end
 
@@ -674,8 +718,20 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
   defp log_router_result({:ok, _result}, _type, _route), do: :ok
 
   defp log_router_result({:error, reason}, type, route) do
-    Logger.warning(
-      "actor lane #{type} handling failed route=#{inspect(route)} reason=#{inspect(reason)}"
+    Logging.warning(
+      "runtime_fabric.actor_lane_handling_failed",
+      "runtime fabric actor lane handling failed",
+      %{
+        type: type,
+        route: route,
+        reason: inspect(reason)
+      }
     )
   end
+
+  defp rpc_operation(request_id) when is_binary(request_id) do
+    %{id: request_id, producer: "ankole-control-plane/runtime-fabric-rpc"}
+  end
+
+  defp rpc_operation(_request_id), do: nil
 end

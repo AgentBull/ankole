@@ -27,7 +27,7 @@ cleanup() {
 trap cleanup EXIT
 
 for _ in $(seq 1 30); do
-  if python "$SCRIPT" servers --compact | grep -q "\"port\":$PORT"; then
+  if curl -sf "http://127.0.0.1:$PORT/api/sessions" >/dev/null; then
     break
   fi
   sleep 1
@@ -53,9 +53,9 @@ curl -sf -X POST "http://127.0.0.1:$PORT/api/sessions" \
   -d "{\"path\":\"$NOTEBOOK_PATH\",\"type\":\"notebook\",\"name\":\"$NOTEBOOK_PATH\",\"kernel\":{\"name\":\"python3\"}}" \
   > /workspace/temp/jupyter-smoke-session.json
 
-python "$SCRIPT" execute --port "$PORT" --path "$NOTEBOOK_PATH" --code $'x = 41\nprint(x)' --compact \
+python "$SCRIPT" execute --server-url "http://127.0.0.1:$PORT/" --path "$NOTEBOOK_PATH" --code $'x = 41\nprint(x)' --compact \
   > /workspace/temp/jupyter-smoke-step1.json
-python "$SCRIPT" execute --port "$PORT" --path "$NOTEBOOK_PATH" --code 'x + 1' --compact \
+python "$SCRIPT" execute --server-url "http://127.0.0.1:$PORT/" --path "$NOTEBOOK_PATH" --code 'x + 1' --compact \
   > /workspace/temp/jupyter-smoke-step2.json
 
 python - <<'PY'

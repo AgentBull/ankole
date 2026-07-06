@@ -34,6 +34,9 @@ defmodule Ankole.AIGateway.StatefulResponses do
   alias Ankole.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.Principals
   alias Ankole.Repo
+  alias Ankole.RuntimeEvents
+  alias Ankole.SignalsGateway.AIReplyPreview
+  alias Ankole.SignalsGateway.AIReplyText
   alias Ankole.SignalsGateway.Outbox
   alias Ankole.SignalsGateway.ReplyAttachment
 
@@ -214,7 +217,8 @@ defmodule Ankole.AIGateway.StatefulResponses do
                     actor_event_id,
                     DateTime.utc_now(:microsecond)
                   ),
-                {:ok, message} <- repo.insert(changeset) do
+                {:ok, message} <- repo.insert(changeset),
+                :ok <- notify_ai_message_deadline(repo, message) do
              {:ok, message}
            end
          end) do
@@ -419,19 +423,6 @@ defmodule Ankole.AIGateway.StatefulResponses do
   end
 
   @doc """
-  Loads stale generating response rows for actor-runtime reconciliation.
-  """
-  @spec stale_generating_messages(module(), DateTime.t()) :: [Message.t()]
-  def stale_generating_messages(repo, now) do
-    cutoff = orphaned_generating_cutoff(now)
-
-    generating_messages_query()
-    |> where([message], message.updated_at <= ^cutoff)
-    |> lock("FOR UPDATE")
-    |> repo.all()
-  end
-
-  @doc """
   Returns whether a generating row has exceeded the orphan grace window.
   """
   @spec generating_message_stale?(Message.t(), DateTime.t()) :: boolean()
@@ -447,6 +438,43 @@ defmodule Ankole.AIGateway.StatefulResponses do
     Message
     |> where([message], message.type == "message")
     |> where([message], message.status == "generating")
+  end
+
+  defp lock_generating_message_by_id(repo, message_id) do
+    generating_messages_query()
+    |> where([message], message.id == ^message_id)
+    |> lock("FOR UPDATE")
+    |> repo.one()
+  end
+
+  @doc false
+  @spec record_preview_source_entry(binary(), binary()) :: :ok | {:error, term()}
+  def record_preview_source_entry(actor_event_id, source_entry_id)
+      when is_binary(actor_event_id) and is_binary(source_entry_id) do
+    now = DateTime.utc_now(:microsecond)
+
+    case Repo.transact(fn repo ->
+           case generating_message_for_actor_event(repo, actor_event_id) do
+             %Message{} = message ->
+               metadata =
+                 (message.metadata || %{})
+                 |> Map.put("preview_source_entry_id", source_entry_id)
+
+               with {:ok, message} <-
+                      message
+                      |> Message.changeset(%{metadata: metadata, updated_at: now})
+                      |> repo.update(),
+                    :ok <- notify_ai_message_deadline(repo, message) do
+                 {:ok, :ok}
+               end
+
+             nil ->
+               {:ok, :ok}
+           end
+         end) do
+      {:ok, :ok} -> :ok
+      {:error, _reason} = error -> error
+    end
   end
 
   defp maybe_scope_generating_query_to_agent(query, nil), do: query
@@ -518,11 +546,13 @@ defmodule Ankole.AIGateway.StatefulResponses do
 
   defp commit_complete_loaded(%Message{} = message, content_items, extra_metadata) do
     final_content = durable_terminal_content(message, content_items)
-    merged_metadata = Map.merge(message.metadata || %{}, extra_metadata)
     now = DateTime.utc_now(:microsecond)
 
     case Repo.transact(fn repo ->
-           with :ok <- ensure_message_actor_event_source_live_in_tx(repo, message, now) do
+           with %Message{} = current_message <- lock_generating_message_by_id(repo, message.id),
+                :ok <- ensure_message_actor_event_source_live_in_tx(repo, current_message, now) do
+             merged_metadata = Map.merge(current_message.metadata || %{}, extra_metadata)
+
              case repo.update_all(
                     from(m in Message,
                       where: m.id == ^message.id and m.status == "generating",
@@ -541,6 +571,8 @@ defmodule Ankole.AIGateway.StatefulResponses do
                {count, [updated]} when count > 0 ->
                  with {:ok, _attachment_outboxes} <-
                         commit_reply_attachment_outboxes_in_tx(repo, updated, final_content),
+                      {:ok, _final_reply_outbox} <-
+                        commit_final_reply_outbox_in_tx(repo, updated, final_content),
                       {:ok, _actor_event_result} <-
                         maybe_complete_actor_event_in_tx(repo, updated, final_content, now) do
                    {:ok, updated}
@@ -549,6 +581,9 @@ defmodule Ankole.AIGateway.StatefulResponses do
                {0, []} ->
                  {:ok, :already_terminal}
              end
+           else
+             nil -> {:ok, :already_terminal}
+             {:error, _reason} = error -> error
            end
          end) do
       {:ok, %Message{} = updated} ->
@@ -596,38 +631,44 @@ defmodule Ankole.AIGateway.StatefulResponses do
     complete_actor_event? = Keyword.get(opts, :complete_actor_event?, true)
     extra_metadata = Keyword.get(opts, :metadata, %{})
 
-    merged_metadata =
-      (message.metadata || %{})
-      |> Map.merge(extra_metadata)
-      |> Map.merge(%{"error" => error_details})
-
     case Repo.transact(fn repo ->
-           case repo.update_all(
-                  from(m in Message,
-                    where: m.id == ^message.id and m.status == "generating",
-                    select: m
-                  ),
-                  [
-                    set: [
-                      status: "error",
-                      content: final_content,
-                      metadata: merged_metadata,
-                      updated_at: now
-                    ]
-                  ],
-                  returning: true
-                ) do
-             {count, [updated]} when count > 0 ->
-               if complete_actor_event? do
-                 with {:ok, _actor_event_result} <-
-                        complete_actor_event_in_tx(repo, updated, now) do
-                   {:ok, updated}
-                 end
-               else
-                 {:ok, updated}
+           case lock_generating_message_by_id(repo, message.id) do
+             %Message{} = current_message ->
+               merged_metadata =
+                 (current_message.metadata || %{})
+                 |> Map.merge(extra_metadata)
+                 |> Map.merge(%{"error" => error_details})
+
+               case repo.update_all(
+                      from(m in Message,
+                        where: m.id == ^message.id and m.status == "generating",
+                        select: m
+                      ),
+                      [
+                        set: [
+                          status: "error",
+                          content: final_content,
+                          metadata: merged_metadata,
+                          updated_at: now
+                        ]
+                      ],
+                      returning: true
+                    ) do
+                 {count, [updated]} when count > 0 ->
+                   if complete_actor_event? do
+                     with {:ok, _actor_event_result} <-
+                            complete_actor_event_in_tx(repo, updated, now) do
+                       {:ok, updated}
+                     end
+                   else
+                     {:ok, updated}
+                   end
+
+                 {0, []} ->
+                   {:ok, :already_terminal}
                end
 
-             {0, []} ->
+             nil ->
                {:ok, :already_terminal}
            end
          end) do
@@ -715,8 +756,10 @@ defmodule Ankole.AIGateway.StatefulResponses do
     with {:ok, conversation_id} <- cast_uuid(conversation_id),
          {:ok, anchor_id} <- history_anchor(conversation_id, opts) do
       if anchor_id do
+        protected_tail_items = Keyword.get(opts, :protected_tail_items, [])
+
         # Walk the chain backward from the anchor, collecting complete rows.
-        walk_message_chain(conversation_id, anchor_id)
+        walk_message_chain(conversation_id, anchor_id, protected_tail_items)
       else
         []
       end
@@ -932,7 +975,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
 
   defp actor_event_tail_noop_reason(repo, conversation_id, leaf_id, actor_event_id) do
     repo
-    |> walk_message_chain(conversation_id, leaf_id)
+    |> walk_message_chain(conversation_id, leaf_id, [])
     |> Enum.any?(&(&1.metadata["actor_event_id"] == actor_event_id))
     |> case do
       true -> :not_visible_tail
@@ -1187,6 +1230,15 @@ defmodule Ankole.AIGateway.StatefulResponses do
   defp durable_terminal_content(_message, terminal_items) when is_list(terminal_items),
     do: terminal_items
 
+  defp notify_ai_message_deadline(repo, %Message{} = message) do
+    RuntimeEvents.notify_ai_message_deadline(repo, message, ai_message_orphan_at(message))
+  end
+
+  defp ai_message_orphan_at(%Message{} = message) do
+    base_at = message.updated_at || message.inserted_at || DateTime.utc_now(:microsecond)
+    DateTime.add(base_at, orphaned_generating_grace_seconds(), :second)
+  end
+
   defp commit_reply_attachment_outboxes_in_tx(repo, %Message{} = message, final_content) do
     source_items =
       repo
@@ -1215,6 +1267,29 @@ defmodule Ankole.AIGateway.StatefulResponses do
             {:error, _reason} = error -> error
           end
       end
+    end
+  end
+
+  defp commit_final_reply_outbox_in_tx(repo, %Message{} = message, final_content) do
+    text = AIReplyText.visible_text(final_content)
+
+    cond do
+      contains_function_call?(final_content) ->
+        {:ok, nil}
+
+      not is_binary(text) or text == "" ->
+        {:ok, nil}
+
+      true ->
+        with actor_event_id when is_binary(actor_event_id) <- message.metadata["actor_event_id"],
+             %ActorEvent{} = event <- lock_actor_event(repo, message.agent_uid, actor_event_id),
+             true <- AIReplyPreview.im_visible_event?(event) do
+          Outbox.commit_final_reply_outbox_in_tx(repo, event, message, text)
+        else
+          nil -> {:ok, nil}
+          false -> {:ok, nil}
+          {:error, _reason} = error -> error
+        end
     end
   end
 
@@ -1314,9 +1389,12 @@ defmodule Ankole.AIGateway.StatefulResponses do
   end
 
   defp maybe_complete_actor_event_in_tx(repo, %Message{} = message, final_content, now) do
-    case contains_function_call?(final_content) do
-      true -> {:ok, :kept_live_for_function_call}
-      false -> complete_actor_event_in_tx(repo, message, now)
+    cond do
+      contains_function_call?(final_content) ->
+        {:ok, :kept_live_for_function_call}
+
+      true ->
+        complete_actor_event_in_tx(repo, message, now)
     end
   end
 
@@ -1463,15 +1541,15 @@ defmodule Ankole.AIGateway.StatefulResponses do
   # rows. A compaction row represents a compressed prefix inside its own
   # ancestor chain; it is projected before the uncovered tail between
   # `covers_until_message_id` and the compaction row's direct anchor.
-  defp walk_message_chain(conversation_id, anchor_id) do
-    walk_message_chain(Repo, conversation_id, anchor_id)
+  defp walk_message_chain(conversation_id, anchor_id, protected_tail_items) do
+    walk_message_chain(Repo, conversation_id, anchor_id, protected_tail_items)
   end
 
-  defp walk_message_chain(repo, conversation_id, anchor_id) do
+  defp walk_message_chain(repo, conversation_id, anchor_id, protected_tail_items) do
     messages = chain_messages(repo, conversation_id, anchor_id)
     messages_by_id = Map.new(messages, &{&1.id, &1})
 
-    walk_chain(messages_by_id, anchor_id, [], MapSet.new())
+    walk_chain(messages_by_id, anchor_id, [], MapSet.new(), protected_tail_items)
   end
 
   defp chain_messages(repo, conversation_id, anchor_id, max_depth \\ @history_chain_max_depth) do
@@ -1528,9 +1606,9 @@ defmodule Ankole.AIGateway.StatefulResponses do
     Enum.map(result.rows, fn [id] -> id end)
   end
 
-  defp walk_chain(_messages_by_id, nil, acc, _seen), do: acc
+  defp walk_chain(_messages_by_id, nil, acc, _seen, _protected_tail_items), do: acc
 
-  defp walk_chain(messages_by_id, message_id, acc, seen) do
+  defp walk_chain(messages_by_id, message_id, acc, seen, protected_tail_items) do
     cond do
       MapSet.member?(seen, message_id) ->
         acc
@@ -1549,7 +1627,8 @@ defmodule Ankole.AIGateway.StatefulResponses do
                   messages_by_id,
                   message.previous_message_id,
                   new_acc,
-                  seen
+                  seen,
+                  protected_tail_items
                 )
 
               covers_until_message_id ->
@@ -1560,6 +1639,11 @@ defmodule Ankole.AIGateway.StatefulResponses do
                     covers_until_message_id,
                     [],
                     seen
+                  )
+                  |> repair_compaction_tail_tool_boundary(
+                    messages_by_id,
+                    covers_until_message_id,
+                    protected_tail_items
                   )
 
                 [message | tail ++ acc]
@@ -1623,6 +1707,128 @@ defmodule Ankole.AIGateway.StatefulResponses do
             acc
         end
     end
+  end
+
+  defp repair_compaction_tail_tool_boundary(
+         tail,
+         messages_by_id,
+         covers_until_message_id,
+         protected_tail_items
+       ) do
+    missing_call_ids = orphaned_tool_output_call_ids(tail, protected_tail_items)
+
+    if MapSet.size(missing_call_ids) == 0 do
+      tail
+    else
+      messages_by_id
+      |> covered_suffix_through_tool_calls(covers_until_message_id, missing_call_ids)
+      |> dedupe_messages(tail)
+    end
+  end
+
+  defp orphaned_tool_output_call_ids(messages, protected_tail_items) do
+    items = messages_to_items(messages)
+    protected_items = input_items(protected_tail_items)
+
+    call_ids =
+      (items ++ protected_items)
+      |> item_call_ids("function_call")
+
+    output_call_ids =
+      (items ++ protected_items)
+      |> item_call_ids("function_call_output")
+
+    MapSet.difference(output_call_ids, call_ids)
+  end
+
+  defp covered_suffix_through_tool_calls(messages_by_id, message_id, missing_call_ids) do
+    case collect_covered_suffix(messages_by_id, message_id, missing_call_ids, [], MapSet.new()) do
+      {:ok, suffix} -> suffix
+      :not_found -> []
+    end
+  end
+
+  defp collect_covered_suffix(_messages_by_id, nil, _missing_call_ids, _acc, _seen),
+    do: :not_found
+
+  defp collect_covered_suffix(messages_by_id, message_id, missing_call_ids, acc, seen) do
+    cond do
+      MapSet.member?(seen, message_id) ->
+        :not_found
+
+      true ->
+        case Map.fetch(messages_by_id, message_id) do
+          {:ok, %Message{} = message} ->
+            acc =
+              if project_message?(message),
+                do: [message | acc],
+                else: acc
+
+            missing_call_ids =
+              MapSet.difference(missing_call_ids, message_tool_call_ids(message))
+
+            if MapSet.size(missing_call_ids) == 0 do
+              {:ok, acc}
+            else
+              collect_covered_suffix(
+                messages_by_id,
+                message.previous_message_id,
+                missing_call_ids,
+                acc,
+                MapSet.put(seen, message_id)
+              )
+            end
+
+          :error ->
+            :not_found
+        end
+    end
+  end
+
+  defp dedupe_messages(prefix, tail) do
+    {_seen, messages} =
+      Enum.reduce(prefix ++ tail, {MapSet.new(), []}, fn
+        %Message{id: id} = message, {seen, acc} ->
+          if MapSet.member?(seen, id) do
+            {seen, acc}
+          else
+            {MapSet.put(seen, id), [message | acc]}
+          end
+
+        _message, result ->
+          result
+      end)
+
+    Enum.reverse(messages)
+  end
+
+  defp message_tool_call_ids(%Message{} = message) do
+    message
+    |> message_items()
+    |> item_call_ids("function_call")
+  end
+
+  defp messages_to_items(messages) when is_list(messages) do
+    Enum.flat_map(messages, &message_items/1)
+  end
+
+  defp messages_to_items(_messages), do: []
+
+  defp message_items(%Message{content: content}) when is_list(content), do: content
+  defp message_items(_message), do: []
+
+  defp input_items(items) when is_list(items), do: Enum.filter(items, &is_map/1)
+  defp input_items(_items), do: []
+
+  defp item_call_ids(items, item_type) do
+    items
+    |> Enum.reduce(MapSet.new(), fn
+      %{"type" => ^item_type, "call_id" => call_id}, acc when is_binary(call_id) ->
+        MapSet.put(acc, call_id)
+
+      _item, acc ->
+        acc
+    end)
   end
 
   defp covered_prefix_anchor(true, %Message{

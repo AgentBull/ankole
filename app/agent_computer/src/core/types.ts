@@ -54,6 +54,9 @@ export interface AgentLoopConfig {
   /** Available tools. */
   tools?: AgentTool[]
 
+  /** Max main-loop model/API iterations before a final no-tools summary call. */
+  maxModelIterations?: number
+
   /** Max model→tool rounds before the worker aborts a runaway tool loop. */
   maxToolRounds?: number
 
@@ -71,6 +74,12 @@ export interface AgentLoopConfig {
 
   /** Called for each text delta during streaming. */
   onTextDelta?: (delta: string) => void
+
+  /** Called whenever the loop observes model/provider progress for inactivity tracking. */
+  onActivity?: (description?: string) => void
+
+  /** Runs work that should not count against model/provider inactivity tracking. */
+  withActivitySuspended?: <T>(description: string, fn: () => Promise<T>) => Promise<T>
 }
 
 /**

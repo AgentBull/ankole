@@ -70,7 +70,6 @@ openpyxl>=3.1.0
 # 如果只处理上述四种原生格式，无需安装。
 #   macOS:   brew install pandoc
 #   Ubuntu:  sudo apt install pandoc
-#   Windows: https://pandoc.org/installing.html
 
 # ─────────────────────────────────────────────────────────────
 # Image processing tools / 图片处理工具

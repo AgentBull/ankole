@@ -72,6 +72,17 @@ defmodule Ankole.E2E.FakeFeishu.State do
   def user_sends_message(state, attrs) when is_list(attrs),
     do: GenServer.call(state, {:user_sends_message, attrs})
 
+  @doc """
+  Pushes an already recorded bot-authored platform message as a receive event.
+
+  This models the Feishu platform boundary for loop-prevention scenarios: the
+  message must first have been created through the bot send/reply endpoint, then
+  the fake server can deliver the platform event to other connected apps.
+  """
+  def broadcast_bot_message(state, message_id, attrs)
+      when is_binary(message_id) and is_list(attrs),
+      do: GenServer.call(state, {:broadcast_bot_message, message_id, attrs})
+
   @doc "Marks a message recalled and pushes the recalled event frame."
   def user_recalls_message(state, attrs) when is_list(attrs),
     do: GenServer.call(state, {:user_recalls_message, attrs})
@@ -187,6 +198,24 @@ defmodule Ankole.E2E.FakeFeishu.State do
       targets ->
         message_id = Keyword.fetch!(attrs, :message_id)
         state = record_user_message(state, message_id, attrs)
+        push_event(state, targets, attrs, &message_envelope/2)
+        {:reply, :ok, state}
+    end
+  end
+
+  def handle_call({:broadcast_bot_message, message_id, attrs}, _from, state) do
+    case {live_message(state, message_id), target_conns(state, attrs)} do
+      {nil, _targets} ->
+        {:reply, {:error, :message_not_found}, state}
+
+      {%{sender: sender}, _targets} when sender != :bot ->
+        {:reply, {:error, :not_bot_message}, state}
+
+      {_message, []} ->
+        {:reply, {:error, :no_ws_connections}, state}
+
+      {message, targets} ->
+        attrs = bot_message_event_attrs(message, attrs)
         push_event(state, targets, attrs, &message_envelope/2)
         {:reply, :ok, state}
     end
@@ -540,6 +569,27 @@ defmodule Ankole.E2E.FakeFeishu.State do
   end
 
   defp decoded_text(_params), do: nil
+
+  defp bot_message_event_attrs(message, attrs) do
+    [
+      event_id: Keyword.fetch!(attrs, :event_id),
+      message_id: message.id,
+      sender_type: "bot",
+      sender_name: Keyword.get(attrs, :sender_name, "Lark Chaos Bot"),
+      sender_user_id: Keyword.get(attrs, :sender_user_id, "ou_bot"),
+      sender_open_id:
+        Keyword.get(attrs, :sender_open_id, Keyword.get(attrs, :sender_user_id, "ou_bot")),
+      chat_id: message.chat_id,
+      chat_type: Keyword.get(attrs, :chat_type, message.chat_type || "group"),
+      message_type: message.msg_type || "text",
+      content: message.content,
+      text: message.text,
+      mentions: Keyword.get(attrs, :mentions, []),
+      to_app: Keyword.get(attrs, :to_app, :all),
+      create_time_ms:
+        Keyword.get_lazy(attrs, :create_time_ms, fn -> System.system_time(:millisecond) end)
+    ]
+  end
 
   defp put_message(state, message) do
     %{

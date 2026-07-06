@@ -32,6 +32,7 @@ class FakeFinishedCommand implements CommandFinished {
 
 class FakeComputer implements ContainerComputer {
   backgroundStatusSnapshot: BackgroundCommandSnapshot | null = null
+  backgroundStartInputs: Array<Parameters<ContainerComputer['backgroundCommands']['start']>[0]> = []
   files = new Map<string, Buffer>()
   runImpl: ContainerComputer['runCommand'] = async () => new FakeFinishedCommand(0)
   terminalCaptureScreen = ''
@@ -42,8 +43,11 @@ class FakeComputer implements ContainerComputer {
   }
 
   backgroundCommands = {
-    start: async (): Promise<BackgroundCommandSnapshot> => {
-      throw new Error('not implemented')
+    start: async (
+      input: Parameters<ContainerComputer['backgroundCommands']['start']>[0]
+    ): Promise<BackgroundCommandSnapshot> => {
+      this.backgroundStartInputs.push(input)
+      return backgroundSnapshot('bg-1', async () => '')
     },
     status: async (): Promise<BackgroundCommandSnapshot | null> => this.backgroundStatusSnapshot,
     kill: async (): Promise<BackgroundCommandSnapshot | null> => null,
@@ -203,22 +207,22 @@ describe('computer tools', () => {
     expect(text).toContain('partial output')
   })
 
-  it('refuses obvious system-root traversal commands before execution', async () => {
+  it('passes system-root traversal commands through to the sandboxed command runner', async () => {
     const computer = new FakeComputer()
     let runCalled = false
     computer.runImpl = async () => {
       runCalled = true
-      return new FakeFinishedCommand(0)
+      return new FakeFinishedCommand(0, 'sandbox result')
     }
     const tool = createCommandTool(contextFor(computer))
 
     const result = await tool.execute('call-1', { action: 'run', command: 'find / -maxdepth 2 -type f' })
     const text = textOf(result)
 
-    expect(runCalled).toBe(false)
-    expect(result.details.exitCode).toBe(2)
-    expect(text).toContain('Refused command: find over the system root "/" is not allowed.')
-    expect(text).toContain('Narrow the command to /workspace')
+    expect(runCalled).toBe(true)
+    expect(result.details.exitCode).toBe(0)
+    expect(text).toContain('sandbox result')
+    expect(text).not.toContain('Refused command')
   })
 
   it('polls background status with incremental output', async () => {
@@ -235,6 +239,17 @@ describe('computer tools', () => {
     expect(text).toContain('new_output_chars=12')
     expect(text).toContain('second batch')
     expect(text).not.toContain('full output')
+  })
+
+  it('keeps background command runs unbounded by default like Hermes', async () => {
+    const computer = new FakeComputer()
+    const tool = createCommandTool(contextFor(computer))
+
+    await tool.execute('call-1', { action: 'run', command: 'sleep 999', background: true })
+    expect(computer.backgroundStartInputs[0]?.timeoutMs).toBeUndefined()
+
+    await tool.execute('call-2', { action: 'run', command: 'sleep 10', background: true, timeout: 7 })
+    expect(computer.backgroundStartInputs[1]?.timeoutMs).toBe(7000)
   })
 
   it('reports when a background status poll has no new output', async () => {

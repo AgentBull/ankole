@@ -34,7 +34,7 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
               "content" => ~s({"text":"@_some_bot /retry"}),
               "mentions" => [
                 %{
-                  "key" => "_some_bot",
+                  "key" => "@_some_bot",
                   "name" => "Some Bot",
                   "id" => %{"open_id" => "ou_some_bot"}
                 }
@@ -73,7 +73,7 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
               "content" => ~s({"text":"@_other_bot /retry"}),
               "mentions" => [
                 %{
-                  "key" => "_other_bot",
+                  "key" => "@_other_bot",
                   "name" => "Other Bot",
                   "id" => %{"open_id" => "ou_other_bot"}
                 }
@@ -112,7 +112,7 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
               "content" => ~s({"text":"@_this_bot /retry"}),
               "mentions" => [
                 %{
-                  "key" => "_this_bot",
+                  "key" => "@_this_bot",
                   "name" => "This Bot",
                   "id" => %{"open_id" => "ou_this_bot"}
                 }
@@ -126,10 +126,153 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
       assert input.type == "command.retry"
       assert input.source_entry_id == "om_this_bot_mention"
 
-      assert {:ok, %{mentions: [%{"agent_uid" => agent_uid}], explicit: true}} =
+      assert {:ok, %{mentions: [%{"agent_uid" => agent_uid}], explicit: true, text: "/retry"}} =
                Inbound.normalize_message_receive(event, consumer)
 
       assert agent_uid == agent.uid
+    end
+
+    test "message receive accepts runtime bot identity resolved from configured bot user id" do
+      config =
+        %{"botUserId" => "cli_this_bot"}
+        |> chat_config()
+        |> Map.put("runtimeBotOpenId", "ou_this_bot")
+
+      consumer = Inbound.chat_consumer(adapter_context("agentbull"), config)
+
+      event =
+        receive_event()
+        |> update_message(fn message ->
+          %{
+            message
+            | "message_id" => "om_runtime_bot_identity",
+              "content" => ~s({"text":"@_this_bot /retry"}),
+              "mentions" => [
+                %{
+                  "key" => "@_this_bot",
+                  "name" => "This Bot",
+                  "id" => %{"open_id" => "ou_this_bot"}
+                }
+              ]
+          }
+        end)
+
+      assert {:ok, %{mentions: [%{"agent_uid" => agent_uid}], explicit: true, text: "/retry"}} =
+               Inbound.normalize_message_receive(event, consumer)
+
+      assert agent_uid == "agentbull"
+      assert config["botOpenId"] == nil
+    end
+
+    test "message receive strips the current bot mention from visible addressed text" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark", :ignore)
+
+      consumer =
+        Inbound.chat_consumer(
+          adapter_context(agent.uid),
+          chat_config(%{"botOpenId" => "ou_this_bot"})
+        )
+
+      event =
+        receive_event()
+        |> update_message(fn message ->
+          %{
+            message
+            | "message_id" => "om_this_bot_visible_text",
+              "content" => ~s({"text":"@_user_1 请回复 M1_A_OK。"}),
+              "mentions" => [
+                %{
+                  "key" => "@_user_1",
+                  "name" => "Agent A",
+                  "id" => %{"open_id" => "ou_this_bot"}
+                }
+              ]
+          }
+        end)
+
+      assert {:ok, %{mentions: [%{"agent_uid" => agent_uid}], explicit: true, text: text}} =
+               Inbound.normalize_message_receive(event, consumer)
+
+      assert agent_uid == agent.uid
+      assert text == "请回复 M1_A_OK。"
+      refute text =~ "_user_1"
+    end
+
+    test "direct messages are explicit with or without structured mentions" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark", :ignore)
+
+      consumer =
+        Inbound.chat_consumer(
+          adapter_context(agent.uid),
+          chat_config(%{"botOpenId" => "ou_this_bot"})
+        )
+
+      no_mention_event =
+        receive_event()
+        |> update_message(fn message ->
+          %{
+            message
+            | "message_id" => "om_dm_no_mention",
+              "chat_type" => "p2p",
+              "content" => ~s({"text":"请回复 DM_OK。"}),
+              "mentions" => []
+          }
+        end)
+
+      assert {:ok, %{explicit: true, text: "请回复 DM_OK。", mentions: []}} =
+               Inbound.normalize_message_receive(no_mention_event, consumer)
+
+      mention_event =
+        receive_event()
+        |> update_message(fn message ->
+          %{
+            message
+            | "message_id" => "om_dm_with_mention",
+              "chat_type" => "p2p",
+              "content" => ~s({"text":"@_user_1 请回复 DM_MENTION_OK。"}),
+              "mentions" => [
+                %{
+                  "key" => "@_user_1",
+                  "name" => "Agent A",
+                  "id" => %{"open_id" => "ou_this_bot"}
+                }
+              ]
+          }
+        end)
+
+      assert {:ok, %{explicit: true, text: text, mentions: [%{"agent_uid" => agent_uid}]}} =
+               Inbound.normalize_message_receive(mention_event, consumer)
+
+      assert agent_uid == agent.uid
+      assert text == "请回复 DM_MENTION_OK。"
+      refute text =~ "_user_1"
+
+      contact_mention_event =
+        receive_event()
+        |> update_message(fn message ->
+          %{
+            message
+            | "message_id" => "om_dm_contact_mention",
+              "chat_type" => "p2p",
+              "content" => ~s({"text":"帮我发邮件给 @_user_2，同步一下合同进度。"}),
+              "mentions" => [
+                %{
+                  "key" => "@_user_2",
+                  "name" => "张三",
+                  "id" => %{"open_id" => "ou_zhangsan"}
+                }
+              ]
+          }
+        end)
+
+      assert {:ok, %{explicit: true, text: text, mentions: [contact_mention]}} =
+               Inbound.normalize_message_receive(contact_mention_event, consumer)
+
+      assert contact_mention["targets_current_agent"] == false
+      assert text == "帮我发邮件给 张三，同步一下合同进度。"
+      refute text =~ "_user_2"
     end
   end
 

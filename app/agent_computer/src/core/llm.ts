@@ -7,6 +7,7 @@
  */
 
 import OpenAI from 'openai'
+import { match, P, recordValue, safeJsonParse } from '@pleisto/active-support'
 import { Buffer } from 'node:buffer'
 import { z } from 'zod'
 import type {
@@ -226,6 +227,8 @@ export interface CallModelOptions {
   beforeCall?: (payload: ResponseCreateParams) => void | Promise<void>
   /** Called for each streamed text delta when the transport streams events. */
   onTextDelta?: (delta: string) => void
+  /** Called whenever the transport observes provider activity. */
+  onActivity?: (description?: string) => void
   /** Stateful AIGateway context; stateful calls must use the WebSocket transport. */
   stateful?: StatefulResponseContext
   /** Turn-local stateful WebSocket session shared across response.create rounds. */
@@ -279,11 +282,13 @@ export interface ToolResultsRecordOptions {
   messages: Message[]
   stateful: StatefulResponseContext
   abortSignal?: AbortSignal
+  onActivity?: (description?: string) => void
   responseWebSocketSession?: ResponseWebSocketSession
 }
 
 export interface ToolResultsRecordWebSocketOptions {
   abortSignal?: AbortSignal
+  onActivity?: (description?: string) => void
 }
 
 export interface ToolResultsRecordResult {
@@ -358,7 +363,10 @@ export async function recordToolResults(
   const session = options.responseWebSocketSession ?? createResponseWebSocketSession(model)
 
   try {
-    return await session.recordToolResults(params, { abortSignal: options.abortSignal })
+    return await session.recordToolResults(params, {
+      abortSignal: options.abortSignal,
+      onActivity: options.onActivity
+    })
   } finally {
     if (!options.responseWebSocketSession) session.close()
   }
@@ -370,37 +378,39 @@ export async function recordToolResults(
  * Converts worker-local Message[] to OpenAI ResponseInputItem[].
  */
 function toResponseInput(messages: Message[]): ResponseInputItem[] {
-  const items: ResponseInputItem[] = []
-
-  for (const msg of messages) {
-    if (msg.role === 'user') {
-      const content = typeof msg.content === 'string' ? msg.content : responseInputContentParts(msg.content)
-      items.push({ role: 'user', content } as ResponseInputItem)
-    } else if (msg.role === 'assistant') {
-      const text = msg.content.map(p => p.text).join('')
-      if (text) {
-        items.push({ role: 'assistant', content: text } as ResponseInputItem)
-      }
-      if (msg.toolCalls) {
-        for (const tc of msg.toolCalls) {
-          items.push({
-            type: 'function_call',
-            call_id: tc.id,
-            name: tc.name,
-            arguments: tc.arguments
-          } as ResponseInputItem)
+  return messages.flatMap(msg =>
+    match(msg)
+      .with({ role: 'user' }, msg => {
+        const content = typeof msg.content === 'string' ? msg.content : responseInputContentParts(msg.content)
+        return [{ role: 'user', content } as ResponseInputItem]
+      })
+      .with({ role: 'assistant' }, msg => {
+        const text = msg.content.map(p => p.text).join('')
+        const items: ResponseInputItem[] = []
+        if (text) {
+          items.push({ role: 'assistant', content: text } as ResponseInputItem)
         }
-      }
-    } else if (msg.role === 'tool') {
-      items.push({
-        type: 'function_call_output',
-        call_id: msg.toolCallId,
-        output: msg.result
-      } as ResponseInputItem)
-    }
-  }
-
-  return items
+        if (msg.toolCalls) {
+          for (const tc of msg.toolCalls) {
+            items.push({
+              type: 'function_call',
+              call_id: tc.id,
+              name: tc.name,
+              arguments: tc.arguments
+            } as ResponseInputItem)
+          }
+        }
+        return items
+      })
+      .with({ role: 'tool' }, msg => [
+        {
+          type: 'function_call_output',
+          call_id: msg.toolCallId,
+          output: msg.result
+        } as ResponseInputItem
+      ])
+      .exhaustive()
+  )
 }
 
 /**
@@ -472,13 +482,16 @@ function statefulResponseParams(params: ResponseCreateParams, stateful: Stateful
     metadata
   } as ResponseCreateParams & Record<string, unknown>
 
-  if (stateful.previousResponseId) {
-    request.previous_response_id = stateful.previousResponseId
-  } else if (stateful.conversationId) {
-    request.conversation = `conv_${stateful.conversationId}`
-  } else {
-    throw new Error('stateful response.create requires a conversationId or previousResponseId')
-  }
+  match([stateful.previousResponseId, stateful.conversationId] as const)
+    .with([P.string, P._], ([previousResponseId]) => {
+      request.previous_response_id = previousResponseId
+    })
+    .with([P._, P.string], ([, conversationId]) => {
+      request.conversation = `conv_${conversationId}`
+    })
+    .otherwise(() => {
+      throw new Error('stateful response.create requires a conversationId or previousResponseId')
+    })
 
   if (stateful.truncation) {
     request.truncation = stateful.truncation
@@ -763,12 +776,12 @@ async function responseCreateOverOpenWebSocket(
 
     const onMessage = (event: MessageEvent) => {
       const frameText = webSocketFrameText(event.data)
-      let frame: Record<string, unknown>
-      try {
-        frame = JSON.parse(frameText) as Record<string, unknown>
-      } catch {
-        return
-      }
+      const frame = safeJsonParse(frameText).match(
+        value => recordValue(value),
+        () => undefined
+      )
+      if (!frame) return
+      options.onActivity?.(typeof frame.type === 'string' ? frame.type : 'response.frame')
 
       switch (frame.type) {
         case 'response.output_text.delta': {
@@ -900,12 +913,12 @@ async function recordToolResultsOverOpenWebSocket(
 
     const onMessage = (event: MessageEvent) => {
       const frameText = webSocketFrameText(event.data)
-      let frame: Record<string, unknown>
-      try {
-        frame = JSON.parse(frameText) as Record<string, unknown>
-      } catch {
-        return
-      }
+      const frame = safeJsonParse(frameText).match(
+        value => recordValue(value),
+        () => undefined
+      )
+      if (!frame) return
+      options.onActivity?.(typeof frame.type === 'string' ? frame.type : 'response.tool_results.frame')
 
       switch (frame.type) {
         case 'response.tool_results.recorded': {
@@ -1023,21 +1036,25 @@ function parseOutputItems(
   const textParts: string[] = []
 
   for (const item of output) {
-    if (item.type === 'message') {
-      const msg = item as ResponseOutputMessage
-      for (const part of msg.content ?? []) {
-        if (part.type === 'output_text') {
-          textParts.push(part.text ?? '')
+    match(item)
+      .with({ type: 'message' }, item => {
+        const msg = item as ResponseOutputMessage
+        for (const part of msg.content ?? []) {
+          if (part.type === 'output_text') {
+            // Executable tool calls come only from structured function_call output items.
+            textParts.push(part.text ?? '')
+          }
         }
-      }
-    } else if (item.type === 'function_call') {
-      const call = item as ResponseFunctionToolCall
-      const id = responseFunctionCallKey(call)
-      if (id && !seenFunctionCallIds.has(id)) {
-        functionCalls.push(call)
-        seenFunctionCallIds.add(id)
-      }
-    }
+      })
+      .with({ type: 'function_call' }, item => {
+        const call = item as ResponseFunctionToolCall
+        const id = responseFunctionCallKey(call)
+        if (id && !seenFunctionCallIds.has(id)) {
+          functionCalls.push(call)
+          seenFunctionCallIds.add(id)
+        }
+      })
+      .otherwise(() => undefined)
   }
 
   const text = textParts.join('') || textFallback
@@ -1093,8 +1110,8 @@ function usageFromResponse(usage: unknown): ModelUsage | undefined {
   return {
     inputTokens: numberValue(value.input_tokens) ?? 0,
     outputTokens: numberValue(value.output_tokens) ?? 0,
-    reasoningTokens: numberValue(outputDetails?.reasoning),
-    cachedInputTokens: numberValue(inputDetails?.cached)
+    reasoningTokens: numberValue(outputDetails?.reasoning_tokens) ?? numberValue(outputDetails?.reasoning),
+    cachedInputTokens: numberValue(inputDetails?.cached_tokens) ?? numberValue(inputDetails?.cached)
   }
 }
 
@@ -1169,13 +1186,6 @@ function webSocketFrameText(data: unknown): string {
 }
 
 /**
- * Narrows unknown values to non-array records.
- */
-function recordValue(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined
-}
-
-/**
  * Narrows unknown values to arrays.
  */
 function arrayValue(value: unknown): unknown[] | undefined {
@@ -1207,12 +1217,12 @@ export function zodToJSONSchema(schema: z.ZodType): Record<string, unknown> {
  * Validates tool call arguments against a Zod schema.
  */
 export function validateToolArguments(args: string, schema: z.ZodType): unknown {
-  let decoded: unknown
-  try {
-    decoded = JSON.parse(args)
-  } catch (error) {
-    throw new Error(`tool arguments must be valid JSON: ${errorMessage(error)}`)
-  }
+  const decoded = safeJsonParse(args).match(
+    value => value,
+    error => {
+      throw new Error(`tool arguments must be valid JSON: ${errorMessage(error)}`)
+    }
+  )
 
   return schema.parse(decoded)
 }

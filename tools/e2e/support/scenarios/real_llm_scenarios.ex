@@ -26,10 +26,10 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
   alias Ankole.SignalsGateway.Entry
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
-  @real_coding_model "openai/gpt-5.4-mini"
-  @real_vision_model "openai/gpt-4o-mini"
-  @real_tool_model "openai/gpt-4o-mini"
-  @real_text_only_model "qwen/qwen3-30b-a3b"
+  @real_coding_model "z-ai/glm-5.2"
+  @real_vision_model "google/gemini-3.1-flash-lite"
+  @real_tool_model "z-ai/glm-5.2"
+  @real_text_only_model "z-ai/glm-5.2"
   @vision_expected_answer "false"
   @vision_fixture_path Path.expand("../../fixtures/vision-dog.jpeg", __DIR__)
 
@@ -168,7 +168,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     %{input: input, reply: reply, message: message}
   end
 
-  def run_real_lark_web_fetch_local_browser_turn(%{
+  def run_real_lark_web_fetch_turn(%{
         fake_feishu: fake_feishu,
         agent: agent,
         container: container,
@@ -184,11 +184,11 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                message_id: "om_real_web_fetch_local_browser_1",
                chat_id: "oc_real_llm_browser",
                text: """
-               @_user_1 Web fetch local-browser task. Use web_fetch exactly once for https://example.com.
+               @_user_1 Web fetch task. Use web_fetch exactly once for https://example.com.
 
                Do not use browser_navigate, browser_click, browser_extract, browser_run, command, read_file, external APIs, direct fetches, or prior knowledge.
                After the web_fetch tool result is visible, reply with one line in this exact format:
-               ANKOLE_WEB_FETCH_LOCAL_BROWSER_OK title=<page title> evidence=<short fetched text proving the page content>
+               ANKOLE_WEB_FETCH_LIVE_OK title=<page title> evidence=<short fetched text proving the page content>
                """,
                mentions: [mention],
                create_time_ms:
@@ -203,7 +203,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     assert {:ok, reply, message} =
              wait_for_completed_final_reply(container, input.id, deadline(240_000))
 
-    assert reply.text =~ "ANKOLE_WEB_FETCH_LOCAL_BROWSER_OK"
+    assert reply.text =~ "ANKOLE_WEB_FETCH_LIVE_OK"
     assert reply.text =~ "Example Domain"
 
     messages = ai_messages_for_actor_event(input.id)
@@ -213,8 +213,8 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     fetch_result = fetch_call.result
     assert %{"raw" => fetch_output} = fetch_result
-    assert fetch_output =~ "Source: local_browser"
     assert fetch_output =~ "Example Domain"
+    assert fetch_output =~ "documentation examples"
 
     called_tools =
       messages
@@ -274,15 +274,22 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
              process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, reply, message} =
-             wait_for_completed_final_reply(container, input.id, deadline(360_000))
-
-    assert reply.text =~ "ANKOLE_TERMINAL_TOOLS_REAL_OK"
-    assert reply.text =~ "north=6"
-    assert reply.text =~ "south=5"
-    assert reply.text =~ "west=3"
-    assert reply.text =~ "total=14"
+             wait_for_completed_final_reply_with_trace(container, input.id, deadline(360_000))
 
     messages = ai_messages_for_actor_event(input.id)
+
+    assert_text_contains_with_trace!(
+      reply.text,
+      "ANKOLE_TERMINAL_TOOLS_REAL_OK",
+      input.id,
+      messages
+    )
+
+    assert_text_contains_with_trace!(reply.text, "north=6", input.id, messages)
+    assert_text_contains_with_trace!(reply.text, "south=5", input.id, messages)
+    assert_text_contains_with_trace!(reply.text, "west=3", input.id, messages)
+    assert_text_contains_with_trace!(reply.text, "total=14", input.id, messages)
+
     assert replace_create_patch_calls(messages) >= 2
     assert command_tool_succeeded?(messages)
 
@@ -323,10 +330,10 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                message_id: "om_real_codex_todolist_1",
                chat_id: "oc_real_llm_codex_todolist",
                text: """
-               @_user_1 Codex delegation coding task. Use the real OpenRouter model openai/gpt-5.4-mini.
+               @_user_1 Please delegate this implementation to a Codex subagent, then verify the result yourself before replying. Use the real OpenRouter model z-ai/glm-5.2.
 
-               Required path:
-               1. Use codex_delegate exactly once with action="run", workdir="/workspace/temp/ankole-codex-todolist-real", and timeout_seconds=900.
+               Task:
+               1. Use codex_delegate with action="run" and workdir="/workspace/temp/ankole-codex-todolist-real".
                2. The delegated Codex prompt must ask Codex to create a Vite + React todolist app in that workdir, including package.json, index.html, src/main.jsx, src/App.jsx, and src/styles.css.
                3. The app must use React useState, allow adding todo items, toggling completion, deleting items, and show a visible remaining count.
                4. The delegated Codex prompt must require Codex to run bun install and bun run build, and its final answer must include ANKOLE_CODEX_TODOLIST_DELEGATE_DONE.
@@ -335,7 +342,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                7. Only after read_file proves the React todolist code and the command tool reports exit_code=0, reply exactly:
                   ANKOLE_CODEX_TODOLIST_REAL_OK build=passed verified=files
 
-               Do not use browser tools, external APIs, or prior knowledge.
+               This is a local implementation and build verification task; no web research is needed.
                """,
                mentions: [mention],
                create_time_ms:
@@ -392,7 +399,6 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     assert Enum.count(called_tools, &(&1 == "codex_delegate")) == 1
     assert "read_file" in called_tools
     assert "command" in called_tools
-    refute Enum.any?(called_tools, &String.starts_with?(&1, "browser_"))
 
     delegation =
       Repo.one!(
@@ -682,6 +688,59 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
   defp image_summary_text?(_text), do: false
 
   defp vision_image_jpeg, do: File.read!(@vision_fixture_path)
+
+  defp wait_for_completed_final_reply_with_trace(container, actor_event_id, deadline) do
+    wait_for_completed_final_reply(container, actor_event_id, deadline)
+  rescue
+    error ->
+      messages = ai_messages_for_actor_event(actor_event_id)
+
+      raise """
+      #{Exception.message(error)}
+
+      actor_event_id=#{actor_event_id}
+      ai_message_trace=#{inspect(ai_message_trace(messages), limit: :infinity, printable_limit: 4000)}
+      """
+  end
+
+  defp ai_message_trace(messages) do
+    Enum.map(messages, fn message ->
+      %{
+        id: message.id,
+        status: message.status,
+        type: message.type,
+        tool_calls: function_call_items([message]) |> Enum.map(& &1["name"]),
+        text: message_text_excerpt(message.content || [])
+      }
+    end)
+  end
+
+  defp message_text_excerpt(items) when is_list(items) do
+    items
+    |> Enum.flat_map(&content_texts/1)
+    |> Enum.join("\n")
+    |> String.slice(0, 1200)
+  end
+
+  defp message_text_excerpt(_items), do: ""
+
+  defp content_texts(%{"text" => text}) when is_binary(text), do: [text]
+
+  defp content_texts(%{"content" => nested}) when is_list(nested),
+    do: Enum.flat_map(nested, &content_texts/1)
+
+  defp content_texts(%{"output" => output}) when is_binary(output), do: [output]
+  defp content_texts(_item), do: []
+
+  defp assert_text_contains_with_trace!(text, needle, actor_event_id, messages) do
+    assert text =~ needle,
+           """
+           expected reply to contain #{inspect(needle)}, got #{inspect(text)}
+
+           actor_event_id=#{actor_event_id}
+           ai_message_trace=#{inspect(ai_message_trace(messages), limit: :infinity, printable_limit: 4000)}
+           """
+  end
 
   defp allowed_openrouter_browser_tool?(tool_name) do
     tool_name in [

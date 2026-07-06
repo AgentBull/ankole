@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { isPlainObject } from '@pleisto/active-support'
+import { isRecord } from '@pleisto/active-support'
 import type { AgentTool, AgentToolResult } from '../../core'
 
 const VALID_STATUSES = ['pending', 'in_progress', 'completed', 'cancelled'] as const
@@ -220,7 +220,7 @@ export function summarizeTodos(todos: TodoItem[]): TodoSummary {
 // not an object, or a null/undefined field, becomes ''. Other types are
 // coerced with String() so e.g. a numeric id still survives.
 function normalizeStringField(item: unknown, field: string): string {
-  if (!isPlainObject(item)) return ''
+  if (!isRecord(item)) return ''
   const value = item[field]
   return value === undefined || value === null ? '' : String(value).trim()
 }

@@ -84,6 +84,19 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  "baseUrl" => "ftp://bad"
                })
 
+      resolved =
+        Config.resolve_runtime_bot_identity(
+          %{chat | "botUserId" => "cli_x"},
+          bot_info_fetcher: fn config ->
+            send(self(), {:bot_info_config, Map.take(config, ["appId", "botUserId"])})
+            {:ok, "ou_runtime_bot"}
+          end
+        )
+
+      assert_received {:bot_info_config, %{"appId" => "cli_x", "botUserId" => "cli_x"}}
+      assert resolved["botOpenId"] == nil
+      assert resolved["runtimeBotOpenId"] == "ou_runtime_bot"
+
       assert {:ok, identity} =
                Config.validate_identity_config(%{
                  "appId" => "cli_x",
@@ -252,7 +265,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                signal_channel_id: "lark:oc_group",
                source_entry_id: "om_1"
              ).text ==
-               "@_user_1 /steer ship it"
+               "/steer ship it"
 
       assert Repo.aggregate(ActorEvent, :count) == 1
 
@@ -275,7 +288,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
             | "message_id" => "om_retry",
               "content" => ~s({"text":"@_user_1 /retry １２"}),
               "mentions" => [
-                %{"key" => "_user_1", "name" => "Lark Bot", "id" => %{"open_id" => "ou_bot"}}
+                %{"key" => "@_user_1", "name" => "Lark Bot", "id" => %{"open_id" => "ou_bot"}}
               ]
           }
         end)
@@ -300,8 +313,8 @@ defmodule Ankole.Plugins.LarkAdapterTest do
             | "message_id" => "om_long_mention_key",
               "content" => ~s({"text":"@_user_10 /retry"}),
               "mentions" => [
-                %{"key" => "_user_1", "name" => "Other Bot", "id" => %{"open_id" => "ou_other"}},
-                %{"key" => "_user_10", "name" => "Lark Bot", "id" => %{"open_id" => "ou_bot"}}
+                %{"key" => "@_user_1", "name" => "Other Bot", "id" => %{"open_id" => "ou_other"}},
+                %{"key" => "@_user_10", "name" => "Lark Bot", "id" => %{"open_id" => "ou_bot"}}
               ]
           }
         end)
@@ -751,6 +764,36 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert second.query == [receive_id_type: "chat_id"]
       assert second.body.receive_id == "oc_group"
       assert second.body.uuid == "reply-long-1:part:2"
+
+      assert {:ok, %{"text" => first_text}} = Ankole.JSON.decode(first.body.content)
+      assert {:ok, %{"text" => second_text}} = Ankole.JSON.decode(second.body.content)
+      assert String.length(first_text) == 4_000
+      assert String.length(second_text) == 1
+      assert first_text <> second_text == long_text
+    end
+
+    test "splits long Lark text edits into existing preview plus deterministic follow-up posts" do
+      long_text = String.duplicate("你", 4_001)
+
+      assert {:ok, [first, second]} =
+               Outbox.requests_for_outbox(%OutboxEntry{
+                 operation: :edit,
+                 signal_channel_id: "lark:oc_group",
+                 target_source_entry_id: "om_preview",
+                 fallback_visible_text: long_text,
+                 idempotency_key: "edit-long-1"
+               })
+
+      assert first.method == :put
+      assert first.path == "im/v1/messages/:message_id"
+      assert first.path_params == %{message_id: "om_preview"}
+      refute Map.has_key?(first.body, :uuid)
+
+      assert second.method == :post
+      assert second.path == "im/v1/messages"
+      assert second.query == [receive_id_type: "chat_id"]
+      assert second.body.receive_id == "oc_group"
+      assert second.body.uuid == "edit-long-1:part:2"
 
       assert {:ok, %{"text" => first_text}} = Ankole.JSON.decode(first.body.content)
       assert {:ok, %{"text" => second_text}} = Ankole.JSON.decode(second.body.content)

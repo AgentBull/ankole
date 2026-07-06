@@ -10,21 +10,21 @@ defmodule Ankole.AIGateway.UniversalAIRequestTest do
 
     assert spec.upstream.timeout == %{
              connect_ms: 60_000,
-             first_byte_ms: 300_000,
-             idle_ms: 300_000,
-             total_ms: 300_000
+             first_byte_ms: 1_800_000,
+             idle_ms: 1_800_000,
+             total_ms: 1_800_000
            }
   end
 
-  test "stream model specs keep total timeout unset" do
+  test "stream model specs use the model no-activity budget without a total timeout" do
     assert {:ok, spec} =
              request(stream?: true)
              |> UniversalAIRequest.to_spec()
 
     assert spec.upstream.timeout == %{
              connect_ms: 60_000,
-             first_byte_ms: 60_000,
-             idle_ms: 60_000,
+             first_byte_ms: 1_800_000,
+             idle_ms: 1_800_000,
              total_ms: nil
            }
   end

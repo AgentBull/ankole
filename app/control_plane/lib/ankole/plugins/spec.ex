@@ -217,9 +217,9 @@ defmodule Ankole.Plugins.Spec do
 
   # Per-contract structural checks. A declaration names which contract it plugs
   # into; for the contracts Ankole ships, we verify the declared adapter modules
-  # actually export the callbacks that contract will call at runtime. Unknown
-  # contract ids pass through (last clause) so plugins can declare adapters for
-  # contracts this validator does not yet know about.
+  # actually export the callbacks that contract will call at runtime. Setup and
+  # test-only contracts still pass through here because their consumers validate
+  # their data shape at the point of use.
   defp validate_known_adapter_contract("signals_gateway.adapter", declaration) do
     with :ok <- validate_signals_ingress(declaration),
          :ok <- validate_signals_outbox(declaration),
@@ -333,7 +333,11 @@ defmodule Ankole.Plugins.Spec do
   defp validate_identity_capability(module, "department_access_check"),
     do: validate_module_callback(module, :sync_departments, 3)
 
-  defp validate_identity_capability(_module, _capability), do: :ok
+  defp validate_identity_capability(module, "contact_realtime_sync"),
+    do: validate_module_callback(module, :handle_contact_event, 3)
+
+  defp validate_identity_capability(_module, capability),
+    do: {:error, {:unknown_identity_capability, capability}}
 
   defp validate_ai_gateway_provider_definition(module, declaration) do
     definition = module.provider_definition()

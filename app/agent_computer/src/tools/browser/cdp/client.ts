@@ -1,4 +1,5 @@
 import type { JsonObject } from './types'
+import { DEFAULT_BROWSER_COMMAND_TIMEOUT_MS, DEFAULT_CDP_CONNECT_TIMEOUT_MS } from './constants'
 
 /**
  * Minimal Chrome DevTools Protocol client over one WebSocket.
@@ -52,7 +53,7 @@ export class CdpClient {
       const timeout = setTimeout(() => {
         socket.close()
         rejectConnect(new Error('Timed out connecting to browser CDP'))
-      }, opts.timeoutMs ?? 5_000)
+      }, opts.timeoutMs ?? DEFAULT_CDP_CONNECT_TIMEOUT_MS)
 
       socket.addEventListener(
         'open',
@@ -76,7 +77,12 @@ export class CdpClient {
   /**
    * Sends one CDP command and waits for the matching response id.
    */
-  send<T>(method: string, params: JsonObject = {}, sessionId?: string, timeoutMs = 15_000): Promise<T> {
+  send<T>(
+    method: string,
+    params: JsonObject = {},
+    sessionId?: string,
+    timeoutMs = DEFAULT_BROWSER_COMMAND_TIMEOUT_MS
+  ): Promise<T> {
     if (this.socket.readyState !== WebSocket.OPEN) throw new Error('CDP socket is not open')
 
     const id = this.nextId++

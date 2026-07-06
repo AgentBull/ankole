@@ -11,8 +11,10 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
   alias Ankole.PluginFixtures.MockSignalProviderPlugin
   alias Ankole.Plugins.Spec
   alias Ankole.Repo
+  alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.AIReplyPreview
   alias Ankole.SignalsGateway.Entry
+  alias Ankole.SignalsGateway.OutboxEntry
 
   setup :use_mock_signal_provider_plugin
 
@@ -57,6 +59,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
 
     assert {:ok, committed} = StatefulResponses.commit_complete(message, output_items)
 
+    dispatch_final_reply_outbox!(committed.id)
     mirror = wait_for_final_mirror(committed.id)
 
     assert mirror.signal_channel_id == actor_event.signal_channel_id
@@ -147,6 +150,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert {:ok, second_committed} =
              StatefulResponses.commit_complete(second_round, final_output_items)
 
+    dispatch_final_reply_outbox!(second_committed.id)
     mirror = wait_for_final_mirror(second_committed.id)
 
     assert mirror.signal_channel_id == actor_event.signal_channel_id
@@ -229,7 +233,279 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     refute Repo.get_by(Entry, ai_message_id: final_message_id)
   end
 
-  test "preview edits and final edit use distinct idempotency keys" do
+  test "tool activity events establish and update preview before final text" do
+    MockSignalProviderOutbox.put_recipient(self())
+    on_exit(fn -> MockSignalProviderOutbox.delete_recipient() end)
+
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "mock", :ignore, adapter: "mock-provider")
+
+    %{actor_event: actor_event} =
+      emit_addressed_actor_event(
+        agent.uid,
+        "mock",
+        group_entry(%{
+          source_event_id: "preview-tool-activity-event",
+          signal_channel_id: "mock:chat:preview-tool-activity",
+          source_entry_id: "human-message-tool-activity",
+          provider_thread_id: "mock-thread-tool-activity",
+          explicit: true,
+          text: "research it"
+        })
+      )
+
+    assert :ok = AIReplyPreview.maybe_start_for(actor_event)
+    [{pid, _value}] = Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, actor_event.id)
+
+    send(
+      pid,
+      {:ai_gateway_live, :tool_call_started,
+       %{"call_id" => "call_web_fetch", "name" => "web_fetch"}}
+    )
+
+    assert_receive {:mock_provider_outbox_sent, initial}
+    assert initial.operation == :reply
+    assert initial.fallback_visible_text == "Calling tool: web_fetch"
+
+    send(
+      pid,
+      {:ai_gateway_live, :tool_call_completed,
+       %{"call_id" => "call_web_fetch", "output" => "page content"}}
+    )
+
+    assert_receive {:mock_provider_outbox_sent, completed_edit}
+    assert completed_edit.operation == :edit
+    assert completed_edit.fallback_visible_text == "Finished tool: web_fetch. Reading results."
+    assert is_binary(completed_edit.target_source_entry_id)
+
+    final_message_id = Ecto.UUID.generate()
+
+    send(
+      pid,
+      {:ai_gateway_event, :response_completed, final_message_id,
+       %{
+         content: [
+           %{
+             "type" => "message",
+             "role" => "assistant",
+             "content" => [%{"type" => "output_text", "text" => "final research answer"}]
+           }
+         ]
+       }}
+    )
+
+    refute_receive {:mock_provider_outbox_sent, _final_edit}, 100
+    refute Repo.get_by(Entry, ai_message_id: final_message_id)
+    refute Process.alive?(pid)
+  end
+
+  test "response failure keeps preview alive while the actor event remains open" do
+    MockSignalProviderOutbox.put_recipient(self())
+    on_exit(fn -> MockSignalProviderOutbox.delete_recipient() end)
+
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "mock", :ignore, adapter: "mock-provider")
+
+    %{actor_event: actor_event} =
+      emit_addressed_actor_event(
+        agent.uid,
+        "mock",
+        group_entry(%{
+          source_event_id: "preview-open-retry-event",
+          signal_channel_id: "mock:chat:preview-open-retry",
+          source_entry_id: "human-message-open-retry",
+          provider_thread_id: "mock-thread-open-retry",
+          explicit: true,
+          text: "remember this for the current conversation"
+        })
+      )
+
+    assert :ok = AIReplyPreview.maybe_start_for(actor_event)
+    [{pid, _value}] = Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, actor_event.id)
+
+    send(
+      pid,
+      {:ai_gateway_event, :response_failed, Ecto.UUID.generate(),
+       %{
+         error: %{
+           "code" => "upstream_response_failed",
+           "stage" => "socket_open"
+         }
+       }}
+    )
+
+    assert Process.alive?(pid)
+
+    final_message_id = Ecto.UUID.generate()
+
+    send(
+      pid,
+      {:ai_gateway_event, :response_completed, final_message_id,
+       %{
+         content: [
+           %{
+             "type" => "message",
+             "role" => "assistant",
+             "content" => [
+               %{"type" => "output_text", "text" => "current conversation fact recorded"}
+             ]
+           }
+         ]
+       }}
+    )
+
+    refute_receive {:mock_provider_outbox_sent, _final_reply}, 100
+    refute Repo.get_by(Entry, ai_message_id: final_message_id)
+    refute Process.alive?(pid)
+  end
+
+  test "stateful retry failure followed by completion mirrors final IM reply" do
+    MockSignalProviderOutbox.put_recipient(self())
+    on_exit(fn -> MockSignalProviderOutbox.delete_recipient() end)
+
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "mock", :ignore, adapter: "mock-provider")
+
+    %{actor_event: actor_event} =
+      emit_addressed_actor_event(
+        agent.uid,
+        "mock",
+        group_entry(%{
+          source_event_id: "preview-stateful-retry-event",
+          signal_channel_id: "mock:chat:preview-stateful-retry",
+          source_entry_id: "human-message-stateful-retry",
+          provider_thread_id: "mock-thread-stateful-retry",
+          explicit: true,
+          text: "remember this for the current conversation"
+        })
+      )
+
+    assert :ok = AIReplyPreview.maybe_start_for(actor_event)
+
+    {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, actor_event.session_id)
+
+    {:ok, failed_run} =
+      StatefulResponses.start_response_run(%{
+        agent_uid: agent.uid,
+        conversation_id: conversation.id,
+        actor_event_id: actor_event.id,
+        request_items: [
+          %{"role" => "user", "content" => "remember this for the current conversation"}
+        ]
+      })
+
+    assert {:ok, failed} =
+             StatefulResponses.commit_error(
+               failed_run,
+               [],
+               %{"code" => "upstream_response_failed", "stage" => "socket_open"},
+               complete_actor_event?: false
+             )
+
+    assert failed.status == "error"
+    assert is_nil(Repo.get!(ActorEvent, actor_event.id).completed_at)
+
+    assert [{pid, _value}] =
+             Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, actor_event.id)
+
+    assert Process.alive?(pid)
+    refute_receive {:mock_provider_outbox_sent, _failure_reply}, 100
+
+    {:ok, final_run} =
+      StatefulResponses.start_response_run(%{
+        agent_uid: agent.uid,
+        conversation_id: conversation.id,
+        actor_event_id: actor_event.id,
+        request_items: [
+          %{
+            "type" => "message",
+            "role" => "user",
+            "content" => [
+              %{"type" => "input_text", "text" => "retry the same user-visible answer"}
+            ]
+          }
+        ]
+      })
+
+    assert {:ok, committed} =
+             StatefulResponses.commit_complete(final_run, [
+               %{
+                 "type" => "message",
+                 "role" => "assistant",
+                 "content" => [
+                   %{"type" => "output_text", "text" => "current conversation fact recorded"}
+                 ]
+               }
+             ])
+
+    assert %DateTime{} = Repo.get!(ActorEvent, actor_event.id).completed_at
+
+    dispatch_final_reply_outbox!(committed.id)
+
+    assert %Entry{text: "current conversation fact recorded"} =
+             wait_for_final_mirror(committed.id)
+  end
+
+  test "completed assistant text mirrors as final IM reply without language heuristics" do
+    MockSignalProviderOutbox.put_recipient(self())
+    on_exit(fn -> MockSignalProviderOutbox.delete_recipient() end)
+
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "mock", :ignore, adapter: "mock-provider")
+
+    %{actor_event: actor_event} =
+      emit_addressed_actor_event(
+        agent.uid,
+        "mock",
+        group_entry(%{
+          source_event_id: "preview-assistant-text-event",
+          signal_channel_id: "mock:chat:preview-assistant-text",
+          source_entry_id: "human-message-assistant-text",
+          provider_thread_id: "mock-thread-assistant-text",
+          explicit: true,
+          text: "run the script and verify the report"
+        })
+      )
+
+    assert :ok = AIReplyPreview.maybe_start_for(actor_event)
+    [{pid, _value}] = Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, actor_event.id)
+
+    assistant_text = "Now delegating to Codex with the required parameters."
+
+    send(pid, {:ai_gateway_event, :response_started, Ecto.UUID.generate(), %{}})
+    send(pid, {:ai_gateway_live, :output_text_delta, %{text: assistant_text}})
+
+    assert_receive {:mock_provider_outbox_sent, initial}
+    assert initial.operation == :reply
+    assert initial.fallback_visible_text == assistant_text
+
+    assistant_message_id = Ecto.UUID.generate()
+
+    send(
+      pid,
+      {:ai_gateway_event, :response_completed, assistant_message_id,
+       %{
+         content: [
+           %{
+             "type" => "message",
+             "role" => "assistant",
+             "content" => [
+               %{
+                 "type" => "output_text",
+                 "text" => assistant_text
+               }
+             ]
+           }
+         ]
+       }}
+    )
+
+    refute_receive {:mock_provider_outbox_sent, _final_edit}, 100
+    refute Repo.get_by(Entry, ai_message_id: assistant_message_id)
+    refute Process.alive?(pid)
+  end
+
+  test "preview edits use distinct idempotency keys and terminal does not send final" do
     MockSignalProviderOutbox.put_recipient(self())
     on_exit(fn -> MockSignalProviderOutbox.delete_recipient() end)
 
@@ -288,15 +564,10 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
        }}
     )
 
-    assert_receive {:mock_provider_outbox_sent, final_edit}
-    assert final_edit.operation == :edit
-    assert final_edit.idempotency_key =~ ":final:#{message_id}"
-    refute final_edit.idempotency_key == flush_edit.idempotency_key
-    assert final_edit.outbound_key == final_edit.idempotency_key
-    assert final_edit.target_source_entry_id == flush_edit.target_source_entry_id
+    refute_receive {:mock_provider_outbox_sent, _final_edit}, 100
     refute is_nil(preview_entry_id)
-
-    assert %Entry{text: "final answer"} = wait_for_final_mirror(message_id)
+    refute Repo.get_by(Entry, ai_message_id: message_id)
+    refute Process.alive?(pid)
   end
 
   test "blank leading deltas do not create preview noise" do
@@ -332,6 +603,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert_receive {:mock_provider_outbox_sent, initial}
     assert initial.operation == :reply
     assert initial.fallback_visible_text == "answer"
+    GenServer.stop(pid)
   end
 
   test "live response activity resets the preview lifetime timer" do
@@ -432,6 +704,30 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     on_exit(fn ->
       :sys.replace_state(Ankole.Plugins.Registry, fn _state -> original_state end)
     end)
+
+    :ok
+  end
+
+  defp dispatch_final_reply_outbox!(ai_message_id) do
+    outbox = Repo.get_by!(OutboxEntry, outbound_key: "ai-reply:#{ai_message_id}")
+
+    assert {:ok, %OutboxEntry{status: :succeeded}} =
+             SignalsGateway.dispatch_outbox(
+               outbox.agent_uid,
+               outbox.binding_name,
+               outbox.outbound_key,
+               %{
+                 capabilities: [:reply_entry, :edit_entry],
+                 send: fn outbox ->
+                   {:ok,
+                    %{
+                      created_source_entry_id:
+                        outbox.target_source_entry_id || "mock-reply-#{ai_message_id}",
+                      raw_payload: %{"provider" => "mock-signal-provider"}
+                    }}
+                 end
+               }
+             )
 
     :ok
   end

@@ -10,7 +10,7 @@ import {
   responseImageUnavailableText,
   VISION_MAX_IMAGES_PER_TURN
 } from '../vision'
-import { arrayPath, firstString, isRecord } from '../../common/json-utils'
+import { arrayPath, firstString, isRecord } from '@pleisto/active-support'
 import { actorEventText } from './actor_event_text'
 
 /**

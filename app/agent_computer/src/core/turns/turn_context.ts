@@ -1,6 +1,6 @@
 import type { TurnStart } from '../../lanes/actor_lane'
 import type { AgentConversationContext } from '../../lanes/rpc_lane'
-import { logWorkerEvent } from '../../worker/logging'
+import { workerLogger } from '../../worker/logging'
 import { scanInstalledSkills } from '../../worker/installed_skills'
 import type { TextTurnLoopOptions } from './turn_options'
 
@@ -46,7 +46,17 @@ async function syncInstalledSkillsBeforeContext(turnStart: TurnStart, opts: Text
   try {
     const scan = await scanInstalledSkills(opts.agentInstalledSkillsRoot, agentUid)
     for (const diagnostic of scan.diagnostics) {
-      logWorkerEvent('worker.installed_skill_diagnostic', { agent_uid: agentUid, diagnostic }, 'stderr')
+      if (diagnostic.severity === 'error') {
+        workerLogger.error('worker.installed_skill_diagnostic', 'worker installed skill diagnostic', {
+          agent_uid: agentUid,
+          diagnostic
+        })
+      } else {
+        workerLogger.warning('worker.installed_skill_diagnostic', 'worker installed skill diagnostic', {
+          agent_uid: agentUid,
+          diagnostic
+        })
+      }
     }
 
     if (installedSkillSyncMemoFresh(agentUid, scan.fingerprint, opts)) return
@@ -59,14 +69,10 @@ async function syncInstalledSkillsBeforeContext(turnStart: TurnStart, opts: Text
 
     installedSkillSyncMemo.set(agentUid, { fingerprint: scan.fingerprint, syncedAtMs: Date.now() })
   } catch (error) {
-    logWorkerEvent(
-      'worker.installed_skill_sync_failed',
-      {
-        agent_uid: agentUid,
-        error: error instanceof Error ? error.message : String(error)
-      },
-      'stderr'
-    )
+    workerLogger.warning('worker.installed_skill_sync_failed', 'worker installed skill sync failed', {
+      agent_uid: agentUid,
+      error: error instanceof Error ? error : new Error(String(error))
+    })
   }
 }
 

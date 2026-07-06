@@ -6,11 +6,13 @@
 
 [简体中文](./README.zh-Hans.md) | [日本語](./README.ja.md)
 
-**Ankole is a self-hosted AgentOS for shared AI colleagues.**
+[How it's different](#how-ankole-is-different) · [Product shape](#product-shape) · [Actor runtime](#actor-runtime) · [Architecture](#architecture) · [Current status](#current-status) · [Development](#development)
+
+**Ankole is a self-hosted AgentOS for shared AI colleagues.** One installation, many agents, real responsibilities — on infrastructure you control.
 
 It moves AI work out of a private chat box and into the places where work already happens: channels, repositories, schedules, dashboards, internal systems, and long-running project context. An Ankole agent has its own identity, memory, permissions, tools, workspace, and responsibility boundary — so it can **own ongoing work**, not just answer a one-off message.
 
-[Claude Tag](https://claude.com/product/tag) is a useful public reference point: tag an AI into a Slack thread, let it read the shared context, use organization tools, remember channel context, and follow up when work takes time. Ankole targets the broader open version of that pattern: not only Slack, not only Claude, not only one agent, and not vendor-owned context.
+[Claude Tag](https://claude.com/product/tag) is a useful public reference point: tag an AI into a Slack thread, let it read the shared context, use organization tools, remember channel context, and follow up when work takes time. Ankole targets the broader open version of that pattern: **not only Slack, not only Claude, not only one agent, and not vendor-owned context.**
 
 Ankole is for work that needs an owner, not just an answer. A good Ankole role has a visible result: code merged, a report shipped, a customer issue handled, an alert triaged, a market change noticed, or a backlog worked down.
 
@@ -24,8 +26,6 @@ Ankole is for work that needs an owner, not just an answer. A good Ankole role h
 
 ## What Ankole Adds
 
-- **Shared work, not private chat.** Agents can be brought into shared channels and provider contexts where multiple humans can observe, steer, and continue the work.
-- **Durable identity.** Humans and agents are represented as Principals with external identities, groups, and permission grants.
 - **Many sources.** IM, webhooks, scheduled reminders, internal systems, and future provider adapters all become normalized signal input.
 - **Many agents.** One installation can host multiple agents with different missions, access, tools, memory, and outbound identities.
 - **Session actors.** The long-running execution unit is `actor_id = {agent_id, session_id}`. A session is where context, workspace state, steering, cancellation, and recovery meet.
@@ -36,13 +36,13 @@ Ankole is for work that needs an owner, not just an answer. A good Ankole role h
 
 Ankole should make these workflows natural:
 
-- A coding agent watches an issue, reproduces the bug, changes code, opens a draft PR, and reports what still needs a human decision.
-- A customer-success agent observes a shared group chat, records the important facts, updates work state, and escalates privately only when needed.
-- A research agent monitors markets, policy, competitors, and internal notes, then follows up when a change matters.
-- A QA agent works through a test backlog, gathers evidence, and hands off failures with enough context for review.
-- An operations agent watches alerts, prepares a runbook, and asks for approval before taking risky action.
+- A **coding agent** watches an issue, reproduces the bug, changes code, opens a draft PR, and reports what still needs a human decision.
+- A **customer-success agent** observes a shared group chat, records the important facts, updates work state, and escalates privately only when needed.
+- A **research agent** monitors markets, policy, competitors, and internal notes, then follows up when a change matters.
+- A **QA agent** works through a test backlog, gathers evidence, and hands off failures with enough context for review.
+- An **operations agent** watches alerts, prepares a runbook, and asks for approval before taking risky action.
 
-The common pattern is not "answer this question." It is "hold this seat, use the available context, and be judged by the result."
+The common pattern is not "answer this question." It is **"hold this seat, use the available context, and be judged by the result."**
 
 ## Actor Runtime
 
@@ -86,7 +86,7 @@ At a high level:
 
 ## Current Status
 
-Ankole is an early engineering distribution, not a polished end-user product or hosted SaaS.
+Ankole is an early engineering distribution, not a polished end-user product or hosted SaaS. The subsystems below exist as working code in this repository today — the honest caveat is polish and API stability, not vaporware.
 
 | Area | Status |
 | --- | --- |

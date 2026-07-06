@@ -642,6 +642,92 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert is_nil(Repo.get!(ActorEvent, actor_event.id).completed_at)
   end
 
+  test "websocket stateful conversation run stores compaction leaf instead of projected tail as durable anchor" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-stateful-compaction-anchor",
+               provider_kind: "openai",
+               base_url: "http://127.0.0.1:1/v1",
+               connection_options: %{
+                 "api_key" => "sk-openai",
+                 "upstream_transport" => "websocket"
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-stateful-compaction-anchor",
+               model: "gpt-main"
+             })
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "dispatch-compaction-anchor")
+
+    {:ok, m1} =
+      start_stateful_message(agent.uid, conversation, "compaction-anchor-a", [
+        text_message("user", "first user"),
+        text_message("assistant", "first assistant")
+      ])
+
+    {:ok, m1} = StatefulResponses.commit_complete(m1, [])
+
+    {:ok, m2} =
+      start_linked_stateful_message(agent.uid, conversation, m1, "compaction-anchor-b", [
+        text_message("user", "second user"),
+        text_message("assistant", "second assistant")
+      ])
+
+    {:ok, m2} = StatefulResponses.commit_complete(m2, [])
+
+    {:ok, m3} =
+      start_linked_stateful_message(agent.uid, conversation, m2, "compaction-anchor-c", [
+        text_message("user", "third user"),
+        text_message("assistant", "third assistant")
+      ])
+
+    {:ok, m3} = StatefulResponses.commit_complete(m3, [])
+
+    {:ok, compaction} =
+      StatefulResponses.compact_history_prefix(
+        agent.uid,
+        "resp_#{m3.id}",
+        "resp_#{m1.id}",
+        %{"type" => "compaction", "summary" => "first turn compressed"}
+      )
+
+    assert Enum.map(StatefulResponses.expand_history(conversation.id), & &1.id) == [
+             compaction.id,
+             m2.id,
+             m3.id
+           ]
+
+    actor_event =
+      actor_event_fixture(agent.uid, conversation.conversation_key, "compaction-anchor-d")
+
+    current_input = [text_message("user", "fourth user")]
+
+    assert {:error, _reason} =
+             AIGateway.open_websocket_stream(agent.uid, %{
+               "model" => "primary",
+               "input" => current_input,
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "metadata" => %{"actor_event_id" => actor_event.id}
+             })
+
+    [run] =
+      Repo.all(Message)
+      |> Enum.filter(&(get_in(&1.metadata, ["actor_event_id"]) == actor_event.id))
+
+    assert run.previous_message_id == compaction.id
+    assert run.status == "error"
+    assert run.content == current_input
+    assert run.metadata["error"]["stage"] == "socket_open"
+    assert is_nil(Repo.get!(ActorEvent, actor_event.id).completed_at)
+  end
+
   test "compaction threshold follows model context ratio with a configurable cap" do
     _result = Compaction.delete_config()
 
@@ -732,7 +818,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         text_message("assistant", "first assistant answer")
       ])
 
-    {:ok, m1} = StatefulResponses.commit_complete(m1, [], usage(24))
+    {:ok, m1} = StatefulResponses.commit_complete(m1, [], camel_usage(160_000))
 
     {:ok, m2} =
       start_linked_stateful_message(agent.uid, conversation, m1, "compact-b", [
@@ -740,7 +826,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         text_message("assistant", "second assistant answer")
       ])
 
-    {:ok, m2} = StatefulResponses.commit_complete(m2, [], usage(24))
+    {:ok, m2} = StatefulResponses.commit_complete(m2, [], camel_usage(160_000))
 
     {:ok, m3} =
       start_linked_stateful_message(agent.uid, conversation, m2, "compact-c", [
@@ -748,7 +834,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         text_message("assistant", "third assistant answer kept as tail")
       ])
 
-    {:ok, m3} = StatefulResponses.commit_complete(m3, [], usage(4))
+    {:ok, m3} = StatefulResponses.commit_complete(m3, [], camel_usage(4))
 
     current_input = [text_message("user", "new current request")]
 
@@ -794,6 +880,137 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert get_in(compaction.metadata, ["summarizer", "usage", "total_tokens"]) == 18
   end
 
+  test "websocket stateful auto-compaction keeps function calls with protected tool results" do
+    %{principal: agent} = agent_fixture()
+
+    with_compaction_config(threshold: 0.50, max_threshold_tokens: 10, tail_rows: 2)
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        assert request.path == "v1/responses"
+        assert request.body["model"] == "gpt-compact-light"
+
+        {:json, 200,
+         %{
+           "id" => "resp_summary_tool_tail",
+           "object" => "response",
+           "status" => "completed",
+           "output" => [
+             %{
+               "type" => "message",
+               "role" => "assistant",
+               "content" => [
+                 %{
+                   "type" => "output_text",
+                   "text" => "Only the first row was compressed.",
+                   "annotations" => []
+                 }
+               ]
+             }
+           ],
+           "usage" => %{"input_tokens" => 7, "output_tokens" => 5, "total_tokens" => 12}
+         }}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-auto-compaction-tool-tail",
+               provider_kind: "openai",
+               base_url: "#{base_url}/v1",
+               connection_options: %{
+                 "api_key" => "sk-openai",
+                 "upstream_transport" => "websocket",
+                 "transport" => %{"http_versions" => ["h1"], "compression" => ["gzip"]}
+               }
+             })
+
+    for {profile, model} <- [{"primary", "gpt-main"}, {"light", "gpt-compact-light"}] do
+      assert {:ok, _profile} =
+               ModelProfiles.put_model_profile(agent.uid, profile, %{
+                 provider_id: "openai-auto-compaction-tool-tail",
+                 model: model
+               })
+    end
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "dispatch-auto-compaction-tool-tail")
+
+    {:ok, m1} =
+      start_stateful_message(agent.uid, conversation, "compact-tool-a", [
+        text_message("user", "first user message that can be summarized"),
+        text_message("assistant", "first assistant answer that can be summarized")
+      ])
+
+    {:ok, m1} = StatefulResponses.commit_complete(m1, [], camel_usage(160_000))
+
+    function_call = [
+      %{
+        "type" => "function_call",
+        "call_id" => "call_keep_with_tail",
+        "name" => "web_search",
+        "arguments" => "{}"
+      }
+    ]
+
+    {:ok, m2} =
+      start_linked_stateful_message(agent.uid, conversation, m1, "compact-tool-b", function_call)
+
+    {:ok, m2} = StatefulResponses.commit_complete(m2, [], camel_usage(160_000))
+
+    tool_result = [
+      %{
+        "type" => "function_call_output",
+        "call_id" => "call_keep_with_tail",
+        "output" => "search result"
+      }
+    ]
+
+    {:ok, m3} =
+      start_linked_stateful_message(agent.uid, conversation, m2, "compact-tool-c", tool_result)
+
+    {:ok, m3} = StatefulResponses.commit_complete(m3, [], camel_usage(4))
+
+    {:ok, m4} =
+      start_linked_stateful_message(agent.uid, conversation, m3, "compact-tool-d", [
+        text_message("assistant", "final answer after the tool result")
+      ])
+
+    {:ok, m4} = StatefulResponses.commit_complete(m4, [], camel_usage(4))
+
+    current_input = [text_message("user", "new current request")]
+
+    assert {:ok, request} =
+             AIGateway.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => current_input,
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "metadata" => %{"actor_event_id" => "auto-compact-tool-tail-event"}
+             })
+
+    assert_receive {:gateway_request, summarizer_request}
+    summarizer_input = summarizer_request.body["input"]
+
+    assert summarizer_input =~ "first user message that can be summarized"
+    refute summarizer_input =~ "call_keep_with_tail"
+    refute summarizer_input =~ "search result"
+
+    provider_request = request.response_context.request
+    [compaction_item | rest] = provider_request["input"]
+
+    assert compaction_item["type"] == "compaction"
+    assert compaction_item["summary"] == "Only the first row was compressed."
+    assert rest == function_call ++ tool_result ++ m4.content ++ current_input
+
+    [compaction] =
+      Repo.all(Message)
+      |> Enum.filter(&(&1.type == "compaction"))
+
+    assert compaction.previous_message_id == m4.id
+    assert compaction.covers_until_message_id == m1.id
+    assert compaction.metadata["auto"] == true
+  end
+
   test "websocket stateful overflow returns an explicit error when truncation is disabled" do
     %{principal: agent} = agent_fixture()
 
@@ -821,7 +1038,9 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     {:ok, message} =
       start_stateful_message(agent.uid, conversation, "overflow-disabled", [
-        media_message("https://files.example.test/#{String.duplicate("large", 40)}.png")
+        media_message_with_memory_nudge(
+          "https://files.example.test/#{String.duplicate("large", 40)}.png"
+        )
       ])
 
     {:ok, _message} = StatefulResponses.commit_complete(message, [], usage(24))
@@ -884,7 +1103,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     {:ok, m2} =
       start_linked_stateful_message(agent.uid, conversation, m1, "truncate-tail", [
         text_message("user", "tail user"),
-        text_message("assistant", "tail assistant")
+        text_message("assistant", "tail assistant #{memory_pre_compaction_nudge_marker()}")
       ])
 
     {:ok, m2} = StatefulResponses.commit_complete(m2, [], usage(20))
@@ -1022,7 +1241,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     {:ok, m3} =
       start_linked_stateful_message(agent.uid, conversation, m2, "tool-truncate-tail", [
-        text_message("user", "latest tail")
+        text_message("user", "latest tail #{memory_pre_compaction_nudge_marker()}")
       ])
 
     {:ok, _m3} = StatefulResponses.commit_complete(m3, [], usage(20))
@@ -1104,7 +1323,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     {:ok, m3} =
       start_linked_stateful_message(agent.uid, conversation, m2, "summary-fail-c", [
-        text_message("user", "latest tail")
+        text_message("user", "latest tail #{memory_pre_compaction_nudge_marker()}")
       ])
 
     {:ok, m3} = StatefulResponses.commit_complete(m3, [], usage(20))
@@ -2219,7 +2438,25 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     }
   end
 
+  defp media_message_with_memory_nudge(image_url) do
+    %{
+      "type" => "message",
+      "role" => "user",
+      "content" => [
+        %{"type" => "input_image", "image_url" => image_url},
+        %{
+          "type" => "input_text",
+          "text" => "[#{memory_pre_compaction_nudge_marker()}]"
+        }
+      ]
+    }
+  end
+
+  defp memory_pre_compaction_nudge_marker, do: "ankole.memory.pre_compaction_nudge.v1"
+
   defp usage(total_tokens), do: %{"usage" => %{"total_tokens" => total_tokens}}
+
+  defp camel_usage(total_tokens), do: %{"usage" => %{"totalTokens" => total_tokens}}
 
   defp with_compaction_config(config) do
     assert {:ok, _config} = Compaction.put_config(Map.new(config))

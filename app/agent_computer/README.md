@@ -32,7 +32,8 @@ payloads.
   shaping, tool loops, and ambient recognizer turns.
 - Worker-local tools: `todo`, browser tools, `command`,
   `interactive_terminal`, `read_file`, `patch`, `reply_attachment`,
-  `skill_view`, `skill_append`, `check_back_later`, and `cron`.
+  `codex_delegate`, `skill_view`, `skill_append`, `check_back_later`, and
+  `cron`.
 - Workspace behavior: per-session roots under `/workspace/.sessions`, shared
   user files, agent-installed skill files, temporary files, tmux state, and
   browser artifacts.
@@ -91,11 +92,32 @@ ANKOLE_ACTOR_EPOCH
 The worker is pool-scoped, not actor-scoped. Actor identity arrives in each
 `turn_start` envelope.
 
-Optional timeout tuning:
+Agent runtime policy is configured through scoped AppConfigure keys, not worker
+environment variables:
 
 ```text
-ANKOLE_TEXT_TURN_TIMEOUT_MS
+ai_agent.inactivity_timeout_ms
+ai_agent.max_output_tokens
 ```
+
+`ai_agent.inactivity_timeout_ms` is a model/provider no-activity watchdog. It is
+not a wall-clock turn cap, and it is not a promise that every running tool has a
+hidden timeout. Tool calls own their runtime lifecycle while they are active.
+
+The model-facing `command` tool follows the Hermes terminal shape: foreground
+commands default to `180s`; background commands return a `backgroundId`
+immediately and have no default command timeout. Passing `timeout` to a
+background command opts into an explicit shell-level budget for that command.
+Background commands are scoped by workspace and execution scope, expose
+`status`/`kill`/`list`, keep a bounded output tail, and evict only finished
+registry entries when the worker has too many tracked commands. Running
+background commands continue until they exit, are killed, or the worker process
+itself goes away.
+
+The `codex_delegate` tool launches a managed Codex app-server subprocess for a
+delegation. Its JSON-RPC request classes are intentionally the same classes as
+Hermes but slightly wider for Ankole workloads: `initialize` waits `15s`,
+`thread/start` waits `30s`, and other app-server requests wait `60s`.
 
 Optional capacity tuning:
 

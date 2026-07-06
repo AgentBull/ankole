@@ -5,6 +5,7 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
 
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Schema
+  alias Ankole.Logging
   alias Ankole.Plugins.LarkAdapter.MapHelpers
   alias FeishuOpenAPI.Client
 
@@ -184,6 +185,45 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   end
 
   @doc """
+  Adds provider-derived bot identity to a chat config without persisting it.
+
+  Operators can keep `botUserId` as the configured identity. Lark message
+  mention events often carry only the mentioned bot's `open_id`, so the adapter
+  resolves that value from `bot/v3/info` while building the live connection and
+  keeps it only in the process-local consumer config.
+  """
+  @spec resolve_runtime_bot_identity(chat_config(), keyword()) :: chat_config()
+  def resolve_runtime_bot_identity(config, opts \\ []) when is_map(config) do
+    cond do
+      present_string?(Map.get(config, "botOpenId")) ->
+        config
+
+      not present_string?(Map.get(config, "botUserId")) ->
+        config
+
+      true ->
+        fetcher = Keyword.get(opts, :bot_info_fetcher, &fetch_runtime_bot_open_id/1)
+
+        case fetcher.(config) do
+          {:ok, open_id} when is_binary(open_id) ->
+            Map.put(config, "runtimeBotOpenId", String.trim(open_id))
+
+          {:error, reason} ->
+            Logging.warning(
+              "lark_adapter.config.runtime_bot_open_id_failed",
+              "lark adapter could not resolve runtime bot open_id",
+              %{
+                app_id: Map.get(config, "appId"),
+                reason: inspect(reason)
+              }
+            )
+
+            config
+        end
+    end
+  end
+
+  @doc """
   Converts setup's group-message mode into SignalsGateway binding policy.
   """
   @spec group_message_policy(String.t()) :: :ignore | :record_only | :may_intervene
@@ -205,9 +245,28 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   def domain_atom("feishu"), do: :feishu
   def domain_atom("lark"), do: :lark
 
+  defp fetch_runtime_bot_open_id(config) do
+    case FeishuOpenAPI.get(client(config), "bot/v3/info") do
+      {:ok, %{"bot" => %{"open_id" => open_id}}} when is_binary(open_id) ->
+        case String.trim(open_id) do
+          "" -> {:error, :missing_bot_open_id}
+          trimmed -> {:ok, trimmed}
+        end
+
+      {:ok, _body} ->
+        {:error, :missing_bot_open_id}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   defp app_config_key("app-config://" <> key), do: {:ok, key}
   defp app_config_key("app-config:" <> key), do: {:ok, key}
   defp app_config_key(key) when is_binary(key), do: {:ok, key}
+
+  defp present_string?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present_string?(_value), do: false
 
   defp required_string(map, key) do
     case MapHelpers.fetch_value(map, key) do

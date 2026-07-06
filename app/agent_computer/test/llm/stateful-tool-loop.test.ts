@@ -352,7 +352,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
     expect(continuation[0]).toMatchObject({ type: 'function_call_output', call_id: 'call_summary' })
     expect(continuation[0]!.output).toContain('screenshot ready')
     expect(continuation[1]!.role).toBe('user')
-    expect(continuation[1]!.content).toContain('<image_summary>')
+    expect(continuation[1]!.content).toContain("The tool result attached an image. Here's what it contains")
     expect(continuation[1]!.content).toContain('The tool image shows a dashboard.')
     expect(continuation[1]!.content).not.toContain('data:image/png;base64,')
     expect(fallbackBodies).toHaveLength(1)
@@ -563,6 +563,124 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
     })
     expect(sentPayloads[4]!.tools).toBeUndefined()
     expect(toolExecutions).toBe(1)
+  })
+
+  it('counts post-tool empty-response nudges against the model iteration budget', async () => {
+    const sentPayloads: Record<string, unknown>[] = []
+    let toolExecutions = 0
+    let recordCount = 0
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
+            const payload = JSON.parse(data) as Record<string, unknown>
+            sentPayloads.push(payload)
+
+            if (payload.type === 'response.tool_results.record') {
+              recordCount += 1
+              return [toolResultsRecordedFrame(`resp_iteration_results_${recordCount}`)]
+            }
+
+            const index = sentPayloads.filter(sent => sent.type === 'response.create').length
+            if (index === 1 || index === 3) {
+              return [
+                {
+                  type: 'response.completed',
+                  response: {
+                    id: `resp_iteration_tool_${index}`,
+                    status: 'completed',
+                    output: [
+                      {
+                        type: 'function_call',
+                        id: `fc_iteration_${index}`,
+                        call_id: `call_iteration_${index}`,
+                        name: 'loop',
+                        arguments: '{}'
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+
+            if (index === 2) {
+              return [
+                {
+                  type: 'response.completed',
+                  response: {
+                    id: 'resp_iteration_empty',
+                    status: 'completed',
+                    output: [{ type: 'message', role: 'assistant', content: [] }]
+                  }
+                }
+              ]
+            }
+
+            return [
+              {
+                type: 'response.completed',
+                response: {
+                  id: 'resp_iteration_synthesis',
+                  status: 'completed',
+                  output: [
+                    {
+                      type: 'message',
+                      role: 'assistant',
+                      content: [{ type: 'output_text', text: 'summarized after iteration limit' }]
+                    }
+                  ]
+                }
+              }
+            ]
+          })
+      }
+    })
+
+    const final = await runAgentLoop({
+      model,
+      messages: [{ role: 'user', content: 'loop with empty responses' }],
+      stateful: {
+        actorEventId: '00000000-0000-0000-0000-000000000019',
+        conversationId: '19191919-1919-1919-1919-191919191919'
+      },
+      maxModelIterations: 3,
+      tools: [
+        {
+          name: 'loop',
+          description: 'Loop forever',
+          schema: z.object({}),
+          execute: async () => {
+            toolExecutions += 1
+            return { content: [{ type: 'text', text: `again ${toolExecutions}` }], details: {} }
+          }
+        }
+      ]
+    })
+
+    const responseCreates = sentPayloads.filter(payload => payload.type === 'response.create')
+    expect(final.content).toEqual([{ type: 'text', text: 'summarized after iteration limit' }])
+    expect(final.stopReason).toBe('length')
+    expect(toolExecutions).toBe(2)
+    expect(responseCreates).toHaveLength(4)
+    expect(responseCreates[2]!.input).toEqual([
+      {
+        role: 'user',
+        content:
+          'You just executed tool calls but returned an empty response. Please process the tool results above and continue with the task.'
+      }
+    ])
+    expect(responseCreates[3]).toMatchObject({
+      type: 'response.create',
+      previous_response_id: 'resp_iteration_results_2'
+    })
+    expect(responseCreates[3]!.tools).toBeUndefined()
+    expect(JSON.stringify(responseCreates[3]!.input)).toContain('maximum number of tool-calling iterations')
   })
 
   it('drains steering updates after tool results before the next stateful model call', async () => {

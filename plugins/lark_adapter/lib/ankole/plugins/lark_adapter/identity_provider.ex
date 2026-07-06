@@ -3,9 +3,8 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
   Lark / Feishu identity-provider adapter functions for Principals.
   """
 
-  require Logger
-
   alias Ankole.AuthZ
+  alias Ankole.Logging
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.MapHelpers
   alias Ankole.IdentityProviders
@@ -238,7 +237,14 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
             {:ok, user_info}
 
           {:error, reason} ->
-            Logger.warning("lark adapter contact hydration failed: #{inspect(reason)}")
+            Logging.warning(
+              "lark_adapter.identity_provider.contact_hydration_failed",
+              "lark adapter contact hydration failed",
+              %{
+                reason: inspect(reason)
+              }
+            )
+
             {:ok, user_info}
         end
 

@@ -2,6 +2,8 @@ import { mkdirSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { resolve } from 'node:path'
 import {
+  DEFAULT_BROWSER_COMMAND_TIMEOUT_MS,
+  DEFAULT_CDP_CONNECT_TIMEOUT_MS,
   DEFAULT_LOCAL_BROWSER_IDLE_TTL_MS,
   LOCAL_CHROMIUM_SIDECAR_KEY,
   LOCAL_CHROMIUM_USER_AGENT,
@@ -33,7 +35,7 @@ export async function createLocalBrowserContext(connectUrl: string): Promise<{
   browserContextId: string
   targetId: string
 }> {
-  const cdp = await CdpClient.connect(connectUrl, { timeoutMs: 5_000 })
+  const cdp = await CdpClient.connect(connectUrl, { timeoutMs: DEFAULT_CDP_CONNECT_TIMEOUT_MS })
   let browserContextId: string | undefined
   try {
     const context = await cdp.send<{ browserContextId: string }>('Target.createBrowserContext', {})
@@ -46,7 +48,12 @@ export async function createLocalBrowserContext(connectUrl: string): Promise<{
   } catch (error) {
     if (browserContextId) {
       try {
-        await cdp.send('Target.disposeBrowserContext', { browserContextId }, undefined, 5_000)
+        await cdp.send(
+          'Target.disposeBrowserContext',
+          { browserContextId },
+          undefined,
+          DEFAULT_BROWSER_COMMAND_TIMEOUT_MS
+        )
       } catch {
         // Best-effort cleanup for a partially created local context.
       }

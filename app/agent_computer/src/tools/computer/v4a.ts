@@ -1,3 +1,5 @@
+import { match, P } from '@pleisto/active-support'
+
 /**
  * V4A ("apply_patch") envelope parser — the multi-file patch format accepted
  * by the `patch` tool in `mode: 'patch'`. We parse Update/Add/Delete/Move; the patch tool
@@ -162,18 +164,32 @@ export function parseV4APatch(patch: string): V4AOperation[] {
       // search side is what fuzzy-match later locates in the file; the replace side is
       // what gets written there. Note slicing by raw `+`/`-`/` ` (not on `trimmed`) so
       // the original indentation of the line survives into the match.
-      if (line.startsWith('+')) replace.push(line.slice(1))
-      else if (line.startsWith('-')) search.push(line.slice(1))
-      else if (line.startsWith('\\')) {
-        continue // "\ No newline at end of file" — a diff annotation, not file content.
-      } else {
-        // Context line: keep on both sides. A leading space is the diff column marker
-        // and is stripped; a line with no marker at all is taken verbatim, which keeps
-        // genuinely blank lines (emitted as "") intact as context.
-        const context = line.startsWith(' ') ? line.slice(1) : line
-        search.push(context)
-        replace.push(context)
-      }
+      match(line)
+        .with(
+          P.when(value => value.startsWith('+')),
+          value => {
+            replace.push(value.slice(1))
+          }
+        )
+        .with(
+          P.when(value => value.startsWith('-')),
+          value => {
+            search.push(value.slice(1))
+          }
+        )
+        .with(
+          P.when(value => value.startsWith('\\')),
+          () => undefined
+        )
+        .otherwise(value => {
+          // Context line: keep on both sides. A leading space is the diff column marker
+          // and is stripped; a line with no marker at all is taken verbatim, which keeps
+          // genuinely blank lines (emitted as "") intact as context.
+          const context = value.startsWith(' ') ? value.slice(1) : value
+          search.push(context)
+          replace.push(context)
+        })
+      continue
     }
   }
 

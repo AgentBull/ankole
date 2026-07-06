@@ -8,6 +8,7 @@ defmodule Ankole.Memory do
   alias Ankole.AIGateway
   alias Ankole.AIGateway.ModelProfiles
   alias Ankole.Actors.ActorEvent
+  alias Ankole.Ecto.UUIDv7
   alias Ankole.Memory.ChannelCursor
   alias Ankole.Memory.Config
   alias Ankole.Memory.Episode
@@ -907,10 +908,14 @@ defmodule Ankole.Memory do
   end
 
   defp get_agent_note(agent_uid, note_id) do
-    Note
-    |> where([note], note.agent_uid == ^agent_uid)
-    |> where([note], note.id == ^note_id)
-    |> Repo.one()
+    with {:ok, note_id} <- UUIDv7.cast(note_id) do
+      Note
+      |> where([note], note.agent_uid == ^agent_uid)
+      |> where([note], note.id == ^note_id)
+      |> Repo.one()
+    else
+      :error -> nil
+    end
   end
 
   defp note_in_channel(_note, nil), do: :ok
@@ -982,7 +987,6 @@ defmodule Ankole.Memory do
       e.inserted_at,
       c.kind,
       c.name,
-      c.title,
       pdb.score(e.document_id) AS score
     FROM signal_gateway_entries e
      JOIN signal_gateway_channels c ON c.id = e.signal_channel_id
@@ -1048,7 +1052,6 @@ defmodule Ankole.Memory do
          inserted_at,
          kind,
          name,
-         title,
          score
        ]) do
     %{
@@ -1058,7 +1061,7 @@ defmodule Ankole.Memory do
       "document_id" => document_id,
       "score" => score,
       "observed_at" => datetime(provider_time || last_seen_at || inserted_at),
-      "channel" => channel_projection(kind, name, title),
+      "channel" => channel_projection(kind, name),
       "speaker" => author_name(author),
       "text" => search_text || text || fallback_visible_text || "",
       "metadata_text" => metadata_text
@@ -1633,11 +1636,10 @@ defmodule Ankole.Memory do
   defp observed_at(%Entry{} = entry),
     do: entry.provider_time || entry.last_seen_at || entry.inserted_at
 
-  defp channel_projection(kind, name, title) do
+  defp channel_projection(kind, name) do
     %{
       "kind" => to_string(kind || ""),
-      "name" => name,
-      "title" => title
+      "name" => name
     }
   end
 

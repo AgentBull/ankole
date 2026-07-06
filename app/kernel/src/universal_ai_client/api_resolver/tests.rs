@@ -109,6 +109,11 @@ mod tests {
                 "choices": [{"delta": {}, "finish_reason": "stop"}]
             }))
             .unwrap();
+        assert!(!events
+            .iter()
+            .any(|event| event["type"] == "response.completed"));
+
+        let events = resolver.finish().unwrap();
         let terminal = events.last().unwrap();
 
         assert_eq!(terminal["type"], "response.completed");
@@ -117,6 +122,102 @@ mod tests {
             "hello"
         );
         assert_eq!(terminal["response"]["usage"]["total_tokens"], 5);
+    }
+
+    #[test]
+    fn openai_chat_waits_for_late_openrouter_usage_before_terminal_response() {
+        let mut resolver = ApiResolver::new(
+            ApiResolverKind::OpenaiChatCompletions,
+            ResponseContext {
+                model: "openrouter-test".to_string(),
+                request: json!({"input": "hi"}),
+                provider_options: json!({}),
+                stream: None,
+                include_model: true,
+            },
+        );
+
+        resolver
+            .ingest(json!({
+                "id": "chatcmpl_1",
+                "created": 10,
+                "model": "openrouter-test",
+                "choices": [{"delta": {"content": "hello"}, "finish_reason": null}]
+            }))
+            .unwrap();
+
+        let events = resolver
+            .ingest(json!({
+                "choices": [{"delta": {"content": ""}, "finish_reason": "stop"}]
+            }))
+            .unwrap();
+        assert!(!events
+            .iter()
+            .any(|event| event["type"] == "response.completed"));
+
+        let events = resolver
+            .ingest(json!({
+                "usage": {"prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5},
+                "choices": [{"delta": {"content": "hello"}, "finish_reason": "stop"}]
+            }))
+            .unwrap();
+        assert!(!events
+            .iter()
+            .any(|event| event["type"] == "response.completed"));
+
+        let events = resolver.finish().unwrap();
+        let terminal = events.last().unwrap();
+
+        assert_eq!(terminal["type"], "response.completed");
+        assert_eq!(
+            terminal["response"]["output"][0]["content"][0]["text"],
+            "hello"
+        );
+        assert_eq!(terminal["response"]["usage"]["total_tokens"], 5);
+    }
+
+    #[test]
+    fn openai_chat_non_streaming_flattens_assistant_content_parts() {
+        let mut resolver = ApiResolver::new(
+            ApiResolverKind::OpenaiChatCompletions,
+            ResponseContext {
+                model: "openrouter-test".to_string(),
+                request: json!({"input": "hi"}),
+                provider_options: json!({}),
+                stream: None,
+                include_model: true,
+            },
+        );
+
+        let response = resolver
+            .normalize_body(
+                200,
+                json!({
+                    "id": "chatcmpl_parts",
+                    "created": 10,
+                    "model": "openrouter-test",
+                    "choices": [{
+                        "message": {
+                            "role": "assistant",
+                            "content": [
+                                {"type": "output_text", "text": "hello"},
+                                {"type": "text", "text": " world"}
+                            ]
+                        },
+                        "finish_reason": "stop"
+                    }],
+                    "usage": {"prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5}
+                }),
+            )
+            .unwrap();
+
+        assert_eq!(
+            response["output"][0]["content"],
+            json!([
+                {"type": "output_text", "text": "hello", "annotations": []},
+                {"type": "output_text", "text": " world", "annotations": []}
+            ])
+        );
     }
 
     #[test]
@@ -138,7 +239,7 @@ mod tests {
                 }]
             }))
             .unwrap();
-        let events = resolver
+        resolver
             .ingest(json!({
                 "choices": [{
                     "delta": {"tool_calls": [{
@@ -149,6 +250,7 @@ mod tests {
                 }]
             }))
             .unwrap();
+        let events = resolver.finish().unwrap();
         let terminal = events.last().unwrap();
         let call = terminal["response"]["output"]
             .as_array()
@@ -191,6 +293,99 @@ mod tests {
             content[1],
             json!({"type": "image_url", "image_url": {"url": image_data_url}})
         );
+    }
+
+    #[test]
+    fn openai_chat_build_body_flattens_assistant_content_parts() {
+        let resolver = ApiResolver::new(
+            ApiResolverKind::OpenaiChatCompletions,
+            ResponseContext {
+                model: "openrouter-test".to_string(),
+                request: json!({
+                    "input": [{
+                        "role": "assistant",
+                        "content": [
+                            {"type": "output_text", "text": "first"},
+                            {"type": "text", "text": " second"}
+                        ]
+                    }]
+                }),
+                provider_options: json!({}),
+                stream: None,
+                include_model: true,
+            },
+        );
+
+        let body = Value::Object(resolver.build_body().unwrap());
+
+        assert_eq!(body["messages"][0]["role"], "assistant");
+        assert_eq!(body["messages"][0]["content"], "first second");
+    }
+
+    #[test]
+    fn openai_chat_build_body_maps_function_call_history_to_tool_messages() {
+        let resolver = ApiResolver::new(
+            ApiResolverKind::OpenaiChatCompletions,
+            ResponseContext {
+                model: "openrouter-test".to_string(),
+                request: json!({
+                    "input": [
+                        {"role": "user", "content": "Use the todo tool."},
+                        {
+                            "type": "function_call",
+                            "call_id": "call_todo",
+                            "name": "todo",
+                            "arguments": "{\"todos\":[]}"
+                        },
+                        {
+                            "type": "function_call_output",
+                            "call_id": "call_todo",
+                            "output": "{\"ok\":true}"
+                        },
+                        {
+                            "role": "assistant",
+                            "content": [{"type": "output_text", "text": "done"}]
+                        }
+                    ]
+                }),
+                provider_options: json!({}),
+                stream: None,
+                include_model: true,
+            },
+        );
+
+        let body = Value::Object(resolver.build_body().unwrap());
+        let messages = body["messages"].as_array().unwrap();
+
+        assert_eq!(messages[0], json!({"role": "user", "content": "Use the todo tool."}));
+        assert_eq!(
+            messages[1],
+            json!({
+                "role": "assistant",
+                "content": null,
+                "tool_calls": [{
+                    "id": "call_todo",
+                    "type": "function",
+                    "function": {
+                        "name": "todo",
+                        "arguments": "{\"todos\":[]}"
+                    }
+                }]
+            })
+        );
+        assert_eq!(
+            messages[2],
+            json!({
+                "role": "tool",
+                "tool_call_id": "call_todo",
+                "content": "{\"ok\":true}"
+            })
+        );
+        assert_eq!(messages[3], json!({"role": "assistant", "content": "done"}));
+
+        assert!(!serde_json::to_string(&messages)
+            .unwrap()
+            .contains("function_call_output"));
     }
 
     #[test]

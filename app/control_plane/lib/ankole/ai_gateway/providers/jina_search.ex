@@ -7,7 +7,7 @@ defmodule Ankole.AIGateway.Providers.JinaSearch do
 
   alias Ankole.AIGateway.UniversalAIRequest
 
-  @timeout_ms 30_000
+  @timeout_ms 120_000
 
   provider :jina_search do
     label(%{"default" => "Jina Search", "zh-Hans-CN" => "Jina Search"})

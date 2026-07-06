@@ -149,7 +149,13 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
     assert {:ok, second} =
              StatefulResponses.commit_complete(second, [second_output_item], %{
-               "usage" => response_usage_fixture(),
+               "usage" => %{
+                 "inputTokens" => 7,
+                 "outputTokens" => 5,
+                 "totalTokens" => 12,
+                 "input_tokens_details" => %{"cached_tokens" => 3},
+                 "output_tokens_details" => %{"reasoning_tokens" => 2}
+               },
                "provider_metadata" => %{"id" => "provider_resp_second", "model" => "gpt-test"},
                "stop_reason" => "stop"
              })
@@ -169,6 +175,14 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert body["input"] == [second_input_item]
     assert body["output"] == [second_output_item]
     assert body["provider_metadata"] == %{"id" => "provider_resp_second", "model" => "gpt-test"}
+
+    assert body["usage"] == %{
+             "input_tokens" => 7,
+             "output_tokens" => 5,
+             "total_tokens" => 12,
+             "input_tokens_details" => %{"cached_tokens" => 3},
+             "output_tokens_details" => %{"reasoning_tokens" => 2}
+           }
 
     assert body["tool_results"] == [
              %{

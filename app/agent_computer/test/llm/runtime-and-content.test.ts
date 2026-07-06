@@ -386,10 +386,8 @@ describe('@ankole/agent-computer llm helpers: runtime and actor content', () => 
       )
 
       expect(typeof content).toBe('string')
-      expect(content).toContain('<image_summary>')
-      expect(content).toContain('Automatic visual description of the user')
+      expect(content).toContain("The user attached an image. Here's what it contains")
       expect(content).toContain('A small image with visible text.')
-      expect(content).toContain('</image_summary>')
       expect(content).not.toContain('data:image/png;base64,')
       expect(fallbackBodies).toHaveLength(1)
       expect(JSON.stringify(fallbackBodies[0]!.input)).toContain('"type":"input_image"')
@@ -407,7 +405,6 @@ describe('@ankole/agent-computer llm helpers: runtime and actor content', () => 
 
       expect(content).toContain(`path=${imagePath}`)
       expect(content).toContain('The current model cannot directly view the attached image content')
-      expect(content).not.toContain('<image_summary>')
       expect(content).not.toContain('data:image/png;base64,')
     })
   })

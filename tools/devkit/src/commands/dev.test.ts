@@ -55,6 +55,19 @@ describe('buildControlPlaneEnv', () => {
     expect(env.DATABASE_URL).toBe('postgres://local')
     expect(env.PORT).toBe('4001')
     expect(env.ANKOLE_RUNTIME_FABRIC_BIND_ENDPOINT).toBe('tcp://127.0.0.1:6011')
+    expect(env.ANKOLE_AI_GATEWAY_WORKER_FACING_BASE_URL).toBe('http://host.docker.internal:4001/api/v1/ai-gateway')
+  })
+
+  test('preserves an explicit worker-facing AIGateway base URL', () => {
+    const env = buildControlPlaneEnv(
+      {
+        DATABASE_URL: 'postgres://local',
+        ANKOLE_AI_GATEWAY_WORKER_FACING_BASE_URL: 'http://gateway.internal/api/v1/ai-gateway'
+      },
+      { port: 4001, fabricPort: 6011 }
+    )
+
+    expect(env.ANKOLE_AI_GATEWAY_WORKER_FACING_BASE_URL).toBe('http://gateway.internal/api/v1/ai-gateway')
   })
 })
 

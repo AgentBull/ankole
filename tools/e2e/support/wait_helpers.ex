@@ -11,7 +11,6 @@ defmodule Ankole.E2E.WaitHelpers do
   import ExUnit.Assertions
 
   alias Ankole.AIGateway.Schemas.Message
-  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.Actors.ActorEvent
   alias Ankole.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.Repo
@@ -29,15 +28,13 @@ defmodule Ankole.E2E.WaitHelpers do
   """
   @spec seed_compression_history!(String.t(), Ecto.UUID.t()) :: [Ecto.UUID.t()]
   def seed_compression_history!(agent_uid, conversation_id) do
-    current_leaf = current_visible_leaf(conversation_id)
-
     old_user =
       insert_transcript_message!(
         agent_uid,
         conversation_id,
         "user",
         "Compression seed: the release codename is ANKOLE_REAL_E2E.",
-        previous_message_id(current_leaf)
+        nil
       )
 
     old_assistant =
@@ -49,29 +46,43 @@ defmodule Ankole.E2E.WaitHelpers do
         old_user.id
       )
 
-    current_tail_id =
-      case current_leaf do
-        %Message{} = leaf ->
-          leaf
-          |> Message.changeset(%{previous_message_id: old_assistant.id})
-          |> Repo.update!()
+    old_followup_user =
+      insert_transcript_message!(
+        agent_uid,
+        conversation_id,
+        "user",
+        "Compression seed follow-up: keep ANKOLE_REAL_E2E available after manual compression.",
+        old_assistant.id
+      )
 
-          leaf.id
+    old_followup_assistant =
+      insert_transcript_message!(
+        agent_uid,
+        conversation_id,
+        "assistant",
+        "Compression seed follow-up recorded for ANKOLE_REAL_E2E.",
+        old_followup_user.id
+      )
 
-        nil ->
-          old_assistant.id
-      end
-
-    _recent_tail =
+    recent_tail =
       insert_transcript_message!(
         agent_uid,
         conversation_id,
         "user",
         String.duplicate("Recent tail retained after compression. ", 2_500),
-        current_tail_id
+        old_followup_assistant.id
       )
 
-    [old_user.id, old_assistant.id]
+    _recent_tail =
+      insert_transcript_message!(
+        agent_uid,
+        conversation_id,
+        "assistant",
+        String.duplicate("Recent tail retained after compression. ", 2_500),
+        recent_tail.id
+      )
+
+    [old_user.id, old_assistant.id, old_followup_user.id, old_followup_assistant.id]
   end
 
   @doc """
@@ -128,7 +139,7 @@ defmodule Ankole.E2E.WaitHelpers do
   """
   @spec wait_until(integer(), (-> term())) :: {:ok, term()} | :timeout
   def wait_until(deadline, fun) when is_function(fun, 0) do
-    case fun.() do
+    case poll_value(fun) do
       result when result in [nil, false] ->
         if System.monotonic_time(:millisecond) > deadline do
           :timeout
@@ -202,33 +213,36 @@ defmodule Ankole.E2E.WaitHelpers do
   @spec wait_for_completed_actor_event_message(map() | port(), Ecto.UUID.t(), integer()) ::
           {:ok, Message.t()}
   def wait_for_completed_actor_event_message(process, actor_event_id, deadline) do
-    case {Repo.get(ActorEvent, actor_event_id), final_ai_message_for_actor_event(actor_event_id)} do
-      {%ActorEvent{completed_at: %DateTime{}}, %Message{status: "complete"} = message} ->
-        {:ok, message}
+    with_transient_db_retry(process, deadline, fn ->
+      case {Repo.get(ActorEvent, actor_event_id),
+            final_ai_message_for_actor_event(actor_event_id)} do
+        {%ActorEvent{completed_at: %DateTime{}}, %Message{status: "complete"} = message} ->
+          {:ok, message}
 
-      {%ActorEvent{completed_at: %DateTime{}}, nil} ->
-        case ai_message_for_actor_event(actor_event_id) do
-          %Message{status: "error"} = message ->
-            flunk(
-              "actor event completed with failed AI message: response=#{inspect(message_response(message))} durable_state=#{inspect(durable_commit_state(actor_event_id))} #{inspect_process(process)} #{received_process_output(process_port(process))}"
-            )
+        {%ActorEvent{completed_at: %DateTime{}}, nil} ->
+          case ai_message_for_actor_event(actor_event_id) do
+            %Message{status: "error"} = message ->
+              flunk(
+                "actor event completed with failed AI message: response=#{inspect(message_response(message))} durable_state=#{inspect(durable_commit_state(actor_event_id))} #{inspect_process(process)} #{received_process_output(process_port(process))}"
+              )
 
-          _message ->
-            receive_port_or_wait(process, deadline, fn ->
-              wait_for_completed_actor_event_message(process, actor_event_id, deadline)
-            end)
-        end
+            _message ->
+              receive_port_or_wait(process, deadline, fn ->
+                wait_for_completed_actor_event_message(process, actor_event_id, deadline)
+              end)
+          end
 
-      {%ActorEvent{completed_at: %DateTime{}}, %Message{status: "error"} = message} ->
-        flunk(
-          "actor event completed with failed AI message: response=#{inspect(message_response(message))} durable_state=#{inspect(durable_commit_state(actor_event_id))} #{inspect_process(process)} #{received_process_output(process_port(process))}"
-        )
+        {%ActorEvent{completed_at: %DateTime{}}, %Message{status: "error"} = message} ->
+          flunk(
+            "actor event completed with failed AI message: response=#{inspect(message_response(message))} durable_state=#{inspect(durable_commit_state(actor_event_id))} #{inspect_process(process)} #{received_process_output(process_port(process))}"
+          )
 
-      _other ->
-        receive_port_or_wait(process, deadline, fn ->
-          wait_for_completed_actor_event_message(process, actor_event_id, deadline)
-        end)
-    end
+        _other ->
+          receive_port_or_wait(process, deadline, fn ->
+            wait_for_completed_actor_event_message(process, actor_event_id, deadline)
+          end)
+      end
+    end)
   end
 
   @doc """
@@ -267,7 +281,7 @@ defmodule Ankole.E2E.WaitHelpers do
   end
 
   @doc """
-  Waits for the final IM mirror of one completed actor event.
+  Waits for the latest final IM mirror of one completed actor event.
 
   Ordinary streamed AI replies do not produce durable outbox rows under the
   stateful AIGateway plan. They become provider-visible through the live
@@ -276,11 +290,23 @@ defmodule Ankole.E2E.WaitHelpers do
   @spec wait_for_completed_final_reply(map() | port(), Ecto.UUID.t(), integer()) ::
           {:ok, Entry.t(), Message.t()}
   def wait_for_completed_final_reply(process, actor_event_id, deadline) do
-    with {:ok, message} <-
-           wait_for_completed_actor_event_message(process, actor_event_id, deadline),
-         {:ok, reply} <-
-           wait_for_final_mirror(process, message.id, deadline) do
-      {:ok, reply, message}
+    case {Repo.get(ActorEvent, actor_event_id),
+          mirrored_latest_final_reply_for_actor_event(actor_event_id)} do
+      {%ActorEvent{completed_at: %DateTime{}}, {%Entry{} = reply, %Message{} = message}} ->
+        {:ok, reply, message}
+
+      {%ActorEvent{completed_at: %DateTime{}}, nil} ->
+        with {:ok, message} <-
+               wait_for_completed_actor_event_message(process, actor_event_id, deadline),
+             {:ok, reply} <-
+               wait_for_final_mirror(process, message.id, deadline) do
+          {:ok, reply, message}
+        end
+
+      _other ->
+        receive_port_or_wait(process, deadline, fn ->
+          wait_for_completed_final_reply(process, actor_event_id, deadline)
+        end)
     end
   end
 
@@ -359,18 +385,6 @@ defmodule Ankole.E2E.WaitHelpers do
     |> Repo.insert!()
   end
 
-  defp current_visible_leaf(conversation_id) do
-    case StatefulResponses.latest_visible_leaf(conversation_id) do
-      nil -> nil
-      message_id -> Repo.get!(Message, message_id)
-    end
-  end
-
-  defp previous_message_id(%Message{previous_message_id: previous_message_id}),
-    do: previous_message_id
-
-  defp previous_message_id(nil), do: nil
-
   defp worker_has_capacity?(%AgentComputerWorker{capacity: capacity, load: load}) do
     available_slots =
       integer_from_map(capacity, "available_turn_slots") ||
@@ -421,6 +435,37 @@ defmodule Ankole.E2E.WaitHelpers do
 
   defp outbox_check_present?(outbox_check), do: not is_nil(outbox_check.())
 
+  defp poll_value(fun) do
+    fun.()
+  rescue
+    error in DBConnection.ConnectionError ->
+      if transient_sandbox_checkout_error?(error) do
+        nil
+      else
+        reraise error, __STACKTRACE__
+      end
+  end
+
+  defp with_transient_db_retry(process, deadline, fun) do
+    fun.()
+  rescue
+    error in DBConnection.ConnectionError ->
+      if transient_sandbox_checkout_error?(error) do
+        receive_port_or_wait(process, deadline, fn ->
+          with_transient_db_retry(process, deadline, fun)
+        end)
+      else
+        reraise error, __STACKTRACE__
+      end
+  end
+
+  defp transient_sandbox_checkout_error?(%DBConnection.ConnectionError{} = error) do
+    message = Exception.message(error)
+
+    String.contains?(message, "could not checkout the connection") and
+      String.contains?(message, "connection not available")
+  end
+
   defp ai_message_for_actor_event(actor_event_id),
     do: ai_message_for_actor_event_latest(actor_event_id)
 
@@ -433,12 +478,31 @@ defmodule Ankole.E2E.WaitHelpers do
   end
 
   defp final_ai_message_for_actor_event(actor_event_id) do
+    actor_event_id
+    |> final_answer_messages_for_actor_event()
+    |> List.first()
+  end
+
+  defp mirrored_latest_final_reply_for_actor_event(actor_event_id) do
+    case final_ai_message_for_actor_event(actor_event_id) do
+      %Message{} = message ->
+        case Repo.get_by(Entry, ai_message_id: message.id) do
+          %Entry{} = entry -> {entry, message}
+          nil -> nil
+        end
+
+      nil ->
+        nil
+    end
+  end
+
+  defp final_answer_messages_for_actor_event(actor_event_id) do
     Message
     |> where([message], fragment("?->>'actor_event_id'", message.metadata) == ^actor_event_id)
     |> where([message], message.status == "complete")
     |> order_by([message], desc: message.inserted_at, desc: message.id)
     |> Repo.all()
-    |> Enum.find(&final_answer_message?/1)
+    |> Enum.filter(&final_answer_message?/1)
   end
 
   defp final_answer_message?(%Message{metadata: metadata, content: content}) do

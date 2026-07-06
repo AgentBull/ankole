@@ -34,7 +34,7 @@ defmodule Ankole.Repo.Migrations.CreateCodexDelegations do
 
     create constraint(:codex_delegations, :codex_delegations_status_check,
              check:
-               "status IN ('queued', 'running', 'waiting_on_user', 'succeeded', 'failed', 'stopped', 'timeout')"
+               "status IN ('queued', 'running', 'waiting_on_user', 'succeeded', 'failed', 'stopped')"
            )
 
     create constraint(:codex_delegations, :codex_delegations_result_object,

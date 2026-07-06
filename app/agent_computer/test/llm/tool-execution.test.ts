@@ -132,13 +132,178 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
     const output = (sentPayloads[1]!.input as Array<Record<string, unknown>>)[0]!.output
     expect(output).toContain('Invalid arguments for tool lookup')
     expect(output).toContain('expected string')
-    expect(output).toContain('Analyze the error above and try a different approach.')
     expectWrappedToolOutput(output)
     expect(sentPayloads[2]).toMatchObject({
       type: 'response.create',
       previous_response_id: 'resp_bad_args_results',
       input: []
     })
+  })
+
+  it('does not execute tools without structured function_call items', async () => {
+    const sentPayloads: Record<string, unknown>[] = []
+    let toolExecutions = 0
+    const leakedText =
+      '[{"name":"lookup","arguments":{"q":"should not execute"}}]\nassistant to=functions.lookup {"q":"also not executable"}'
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
+            const payload = JSON.parse(data) as Record<string, unknown>
+            sentPayloads.push(payload)
+
+            return [
+              {
+                type: 'response.completed',
+                response: {
+                  id: 'resp_text_tool_leak',
+                  status: 'completed',
+                  output: [
+                    {
+                      type: 'message',
+                      role: 'assistant',
+                      content: [{ type: 'output_text', text: leakedText }]
+                    }
+                  ]
+                }
+              }
+            ]
+          })
+      }
+    })
+
+    const final = await runAgentLoop({
+      model,
+      messages: [{ role: 'user', content: 'look this up' }],
+      stateful: {
+        actorEventId: '00000000-0000-0000-0000-000000000021',
+        conversationId: '21212121-2121-2121-2121-212121212121'
+      },
+      tools: [
+        {
+          name: 'lookup',
+          description: 'Look up facts',
+          schema: z.object({ q: z.string() }),
+          execute: async () => {
+            toolExecutions += 1
+            return {
+              content: [{ type: 'text', text: 'should not run' }],
+              details: { ok: false }
+            }
+          }
+        }
+      ]
+    })
+
+    expect(final.content.length).toBeGreaterThan(0)
+    expect(toolExecutions).toBe(0)
+    expect(sentPayloads.map(payload => payload.type)).toEqual(['response.create'])
+  })
+
+  it('does not count tool execution against model inactivity tracking', async () => {
+    const sentPayloads: Record<string, unknown>[] = []
+    const events: string[] = []
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
+            const payload = JSON.parse(data) as Record<string, unknown>
+            sentPayloads.push(payload)
+
+            if (payload.type === 'response.tool_results.record') {
+              return [toolResultsRecordedFrame('resp_suspended_tool_results')]
+            }
+
+            if (sentPayloads.filter(sent => sent.type === 'response.create').length === 1) {
+              return [
+                {
+                  type: 'response.completed',
+                  response: {
+                    id: 'resp_suspended_tool',
+                    status: 'completed',
+                    output: [
+                      {
+                        type: 'function_call',
+                        id: 'fc_suspended_tool',
+                        call_id: 'call_suspended_tool',
+                        name: 'slow_tool',
+                        arguments: '{}'
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+
+            return [
+              {
+                type: 'response.completed',
+                response: {
+                  id: 'resp_after_suspended_tool',
+                  status: 'completed',
+                  output: [
+                    {
+                      type: 'message',
+                      role: 'assistant',
+                      content: [{ type: 'output_text', text: 'done' }]
+                    }
+                  ]
+                }
+              }
+            ]
+          })
+      }
+    })
+
+    await runAgentLoop({
+      model,
+      messages: [{ role: 'user', content: 'run a slow tool' }],
+      stateful: {
+        actorEventId: '00000000-0000-0000-0000-000000000022',
+        conversationId: '22222222-2222-2222-2222-222222222222'
+      },
+      tools: [
+        {
+          name: 'slow_tool',
+          description: 'Slow tool',
+          schema: z.object({}),
+          execute: async () => {
+            events.push('tool_execute')
+            return {
+              content: [{ type: 'text', text: 'tool result' }],
+              details: {}
+            }
+          }
+        }
+      ],
+      onActivity: description => {
+        if (description) events.push(description)
+      },
+      withActivitySuspended: async (description, fn) => {
+        events.push(`suspend:${description}:start`)
+        try {
+          return await fn()
+        } finally {
+          events.push(`suspend:${description}:end`)
+        }
+      }
+    })
+
+    expect(events.indexOf('suspend:tool_execution:start')).toBeLessThan(events.indexOf('tool_execute'))
+    expect(events.indexOf('tool_execute')).toBeLessThan(events.indexOf('suspend:tool_execution:end'))
+    expect(events.indexOf('suspend:tool_execution:end')).toBeLessThan(events.indexOf('tool_results_record_start'))
   })
 
   it('executes pure read-only tool batches in parallel while preserving result order', async () => {
@@ -332,111 +497,6 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
     expect(events.indexOf('write_second:start')).toBeGreaterThan(events.indexOf('read_first:end'))
   })
 
-  it('nudges once when the model returns an empty final response after tool results', async () => {
-    const sentPayloads: Record<string, unknown>[] = []
-    const model = createModel({
-      apiKey: 'unused',
-      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
-      selector: 'primary',
-      responseWebSocket: {
-        kind: 'aigateway-websocket',
-        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
-        authorization: () => 'Bearer agent-key',
-        createWebSocket: (_url, init) =>
-          fakeResponseSocket(init, data => {
-            const payload = JSON.parse(data) as Record<string, unknown>
-            sentPayloads.push(payload)
-
-            if (payload.type === 'response.tool_results.record') {
-              return [toolResultsRecordedFrame('resp_empty_after_tools_results')]
-            }
-
-            const createCount = sentPayloads.filter(sent => sent.type === 'response.create').length
-            if (createCount === 1) {
-              return [
-                {
-                  type: 'response.completed',
-                  response: {
-                    id: 'resp_tool_before_empty',
-                    status: 'completed',
-                    output: [
-                      {
-                        type: 'function_call',
-                        id: 'fc_lookup_empty',
-                        call_id: 'call_lookup_empty',
-                        name: 'lookup',
-                        arguments: '{}'
-                      }
-                    ]
-                  }
-                }
-              ]
-            }
-
-            if (createCount === 2) {
-              return [
-                {
-                  type: 'response.completed',
-                  response: {
-                    id: 'resp_empty_after_tools',
-                    status: 'completed',
-                    output: [{ type: 'message', role: 'assistant', content: [] }]
-                  }
-                }
-              ]
-            }
-
-            return [
-              {
-                type: 'response.completed',
-                response: {
-                  id: 'resp_after_empty_nudge',
-                  status: 'completed',
-                  output: [
-                    {
-                      type: 'message',
-                      role: 'assistant',
-                      content: [{ type: 'output_text', text: 'handled after nudge' }]
-                    }
-                  ]
-                }
-              }
-            ]
-          })
-      }
-    })
-
-    const final = await runAgentLoop({
-      model,
-      messages: [{ role: 'user', content: 'use a tool then answer' }],
-      stateful: {
-        actorEventId: '00000000-0000-0000-0000-000000000019',
-        conversationId: '19191919-1919-1919-1919-191919191919'
-      },
-      tools: [
-        {
-          name: 'lookup',
-          description: 'Look up facts',
-          schema: z.object({}),
-          execute: async () => ({ content: [{ type: 'text', text: 'tool facts' }], details: {} })
-        }
-      ]
-    })
-
-    expect(final.content).toEqual([{ type: 'text', text: 'handled after nudge' }])
-    expect(sentPayloads).toHaveLength(4)
-    expect(sentPayloads[2]).toMatchObject({
-      type: 'response.create',
-      previous_response_id: 'resp_empty_after_tools_results',
-      input: []
-    })
-    expect(sentPayloads[3]).toMatchObject({
-      type: 'response.create',
-      previous_response_id: 'resp_empty_after_tools'
-    })
-    expect(JSON.stringify(sentPayloads[3]!.input)).toContain('returned an empty response')
-  })
-
   it('rejects duplicate tool names before exposing tools to the model', async () => {
     const model = createModel({
       apiKey: 'unused',
@@ -468,97 +528,6 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
         ]
       })
     ).rejects.toThrow('duplicate tool name: duplicate')
-  })
-
-  it('nudges the model after the same hard tool failure repeats', async () => {
-    const sentPayloads: Record<string, unknown>[] = []
-    let recordCount = 0
-    const model = createModel({
-      apiKey: 'unused',
-      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
-      selector: 'primary',
-      responseWebSocket: {
-        kind: 'aigateway-websocket',
-        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
-        authorization: () => 'Bearer agent-key',
-        createWebSocket: (_url, init) =>
-          fakeResponseSocket(init, data => {
-            const payload = JSON.parse(data) as Record<string, unknown>
-            sentPayloads.push(payload)
-
-            if (payload.type === 'response.tool_results.record') {
-              recordCount += 1
-              return [toolResultsRecordedFrame(`resp_repeated_failure_results_${recordCount}`)]
-            }
-
-            const createCount = sentPayloads.filter(sent => sent.type === 'response.create').length
-            if (createCount <= 2) {
-              return [
-                {
-                  type: 'response.completed',
-                  response: {
-                    id: `resp_repeated_failure_${createCount}`,
-                    status: 'completed',
-                    output: [
-                      {
-                        type: 'function_call',
-                        id: `fc_repeated_failure_${createCount}`,
-                        call_id: `call_repeated_failure_${createCount}`,
-                        name: 'lookup',
-                        arguments: '{"q":123,"request_id":"volatile"}'
-                      }
-                    ]
-                  }
-                }
-              ]
-            }
-
-            return [
-              {
-                type: 'response.completed',
-                response: {
-                  id: 'resp_after_repeated_failure_nudge',
-                  status: 'completed',
-                  output: [
-                    {
-                      type: 'message',
-                      role: 'assistant',
-                      content: [{ type: 'output_text', text: 'I changed route after repeated failure.' }]
-                    }
-                  ]
-                }
-              }
-            ]
-          })
-      }
-    })
-
-    const final = await runAgentLoop({
-      model,
-      messages: [{ role: 'user', content: 'look this up' }],
-      stateful: {
-        actorEventId: '00000000-0000-0000-0000-000000000020',
-        conversationId: '20202020-2020-2020-2020-202020202020'
-      },
-      tools: [
-        {
-          name: 'lookup',
-          description: 'Look up facts',
-          schema: z.object({ q: z.string() }),
-          execute: async () => {
-            throw new Error('should not run with invalid args')
-          }
-        }
-      ]
-    })
-
-    expect(final.content).toEqual([{ type: 'text', text: 'I changed route after repeated failure.' }])
-    const secondRecord = sentPayloads.find(
-      payload =>
-        payload.type === 'response.tool_results.record' && JSON.stringify(payload.input).includes('failed repeatedly')
-    )
-    expect(secondRecord).toBeDefined()
-    expect(JSON.stringify(secondRecord!.input)).toContain('failed_tool=lookup')
   })
 })
 

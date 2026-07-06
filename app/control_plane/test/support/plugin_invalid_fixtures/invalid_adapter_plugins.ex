@@ -120,6 +120,33 @@ defmodule Ankole.PluginFixtures.UnknownSignalsInboundCapabilityPlugin do
   def handle_message_receive(_event_type, _event, _consumers), do: {:ok, []}
 end
 
+defmodule Ankole.PluginFixtures.UnknownIdentityCapabilityPlugin do
+  @moduledoc false
+
+  @behaviour Ankole.Plugins.Plugin
+
+  @impl true
+  def plugin_id, do: "unknown-identity-capability"
+
+  @impl true
+  def api_version, do: 1
+
+  @impl true
+  def adapter_declarations do
+    [
+      %{
+        contract_id: "principals.identity_provider",
+        id: "unknown-identity-capability",
+        module: __MODULE__,
+        capabilities: ["user_full_sync", "made_up"]
+      }
+    ]
+  end
+
+  def upsert_user(_provider_id, _user), do: {:ok, %{}}
+  def sync_users(_provider_id, _config, _opts), do: {:ok, %{users: 0}}
+end
+
 defmodule Ankole.PluginFixtures.MissingAIGatewayProviderDefinitionPlugin do
   @moduledoc false
 

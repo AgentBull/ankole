@@ -194,6 +194,88 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
     })
   })
 
+  it('omits max_output_tokens unless the agent runtime policy provides one', async () => {
+    const bodies: Record<string, unknown>[] = []
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      fetch: (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+        const request = input instanceof Request ? input : new Request(input, init)
+        bodies.push(JSON.parse(await request.text()) as Record<string, unknown>)
+
+        return new Response(
+          JSON.stringify({
+            id: `resp_${bodies.length}`,
+            object: 'response',
+            status: 'completed',
+            output: [
+              {
+                type: 'message',
+                role: 'assistant',
+                content: [{ type: 'output_text', text: 'ok' }]
+              }
+            ]
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        )
+      }) as unknown as typeof fetch
+    })
+
+    await callModel(model, {
+      messages: [{ role: 'user', content: 'uncapped' }]
+    })
+    await callModel(model, {
+      messages: [{ role: 'user', content: 'capped' }],
+      maxOutputTokens: 12_000
+    })
+
+    expect(Object.hasOwn(bodies[0]!, 'max_output_tokens')).toBe(false)
+    expect(bodies[1]!.max_output_tokens).toBe(12_000)
+  })
+
+  it('reads normalized usage details from AIGateway Responses results', async () => {
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      fetch: (async () =>
+        new Response(
+          JSON.stringify({
+            id: 'resp_usage',
+            object: 'response',
+            status: 'completed',
+            output: [
+              {
+                type: 'message',
+                role: 'assistant',
+                content: [{ type: 'output_text', text: 'seen' }]
+              }
+            ],
+            usage: {
+              input_tokens: 17,
+              output_tokens: 5,
+              total_tokens: 22,
+              input_tokens_details: { cached_tokens: 3 },
+              output_tokens_details: { reasoning_tokens: 2 }
+            }
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        )) as unknown as typeof fetch
+    })
+
+    const result = await callModel(model, {
+      messages: [{ role: 'user', content: 'measure' }]
+    })
+
+    expect(result.message.usage).toEqual({
+      inputTokens: 17,
+      outputTokens: 5,
+      reasoningTokens: 2,
+      cachedInputTokens: 3
+    })
+  })
+
   it('passes abortSignal through HTTP Responses calls', async () => {
     const controller = new AbortController()
     let fetchCalled = false

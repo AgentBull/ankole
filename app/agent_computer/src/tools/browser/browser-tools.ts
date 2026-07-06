@@ -1,7 +1,7 @@
 import { z } from 'zod'
+import { isRecord } from '@pleisto/active-support'
 import type { AgentTool, AgentToolResult } from '../../core'
 import { imageContentPartFromBuffer } from '../../core/vision'
-import { TEXT_TURN_TIMEOUT_MS } from '../../core/turns/turn_config'
 import { executionScopeTag, type CommandFinished, type ComputerToolContext } from '../computer/context'
 import { truncateOutput } from '../computer/format'
 import {
@@ -22,22 +22,6 @@ import {
   type BrowserRuntimeOptions
 } from './cdp'
 
-// Shared schema fragments reused across the browser tools. Each `.describe`
-// is model-facing text; the wording steers when and how the tool is called.
-const TOOL_TIMEOUT_MARGIN_MS = 15_000
-const BrowserTimeoutMaxSeconds = Math.max(1, Math.floor((TEXT_TURN_TIMEOUT_MS - TOOL_TIMEOUT_MARGIN_MS) / 1000))
-const BrowserDefaultTimeoutSeconds = Math.min(120, BrowserTimeoutMaxSeconds)
-
-const BrowserTimeout = z
-  .number()
-  .int()
-  .min(1)
-  .max(BrowserTimeoutMaxSeconds)
-  .optional()
-  .describe(
-    `Max seconds to wait for this foreground browser command. Use at most ${BrowserTimeoutMaxSeconds}s for the current text-turn budget.`
-  )
-
 const BrowserSession = z
   .string()
   .min(1)
@@ -50,142 +34,123 @@ const BrowserTaskId = z
   .optional()
   .describe('Stable task id used for browser artifacts. Defaults to a generated id.')
 
-const BrowserDoctorParams = z.object({})
-
-const BrowserOpenParams = z.object({
-  url: z.url().describe('URL to open in the rendered browser.'),
-  session: BrowserSession,
-  taskId: BrowserTaskId,
-  timeout: BrowserTimeout
-})
-
-const BrowserExtractParams = z.object({
-  url: z
-    .string()
-    .url()
-    .optional()
-    .describe('URL to open and extract. If omitted, extracts the latest session capture.'),
-  pattern: z
-    .string()
-    .min(1)
-    .optional()
-    .describe('Optional case-insensitive line filter applied to extracted page text.'),
-  session: BrowserSession,
-  taskId: BrowserTaskId,
-  timeout: BrowserTimeout
-})
-
-const BrowserNavigateParams = z.object({
-  url: z.string().url().describe('URL to open in the persistent browser session.'),
-  session: BrowserSession,
-  taskId: BrowserTaskId,
-  timeout: BrowserTimeout
-})
-
-const BrowserSnapshotParams = z.object({
-  full: z.boolean().optional().describe('Return the full page text instead of the default bounded snapshot.'),
-  session: BrowserSession,
-  timeout: BrowserTimeout
-})
-
-const BrowserFindParams = z.object({
-  query: z.string().min(1).describe('Case-insensitive text to find in the current browser page.'),
-  contextLines: z
-    .number()
-    .int()
-    .min(0)
-    .max(12)
-    .optional()
-    .describe('Number of neighboring text lines to return before and after each match. Defaults to 4.'),
-  matchLimit: z
-    .number()
-    .int()
-    .min(1)
-    .max(50)
-    .optional()
-    .describe('Maximum number of matches to return. Defaults to 20.'),
-  caseSensitive: z.boolean().optional().describe('Use case-sensitive matching. Defaults to false.'),
-  session: BrowserSession,
-  timeout: BrowserTimeout
-})
-
 const BrowserRef = z
   .string()
   .min(1)
   .describe('Element ref from the latest browser_snapshot or browser_navigate result, such as e1.')
 
-const BrowserClickParams = z.object({
-  ref: BrowserRef,
-  session: BrowserSession,
-  timeout: BrowserTimeout
-})
+function browserSchemas() {
+  return {
+    doctor: z.object({}),
+    open: z.object({
+      url: z.url().describe('URL to open in the rendered browser.'),
+      session: BrowserSession,
+      taskId: BrowserTaskId
+    }),
+    extract: z.object({
+      url: z
+        .string()
+        .url()
+        .optional()
+        .describe('URL to open and extract. If omitted, extracts the latest session capture.'),
+      pattern: z
+        .string()
+        .min(1)
+        .optional()
+        .describe('Optional case-insensitive line filter applied to extracted page text.'),
+      session: BrowserSession,
+      taskId: BrowserTaskId
+    }),
+    navigate: z.object({
+      url: z.string().url().describe('URL to open in the persistent browser session.'),
+      session: BrowserSession,
+      taskId: BrowserTaskId
+    }),
+    snapshot: z.object({
+      full: z.boolean().optional().describe('Return the full page text instead of the default bounded snapshot.'),
+      session: BrowserSession
+    }),
+    find: z.object({
+      query: z.string().min(1).describe('Case-insensitive text to find in the current browser page.'),
+      contextLines: z
+        .number()
+        .int()
+        .min(0)
+        .max(12)
+        .optional()
+        .describe('Number of neighboring text lines to return before and after each match. Defaults to 4.'),
+      matchLimit: z
+        .number()
+        .int()
+        .min(1)
+        .max(50)
+        .optional()
+        .describe('Maximum number of matches to return. Defaults to 20.'),
+      caseSensitive: z.boolean().optional().describe('Use case-sensitive matching. Defaults to false.'),
+      session: BrowserSession
+    }),
+    click: z.object({
+      ref: BrowserRef,
+      session: BrowserSession
+    }),
+    type: z.object({
+      ref: BrowserRef,
+      text: z.string().describe('Text to place into the referenced input-like element. Existing value is replaced.'),
+      session: BrowserSession
+    }),
+    press: z.object({
+      key: z
+        .string()
+        .min(1)
+        .describe('Keyboard key to press, e.g. Enter, Tab, Escape, ArrowDown, or a single character.'),
+      session: BrowserSession
+    }),
+    scroll: z.object({
+      ref: BrowserRef.optional().describe('Optional scrollable element ref. Omit to scroll the page.'),
+      direction: z.enum(['down', 'up']).optional().describe('Scroll direction. Defaults to down.'),
+      pixels: z.number().int().min(1).max(10_000).optional().describe('Scroll distance in CSS pixels.'),
+      session: BrowserSession
+    }),
+    select: z.object({
+      ref: BrowserRef,
+      value: z.string().min(1).describe('Option value or visible option text to select.'),
+      session: BrowserSession
+    }),
+    wait: z.object({
+      kind: z
+        .enum(['load', 'selector', 'text'])
+        .optional()
+        .describe('Condition to wait for. Defaults to page load readiness.'),
+      selector: z.string().optional().describe('CSS selector for kind=selector.'),
+      text: z.string().optional().describe('Page text fragment for kind=text.'),
+      waitForSeconds: z.number().int().min(1).optional().describe('Condition wait budget in seconds.'),
+      session: BrowserSession
+    }),
+    back: z.object({
+      session: BrowserSession
+    }),
+    screenshot: z.object({
+      path: z
+        .string()
+        .optional()
+        .describe('Optional /workspace path for the PNG. Defaults under /workspace/user-files/browser.'),
+      session: BrowserSession,
+      taskId: BrowserTaskId
+    }),
+    run: z.object({
+      script: z.string().min(1).describe('Python source for a helper script run inside the computer.'),
+      session: BrowserSession,
+      taskId: BrowserTaskId,
+      startUrl: z
+        .string()
+        .url()
+        .optional()
+        .describe('Optional start URL exposed to the script as ANKOLE_BROWSER_START_URL.')
+    })
+  }
+}
 
-const BrowserTypeParams = z.object({
-  ref: BrowserRef,
-  text: z.string().describe('Text to place into the referenced input-like element. Existing value is replaced.'),
-  session: BrowserSession,
-  timeout: BrowserTimeout
-})
-
-const BrowserPressParams = z.object({
-  key: z.string().min(1).describe('Keyboard key to press, e.g. Enter, Tab, Escape, ArrowDown, or a single character.'),
-  session: BrowserSession,
-  timeout: BrowserTimeout
-})
-
-const BrowserScrollParams = z.object({
-  ref: BrowserRef.optional().describe('Optional scrollable element ref. Omit to scroll the page.'),
-  direction: z.enum(['down', 'up']).optional().describe('Scroll direction. Defaults to down.'),
-  pixels: z.number().int().min(1).max(10_000).optional().describe('Scroll distance in CSS pixels.'),
-  session: BrowserSession,
-  timeout: BrowserTimeout
-})
-
-const BrowserSelectParams = z.object({
-  ref: BrowserRef,
-  value: z.string().min(1).describe('Option value or visible option text to select.'),
-  session: BrowserSession,
-  timeout: BrowserTimeout
-})
-
-const BrowserWaitParams = z.object({
-  kind: z
-    .enum(['load', 'selector', 'text'])
-    .optional()
-    .describe('Condition to wait for. Defaults to page load readiness.'),
-  selector: z.string().optional().describe('CSS selector for kind=selector.'),
-  text: z.string().optional().describe('Page text fragment for kind=text.'),
-  waitForSeconds: z.number().int().min(1).max(120).optional().describe('Condition wait budget in seconds.'),
-  session: BrowserSession,
-  timeout: BrowserTimeout
-})
-
-const BrowserBackParams = z.object({
-  session: BrowserSession,
-  timeout: BrowserTimeout
-})
-
-const BrowserScreenshotParams = z.object({
-  path: z
-    .string()
-    .optional()
-    .describe('Optional /workspace path for the PNG. Defaults under /workspace/user-files/browser.'),
-  session: BrowserSession,
-  taskId: BrowserTaskId,
-  timeout: BrowserTimeout
-})
-
-const BrowserRunParams = z.object({
-  script: z.string().min(1).describe('Python source for a helper script run inside the computer.'),
-  session: BrowserSession,
-  taskId: BrowserTaskId,
-  startUrl: z
-    .string()
-    .url()
-    .optional()
-    .describe('Optional start URL exposed to the script as ANKOLE_BROWSER_START_URL.'),
-  timeout: BrowserTimeout
-})
+type BrowserSchemas = ReturnType<typeof browserSchemas>
 
 // Structured echo for logs/UI. `exitCode` is retained for the model-visible
 // contract even though production browser actions now run in-process instead
@@ -203,22 +168,24 @@ interface BrowserToolDetails {
  * CDP BrowserContext in `tools/browser/cdp`.
  */
 export function createBrowserTools(context: ComputerToolContext): AgentTool<any>[] {
+  const schemas = browserSchemas()
+
   return [
-    createBrowserDoctorTool(context),
-    createBrowserNavigateTool(context),
-    createBrowserSnapshotTool(context),
-    createBrowserFindTool(context),
-    createBrowserClickTool(context),
-    createBrowserTypeTool(context),
-    createBrowserPressTool(context),
-    createBrowserScrollTool(context),
-    createBrowserSelectTool(context),
-    createBrowserWaitTool(context),
-    createBrowserBackTool(context),
-    createBrowserScreenshotTool(context),
-    createBrowserOpenTool(context),
-    createBrowserExtractTool(context),
-    createBrowserRunTool(context)
+    createBrowserDoctorTool(context, schemas),
+    createBrowserNavigateTool(context, schemas),
+    createBrowserSnapshotTool(context, schemas),
+    createBrowserFindTool(context, schemas),
+    createBrowserClickTool(context, schemas),
+    createBrowserTypeTool(context, schemas),
+    createBrowserPressTool(context, schemas),
+    createBrowserScrollTool(context, schemas),
+    createBrowserSelectTool(context, schemas),
+    createBrowserWaitTool(context, schemas),
+    createBrowserBackTool(context, schemas),
+    createBrowserScreenshotTool(context, schemas),
+    createBrowserOpenTool(context, schemas),
+    createBrowserExtractTool(context, schemas),
+    createBrowserRunTool(context, schemas)
   ]
 }
 
@@ -226,13 +193,14 @@ export function createBrowserTools(context: ComputerToolContext): AgentTool<any>
  * Health check for the in-computer browser runtime.
  */
 function createBrowserDoctorTool(
-  context: ComputerToolContext
-): AgentTool<typeof BrowserDoctorParams, BrowserToolDetails> {
+  context: ComputerToolContext,
+  schemas: BrowserSchemas
+): AgentTool<any, BrowserToolDetails> {
   return {
     name: 'browser_doctor',
     description:
       'Check the Ankole browser runtime inside the computer. Reports local Chromium availability or the configured remote CDP adapter.',
-    schema: BrowserDoctorParams,
+    schema: schemas.doctor,
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
@@ -246,18 +214,21 @@ function createBrowserDoctorTool(
  * Opens a URL in the persistent rendered browser. Screenshot is best-effort
  * because some CDP backends do not support it.
  */
-function createBrowserOpenTool(context: ComputerToolContext): AgentTool<typeof BrowserOpenParams, BrowserToolDetails> {
+function createBrowserOpenTool(
+  context: ComputerToolContext,
+  schemas: BrowserSchemas
+): AgentTool<any, BrowserToolDetails> {
   return {
     name: 'browser_open',
     description:
       'Compatibility alias for browser_navigate that opens a URL in the persistent browser session and captures a screenshot artifact when the backend supports screenshots. Prefer browser_navigate for new multi-step browser work.',
-    schema: BrowserOpenParams,
+    schema: schemas.open,
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
     async execute(_toolCallId, params, signal) {
       const session = sessionFor(context, params.session)
-      return runBrowserOperation(context, session, params.timeout, signal, async options => {
+      return runBrowserOperation(context, session, signal, async options => {
         await ensureCdpBrowserSession({ session }, options)
         return await browserNavigate({ session, url: params.url, taskId: params.taskId, screenshot: true }, options)
       })
@@ -269,19 +240,20 @@ function createBrowserOpenTool(context: ComputerToolContext): AgentTool<typeof B
  * Builds the main URL navigation browser tool.
  */
 function createBrowserNavigateTool(
-  context: ComputerToolContext
-): AgentTool<typeof BrowserNavigateParams, BrowserToolDetails> {
+  context: ComputerToolContext,
+  schemas: BrowserSchemas
+): AgentTool<any, BrowserToolDetails> {
   return {
     name: 'browser_navigate',
     description:
       'Open a URL in the persistent browser session. Returns a text snapshot with stable element refs like e1; use those refs with browser_click/browser_type/etc. Cookies and page state persist for this execution scope while the CDP backend is alive.',
-    schema: BrowserNavigateParams,
+    schema: schemas.navigate,
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
     async execute(_toolCallId, params, signal) {
       const session = sessionFor(context, params.session)
-      return runBrowserOperation(context, session, params.timeout, signal, async options => {
+      return runBrowserOperation(context, session, signal, async options => {
         await ensureCdpBrowserSession({ session }, options)
         return await browserNavigate({ session, url: params.url, taskId: params.taskId }, options)
       })
@@ -293,19 +265,20 @@ function createBrowserNavigateTool(
  * Builds the page observation browser tool.
  */
 function createBrowserSnapshotTool(
-  context: ComputerToolContext
-): AgentTool<typeof BrowserSnapshotParams, BrowserToolDetails> {
+  context: ComputerToolContext,
+  schemas: BrowserSchemas
+): AgentTool<any, BrowserToolDetails> {
   return {
     name: 'browser_snapshot',
     description:
       'Observe the current browser page as text. The snapshot lists interactive elements with refs; refs are valid only for the latest page state, so take a new snapshot after navigation or DOM-changing actions.',
-    schema: BrowserSnapshotParams,
+    schema: schemas.snapshot,
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
     async execute(_toolCallId, params, signal) {
       const session = sessionFor(context, params.session)
-      return runBrowserOperation(context, session, params.timeout, signal, async options => {
+      return runBrowserOperation(context, session, signal, async options => {
         await ensureCdpBrowserSession({ session }, options)
         return await browserSnapshot({ session, full: params.full }, options)
       })
@@ -316,18 +289,21 @@ function createBrowserSnapshotTool(
 /**
  * Builds the in-page text search browser tool.
  */
-function createBrowserFindTool(context: ComputerToolContext): AgentTool<typeof BrowserFindParams, BrowserToolDetails> {
+function createBrowserFindTool(
+  context: ComputerToolContext,
+  schemas: BrowserSchemas
+): AgentTool<any, BrowserToolDetails> {
   return {
     name: 'browser_find',
     description:
       'Find text in the current rendered browser page and return matching lines with nearby context. Use this after browser_navigate/browser_snapshot on long pages when the relevant text is outside the bounded snapshot.',
-    schema: BrowserFindParams,
+    schema: schemas.find,
     executionMode: 'sequential',
     isReadOnly: true,
     isDestructive: false,
     async execute(_toolCallId, params, signal) {
       const session = sessionFor(context, params.session)
-      return runBrowserOperation(context, session, params.timeout, signal, async options => {
+      return runBrowserOperation(context, session, signal, async options => {
         await ensureCdpBrowserSession({ session }, options)
         return await browserFindInSession(
           {
@@ -348,19 +324,20 @@ function createBrowserFindTool(context: ComputerToolContext): AgentTool<typeof B
  * Builds the element-click browser tool.
  */
 function createBrowserClickTool(
-  context: ComputerToolContext
-): AgentTool<typeof BrowserClickParams, BrowserToolDetails> {
+  context: ComputerToolContext,
+  schemas: BrowserSchemas
+): AgentTool<any, BrowserToolDetails> {
   return {
     name: 'browser_click',
     description:
       'Click an element by ref from the latest browser snapshot, then return a fresh text snapshot. If the ref is stale, take browser_snapshot and retry with the new ref.',
-    schema: BrowserClickParams,
+    schema: schemas.click,
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
     async execute(_toolCallId, params, signal) {
       const session = sessionFor(context, params.session)
-      return runBrowserOperation(context, session, params.timeout, signal, async options => {
+      return runBrowserOperation(context, session, signal, async options => {
         await ensureCdpBrowserSession({ session }, options)
         return await browserClick({ session, ref: params.ref }, options)
       })
@@ -371,18 +348,21 @@ function createBrowserClickTool(
 /**
  * Builds the text-entry browser tool.
  */
-function createBrowserTypeTool(context: ComputerToolContext): AgentTool<typeof BrowserTypeParams, BrowserToolDetails> {
+function createBrowserTypeTool(
+  context: ComputerToolContext,
+  schemas: BrowserSchemas
+): AgentTool<any, BrowserToolDetails> {
   return {
     name: 'browser_type',
     description:
       'Replace the value of an input-like element by ref, dispatching input/change events for framework-controlled fields, then return a fresh snapshot.',
-    schema: BrowserTypeParams,
+    schema: schemas.type,
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
     async execute(_toolCallId, params, signal) {
       const session = sessionFor(context, params.session)
-      return runBrowserOperation(context, session, params.timeout, signal, async options => {
+      return runBrowserOperation(context, session, signal, async options => {
         await ensureCdpBrowserSession({ session }, options)
         return await browserType({ session, ref: params.ref, text: params.text }, options)
       })
@@ -394,18 +374,19 @@ function createBrowserTypeTool(context: ComputerToolContext): AgentTool<typeof B
  * Builds the key-press browser tool.
  */
 function createBrowserPressTool(
-  context: ComputerToolContext
-): AgentTool<typeof BrowserPressParams, BrowserToolDetails> {
+  context: ComputerToolContext,
+  schemas: BrowserSchemas
+): AgentTool<any, BrowserToolDetails> {
   return {
     name: 'browser_press',
     description: 'Press a keyboard key in the persistent browser page, then return a fresh snapshot.',
-    schema: BrowserPressParams,
+    schema: schemas.press,
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
     async execute(_toolCallId, params, signal) {
       const session = sessionFor(context, params.session)
-      return runBrowserOperation(context, session, params.timeout, signal, async options => {
+      return runBrowserOperation(context, session, signal, async options => {
         await ensureCdpBrowserSession({ session }, options)
         return await browserPress({ session, key: params.key }, options)
       })
@@ -417,19 +398,20 @@ function createBrowserPressTool(
  * Builds the page or element scroll browser tool.
  */
 function createBrowserScrollTool(
-  context: ComputerToolContext
-): AgentTool<typeof BrowserScrollParams, BrowserToolDetails> {
+  context: ComputerToolContext,
+  schemas: BrowserSchemas
+): AgentTool<any, BrowserToolDetails> {
   return {
     name: 'browser_scroll',
     description:
       'Scroll the page or a scrollable element ref, then return a fresh snapshot. Use this when relevant refs are not visible in the current snapshot.',
-    schema: BrowserScrollParams,
+    schema: schemas.scroll,
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
     async execute(_toolCallId, params, signal) {
       const session = sessionFor(context, params.session)
-      return runBrowserOperation(context, session, params.timeout, signal, async options => {
+      return runBrowserOperation(context, session, signal, async options => {
         await ensureCdpBrowserSession({ session }, options)
         return await browserScroll(
           { session, ref: params.ref, direction: params.direction, pixels: params.pixels },
@@ -444,19 +426,20 @@ function createBrowserScrollTool(
  * Builds the select-option browser tool.
  */
 function createBrowserSelectTool(
-  context: ComputerToolContext
-): AgentTool<typeof BrowserSelectParams, BrowserToolDetails> {
+  context: ComputerToolContext,
+  schemas: BrowserSchemas
+): AgentTool<any, BrowserToolDetails> {
   return {
     name: 'browser_select',
     description:
       'Select an option in a select element by ref and option value or visible text, then return a snapshot.',
-    schema: BrowserSelectParams,
+    schema: schemas.select,
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
     async execute(_toolCallId, params, signal) {
       const session = sessionFor(context, params.session)
-      return runBrowserOperation(context, session, params.timeout, signal, async options => {
+      return runBrowserOperation(context, session, signal, async options => {
         await ensureCdpBrowserSession({ session }, options)
         return await browserSelect({ session, ref: params.ref, value: params.value }, options)
       })
@@ -467,36 +450,33 @@ function createBrowserSelectTool(
 /**
  * Builds the condition-wait browser tool.
  */
-function createBrowserWaitTool(context: ComputerToolContext): AgentTool<typeof BrowserWaitParams, BrowserToolDetails> {
+function createBrowserWaitTool(
+  context: ComputerToolContext,
+  schemas: BrowserSchemas
+): AgentTool<any, BrowserToolDetails> {
   return {
     name: 'browser_wait',
     description:
       'Wait for page load readiness, a selector, or visible text in the persistent browser page, then return a fresh snapshot.',
-    schema: BrowserWaitParams,
+    schema: schemas.wait,
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
     async execute(_toolCallId, params, signal) {
       const session = sessionFor(context, params.session)
-      return runBrowserOperation(
-        context,
-        session,
-        params.timeout ?? Math.max(BrowserDefaultTimeoutSeconds, params.waitForSeconds ?? 0),
-        signal,
-        async options => {
-          await ensureCdpBrowserSession({ session }, options)
-          return await browserWait(
-            {
-              session,
-              kind: params.kind,
-              selector: params.selector,
-              text: params.text,
-              timeoutMs: params.waitForSeconds === undefined ? undefined : params.waitForSeconds * 1000
-            },
-            options
-          )
-        }
-      )
+      return runBrowserOperation(context, session, signal, async options => {
+        await ensureCdpBrowserSession({ session }, options)
+        return await browserWait(
+          {
+            session,
+            kind: params.kind,
+            selector: params.selector,
+            text: params.text,
+            timeoutMs: params.waitForSeconds === undefined ? undefined : params.waitForSeconds * 1000
+          },
+          options
+        )
+      })
     }
   }
 }
@@ -504,17 +484,20 @@ function createBrowserWaitTool(context: ComputerToolContext): AgentTool<typeof B
 /**
  * Builds the browser-history back tool.
  */
-function createBrowserBackTool(context: ComputerToolContext): AgentTool<typeof BrowserBackParams, BrowserToolDetails> {
+function createBrowserBackTool(
+  context: ComputerToolContext,
+  schemas: BrowserSchemas
+): AgentTool<any, BrowserToolDetails> {
   return {
     name: 'browser_back',
     description: 'Navigate the persistent browser page back one history entry, then return a fresh snapshot.',
-    schema: BrowserBackParams,
+    schema: schemas.back,
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
     async execute(_toolCallId, params, signal) {
       const session = sessionFor(context, params.session)
-      return runBrowserOperation(context, session, params.timeout, signal, async options => {
+      return runBrowserOperation(context, session, signal, async options => {
         await ensureCdpBrowserSession({ session }, options)
         return await browserBack({ session }, options)
       })
@@ -526,19 +509,20 @@ function createBrowserBackTool(context: ComputerToolContext): AgentTool<typeof B
  * Builds the screenshot capture browser tool.
  */
 function createBrowserScreenshotTool(
-  context: ComputerToolContext
-): AgentTool<typeof BrowserScreenshotParams, BrowserToolDetails> {
+  context: ComputerToolContext,
+  schemas: BrowserSchemas
+): AgentTool<any, BrowserToolDetails> {
   return {
     name: 'browser_screenshot',
     description:
       'Capture a real PNG screenshot of the current persistent browser viewport. The image is saved under /workspace/user-files by default and may be attached for image-capable models.',
-    schema: BrowserScreenshotParams,
+    schema: schemas.screenshot,
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
     async execute(_toolCallId, params, signal) {
       const session = sessionFor(context, params.session)
-      return runBrowserOperation(context, session, params.timeout, signal, async options => {
+      return runBrowserOperation(context, session, signal, async options => {
         await ensureCdpBrowserSession({ session }, options)
         return await browserScreenshot({ session, path: params.path, taskId: params.taskId }, options)
       })
@@ -551,19 +535,20 @@ function createBrowserScreenshotTool(
  * capture when `url` is omitted.
  */
 function createBrowserExtractTool(
-  context: ComputerToolContext
-): AgentTool<typeof BrowserExtractParams, BrowserToolDetails> {
+  context: ComputerToolContext,
+  schemas: BrowserSchemas
+): AgentTool<any, BrowserToolDetails> {
   return {
     name: 'browser_extract',
     description:
       'Extract text from a URL or from the current browser page for this agent session. URL extraction reuses the persistent CDP browser session.',
-    schema: BrowserExtractParams,
+    schema: schemas.extract,
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
     async execute(_toolCallId, params, signal) {
       const session = sessionFor(context, params.session)
-      return runBrowserOperation(context, session, params.timeout, signal, async options => {
+      return runBrowserOperation(context, session, signal, async options => {
         await ensureCdpBrowserSession({ session }, options)
         const extracted = await browserExtractFromSession(
           { session, url: params.url, pattern: params.pattern, taskId: params.taskId },
@@ -581,12 +566,15 @@ function createBrowserExtractTool(
  * inject a browser automation library; scripts may read artifacts or use
  * binaries already present in the container.
  */
-function createBrowserRunTool(context: ComputerToolContext): AgentTool<typeof BrowserRunParams, BrowserToolDetails> {
+function createBrowserRunTool(
+  context: ComputerToolContext,
+  schemas: BrowserSchemas
+): AgentTool<any, BrowserToolDetails> {
   return {
     name: 'browser_run',
     description:
       'Run a Python helper script inside the computer. No browser automation package is injected; use only Python modules and binaries available in the container. The script is stored under /workspace/user-files/browser/tasks and runs with cwd=/workspace.',
-    schema: BrowserRunParams,
+    schema: schemas.run,
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: true,
@@ -605,7 +593,6 @@ function createBrowserRunTool(context: ComputerToolContext): AgentTool<typeof Br
         args: [`/workspace/${scriptPath}`],
         cwd: '/workspace',
         env: params.startUrl ? { ANKOLE_BROWSER_START_URL: params.startUrl } : undefined,
-        timeoutMs: (params.timeout ?? BrowserDefaultTimeoutSeconds) * 1000,
         signal
       })) as CommandFinished
       const [stdout, stderr] = await Promise.all([
@@ -627,17 +614,17 @@ function createBrowserRunTool(context: ComputerToolContext): AgentTool<typeof Br
 }
 
 /**
- * Runs one browser operation with runtime options and a bounded timeout.
+ * Runs one browser operation with runtime options.
  */
 async function runBrowserOperation(
   context: ComputerToolContext,
   _session: string,
-  timeoutSeconds: number | undefined,
   signal: AbortSignal | undefined,
   operation: (options: BrowserRuntimeOptions) => Promise<Record<string, unknown>>
 ): Promise<AgentToolResult<BrowserToolDetails>> {
   const options = browserRuntimeOptions(context)
-  const result = await withTimeout(operation(options), (timeoutSeconds ?? BrowserDefaultTimeoutSeconds) * 1000, signal)
+  if (signal?.aborted) throw new Error('browser command aborted')
+  const result = await operation(options)
   return browserToolResult(context, result, signal)
 }
 
@@ -672,8 +659,8 @@ async function browserToolResult(
  * Reads an optional screenshot path from a browser operation result.
  */
 function screenshotPathFromResult(value: unknown): string | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
-  const path = (value as Record<string, unknown>).screenshot_path
+  if (!isRecord(value)) return undefined
+  const path = value.screenshot_path
   return typeof path === 'string' && path.length > 0 ? path : undefined
 }
 
@@ -684,28 +671,6 @@ function browserRuntimeOptions(context: ComputerToolContext): BrowserRuntimeOpti
   return {
     remoteCdpConfig: context.browserRemoteCdpConfig ?? null,
     localBrowserIdleTtlMs: context.localBrowserIdleTtlMs
-  }
-}
-
-/**
- * Bounds a browser operation by timeout and turn abort signal.
- */
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, signal?: AbortSignal): Promise<T> {
-  if (signal?.aborted) throw new Error('browser command aborted')
-
-  let timeout: ReturnType<typeof setTimeout> | undefined
-  let abort: (() => void) | undefined
-  const timeoutPromise = new Promise<never>((_resolve, reject) => {
-    timeout = setTimeout(() => reject(new Error(`browser command timed out after ${timeoutMs}ms`)), timeoutMs)
-    abort = () => reject(new Error('browser command aborted'))
-    signal?.addEventListener('abort', abort, { once: true })
-  })
-
-  try {
-    return await Promise.race([promise, timeoutPromise])
-  } finally {
-    if (timeout) clearTimeout(timeout)
-    if (abort) signal?.removeEventListener('abort', abort)
   }
 }
 

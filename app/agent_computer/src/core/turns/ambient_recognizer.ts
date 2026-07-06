@@ -1,7 +1,19 @@
+import {
+  arrayPath,
+  deepString,
+  err,
+  firstString,
+  isRecord,
+  ok,
+  safeJsonParse,
+  safeJsonStringify,
+  stringArg,
+  type JsonObject,
+  type Result
+} from '@pleisto/active-support'
 import type { TurnStart } from '../../lanes/actor_lane'
 import { buildAmbientRecognizerSystemPrompt, buildAmbientRecognizerUserPrompt } from '../../prompts/ambient_prompt'
-import { arrayPath, objectPath, safeJsonStringify, stringArg, isRecord } from '../../common/json-utils'
-import { currentChannelFromTurnStart, actorEventText } from './actor_event_text'
+import { currentChannelFromTurnStart } from './actor_event_text'
 import { assistantText, callModel, type Message, type ModelConfig, userMessage } from '../llm'
 import type { AgentConversationContext } from '../../lanes/rpc_lane'
 
@@ -10,7 +22,6 @@ export interface AmbientRecognizerInput {
   model: ModelConfig
   historyMessages: unknown[]
   agentConversationContext: AgentConversationContext
-  environmentInfoLines?: string[]
 }
 
 export interface AmbientRecognizerResult {
@@ -30,20 +41,22 @@ export async function recognizeAmbientIntervention(
   const turnStart = input.turnStart
   const context = input.agentConversationContext
   const currentChannel = currentChannelFromTurnStart(turnStart)
-  const decisionInput = ambientDecisionInput(input)
+  const timezone = context.conversation?.timezone ?? 'UTC'
+  const displayName = context.agent?.display_name ?? turnStart.turn.actor.agent_uid
+  const conversationHistory = ambientConversationHistory(input, timezone)
 
   const result = await callModel(input.model, {
     instructions: buildAmbientRecognizerSystemPrompt({
-      agentUid: turnStart.turn.actor.agent_uid,
-      channelLabel: currentChannel?.name ?? currentChannel?.id,
-      conversationId: context.conversation?.id ?? turnStart.turn.actor.session_id,
-      displayName: context.agent?.display_name ?? turnStart.turn.actor.agent_uid,
+      currentTime: formatZonedDateTime(eventTime(turnStart), timezone),
+      displayName,
+      groupName: currentChannel?.name,
       mission: context.mission,
       memoryNotes: (context.memory_notes ?? []).map(note => note.content),
+      platform: currentChannel?.platform,
       soul: context.soul ?? '',
-      timezone: context.conversation?.timezone ?? 'UTC'
+      timezone
     }),
-    messages: [userMessage(buildAmbientRecognizerUserPrompt(JSON.stringify(decisionInput, null, 2)))],
+    messages: [userMessage(buildAmbientRecognizerUserPrompt({ agentName: displayName, conversationHistory }))],
     maxOutputTokens: 300,
     temperature: 0,
     text: ambientDecisionTextFormat,
@@ -59,7 +72,7 @@ export async function recognizeAmbientIntervention(
         [
           'Ambient recognizer decision: intervene.',
           `Reason: ${decision.reason || 'The current observed messages need a visible reply.'}`,
-          'Use the current observed messages as the task and write the visible reply now.'
+          'Use the group conversation from this ambient turn as the task and write the visible group reply now.'
         ].join('\n')
       )
     ]
@@ -74,35 +87,154 @@ const ambientDecisionTextFormat = {
     schema: {
       type: 'object',
       properties: {
-        intervene: { type: 'boolean' },
-        reason: { type: 'string' }
+        reason: {
+          type: 'string',
+          description: 'One sentence explaining why the agent should or should not speak now.'
+        },
+        should_proactively_speak: {
+          type: 'boolean',
+          description: 'True when the agent should proactively speak in the group; false when it should stay silent.'
+        }
       },
-      required: ['intervene', 'reason'],
+      required: ['reason', 'should_proactively_speak'],
       additionalProperties: false
     }
   }
 } as const
 
-/**
- * Builds the JSON payload inspected by the ambient recognizer model.
- */
-function ambientDecisionInput(input: AmbientRecognizerInput): Record<string, unknown> {
+function ambientConversationHistory(input: AmbientRecognizerInput, timezone: string): string {
   const payload = input.turnStart.actor_event.payload_json
-  const recentHistory = arrayPath(payload, ['data', 'recent_history'])
-  const earlierObservedMessages = arrayPath(payload, ['data', 'earlier_observed_messages'])
+  const currentDate = formatZonedDate(eventTime(input.turnStart), timezone)
+  const rawMessages = [
+    ...arrayPath(payload, ['data', 'recent_history']),
+    ...arrayPath(payload, ['data', 'earlier_observed_messages']),
+    ...arrayPath(payload, ['data', 'observed_messages'])
+  ]
+  const visibleMessages = rawMessages.length > 0 ? rawMessages : input.historyMessages
+
+  const messages = visibleMessages
+    .map((value, index) => transcriptMessage(value, index, timezone, currentDate))
+    .filter((message): message is TranscriptMessage => message !== undefined)
+
+  return dedupeTranscriptMessages(messages)
+    .sort((a, b) => a.sortTime - b.sortTime || a.index - b.index)
+    .map(transcriptLine)
+    .join('\n')
+}
+
+type TranscriptMessage = {
+  index: number
+  key: string
+  role: 'agent' | 'human'
+  sortTime: number
+  speaker: string
+  text: string
+  time: string
+}
+
+function transcriptMessage(
+  value: unknown,
+  index: number,
+  timezone: string,
+  currentDate: string | undefined
+): TranscriptMessage | undefined {
+  if (!isRecord(value)) return undefined
+
+  const text = firstString(value, ['text', 'fallback_visible_text', 'content'])
+  if (!text) return undefined
+
+  const sentAt = firstString(value, ['sent_at', 'provider_time', 'time'])
+  const parsedTime = sentAt ? new Date(sentAt) : undefined
+  const sortTime = parsedTime && !Number.isNaN(parsedTime.getTime()) ? parsedTime.getTime() : Number.MAX_SAFE_INTEGER
 
   return {
-    current_input_text: actorEventText(payload, input.turnStart.actor_event.type),
-    current_observed_messages: arrayPath(payload, ['data', 'observed_messages']),
-    entries: arrayPath(payload, ['data', 'entries']),
-    ambient_batch: objectPath(payload, ['data', 'ambient_batch']),
-    channel: objectPath(payload, ['data', 'channel']),
-    source_entry_id: input.turnStart.actor_event.source_entry_id,
-    provider_thread_id: input.turnStart.actor_event.provider_thread_id,
-    environment_info: input.environmentInfoLines ?? [],
-    memory_notes: (input.agentConversationContext.memory_notes ?? []).map(note => note.content),
-    recent_history: recentHistory.length > 0 ? recentHistory : input.historyMessages,
-    earlier_observed_messages: earlierObservedMessages
+    index,
+    key: transcriptMessageKey(value, index),
+    role: transcriptRole(value),
+    sortTime,
+    speaker: firstString(value, ['speaker', 'display_name', 'name']) ?? speakerFromAuthor(value) ?? 'Unknown',
+    text,
+    time: sentAt ? formatTranscriptTime(sentAt, timezone, currentDate) : 'time unknown'
+  }
+}
+
+function transcriptMessageKey(value: JsonObject, index: number): string {
+  const channelId = firstString(value, ['signal_channel_id'])
+  const entryId = firstString(value, ['source_entry_id'])
+  if (channelId && entryId) return `${channelId}:${entryId}`
+  return firstString(value, ['id']) ?? `message:${index}`
+}
+
+function transcriptRole(value: JsonObject): 'agent' | 'human' {
+  return stringArg(value, 'role') === 'agent' ? 'agent' : 'human'
+}
+
+function speakerFromAuthor(value: JsonObject): string | undefined {
+  if (!isRecord(value.author)) return undefined
+  return firstString(value.author, ['display_name', 'name', 'principal_uid', 'id'])
+}
+
+function dedupeTranscriptMessages(messages: TranscriptMessage[]): TranscriptMessage[] {
+  const byKey = new Map<string, TranscriptMessage>()
+  for (const message of messages) byKey.set(message.key, message)
+  return [...byKey.values()]
+}
+
+function transcriptLine(message: TranscriptMessage): string {
+  return `- ${message.time} [${message.role}] ${message.speaker}: ${message.text}`
+}
+
+function eventTime(turnStart: TurnStart): string {
+  return deepString(turnStart.actor_event.payload_json, ['time']) ?? new Date().toISOString()
+}
+
+function formatZonedDateTime(value: string, timezone: string): string {
+  const parts = zonedDateTimeParts(value, timezone)
+  return parts ? `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}` : value
+}
+
+function formatZonedDate(value: string, timezone: string): string | undefined {
+  const parts = zonedDateTimeParts(value, timezone)
+  return parts ? `${parts.year}-${parts.month}-${parts.day}` : undefined
+}
+
+function formatTranscriptTime(value: string, timezone: string, currentDate: string | undefined): string {
+  const parts = zonedDateTimeParts(value, timezone)
+  if (!parts) return value
+
+  const date = `${parts.year}-${parts.month}-${parts.day}`
+  const time = `${parts.hour}:${parts.minute}`
+  return date === currentDate ? time : `${date} ${time}`
+}
+
+function zonedDateTimeParts(
+  value: string,
+  timezone: string
+): { day: string; hour: string; minute: string; month: string; year: string } | undefined {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return undefined
+
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23'
+    }).formatToParts(date)
+
+    const part = (type: string) => parts.find(item => item.type === type)?.value ?? '00'
+    return {
+      day: part('day'),
+      hour: part('hour'),
+      minute: part('minute'),
+      month: part('month'),
+      year: part('year')
+    }
+  } catch {
+    return undefined
   }
 }
 
@@ -112,7 +244,7 @@ function ambientDecisionInput(input: AmbientRecognizerInput): Record<string, unk
 function parseAmbientDecision(text: string): { intervene: boolean; reason: string } {
   const parsed = parseJsonObject(text)
   return {
-    intervene: parsed.intervene === true,
+    intervene: parsed.should_proactively_speak === true,
     reason: stringArg(parsed, 'reason') ?? ''
   }
 }
@@ -121,24 +253,28 @@ function parseAmbientDecision(text: string): { intervene: boolean; reason: strin
  * Recovers a JSON object from model output that may contain extra text despite
  * the structured-output request.
  */
-function parseJsonObject(text: string) {
+function parseJsonObject(text: string): JsonObject {
   const trimmed = text.trim()
   if (!trimmed) return {}
 
-  try {
-    const parsed = JSON.parse(trimmed)
-    return isRecord(parsed) ? parsed : {}
-  } catch {
-    const start = trimmed.indexOf('{')
-    const end = trimmed.lastIndexOf('}')
-    if (start >= 0 && end > start) {
-      try {
-        const parsed = JSON.parse(trimmed.slice(start, end + 1))
-        return isRecord(parsed) ? parsed : {}
-      } catch {
-        return { reason: safeJsonStringify({ invalid_json: trimmed }) }
-      }
-    }
-    return { reason: safeJsonStringify({ invalid_json: trimmed }) }
+  const parsed = parseJsonRecord(trimmed)
+  if (parsed.isOk()) return parsed.value
+
+  const start = trimmed.indexOf('{')
+  const end = trimmed.lastIndexOf('}')
+  if (start >= 0 && end > start) {
+    return parseJsonRecord(trimmed.slice(start, end + 1)).match(
+      value => value,
+      () => ({ reason: safeJsonStringify({ invalid_json: trimmed }) })
+    )
   }
+  return { reason: safeJsonStringify({ invalid_json: trimmed }) }
+}
+
+function parseJsonRecord(text: string): Result<JsonObject, Error> {
+  const parsed = safeJsonParse(text)
+  if (parsed.isErr()) {
+    return err(parsed.error instanceof Error ? parsed.error : new Error(String(parsed.error)))
+  }
+  return ok(isRecord(parsed.value) ? parsed.value : {})
 }

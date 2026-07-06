@@ -50,8 +50,7 @@ defmodule Ankole.SignalsGateway.FactNormalizer do
            normalize_reply_mode(
              fetch_value(channel, :reply_mode) || fetch_value(input, :reply_mode)
            ),
-         channel_name: optional_text(channel, :name) || optional_text(input, :channel_name),
-         channel_title: optional_text(channel, :title) || optional_text(input, :channel_title),
+         channel_name: channel_name(input, channel),
          channel_visibility:
            optional_text(channel, :visibility) || optional_text(input, :channel_visibility),
          channel_metadata: fetch_map(channel, :metadata, %{}),
@@ -107,8 +106,7 @@ defmodule Ankole.SignalsGateway.FactNormalizer do
            normalize_reply_mode(
              fetch_value(channel, :reply_mode) || fetch_value(input, :reply_mode)
            ),
-         channel_name: optional_text(channel, :name) || optional_text(input, :channel_name),
-         channel_title: optional_text(channel, :title) || optional_text(input, :channel_title),
+         channel_name: channel_name(input, channel),
          channel_visibility:
            optional_text(channel, :visibility) || optional_text(input, :channel_visibility),
          channel_metadata: fetch_map(channel, :metadata, %{}),
@@ -173,8 +171,7 @@ defmodule Ankole.SignalsGateway.FactNormalizer do
            normalize_reply_mode(
              fetch_value(channel, :reply_mode) || fetch_value(input, :reply_mode)
            ),
-         channel_name: optional_text(channel, :name) || optional_text(input, :channel_name),
-         channel_title: optional_text(channel, :title) || optional_text(input, :channel_title),
+         channel_name: channel_name(input, channel),
          channel_visibility:
            optional_text(channel, :visibility) || optional_text(input, :channel_visibility),
          channel_metadata: fetch_map(channel, :metadata, %{}),
@@ -204,6 +201,10 @@ defmodule Ankole.SignalsGateway.FactNormalizer do
       session_or_channel ->
         {:ok, optional_text(input, :session_id) || signal_session_id(session_or_channel)}
     end
+  end
+
+  defp channel_name(input, channel) do
+    optional_text(channel, :name) || optional_text(input, :channel_name)
   end
 
   defp structured_agent_mention?(input, agent_uid) do

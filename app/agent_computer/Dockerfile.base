@@ -7,9 +7,9 @@ WORKDIR /repo
 ARG DEBIAN_FRONTEND=noninteractive
 ARG DEBIAN_MIRROR=http://deb.debian.org/debian
 ARG DEBIAN_SECURITY_MIRROR=http://deb.debian.org/debian-security
-ARG RUST_TOOLCHAIN=1.91.0
+ARG RUST_TOOLCHAIN=1.96.1
 
-ENV PATH="/root/.cargo/bin:/root/.bun/bin:/root/.local/bin:${PATH}"
+ENV PATH="/root/.cargo/bin:${PATH}"
 ENV CARGO_NET_RETRY=5
 ENV CARGO_HTTP_TIMEOUT=120
 
@@ -73,13 +73,16 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
   && rustc --version \
   && cargo --version
 
-RUN bun add -g @openai/codex@0.142.0 \
+RUN bun add -g @openai/codex@0.142.5 \
+  && rm -f /usr/local/bin/codex \
+  && printf '%s\n' '#!/usr/bin/env sh' 'exec /usr/local/bin/bun /root/.bun/install/global/node_modules/@openai/codex/bin/codex.js "$@"' > /usr/local/bin/codex \
+  && chmod +x /usr/local/bin/codex \
   && codex --version
 
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
+RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh \
   && python3 -m venv /opt/ankole-python \
   && for attempt in 1 2 3; do \
-    if /root/.local/bin/uv pip install --python /opt/ankole-python/bin/python \
+    if /usr/local/bin/uv pip install --python /opt/ankole-python/bin/python \
       blake3 \
       defusedxml \
       duckdb \

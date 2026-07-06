@@ -3,7 +3,7 @@ import type { JsonObject, TurnStart } from '../src/lanes/actor_lane'
 import { createMemoryTools } from '../src/tools/memory/memory-tools'
 
 describe('memory tools', () => {
-  it('describes memory_note as explicit current-channel memory management', () => {
+  it('describes memory_note as proactive current-channel memory management', () => {
     const memoryNote = createMemoryTools({
       turnStart: turnStartForMemoryTool(),
       requestMemoryRpc: async (): Promise<JsonObject> => ({ status: 'ok' })
@@ -11,8 +11,9 @@ describe('memory tools', () => {
 
     expect(memoryNote?.description).toContain('current channel only')
     expect(memoryNote?.description).toContain('Use action=list when the user asks what you remember')
-    expect(memoryNote?.description).toContain('only when the user explicitly asks')
-    expect(memoryNote?.description).toContain('Do not save casual preferences')
+    expect(memoryNote?.description).toContain('Save proactively when the user states a preference')
+    expect(memoryNote?.description).toContain('The best memory stops the user repeating themselves')
+    expect(memoryNote?.description).toContain('Skip trivial or obvious info')
     expect(memoryNote?.description).toContain('confirm in the visible reply exactly what changed')
   })
 })

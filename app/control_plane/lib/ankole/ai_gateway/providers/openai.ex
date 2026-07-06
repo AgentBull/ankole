@@ -122,13 +122,9 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
     |> UniversalAIRequest.put_new_setting_header("openai-project", :project)
   end
 
-  # `compatible` is accepted as a stored option value from older OpenAI-style
-  # configuration screens, but it maps to Chat Completions in the prepared
-  # request contract.
   defp endpoint_kind(ctx) do
     case ctx.settings[:endpoint_kind] do
       "chat_completions" -> "chat_completions"
-      "compatible" -> "chat_completions"
       _kind -> "responses"
     end
   end

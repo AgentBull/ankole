@@ -1,3 +1,4 @@
+import { compactRecord, match } from '@pleisto/active-support'
 import { z } from 'zod'
 import type { JsonObject, TurnStart } from '../../lanes/actor_lane'
 import type { AgentTool, AgentToolResult } from '../../core'
@@ -15,7 +16,10 @@ type MemoryToolDetails = JsonObject
 const MEMORY_NOTE_DESCRIPTION = [
   'Manage curated durable facts for this agent in the current channel only.',
   'Use action=list when the user asks what you remember about this channel.',
-  'Use save/update/forget only when the user explicitly asks to remember, update, or forget a current-channel fact. Do not save casual preferences, transient facts, or inferred intent.',
+  'Save proactively when the user states a preference, correction, or personal detail, or you learn a stable fact about their environment, conventions, or workflow.',
+  'Priority: user preferences and corrections, then environment facts, then procedures. The best memory stops the user repeating themselves.',
+  'Skip trivial or obvious info, easily re-discovered facts, raw data dumps, task progress, completed-work logs, and temporary TODO state.',
+  'Use update or forget to replace, remove, shorten, or merge stale notes when needed.',
   'After save, update, or forget, confirm in the visible reply exactly what changed.',
   'Notes are shared channel context, so keep each note short, stable, and directly actionable.'
 ].join('\n')
@@ -91,7 +95,7 @@ function createMemorySearchTool(
     async execute(_toolCallId, params): Promise<AgentToolResult<MemoryToolDetails>> {
       const response = await opts.requestMemoryRpc!(
         rpcMethods.memorySearch,
-        memoryRequest(opts.turnStart, compact(params))
+        memoryRequest(opts.turnStart, compactRecord(params))
       )
       return jsonToolResult(response)
     }
@@ -112,7 +116,7 @@ function createMemoryBrowseTool(
     async execute(_toolCallId, params): Promise<AgentToolResult<MemoryToolDetails>> {
       const response = await opts.requestMemoryRpc!(
         rpcMethods.memoryBrowse,
-        memoryRequest(opts.turnStart, compact(params))
+        memoryRequest(opts.turnStart, compactRecord(params))
       )
       return jsonToolResult(response)
     }
@@ -120,16 +124,12 @@ function createMemoryBrowseTool(
 }
 
 function memoryNoteMethod(action: z.output<typeof MemoryNoteParams>['action']): RpcMethod {
-  switch (action) {
-    case 'save':
-      return rpcMethods.memoryNoteSave
-    case 'update':
-      return rpcMethods.memoryNoteUpdate
-    case 'forget':
-      return rpcMethods.memoryNoteForget
-    case 'list':
-      return rpcMethods.memoryNoteList
-  }
+  return match(action)
+    .with('save', () => rpcMethods.memoryNoteSave)
+    .with('update', () => rpcMethods.memoryNoteUpdate)
+    .with('forget', () => rpcMethods.memoryNoteForget)
+    .with('list', () => rpcMethods.memoryNoteList)
+    .exhaustive()
 }
 
 function memoryRequest(turnStart: TurnStart, payload: JsonObject): MemoryRpcRequest {
@@ -148,8 +148,4 @@ function jsonToolResult(details: JsonObject): AgentToolResult<MemoryToolDetails>
     content: [{ type: 'text', text: `${notice}${JSON.stringify(details)}` }],
     details
   }
-}
-
-function compact(value: Record<string, unknown>): JsonObject {
-  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as JsonObject
 }

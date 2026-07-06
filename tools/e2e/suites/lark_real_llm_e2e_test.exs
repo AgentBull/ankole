@@ -69,16 +69,16 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   @tag ownership_timeout: 600_000
   @tag :real_llm
   @tag :browser_tool
-  @tag :web_fetch_local_browser
-  test "real OpenRouter LLM uses web_fetch through local browser" do
+  @tag :web_fetch
+  test "real OpenRouter LLM uses web_fetch" do
     ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!())
 
-    result = run_real_lark_web_fetch_local_browser_turn(ctx)
+    result = run_real_lark_web_fetch_turn(ctx)
 
     assert_lark_final_reply(
       ctx.fake_feishu,
       result.reply,
-      "ANKOLE_WEB_FETCH_LOCAL_BROWSER_OK",
+      "ANKOLE_WEB_FETCH_LIVE_OK",
       :reply,
       "om_real_web_fetch_local_browser_1"
     )

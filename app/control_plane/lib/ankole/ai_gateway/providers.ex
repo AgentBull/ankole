@@ -296,7 +296,6 @@ defmodule Ankole.AIGateway.Providers do
        when is_map(settings) do
     case Map.get(settings, :endpoint_kind) do
       "chat_completions" -> false
-      "compatible" -> false
       _endpoint_kind -> true
     end
   end

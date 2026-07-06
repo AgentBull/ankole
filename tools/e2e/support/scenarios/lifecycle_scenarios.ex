@@ -585,7 +585,7 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
              )
 
     wait_for_event_ack!(fake_feishu, "evt_late_after_recall_1")
-    finalize_due_inbound_batches!()
+    finalize_due_inbound_batch_events!()
 
     refute Repo.get_by(Entry,
              signal_channel_id: "lark:oc_chaos_direct",

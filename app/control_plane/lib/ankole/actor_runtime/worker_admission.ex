@@ -17,12 +17,16 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
   alias Ankole.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.ActorRuntime.TurnLifecycle
   alias Ankole.ActorRuntime.WorkerPool
+  alias Ankole.CodexDelegations
   alias Ankole.Repo
+  alias Ankole.RuntimeEvents
 
   @ready_worker_status "ready"
   # Only "ready"/"draining" workers can be made stale or block a duplicate claim;
   # already-stale/stopped rows are inert and handled by the TTL reaper instead.
   @stale_worker_statuses ~w(ready draining)
+  @worker_stale_after_seconds 60
+  @stale_worker_ttl_seconds 3_600
 
   @doc """
   Admits an authenticated worker-ready message.
@@ -88,6 +92,7 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
           conflict_target: [:worker_id],
           returning: true
         )
+        |> notify_worker_stale_deadline(repo)
       end
     end)
   end
@@ -201,53 +206,69 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
     end)
   end
 
-  @doc """
-  Marks ready or draining workers stale after their heartbeat lease expires.
-  """
-  @spec mark_stale_workers(module(), DateTime.t(), non_neg_integer()) ::
-          {:ok, non_neg_integer()} | {:error, term()}
-  def mark_stale_workers(repo, now, stale_after_seconds) do
-    cutoff = DateTime.add(now, -stale_after_seconds, :second)
-
-    workers =
-      AgentComputerWorker
-      |> where([worker], worker.status in ^@stale_worker_statuses)
-      |> where(
-        [worker],
-        is_nil(worker.last_worker_heartbeat_at) or worker.last_worker_heartbeat_at <= ^cutoff
-      )
-      |> lock("FOR UPDATE")
-      |> repo.all()
-
-    workers
-    |> Enum.map(fn worker ->
-      with {:ok, worker} <- stale_worker_transition(repo, worker, now, "heartbeat_timeout") do
-        {:ok, worker}
-      end
-    end)
-    |> collect_results()
-    |> case do
-      {:ok, workers} -> {:ok, length(workers)}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  @doc """
-  Deletes stale worker projections after the retention TTL.
-  """
-  @spec delete_expired_stale_workers(module(), DateTime.t(), non_neg_integer()) ::
-          {non_neg_integer(), nil | [term()]}
-  def delete_expired_stale_workers(repo, now, ttl_seconds) do
-    cutoff = DateTime.add(now, -ttl_seconds, :second)
+  @doc false
+  @spec runtime_event_snapshot() :: [{String.t(), map()}]
+  def runtime_event_snapshot do
+    now = DateTime.utc_now(:microsecond)
 
     AgentComputerWorker
-    |> where([worker], worker.status in ["stale", "stopped"])
-    |> where(
-      [worker],
-      worker.last_worker_heartbeat_at <= ^cutoff or
-        (is_nil(worker.last_worker_heartbeat_at) and worker.stopped_at <= ^cutoff)
-    )
-    |> repo.delete_all()
+    |> where([worker], worker.status in ["ready", "draining", "stale", "stopped"])
+    |> Repo.all()
+    |> Enum.map(&worker_runtime_event(&1, now))
+  end
+
+  @doc false
+  @spec mark_worker_stale_if_due(String.t(), keyword()) ::
+          {:ok, AgentComputerWorker.t()} | {:error, term()}
+  def mark_worker_stale_if_due(worker_id, opts \\ []) when is_binary(worker_id) do
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+    stale_after_seconds = Keyword.get(opts, :stale_after_seconds, @worker_stale_after_seconds)
+
+    Repo.transact(fn repo ->
+      case lock_worker_by_id(repo, worker_id) do
+        %AgentComputerWorker{} = worker ->
+          cond do
+            worker.status not in @stale_worker_statuses ->
+              {:error, :worker_not_due}
+
+            not worker_stale_due?(worker, now, stale_after_seconds) ->
+              {:error, :worker_not_due}
+
+            true ->
+              stale_worker_transition(repo, worker, now, "heartbeat_timeout")
+          end
+
+        nil ->
+          {:error, :worker_not_found}
+      end
+    end)
+  end
+
+  @doc false
+  @spec delete_worker_if_due(String.t(), keyword()) ::
+          {:ok, AgentComputerWorker.t()} | {:error, term()}
+  def delete_worker_if_due(worker_id, opts \\ []) when is_binary(worker_id) do
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+    ttl_seconds = Keyword.get(opts, :stale_worker_ttl_seconds, @stale_worker_ttl_seconds)
+
+    Repo.transact(fn repo ->
+      case lock_worker_by_id(repo, worker_id) do
+        %AgentComputerWorker{} = worker ->
+          cond do
+            worker.status not in ["stale", "stopped"] ->
+              {:error, :worker_not_due}
+
+            not worker_delete_due?(worker, now, ttl_seconds) ->
+              {:error, :worker_not_due}
+
+            true ->
+              repo.delete(worker)
+          end
+
+        nil ->
+          {:error, :worker_not_found}
+      end
+    end)
   end
 
   # Updates heartbeat and capacity only when the worker still owns the transport
@@ -260,6 +281,7 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
             worker
             |> AgentComputerWorker.changeset(attrs)
             |> repo.update()
+            |> notify_worker_stale_deadline(repo)
           end
 
         nil ->
@@ -304,16 +326,34 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
     |> repo.one()
   end
 
+  defp lock_worker_by_id(repo, worker_id) do
+    AgentComputerWorker
+    |> where([worker], worker.worker_id == ^worker_id)
+    |> lock("FOR UPDATE")
+    |> repo.one()
+  end
+
   # Moves a worker out of service and releases every runtime fence that points
   # at it. The actor event rows stay open, so the next scheduler pass can retry
   # without changing the user-visible work.
   defp stale_worker_transition(repo, %AgentComputerWorker{} = worker, now, reason) do
+    actor_keys = worker_actor_keys(repo, worker)
+
     with {:ok, worker} <- mark_worker_stale(repo, worker, now, reason),
          {:ok, _failed_activations} <-
            TurnLifecycle.fail_activations_for_worker(repo, worker.worker_id, now, reason),
          {_delivery_count, _rows} <-
-           supersede_unaccepted_deliveries_for_worker(repo, worker, now, reason),
-         {_assignment_count, _rows} <- WorkerPool.release_assignments_for_worker(repo, worker) do
+           supersede_live_deliveries_for_worker(repo, worker, now, reason),
+         {_assignment_count, _rows} <- WorkerPool.release_assignments_for_worker(repo, worker),
+         {:ok, _failed_delegations} <-
+           CodexDelegations.fail_worker_route_delegations(
+             repo,
+             worker.transport_route,
+             now,
+             "stale"
+           ),
+         :ok <- notify_worker_delete_deadline(repo, worker),
+         :ok <- notify_actor_keys(repo, actor_keys, now) do
       {:ok, worker}
     end
   end
@@ -328,9 +368,11 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
     |> repo.update()
   end
 
-  # The activation failure path handles accepted deliveries for the current
-  # turn. This catch-all only covers turns that were routed but never accepted.
-  defp supersede_unaccepted_deliveries_for_worker(
+  # The activation failure path should normally handle accepted deliveries, but
+  # stale-worker recovery must still clear every runtime fence owned by the dead
+  # worker. Otherwise a lost or drifted activation can leave the actor queue
+  # permanently blocked behind an unusable delivery.
+  defp supersede_live_deliveries_for_worker(
          repo,
          %AgentComputerWorker{} = worker,
          now,
@@ -338,7 +380,7 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
        ) do
     ActorEventDelivery
     |> where([delivery], delivery.worker_id == ^worker.worker_id)
-    |> where([delivery], delivery.state in ["created", "sent"])
+    |> where([delivery], delivery.state in ^ActorEventDelivery.live_states())
     |> repo.update_all(
       set: [
         state: "superseded",
@@ -348,6 +390,94 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
       ]
     )
   end
+
+  defp worker_actor_keys(repo, %AgentComputerWorker{} = worker) do
+    ActorEventDelivery
+    |> where([delivery], delivery.worker_id == ^worker.worker_id)
+    |> where([delivery], delivery.state in ^ActorEventDelivery.live_states())
+    |> select([delivery], %{agent_uid: delivery.agent_uid, session_id: delivery.session_id})
+    |> distinct(true)
+    |> repo.all()
+  end
+
+  defp notify_actor_keys(repo, actor_keys, now) do
+    actor_keys
+    |> Enum.map(fn actor_key ->
+      RuntimeEvents.notify_actor_session_ready(
+        repo,
+        actor_key.agent_uid,
+        actor_key.session_id,
+        now
+      )
+    end)
+    |> collect_notification_results()
+  end
+
+  defp notify_worker_stale_deadline({:ok, %AgentComputerWorker{} = worker}, repo) do
+    with :ok <-
+           RuntimeEvents.notify_worker_deadline(repo, worker,
+             stale_at: worker_stale_at(worker, DateTime.utc_now(:microsecond))
+           ) do
+      {:ok, worker}
+    end
+  end
+
+  defp notify_worker_stale_deadline({:error, _reason} = error, _repo), do: error
+
+  defp notify_worker_delete_deadline(repo, %AgentComputerWorker{} = worker) do
+    RuntimeEvents.notify_worker_deadline(repo, worker, delete_at: worker_delete_at(worker))
+  end
+
+  defp worker_runtime_event(%AgentComputerWorker{} = worker, now) do
+    {RuntimeEvents.worker_deadline_channel(),
+     %{
+       "worker_id" => worker.worker_id,
+       "transport_route" => worker.transport_route,
+       "stale_at" =>
+         if(worker.status in @stale_worker_statuses,
+           do: RuntimeEvents.encode_datetime(worker_stale_at(worker, now))
+         ),
+       "delete_at" =>
+         if(worker.status in ["stale", "stopped"],
+           do: RuntimeEvents.encode_datetime(worker_delete_at(worker))
+         )
+     }}
+  end
+
+  defp worker_stale_due?(%AgentComputerWorker{} = worker, now, stale_after_seconds) do
+    heartbeat_at = worker.last_worker_heartbeat_at
+
+    is_nil(heartbeat_at) or
+      DateTime.compare(heartbeat_at, DateTime.add(now, -stale_after_seconds, :second)) != :gt
+  end
+
+  defp worker_delete_due?(%AgentComputerWorker{} = worker, now, ttl_seconds) do
+    case worker_delete_base_at(worker) do
+      %DateTime{} = base_at ->
+        DateTime.compare(base_at, DateTime.add(now, -ttl_seconds, :second)) != :gt
+
+      nil ->
+        false
+    end
+  end
+
+  defp worker_stale_at(
+         %AgentComputerWorker{last_worker_heartbeat_at: %DateTime{} = heartbeat_at},
+         _now
+       ),
+       do: DateTime.add(heartbeat_at, @worker_stale_after_seconds, :second)
+
+  defp worker_stale_at(%AgentComputerWorker{}, now), do: now
+
+  defp worker_delete_at(%AgentComputerWorker{} = worker) do
+    case worker_delete_base_at(worker) do
+      %DateTime{} = base_at -> DateTime.add(base_at, @stale_worker_ttl_seconds, :second)
+      nil -> nil
+    end
+  end
+
+  defp worker_delete_base_at(%AgentComputerWorker{} = worker),
+    do: worker.stopped_at || worker.last_worker_heartbeat_at
 
   # Normalizes the transport boundary into a plain route string. Tests may pass
   # the route directly; production passes a small authenticated route map.
@@ -449,5 +579,12 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
       {:ok, values} -> {:ok, Enum.reverse(values)}
       {:error, _reason} = error -> error
     end
+  end
+
+  defp collect_notification_results(results) do
+    Enum.reduce_while(results, :ok, fn
+      :ok, :ok -> {:cont, :ok}
+      {:error, _reason} = error, :ok -> {:halt, error}
+    end)
   end
 end

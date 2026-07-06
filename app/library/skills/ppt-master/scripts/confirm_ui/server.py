@@ -38,6 +38,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
 import webbrowser
 from pathlib import Path
@@ -136,6 +137,46 @@ def _result_stage(result_file: Path) -> Optional[str]:
     return data.get('stage') if isinstance(data, dict) else None
 
 
+def _confirm_server_reachable(port: object) -> bool:
+    """Return True only when the lock's port is actually serving Confirm UI.
+
+    In sandboxed / PID-namespaced execution the pid recorded by the daemonized
+    child can be ambiguous to a later process. A reused live pid is not enough
+    proof that the Flask server still exists; the port must answer too.
+    """
+    try:
+        port = int(port or 0)
+    except (TypeError, ValueError):
+        return False
+    if port <= 0:
+        return False
+
+    try:
+        urllib.request.urlopen(f'http://127.0.0.1:{port}/api/catalogs', timeout=1).close()
+        return True
+    except urllib.error.HTTPError:
+        return True
+    except OSError:
+        return False
+
+
+def _lock_server_alive(lock: Optional[dict]) -> bool:
+    if not lock:
+        return False
+    try:
+        pid = int(lock.get('pid', 0) or 0)
+    except (TypeError, ValueError):
+        return False
+    return _process_alive(pid) and _confirm_server_reachable(lock.get('port'))
+
+
+def _clear_stale_lock(lock_file: Path) -> None:
+    try:
+        lock_file.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 # Tier-1 anchors. On the Tier-2 page these sections are not rendered (they were
 # confirmed in Tier 1), so their values live only in browser STATE — lost on a
 # refresh. Folding them from result.json into the served Tier-2 recommendations
@@ -190,9 +231,9 @@ def _wait_only_for_result(
             return 0
 
         lock = _read_lock(lock_file)
-        pid = int((lock or {}).get('pid', 0) or 0)
-        if not pid or not _process_alive(pid):
+        if not _lock_server_alive(lock):
             logger.error('confirm server is no longer running before tier 2 was confirmed')
+            _clear_stale_lock(lock_file)
             return 1
 
         if deadline is not None and time.time() >= deadline:
@@ -220,8 +261,8 @@ def _shutdown_existing(lock_file: Path) -> int:
         return 0
     pid = int(existing.get('pid', 0) or 0)
     port = existing.get('port')
-    if not _process_alive(pid):
-        _release_lock(lock_file)
+    if not _process_alive(pid) or not _confirm_server_reachable(port):
+        _clear_stale_lock(lock_file)
         logger.info('confirm server already stopped; cleared stale lock')
         return 0
     # Graceful first: the server flushes and releases its own lock.
@@ -488,7 +529,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.daemon:
         lock_file = project_path / LOCK_FILE_NAME
         existing = _read_lock(lock_file)
-        if existing and _process_alive(int(existing.get('pid', 0))):
+        if existing and _lock_server_alive(existing):
             existing_pid = existing.get('pid', '?')
             existing_port = existing.get('port', '?')
             logger.error(
@@ -497,6 +538,8 @@ def main(argv: Optional[list[str]] = None) -> int:
                 existing_pid, existing_port, existing_port,
             )
             return 1
+        if existing:
+            _clear_stale_lock(lock_file)
 
         confirm_dir = project_path / CONFIRM_DIR_NAME
         confirm_dir.mkdir(parents=True, exist_ok=True)
@@ -542,6 +585,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     # Per-project mutual exclusion: refuse duplicate launches. Stale locks
     # (dead pid) are overwritten by _claim_lock.
     lock_file = project_path / LOCK_FILE_NAME
+    existing = _read_lock(lock_file)
+    if existing and not _lock_server_alive(existing):
+        _clear_stale_lock(lock_file)
     existing = _claim_lock(lock_file, args.port)
     if existing:
         existing_pid = existing.get('pid', '?')

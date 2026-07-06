@@ -44,20 +44,6 @@ defmodule AnkoleWeb.SpaControllerTest do
     assert redirected_to(conn) == ~p"/"
   end
 
-  test "GET /auth redirects to setup before completion", %{conn: conn} do
-    conn = get(conn, ~p"/auth")
-
-    assert redirected_to(conn) == ~p"/setup"
-  end
-
-  test "GET /auth redirects to sessions after completion", %{conn: conn} do
-    {:ok, true} = SetupConfig.put_completed(true)
-
-    conn = get(conn, ~p"/auth")
-
-    assert redirected_to(conn) == ~p"/sessions/new"
-  end
-
   test "GET /sessions/new serves auth after completion", %{conn: conn} do
     {:ok, true} = SetupConfig.put_completed(true)
 

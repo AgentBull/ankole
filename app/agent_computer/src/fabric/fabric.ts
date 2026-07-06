@@ -1,6 +1,6 @@
 import * as kernel from '../../../kernel'
 
-export type JsonObject = Record<string, unknown>
+export type { JsonObject } from '@pleisto/active-support'
 
 /**
  * JSON-shaped host representation of a RuntimeFabric protobuf envelope.
@@ -34,11 +34,4 @@ export function encodeEnvelope(envelope: RuntimeFabricEnvelope): Buffer {
  */
 export function decodeEnvelope(bytes: Buffer): RuntimeFabricEnvelope {
   return kernel.runtimeFabricDecodeEnvelope(bytes) as RuntimeFabricEnvelope
-}
-
-/**
- * Narrows unknown JSON-like values to object records.
- */
-export function isRecord(value: unknown): value is JsonObject {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

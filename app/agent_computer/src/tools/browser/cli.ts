@@ -1,3 +1,4 @@
+import { match } from '@pleisto/active-support'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { normalize, resolve } from 'node:path'
 import {
@@ -38,44 +39,27 @@ try {
  * Routes the CLI command name to the matching in-process browser operation.
  */
 async function dispatch(commandName: string, args: string[]): Promise<JsonObject | string> {
-  switch (commandName) {
-    case 'doctor':
-      return doctor()
-    case 'launch':
-      return await launch(args)
-    case 'status':
-      return await status(args)
-    case 'navigate':
-      return await navigate(args)
-    case 'snapshot':
-      return await snapshot(args)
-    case 'find':
-      return await find(args)
-    case 'click':
-      return await click(args)
-    case 'type':
-      return await typeText(args)
-    case 'press':
-      return await press(args)
-    case 'scroll':
-      return await scroll(args)
-    case 'select':
-      return await select(args)
-    case 'wait':
-      return await wait(args)
-    case 'back':
-      return await back(args)
-    case 'screenshot':
-      return await screenshot(args)
-    case 'open':
-      return await openUrl(args)
-    case 'extract':
-      return await extract(args)
-    case 'run':
-      return run(args)
-    default:
+  return match(commandName)
+    .with('doctor', () => doctor())
+    .with('launch', () => launch(args))
+    .with('status', () => status(args))
+    .with('navigate', () => navigate(args))
+    .with('snapshot', () => snapshot(args))
+    .with('find', () => find(args))
+    .with('click', () => click(args))
+    .with('type', () => typeText(args))
+    .with('press', () => press(args))
+    .with('scroll', () => scroll(args))
+    .with('select', () => select(args))
+    .with('wait', () => wait(args))
+    .with('back', () => back(args))
+    .with('screenshot', () => screenshot(args))
+    .with('open', () => openUrl(args))
+    .with('extract', () => extract(args))
+    .with('run', () => run(args))
+    .otherwise(() => {
       throw new Error(`unknown ankole-browser command: ${commandName}`)
-  }
+    })
 }
 
 /**

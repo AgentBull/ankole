@@ -7,7 +7,7 @@ defmodule Ankole.Application do
 
   @impl true
   def start(_type, _args) do
-    signals_gateway_opts = Application.get_env(:ankole, :signals_gateway, [])
+    runtime_events_opts = Application.get_env(:ankole, :runtime_events, [])
 
     # Child order is load-bearing, not cosmetic. `:one_for_one` restarts a single
     # failed child in place, but the initial boot still proceeds top to bottom, so
@@ -19,8 +19,10 @@ defmodule Ankole.Application do
     #   - Plugins.Registry before Plugins.Supervisor: the registry discovers and
     #     activates plugins, then the supervisor reads that active set to know
     #     which plugin-contributed children to start (snapshot taken once at boot).
-    #   - PubSub + SignalsGateway preview/batch children before ActorRuntime:
-    #     inbound debounce can finalize actor events and start preview handlers.
+    #   - PubSub + SignalsGateway preview children before ActorRuntime:
+    #     finalized actor events can start preview handlers.
+    #   - RuntimeEvents after ActorRuntime: LISTEN is followed by a snapshot of
+    #     durable rows into exact per-key timers.
     #   - Endpoint last: accept web traffic only after every subsystem it serves
     #     (auth, config, plugins, actors, i18n) is ready.
     children =
@@ -37,19 +39,23 @@ defmodule Ankole.Application do
         {Registry, keys: :unique, name: Ankole.SignalsGateway.PreviewRegistry},
         {DynamicSupervisor, name: Ankole.SignalsGateway.PreviewSupervisor, strategy: :one_for_one}
       ]
+
+    children =
+      children ++
+        [
+          Ankole.ActorRuntime.Supervisor
+        ]
+
+    children =
+      children
       |> maybe_add_child(
-        signals_gateway_child(signals_gateway_opts, :inbound_batch_finalizer),
-        enabled?(signals_gateway_opts, :inbound_batch_finalizer, true)
-      )
-      |> maybe_add_child(
-        signals_gateway_child(signals_gateway_opts, :recovery_scan),
-        enabled?(signals_gateway_opts, :recovery_scan, true)
+        {Ankole.RuntimeEvents.Supervisor, child_opts(runtime_events_opts)},
+        enabled?(runtime_events_opts, true)
       )
 
     children =
       children ++
         [
-          Ankole.ActorRuntime.Supervisor,
           Ankole.AIGateway.ModelMetadata.Cache,
           Ankole.I18n.Catalog,
           {DNSCluster, query: Application.get_env(:ankole, :dns_cluster_query) || :ignore},
@@ -73,27 +79,14 @@ defmodule Ankole.Application do
   defp maybe_add_child(children, _child, false), do: children
   defp maybe_add_child(children, child, true), do: children ++ [child]
 
-  defp signals_gateway_child(opts, :inbound_batch_finalizer) do
-    {Ankole.SignalsGateway.InboundBatchFinalizer, child_opts(opts, :inbound_batch_finalizer)}
-  end
-
-  defp signals_gateway_child(opts, :recovery_scan) do
-    {Ankole.SignalsGateway.RecoveryScan, child_opts(opts, :recovery_scan)}
-  end
-
-  defp enabled?(opts, key, default) do
-    case Keyword.get(opts, key) do
+  defp enabled?(opts, default) do
+    case Keyword.get(opts, :enabled) do
       nil -> default
       enabled when is_boolean(enabled) -> enabled
-      child_opts when is_list(child_opts) -> Keyword.get(child_opts, :enabled, default)
       _invalid -> default
     end
   end
 
-  defp child_opts(opts, key) do
-    case Keyword.get(opts, key, []) do
-      child_opts when is_list(child_opts) -> Keyword.delete(child_opts, :enabled)
-      _invalid -> []
-    end
-  end
+  defp child_opts(opts) when is_list(opts), do: Keyword.delete(opts, :enabled)
+  defp child_opts(_opts), do: []
 end

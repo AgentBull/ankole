@@ -66,6 +66,35 @@ describe('@ankole/agent-computer Codex delegation', () => {
     }
   })
 
+  it('describes codex_delegate as a subagent delegation primitive, not a plain coding shortcut', () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-codex-description-'))
+    try {
+      const tool = createCodexDelegateTool({
+        turnStart: turnStartForTest(),
+        workspaceRoot: root,
+        ...codexRequesters([], [])
+      })
+
+      expect(tool.description).toContain('Create one managed Codex subagent for an independent task')
+      expect(tool.description).toContain('WHEN TO USE codex_delegate:')
+      expect(tool.description).toContain('WHEN NOT TO USE (use these instead):')
+      expect(tool.description).toContain('Self-contained software deliverables')
+      expect(tool.description).toContain('Single tool call -> just call the tool directly')
+      expect(tool.description).toContain('use tools independently when needed')
+      expect(tool.description).toContain('A subagent may create artifacts and run its own validation')
+      expect(tool.description).toContain('delegation snapshot as the subagent task report')
+      expect(tool.description).toContain('Pass all relevant info')
+      expect(tool.description).toContain('structured analysis')
+      expect(tool.description).toContain('run: foreground mode')
+      expect(tool.description).toContain('do not call status or run again for the same subtask')
+      expect(tool.description).toContain('start: background mode')
+      expect(tool.description).not.toContain('timeout_seconds')
+      expect(tool.description).not.toContain('Delegate coding work to a nested OpenAI Codex')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('limits running Codex background delegations to three per agent and queues overflow', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-codex-queue-'))
     const previousBinary = process.env.ANKOLE_CODEX_BINARY
@@ -89,8 +118,7 @@ describe('@ankole/agent-computer Codex delegation', () => {
             toolCallId: `tool-${index}`,
             request: {
               prompt: `edit task ${index}`,
-              workdir: '/workspace/repo',
-              timeoutSeconds: 10
+              workdir: '/workspace/repo'
             },
             requesters
           })
@@ -126,7 +154,7 @@ describe('@ankole/agent-computer Codex delegation', () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-codex-tool-'))
     const previousBinary = process.env.ANKOLE_CODEX_BINARY
     const fakeCodex = join(root, 'fake-codex')
-    writeFakeCodex(fakeCodex, 20)
+    writeFakeCodex(fakeCodex, 20, { writeProbeFile: true })
     process.env.ANKOLE_CODEX_BINARY = fakeCodex
 
     const events: CodexDelegationEventAppendRequest[] = []
@@ -144,8 +172,7 @@ describe('@ankole/agent-computer Codex delegation', () => {
         action: 'run',
         prompt:
           'Self-iterate on the repo: inspect the current code, make a safe improvement, run the focused test, and report.',
-        workdir: '/workspace/repo',
-        timeout_seconds: 5
+        workdir: '/workspace/repo'
       })
 
       expect(result.details.status).toBe('succeeded')
@@ -163,6 +190,15 @@ describe('@ankole/agent-computer Codex delegation', () => {
         type: 'codex_delegation',
         delegation_id: result.details.delegation_id
       })
+      expect(readFileSync(join(root, 'repo', 'codex-cwd-probe.json'), 'utf8')).toContain('CODEX_HOME')
+      const threadStart = events.find(
+        event =>
+          event.direction === 'client_to_server' &&
+          event.event_type === 'json_rpc' &&
+          (event.payload.message as { method?: string } | undefined)?.method === 'thread/start'
+      )
+      const threadStartParams = (threadStart?.payload.message as { params?: { cwd?: string } } | undefined)?.params
+      expect(threadStartParams?.cwd).toBe('/workspace/repo')
       await waitUntil(() => !existsSync(join(root, 'temp', 'codex', result.details.delegation_id)))
     } finally {
       if (previousBinary === undefined) {
@@ -235,8 +271,7 @@ describe('@ankole/agent-computer Codex delegation', () => {
         toolCallId: 'tool-exit',
         request: {
           prompt: 'Exit before completion.',
-          workdir: '/workspace/repo',
-          timeoutSeconds: 30
+          workdir: '/workspace/repo'
         },
         requesters: codexRequesters(events, statusUpdates, 'delegation-exit')
       })
@@ -275,8 +310,7 @@ describe('@ankole/agent-computer Codex delegation', () => {
         toolCallId: 'tool-audit-failure',
         request: {
           prompt: 'Complete normally, but audit append fails.',
-          workdir: '/workspace/repo',
-          timeoutSeconds: 5
+          workdir: '/workspace/repo'
         },
         requesters: codexRequesters(events, statusUpdates, 'delegation-audit-failure', { rejectEventSeq: 2 })
       })
@@ -316,8 +350,7 @@ describe('@ankole/agent-computer Codex delegation', () => {
         toolCallId: 'tool-final-status',
         request: {
           prompt: 'Complete normally, but terminal status update fails.',
-          workdir: '/workspace/repo',
-          timeoutSeconds: 5
+          workdir: '/workspace/repo'
         },
         requesters: codexRequesters(events, statusUpdates, 'delegation-final-status', {
           rejectStatusUpdate: 'succeeded'
@@ -389,8 +422,7 @@ describe('@ankole/agent-computer Codex delegation', () => {
         toolCallId: 'tool-user-input',
         request: {
           prompt: 'Ask one question then continue.',
-          workdir: '/workspace/repo',
-          timeoutSeconds: 5
+          workdir: '/workspace/repo'
         },
         requesters: codexRequesters(events, statusUpdates, 'delegation-user-input')
       })
@@ -436,8 +468,7 @@ describe('@ankole/agent-computer Codex delegation', () => {
         toolCallId: 'tool-approval',
         request: {
           prompt: 'Request approval.',
-          workdir: '/workspace/repo',
-          timeoutSeconds: 5
+          workdir: '/workspace/repo'
         },
         requesters: codexRequesters(events, statusUpdates, 'delegation-approval')
       })
@@ -480,8 +511,7 @@ describe('@ankole/agent-computer Codex delegation', () => {
         toolCallId: 'tool-global-slot',
         request: {
           prompt: 'Implement a tiny change and report.',
-          workdir: '/workspace/repo',
-          timeoutSeconds: 5
+          workdir: '/workspace/repo'
         },
         requesters
       })
@@ -588,14 +618,95 @@ function codexRequesters(
   }
 }
 
+let fakeBwrapBinDir: string | undefined
+
+function ensureFakeBwrap(): void {
+  if (fakeBwrapBinDir) return
+
+  fakeBwrapBinDir = mkdtempSync(join(tmpdir(), 'ankole-codex-fake-bwrap-'))
+  const bwrapPath = join(fakeBwrapBinDir, 'bwrap')
+  writeFileSync(
+    bwrapPath,
+    [
+      '#!/usr/bin/env bash',
+      'set -euo pipefail',
+      'workspace_src=""',
+      'chdir=""',
+      'translate_path() {',
+      '  local path="$1"',
+      '  if [[ -n "$workspace_src" && "$path" == "/workspace" ]]; then',
+      '    printf "%s" "$workspace_src"',
+      '  elif [[ -n "$workspace_src" && "$path" == /workspace/* ]]; then',
+      '    printf "%s/%s" "$workspace_src" "${path#/workspace/}"',
+      '  else',
+      '    printf "%s" "$path"',
+      '  fi',
+      '}',
+      'while [[ $# -gt 0 ]]; do',
+      '  case "$1" in',
+      '    --unshare-all|--share-net|--die-with-parent|--new-session|--clearenv)',
+      '      shift',
+      '      ;;',
+      '    --proc|--dev|--tmpfs|--dir)',
+      '      shift 2',
+      '      ;;',
+      '    --bind|--ro-bind)',
+      '      if [[ "${3:-}" == "/workspace" ]]; then workspace_src="$2"; fi',
+      '      shift 3',
+      '      ;;',
+      '    --chdir)',
+      '      chdir="$2"',
+      '      shift 2',
+      '      ;;',
+      '    --setenv)',
+      '      export "$2=$3"',
+      '      shift 3',
+      '      ;;',
+      '    --)',
+      '      shift',
+      '      break',
+      '      ;;',
+      '    --*)',
+      '      echo "unsupported fake bwrap option: $1" >&2',
+      '      exit 2',
+      '      ;;',
+      '    *)',
+      '      break',
+      '      ;;',
+      '  esac',
+      'done',
+      'if [[ "${1:-}" == "/bin/sh" && "${2:-}" == "-lc" && "${3:-}" == "test -r /proc/self/status && test -w /tmp" ]]; then',
+      '  exit 0',
+      'fi',
+      'if [[ -n "$chdir" ]]; then cd "$(translate_path "$chdir")"; fi',
+      'if [[ "${1:-}" == /workspace* ]]; then',
+      '  translated="$(translate_path "$1")"',
+      '  shift',
+      '  set -- "$translated" "$@"',
+      'fi',
+      'exec "$@"',
+      ''
+    ].join('\n')
+  )
+  chmodSync(bwrapPath, 0o755)
+  process.env.ANKOLE_BWRAP_PATH = bwrapPath
+}
+
 function writeFakeCodex(
   path: string,
   completionDelayMs: number,
-  opts: { exitAfterTurnStart?: boolean; requestUserInput?: boolean; requestApproval?: boolean } = {}
+  opts: {
+    exitAfterTurnStart?: boolean
+    requestUserInput?: boolean
+    requestApproval?: boolean
+    writeProbeFile?: boolean
+  } = {}
 ): void {
+  ensureFakeBwrap()
   writeFileSync(
     path,
     `#!/usr/bin/env bun
+import { writeFileSync } from 'node:fs'
 let buffer = ''
 let nextTurn = 1
 const completionDelayMs = ${completionDelayMs}
@@ -618,6 +729,9 @@ function handle(message) {
   if (message.method === 'turn/start') {
     const turnId = 'turn-' + nextTurn++
     write({ id: message.id, result: { turn: { id: turnId, status: 'in_progress' } } })
+    if (opts.writeProbeFile) {
+      writeFileSync('codex-cwd-probe.json', JSON.stringify({ cwd: process.cwd(), CODEX_HOME: process.env.CODEX_HOME }))
+    }
     if (opts.exitAfterTurnStart) {
       setTimeout(() => process.exit(42), completionDelayMs)
       return

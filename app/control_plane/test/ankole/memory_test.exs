@@ -239,6 +239,17 @@ defmodule Ankole.MemoryTest do
     assert [] = Memory.list_notes(agent.uid, channel.id)
   end
 
+  test "note update and forget reject non-UUID ids without crashing" do
+    %{principal: agent} = agent_fixture()
+    channel = channel_fixture("memory:notes-invalid-id")
+
+    assert {:error, :memory_note_not_found} =
+             Memory.update_note(agent.uid, channel.id, "l5_ppt_progress", "updated fact")
+
+    assert {:error, :memory_note_not_found} =
+             Memory.forget_note(agent.uid, channel.id, "l5_ppt_progress")
+  end
+
   test "search normalizes parser-hostile BM25 query and returns original message window" do
     %{principal: agent} = agent_fixture()
     target = channel_fixture("memory:search-target")

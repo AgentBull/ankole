@@ -101,7 +101,7 @@ defmodule Ankole.ActorRuntime.AgentConversationContextBroker do
   defp installation_timezone do
     case SystemConfig.timezone() do
       {:ok, timezone} -> timezone
-      {:error, _reason} -> "Etc/UTC"
+      {:error, _reason} -> SystemConfig.default_timezone()
     end
   end
 

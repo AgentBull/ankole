@@ -602,6 +602,40 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       assert live_delivery_count(actor_event.id) == 1
     end
 
+    test "completes the actor event when provider output is completed assistant text" do
+      agent = agent_fixture()
+
+      {:ok, conversation} =
+        StatefulResponses.ensure_conversation(
+          agent.principal.uid,
+          "test-conv-assistant-text-completion-event"
+        )
+
+      {:ok, message} = start_run(agent, conversation, "event-assistant-text-completion")
+      actor_event = Repo.get!(ActorEvent, message.metadata["actor_event_id"])
+      insert_live_delivery!(actor_event)
+
+      assistant_text = "文件已创建并验证。正在将其作为附件发送。"
+
+      output_items = [
+        %{
+          "type" => "message",
+          "role" => "assistant",
+          "content" => [
+            %{
+              "type" => "output_text",
+              "text" => assistant_text
+            }
+          ]
+        }
+      ]
+
+      assert {:ok, committed} = StatefulResponses.commit_complete(message, output_items)
+      assert committed.status == "complete"
+      assert Repo.get!(ActorEvent, actor_event.id).completed_at
+      assert live_delivery_count(actor_event.id) == 0
+    end
+
     test "returns already_terminal when another terminal transition won first" do
       agent = agent_fixture()
 
@@ -828,6 +862,137 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
              ] = Enum.map(history, & &1.content)
 
       assert is_binary(compaction_item_id)
+    end
+
+    test "projects covered function call when compaction tail keeps its tool result" do
+      agent = agent_fixture()
+
+      {:ok, conversation} =
+        StatefulResponses.ensure_conversation(
+          agent.principal.uid,
+          "test-conv-compaction-tool-tail"
+        )
+
+      {:ok, m1} = start_run(agent, conversation, "event-compact-tool-1")
+      {:ok, m1} = StatefulResponses.commit_complete(m1, [%{"text" => "one"}])
+
+      function_call = [
+        %{
+          "type" => "function_call",
+          "call_id" => "call_compacted",
+          "name" => "lookup",
+          "arguments" => "{}"
+        }
+      ]
+
+      {:ok, m2} =
+        start_run(agent, conversation, "event-compact-tool-2", %{
+          previous_response_id: "resp_#{m1.id}"
+        })
+
+      {:ok, m2} = StatefulResponses.commit_complete(m2, function_call)
+
+      tool_result = [
+        %{
+          "type" => "function_call_output",
+          "call_id" => "call_compacted",
+          "output" => "lookup result"
+        }
+      ]
+
+      {:ok, m3} =
+        start_run(agent, conversation, "event-compact-tool-3", %{
+          previous_response_id: "resp_#{m2.id}"
+        })
+
+      {:ok, m3} = StatefulResponses.commit_complete(m3, tool_result)
+
+      {:ok, m4} =
+        start_run(agent, conversation, "event-compact-tool-4", %{
+          previous_response_id: "resp_#{m3.id}"
+        })
+
+      {:ok, m4} = StatefulResponses.commit_complete(m4, [%{"text" => "four"}])
+
+      compaction_item = %{"type" => "compaction", "summary" => "one through call"}
+
+      {:ok, compaction} =
+        StatefulResponses.compact_history_prefix(
+          agent.principal.uid,
+          "resp_#{m4.id}",
+          "resp_#{m2.id}",
+          compaction_item
+        )
+
+      history =
+        StatefulResponses.expand_history(conversation.id,
+          previous_response_id: "resp_#{compaction.id}"
+        )
+
+      assert Enum.map(history, & &1.id) == [compaction.id, m2.id, m3.id, m4.id]
+
+      assert Enum.map(history, & &1.content) == [
+               compaction.content,
+               function_call,
+               tool_result,
+               m4.content
+             ]
+    end
+
+    test "projects covered function call when protected current input keeps its tool result" do
+      agent = agent_fixture()
+
+      {:ok, conversation} =
+        StatefulResponses.ensure_conversation(
+          agent.principal.uid,
+          "test-conv-compaction-current-tool"
+        )
+
+      {:ok, m1} = start_run(agent, conversation, "event-current-tool-1")
+      {:ok, m1} = StatefulResponses.commit_complete(m1, [%{"text" => "one"}])
+
+      function_call = [
+        %{
+          "type" => "function_call",
+          "call_id" => "call_current_input",
+          "name" => "lookup",
+          "arguments" => "{}"
+        }
+      ]
+
+      {:ok, m2} =
+        start_run(agent, conversation, "event-current-tool-2", %{
+          previous_response_id: "resp_#{m1.id}"
+        })
+
+      {:ok, m2} = StatefulResponses.commit_complete(m2, function_call)
+
+      compaction_item = %{"type" => "compaction", "summary" => "one through call"}
+
+      {:ok, compaction} =
+        StatefulResponses.compact_history_prefix(
+          agent.principal.uid,
+          "resp_#{m2.id}",
+          "resp_#{m2.id}",
+          compaction_item
+        )
+
+      tool_result = [
+        %{
+          "type" => "function_call_output",
+          "call_id" => "call_current_input",
+          "output" => "lookup result"
+        }
+      ]
+
+      history =
+        StatefulResponses.expand_history(conversation.id,
+          previous_response_id: "resp_#{compaction.id}",
+          protected_tail_items: tool_result
+        )
+
+      assert Enum.map(history, & &1.id) == [compaction.id, m2.id]
+      assert Enum.map(history, & &1.content) == [compaction.content, function_call]
     end
   end
 

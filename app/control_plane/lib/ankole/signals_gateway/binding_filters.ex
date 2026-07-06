@@ -128,7 +128,6 @@ defmodule Ankole.SignalsGateway.BindingFilters do
       "kind" => json_value(fact.channel_kind),
       "reply_mode" => json_value(fact.reply_mode),
       "name" => fact.channel_name,
-      "title" => fact.channel_title,
       "visibility" => fact.channel_visibility,
       "metadata" => json_value(fact.channel_metadata)
     }

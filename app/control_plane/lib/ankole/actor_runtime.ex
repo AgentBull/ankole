@@ -15,13 +15,12 @@ defmodule Ankole.ActorRuntime do
   reply fail harmlessly instead of corrupting the durable transcript, and it
   needs no in-memory session state to do so. The one intentionally weak spot —
   a durable started turn whose runtime fences were lost on a restart — is
-  repaired by `reconcile_projection_lost_started_turns/1`.
+  repaired by the exact runtime event handler for the affected message row.
   """
 
   alias Ankole.Actors.ActorEvent
   alias Ankole.ActorRuntime.FileTransferLane
   alias Ankole.ActorRuntime.ReadyEventProcessor
-  alias Ankole.ActorRuntime.Recovery
   alias Ankole.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.ActorRuntime.Schemas.ActorSessionActivation
   alias Ankole.ActorRuntime.Schemas.ActorSessionWorkerAssignment
@@ -131,12 +130,33 @@ defmodule Ankole.ActorRuntime do
   @spec handle_turn_error(map(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate handle_turn_error(envelope, opts \\ []), to: TurnLifecycle
 
-  @doc """
-  Fails started turns whose unlogged activation/delivery fence was lost.
-  """
-  @spec reconcile_projection_lost_started_turns(keyword()) ::
-          {:ok, non_neg_integer()} | {:error, term()}
-  defdelegate reconcile_projection_lost_started_turns(opts \\ []), to: Recovery
+  @doc false
+  @spec runtime_event_snapshot() :: [{String.t(), map()}]
+  def runtime_event_snapshot do
+    Ankole.Actors.runtime_event_snapshot() ++
+      WorkerAdmission.runtime_event_snapshot() ++
+      TurnLifecycle.runtime_event_snapshot()
+  end
+
+  @doc false
+  @spec mark_worker_stale_if_due(String.t(), keyword()) ::
+          {:ok, AgentComputerWorker.t()} | {:error, term()}
+  defdelegate mark_worker_stale_if_due(worker_id, opts \\ []), to: WorkerAdmission
+
+  @doc false
+  @spec delete_worker_if_due(String.t(), keyword()) ::
+          {:ok, AgentComputerWorker.t()} | {:error, term()}
+  defdelegate delete_worker_if_due(worker_id, opts \\ []), to: WorkerAdmission
+
+  @doc false
+  @spec fail_activation_if_expired(String.t(), keyword()) ::
+          {:ok, ActorSessionActivation.t()} | {:error, term()}
+  defdelegate fail_activation_if_expired(activation_uid, opts \\ []), to: TurnLifecycle
+
+  @doc false
+  @spec reconcile_projection_lost_started_turn(String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  defdelegate reconcile_projection_lost_started_turn(message_id, opts \\ []), to: TurnLifecycle
 
   @doc """
   Enqueues daily reset barrier inputs for sessions due at the latest local 04:30.
@@ -153,10 +173,4 @@ defmodule Ankole.ActorRuntime do
   """
   @spec process_ready_event_for_actor(actor_key(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate process_ready_event_for_actor(actor_key, opts \\ []), to: ReadyEventProcessor
-
-  @doc """
-  Runs one actor-runtime watchdog pass.
-  """
-  @spec watchdog_once(keyword()) :: {:ok, map()} | {:error, term()}
-  defdelegate watchdog_once(opts \\ []), to: Recovery
 end

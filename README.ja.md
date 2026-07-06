@@ -6,11 +6,13 @@
 
 [English](./README.md) | [简体中文](./README.zh-Hans.md)
 
-**Ankole は、共有 AI 同僚を動かすための、セルフホスト可能な AgentOS です。**
+[他と違うところ](#ankole-が他と違うところ) · [プロダクト形態](#プロダクト形態) · [Actor Runtime](#actor-runtime) · [アーキテクチャ](#アーキテクチャ) · [現状](#現状) · [開発](#開発)
+
+**Ankole は、共有 AI 同僚を動かすための、セルフホスト可能な AgentOS です。** 1 つの installation、複数の agent、実際の責任 — 自分が管理する infrastructure の上で。
 
 AI の仕事を個人用チャット欄から出し、仕事が実際に起きている場所へ置きます。チャンネル、リポジトリ、スケジュール、ダッシュボード、社内システム、長期プロジェクトの文脈がその場所です。Ankole agent は、自分の identity、memory、permission、tool、workspace、responsibility boundary を持ち、**進行中の work を所有**でき、一回限りのメッセージへの回答にとどまりません。
 
-[Claude Tag](https://claude.com/product/tag) は分かりやすい公開参照です。Slack thread で AI を tag し、共有文脈を読ませ、組織の tools を使わせ、channel context を記憶し、時間のかかる work を follow up させる。Ankole はその pattern をより open で広い形にします。Slack だけでも、Claude だけでも、1 つの agent だけでも、vendor-owned context でもありません。
+[Claude Tag](https://claude.com/product/tag) は分かりやすい公開参照です。Slack thread で AI を tag し、共有文脈を読ませ、組織の tools を使わせ、channel context を記憶し、時間のかかる work を follow up させる。Ankole はその pattern をより open で広い形にします。**Slack だけでも、Claude だけでも、1 つの agent だけでも、vendor-owned context でもありません。**
 
 Ankole が向いているのは、答えだけでなく責任者が必要な仕事です。よい Ankole role には見える結果があります。Code が merge される、report が shipped される、customer issue が handled される、alert が triaged される、market change が noticed される、backlog が worked down される、といった結果です。
 
@@ -24,8 +26,6 @@ Ankole が向いているのは、答えだけでなく責任者が必要な仕�
 
 ## Ankole が加えるもの
 
-- **個人チャットではなく共有作業。** Agent は shared channel や provider context に参加し、複数の人間が同じ work を observe、steer、continue できます。
-- **永続 ID。** 人間と agent は Principal として表現され、external identities、groups、permission grants を持ちます。
 - **複数の入力元。** IM、webhook、scheduled reminder、internal system、将来の provider adapter は normalized signal input になります。
 - **複数の agent。** 1 つの Ankole 環境で、異なる mission、access、tools、memory、outbound identity を持つ複数の agent を動かせます。
 - **Session actors.** 長期実行単位は `actor_id = {agent_id, session_id}` です。Session は context、workspace state、steering、cancel、recovery が交わる場所です。
@@ -36,13 +36,13 @@ Ankole が向いているのは、答えだけでなく責任者が必要な仕�
 
 Ankole は、次のような workflow を自然にするためのものです。
 
-- coding agent が issue を監視し、bug を再現し、code を変更し、draft PR を開き、人間の decision が必要な点を報告する。
-- customer-success agent が shared group chat を観察し、重要な facts を記録し、work state を更新し、必要な時だけ private escalation する。
-- research agent が market、policy、competitor、internal notes を監視し、重要な変化があった時に follow up する。
-- QA agent が test backlog を進め、evidence を集め、context 付きの failure を review に渡す。
-- operations agent が alert を監視し、runbook を準備し、risk の高い action の前に approval を求める。
+- **coding agent** が issue を監視し、bug を再現し、code を変更し、draft PR を開き、人間の decision が必要な点を報告する。
+- **customer-success agent** が shared group chat を観察し、重要な facts を記録し、work state を更新し、必要な時だけ private escalation する。
+- **research agent** が market、policy、competitor、internal notes を監視し、重要な変化があった時に follow up する。
+- **QA agent** が test backlog を進め、evidence を集め、context 付きの failure を review に渡す。
+- **operations agent** が alert を監視し、runbook を準備し、risk の高い action の前に approval を求める。
 
-共通する形は「この質問に答える」ではなく、「この seat を持ち、利用可能な context を使い、結果で評価される」です。
+共通する形は「この質問に答える」ではなく、**「この seat を持ち、利用可能な context を使い、結果で評価される」**です。
 
 ## Actor Runtime
 
@@ -86,7 +86,7 @@ flowchart LR
 
 ## 現状
 
-Ankole は早期 engineering distribution であり、polished end-user product や hosted SaaS ではありません。
+Ankole は早期 engineering distribution であり、polished end-user product や hosted SaaS ではありません。以下の subsystem は今日この repository に動くコードとして存在します — 正直な caveat は polish と API 安定性であり、vaporware ではありません。
 
 | 領域 | 状態 |
 | --- | --- |

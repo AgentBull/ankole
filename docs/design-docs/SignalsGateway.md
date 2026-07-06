@@ -749,7 +749,7 @@ actor events. Choose channel granularity from the user story:
 - `kind`, such as `im_dm`, `im_group`, `webhook_endpoint`, `issue`,
   `alert_stream`, or `unknown`;
 - `reply_mode`: `none`, `channel`, or `entry`;
-- optional name/title;
+- optional name;
 - visibility when the provider exposes it;
 - metadata and raw provider payload;
 - timestamps.

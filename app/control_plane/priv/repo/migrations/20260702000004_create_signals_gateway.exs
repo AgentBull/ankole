@@ -131,7 +131,6 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
       add :kind, :signal_channel_kind, null: false, default: "unknown"
       add :reply_mode, :signal_reply_mode, null: false, default: "none"
       add :name, :text
-      add :title, :text
       add :visibility, :text
       add :metadata, :map, null: false, default: %{}
       add :raw_payload, :map, null: false, default: %{}
@@ -159,8 +158,7 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
       id: "Stable Ankole channel id derived from provider channel identity.",
       kind: "Channel category used for policy and rendering.",
       reply_mode: "Whether replies target the whole channel or a specific entry.",
-      name: "Provider or operator supplied short channel name.",
-      title: "Provider or operator supplied channel title.",
+      name: "Provider or operator supplied channel name.",
       visibility: "Provider visibility hint such as private, public, or shared.",
       metadata: "Normalized provider channel facts outside the stable contract.",
       raw_payload: "Last provider payload kept for recovery and adapter diagnostics.",
