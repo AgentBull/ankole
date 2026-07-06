@@ -3,10 +3,13 @@ import { didYouMeanPlugin, helpPlugin } from '@crustjs/plugins'
 import { analyzeCommand } from './commands/analyze'
 import { appDbCommand } from './commands/app-db'
 import { devCommand } from './commands/dev'
+import { envSetupCommand } from './commands/env-setup'
 import { externalServicesCommand } from './commands/external-services'
 import { generateCommand, runGenerate } from './commands/generate'
 import { isCICommand } from './commands/is-ci'
 import { isDevCommand } from './commands/is-dev'
+import { logsCommand } from './commands/logs'
+import { showCommand } from './commands/show'
 import { styledError } from './utils'
 
 const rawArgv = process.argv.slice(2)
@@ -26,8 +29,11 @@ let app = new Crust('bun run kit')
   .command(generateCommand())
 
 app = app.command(externalServicesCommand())
+app = app.command(envSetupCommand())
 app = app.command(appDbCommand())
 app = app.command(devCommand())
+app = app.command(logsCommand())
+app = app.command(showCommand())
 app = app.command(analyzeCommand())
 
 try {

@@ -1,7 +1,12 @@
 import { isIP } from 'node:net'
-import { normalize, resolve } from 'node:path'
+import type { JsonObject } from '@pleisto/active-support'
+import {
+  resolveWorkspacePath,
+  sanitizePathSegment,
+  toWorkspacePath as workspaceModelPath
+} from '../../../core/workspace-paths'
 import { workspaceRoot } from './constants'
-import type { JsonObject } from './types'
+import type { BrowserRuntimeOptions } from './types'
 
 /**
  * Recursively redacts browser diagnostic values before they reach logs or tool
@@ -122,17 +127,6 @@ export function isRecoverableCdpConnectionError(error: unknown): boolean {
 }
 
 /**
- * Resolves when the worker receives a termination signal.
- */
-export function waitForTermination(): Promise<void> {
-  return new Promise(resolveWait => {
-    const stop = () => resolveWait()
-    process.once('SIGTERM', stop)
-    process.once('SIGINT', stop)
-  })
-}
-
-/**
  * Drains child-process stdout/stderr into redacted worker logs.
  */
 export function drainProcessOutput(stream: ReadableStream<Uint8Array> | null, label: string): void {
@@ -183,33 +177,16 @@ export function sameBrowserUrl(left: string, right: string): boolean {
 /**
  * Resolves a model-supplied output path under `/workspace`.
  */
-export function safePath(path: string): string {
-  const normalized = normalize(path)
-  const relative = normalized.startsWith('/workspace')
-    ? normalized.slice('/workspace'.length)
-    : normalized.startsWith('/')
-      ? normalized
-      : `/${normalized}`
-  const resolved = resolve(workspaceRoot, `.${relative}`)
-  const root = resolve(workspaceRoot)
-
-  if (resolved !== root && !resolved.startsWith(`${root}/`)) {
-    throw new Error('path escapes workspace root')
-  }
-
-  return resolved
+export function safePath(path: string, options?: BrowserRuntimeOptions): string {
+  return resolveWorkspacePath(browserWorkspaceRoot(options), path)
 }
 
 /**
  * Converts an absolute container path back to the model-facing `/workspace`
  * path when possible.
  */
-export function toWorkspacePath(path: string): string {
-  const root = resolve(workspaceRoot)
-  const resolved = resolve(path)
-  if (resolved === root) return '/workspace'
-  if (resolved.startsWith(`${root}/`)) return `/workspace/${resolved.slice(root.length + 1)}`
-  return path
+export function toWorkspacePath(path: string, options?: BrowserRuntimeOptions): string {
+  return workspaceModelPath(browserWorkspaceRoot(options), path)
 }
 
 /**
@@ -248,10 +225,10 @@ export function sleep(ms: number): Promise<void> {
 /**
  * Sanitizes a browser session or artifact id.
  */
-export function sanitizeId(value: string): string {
-  const safe = value
-    .trim()
-    .replace(/[^a-zA-Z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-  return safe.slice(0, 96) || 'default'
+export function sanitizeId(value: string, fallback = 'default'): string {
+  return sanitizePathSegment(value, { fallback })
+}
+
+function browserWorkspaceRoot(options?: BrowserRuntimeOptions): string {
+  return options?.workspaceRoot ?? workspaceRoot
 }

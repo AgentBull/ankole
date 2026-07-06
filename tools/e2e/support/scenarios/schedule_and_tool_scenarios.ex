@@ -316,44 +316,6 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     %{input: input, reply: reply}
   end
 
-  def run_browser_doctor_tool_loop(%{
-        fake_feishu: fake_feishu,
-        agent: agent,
-        container: container
-      }) do
-    mention = lark_bot_mention()
-
-    assert :ok =
-             FakeFeishu.State.user_sends_message(fake_feishu.state,
-               event_id: "evt_browser_doctor_1",
-               message_id: "om_browser_doctor_1",
-               chat_id: "oc_chaos_browser",
-               chat_type: "p2p",
-               text:
-                 "@_user_1 Run CHAOS_BROWSER_DOCTOR. Use browser_doctor once without fetching a browser binary, then reply exactly CHAOS_BROWSER_DOCTOR_OK.",
-               mentions: [mention],
-               create_time_ms:
-                 DateTime.to_unix(DateTime.add(@base_time, 4_750, :millisecond), :millisecond)
-             )
-
-    input = actor_event_by_source_entry_id!(agent.uid, "om_browser_doctor_1")
-
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
-
-    assert {:ok, reply, _message} =
-             wait_for_completed_final_reply(container, input.id, deadline(120_000))
-
-    assert reply.text =~ "CHAOS_BROWSER_DOCTOR_OK"
-
-    messages = ai_messages_for_actor_event(input.id)
-    assert [doctor_result] = successful_tool_results(messages, "browser_doctor")
-    assert tool_detail(doctor_result, ["exitCode"]) == 0
-
-    assert_actor_event_completed!(input.id)
-    %{input: input, reply: reply}
-  end
-
   def run_background_command_tool_loop(%{
         fake_feishu: fake_feishu,
         agent: agent,
@@ -469,7 +431,12 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     assert reply.text =~ "CHAOS_BROWSER_OPEN_OK"
 
     messages = ai_messages_for_actor_event(input.id)
-    assert [open_result] = successful_tool_results(messages, "browser_open")
+    open_results = successful_tool_results(messages, "browser_open")
+
+    assert match?([_open_result], open_results),
+           "browser_open tool_results=#{inspect(tool_results(messages), limit: :infinity, printable_limit: 4_000)}"
+
+    [open_result] = open_results
     assert tool_detail(open_result, ["exitCode"]) == 0
     assert tool_detail(open_result, ["result", "ok"]) == true
 

@@ -149,12 +149,9 @@ defmodule Ankole.E2E.DockerWorker do
   defp docker_dev_agent_computer_mount_args do
     case mount_agent_computer_src?() do
       true ->
-        bin = Path.join([repo_root(), "app", "agent_computer", "bin"])
         src = Path.join([repo_root(), "app", "agent_computer", "src"])
 
         [
-          "-v",
-          "#{bin}:/repo/app/agent_computer/bin:ro",
           "-v",
           "#{src}:/repo/app/agent_computer/src:ro"
         ]

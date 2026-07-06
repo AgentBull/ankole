@@ -32,6 +32,10 @@ import {
   ankoleWebAppConfigurationControllerUpdate,
   ankoleWebAuthControllerDeleteSession,
   ankoleWebAuthControllerOauthToken,
+  ankoleWebIdentityProviderControllerAdapters,
+  ankoleWebIdentityProviderControllerIndex,
+  ankoleWebIdentityProviderControllerPutProvider,
+  ankoleWebIdentityProviderControllerRunSync,
   ankoleWebScheduleControllerCancelCheckback,
   ankoleWebScheduleControllerCreateCron,
   ankoleWebScheduleControllerCronRuns,
@@ -43,9 +47,10 @@ import {
   ankoleWebScheduleControllerRunCron,
   ankoleWebScheduleControllerShowCron,
   ankoleWebScheduleControllerUpdateCron,
+  ankoleWebSignalBindingControllerAdapters,
   ankoleWebSignalBindingControllerDelete,
   ankoleWebSignalBindingControllerIndex,
-  ankoleWebSignalBindingControllerPutLark,
+  ankoleWebSignalBindingControllerPutBinding,
   type Options
 } from '../sdk.gen'
 import type {
@@ -132,6 +137,18 @@ import type {
   AnkoleWebAuthControllerOauthTokenData,
   AnkoleWebAuthControllerOauthTokenError,
   AnkoleWebAuthControllerOauthTokenResponse,
+  AnkoleWebIdentityProviderControllerAdaptersData,
+  AnkoleWebIdentityProviderControllerAdaptersError,
+  AnkoleWebIdentityProviderControllerAdaptersResponse,
+  AnkoleWebIdentityProviderControllerIndexData,
+  AnkoleWebIdentityProviderControllerIndexError,
+  AnkoleWebIdentityProviderControllerIndexResponse,
+  AnkoleWebIdentityProviderControllerPutProviderData,
+  AnkoleWebIdentityProviderControllerPutProviderError,
+  AnkoleWebIdentityProviderControllerPutProviderResponse,
+  AnkoleWebIdentityProviderControllerRunSyncData,
+  AnkoleWebIdentityProviderControllerRunSyncError,
+  AnkoleWebIdentityProviderControllerRunSyncResponse,
   AnkoleWebScheduleControllerCancelCheckbackData,
   AnkoleWebScheduleControllerCancelCheckbackResponse,
   AnkoleWebScheduleControllerCreateCronData,
@@ -158,70 +175,19 @@ import type {
   AnkoleWebScheduleControllerUpdateCronData,
   AnkoleWebScheduleControllerUpdateCronError,
   AnkoleWebScheduleControllerUpdateCronResponse,
+  AnkoleWebSignalBindingControllerAdaptersData,
+  AnkoleWebSignalBindingControllerAdaptersError,
+  AnkoleWebSignalBindingControllerAdaptersResponse,
   AnkoleWebSignalBindingControllerDeleteData,
   AnkoleWebSignalBindingControllerDeleteError,
   AnkoleWebSignalBindingControllerDeleteResponse,
   AnkoleWebSignalBindingControllerIndexData,
   AnkoleWebSignalBindingControllerIndexError,
   AnkoleWebSignalBindingControllerIndexResponse,
-  AnkoleWebSignalBindingControllerPutLarkData,
-  AnkoleWebSignalBindingControllerPutLarkError,
-  AnkoleWebSignalBindingControllerPutLarkResponse
+  AnkoleWebSignalBindingControllerPutBindingData,
+  AnkoleWebSignalBindingControllerPutBindingError,
+  AnkoleWebSignalBindingControllerPutBindingResponse
 } from '../types.gen'
-
-/**
- * Exchange a browser admin session or refresh token for console bearer tokens
- */
-export const ankoleWebAuthControllerOauthTokenMutation = (
-  options?: Partial<Options<AnkoleWebAuthControllerOauthTokenData>>
-): UseMutationOptions<
-  AnkoleWebAuthControllerOauthTokenResponse,
-  AnkoleWebAuthControllerOauthTokenError,
-  Options<AnkoleWebAuthControllerOauthTokenData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAuthControllerOauthTokenResponse,
-    AnkoleWebAuthControllerOauthTokenError,
-    Options<AnkoleWebAuthControllerOauthTokenData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAuthControllerOauthToken({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * Clear the current browser admin session
- */
-export const ankoleWebAuthControllerDeleteSessionMutation = (
-  options?: Partial<Options<AnkoleWebAuthControllerDeleteSessionData>>
-): UseMutationOptions<
-  AnkoleWebAuthControllerDeleteSessionResponse,
-  DefaultError,
-  Options<AnkoleWebAuthControllerDeleteSessionData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAuthControllerDeleteSessionResponse,
-    DefaultError,
-    Options<AnkoleWebAuthControllerDeleteSessionData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAuthControllerDeleteSession({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
 
 export type QueryKey<TOptions extends Options> = [
   Pick<TOptions, 'baseUrl' | 'body' | 'headers' | 'path' | 'query'> & {
@@ -262,21 +228,24 @@ const createQueryKey = <TOptions extends Options>(
   return [params]
 }
 
-export const ankoleWebAgentControllerIndexQueryKey = (options?: Options<AnkoleWebAgentControllerIndexData>) =>
-  createQueryKey('ankoleWebAgentControllerIndex', options)
+export const ankoleWebIdentityProviderControllerIndexQueryKey = (
+  options?: Options<AnkoleWebIdentityProviderControllerIndexData>
+) => createQueryKey('ankoleWebIdentityProviderControllerIndex', options)
 
 /**
- * List active agents
+ * List configured identity providers
  */
-export const ankoleWebAgentControllerIndexOptions = (options?: Options<AnkoleWebAgentControllerIndexData>) =>
+export const ankoleWebIdentityProviderControllerIndexOptions = (
+  options?: Options<AnkoleWebIdentityProviderControllerIndexData>
+) =>
   queryOptions<
-    AnkoleWebAgentControllerIndexResponse,
-    AnkoleWebAgentControllerIndexError,
-    AnkoleWebAgentControllerIndexResponse,
-    ReturnType<typeof ankoleWebAgentControllerIndexQueryKey>
+    AnkoleWebIdentityProviderControllerIndexResponse,
+    AnkoleWebIdentityProviderControllerIndexError,
+    AnkoleWebIdentityProviderControllerIndexResponse,
+    ReturnType<typeof ankoleWebIdentityProviderControllerIndexQueryKey>
   >({
     queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebAgentControllerIndex({
+      const { data } = await ankoleWebIdentityProviderControllerIndex({
         ...options,
         ...queryKey[0],
         signal,
@@ -284,26 +253,26 @@ export const ankoleWebAgentControllerIndexOptions = (options?: Options<AnkoleWeb
       })
       return data
     },
-    queryKey: ankoleWebAgentControllerIndexQueryKey(options)
+    queryKey: ankoleWebIdentityProviderControllerIndexQueryKey(options)
   })
 
 /**
- * Create one agent
+ * Pause one recurring schedule
  */
-export const ankoleWebAgentControllerCreateMutation = (
-  options?: Partial<Options<AnkoleWebAgentControllerCreateData>>
+export const ankoleWebScheduleControllerPauseCronMutation = (
+  options?: Partial<Options<AnkoleWebScheduleControllerPauseCronData>>
 ): UseMutationOptions<
-  AnkoleWebAgentControllerCreateResponse,
-  AnkoleWebAgentControllerCreateError,
-  Options<AnkoleWebAgentControllerCreateData>
+  AnkoleWebScheduleControllerPauseCronResponse,
+  DefaultError,
+  Options<AnkoleWebScheduleControllerPauseCronData>
 > => {
   const mutationOptions: UseMutationOptions<
-    AnkoleWebAgentControllerCreateResponse,
-    AnkoleWebAgentControllerCreateError,
-    Options<AnkoleWebAgentControllerCreateData>
+    AnkoleWebScheduleControllerPauseCronResponse,
+    DefaultError,
+    Options<AnkoleWebScheduleControllerPauseCronData>
   > = {
     mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAgentControllerCreate({
+      const { data } = await ankoleWebScheduleControllerPauseCron({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -313,6 +282,442 @@ export const ankoleWebAgentControllerCreateMutation = (
   }
   return mutationOptions
 }
+
+export const ankoleWebAppConfigurationControllerIndexQueryKey = (
+  options?: Options<AnkoleWebAppConfigurationControllerIndexData>
+) => createQueryKey('ankoleWebAppConfigurationControllerIndex', options)
+
+/**
+ * List console-visible AppConfigure entries
+ */
+export const ankoleWebAppConfigurationControllerIndexOptions = (
+  options?: Options<AnkoleWebAppConfigurationControllerIndexData>
+) =>
+  queryOptions<
+    AnkoleWebAppConfigurationControllerIndexResponse,
+    AnkoleWebAppConfigurationControllerIndexError,
+    AnkoleWebAppConfigurationControllerIndexResponse,
+    ReturnType<typeof ankoleWebAppConfigurationControllerIndexQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebAppConfigurationControllerIndex({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebAppConfigurationControllerIndexQueryKey(options)
+  })
+
+export const ankoleWebScheduleControllerIndexCronQueryKey = (
+  options: Options<AnkoleWebScheduleControllerIndexCronData>
+) => createQueryKey('ankoleWebScheduleControllerIndexCron', options)
+
+/**
+ * List recurring schedules for one agent session
+ */
+export const ankoleWebScheduleControllerIndexCronOptions = (
+  options: Options<AnkoleWebScheduleControllerIndexCronData>
+) =>
+  queryOptions<
+    AnkoleWebScheduleControllerIndexCronResponse,
+    AnkoleWebScheduleControllerIndexCronError,
+    AnkoleWebScheduleControllerIndexCronResponse,
+    ReturnType<typeof ankoleWebScheduleControllerIndexCronQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebScheduleControllerIndexCron({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebScheduleControllerIndexCronQueryKey(options)
+  })
+
+/**
+ * Create one recurring schedule
+ */
+export const ankoleWebScheduleControllerCreateCronMutation = (
+  options?: Partial<Options<AnkoleWebScheduleControllerCreateCronData>>
+): UseMutationOptions<
+  AnkoleWebScheduleControllerCreateCronResponse,
+  AnkoleWebScheduleControllerCreateCronError,
+  Options<AnkoleWebScheduleControllerCreateCronData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebScheduleControllerCreateCronResponse,
+    AnkoleWebScheduleControllerCreateCronError,
+    Options<AnkoleWebScheduleControllerCreateCronData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebScheduleControllerCreateCron({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Create a stateless OpenResponses response
+ */
+export const ankoleWebAiGatewayControllerResponsesMutation = (
+  options?: Partial<Options<AnkoleWebAiGatewayControllerResponsesData>>
+): UseMutationOptions<
+  AnkoleWebAiGatewayControllerResponsesResponse,
+  AnkoleWebAiGatewayControllerResponsesError,
+  Options<AnkoleWebAiGatewayControllerResponsesData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAiGatewayControllerResponsesResponse,
+    AnkoleWebAiGatewayControllerResponsesError,
+    Options<AnkoleWebAiGatewayControllerResponsesData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAiGatewayControllerResponses({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const ankoleWebAiGatewayProviderControllerProviderKindsQueryKey = (
+  options?: Options<AnkoleWebAiGatewayProviderControllerProviderKindsData>
+) => createQueryKey('ankoleWebAiGatewayProviderControllerProviderKinds', options)
+
+/**
+ * List AIGateway provider kinds
+ */
+export const ankoleWebAiGatewayProviderControllerProviderKindsOptions = (
+  options?: Options<AnkoleWebAiGatewayProviderControllerProviderKindsData>
+) =>
+  queryOptions<
+    AnkoleWebAiGatewayProviderControllerProviderKindsResponse,
+    AnkoleWebAiGatewayProviderControllerProviderKindsError,
+    AnkoleWebAiGatewayProviderControllerProviderKindsResponse,
+    ReturnType<typeof ankoleWebAiGatewayProviderControllerProviderKindsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebAiGatewayProviderControllerProviderKinds({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebAiGatewayProviderControllerProviderKindsQueryKey(options)
+  })
+
+/**
+ * Resume one recurring schedule
+ */
+export const ankoleWebScheduleControllerResumeCronMutation = (
+  options?: Partial<Options<AnkoleWebScheduleControllerResumeCronData>>
+): UseMutationOptions<
+  AnkoleWebScheduleControllerResumeCronResponse,
+  DefaultError,
+  Options<AnkoleWebScheduleControllerResumeCronData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebScheduleControllerResumeCronResponse,
+    DefaultError,
+    Options<AnkoleWebScheduleControllerResumeCronData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebScheduleControllerResumeCron({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Disable one AIGateway provider
+ */
+export const ankoleWebAiGatewayProviderControllerDeleteProviderMutation = (
+  options?: Partial<Options<AnkoleWebAiGatewayProviderControllerDeleteProviderData>>
+): UseMutationOptions<
+  AnkoleWebAiGatewayProviderControllerDeleteProviderResponse,
+  AnkoleWebAiGatewayProviderControllerDeleteProviderError,
+  Options<AnkoleWebAiGatewayProviderControllerDeleteProviderData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAiGatewayProviderControllerDeleteProviderResponse,
+    AnkoleWebAiGatewayProviderControllerDeleteProviderError,
+    Options<AnkoleWebAiGatewayProviderControllerDeleteProviderData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAiGatewayProviderControllerDeleteProvider({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Create or update one AIGateway provider
+ */
+export const ankoleWebAiGatewayProviderControllerPutProviderMutation = (
+  options?: Partial<Options<AnkoleWebAiGatewayProviderControllerPutProviderData>>
+): UseMutationOptions<
+  AnkoleWebAiGatewayProviderControllerPutProviderResponse,
+  AnkoleWebAiGatewayProviderControllerPutProviderError,
+  Options<AnkoleWebAiGatewayProviderControllerPutProviderData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAiGatewayProviderControllerPutProviderResponse,
+    AnkoleWebAiGatewayProviderControllerPutProviderError,
+    Options<AnkoleWebAiGatewayProviderControllerPutProviderData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAiGatewayProviderControllerPutProvider({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const ankoleWebAiGatewayControllerModelsQueryKey = (options?: Options<AnkoleWebAiGatewayControllerModelsData>) =>
+  createQueryKey('ankoleWebAiGatewayControllerModels', options)
+
+/**
+ * List AIGateway model selectors
+ */
+export const ankoleWebAiGatewayControllerModelsOptions = (options?: Options<AnkoleWebAiGatewayControllerModelsData>) =>
+  queryOptions<
+    AnkoleWebAiGatewayControllerModelsResponse,
+    AnkoleWebAiGatewayControllerModelsError,
+    AnkoleWebAiGatewayControllerModelsResponse,
+    ReturnType<typeof ankoleWebAiGatewayControllerModelsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebAiGatewayControllerModels({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebAiGatewayControllerModelsQueryKey(options)
+  })
+
+/**
+ * Fetch web pages through AIGateway
+ */
+export const ankoleWebAiGatewayControllerWebFetchMutation = (
+  options?: Partial<Options<AnkoleWebAiGatewayControllerWebFetchData>>
+): UseMutationOptions<
+  AnkoleWebAiGatewayControllerWebFetchResponse,
+  AnkoleWebAiGatewayControllerWebFetchError,
+  Options<AnkoleWebAiGatewayControllerWebFetchData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAiGatewayControllerWebFetchResponse,
+    AnkoleWebAiGatewayControllerWebFetchError,
+    Options<AnkoleWebAiGatewayControllerWebFetchData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAiGatewayControllerWebFetch({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Create or update one identity provider
+ */
+export const ankoleWebIdentityProviderControllerPutProviderMutation = (
+  options?: Partial<Options<AnkoleWebIdentityProviderControllerPutProviderData>>
+): UseMutationOptions<
+  AnkoleWebIdentityProviderControllerPutProviderResponse,
+  AnkoleWebIdentityProviderControllerPutProviderError,
+  Options<AnkoleWebIdentityProviderControllerPutProviderData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebIdentityProviderControllerPutProviderResponse,
+    AnkoleWebIdentityProviderControllerPutProviderError,
+    Options<AnkoleWebIdentityProviderControllerPutProviderData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebIdentityProviderControllerPutProvider({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const ankoleWebSignalBindingControllerIndexQueryKey = (
+  options: Options<AnkoleWebSignalBindingControllerIndexData>
+) => createQueryKey('ankoleWebSignalBindingControllerIndex', options)
+
+/**
+ * List signal bindings for one agent
+ */
+export const ankoleWebSignalBindingControllerIndexOptions = (
+  options: Options<AnkoleWebSignalBindingControllerIndexData>
+) =>
+  queryOptions<
+    AnkoleWebSignalBindingControllerIndexResponse,
+    AnkoleWebSignalBindingControllerIndexError,
+    AnkoleWebSignalBindingControllerIndexResponse,
+    ReturnType<typeof ankoleWebSignalBindingControllerIndexQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebSignalBindingControllerIndex({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebSignalBindingControllerIndexQueryKey(options)
+  })
+
+/**
+ * Clear one optional model profile for an agent
+ */
+export const ankoleWebAiGatewayProviderControllerDeleteModelProfileMutation = (
+  options?: Partial<Options<AnkoleWebAiGatewayProviderControllerDeleteModelProfileData>>
+): UseMutationOptions<
+  AnkoleWebAiGatewayProviderControllerDeleteModelProfileResponse,
+  AnkoleWebAiGatewayProviderControllerDeleteModelProfileError,
+  Options<AnkoleWebAiGatewayProviderControllerDeleteModelProfileData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAiGatewayProviderControllerDeleteModelProfileResponse,
+    AnkoleWebAiGatewayProviderControllerDeleteModelProfileError,
+    Options<AnkoleWebAiGatewayProviderControllerDeleteModelProfileData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAiGatewayProviderControllerDeleteModelProfile({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Create or update one model profile for an agent
+ */
+export const ankoleWebAiGatewayProviderControllerPutModelProfileMutation = (
+  options?: Partial<Options<AnkoleWebAiGatewayProviderControllerPutModelProfileData>>
+): UseMutationOptions<
+  AnkoleWebAiGatewayProviderControllerPutModelProfileResponse,
+  AnkoleWebAiGatewayProviderControllerPutModelProfileError,
+  Options<AnkoleWebAiGatewayProviderControllerPutModelProfileData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAiGatewayProviderControllerPutModelProfileResponse,
+    AnkoleWebAiGatewayProviderControllerPutModelProfileError,
+    Options<AnkoleWebAiGatewayProviderControllerPutModelProfileData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAiGatewayProviderControllerPutModelProfile({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const ankoleWebIdentityProviderControllerAdaptersQueryKey = (
+  options?: Options<AnkoleWebIdentityProviderControllerAdaptersData>
+) => createQueryKey('ankoleWebIdentityProviderControllerAdapters', options)
+
+/**
+ * List identity-provider adapters
+ */
+export const ankoleWebIdentityProviderControllerAdaptersOptions = (
+  options?: Options<AnkoleWebIdentityProviderControllerAdaptersData>
+) =>
+  queryOptions<
+    AnkoleWebIdentityProviderControllerAdaptersResponse,
+    AnkoleWebIdentityProviderControllerAdaptersError,
+    AnkoleWebIdentityProviderControllerAdaptersResponse,
+    ReturnType<typeof ankoleWebIdentityProviderControllerAdaptersQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebIdentityProviderControllerAdapters({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebIdentityProviderControllerAdaptersQueryKey(options)
+  })
+
+export const ankoleWebAiGatewayControllerRetrieveResponseQueryKey = (
+  options: Options<AnkoleWebAiGatewayControllerRetrieveResponseData>
+) => createQueryKey('ankoleWebAiGatewayControllerRetrieveResponse', options)
+
+/**
+ * Retrieve a stored stateful OpenResponses response
+ */
+export const ankoleWebAiGatewayControllerRetrieveResponseOptions = (
+  options: Options<AnkoleWebAiGatewayControllerRetrieveResponseData>
+) =>
+  queryOptions<
+    AnkoleWebAiGatewayControllerRetrieveResponseResponse,
+    AnkoleWebAiGatewayControllerRetrieveResponseError,
+    AnkoleWebAiGatewayControllerRetrieveResponseResponse,
+    ReturnType<typeof ankoleWebAiGatewayControllerRetrieveResponseQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebAiGatewayControllerRetrieveResponse({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebAiGatewayControllerRetrieveResponseQueryKey(options)
+  })
 
 /**
  * Disable one agent
@@ -393,24 +798,75 @@ export const ankoleWebAgentControllerUpdateMutation = (
   return mutationOptions
 }
 
-export const ankoleWebAiGatewayProviderControllerIndexModelProfilesQueryKey = (
-  options: Options<AnkoleWebAiGatewayProviderControllerIndexModelProfilesData>
-) => createQueryKey('ankoleWebAiGatewayProviderControllerIndexModelProfiles', options)
+/**
+ * Create a stateful compaction response
+ */
+export const ankoleWebAiGatewayControllerCompactResponseMutation = (
+  options?: Partial<Options<AnkoleWebAiGatewayControllerCompactResponseData>>
+): UseMutationOptions<
+  AnkoleWebAiGatewayControllerCompactResponseResponse,
+  AnkoleWebAiGatewayControllerCompactResponseError,
+  Options<AnkoleWebAiGatewayControllerCompactResponseData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAiGatewayControllerCompactResponseResponse,
+    AnkoleWebAiGatewayControllerCompactResponseError,
+    Options<AnkoleWebAiGatewayControllerCompactResponseData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAiGatewayControllerCompactResponse({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
 
 /**
- * Read all model profiles for one agent
+ * Enqueue one identity-provider full directory sync
  */
-export const ankoleWebAiGatewayProviderControllerIndexModelProfilesOptions = (
-  options: Options<AnkoleWebAiGatewayProviderControllerIndexModelProfilesData>
-) =>
+export const ankoleWebIdentityProviderControllerRunSyncMutation = (
+  options?: Partial<Options<AnkoleWebIdentityProviderControllerRunSyncData>>
+): UseMutationOptions<
+  AnkoleWebIdentityProviderControllerRunSyncResponse,
+  AnkoleWebIdentityProviderControllerRunSyncError,
+  Options<AnkoleWebIdentityProviderControllerRunSyncData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebIdentityProviderControllerRunSyncResponse,
+    AnkoleWebIdentityProviderControllerRunSyncError,
+    Options<AnkoleWebIdentityProviderControllerRunSyncData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebIdentityProviderControllerRunSync({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const ankoleWebAgentControllerIndexQueryKey = (options?: Options<AnkoleWebAgentControllerIndexData>) =>
+  createQueryKey('ankoleWebAgentControllerIndex', options)
+
+/**
+ * List active agents
+ */
+export const ankoleWebAgentControllerIndexOptions = (options?: Options<AnkoleWebAgentControllerIndexData>) =>
   queryOptions<
-    AnkoleWebAiGatewayProviderControllerIndexModelProfilesResponse,
-    AnkoleWebAiGatewayProviderControllerIndexModelProfilesError,
-    AnkoleWebAiGatewayProviderControllerIndexModelProfilesResponse,
-    ReturnType<typeof ankoleWebAiGatewayProviderControllerIndexModelProfilesQueryKey>
+    AnkoleWebAgentControllerIndexResponse,
+    AnkoleWebAgentControllerIndexError,
+    AnkoleWebAgentControllerIndexResponse,
+    ReturnType<typeof ankoleWebAgentControllerIndexQueryKey>
   >({
     queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebAiGatewayProviderControllerIndexModelProfiles({
+      const { data } = await ankoleWebAgentControllerIndex({
         ...options,
         ...queryKey[0],
         signal,
@@ -418,26 +874,26 @@ export const ankoleWebAiGatewayProviderControllerIndexModelProfilesOptions = (
       })
       return data
     },
-    queryKey: ankoleWebAiGatewayProviderControllerIndexModelProfilesQueryKey(options)
+    queryKey: ankoleWebAgentControllerIndexQueryKey(options)
   })
 
 /**
- * Clear one optional model profile for an agent
+ * Create one agent
  */
-export const ankoleWebAiGatewayProviderControllerDeleteModelProfileMutation = (
-  options?: Partial<Options<AnkoleWebAiGatewayProviderControllerDeleteModelProfileData>>
+export const ankoleWebAgentControllerCreateMutation = (
+  options?: Partial<Options<AnkoleWebAgentControllerCreateData>>
 ): UseMutationOptions<
-  AnkoleWebAiGatewayProviderControllerDeleteModelProfileResponse,
-  AnkoleWebAiGatewayProviderControllerDeleteModelProfileError,
-  Options<AnkoleWebAiGatewayProviderControllerDeleteModelProfileData>
+  AnkoleWebAgentControllerCreateResponse,
+  AnkoleWebAgentControllerCreateError,
+  Options<AnkoleWebAgentControllerCreateData>
 > => {
   const mutationOptions: UseMutationOptions<
-    AnkoleWebAiGatewayProviderControllerDeleteModelProfileResponse,
-    AnkoleWebAiGatewayProviderControllerDeleteModelProfileError,
-    Options<AnkoleWebAiGatewayProviderControllerDeleteModelProfileData>
+    AnkoleWebAgentControllerCreateResponse,
+    AnkoleWebAgentControllerCreateError,
+    Options<AnkoleWebAgentControllerCreateData>
   > = {
     mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAiGatewayProviderControllerDeleteModelProfile({
+      const { data } = await ankoleWebAgentControllerCreate({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -448,32 +904,33 @@ export const ankoleWebAiGatewayProviderControllerDeleteModelProfileMutation = (
   return mutationOptions
 }
 
+export const ankoleWebAiGatewayProviderControllerIndexQueryKey = (
+  options?: Options<AnkoleWebAiGatewayProviderControllerIndexData>
+) => createQueryKey('ankoleWebAiGatewayProviderControllerIndex', options)
+
 /**
- * Create or update one model profile for an agent
+ * List configured AIGateway providers
  */
-export const ankoleWebAiGatewayProviderControllerPutModelProfileMutation = (
-  options?: Partial<Options<AnkoleWebAiGatewayProviderControllerPutModelProfileData>>
-): UseMutationOptions<
-  AnkoleWebAiGatewayProviderControllerPutModelProfileResponse,
-  AnkoleWebAiGatewayProviderControllerPutModelProfileError,
-  Options<AnkoleWebAiGatewayProviderControllerPutModelProfileData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAiGatewayProviderControllerPutModelProfileResponse,
-    AnkoleWebAiGatewayProviderControllerPutModelProfileError,
-    Options<AnkoleWebAiGatewayProviderControllerPutModelProfileData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAiGatewayProviderControllerPutModelProfile({
+export const ankoleWebAiGatewayProviderControllerIndexOptions = (
+  options?: Options<AnkoleWebAiGatewayProviderControllerIndexData>
+) =>
+  queryOptions<
+    AnkoleWebAiGatewayProviderControllerIndexResponse,
+    AnkoleWebAiGatewayProviderControllerIndexError,
+    AnkoleWebAiGatewayProviderControllerIndexResponse,
+    ReturnType<typeof ankoleWebAiGatewayProviderControllerIndexQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebAiGatewayProviderControllerIndex({
         ...options,
-        ...fnOptions,
+        ...queryKey[0],
+        signal,
         throwOnError: true
       })
       return data
-    }
-  }
-  return mutationOptions
-}
+    },
+    queryKey: ankoleWebAiGatewayProviderControllerIndexQueryKey(options)
+  })
 
 export const ankoleWebScheduleControllerIndexCheckbacksQueryKey = (
   options: Options<AnkoleWebScheduleControllerIndexCheckbacksData>
@@ -503,51 +960,24 @@ export const ankoleWebScheduleControllerIndexCheckbacksOptions = (
     queryKey: ankoleWebScheduleControllerIndexCheckbacksQueryKey(options)
   })
 
-/**
- * Cancel one pending checkback wakeup
- */
-export const ankoleWebScheduleControllerCancelCheckbackMutation = (
-  options?: Partial<Options<AnkoleWebScheduleControllerCancelCheckbackData>>
-): UseMutationOptions<
-  AnkoleWebScheduleControllerCancelCheckbackResponse,
-  DefaultError,
-  Options<AnkoleWebScheduleControllerCancelCheckbackData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebScheduleControllerCancelCheckbackResponse,
-    DefaultError,
-    Options<AnkoleWebScheduleControllerCancelCheckbackData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebScheduleControllerCancelCheckback({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-export const ankoleWebScheduleControllerIndexCronQueryKey = (
-  options: Options<AnkoleWebScheduleControllerIndexCronData>
-) => createQueryKey('ankoleWebScheduleControllerIndexCron', options)
+export const ankoleWebAiGatewayProviderControllerIndexModelProfilesQueryKey = (
+  options: Options<AnkoleWebAiGatewayProviderControllerIndexModelProfilesData>
+) => createQueryKey('ankoleWebAiGatewayProviderControllerIndexModelProfiles', options)
 
 /**
- * List recurring schedules for one agent session
+ * Read all model profiles for one agent
  */
-export const ankoleWebScheduleControllerIndexCronOptions = (
-  options: Options<AnkoleWebScheduleControllerIndexCronData>
+export const ankoleWebAiGatewayProviderControllerIndexModelProfilesOptions = (
+  options: Options<AnkoleWebAiGatewayProviderControllerIndexModelProfilesData>
 ) =>
   queryOptions<
-    AnkoleWebScheduleControllerIndexCronResponse,
-    AnkoleWebScheduleControllerIndexCronError,
-    AnkoleWebScheduleControllerIndexCronResponse,
-    ReturnType<typeof ankoleWebScheduleControllerIndexCronQueryKey>
+    AnkoleWebAiGatewayProviderControllerIndexModelProfilesResponse,
+    AnkoleWebAiGatewayProviderControllerIndexModelProfilesError,
+    AnkoleWebAiGatewayProviderControllerIndexModelProfilesResponse,
+    ReturnType<typeof ankoleWebAiGatewayProviderControllerIndexModelProfilesQueryKey>
   >({
     queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebScheduleControllerIndexCron({
+      const { data } = await ankoleWebAiGatewayProviderControllerIndexModelProfiles({
         ...options,
         ...queryKey[0],
         signal,
@@ -555,35 +985,36 @@ export const ankoleWebScheduleControllerIndexCronOptions = (
       })
       return data
     },
-    queryKey: ankoleWebScheduleControllerIndexCronQueryKey(options)
+    queryKey: ankoleWebAiGatewayProviderControllerIndexModelProfilesQueryKey(options)
   })
 
+export const ankoleWebSignalBindingControllerAdaptersQueryKey = (
+  options?: Options<AnkoleWebSignalBindingControllerAdaptersData>
+) => createQueryKey('ankoleWebSignalBindingControllerAdapters', options)
+
 /**
- * Create one recurring schedule
+ * List signal adapters available for bindings
  */
-export const ankoleWebScheduleControllerCreateCronMutation = (
-  options?: Partial<Options<AnkoleWebScheduleControllerCreateCronData>>
-): UseMutationOptions<
-  AnkoleWebScheduleControllerCreateCronResponse,
-  AnkoleWebScheduleControllerCreateCronError,
-  Options<AnkoleWebScheduleControllerCreateCronData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebScheduleControllerCreateCronResponse,
-    AnkoleWebScheduleControllerCreateCronError,
-    Options<AnkoleWebScheduleControllerCreateCronData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebScheduleControllerCreateCron({
+export const ankoleWebSignalBindingControllerAdaptersOptions = (
+  options?: Options<AnkoleWebSignalBindingControllerAdaptersData>
+) =>
+  queryOptions<
+    AnkoleWebSignalBindingControllerAdaptersResponse,
+    AnkoleWebSignalBindingControllerAdaptersError,
+    AnkoleWebSignalBindingControllerAdaptersResponse,
+    ReturnType<typeof ankoleWebSignalBindingControllerAdaptersQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebSignalBindingControllerAdapters({
         ...options,
-        ...fnOptions,
+        ...queryKey[0],
+        signal,
         throwOnError: true
       })
       return data
-    }
-  }
-  return mutationOptions
-}
+    },
+    queryKey: ankoleWebSignalBindingControllerAdaptersQueryKey(options)
+  })
 
 /**
  * Remove one recurring schedule
@@ -665,60 +1096,6 @@ export const ankoleWebScheduleControllerUpdateCronMutation = (
   return mutationOptions
 }
 
-/**
- * Pause one recurring schedule
- */
-export const ankoleWebScheduleControllerPauseCronMutation = (
-  options?: Partial<Options<AnkoleWebScheduleControllerPauseCronData>>
-): UseMutationOptions<
-  AnkoleWebScheduleControllerPauseCronResponse,
-  DefaultError,
-  Options<AnkoleWebScheduleControllerPauseCronData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebScheduleControllerPauseCronResponse,
-    DefaultError,
-    Options<AnkoleWebScheduleControllerPauseCronData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebScheduleControllerPauseCron({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * Resume one recurring schedule
- */
-export const ankoleWebScheduleControllerResumeCronMutation = (
-  options?: Partial<Options<AnkoleWebScheduleControllerResumeCronData>>
-): UseMutationOptions<
-  AnkoleWebScheduleControllerResumeCronResponse,
-  DefaultError,
-  Options<AnkoleWebScheduleControllerResumeCronData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebScheduleControllerResumeCronResponse,
-    DefaultError,
-    Options<AnkoleWebScheduleControllerResumeCronData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebScheduleControllerResumeCron({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
 export const ankoleWebScheduleControllerCronRunsQueryKey = (
   options: Options<AnkoleWebScheduleControllerCronRunsData>
 ) => createQueryKey('ankoleWebScheduleControllerCronRuns', options)
@@ -772,61 +1149,6 @@ export const ankoleWebScheduleControllerRunCronMutation = (
   return mutationOptions
 }
 
-export const ankoleWebSignalBindingControllerIndexQueryKey = (
-  options: Options<AnkoleWebSignalBindingControllerIndexData>
-) => createQueryKey('ankoleWebSignalBindingControllerIndex', options)
-
-/**
- * List signal bindings for one agent
- */
-export const ankoleWebSignalBindingControllerIndexOptions = (
-  options: Options<AnkoleWebSignalBindingControllerIndexData>
-) =>
-  queryOptions<
-    AnkoleWebSignalBindingControllerIndexResponse,
-    AnkoleWebSignalBindingControllerIndexError,
-    AnkoleWebSignalBindingControllerIndexResponse,
-    ReturnType<typeof ankoleWebSignalBindingControllerIndexQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebSignalBindingControllerIndex({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebSignalBindingControllerIndexQueryKey(options)
-  })
-
-/**
- * Create or update one Lark signal binding for an agent
- */
-export const ankoleWebSignalBindingControllerPutLarkMutation = (
-  options?: Partial<Options<AnkoleWebSignalBindingControllerPutLarkData>>
-): UseMutationOptions<
-  AnkoleWebSignalBindingControllerPutLarkResponse,
-  AnkoleWebSignalBindingControllerPutLarkError,
-  Options<AnkoleWebSignalBindingControllerPutLarkData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebSignalBindingControllerPutLarkResponse,
-    AnkoleWebSignalBindingControllerPutLarkError,
-    Options<AnkoleWebSignalBindingControllerPutLarkData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebSignalBindingControllerPutLark({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
 /**
  * Disable one signal binding for an agent
  */
@@ -855,293 +1177,22 @@ export const ankoleWebSignalBindingControllerDeleteMutation = (
 }
 
 /**
- * Create embeddings through AIGateway
+ * Cancel one pending checkback wakeup
  */
-export const ankoleWebAiGatewayControllerEmbeddingsMutation = (
-  options?: Partial<Options<AnkoleWebAiGatewayControllerEmbeddingsData>>
+export const ankoleWebScheduleControllerCancelCheckbackMutation = (
+  options?: Partial<Options<AnkoleWebScheduleControllerCancelCheckbackData>>
 ): UseMutationOptions<
-  AnkoleWebAiGatewayControllerEmbeddingsResponse,
-  AnkoleWebAiGatewayControllerEmbeddingsError,
-  Options<AnkoleWebAiGatewayControllerEmbeddingsData>
+  AnkoleWebScheduleControllerCancelCheckbackResponse,
+  DefaultError,
+  Options<AnkoleWebScheduleControllerCancelCheckbackData>
 > => {
   const mutationOptions: UseMutationOptions<
-    AnkoleWebAiGatewayControllerEmbeddingsResponse,
-    AnkoleWebAiGatewayControllerEmbeddingsError,
-    Options<AnkoleWebAiGatewayControllerEmbeddingsData>
+    AnkoleWebScheduleControllerCancelCheckbackResponse,
+    DefaultError,
+    Options<AnkoleWebScheduleControllerCancelCheckbackData>
   > = {
     mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAiGatewayControllerEmbeddings({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-export const ankoleWebAiGatewayControllerModelsQueryKey = (options?: Options<AnkoleWebAiGatewayControllerModelsData>) =>
-  createQueryKey('ankoleWebAiGatewayControllerModels', options)
-
-/**
- * List AIGateway model selectors
- */
-export const ankoleWebAiGatewayControllerModelsOptions = (options?: Options<AnkoleWebAiGatewayControllerModelsData>) =>
-  queryOptions<
-    AnkoleWebAiGatewayControllerModelsResponse,
-    AnkoleWebAiGatewayControllerModelsError,
-    AnkoleWebAiGatewayControllerModelsResponse,
-    ReturnType<typeof ankoleWebAiGatewayControllerModelsQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebAiGatewayControllerModels({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebAiGatewayControllerModelsQueryKey(options)
-  })
-
-export const ankoleWebAiGatewayProviderControllerProviderKindsQueryKey = (
-  options?: Options<AnkoleWebAiGatewayProviderControllerProviderKindsData>
-) => createQueryKey('ankoleWebAiGatewayProviderControllerProviderKinds', options)
-
-/**
- * List AIGateway provider kinds
- */
-export const ankoleWebAiGatewayProviderControllerProviderKindsOptions = (
-  options?: Options<AnkoleWebAiGatewayProviderControllerProviderKindsData>
-) =>
-  queryOptions<
-    AnkoleWebAiGatewayProviderControllerProviderKindsResponse,
-    AnkoleWebAiGatewayProviderControllerProviderKindsError,
-    AnkoleWebAiGatewayProviderControllerProviderKindsResponse,
-    ReturnType<typeof ankoleWebAiGatewayProviderControllerProviderKindsQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebAiGatewayProviderControllerProviderKinds({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebAiGatewayProviderControllerProviderKindsQueryKey(options)
-  })
-
-export const ankoleWebAiGatewayProviderControllerIndexQueryKey = (
-  options?: Options<AnkoleWebAiGatewayProviderControllerIndexData>
-) => createQueryKey('ankoleWebAiGatewayProviderControllerIndex', options)
-
-/**
- * List configured AIGateway providers
- */
-export const ankoleWebAiGatewayProviderControllerIndexOptions = (
-  options?: Options<AnkoleWebAiGatewayProviderControllerIndexData>
-) =>
-  queryOptions<
-    AnkoleWebAiGatewayProviderControllerIndexResponse,
-    AnkoleWebAiGatewayProviderControllerIndexError,
-    AnkoleWebAiGatewayProviderControllerIndexResponse,
-    ReturnType<typeof ankoleWebAiGatewayProviderControllerIndexQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebAiGatewayProviderControllerIndex({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebAiGatewayProviderControllerIndexQueryKey(options)
-  })
-
-/**
- * Disable one AIGateway provider
- */
-export const ankoleWebAiGatewayProviderControllerDeleteProviderMutation = (
-  options?: Partial<Options<AnkoleWebAiGatewayProviderControllerDeleteProviderData>>
-): UseMutationOptions<
-  AnkoleWebAiGatewayProviderControllerDeleteProviderResponse,
-  AnkoleWebAiGatewayProviderControllerDeleteProviderError,
-  Options<AnkoleWebAiGatewayProviderControllerDeleteProviderData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAiGatewayProviderControllerDeleteProviderResponse,
-    AnkoleWebAiGatewayProviderControllerDeleteProviderError,
-    Options<AnkoleWebAiGatewayProviderControllerDeleteProviderData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAiGatewayProviderControllerDeleteProvider({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * Create or update one AIGateway provider
- */
-export const ankoleWebAiGatewayProviderControllerPutProviderMutation = (
-  options?: Partial<Options<AnkoleWebAiGatewayProviderControllerPutProviderData>>
-): UseMutationOptions<
-  AnkoleWebAiGatewayProviderControllerPutProviderResponse,
-  AnkoleWebAiGatewayProviderControllerPutProviderError,
-  Options<AnkoleWebAiGatewayProviderControllerPutProviderData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAiGatewayProviderControllerPutProviderResponse,
-    AnkoleWebAiGatewayProviderControllerPutProviderError,
-    Options<AnkoleWebAiGatewayProviderControllerPutProviderData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAiGatewayProviderControllerPutProvider({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * Create a rerank result through AIGateway
- */
-export const ankoleWebAiGatewayControllerRerankMutation = (
-  options?: Partial<Options<AnkoleWebAiGatewayControllerRerankData>>
-): UseMutationOptions<
-  AnkoleWebAiGatewayControllerRerankResponse,
-  AnkoleWebAiGatewayControllerRerankError,
-  Options<AnkoleWebAiGatewayControllerRerankData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAiGatewayControllerRerankResponse,
-    AnkoleWebAiGatewayControllerRerankError,
-    Options<AnkoleWebAiGatewayControllerRerankData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAiGatewayControllerRerank({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * Create a stateless OpenResponses response
- */
-export const ankoleWebAiGatewayControllerResponsesMutation = (
-  options?: Partial<Options<AnkoleWebAiGatewayControllerResponsesData>>
-): UseMutationOptions<
-  AnkoleWebAiGatewayControllerResponsesResponse,
-  AnkoleWebAiGatewayControllerResponsesError,
-  Options<AnkoleWebAiGatewayControllerResponsesData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAiGatewayControllerResponsesResponse,
-    AnkoleWebAiGatewayControllerResponsesError,
-    Options<AnkoleWebAiGatewayControllerResponsesData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAiGatewayControllerResponses({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * Create a stateful compaction response
- */
-export const ankoleWebAiGatewayControllerCompactResponseMutation = (
-  options?: Partial<Options<AnkoleWebAiGatewayControllerCompactResponseData>>
-): UseMutationOptions<
-  AnkoleWebAiGatewayControllerCompactResponseResponse,
-  AnkoleWebAiGatewayControllerCompactResponseError,
-  Options<AnkoleWebAiGatewayControllerCompactResponseData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAiGatewayControllerCompactResponseResponse,
-    AnkoleWebAiGatewayControllerCompactResponseError,
-    Options<AnkoleWebAiGatewayControllerCompactResponseData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAiGatewayControllerCompactResponse({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-export const ankoleWebAiGatewayControllerRetrieveResponseQueryKey = (
-  options: Options<AnkoleWebAiGatewayControllerRetrieveResponseData>
-) => createQueryKey('ankoleWebAiGatewayControllerRetrieveResponse', options)
-
-/**
- * Retrieve a stored stateful OpenResponses response
- */
-export const ankoleWebAiGatewayControllerRetrieveResponseOptions = (
-  options: Options<AnkoleWebAiGatewayControllerRetrieveResponseData>
-) =>
-  queryOptions<
-    AnkoleWebAiGatewayControllerRetrieveResponseResponse,
-    AnkoleWebAiGatewayControllerRetrieveResponseError,
-    AnkoleWebAiGatewayControllerRetrieveResponseResponse,
-    ReturnType<typeof ankoleWebAiGatewayControllerRetrieveResponseQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebAiGatewayControllerRetrieveResponse({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebAiGatewayControllerRetrieveResponseQueryKey(options)
-  })
-
-/**
- * Fetch web pages through AIGateway
- */
-export const ankoleWebAiGatewayControllerWebFetchMutation = (
-  options?: Partial<Options<AnkoleWebAiGatewayControllerWebFetchData>>
-): UseMutationOptions<
-  AnkoleWebAiGatewayControllerWebFetchResponse,
-  AnkoleWebAiGatewayControllerWebFetchError,
-  Options<AnkoleWebAiGatewayControllerWebFetchData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAiGatewayControllerWebFetchResponse,
-    AnkoleWebAiGatewayControllerWebFetchError,
-    Options<AnkoleWebAiGatewayControllerWebFetchData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAiGatewayControllerWebFetch({
+      const { data } = await ankoleWebScheduleControllerCancelCheckback({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -1207,33 +1258,140 @@ export const ankoleWebAiGatewayControllerWebToolsOptions = (
     queryKey: ankoleWebAiGatewayControllerWebToolsQueryKey(options)
   })
 
-export const ankoleWebAppConfigurationControllerIndexQueryKey = (
-  options?: Options<AnkoleWebAppConfigurationControllerIndexData>
-) => createQueryKey('ankoleWebAppConfigurationControllerIndex', options)
-
 /**
- * List console-visible AppConfigure entries
+ * Create or update one signal binding for an agent
  */
-export const ankoleWebAppConfigurationControllerIndexOptions = (
-  options?: Options<AnkoleWebAppConfigurationControllerIndexData>
-) =>
-  queryOptions<
-    AnkoleWebAppConfigurationControllerIndexResponse,
-    AnkoleWebAppConfigurationControllerIndexError,
-    AnkoleWebAppConfigurationControllerIndexResponse,
-    ReturnType<typeof ankoleWebAppConfigurationControllerIndexQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebAppConfigurationControllerIndex({
+export const ankoleWebSignalBindingControllerPutBindingMutation = (
+  options?: Partial<Options<AnkoleWebSignalBindingControllerPutBindingData>>
+): UseMutationOptions<
+  AnkoleWebSignalBindingControllerPutBindingResponse,
+  AnkoleWebSignalBindingControllerPutBindingError,
+  Options<AnkoleWebSignalBindingControllerPutBindingData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebSignalBindingControllerPutBindingResponse,
+    AnkoleWebSignalBindingControllerPutBindingError,
+    Options<AnkoleWebSignalBindingControllerPutBindingData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebSignalBindingControllerPutBinding({
         ...options,
-        ...queryKey[0],
-        signal,
+        ...fnOptions,
         throwOnError: true
       })
       return data
-    },
-    queryKey: ankoleWebAppConfigurationControllerIndexQueryKey(options)
-  })
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Clear the current browser admin session
+ */
+export const ankoleWebAuthControllerDeleteSessionMutation = (
+  options?: Partial<Options<AnkoleWebAuthControllerDeleteSessionData>>
+): UseMutationOptions<
+  AnkoleWebAuthControllerDeleteSessionResponse,
+  DefaultError,
+  Options<AnkoleWebAuthControllerDeleteSessionData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAuthControllerDeleteSessionResponse,
+    DefaultError,
+    Options<AnkoleWebAuthControllerDeleteSessionData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAuthControllerDeleteSession({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Create a rerank result through AIGateway
+ */
+export const ankoleWebAiGatewayControllerRerankMutation = (
+  options?: Partial<Options<AnkoleWebAiGatewayControllerRerankData>>
+): UseMutationOptions<
+  AnkoleWebAiGatewayControllerRerankResponse,
+  AnkoleWebAiGatewayControllerRerankError,
+  Options<AnkoleWebAiGatewayControllerRerankData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAiGatewayControllerRerankResponse,
+    AnkoleWebAiGatewayControllerRerankError,
+    Options<AnkoleWebAiGatewayControllerRerankData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAiGatewayControllerRerank({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Reveal one encrypted AppConfigure value on demand
+ */
+export const ankoleWebAppConfigurationControllerDecryptMutation = (
+  options?: Partial<Options<AnkoleWebAppConfigurationControllerDecryptData>>
+): UseMutationOptions<
+  AnkoleWebAppConfigurationControllerDecryptResponse,
+  AnkoleWebAppConfigurationControllerDecryptError,
+  Options<AnkoleWebAppConfigurationControllerDecryptData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAppConfigurationControllerDecryptResponse,
+    AnkoleWebAppConfigurationControllerDecryptError,
+    Options<AnkoleWebAppConfigurationControllerDecryptData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAppConfigurationControllerDecrypt({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Create embeddings through AIGateway
+ */
+export const ankoleWebAiGatewayControllerEmbeddingsMutation = (
+  options?: Partial<Options<AnkoleWebAiGatewayControllerEmbeddingsData>>
+): UseMutationOptions<
+  AnkoleWebAiGatewayControllerEmbeddingsResponse,
+  AnkoleWebAiGatewayControllerEmbeddingsError,
+  Options<AnkoleWebAiGatewayControllerEmbeddingsData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAiGatewayControllerEmbeddingsResponse,
+    AnkoleWebAiGatewayControllerEmbeddingsError,
+    Options<AnkoleWebAiGatewayControllerEmbeddingsData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAiGatewayControllerEmbeddings({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
 
 /**
  * Reset one global AppConfigure value
@@ -1318,22 +1476,22 @@ export const ankoleWebAppConfigurationControllerUpdateMutation = (
 }
 
 /**
- * Reveal one encrypted AppConfigure value on demand
+ * Exchange a browser admin session or refresh token for console bearer tokens
  */
-export const ankoleWebAppConfigurationControllerDecryptMutation = (
-  options?: Partial<Options<AnkoleWebAppConfigurationControllerDecryptData>>
+export const ankoleWebAuthControllerOauthTokenMutation = (
+  options?: Partial<Options<AnkoleWebAuthControllerOauthTokenData>>
 ): UseMutationOptions<
-  AnkoleWebAppConfigurationControllerDecryptResponse,
-  AnkoleWebAppConfigurationControllerDecryptError,
-  Options<AnkoleWebAppConfigurationControllerDecryptData>
+  AnkoleWebAuthControllerOauthTokenResponse,
+  AnkoleWebAuthControllerOauthTokenError,
+  Options<AnkoleWebAuthControllerOauthTokenData>
 > => {
   const mutationOptions: UseMutationOptions<
-    AnkoleWebAppConfigurationControllerDecryptResponse,
-    AnkoleWebAppConfigurationControllerDecryptError,
-    Options<AnkoleWebAppConfigurationControllerDecryptData>
+    AnkoleWebAuthControllerOauthTokenResponse,
+    AnkoleWebAuthControllerOauthTokenError,
+    Options<AnkoleWebAuthControllerOauthTokenData>
   > = {
     mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAppConfigurationControllerDecrypt({
+      const { data } = await ankoleWebAuthControllerOauthToken({
         ...options,
         ...fnOptions,
         throwOnError: true

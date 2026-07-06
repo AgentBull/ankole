@@ -107,12 +107,19 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
   end
 
   @doc """
-  Runs a full user sync and stops on the first write or provider error.
+  Runs a full directory sync and stops on the first write or provider error.
   """
-  @spec sync_users(String.t(), map(), keyword()) ::
-          {:ok, %{users: non_neg_integer()}} | {:error, term()}
-  def sync_users(provider_id, config, opts \\ [])
+  @spec sync_directory(String.t(), map(), keyword()) ::
+          {:ok, %{users: non_neg_integer(), departments: non_neg_integer()}} | {:error, term()}
+  def sync_directory(provider_id, config, opts \\ [])
       when is_binary(provider_id) and is_map(config) do
+    with {:ok, %{users: users}} <- sync_directory_users(provider_id, config, opts),
+         {:ok, %{departments: departments}} <- sync_directory_departments(config, opts) do
+      {:ok, %{users: users, departments: departments}}
+    end
+  end
+
+  defp sync_directory_users(provider_id, config, opts) do
     client = Config.client(config, Keyword.get(opts, :client_opts, []))
     page_size = get_in(config, ["sync", "pageSize"]) || 50
 
@@ -137,12 +144,7 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
     end
   end
 
-  @doc """
-  Reads departments to verify provider access and count visible department rows.
-  """
-  @spec sync_departments(String.t(), map(), keyword()) ::
-          {:ok, %{departments: non_neg_integer()}} | {:error, term()}
-  def sync_departments(_provider_id, config, opts \\ []) when is_map(config) do
+  defp sync_directory_departments(config, opts) do
     client = Config.client(config, Keyword.get(opts, :client_opts, []))
     page_size = get_in(config, ["sync", "pageSize"]) || 50
 

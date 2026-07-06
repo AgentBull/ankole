@@ -10,14 +10,16 @@ defmodule Ankole.AIAgent.LibraryTest do
   alias Ankole.Repo
 
   setup do
-    assert {:ok, %{skills: 3, changed: _changed}} = Library.sync_builtin_skills(force: true)
+    assert {:ok, %{skills: 5, changed: _changed}} = Library.sync_builtin_skills(force: true)
     :ok
   end
 
   test "syncs the first-party builtin skills into the catalog" do
     assert {:ok, skills} = Library.enabled_skills_for_agent(agent_fixture().principal.uid)
 
-    assert Enum.map(skills, & &1["skill_name"]) == ~w(jupyter-live-kernel nano-pdf ppt-master)
+    assert Enum.map(skills, & &1["skill_name"]) ==
+             ~w(docx jupyter-live-kernel nano-pdf pptx xlsx)
+
     assert Enum.all?(skills, & &1["default_enabled"])
 
     assert Enum.find(skills, &(&1["skill_name"] == "jupyter-live-kernel"))["category"] ==
@@ -72,7 +74,7 @@ defmodule Ankole.AIAgent.LibraryTest do
   test "agent-installed skills are recorded from worker file observations" do
     %{principal: agent} = agent_fixture()
 
-    assert {:ok, %{skills: 4}} =
+    assert {:ok, %{skills: 6}} =
              Library.replace_installed_skill_observations(agent.uid, [
                %{
                  skill_name: "agent-notes",
@@ -94,14 +96,14 @@ defmodule Ankole.AIAgent.LibraryTest do
 
     assert {:error, :skill_file_not_found} = Library.skill_view(agent.uid, "agent-notes")
 
-    assert {:ok, %{skills: 3}} = Library.replace_installed_skill_observations(agent.uid, [])
+    assert {:ok, %{skills: 5}} = Library.replace_installed_skill_observations(agent.uid, [])
     assert {:error, :skill_not_found} = Library.skill_view(agent.uid, "agent-notes")
   end
 
   test "agent-installed registry rows survive builtin sync until new worker observations arrive" do
     %{principal: agent} = agent_fixture()
 
-    assert {:ok, %{skills: 4}} =
+    assert {:ok, %{skills: 6}} =
              Library.replace_installed_skill_observations(agent.uid, [
                %{
                  "skill_name" => "agent-notes",
@@ -117,7 +119,7 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert %AgentSkill{source_kind: "installed"} =
              Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "agent-notes")
 
-    assert {:ok, %{skills: 3}} = Library.sync_agent_skills(agent.uid)
+    assert {:ok, %{skills: 5}} = Library.sync_agent_skills(agent.uid)
 
     assert %AgentSkill{source_kind: "installed"} =
              Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "agent-notes")

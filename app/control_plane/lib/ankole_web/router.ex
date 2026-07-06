@@ -66,6 +66,11 @@ defmodule AnkoleWeb.Router do
     get "/setup/state", SetupController, :state
     post "/setup/sessions", SetupController, :create_session
     delete "/setup/sessions/current", SetupController, :delete_session
+
+    post "/setup/bootstrap-activation-code/log-entries",
+         SetupController,
+         :create_activation_code_log_entry
+
     get "/setup/plugins", SetupController, :plugins
     put "/setup/plugins/enabled", SetupController, :update_plugins
     get "/setup/identity-provider-adapters", SetupController, :identity_provider_adapters
@@ -114,6 +119,11 @@ defmodule AnkoleWeb.Router do
     delete "/ai-gateway/providers/:provider_id", AIGatewayProviderController, :delete_provider
     get "/agents/:agent_uid/model-profiles", AIGatewayProviderController, :index_model_profiles
 
+    get "/identity-provider-adapters", IdentityProviderController, :adapters
+    get "/identity-providers", IdentityProviderController, :index
+    put "/identity-providers/:provider_id", IdentityProviderController, :put_provider
+    post "/identity-providers/:provider_id/sync-runs", IdentityProviderController, :run_sync
+
     put "/agents/:agent_uid/model-profiles/:profile",
         AIGatewayProviderController,
         :put_model_profile
@@ -122,11 +132,13 @@ defmodule AnkoleWeb.Router do
            AIGatewayProviderController,
            :delete_model_profile
 
+    get "/signal-adapters", SignalBindingController, :adapters
+
     get "/agents/:agent_uid/signal-bindings", SignalBindingController, :index
 
-    put "/agents/:agent_uid/signal-bindings/lark/:binding_name",
+    put "/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name",
         SignalBindingController,
-        :put_lark
+        :put_binding
 
     delete "/agents/:agent_uid/signal-bindings/:binding_name",
            SignalBindingController,

@@ -14,6 +14,7 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
   alias Ankole.ActorRuntime.Schemas.ActorSessionWorkerAssignment
   alias Ankole.ActorRuntime.TurnEnvelope
   alias Ankole.ActorRuntime.TurnLifecycle
+  alias Ankole.ActorRuntime.TurnRef
   alias Ankole.ActorRuntime.TurnRetry
   alias Ankole.ActorRuntime.Transport.Broker
   alias Ankole.ActorRuntime.WorkerAdmission
@@ -650,22 +651,11 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
     end)
   end
 
-  defp stop_control_for_delivery(actor_key, delivery, reason) do
+  defp stop_control_for_delivery(_actor_key, delivery, reason) do
     %{
       route: delivery.transport_route || delivery.worker_id,
       reason: reason,
-      turn_ref: %{
-        "actor" => %{
-          "agent_uid" => actor_key.agent_uid,
-          "session_id" => actor_key.session_id
-        },
-        # Source table: stop control turn_ref copies actor_event_deliveries
-        # fence values for the still-live worker turn.
-        "activation_uid" => delivery.activation_uid,
-        "actor_epoch" => delivery.actor_epoch,
-        "actor_event_id" => delivery.actor_event_id_fence,
-        "revision" => delivery.revision
-      }
+      turn_ref: delivery |> TurnRef.from_delivery() |> TurnRef.to_wire()
     }
   end
 

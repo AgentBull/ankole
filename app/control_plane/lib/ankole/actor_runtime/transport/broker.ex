@@ -30,6 +30,7 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
 
   alias Ankole.ActorRuntime.FileTransferLane
   alias Ankole.ActorRuntime.RPCLane
+  alias Ankole.ActorRuntime.TurnRef
   alias Ankole.ActorRuntime.WorkerAdmission
   alias Ankole.ActorRuntime.WorkerAuthKey
   alias Ankole.ActorRuntime.WorkerRouteAuth
@@ -672,8 +673,9 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
   defp authorize_actor_lane_turn(%{"body" => %{"type" => type} = body} = envelope, route, effect) do
     with %{} = payload <- Map.get(body, type),
          %{} = turn <- Map.get(payload, "turn"),
-         :ok <- WorkerRouteAuth.authorize_turn_route(turn, route, effect) do
-      {:ok, envelope}
+         {:ok, turn_ref} <- TurnRef.from_wire(turn),
+         :ok <- WorkerRouteAuth.authorize_turn_route(turn_ref, route, effect) do
+      {:ok, put_in(envelope, ["body", type, "turn"], turn_ref)}
     else
       nil -> {:error, :missing_turn_ref}
       {:error, _reason} = error -> error

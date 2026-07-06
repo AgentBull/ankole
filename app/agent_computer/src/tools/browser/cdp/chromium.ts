@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { resolve } from 'node:path'
+import type { JsonObject } from '@pleisto/active-support'
 import {
   DEFAULT_BROWSER_COMMAND_TIMEOUT_MS,
   DEFAULT_CDP_CONNECT_TIMEOUT_MS,
@@ -11,7 +12,7 @@ import {
 } from './constants'
 import { drainProcessOutput, localCdpEndpointAlive, sleep } from './utils'
 import { CdpClient } from './client'
-import type { BrowserRuntimeOptions, JsonObject, LocalChromiumSidecar } from './types'
+import type { BrowserRuntimeOptions, LocalChromiumSidecar } from './types'
 
 const localChromiumSidecars = new Map<string, LocalChromiumSidecar>()
 let localChromiumShutdownHooksInstalled = false
@@ -70,6 +71,7 @@ export async function createLocalBrowserContext(connectUrl: string): Promise<{
 export function findChromium(): string | null {
   const candidates = [
     process.env.ANKOLE_CHROMIUM_PATH,
+    'chromium-headless-shell',
     'chromium',
     'chromium-browser',
     'google-chrome',
@@ -132,7 +134,11 @@ async function pollJsonVersionForWebSocket(
  * isolation is handled by BrowserContext, and idle timers stop the process when
  * the worker no longer needs it.
  */
-export async function ensureLocalChromiumSidecar(key: string, idleTtlMs: number): Promise<LocalChromiumSidecar> {
+export async function ensureLocalChromiumSidecar(
+  key: string,
+  idleTtlMs: number,
+  root = workspaceRoot
+): Promise<LocalChromiumSidecar> {
   installLocalChromiumShutdownHooks()
 
   const existing = localChromiumSidecars.get(key)
@@ -148,10 +154,14 @@ export async function ensureLocalChromiumSidecar(key: string, idleTtlMs: number)
   }
 
   const chromium = findChromium()
-  if (!chromium) throw new Error('local browser requires Chromium; no remote CDP override is configured')
+  if (!chromium) {
+    throw new Error(
+      'local browser requires chromium-headless-shell or another Chromium-compatible binary; no remote CDP override is configured'
+    )
+  }
 
   const port = await allocateLocalPort()
-  const profileDir = resolve(workspaceRoot, '.sessions/_browser/chromium/profile')
+  const profileDir = resolve(root, '.sessions/_browser/chromium/profile')
   mkdirSync(profileDir, { recursive: true })
   const proc = Bun.spawn(
     [
@@ -176,12 +186,13 @@ export async function ensureLocalChromiumSidecar(key: string, idleTtlMs: number)
       'about:blank'
     ],
     {
-      cwd: workspaceRoot,
+      cwd: root,
       env: process.env,
       stdout: 'pipe',
       stderr: 'pipe'
     }
   )
+  proc.unref()
   drainProcessOutput(proc.stdout, `chromium:${key}:stdout`)
   drainProcessOutput(proc.stderr, `chromium:${key}:stderr`)
 
@@ -278,6 +289,7 @@ export async function stopLocalSidecar(sidecar: LocalChromiumSidecar): Promise<v
   if (!exited && sidecar.proc.exitCode === null) {
     try {
       sidecar.proc.kill('SIGKILL')
+      await Promise.race([sidecar.proc.exited.then(() => true), sleep(2_000).then(() => false)])
     } catch {
       // Process may already be gone.
     }

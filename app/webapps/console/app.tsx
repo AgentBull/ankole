@@ -18,6 +18,7 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
+  Checkbox,
   Input,
   Select,
   SelectContent,
@@ -36,7 +37,19 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ComponentType, ReactNode } from 'react'
 import { useEffect, useMemo, useState } from 'react'
-import { apiErrorMessage } from '../common/api'
+import {
+  ConfigField,
+  ConfigFields,
+  defaultConfig,
+  getPath,
+  localizedText,
+  setPath,
+  type ConfigFieldDefinition,
+  type LocalizedText
+} from '../common/config-fields'
+import i18n from '../common/i18n'
+import { recordValue, type JsonObject } from '@pleisto/active-support'
+import { requestErrorMessage } from '../common/request-errors'
 import {
   ankoleWebAgentControllerCreateMutation,
   ankoleWebAgentControllerDeleteMutation,
@@ -54,19 +67,28 @@ import {
   ankoleWebAppConfigurationControllerIndexOptions,
   ankoleWebAppConfigurationControllerShowOptions,
   ankoleWebAppConfigurationControllerUpdateMutation,
+  ankoleWebIdentityProviderControllerAdaptersOptions,
+  ankoleWebIdentityProviderControllerIndexOptions,
+  ankoleWebIdentityProviderControllerPutProviderMutation,
+  ankoleWebIdentityProviderControllerRunSyncMutation,
+  ankoleWebSignalBindingControllerAdaptersOptions,
   ankoleWebSignalBindingControllerDeleteMutation,
   ankoleWebSignalBindingControllerIndexOptions,
-  ankoleWebSignalBindingControllerPutLarkMutation
+  ankoleWebSignalBindingControllerPutBindingMutation
 } from './api/generated/@tanstack/react-query.gen'
 import type {
   AgentItem,
   AiGatewayProviderItem,
   AiGatewayProviderKindItem,
-  AppConfigurationItem
+  AppConfigurationItem,
+  IdentityProviderAdapterItem,
+  IdentityProviderItem,
+  SignalAdapterItem,
+  SignalBindingWriteRequest
 } from './api/generated/types.gen'
 import { configureConsoleApiClient, logoutConsoleSession } from './api/tokens'
 
-type Section = 'agents' | 'providers' | 'signals' | 'settings'
+type Section = 'agents' | 'providers' | 'identity' | 'signals' | 'settings'
 
 type NavItem = {
   id: Section
@@ -91,6 +113,14 @@ type ProviderDraft = {
   error?: string
 }
 
+type IdentityProviderDraft = {
+  adapterId: string
+  config: JsonObject
+  enabled: boolean
+  error?: string
+  providerId: string
+}
+
 type ProfileDraft = {
   providerId: string
   model: string
@@ -101,17 +131,13 @@ type ProfileDraft = {
 
 type SignalDraft = {
   name: string
-  appId: string
-  appSecret: string
-  domain: 'feishu' | 'lark'
-  baseUrl: string
-  groupMessageMode: 'addressed_only' | 'observe_all' | 'may_intervene'
-  platformSubjectNamespace: string
-  userName: string
-  botOpenId: string
-  botUserId: string
+  adapterId: string
+  config: JsonObject
+  groupMessageMode: GroupMessageMode | ''
   error?: string
 }
+
+type GroupMessageMode = NonNullable<SignalBindingWriteRequest['group_message_mode']>
 
 type ConfigDraft = {
   text: string
@@ -121,6 +147,7 @@ type ConfigDraft = {
 const NAV_ITEMS: NavItem[] = [
   { id: 'agents', label: 'Agents', icon: RiRobot2Line },
   { id: 'providers', label: 'LLM Providers', icon: RiSparkling2Line },
+  { id: 'identity', label: 'Identity Providers', icon: RiSettings3Line },
   { id: 'signals', label: 'Signal Bindings', icon: RiBroadcastLine },
   { id: 'settings', label: 'AppConfigure', icon: RiSettings3Line }
 ]
@@ -198,6 +225,7 @@ export function ConsoleApp() {
         <section className="min-w-0 p-4 md:p-6">
           {section === 'agents' ? <AgentsWorkspace /> : null}
           {section === 'providers' ? <ProvidersWorkspace /> : null}
+          {section === 'identity' ? <IdentityProvidersWorkspace /> : null}
           {section === 'signals' ? <SignalsWorkspace /> : null}
           {section === 'settings' ? <AppConfigureWorkspace /> : null}
         </section>
@@ -389,7 +417,7 @@ function AgentsWorkspace() {
                   agent={selectedAgent}
                   error={modelProfiles.error}
                   loading={modelProfiles.isLoading}
-                  profiles={asRecord(modelProfiles.data?.data)}
+                  profiles={recordValue(modelProfiles.data?.data) ?? {}}
                   providers={providers.data?.data ?? []}
                   onChanged={refresh}
                 />
@@ -567,11 +595,211 @@ function ProvidersWorkspace() {
   )
 }
 
+function IdentityProvidersWorkspace() {
+  const queryClient = useQueryClient()
+  const adapters = useQuery(ankoleWebIdentityProviderControllerAdaptersOptions())
+  const providers = useQuery(ankoleWebIdentityProviderControllerIndexOptions())
+  const identityAdapters = adapters.data?.data ?? []
+  const identityProviders = providers.data?.data ?? []
+  const [mode, setMode] = useState<'new' | 'edit'>('new')
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const selected = identityProviders.find(provider => provider.provider_id === selectedId)
+  const [draft, setDraft] = useState<IdentityProviderDraft>(emptyIdentityProviderDraft(identityAdapters[0]))
+  const activeAdapter =
+    identityAdapters.find(adapter => adapter.adapter_id === draft.adapterId) ??
+    identityAdapters.find(adapter => adapter.adapter_id === selected?.adapter_id) ??
+    identityAdapters[0]
+  const selectedAdapter = identityAdapters.find(adapter => adapter.adapter_id === selected?.adapter_id)
+  const locale = i18n.language
+  const refresh = () => void queryClient.invalidateQueries()
+  const saveProvider = useMutation({
+    ...ankoleWebIdentityProviderControllerPutProviderMutation(),
+    onSuccess: response => {
+      setMode('edit')
+      setSelectedId(response.data.provider_id)
+      refresh()
+    }
+  })
+  const runSync = useMutation({ ...ankoleWebIdentityProviderControllerRunSyncMutation(), onSuccess: refresh })
+
+  useEffect(() => {
+    if (!selectedId && identityProviders[0]) {
+      setSelectedId(identityProviders[0].provider_id)
+      setMode('edit')
+    }
+  }, [identityProviders, selectedId])
+
+  useEffect(() => {
+    if (mode === 'edit' && selected) {
+      setDraft(draftFromIdentityProvider(selected))
+      return
+    }
+
+    if (mode === 'new' && identityAdapters[0]) setDraft(emptyIdentityProviderDraft(identityAdapters[0]))
+  }, [mode, selected?.provider_id, identityAdapters])
+
+  const save = () => {
+    if (!activeAdapter) return
+
+    const providerId = draft.providerId.trim()
+    if (!providerId) {
+      setDraft(current => ({ ...current, error: 'Provider ID is required.' }))
+      return
+    }
+
+    saveProvider.mutate({
+      body: {
+        adapter_id: activeAdapter.adapter_id,
+        config: draft.config,
+        enabled: draft.enabled
+      },
+      path: { provider_id: providerId }
+    })
+  }
+
+  const canRunSync = Boolean(
+    mode === 'edit' &&
+    selected &&
+    selected.enabled &&
+    selectedAdapter &&
+    identityProviderSupportsDirectoryFullSync(selectedAdapter) &&
+    identityProviderSyncEnabled(selected)
+  )
+
+  return (
+    <WorkspaceShell
+      title="Identity Providers"
+      action={
+        <Button
+          size="sm"
+          type="button"
+          variant="outline"
+          onClick={() => {
+            setMode('new')
+            setSelectedId(null)
+          }}>
+          <RiAddLine data-icon="inline-start" />
+          New
+        </Button>
+      }>
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(420px,1.05fr)]">
+        <div className="min-w-0">
+          <ErrorBlock error={providers.error ?? adapters.error} />
+          <ResourceTable
+            columns={['Provider', 'Adapter', 'Sync', 'State']}
+            empty={!providers.isLoading && identityProviders.length === 0}
+            loading={providers.isLoading || adapters.isLoading}>
+            {identityProviders.map(provider => (
+              <TableRow
+                key={provider.provider_id}
+                data-state={provider.provider_id === selected?.provider_id ? 'selected' : undefined}
+                className="cursor-pointer"
+                onClick={() => {
+                  setMode('edit')
+                  setSelectedId(provider.provider_id)
+                }}>
+                <TableCell className="font-mono text-xs">{provider.provider_id}</TableCell>
+                <TableCell>{provider.adapter_id}</TableCell>
+                <TableCell>
+                  <Badge variant={identityProviderSyncEnabled(provider) ? 'default' : 'outline'}>
+                    {identityProviderSyncEnabled(provider) ? 'contacts' : 'off'}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  <Badge variant={provider.enabled ? 'default' : 'secondary'}>
+                    {provider.enabled ? 'enabled' : 'disabled'}
+                  </Badge>
+                </TableCell>
+              </TableRow>
+            ))}
+          </ResourceTable>
+        </div>
+
+        <Card size="sm" className="min-w-0">
+          <CardHeader>
+            <CardTitle>{mode === 'new' ? 'New identity provider' : selected?.provider_id}</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            <ErrorBlock error={draft.error ?? saveProvider.error ?? runSync.error} />
+            <Field label="Adapter">
+              <Select
+                disabled={mode === 'edit'}
+                value={activeAdapter?.adapter_id ?? ''}
+                onValueChange={value => {
+                  const adapter = identityAdapters.find(item => item.adapter_id === value)
+                  if (adapter) setDraft(emptyIdentityProviderDraft(adapter))
+                }}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {identityAdapters.map(adapter => (
+                    <SelectItem key={adapter.adapter_id} value={adapter.adapter_id}>
+                      {localizedUnknown(adapter.display_name, locale, adapter.adapter_id)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="Provider ID">
+              <Input
+                disabled={mode === 'edit'}
+                value={draft.providerId}
+                onChange={event => setDraft(current => ({ ...current, providerId: event.target.value }))}
+              />
+            </Field>
+            <div className="flex items-center justify-between gap-4 border border-border/70 bg-card/60 p-4">
+              <div className="grid gap-1">
+                <span className="text-sm font-medium">Enabled</span>
+                <span className="text-xs text-muted-foreground">Available for login and directory sync.</span>
+              </div>
+              <Checkbox
+                checked={draft.enabled}
+                onCheckedChange={checked => setDraft(current => ({ ...current, enabled: checked === true }))}
+              />
+            </div>
+            {activeAdapter ? (
+              <ConfigFields
+                config={draft.config}
+                fieldGroupClassName="grid gap-4 md:grid-cols-2"
+                fields={asConfigFields(activeAdapter.fields)}
+                locale={locale}
+                onChange={(path, value) =>
+                  setDraft(current => ({ ...current, config: setPath(current.config, path, value) }))
+                }
+              />
+            ) : null}
+            <div className="flex flex-wrap gap-2">
+              <Button disabled={!activeAdapter || saveProvider.isPending} size="sm" type="button" onClick={save}>
+                <RiSave3Line data-icon="inline-start" />
+                Save
+              </Button>
+              {canRunSync ? (
+                <Button
+                  disabled={runSync.isPending}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                  onClick={() => selected && runSync.mutate({ path: { provider_id: selected.provider_id } })}>
+                  <RiRefreshLine data-icon="inline-start" />
+                  Run full sync
+                </Button>
+              ) : null}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </WorkspaceShell>
+  )
+}
+
 function SignalsWorkspace() {
   const queryClient = useQueryClient()
   const agents = useQuery(ankoleWebAgentControllerIndexOptions())
+  const adapters = useQuery(ankoleWebSignalBindingControllerAdaptersOptions())
   const [selectedUid, setSelectedUid] = useState<string | null>(null)
   const selectedAgent = agents.data?.data.find(agent => agent.uid === selectedUid)
+  const signalAdapters = adapters.data?.data ?? []
   const bindings = useQuery({
     ...ankoleWebSignalBindingControllerIndexOptions({
       path: { agent_uid: selectedAgent?.uid ?? '' }
@@ -579,32 +807,40 @@ function SignalsWorkspace() {
     enabled: Boolean(selectedAgent?.uid)
   })
   const [draft, setDraft] = useState<SignalDraft>(emptySignalDraft())
+  const activeAdapter = signalAdapters.find(adapter => adapter.adapter_id === draft.adapterId) ?? signalAdapters[0]
+  const locale = i18n.language
   const refresh = () => void queryClient.invalidateQueries()
-  const saveBinding = useMutation({ ...ankoleWebSignalBindingControllerPutLarkMutation(), onSuccess: refresh })
+  const saveBinding = useMutation({ ...ankoleWebSignalBindingControllerPutBindingMutation(), onSuccess: refresh })
   const deleteBinding = useMutation({ ...ankoleWebSignalBindingControllerDeleteMutation(), onSuccess: refresh })
 
   useEffect(() => {
     if (!selectedUid && agents.data?.data[0]) setSelectedUid(agents.data.data[0].uid)
   }, [agents.data?.data, selectedUid])
 
+  useEffect(() => {
+    if (signalAdapters.length === 0) return
+    if (draft.adapterId && signalAdapters.some(adapter => adapter.adapter_id === draft.adapterId)) return
+    setDraft(draftFromSignalAdapter(signalAdapters[0]))
+  }, [draft.adapterId, signalAdapters])
+
   const submit = () => {
-    if (!selectedAgent) return
+    if (!selectedAgent || !activeAdapter) return
     const name = draft.name.trim()
-    const config = removeBlankValues({
-      appId: draft.appId,
-      appSecret: draft.appSecret,
-      domain: draft.domain,
-      baseUrl: draft.baseUrl,
-      group_message_mode: draft.groupMessageMode,
-      platformSubjectNamespace: draft.platformSubjectNamespace,
-      userName: draft.userName,
-      botOpenId: draft.botOpenId,
-      botUserId: draft.botUserId
-    })
+    const groupMessageMode = asGroupMessageMode(draft.groupMessageMode || defaultGroupMessageMode(activeAdapter))
+
+    if (!name) {
+      setDraft(current => ({ ...current, error: 'Binding name is required.' }))
+      return
+    }
+
+    if (!groupMessageMode) {
+      setDraft(current => ({ ...current, error: 'Group message mode is invalid.' }))
+      return
+    }
 
     saveBinding.mutate({
-      body: { config },
-      path: { agent_uid: selectedAgent.uid, binding_name: name }
+      body: { config: draft.config, group_message_mode: groupMessageMode },
+      path: { adapter_id: activeAdapter.adapter_id, agent_uid: selectedAgent.uid, binding_name: name }
     })
   }
 
@@ -614,7 +850,7 @@ function SignalsWorkspace() {
         <div className="min-w-0">
           <AgentSelector agents={agents.data?.data ?? []} value={selectedUid} onChange={setSelectedUid} />
           <div className="mt-4">
-            <ErrorBlock error={agents.error ?? bindings.error} />
+            <ErrorBlock error={agents.error ?? adapters.error ?? bindings.error} />
             <ResourceTable
               columns={['Name', 'Adapter', 'Policy', 'State']}
               empty={!bindings.isLoading && (bindings.data?.data.length ?? 0) === 0}
@@ -652,102 +888,68 @@ function SignalsWorkspace() {
         </div>
         <Card size="sm" className="min-w-0">
           <CardHeader>
-            <CardTitle>Lark binding</CardTitle>
+            <CardTitle>
+              {activeAdapter
+                ? localizedUnknown(activeAdapter.display_name, locale, activeAdapter.adapter_id)
+                : 'Signal binding'}
+            </CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4">
-            <ErrorBlock error={draft.error ?? saveBinding.error ?? deleteBinding.error} />
+            <ErrorBlock error={draft.error ?? adapters.error ?? saveBinding.error ?? deleteBinding.error} />
+            <Field label="Adapter">
+              <Select
+                value={activeAdapter?.adapter_id ?? ''}
+                onValueChange={value => {
+                  const adapter = signalAdapters.find(item => item.adapter_id === value)
+                  if (adapter) setDraft(draftFromSignalAdapter(adapter))
+                }}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {signalAdapters.map(adapter => (
+                    <SelectItem key={adapter.adapter_id} value={adapter.adapter_id}>
+                      {localizedUnknown(adapter.display_name, locale, adapter.adapter_id)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
             <Field label="Binding name">
               <Input
                 value={draft.name}
                 onChange={event => setDraft(current => ({ ...current, name: event.target.value }))}
               />
             </Field>
-            <div className="grid gap-4 md:grid-cols-2">
-              <Field label="Domain">
-                <Select
-                  value={draft.domain}
-                  onValueChange={value => setDraft(current => ({ ...current, domain: value as 'feishu' | 'lark' }))}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="feishu">feishu</SelectItem>
-                    <SelectItem value="lark">lark</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label="Group policy">
-                <Select
-                  value={draft.groupMessageMode}
-                  onValueChange={value =>
+            {activeAdapter ? (
+              <>
+                <ConfigField
+                  field={asConfigField(activeAdapter.group_message_mode_field)}
+                  locale={locale}
+                  value={draft.groupMessageMode || defaultGroupMessageMode(activeAdapter)}
+                  onChange={value =>
                     setDraft(current => ({
                       ...current,
-                      groupMessageMode: value as SignalDraft['groupMessageMode']
+                      groupMessageMode: String(value) as SignalDraft['groupMessageMode']
                     }))
-                  }>
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="addressed_only">addressed_only</SelectItem>
-                    <SelectItem value="observe_all">observe_all</SelectItem>
-                    <SelectItem value="may_intervene">may_intervene</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-            </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              <Field label="App ID">
-                <Input
-                  value={draft.appId}
-                  onChange={event => setDraft(current => ({ ...current, appId: event.target.value }))}
-                />
-              </Field>
-              <Field label="App secret">
-                <Input
-                  type="password"
-                  value={draft.appSecret}
-                  onChange={event => setDraft(current => ({ ...current, appSecret: event.target.value }))}
-                />
-              </Field>
-            </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              <Field label="Bot open id">
-                <Input
-                  value={draft.botOpenId}
-                  onChange={event => setDraft(current => ({ ...current, botOpenId: event.target.value }))}
-                />
-              </Field>
-              <Field label="Bot user id">
-                <Input
-                  value={draft.botUserId}
-                  onChange={event => setDraft(current => ({ ...current, botUserId: event.target.value }))}
-                />
-              </Field>
-            </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              <Field label="Platform namespace">
-                <Input
-                  value={draft.platformSubjectNamespace}
-                  onChange={event =>
-                    setDraft(current => ({ ...current, platformSubjectNamespace: event.target.value }))
                   }
                 />
-              </Field>
-              <Field label="Bot name">
-                <Input
-                  value={draft.userName}
-                  onChange={event => setDraft(current => ({ ...current, userName: event.target.value }))}
+                <ConfigFields
+                  config={draft.config}
+                  fieldGroupClassName="grid gap-4 md:grid-cols-2"
+                  fields={asConfigFields(activeAdapter.fields)}
+                  locale={locale}
+                  onChange={(path, value) =>
+                    setDraft(current => ({ ...current, config: setPath(current.config, path, value) }))
+                  }
                 />
-              </Field>
-            </div>
-            <Field label="Base URL">
-              <Input
-                value={draft.baseUrl}
-                onChange={event => setDraft(current => ({ ...current, baseUrl: event.target.value }))}
-              />
-            </Field>
-            <Button disabled={!selectedAgent || saveBinding.isPending} size="sm" type="button" onClick={submit}>
+              </>
+            ) : null}
+            <Button
+              disabled={!selectedAgent || !activeAdapter || saveBinding.isPending}
+              size="sm"
+              type="button"
+              onClick={submit}>
               <RiSave3Line data-icon="inline-start" />
               Save
             </Button>
@@ -930,7 +1132,7 @@ function ModelProfilesEditor({
   error: unknown
   loading: boolean
   onChanged: () => void
-  profiles: Record<string, unknown>
+  profiles: JsonObject
   providers: AiGatewayProviderItem[]
 }) {
   const [drafts, setDrafts] = useState<Record<string, ProfileDraft>>({})
@@ -945,7 +1147,9 @@ function ModelProfilesEditor({
 
   useEffect(() => {
     setDrafts(
-      Object.fromEntries(PROFILE_NAMES.map(profile => [profile, draftFromProfile(asRecord(profiles[profile]))]))
+      Object.fromEntries(
+        PROFILE_NAMES.map(profile => [profile, draftFromProfile(recordValue(profiles[profile]) ?? {})])
+      )
     )
   }, [agent.uid, profiles])
 
@@ -1141,7 +1345,7 @@ function ErrorBlock({ error }: { error: unknown }) {
   if (!error) return null
   return (
     <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
-      {typeof error === 'string' ? error : apiErrorMessage(error)}
+      {typeof error === 'string' ? error : requestErrorMessage(error)}
     </div>
   )
 }
@@ -1184,6 +1388,24 @@ function draftFromProvider(provider: AiGatewayProviderItem): ProviderDraft {
   }
 }
 
+function emptyIdentityProviderDraft(adapter?: IdentityProviderAdapterItem): IdentityProviderDraft {
+  return {
+    adapterId: adapter?.adapter_id ?? '',
+    config: defaultConfig(asConfigFields(adapter?.fields ?? [])),
+    enabled: true,
+    providerId: adapter?.default_provider_id ?? ''
+  }
+}
+
+function draftFromIdentityProvider(provider: IdentityProviderItem): IdentityProviderDraft {
+  return {
+    adapterId: provider.adapter_id,
+    config: recordValue(provider.config) ?? {},
+    enabled: provider.enabled,
+    providerId: provider.provider_id
+  }
+}
+
 function emptyProfileDraft(): ProfileDraft {
   return {
     providerId: '',
@@ -1193,28 +1415,61 @@ function emptyProfileDraft(): ProfileDraft {
   }
 }
 
-function draftFromProfile(profile: Record<string, unknown>): ProfileDraft {
+function draftFromProfile(profile: JsonObject): ProfileDraft {
   return {
     providerId: asString(profile.provider_id),
     model: asString(profile.model),
     contextLength: profile.context_length ? String(profile.context_length) : '',
-    providerOptions: formatJson(asRecord(profile.provider_options))
+    providerOptions: formatJson(recordValue(profile.provider_options) ?? {})
   }
 }
 
 function emptySignalDraft(): SignalDraft {
   return {
-    name: 'lark-main',
-    appId: '',
-    appSecret: '',
-    domain: 'feishu',
-    baseUrl: '',
-    groupMessageMode: 'observe_all',
-    platformSubjectNamespace: 'lark-main',
-    userName: 'Lark / Feishu',
-    botOpenId: '',
-    botUserId: ''
+    adapterId: '',
+    config: {},
+    groupMessageMode: '',
+    name: ''
   }
+}
+
+function draftFromSignalAdapter(adapter: SignalAdapterItem): SignalDraft {
+  return {
+    adapterId: adapter.adapter_id,
+    config: defaultConfig(asConfigFields(adapter.fields)),
+    groupMessageMode: defaultGroupMessageMode(adapter),
+    name: `${adapter.adapter_id}-main`
+  }
+}
+
+function asConfigFields(fields: readonly unknown[]): ConfigFieldDefinition[] {
+  return fields.map(asConfigField)
+}
+
+function asConfigField(field: unknown) {
+  return field as unknown as ConfigFieldDefinition
+}
+
+function defaultGroupMessageMode(adapter: SignalAdapterItem): GroupMessageMode | '' {
+  const field = asConfigField(adapter.group_message_mode_field)
+  return asGroupMessageMode(typeof field.default === 'string' ? field.default : undefined) ?? ''
+}
+
+function asGroupMessageMode(value: string | undefined): GroupMessageMode | undefined {
+  if (value === 'addressed_only' || value === 'observe_all' || value === 'may_intervene') return value
+  return undefined
+}
+
+function localizedUnknown(value: unknown, locale: string, fallback: string): string {
+  return localizedText(value as LocalizedText, locale) ?? fallback
+}
+
+function identityProviderSyncEnabled(provider: IdentityProviderItem): boolean {
+  return getPath(recordValue(provider.config) ?? {}, 'sync.contacts') !== false
+}
+
+function identityProviderSupportsDirectoryFullSync(adapter: IdentityProviderAdapterItem): boolean {
+  return adapter.capabilities.includes('directory_full_sync')
 }
 
 function firstConfig(items: AppConfigurationItem[]): AppConfigurationItem | undefined {
@@ -1224,11 +1479,6 @@ function firstConfig(items: AppConfigurationItem[]): AppConfigurationItem | unde
 function providerKindLabel(kind: AiGatewayProviderKindItem): string {
   const label = kind.label.en ?? kind.label['en-US'] ?? kind.provider_kind
   return `${label} (${kind.provider_kind})`
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
-  return {}
 }
 
 function asString(value: unknown): string {
@@ -1244,29 +1494,16 @@ function parseJson(text: string, field: string): { ok: true; value: unknown } | 
   try {
     return { ok: true, value: JSON.parse(text) }
   } catch (error) {
-    return { ok: false, error: `${field} must be valid JSON: ${apiErrorMessage(error)}` }
+    return { ok: false, error: `${field} must be valid JSON: ${requestErrorMessage(error)}` }
   }
 }
 
-function parseObjectDraft(
-  text: string,
-  field: string
-): { ok: true; value: Record<string, unknown> } | { ok: false; error: string } {
+function parseObjectDraft(text: string, field: string): { ok: true; value: JsonObject } | { ok: false; error: string } {
   const parsed = parseJson(text, field)
   if (!parsed.ok) return parsed
-  if (parsed.value && typeof parsed.value === 'object' && !Array.isArray(parsed.value)) {
-    return { ok: true, value: parsed.value as Record<string, unknown> }
-  }
+  const value = recordValue(parsed.value)
+  if (value) return { ok: true, value }
   return { ok: false, error: `${field} must be a JSON object` }
-}
-
-function removeBlankValues(input: Record<string, string>): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(input).flatMap(([key, value]) => {
-      const trimmed = value.trim()
-      return trimmed ? [[key, trimmed]] : []
-    })
-  )
 }
 
 function formatJson(value: unknown): string {

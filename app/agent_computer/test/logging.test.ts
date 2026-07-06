@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'bun:test'
+import { recordValue, type JsonObject } from '@pleisto/active-support'
 import { Writable } from 'node:stream'
 import type { DestinationStream } from 'pino'
-import { createWorkerLogger, createWorkerPinoOptions, resolveWorkerLogFormat } from '../src/worker/logging'
+import { createWorkerLogger, createWorkerPinoOptions } from '../src/worker/logging'
 
 describe('@ankole/agent-computer worker logger', () => {
   it('writes structured JSON without the Pino level field', () => {
@@ -9,7 +10,7 @@ describe('@ankole/agent-computer worker logger', () => {
     const logger = createWorkerLogger(
       {},
       {
-        env: { ANKOLE_LOG_FORMAT: 'json', ANKOLE_LOG_LEVEL: 'debug', NODE_ENV: 'production' },
+        env: { ANKOLE_LOG_LEVEL: 'debug', NODE_ENV: 'production' },
         destination: capture.stream
       }
     )
@@ -36,7 +37,7 @@ describe('@ankole/agent-computer worker logger', () => {
     const logger = createWorkerLogger(
       {},
       {
-        env: { ANKOLE_LOG_FORMAT: 'json', ANKOLE_LOG_LEVEL: 'debug', NODE_ENV: 'production' },
+        env: { ANKOLE_LOG_LEVEL: 'debug', NODE_ENV: 'production' },
         destination: capture.stream
       }
     )
@@ -61,7 +62,7 @@ describe('@ankole/agent-computer worker logger', () => {
     const logger = createWorkerLogger(
       {},
       {
-        env: { ANKOLE_LOG_FORMAT: 'json', ANKOLE_LOG_LEVEL: 'debug', NODE_ENV: 'production' },
+        env: { ANKOLE_LOG_LEVEL: 'debug', NODE_ENV: 'production' },
         destination: capture.stream
       }
     )
@@ -69,11 +70,12 @@ describe('@ankole/agent-computer worker logger', () => {
     logger.error('worker.turn_failed', 'worker turn failed', { error: new TypeError('bad turn') })
 
     const [entry] = capture.entries()
-    expect(entry.error).toMatchObject({
+    const error = recordValue(entry.error) ?? {}
+    expect(error).toMatchObject({
       type: 'TypeError',
       message: 'bad turn'
     })
-    expect(entry.error.stack).toContain('TypeError: bad turn')
+    expect(String(error.stack)).toContain('TypeError: bad turn')
   })
 
   it('keeps child logger labels in the labels field', () => {
@@ -81,7 +83,7 @@ describe('@ankole/agent-computer worker logger', () => {
     const logger = createWorkerLogger(
       {},
       {
-        env: { ANKOLE_LOG_FORMAT: 'json', ANKOLE_LOG_LEVEL: 'debug', NODE_ENV: 'production' },
+        env: { ANKOLE_LOG_LEVEL: 'debug', NODE_ENV: 'production' },
         destination: capture.stream
       }
     ).child({
@@ -108,7 +110,7 @@ describe('@ankole/agent-computer worker logger', () => {
     const logger = createWorkerLogger(
       {},
       {
-        env: { ANKOLE_LOG_FORMAT: 'json', ANKOLE_LOG_LEVEL: 'debug', NODE_ENV: 'production' },
+        env: { ANKOLE_LOG_LEVEL: 'debug', NODE_ENV: 'production' },
         destination: capture.stream
       }
     )
@@ -130,7 +132,7 @@ describe('@ankole/agent-computer worker logger', () => {
     const logger = createWorkerLogger(
       {},
       {
-        env: { ANKOLE_LOG_FORMAT: 'json', ANKOLE_LOG_LEVEL: 'debug', NODE_ENV: 'production' },
+        env: { ANKOLE_LOG_LEVEL: 'debug', NODE_ENV: 'production' },
         destination: capture.stream
       }
     )
@@ -151,24 +153,16 @@ describe('@ankole/agent-computer worker logger', () => {
     expect(entry).not.toHaveProperty('severity_text')
     expect(entry).not.toHaveProperty('severity_number')
     expect(Object.keys(entry).some(key => key.startsWith('logging.googleapis.com/'))).toBe(false)
-    expect(entry.labels.component).toBe('agent-computer')
+    expect((recordValue(entry.labels) ?? {}).component).toBe('agent-computer')
   })
 
-  it('uses pino-pretty only for the development display format', () => {
-    expect(resolveWorkerLogFormat({ NODE_ENV: 'production' })).toBe('json')
+  it('keeps the worker output structured so kit can own local display formatting', () => {
     expect(createWorkerPinoOptions({ NODE_ENV: 'production' }).transport).toBeUndefined()
-
-    const prettyOptions = createWorkerPinoOptions({ NODE_ENV: 'development' })
-    expect(resolveWorkerLogFormat({ NODE_ENV: 'development' })).toBe('pretty')
-    const prettyTransport = prettyOptions.transport as { target?: string; options?: Record<string, unknown> }
-    expect(prettyTransport).toMatchObject({
-      options: {}
-    })
-    expect(String(prettyTransport.target)).toContain('logging_pretty_transport.ts')
+    expect(createWorkerPinoOptions({ NODE_ENV: 'development' }).transport).toBeUndefined()
   })
 })
 
-function createCapture(): { stream: DestinationStream; entries(): Record<string, any>[] } {
+function createCapture(): { stream: DestinationStream; entries(): JsonObject[] } {
   const chunks: string[] = []
   const stream = new Writable({
     write(chunk, _encoding, callback) {
@@ -184,7 +178,7 @@ function createCapture(): { stream: DestinationStream; entries(): Record<string,
         .join('')
         .split('\n')
         .filter(Boolean)
-        .map(line => JSON.parse(line) as Record<string, any>)
+        .map(line => JSON.parse(line) as JsonObject)
     }
   }
 }

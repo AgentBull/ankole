@@ -11,9 +11,12 @@ defmodule Ankole.PluginsTest do
   alias Ankole.PluginFixtures.InvalidAdapterModulePlugin
   alias Ankole.PluginFixtures.KebabAIGatewayProviderKindPlugin
   alias Ankole.PluginFixtures.MissingRemovedCallbackPlugin
+  alias Ankole.PluginFixtures.MissingDefaultLocalizedTextPlugin
   alias Ankole.PluginFixtures.MissingIdentityCallbackPlugin
   alias Ankole.PluginFixtures.MissingAIGatewayEmbeddingPreparePlugin
   alias Ankole.PluginFixtures.MissingAIGatewayProviderDefinitionPlugin
+  alias Ankole.PluginFixtures.StringAdapterDisplayNamePlugin
+  alias Ankole.PluginFixtures.StringLocalizedTextPlugin
   alias Ankole.PluginFixtures.UnknownIdentityCapabilityPlugin
   alias Ankole.PluginFixtures.UnknownSignalsInboundCapabilityPlugin
   alias Ankole.Plugins
@@ -168,6 +171,24 @@ defmodule Ankole.PluginsTest do
             {KebabAIGatewayProviderKindPlugin,
              {:invalid_adapter_declaration, {:invalid_ai_gateway_provider_kind, "kebab-provider"}}}} =
              Spec.from_module(KebabAIGatewayProviderKindPlugin)
+  end
+
+  test "plugin localized text must be an open locale map with a default fallback" do
+    assert {:error,
+            {StringLocalizedTextPlugin,
+             {:invalid_localized_text, :display_name, "String Display Name"}}} =
+             Spec.from_module(StringLocalizedTextPlugin)
+
+    assert {:error,
+            {MissingDefaultLocalizedTextPlugin,
+             {:invalid_localized_text, :display_name, %{"en-US" => "Missing Default"}}}} =
+             Spec.from_module(MissingDefaultLocalizedTextPlugin)
+
+    assert {:error,
+            {StringAdapterDisplayNamePlugin,
+             {:invalid_adapter_declaration,
+              {:invalid_adapter_localized_text, :display_name, "String Display Name"}}}} =
+             Spec.from_module(StringAdapterDisplayNamePlugin)
   end
 
   test "duplicate adapter declarations fail registry startup" do

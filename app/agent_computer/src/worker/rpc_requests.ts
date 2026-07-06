@@ -1,4 +1,4 @@
-import type { JsonObject } from '../fabric/fabric'
+import type { JsonObject } from '@pleisto/active-support'
 import {
   RuntimeRpcClient,
   rpcMethods,

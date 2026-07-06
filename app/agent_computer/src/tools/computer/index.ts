@@ -1,4 +1,5 @@
 import type { AgentTool } from '../../core'
+import type { JsonObject } from '@pleisto/active-support'
 import { createBrowserTools } from '../browser/browser-tools'
 import { createCommandTool } from './command-tool'
 import { createContainerComputer, type ComputerToolContext } from './context'
@@ -11,7 +12,7 @@ export interface ComputerToolsBinding {
   agentUid: string
   conversationId?: string
   workspaceRoot: string
-  browserRemoteCdpConfig?: Record<string, unknown> | null
+  browserRemoteCdpConfig?: JsonObject | null
   localBrowserIdleTtlMs?: number
 }
 

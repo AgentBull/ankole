@@ -1,7 +1,8 @@
 import { Card, CardContent, CardHeader } from '@ankole/uikit/components/card'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { apiErrorMessage, apiGet, apiPost } from '../common/api'
+import { internalApiGet, internalApiPost } from '../common/Internal-api-client'
+import { requestErrorMessage } from '../common/request-errors'
 
 type LoginProvider = {
   adapterId: string
@@ -14,14 +15,14 @@ export function AuthApp() {
   const { t } = useTranslation()
   const providers = useQuery({
     queryKey: ['identity-providers'],
-    queryFn: () => apiGet<{ providers: LoginProvider[] }>('/.internal-apis/identity-providers')
+    queryFn: () => internalApiGet<{ providers: LoginProvider[] }>('/.internal-apis/identity-providers')
   })
   const mutation = useMutation({
     mutationFn: (providerId: string) => {
       const returnTo = new URLSearchParams(window.location.search).get('return_to') ?? '/console'
       // The server validates and stores the OIDC state. The SPA only passes the
       // desired return path so the callback can land back in the correct screen.
-      return apiPost<{ authorizationUrl: string }>(
+      return internalApiPost<{ authorizationUrl: string }>(
         `/.internal-apis/identity-providers/${encodeURIComponent(providerId)}/oidc/authorizations?return_to=${encodeURIComponent(returnTo)}`
       )
     },
@@ -42,7 +43,7 @@ export function AuthApp() {
           {providers.error || mutation.error ? (
             <div className="ak-error" role="alert">
               <strong>{t('common.error')}</strong>
-              <span>{apiErrorMessage(providers.error ?? mutation.error)}</span>
+              <span>{requestErrorMessage(providers.error ?? mutation.error)}</span>
             </div>
           ) : null}
           <div className="ak-login-list">

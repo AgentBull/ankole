@@ -6,6 +6,7 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
 
   use Ankole.AIGateway.ProviderDSL
 
+  alias Ankole.AIGateway.ProviderConnectionCheck
   alias Ankole.AIGateway.ReasoningEffort
   alias Ankole.AIGateway.UniversalAIRequest
 
@@ -107,10 +108,10 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
   end
 
   @doc """
-  Checks OpenRouter connectivity through a provider-owned model catalog endpoint.
+  Prepares an OpenRouter connection check through a provider-owned model catalog endpoint.
   """
   @impl true
-  def check_connection(ctx) when is_map(ctx) do
+  def prepare_connection_check(ctx) when is_map(ctx) do
     path =
       case Map.get(ctx, :capability) || Map.get(ctx, "capability") do
         capability when capability in ["embedding", :embedding, :embedding_model] ->
@@ -126,16 +127,7 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
       |> common_headers(ctx)
       |> UniversalAIRequest.bearer_auth(ctx.settings[:api_key])
 
-    with {:ok, %{"status" => status, "body" => body}} when status in 200..299 <-
-           UniversalAIRequest.raw_get(ctx, path, headers: headers) do
-      {:ok, body}
-    else
-      {:ok, %{"status" => status, "body" => body}} ->
-        {:error, {:provider_connection_check_failed, status, body}}
-
-      {:error, _reason} = error ->
-        error
-    end
+    ProviderConnectionCheck.get(ctx, path, headers: headers)
   end
 
   # OpenRouter recommends attribution headers. `put_new` keeps explicit runtime

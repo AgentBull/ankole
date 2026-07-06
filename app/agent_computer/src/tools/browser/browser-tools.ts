@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { isRecord } from '@pleisto/active-support'
+import { isRecord, type JsonObject } from '@pleisto/active-support'
 import type { AgentTool, AgentToolResult } from '../../core'
 import { imageContentPartFromBuffer } from '../../core/vision'
 import { executionScopeTag, type CommandFinished, type ComputerToolContext } from '../computer/context'
@@ -7,7 +7,6 @@ import { truncateOutput } from '../computer/format'
 import {
   browserBack,
   browserClick,
-  browserDoctor,
   browserExtractFromSession,
   browserFindInSession,
   browserNavigate,
@@ -21,6 +20,7 @@ import {
   ensureBrowserSession as ensureCdpBrowserSession,
   type BrowserRuntimeOptions
 } from './cdp'
+import { sanitizeId } from './cdp/utils'
 
 const BrowserSession = z
   .string()
@@ -41,18 +41,13 @@ const BrowserRef = z
 
 function browserSchemas() {
   return {
-    doctor: z.object({}),
     open: z.object({
       url: z.url().describe('URL to open in the rendered browser.'),
       session: BrowserSession,
       taskId: BrowserTaskId
     }),
     extract: z.object({
-      url: z
-        .string()
-        .url()
-        .optional()
-        .describe('URL to open and extract. If omitted, extracts the latest session capture.'),
+      url: z.url().optional().describe('URL to open and extract. If omitted, extracts the latest session capture.'),
       pattern: z
         .string()
         .min(1)
@@ -62,7 +57,7 @@ function browserSchemas() {
       taskId: BrowserTaskId
     }),
     navigate: z.object({
-      url: z.string().url().describe('URL to open in the persistent browser session.'),
+      url: z.url().describe('URL to open in the persistent browser session.'),
       session: BrowserSession,
       taskId: BrowserTaskId
     }),
@@ -141,11 +136,7 @@ function browserSchemas() {
       script: z.string().min(1).describe('Python source for a helper script run inside the computer.'),
       session: BrowserSession,
       taskId: BrowserTaskId,
-      startUrl: z
-        .string()
-        .url()
-        .optional()
-        .describe('Optional start URL exposed to the script as ANKOLE_BROWSER_START_URL.')
+      startUrl: z.url().optional().describe('Optional start URL exposed to the script as ANKOLE_BROWSER_START_URL.')
     })
   }
 }
@@ -153,8 +144,7 @@ function browserSchemas() {
 type BrowserSchemas = ReturnType<typeof browserSchemas>
 
 // Structured echo for logs/UI. `exitCode` is retained for the model-visible
-// contract even though production browser actions now run in-process instead
-// of shelling through the `ankole-browser` CLI.
+// browser tool result contract.
 interface BrowserToolDetails {
   exitCode: number
   result?: unknown
@@ -171,7 +161,6 @@ export function createBrowserTools(context: ComputerToolContext): AgentTool<any>
   const schemas = browserSchemas()
 
   return [
-    createBrowserDoctorTool(context, schemas),
     createBrowserNavigateTool(context, schemas),
     createBrowserSnapshotTool(context, schemas),
     createBrowserFindTool(context, schemas),
@@ -187,27 +176,6 @@ export function createBrowserTools(context: ComputerToolContext): AgentTool<any>
     createBrowserExtractTool(context, schemas),
     createBrowserRunTool(context, schemas)
   ]
-}
-
-/**
- * Health check for the in-computer browser runtime.
- */
-function createBrowserDoctorTool(
-  context: ComputerToolContext,
-  schemas: BrowserSchemas
-): AgentTool<any, BrowserToolDetails> {
-  return {
-    name: 'browser_doctor',
-    description:
-      'Check the Ankole browser runtime inside the computer. Reports local Chromium availability or the configured remote CDP adapter.',
-    schema: schemas.doctor,
-    executionMode: 'sequential',
-    isReadOnly: false,
-    isDestructive: false,
-    async execute(_toolCallId, _params, signal) {
-      return browserToolResult(context, browserDoctor(browserRuntimeOptions(context)), signal)
-    }
-  }
 }
 
 /**
@@ -579,10 +547,10 @@ function createBrowserRunTool(
     isReadOnly: false,
     isDestructive: true,
     async execute(_toolCallId, params, signal) {
-      // The script is written to a file in the computer first, then the CLI is
-      // pointed at that path — the source is not passed as an argv string (too
-      // large, and avoids shell-quoting hazards). Path is namespaced by session +
-      // task id so concurrent runs do not clobber each other's script file.
+      // The script is written to a file first, then run as Python source. It
+      // deliberately does not start or attach to the managed browser sidecar.
+      // Path is namespaced by session + task id so concurrent runs do not
+      // clobber each other's script file.
       const computer = await context.getComputer(signal)
       const session = sessionFor(context, params.session)
       const taskId = sanitizeTaskId(params.taskId)
@@ -620,7 +588,7 @@ async function runBrowserOperation(
   context: ComputerToolContext,
   _session: string,
   signal: AbortSignal | undefined,
-  operation: (options: BrowserRuntimeOptions) => Promise<Record<string, unknown>>
+  operation: (options: BrowserRuntimeOptions) => Promise<JsonObject>
 ): Promise<AgentToolResult<BrowserToolDetails>> {
   const options = browserRuntimeOptions(context)
   if (signal?.aborted) throw new Error('browser command aborted')
@@ -669,6 +637,7 @@ function screenshotPathFromResult(value: unknown): string | undefined {
  */
 function browserRuntimeOptions(context: ComputerToolContext): BrowserRuntimeOptions {
   return {
+    workspaceRoot: context.workspaceRoot,
     remoteCdpConfig: context.browserRemoteCdpConfig ?? null,
     localBrowserIdleTtlMs: context.localBrowserIdleTtlMs
   }
@@ -688,16 +657,4 @@ function sessionFor(context: ComputerToolContext, value: string | undefined): st
  */
 function sanitizeTaskId(value: string | undefined): string {
   return sanitizeId(value ?? `task-${Date.now()}`, 'browser-task')
-}
-
-// These ids end up in filesystem paths and CLI argv, so model-supplied values
-// are hardened: collapse anything outside [A-Za-z0-9._-] to '-', trim stray
-// dashes, cap length, and fall back to a safe constant if nothing usable is
-// left. This both keeps paths valid and blocks traversal/injection via the id.
-function sanitizeId(value: string, fallback: string): string {
-  const safe = value
-    .trim()
-    .replace(/[^a-zA-Z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-  return safe.slice(0, 96) || fallback
 }

@@ -555,7 +555,10 @@ defmodule Ankole.MemoryTest do
   defp turn_ref(agent_uid, %ActorEvent{} = event) do
     %{
       "actor" => %{"agent_uid" => agent_uid, "session_id" => event.session_id},
-      "actor_event_id" => event.id
+      "activation_uid" => "memory-test-activation",
+      "actor_epoch" => 1,
+      "actor_event_id" => event.id,
+      "revision" => 0
     }
   end
 

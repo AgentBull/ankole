@@ -326,7 +326,7 @@ defmodule Ankole.ActorRuntime.EntryLifecycleNoopTest do
 
   defp emit_removed_lifecycle!(agent_uid, input, source_event_id) do
     assert {:ok, %{canceled_actor_events: 0, lifecycle_events: [lifecycle_event]}} =
-             SignalsGateway.emit_entry_removed(
+             Ingress.emit_entry_removed(
                agent_uid,
                "bot",
                lifecycle_entry(%{

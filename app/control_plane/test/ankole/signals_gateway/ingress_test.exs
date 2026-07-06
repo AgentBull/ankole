@@ -11,6 +11,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
   alias Ankole.SignalsGateway.AdapterContext
   alias Ankole.SignalsGateway.Commands
   alias Ankole.SignalsGateway.InboundBatch
+  alias Ankole.SignalsGateway.Ingress
   alias Ankole.SignalsGateway.IngressFact
   alias Ankole.SignalsGateway.Projection
   alias Ankole.SignalsGateway.Entry
@@ -27,7 +28,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       binding_fixture(agent.uid, "lark-main", :ignore)
 
       assert {:ok, %{status: :ignored}} =
-               SignalsGateway.emit_entry(agent.uid, "lark-main", group_entry(), now: @base_time)
+               Ingress.emit_entry(agent.uid, "lark-main", group_entry(), now: @base_time)
 
       assert Repo.aggregate(Entry, :count) == 0
       assert Repo.aggregate(ActorEvent, :count) == 0
@@ -39,7 +40,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       binding_fixture(agent.uid, "lark-main", :record_only)
 
       assert {:ok, %{status: :recorded, signal_entry: entry}} =
-               SignalsGateway.emit_entry(agent.uid, "lark-main", group_entry(), now: @base_time)
+               Ingress.emit_entry(agent.uid, "lark-main", group_entry(), now: @base_time)
 
       assert entry.signal_channel_id == "lark:chat:group-a"
       assert entry.source_entry_id == "msg-1"
@@ -53,7 +54,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       binding_fixture(agent.uid, "lark-main", :may_intervene)
 
       assert {:ok, %{status: :recorded, inbound_batch: batch}} =
-               SignalsGateway.emit_entry(agent.uid, "lark-main", group_entry(), now: @base_time)
+               Ingress.emit_entry(agent.uid, "lark-main", group_entry(), now: @base_time)
 
       due_at = DateTime.add(@base_time, 15_000, :millisecond)
 
@@ -78,7 +79,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       binding_fixture(agent.uid, "lark-main", :may_intervene)
 
       assert {:ok, %{inbound_batch: batch}} =
-               SignalsGateway.emit_entry(agent.uid, "lark-main", group_entry(), now: @base_time)
+               Ingress.emit_entry(agent.uid, "lark-main", group_entry(), now: @base_time)
 
       assert Repo.aggregate(ActorEvent, :count) == 0
 
@@ -98,7 +99,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       binding_fixture(agent.uid, "lark-main", :may_intervene)
 
       assert {:ok, %{inbound_batch: first}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "lark-main",
                  group_entry(%{
@@ -112,7 +113,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       second_at = DateTime.add(@base_time, 500, :millisecond)
 
       assert {:ok, %{inbound_batch: second}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "lark-main",
                  group_entry(%{
@@ -177,7 +178,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       })
 
       assert {:ok, %{status: :recorded, inbound_batch: batch}} =
-               SignalsGateway.emit_entry(agent.uid, "lark-main", group_entry(), now: @base_time)
+               Ingress.emit_entry(agent.uid, "lark-main", group_entry(), now: @base_time)
 
       assert {:ok, [%{status: :accepted, actor_event: input}]} =
                finalize_due_inbound_batch_events(now: batch.available_at)
@@ -194,7 +195,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       binding_fixture(agent.uid, "lark-main", :may_intervene)
 
       assert {:ok, %{status: :recorded, inbound_batch: batch}} =
-               SignalsGateway.emit_entry(agent.uid, "lark-main", group_entry(), now: @base_time)
+               Ingress.emit_entry(agent.uid, "lark-main", group_entry(), now: @base_time)
 
       insert_signal_entry!(
         "msg-history-old",
@@ -261,7 +262,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       bob = %{principal_uid: "bob", id: "provider-bob", display_name: "Bob"}
 
       assert {:ok, %{status: :ignored, inbound_batch: neutral_batch}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{
@@ -309,7 +310,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       mention_at = DateTime.add(@base_time, 500, :millisecond)
 
       assert {:ok, %{status: :accepted, inbound_batch: addressed_batch}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{
@@ -341,7 +342,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       binding_fixture(agent.uid, "lark-main", :may_intervene)
 
       assert {:ok, %{inbound_batch: first}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "lark-main",
                  group_entry(%{
@@ -355,7 +356,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       second_at = DateTime.add(@base_time, 250, :millisecond)
 
       assert {:ok, %{inbound_batch: second}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "lark-main",
                  group_entry(%{
@@ -369,7 +370,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       assert first.id == second.id
 
       assert {:ok, %{updated_inbound_batches: 1, lifecycle_events: []}} =
-               SignalsGateway.emit_entry_removed(
+               Ingress.emit_entry_removed(
                  agent.uid,
                  "lark-main",
                  lifecycle_entry(%{
@@ -408,7 +409,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       bob = %{principal_uid: "bob", id: "provider-bob", display_name: "Bob"}
 
       assert {:ok, %{status: :ignored, inbound_batch: neutral_batch}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{
@@ -421,7 +422,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
                )
 
       assert {:ok, %{status: :accepted, inbound_batch: addressed_batch}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{
@@ -439,7 +440,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       assert addressed_batch.mode == "addressed"
 
       assert {:ok, %{updated_inbound_batches: 1, lifecycle_events: []}} =
-               SignalsGateway.emit_entry_removed(
+               Ingress.emit_entry_removed(
                  agent.uid,
                  "bot",
                  lifecycle_entry(%{
@@ -468,7 +469,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       binding_fixture(agent.uid, "lark-main", :ignore)
 
       assert {:ok, %{inbound_batch: dm_batch}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "lark-main",
                  group_entry(%{
@@ -488,7 +489,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       assert dm_batch.mode == "addressed"
 
       assert {:ok, %{inbound_batch: mention_batch}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "lark-main",
                  group_entry(%{
@@ -512,7 +513,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       binding_fixture(agent.uid, "lark-main", :ignore)
 
       assert {:ok, %{status: :ignored, inbound_batch: batch}} =
-               SignalsGateway.emit_entry(agent.uid, "lark-main", group_entry(), now: @base_time)
+               Ingress.emit_entry(agent.uid, "lark-main", group_entry(), now: @base_time)
 
       assert {:ok, [%{status: :ignored, inbound_batch: finalized}]} =
                finalize_due_inbound_batch_events(now: DateTime.add(@base_time, 600, :millisecond))
@@ -527,7 +528,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       binding_fixture(agent.uid, "webhook", :ignore)
 
       assert {:error, :missing_actor_event_type} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "webhook",
                  webhook_entry(%{actor_event_type: nil}),
@@ -543,7 +544,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       binding_fixture(agent.uid, "lark-main", :ignore, unavailable_reason: "adapter missing")
 
       assert {:error, {:binding_unavailable, "adapter missing"}} =
-               SignalsGateway.emit_entry(agent.uid, "lark-main", group_entry(), now: @base_time)
+               Ingress.emit_entry(agent.uid, "lark-main", group_entry(), now: @base_time)
     end
 
     test "CEL binding filters can admit or filter ingress before mirror and actor event writes" do
@@ -554,7 +555,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       )
 
       assert {:ok, %{status: :filtered}} =
-               SignalsGateway.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -589,7 +590,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       )
 
       assert {:ok, %{status: :filtered}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{
@@ -650,7 +651,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       )
 
       assert {:error, {:invalid_binding_filter, reason}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "runtime-error",
                  group_entry(%{explicit: true}),
@@ -743,10 +744,10 @@ defmodule Ankole.SignalsGatewayIngressTest do
       explicit = group_entry(%{explicit: true})
 
       assert {:ok, %{status: :accepted}} =
-               SignalsGateway.emit_entry(agent_a.uid, "bot-a", explicit, now: @base_time)
+               Ingress.emit_entry(agent_a.uid, "bot-a", explicit, now: @base_time)
 
       assert {:ok, %{status: :accepted}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent_b.uid,
                  "bot-b",
                  %{explicit | source_event_id: "evt-1-b"},
@@ -776,12 +777,12 @@ defmodule Ankole.SignalsGatewayIngressTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               SignalsGateway.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
                  now: @base_time
                )
 
       assert {:ok, %{status: :accepted}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{
@@ -802,7 +803,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{actor_event: compress_event}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{explicit: true, text: "/compress release notes"}),
@@ -819,7 +820,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       assert ActorEventTypes.command_runtime_policy("command.steer") == :checkpoint_nudge
 
       assert {:ok, %{actor_event: input}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{
@@ -892,7 +893,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
             {"evt-b1", "msg-b1", bob, 200, "third"}
           ] do
         assert {:ok, %{status: :accepted}} =
-                 SignalsGateway.emit_entry(
+                 Ingress.emit_entry(
                    agent.uid,
                    "bot",
                    group_entry(%{
@@ -951,12 +952,12 @@ defmodule Ankole.SignalsGatewayIngressTest do
         })
 
       assert {:ok, %{status: :accepted, inbound_batch: first_batch}} =
-               SignalsGateway.emit_entry(agent.uid, "bot", first, now: @base_time)
+               Ingress.emit_entry(agent.uid, "bot", first, now: @base_time)
 
       duplicate_at = DateTime.add(@base_time, 100, :millisecond)
 
       assert {:ok, %{status: :accepted, inbound_batch: duplicate_batch}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "bot",
                  %{first | source_event_id: "evt-duplicate-delivery-2"},
@@ -999,12 +1000,12 @@ defmodule Ankole.SignalsGatewayIngressTest do
         })
 
       assert {:ok, %{status: :accepted, inbound_batch: first_batch}} =
-               SignalsGateway.emit_entry(agent.uid, "bot", first, now: @base_time)
+               Ingress.emit_entry(agent.uid, "bot", first, now: @base_time)
 
       edited_at = DateTime.add(@base_time, 100, :millisecond)
 
       assert {:ok, %{status: :accepted, inbound_batch: edited_batch}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "bot",
                  %{
@@ -1046,7 +1047,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted, inbound_batch: poisoned_batch}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{
@@ -1060,7 +1061,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
                )
 
       assert {:ok, %{status: :accepted, inbound_batch: good_batch}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{
@@ -1095,7 +1096,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       bob = %{principal_uid: "bob", id: "provider-bob", display_name: "Bob"}
 
       assert {:ok, %{status: :ignored}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{
@@ -1108,7 +1109,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
                )
 
       assert {:ok, %{status: :ignored}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{
@@ -1121,7 +1122,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
                )
 
       assert {:ok, %{status: :accepted, inbound_batch: addressed_batch}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{
@@ -1164,7 +1165,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       bob = %{principal_uid: "bob", id: "provider-bob", display_name: "Bob"}
 
       assert {:ok, %{status: :accepted, inbound_batch: first_batch}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{
@@ -1185,7 +1186,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
                 inbound_batch: second_batch,
                 finalized_actor_events: [first_event]
               }} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{
@@ -1209,7 +1210,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{inbound_batch: first_batch}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{
@@ -1224,7 +1225,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       attachment_at = DateTime.add(@base_time, 500, :millisecond)
 
       assert {:ok, %{inbound_batch: updated_batch}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{
@@ -1281,7 +1282,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       long_text = String.duplicate("x", 4_500)
 
       assert {:ok, %{inbound_batch: batch}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{

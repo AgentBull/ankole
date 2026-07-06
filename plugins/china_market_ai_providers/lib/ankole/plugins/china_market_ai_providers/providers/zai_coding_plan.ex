@@ -5,7 +5,7 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.ZaiCodingPlan do
 
   use Ankole.AIGateway.ProviderDSL
 
-  alias Ankole.AIGateway.Providers.OpenAICompatible
+  alias Ankole.AIGateway.ProviderConnectionCheck
   alias Ankole.AIGateway.UniversalAIRequest
 
   @timeout_ms 300_000
@@ -47,7 +47,7 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.ZaiCodingPlan do
   end
 
   @impl true
-  def check_connection(ctx) when is_map(ctx) do
+  def prepare_connection_check(ctx) when is_map(ctx) do
     ctx = put_effective_base_url(ctx)
 
     headers =
@@ -56,7 +56,7 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.ZaiCodingPlan do
       |> put_user_agent(ctx)
       |> UniversalAIRequest.bearer_auth(ctx.settings[:api_key])
 
-    OpenAICompatible.check_models_endpoint(ctx, headers)
+    ProviderConnectionCheck.get(ctx, "models", headers: headers)
   end
 
   defp put_effective_base_url(%{settings: settings} = ctx) when is_map(settings) do

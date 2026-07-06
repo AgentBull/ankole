@@ -10,9 +10,10 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkill do
   use Ecto.Schema
 
   import Ecto.Changeset
+  import Ankole.Ecto.Changeset, only: [normalize_blank: 2, normalize_lower: 2]
 
   alias Ankole.Principals.Principal
-  alias Ankole.SignalsGateway.JsonPayload
+  alias Ankole.Ecto.JsonPayload
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
@@ -24,7 +25,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkill do
     belongs_to(:agent, Principal,
       foreign_key: :agent_uid,
       references: :uid,
-      type: :string
+      type: Ankole.Ecto.PrincipalKey
     )
 
     field(:skill_name, :string)
@@ -66,7 +67,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkill do
       :description,
       :content_hash
     ])
-    |> normalize_lower([:agent_uid, :skill_name, :source_kind])
+    |> normalize_lower([:skill_name, :source_kind])
     |> normalize_relative_path(:relative_path)
     |> validate_required([
       :agent_uid,
@@ -91,34 +92,6 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkill do
     |> check_constraint(:description, name: :agent_skills_description_present)
     |> check_constraint(:metadata, name: :agent_skills_metadata_object)
     |> check_constraint(:content_hash, name: :agent_skills_content_hash_present)
-  end
-
-  defp normalize_blank(changeset, fields) when is_list(fields) do
-    Enum.reduce(fields, changeset, &normalize_blank(&2, &1))
-  end
-
-  defp normalize_blank(changeset, field) do
-    update_change(changeset, field, fn
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          trimmed -> trimmed
-        end
-
-      value ->
-        value
-    end)
-  end
-
-  defp normalize_lower(changeset, fields) when is_list(fields) do
-    Enum.reduce(fields, changeset, &normalize_lower(&2, &1))
-  end
-
-  defp normalize_lower(changeset, field) do
-    update_change(changeset, field, fn
-      value when is_binary(value) -> String.downcase(value)
-      value -> value
-    end)
   end
 
   defp normalize_relative_path(changeset, field) do

@@ -8,6 +8,8 @@ ARG DEBIAN_FRONTEND=noninteractive
 ARG DEBIAN_MIRROR=http://deb.debian.org/debian
 ARG DEBIAN_SECURITY_MIRROR=http://deb.debian.org/debian-security
 ARG RUST_TOOLCHAIN=1.96.1
+ARG OFFICECLI_VERSION=v1.0.129
+ARG TARGETARCH
 
 ENV PATH="/root/.cargo/bin:${PATH}"
 ENV CARGO_NET_RETRY=5
@@ -23,7 +25,7 @@ RUN sed -i \
     bubblewrap \
     build-essential \
     ca-certificates \
-    chromium \
+    chromium-headless-shell \
     coreutils \
     curl \
     ffmpeg \
@@ -41,7 +43,6 @@ RUN sed -i \
     less \
     libzmq3-dev \
     libzmq5 \
-    libreoffice-impress \
     lsof \
     openssh-client \
     pandoc \
@@ -78,6 +79,26 @@ RUN bun add -g @openai/codex@0.142.5 \
   && printf '%s\n' '#!/usr/bin/env sh' 'exec /usr/local/bin/bun /root/.bun/install/global/node_modules/@openai/codex/bin/codex.js "$@"' > /usr/local/bin/codex \
   && chmod +x /usr/local/bin/codex \
   && codex --version
+
+RUN apt-get -o Acquire::Retries=5 update \
+  && apt-get -o Acquire::Retries=5 install -y --no-install-recommends libicu-dev \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+  case "${TARGETARCH:-$(uname -m)}" in \
+    amd64|x86_64) officecli_asset="officecli-linux-x64" ;; \
+    arm64|aarch64) officecli_asset="officecli-linux-arm64" ;; \
+    *) echo "Unsupported OfficeCLI architecture: ${TARGETARCH:-$(uname -m)}" >&2; exit 1 ;; \
+  esac; \
+  officecli_base_url="https://github.com/iOfficeAI/OfficeCLI/releases/download/${OFFICECLI_VERSION}"; \
+  curl -fsSL "${officecli_base_url}/SHA256SUMS" -o /tmp/officecli-SHA256SUMS; \
+  curl -fsSL "${officecli_base_url}/${officecli_asset}" -o /usr/local/bin/officecli; \
+  expected="$(awk -v asset="${officecli_asset}" '$2 == asset { print $1; exit }' /tmp/officecli-SHA256SUMS)"; \
+  test -n "${expected}"; \
+  printf '%s  %s\n' "${expected}" /usr/local/bin/officecli | sha256sum -c -; \
+  chmod +x /usr/local/bin/officecli; \
+  officecli --version; \
+  rm -f /tmp/officecli-SHA256SUMS
 
 RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh \
   && python3 -m venv /opt/ankole-python \

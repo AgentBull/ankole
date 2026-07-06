@@ -59,6 +59,10 @@ defmodule AnkoleWeb.ApiSpec do
           description: "Operator-managed LLM provider and agent model profile configuration"
         },
         %Tag{
+          name: "Identity Providers",
+          description: "Operator-managed identity-provider configuration and directory sync"
+        },
+        %Tag{
           name: "AIGateway",
           description: "Agent-authenticated AI provider gateway"
         },

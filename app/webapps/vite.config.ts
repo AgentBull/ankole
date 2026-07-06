@@ -1,6 +1,8 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import react from '@vitejs/plugin-react'
+import babel from '@rolldown/plugin-babel'
+import react, { reactCompilerPreset } from '@vitejs/plugin-react'
+import { parse as parseToml } from 'smol-toml'
 import { defineConfig, type Plugin, type UserConfig } from 'vite'
 
 const filename = fileURLToPath(import.meta.url)
@@ -64,10 +66,31 @@ function phoenixShellPlugin(): Plugin {
   }
 }
 
+function tomlPlugin(): Plugin {
+  return {
+    name: 'ankole-toml',
+    transform(code, id) {
+      if (!id.endsWith('.toml')) return
+
+      return {
+        code: `export default ${JSON.stringify(parseToml(code))}`,
+        map: null
+      }
+    }
+  }
+}
+
 export default defineConfig(
   ({ command }): UserConfig => ({
     base: command === 'build' ? '/assets/' : '/',
-    plugins: [react(), phoenixShellPlugin()],
+    plugins: [
+      tomlPlugin(),
+      react(),
+      babel({
+        presets: [reactCompilerPreset()]
+      }),
+      phoenixShellPlugin()
+    ],
     publicDir: false,
     root: dirname,
     server: {

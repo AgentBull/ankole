@@ -3,7 +3,7 @@ import { lstat, readdir, readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { xxh3File128Hex, xxh3String128Hex } from '@ankole/kernel'
 import { match, ResultAsync } from '@pleisto/active-support'
-import type { JsonObject } from '../fabric/fabric'
+import type { JsonObject } from '@pleisto/active-support'
 import type { InstalledSkillObservation } from '../lanes/rpc_lane'
 
 export type InstalledSkillDiagnostic = {
@@ -24,7 +24,7 @@ type SkillFileFingerprint = {
   xxh3_128: string
 }
 
-type SkillFrontmatter = Record<string, unknown>
+type SkillFrontmatter = JsonObject
 
 const skillFileName = 'SKILL.md'
 const maxInstalledSkills = 200

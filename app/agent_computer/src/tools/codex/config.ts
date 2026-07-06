@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { isRecord, type JsonObject } from '@pleisto/active-support'
+import { sanitizePathSegment } from '../../core/workspace-paths'
 import type { AIGatewayApiKeyResponse } from '../../lanes/rpc_lane'
 
 export const CodexConfigOverrideKey = 'agent_computer.codex.config_override'
@@ -46,10 +47,11 @@ export function materializeCodexConfig(input: {
   override: CodexConfigOverride | null
   aiGatewayKey?: AIGatewayApiKeyResponse
 }): MaterializedCodexConfig {
+  const safeDelegationId = sanitizePathSegment(input.delegationId, { replacement: '_' })
   const cleanupRoot =
     input.override?.mode === 'official_subscription'
-      ? join(tmpdir(), 'ankole-codex-official', safePathSegment(input.delegationId))
-      : join(input.workspaceRoot, 'temp', 'codex', safePathSegment(input.delegationId))
+      ? join(tmpdir(), 'ankole-codex-official', safeDelegationId)
+      : join(input.workspaceRoot, 'temp', 'codex', safeDelegationId)
   const codexHome = join(cleanupRoot, 'home')
   mkdirSync(codexHome, { recursive: true })
 
@@ -135,10 +137,6 @@ function writeFile(path: string, content: string): void {
 
 function tomlString(value: string): string {
   return JSON.stringify(value)
-}
-
-function safePathSegment(value: string): string {
-  return value.replace(/[^a-zA-Z0-9._-]/g, '_')
 }
 
 function isStringRecord(value: unknown): value is Record<string, string> {

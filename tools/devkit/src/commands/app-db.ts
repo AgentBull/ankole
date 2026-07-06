@@ -56,18 +56,24 @@ export const createLocalAppDatabase = async (databaseName: string): Promise<void
   ])
 }
 
+export function buildDropDatabaseScript(): string {
+  return [
+    'set -eu',
+    'if psql -U "$POSTGRES_USER" -d postgres -Atqc "SELECT datname FROM pg_database" | grep -Fxq "$DB_NAME"; then',
+    '  psql -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 -v dbname="$DB_NAME" <<\'SQL\'',
+    'SELECT pg_terminate_backend(pid)',
+    'FROM pg_stat_activity',
+    "WHERE datname = :'dbname'",
+    '  AND pid <> pg_backend_pid();',
+    'SQL',
+    'fi',
+    'dropdb -U "$POSTGRES_USER" --if-exists "$DB_NAME"'
+  ].join('\n')
+}
+
 /** Drops the local app database after the caller has confirmed the operation. */
 const dropDatabase = async (databaseName: string): Promise<void> => {
-  await runCompose([
-    'exec',
-    '-T',
-    '-e',
-    `DB_NAME=${databaseName}`,
-    'postgres',
-    'sh',
-    '-lc',
-    'dropdb -U "$POSTGRES_USER" --if-exists "$DB_NAME"'
-  ])
+  await runCompose(['exec', '-T', '-e', `DB_NAME=${databaseName}`, 'postgres', 'sh', '-lc', buildDropDatabaseScript()])
 }
 
 /** Runs the control plane Ecto migrations with development env loaded. */

@@ -6,30 +6,27 @@ defmodule Ankole.ActorRuntime.WorkerRouteAuth do
   alias Ankole.ActorRuntime.Schemas.ActorSessionActivation
   alias Ankole.ActorRuntime.Schemas.ActorSessionWorkerAssignment
   alias Ankole.ActorRuntime.Schemas.AgentComputerWorker
+  alias Ankole.ActorRuntime.TurnRef
   alias Ankole.Repo
 
   @type effect :: :read | :write
 
-  @spec authorize_turn_route(map(), String.t(), effect()) :: :ok | {:error, atom()}
-  def authorize_turn_route(turn, route, effect)
-      when is_map(turn) and is_binary(route) and effect in [:read, :write] do
-    with {:ok, turn_ref} <- normalize_turn_ref(turn) do
-      case Repo.transact(fn repo ->
-             with %AgentComputerWorker{} = worker <- worker_by_route(repo, route),
-                  %ActorSessionWorkerAssignment{} <-
-                    live_assignment(repo, turn_ref.agent_uid, turn_ref.session_id, worker),
-                  %ActorSessionActivation{} = activation <-
-                    live_activation(repo, turn_ref, worker),
-                  :ok <- authorize_revision(activation, turn_ref, effect) do
-               {:ok, :authorized}
-             else
-               nil -> {:error, :worker_not_assigned_to_turn}
-               {:error, _reason} = error -> error
-             end
-           end) do
-        {:ok, :authorized} -> :ok
-        {:error, _reason} = error -> error
-      end
+  @spec authorize_turn_route(TurnRef.t(), String.t(), effect()) :: :ok | {:error, atom()}
+  def authorize_turn_route(%TurnRef{} = turn_ref, route, effect)
+      when is_binary(route) and effect in [:read, :write] do
+    case Repo.transact(fn repo ->
+           with %AgentComputerWorker{} = worker <- worker_by_route(repo, route),
+                %ActorSessionWorkerAssignment{} <- live_assignment(repo, turn_ref, worker),
+                %ActorSessionActivation{} = activation <- live_activation(repo, turn_ref, worker),
+                :ok <- authorize_revision(activation, turn_ref, effect) do
+             {:ok, :authorized}
+           else
+             nil -> {:error, :worker_not_assigned_to_turn}
+             {:error, _reason} = error -> error
+           end
+         end) do
+      {:ok, :authorized} -> :ok
+      {:error, _reason} = error -> error
     end
   end
 
@@ -42,10 +39,10 @@ defmodule Ankole.ActorRuntime.WorkerRouteAuth do
     |> repo.one()
   end
 
-  defp live_assignment(repo, agent_uid, session_id, %AgentComputerWorker{} = worker) do
+  defp live_assignment(repo, %TurnRef{} = turn_ref, %AgentComputerWorker{} = worker) do
     ActorSessionWorkerAssignment
-    |> where([assignment], assignment.agent_uid == ^String.downcase(agent_uid))
-    |> where([assignment], assignment.session_id == ^session_id)
+    |> where([assignment], assignment.agent_uid == ^turn_ref.agent_uid)
+    |> where([assignment], assignment.session_id == ^turn_ref.session_id)
     |> where([assignment], assignment.worker_id == ^worker.worker_id)
     |> where([assignment], assignment.status in ["assigned", "draining"])
     |> repo.one()
@@ -75,61 +72,4 @@ defmodule Ankole.ActorRuntime.WorkerRouteAuth do
 
   defp authorize_revision(%ActorSessionActivation{}, _turn_ref, :write),
     do: {:error, :stale_revision}
-
-  defp normalize_turn_ref(turn) do
-    with %{} = actor <- map_value(turn, "actor"),
-         agent_uid when is_binary(agent_uid) <- text(actor, "agent_uid"),
-         session_id when is_binary(session_id) <- text(actor, "session_id"),
-         activation_uid when is_binary(activation_uid) <- text(turn, "activation_uid"),
-         actor_epoch when is_integer(actor_epoch) <- integer(turn, "actor_epoch"),
-         actor_event_id when is_binary(actor_event_id) <- text(turn, "actor_event_id"),
-         revision when is_integer(revision) <- integer(turn, "revision") do
-      {:ok,
-       %{
-         agent_uid: String.downcase(agent_uid),
-         session_id: session_id,
-         activation_uid: activation_uid,
-         actor_epoch: actor_epoch,
-         actor_event_id: actor_event_id,
-         revision: revision
-       }}
-    else
-      _value -> {:error, :invalid_turn_ref}
-    end
-  end
-
-  defp map_value(map, key) do
-    case Map.get(map, key) || Map.get(map, String.to_atom(key)) do
-      value when is_map(value) -> value
-      _value -> nil
-    end
-  end
-
-  defp text(map, key) do
-    case Map.get(map, key) || Map.get(map, String.to_atom(key)) do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          text -> text
-        end
-
-      _value ->
-        nil
-    end
-  end
-
-  defp integer(map, key) do
-    case Map.get(map, key) || Map.get(map, String.to_atom(key)) do
-      value when is_integer(value) -> value
-      value when is_binary(value) -> parse_integer(value)
-      _value -> nil
-    end
-  end
-
-  defp parse_integer(value) do
-    case Integer.parse(value) do
-      {integer, ""} -> integer
-      _value -> nil
-    end
-  end
 end

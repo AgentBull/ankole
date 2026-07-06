@@ -1,17 +1,10 @@
 import { describe, expect, it } from 'bun:test'
+import type { JsonObject } from '@pleisto/active-support'
 import { tmpdir } from 'node:os'
 import { z } from 'zod'
 import { runAgentLoop } from '../../src/core/agent-loop'
-import {
-  callModel,
-  createModel,
-  zodToJSONSchema,
-  type ContentPart,
-  type ResponseWebSocketLike
-} from '../../src/core/llm'
-import { classifyLlmError, isLocallyRetryableLlmError } from '../../src/core/llm-error-classifier'
+import { zodToJSONSchema, type ContentPart, type ResponseWebSocketLike } from '../../src/core/llm'
 import { actorEventUserContent } from '../../src/core/turns/actor_event_content'
-import { statefulTruncationFromActorEventPayload } from '../../src/core/turns/actor_event_text'
 import {
   actorEventEnvironmentInfoLines,
   prependEnvironmentInfoLinesToUserMessage
@@ -25,8 +18,6 @@ import {
   fallbackModelForTest,
   imageActorEventPayload,
   modelRefForTest,
-  parallelReadTool,
-  toolResultsRecordedFrame,
   turnStartForTest,
   withImageWorkspace
 } from '../support/llm'
@@ -140,7 +131,7 @@ describe('@ankole/agent-computer llm helpers: runtime and actor content', () => 
   it('forces AIGateway key refresh after a WebSocket open failure before retrying', async () => {
     const seenAuthorization: string[] = []
     const refreshOptions: Array<{ forceRefresh?: boolean } | undefined> = []
-    const sentPayloads: Record<string, unknown>[] = []
+    const sentPayloads: JsonObject[] = []
     let attempts = 0
 
     const model = runtimeModelFromAIGatewayApiKey(
@@ -187,7 +178,7 @@ describe('@ankole/agent-computer llm helpers: runtime and actor content', () => 
       }
 
       return fakeResponseSocket(init, data => {
-        sentPayloads.push(JSON.parse(data) as Record<string, unknown>)
+        sentPayloads.push(JSON.parse(data) as JsonObject)
         return [
           {
             type: 'response.completed',
@@ -375,7 +366,7 @@ describe('@ankole/agent-computer llm helpers: runtime and actor content', () => 
 
   it('summarizes actor-event images through vision fallback for text-only models', async () => {
     await withImageWorkspace(async (workspaceRoot, imagePath) => {
-      const fallbackBodies: Record<string, unknown>[] = []
+      const fallbackBodies: JsonObject[] = []
       const fallbackModel = fallbackModelForTest('A small image with visible text.', fallbackBodies)
 
       const content = await actorEventUserContent(
@@ -410,7 +401,7 @@ describe('@ankole/agent-computer llm helpers: runtime and actor content', () => 
   })
 
   it('keeps sticker actor-event content deterministic and does not call vision fallback', async () => {
-    const fallbackBodies: Record<string, unknown>[] = []
+    const fallbackBodies: JsonObject[] = []
     const fallbackModel = fallbackModelForTest('should not be called', fallbackBodies)
 
     const content = await actorEventUserContent(

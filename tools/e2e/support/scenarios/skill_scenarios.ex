@@ -73,7 +73,7 @@ defmodule Ankole.E2E.Scenarios.Skill do
                chat_id: "oc_chaos_skill",
                chat_type: "p2p",
                text:
-                 "@_user_1 Run CHAOS_SKILL_VIEW_ALL. Use skill_view for jupyter-live-kernel, nano-pdf, and ppt-master, then reply exactly CHAOS_SKILL_VIEW_ALL_OK.",
+                 "@_user_1 Run CHAOS_SKILL_VIEW_ALL. Use skill_view for docx, jupyter-live-kernel, nano-pdf, pptx, and xlsx, then reply exactly CHAOS_SKILL_VIEW_ALL_OK.",
                mentions: [mention],
                create_time_ms:
                  DateTime.to_unix(DateTime.add(@base_time, 5_060, :millisecond), :millisecond)
@@ -91,11 +91,13 @@ defmodule Ankole.E2E.Scenarios.Skill do
 
     messages = ai_messages_for_actor_event(input.id)
     skill_results = successful_tool_results(messages, "skill_view")
-    assert length(skill_results) == 3
+    assert length(skill_results) == 5
     rendered = inspect(skill_results)
+    assert rendered =~ "# OfficeCLI DOCX Skill"
     assert rendered =~ "# Jupyter Live Kernel"
     assert rendered =~ "# nano-pdf"
-    assert rendered =~ "# PPT Master Skill"
+    assert rendered =~ "# OfficeCLI PPTX Skill"
+    assert rendered =~ "# OfficeCLI XLSX Skill"
 
     assert_actor_event_completed!(input.id)
     %{input: input, reply: reply}

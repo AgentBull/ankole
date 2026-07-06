@@ -109,7 +109,7 @@ BrowserEndpointResolver (Bun)
   |
   +-- local default:
         LocalSidecarManager.ensure(browser.chromium)
-        -> chromium --headless=new --remote-debugging-port=<free> ...
+        -> chromium-headless-shell --headless=new --remote-debugging-port=<free> ...
         -> Target.createBrowserContext per browser session
   |
   v
@@ -130,9 +130,8 @@ state.
 - Local Chromium is not started at container boot. The main Bun worker starts
   it only when the effective remote config is `nil` and a browser tool needs a
   rendered browser.
-- The production browser tools call the Bun CDP engine directly. The
-  `ankole-browser` CLI remains a diagnostic/operator entrypoint, not the
-  model-facing runtime boundary.
+- The production browser tools call the Bun CDP engine directly. The worker
+  image does not install a separate browser CLI surface.
 - Browser session metadata lives under
   `/workspace/.sessions/<session>/browser/session.json` and is rebuildable.
 
@@ -152,20 +151,20 @@ implementation:
 - HTTP fetch fallback is removed; browser-family behavior operates through a
   real CDP browser session. `web_fetch` has an explicit local-browser fallback
   that also uses the CDP engine.
-- Chromium provides the default local full-browser compatibility, screenshots,
-  and CDP BrowserContext isolation; remote CDP remains available for managed
-  browser infrastructure, stronger anti-bot needs, and provider-specific
-  browser fleets.
+- Chromium headless shell provides the default local rendered-browser
+  compatibility, screenshots, and CDP BrowserContext isolation; remote CDP
+  remains available for managed browser infrastructure, stronger anti-bot
+  needs, and provider-specific browser fleets.
 
 ## Default Backend: Lazy Local Chromium
 
 If `worker.remote_browser_cdp_config` is unset or resolves to `nil`, the worker
-uses the Chromium binary installed in the Agent Computer image.
+uses the Chromium headless shell binary installed in the Agent Computer image.
 
 The Bun `LocalSidecarManager` launches a local sidecar with:
 
 ```bash
-chromium --headless=new --renderer-process-limit=4 --no-zygote --no-sandbox \
+chromium-headless-shell --headless=new --renderer-process-limit=4 --no-zygote --no-sandbox \
   --disable-gpu --disable-dev-shm-usage --disable-sync \
   --disable-background-networking --disable-default-apps --disable-translate \
   --disable-popup-blocking --disable-notifications --disable-extensions \
@@ -412,40 +411,10 @@ the model.
 
 ## Operational Checks
 
-Local default:
-
-```bash
-docker run --rm ankole-agent-computer:0.1.0 ankole-browser --json doctor
-```
-
-Expected backend:
-
-```json
-{
-  "backend": "chromium",
-  "remote_cdp_configured": false
-}
-```
-
-Remote override:
-
-```bash
-ANKOLE_REMOTE_BROWSER_CDP_CONFIG_JSON='{"adapter":"cdp_endpoint","endpoint_url":"wss://..."}' \
-  ankole-browser --json doctor
-```
-
-Expected backend:
-
-```json
-{
-  "backend": "remote_cdp",
-  "remote_cdp_configured": true
-}
-```
-
-In production, set `worker.remote_browser_cdp_config` through AppConfigure
-instead of process environment variables. The environment variable is only the
-local diagnostic path for `ankole-browser`.
+Browser runtime checks should exercise the same interface production uses: the
+worker's in-process browser tools and the CDP runtime underneath them.
+Configure production remote CDP through `worker.remote_browser_cdp_config` in
+AppConfigure; the environment variable path is only for focused package tests.
 
 Fast no-build package check:
 
@@ -455,7 +424,7 @@ bun run test
 ```
 
 The package test command uses the existing `ankole-agent-computer:0.1.0` image
-and bind-mounts local `bin/`, `src/`, and `test/` into the container. Rebuild
+and bind-mounts local `src/` and `test/` into the container. Rebuild
 the image only after Dockerfile, dependency, kernel output, or image-level tool
 changes. Browser runtime fixes in TypeScript can usually be reproduced and
 verified through this no-build path first.

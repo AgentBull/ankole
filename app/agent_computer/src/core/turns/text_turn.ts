@@ -1,5 +1,5 @@
 import type { TurnStart } from '../../lanes/actor_lane'
-import { isRecord } from '@pleisto/active-support'
+import { isRecord, type JsonObject } from '@pleisto/active-support'
 import { runAgentLoop } from '../agent-loop'
 import { buildAgentSystemPrompt } from '../../prompts/system_prompt'
 import { createComputerTools } from '../../tools/computer'
@@ -29,7 +29,7 @@ const RemoteBrowserCdpConfigKey = 'worker.remote_browser_cdp_config'
 const LocalBrowserIdleTtlMsKey = 'worker.local_browser_idle_ttl_ms'
 
 type BrowserRuntimeConfig = {
-  remoteCdpConfig: Record<string, unknown> | null
+  remoteCdpConfig: JsonObject | null
   localBrowserIdleTtlMs?: number
 }
 
@@ -394,10 +394,7 @@ async function resolveBrowserRuntimeConfig(
   const localBrowserIdleTtlMs = response.values[LocalBrowserIdleTtlMsKey]?.value
 
   return {
-    remoteCdpConfig:
-      remoteCdpConfig && typeof remoteCdpConfig === 'object' && !Array.isArray(remoteCdpConfig)
-        ? (remoteCdpConfig as Record<string, unknown>)
-        : null,
+    remoteCdpConfig: isRecord(remoteCdpConfig) ? remoteCdpConfig : null,
     ...(typeof localBrowserIdleTtlMs === 'number' && Number.isFinite(localBrowserIdleTtlMs)
       ? { localBrowserIdleTtlMs }
       : {})

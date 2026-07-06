@@ -34,8 +34,8 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders do
   @impl true
   def description do
     %{
-      "default" => "AI Gateway provider declarations for China-market model APIs.",
-      "zh-Hans-CN" => "面向中国市场模型 API 的 AI Gateway Provider 声明。"
+      "default" => "Adds support for more china-market model providers.",
+      "zh-Hans-CN" => "添加对更多的国内模型算力厂商的支持。"
     }
   end
 

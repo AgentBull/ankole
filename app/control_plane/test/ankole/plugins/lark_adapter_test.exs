@@ -22,13 +22,21 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   alias Ankole.SignalsGateway.AdapterContext
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Entry
+  alias FeishuOpenAPI.Client
   alias FeishuOpenAPI.Error
   alias FeishuOpenAPI.Event
+  alias FeishuOpenAPI.TokenStore
 
   import Ankole.PrincipalsFixtures
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
   @base_ms DateTime.to_unix(@base_time, :millisecond)
+
+  defmodule TestConnectionSupervisor do
+    @moduledoc false
+
+    def ensure_started(_config, _consumers, _opts), do: {:ok, self()}
+  end
 
   setup do
     AppConfigureRegistry.clear_for_test()
@@ -39,12 +47,77 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   describe "plugin declaration" do
     test "declares the stable Lark adapter contracts and encrypted config patterns" do
       assert LarkAdapter.plugin_id() == "lark-adapter"
-      assert LarkAdapter.display_name() == "Lark / Feishu"
+
+      assert LarkAdapter.display_name() == %{
+               "default" => "Lark Adapter",
+               "zh-Hans-CN" => "飞书适配器"
+             }
+
+      refute function_exported?(LarkAdapter, :setup_metadata, 0)
 
       assert [
-               %{contract_id: "signals_gateway.adapter", id: "lark"},
-               %{contract_id: "principals.identity_provider", id: "lark"}
+               %{
+                 contract_id: "signals_gateway.adapter",
+                 id: "lark",
+                 config_key_pattern: "signals_gateway.lark.bindings.<id>",
+                 fields: chat_fields,
+                 supported_group_message_modes: [
+                   "addressed_only",
+                   "observe_all",
+                   "may_intervene"
+                 ]
+               },
+               %{
+                 contract_id: "principals.identity_provider",
+                 id: "lark",
+                 config_key_pattern: "principals.identity_providers.lark.<id>",
+                 capabilities: identity_capabilities,
+                 fields: identity_fields
+               }
              ] = LarkAdapter.adapter_declarations()
+
+      assert identity_capabilities == [
+               "oidc_authorization",
+               "oidc_code_exchange",
+               "directory_full_sync",
+               "directory_realtime_sync"
+             ]
+
+      assert Enum.map(chat_fields, & &1.path) == [
+               "appId",
+               "appSecret",
+               "domain",
+               "baseUrl",
+               "platformSubjectNamespace",
+               "userName",
+               "botOpenId",
+               "botUserId"
+             ]
+
+      assert Enum.map(identity_fields, & &1.path) == [
+               "appId",
+               "appSecret",
+               "domain",
+               "oidc.enabled",
+               "oidc.scopes",
+               "sync.contacts",
+               "sync.websocket",
+               "sync.pageSize"
+             ]
+
+      assert hd(chat_fields).label["zh-Hans-CN"] == "应用 ID"
+      assert hd(chat_fields).description["default"] == "Self-built app identifier."
+      assert Enum.all?(chat_fields ++ identity_fields, &localized_field?/1)
+
+      chat_fields_by_path = Map.new(chat_fields, &{&1.path, &1})
+      identity_fields_by_path = Map.new(identity_fields, &{&1.path, &1})
+
+      assert Enum.all?(chat_fields, &(&1.advanced == false))
+      assert identity_fields_by_path["appId"].advanced == false
+      assert identity_fields_by_path["oidc.scopes"].advanced == true
+      assert identity_fields_by_path["sync.websocket"].advanced == true
+      assert identity_fields_by_path["sync.pageSize"].advanced == true
+      assert chat_fields_by_path["appId"].advanced == false
 
       patterns = LarkAdapter.app_config_patterns()
 
@@ -65,10 +138,16 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
       assert chat["domain"] == "feishu"
       assert chat["baseUrl"] == nil
-      assert chat["group_message_mode"] == "observe_all"
+      refute Map.has_key?(chat, "group_message_mode")
       assert chat["platformSubjectNamespace"] == "lark-main"
       assert chat["botOpenId"] == nil
       assert chat["botUserId"] == nil
+
+      assert {:error, :missing_lark_bot_identity} =
+               Config.validate_binding_config(%{
+                 "appId" => "cli_x",
+                 "appSecret" => "secret"
+               })
 
       assert {:ok, %{"baseUrl" => "http://127.0.0.1:4455"}} =
                Config.validate_chat_config(%{
@@ -104,7 +183,20 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                })
 
       assert identity["oidc"]["enabled"] == true
+      assert identity["sync"]["contacts"] == true
       assert identity["sync"]["pageSize"] == 50
+
+      assert {:ok, identity_sync_disabled} =
+               Config.validate_identity_config(%{
+                 "appId" => "cli_x",
+                 "appSecret" => "secret",
+                 "sync" => %{"contacts" => false, "websocket" => true}
+               })
+
+      assert identity_sync_disabled["sync"]["contacts"] == false
+      assert identity_sync_disabled["sync"]["websocket"] == false
+      refute Map.has_key?(identity_sync_disabled["sync"], "users")
+      refute Map.has_key?(identity_sync_disabled["sync"], "departments")
 
       assert {:error, {:invalid_integer_range, "pageSize", 1, 50}} =
                Config.validate_identity_config(%{
@@ -190,6 +282,35 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                consumer_count: 1,
                consumer_kinds: [:identity_provider]
              } = ConnectionOwner.status(pid)
+    end
+
+    test "reconciler skips identity realtime consumer when directory sync is disabled" do
+      registry = unique_module("LarkIdentityDisabledConnectionRegistry")
+      supervisor = unique_module("LarkIdentityDisabledConnectionSupervisor")
+
+      start_supervised!({Registry, keys: :unique, name: registry})
+      start_supervised!({DynamicSupervisor, name: supervisor, strategy: :one_for_one})
+
+      assert {:ok, _provider} =
+               IdentityProviders.save_provider(
+                 "lark-disabled",
+                 "lark",
+                 %{
+                   "appId" => "cli_identity_disabled",
+                   "appSecret" => "secret",
+                   "sync" => %{"contacts" => false, "websocket" => true}
+                 },
+                 true
+               )
+
+      assert %{started: 0, errors: []} =
+               ConnectionReconciler.reconcile_once(
+                 registry: registry,
+                 supervisor: supervisor,
+                 start_client?: false
+               )
+
+      assert [] == Registry.lookup(registry, {"feishu", "cli_identity_disabled"})
     end
 
     test "keeps one owner per domain and app id and rejects secret conflicts" do
@@ -984,12 +1105,126 @@ defmodule Ankole.Plugins.LarkAdapterTest do
              )
     end
 
+    test "full directory sync reads users and departments through paginated contact API" do
+      config = put_in(identity_config(), ["sync", "pageSize"], 17)
+      client_opts = lark_http_client_opts()
+      put_tenant_token(config, client_opts)
+      on_exit(fn -> delete_tenant_token(config, client_opts) end)
+
+      {:ok, requests} = Agent.start_link(fn -> [] end)
+
+      Req.Test.stub(__MODULE__, fn conn ->
+        Agent.update(
+          requests,
+          &(&1 ++ [{conn.request_path, URI.decode_query(conn.query_string)}])
+        )
+
+        case conn.request_path do
+          "/open-apis/contact/v3/users" ->
+            Req.Test.json(conn, %{
+              "code" => 0,
+              "data" => %{
+                "items" => [
+                  %{"user_id" => "ou_full_sync_1", "name" => "Full Sync One"},
+                  %{"user_id" => "ou_full_sync_2", "name" => "Full Sync Two"}
+                ],
+                "has_more" => false
+              }
+            })
+
+          "/open-apis/contact/v3/departments" ->
+            Req.Test.json(conn, %{
+              "code" => 0,
+              "data" => %{
+                "items" => [%{"department_id" => "od_full_sync"}],
+                "has_more" => false
+              }
+            })
+        end
+      end)
+
+      assert {:ok, %{users: 2, departments: 1}} =
+               IdentityProvider.sync_directory("lark-main", config, client_opts: client_opts)
+
+      assert {:ok, observed} =
+               Ankole.Principals.resolve_platform_subject("lark-main", "ou_full_sync_1")
+
+      assert observed.uid == "ou_full_sync_1"
+
+      assert Agent.get(requests, & &1) == [
+               {"/open-apis/contact/v3/users", %{"page_size" => "17"}},
+               {"/open-apis/contact/v3/departments", %{"page_size" => "17"}}
+             ]
+    end
+
+    test "identity websocket consumer starts only when realtime directory sync is enabled" do
+      assert {:ok, _provider} =
+               IdentityProviders.save_provider(
+                 "lark-main",
+                 "lark",
+                 %{
+                   "appId" => "cli_identity",
+                   "appSecret" => "secret",
+                   "sync" => %{"contacts" => true, "websocket" => false}
+                 },
+                 true
+               )
+
+      assert %{started: 0, errors: []} =
+               ConnectionReconciler.reconcile_once(
+                 connection_supervisor: TestConnectionSupervisor
+               )
+
+      assert {:ok, _provider} =
+               IdentityProviders.save_provider(
+                 "lark-main",
+                 "lark",
+                 %{
+                   "appId" => "cli_identity",
+                   "appSecret" => "secret",
+                   "sync" => %{"contacts" => true, "websocket" => true}
+                 },
+                 true
+               )
+
+      assert %{started: 1, errors: []} =
+               ConnectionReconciler.reconcile_once(
+                 connection_supervisor: TestConnectionSupervisor
+               )
+    end
+
     test "directory upsert never falls back to open_id as platform subject" do
       assert {:error, :missing_user_id} =
                IdentityProvider.upsert_user("lark-main", %{
                  "open_id" => "ou_open_only",
                  "union_id" => "on_union"
                })
+    end
+
+    test "contact user events incrementally upsert platform subjects" do
+      event = %Event{
+        id: "evt_contact_user",
+        type: "contact.user.updated_v3",
+        tenant_key: "tenant-a",
+        app_id: "cli_identity",
+        created_at: @base_time,
+        content: %{
+          "user" => %{
+            "user_id" => "ou_contact_incremental",
+            "name" => "Contact Incremental",
+            "enterprise_email" => "contact.incremental@example.com"
+          }
+        },
+        raw: %{}
+      }
+
+      assert {:ok, [%{principal: principal, human_user: human_user}]} =
+               IdentityProvider.handle_contact_event("contact.user.updated_v3", event, [
+                 IdentityProvider.identity_consumer("lark-main", identity_config())
+               ])
+
+      assert principal.uid == "ou_contact_incremental"
+      assert human_user.email == "contact.incremental@example.com"
     end
 
     test "contact events enqueue full sync when incremental identity is incomplete" do
@@ -1021,6 +1256,40 @@ defmodule Ankole.Plugins.LarkAdapterTest do
         args: %{
           "provider_id" => "lark-main",
           "reason" => "missing_user_id",
+          "source" => "lark_contact_event"
+        }
+      )
+    end
+
+    test "contact scope updates enqueue a full directory sync" do
+      assert {:ok, _provider} =
+               IdentityProviders.save_provider(
+                 "lark-main",
+                 "lark",
+                 %{"appId" => "cli_identity", "appSecret" => "secret"},
+                 true
+               )
+
+      event = %Event{
+        id: "evt_contact_scope",
+        type: "contact.scope.updated_v3",
+        tenant_key: "tenant-a",
+        app_id: "cli_identity",
+        created_at: @base_time,
+        content: %{},
+        raw: %{}
+      }
+
+      assert {:ok, [%{status: :full_sync_enqueued, reason: :contact_scope_updated}]} =
+               IdentityProvider.handle_contact_event("contact.scope.updated_v3", event, [
+                 IdentityProvider.identity_consumer("lark-main", identity_config())
+               ])
+
+      assert_enqueued(
+        worker: SyncProvider,
+        args: %{
+          "provider_id" => "lark-main",
+          "reason" => "contact_scope_updated",
           "source" => "lark_contact_event"
         }
       )
@@ -1072,6 +1341,36 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       })
 
     config
+  end
+
+  defp lark_http_client_opts do
+    [req_options: [plug: {Req.Test, __MODULE__}]]
+  end
+
+  defp put_tenant_token(config, client_opts) do
+    ensure_token_store()
+
+    config
+    |> Config.client(client_opts)
+    |> tenant_key(nil)
+    |> then(&:ets.insert(TokenStore.table(), {&1, "t-token", :infinity}))
+  end
+
+  defp delete_tenant_token(config, client_opts) do
+    config
+    |> Config.client(client_opts)
+    |> tenant_key(nil)
+    |> then(&:ets.delete(TokenStore.table(), &1))
+  end
+
+  defp tenant_key(%Client{} = client, tenant_key) do
+    {:tenant, Client.cache_namespace(client), tenant_key}
+  end
+
+  defp ensure_token_store do
+    if :ets.info(TokenStore.table()) == :undefined do
+      :ets.new(TokenStore.table(), [:named_table, :public, :set, read_concurrency: true])
+    end
   end
 
   defp receive_event do
@@ -1173,4 +1472,15 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   defp unique_module(prefix) do
     Module.concat([__MODULE__, :"#{prefix}#{System.unique_integer([:positive])}"])
   end
+
+  defp localized_field?(field) do
+    localized_text?(field.label) and localized_text?(field.description) and
+      Enum.all?(Map.get(field, :options, []), &localized_text?(&1.label))
+  end
+
+  defp localized_text?(%{"default" => default} = value) when is_binary(default) do
+    Enum.all?(value, fn {locale, text} -> is_binary(locale) and is_binary(text) end)
+  end
+
+  defp localized_text?(_value), do: false
 end

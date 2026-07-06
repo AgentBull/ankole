@@ -25,6 +25,27 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
     end
   end
 
+  defmodule LocalizedText do
+    @moduledoc """
+    Locale-keyed operator-facing text with a required default fallback.
+    """
+
+    @behaviour OpenApiSpex.Schema
+
+    @impl OpenApiSpex.Schema
+    def schema do
+      %Schema{
+        title: "LocalizedText",
+        type: :object,
+        properties: %{
+          default: %Schema{type: :string}
+        },
+        required: [:default],
+        additionalProperties: %Schema{type: :string}
+      }
+    end
+  end
+
   defmodule ErrorDetail do
     @moduledoc false
 
@@ -442,17 +463,280 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
     )
   end
 
-  defmodule SignalBindingLarkWriteRequest do
+  defmodule SignalAdapterFieldOption do
     @moduledoc false
 
     require OpenApiSpex
 
     OpenApiSpex.schema(
       %{
-        title: "SignalBindingLarkWriteRequest",
+        title: "SignalAdapterFieldOption",
         type: :object,
         properties: %{
+          value: %Schema{type: :string},
+          label: LocalizedText,
+          description: LocalizedText
+        },
+        required: [:value],
+        additionalProperties: true
+      },
+      struct?: false
+    )
+  end
+
+  defmodule SignalAdapterField do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "SignalAdapterField",
+        type: :object,
+        properties: %{
+          path: %Schema{type: :string},
+          type: %Schema{type: :string},
+          label: LocalizedText,
+          description: LocalizedText,
+          default: JsonValue,
+          advanced: %Schema{type: :boolean},
+          required: %Schema{type: :boolean, nullable: true},
+          encrypted: %Schema{type: :boolean, nullable: true},
+          min: %Schema{type: :integer, nullable: true},
+          max: %Schema{type: :integer, nullable: true},
+          options: %Schema{type: :array, items: SignalAdapterFieldOption, nullable: true}
+        },
+        required: [:path, :type],
+        additionalProperties: true
+      },
+      struct?: false
+    )
+  end
+
+  defmodule SignalAdapterItem do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "SignalAdapterItem",
+        type: :object,
+        properties: %{
+          adapter_id: %Schema{type: :string},
+          plugin_id: %Schema{type: :string, nullable: true},
+          display_name: LocalizedText,
+          fields: %Schema{type: :array, items: SignalAdapterField},
+          group_message_mode_field: SignalAdapterField
+        },
+        required: [:adapter_id, :fields, :group_message_mode_field],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule SignalAdapterListResponse do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "SignalAdapterListResponse",
+        type: :object,
+        properties: %{
+          data: %Schema{type: :array, items: SignalAdapterItem}
+        },
+        required: [:data],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule IdentityProviderAdapterItem do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "IdentityProviderAdapterItem",
+        type: :object,
+        properties: %{
+          adapter_id: %Schema{type: :string},
+          plugin_id: %Schema{type: :string, nullable: true},
+          display_name: LocalizedText,
+          capabilities: %Schema{type: :array, items: %Schema{type: :string}},
+          fields: %Schema{type: :array, items: SignalAdapterField},
+          default_provider_id: %Schema{type: :string}
+        },
+        required: [:adapter_id, :capabilities, :fields, :default_provider_id],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule IdentityProviderAdapterListResponse do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "IdentityProviderAdapterListResponse",
+        type: :object,
+        properties: %{
+          data: %Schema{type: :array, items: IdentityProviderAdapterItem}
+        },
+        required: [:data],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule IdentityProviderItem do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "IdentityProviderItem",
+        type: :object,
+        properties: %{
+          provider_id: %Schema{type: :string},
+          adapter_id: %Schema{type: :string},
+          plugin_id: %Schema{type: :string},
+          config_key: %Schema{type: :string},
+          enabled: %Schema{type: :boolean},
           config: JsonValue
+        },
+        required: [:provider_id, :adapter_id, :plugin_id, :config_key, :enabled, :config],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule IdentityProviderListResponse do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "IdentityProviderListResponse",
+        type: :object,
+        properties: %{
+          data: %Schema{type: :array, items: IdentityProviderItem}
+        },
+        required: [:data],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule IdentityProviderResponse do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "IdentityProviderResponse",
+        type: :object,
+        properties: %{
+          data: IdentityProviderItem
+        },
+        required: [:data],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule IdentityProviderWriteRequest do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "IdentityProviderWriteRequest",
+        type: :object,
+        properties: %{
+          adapter_id: %Schema{type: :string},
+          config: JsonValue,
+          enabled: %Schema{type: :boolean}
+        },
+        required: [:adapter_id, :config],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule IdentityProviderSyncRunItem do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "IdentityProviderSyncRunItem",
+        type: :object,
+        properties: %{
+          provider_id: %Schema{type: :string},
+          status: %Schema{type: :string, enum: ["enqueued"]},
+          job_id: %Schema{type: :integer, nullable: true}
+        },
+        required: [:provider_id, :status],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule IdentityProviderSyncRunResponse do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "IdentityProviderSyncRunResponse",
+        type: :object,
+        properties: %{
+          data: IdentityProviderSyncRunItem
+        },
+        required: [:data],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule SignalBindingWriteRequest do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "SignalBindingWriteRequest",
+        type: :object,
+        properties: %{
+          config: JsonValue,
+          group_message_mode: %Schema{
+            type: :string,
+            enum: ["addressed_only", "observe_all", "may_intervene"],
+            nullable: true
+          }
         },
         required: [:config],
         additionalProperties: false

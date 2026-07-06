@@ -11,6 +11,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   alias Ankole.Plugins.LarkAdapter.MapHelpers
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.AdapterContext
+  alias Ankole.SignalsGateway.Ingress
   alias FeishuOpenAPI.CardAction
   alias FeishuOpenAPI.Event
 
@@ -180,7 +181,8 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
       case normalize_message_receive(event, consumer) do
         {:ok, input} ->
           with :ok <- observe_author(consumer, input) do
-            AdapterContext.emit_entry(consumer.context, input)
+            context = consumer.context
+            Ingress.emit_entry(context.agent_uid, context.binding_name, input)
           end
 
         {:ignore, reason} ->
@@ -215,7 +217,9 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
         provider_time: provider_time(message, event)
       }
 
-      AdapterContext.emit_entry_removed(consumer.context, input,
+      context = consumer.context
+
+      Ingress.emit_entry_removed(context.agent_uid, context.binding_name, input,
         provider_lifecycle_kind: :recalled
       )
     end
@@ -243,7 +247,8 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
         provider_time: provider_time(message, event)
       }
 
-      AdapterContext.emit_reaction(consumer.context, input)
+      context = consumer.context
+      Ingress.emit_reaction(context.agent_uid, context.binding_name, input)
     else
       {:error, :missing_operator_id} ->
         Logging.warning(
@@ -286,7 +291,8 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
         raw_payload: compact_map(action.raw)
       }
 
-      AdapterContext.emit_action(consumer.context, input)
+      context = consumer.context
+      Ingress.emit_action(context.agent_uid, context.binding_name, input)
     else
       {:error, :missing_operator_id} ->
         Logging.warning(

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test'
+import type { JsonObject } from '@pleisto/active-support'
 import type { AIGatewayHttpClient } from '../src/core/turns/model_runtime'
 import { createWebTools } from '../src/tools/web/web-tools'
 
@@ -84,7 +85,7 @@ describe('web tools', () => {
       baseURL: 'https://control.test/api/v1/ai-gateway/',
       fetch: async (input, init) => {
         const url = input instanceof Request ? input.url : String(input)
-        const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined
+        const body = init?.body ? (JSON.parse(String(init.body)) as JsonObject) : undefined
         requests.push({ url, body })
 
         if (url.endsWith('/web_tools')) {
@@ -206,7 +207,9 @@ describe('web tools', () => {
         agentUid: 'agent-1',
         executionScopeId: 'conversation-1',
         fetchUrl: async () => {
-          throw new Error('local browser requires Chromium; no remote CDP override is configured')
+          throw new Error(
+            'local browser requires chromium-headless-shell or another Chromium-compatible binary; no remote CDP override is configured'
+          )
         }
       }
     })
@@ -214,7 +217,7 @@ describe('web tools', () => {
 
     const result = await webFetch!.execute('call-fetch', { urls: ['https://example.com'] })
 
-    expect(textOf(result)).toContain('local browser requires Chromium')
+    expect(textOf(result)).toContain('local browser requires chromium-headless-shell')
     expect(textOf(result)).toContain('Source: local_browser')
     expect(result.details).toMatchObject({
       success: false,
@@ -222,7 +225,8 @@ describe('web tools', () => {
       results: [
         {
           url: 'https://example.com',
-          error: 'local browser requires Chromium; no remote CDP override is configured',
+          error:
+            'local browser requires chromium-headless-shell or another Chromium-compatible binary; no remote CDP override is configured',
           metadata: { source: 'local_browser' }
         }
       ]

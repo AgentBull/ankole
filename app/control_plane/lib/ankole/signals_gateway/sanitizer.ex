@@ -3,7 +3,7 @@ defmodule Ankole.SignalsGateway.Sanitizer do
   Bounded redaction for error details and log previews.
 
   This module is deliberately not a durable payload normalizer. Actor event,
-  outbox, and provider mirror payloads must pass `JsonPayload` instead of being
+  outbox, and provider mirror payloads must pass `Ankole.Ecto.JsonPayload` instead of being
   repaired here.
   """
 

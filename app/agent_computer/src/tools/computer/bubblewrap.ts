@@ -191,18 +191,6 @@ function runtimeWorkspaceBinds(): string[] {
     binds.push('--bind', installedSkillsRoot, SANDBOX_AGENT_INSTALLED_SKILLS_ROOT)
   }
 
-  const agentComputerDir = process.env.ANKOLE_AGENT_COMPUTER_BUN_WORKDIR
-  if (agentComputerDir && browserCliRuntimePresent(agentComputerDir)) {
-    // `ankole-browser` is installed in the image as a symlink under
-    // /usr/local/bin. The symlink target lives in the Agent Computer app tree,
-    // so the sandbox must expose only the tiny read-only runtime needed by that
-    // CLI. Without this bind, browser tools fail inside bwrap with exit 127
-    // even though the command exists in the outer worker container.
-    pushDirs(binds, parentDirs(agentComputerDir))
-    binds.push('--ro-bind', `${agentComputerDir}/bin`, `${agentComputerDir}/bin`)
-    binds.push('--ro-bind', `${agentComputerDir}/src`, `${agentComputerDir}/src`)
-  }
-
   const codexInstallRoot = codexGlobalPackageRoot()
   if (existsSync(codexInstallRoot)) {
     pushDirs(binds, parentDirs(codexInstallRoot))
@@ -222,15 +210,6 @@ function runtimeWorkspaceBinds(): string[] {
   }
 
   return binds
-}
-
-/**
- * Checks whether the in-process browser CLI runtime exists in the app tree.
- */
-function browserCliRuntimePresent(agentComputerDir: string): boolean {
-  return (
-    existsSync(`${agentComputerDir}/bin/ankole-browser`) && existsSync(`${agentComputerDir}/src/tools/browser/cli.ts`)
-  )
 }
 
 /**

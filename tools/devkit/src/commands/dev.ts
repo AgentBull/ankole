@@ -27,7 +27,6 @@ const defaultContainerName = 'ankole-dev-agent-computer'
 const managedLabel = 'ankole.dev.managed'
 const sourceHashLabel = 'ankole.dev.source_hash'
 const workerSourceMountTarget = '/repo/app/agent_computer/src'
-const workerBinMountTarget = '/repo/app/agent_computer/bin'
 const workerDevCommand = 'cd /repo/app/agent_computer && exec bun --watch src/main.ts'
 
 type WorkerBootstrapMount = {
@@ -103,8 +102,6 @@ export function buildWorkerDockerArgs(spec: WorkerBootstrapSpec, opts: WorkerDoc
     ]),
     '--mount',
     bindMountArg(path.join(repoRoot, 'app', 'agent_computer', 'src'), workerSourceMountTarget, true),
-    '--mount',
-    bindMountArg(path.join(repoRoot, 'app', 'agent_computer', 'bin'), workerBinMountTarget, true),
     spec.image,
     '/bin/sh',
     '-lc',
@@ -162,7 +159,6 @@ async function workerImageInputFiles(): Promise<string[]> {
     .split('\0')
     .filter(Boolean)
     .filter(file => !file.startsWith('app/agent_computer/src/'))
-    .filter(file => !file.startsWith('app/agent_computer/bin/'))
     .filter(file => existsSync(path.join(repoRootPath, file)))
 }
 

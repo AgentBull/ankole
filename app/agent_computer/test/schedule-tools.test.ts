@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
-import type { JsonObject, TurnStart } from '../src/lanes/actor_lane'
+import type { TurnStart } from '../src/lanes/actor_lane'
+import type { JsonObject } from '@pleisto/active-support'
 import { rpcMethods, type RpcMethod, type ScheduleRpcRequest } from '../src/lanes/rpc_lane'
 import { createScheduleTools } from '../src/tools/schedule/schedule-tools'
 

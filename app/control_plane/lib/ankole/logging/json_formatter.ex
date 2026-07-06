@@ -27,7 +27,8 @@ defmodule Ankole.Logging.JSONFormatter do
                             "initial_call",
                             "registered_name",
                             "process_label",
-                            "crash_reason"
+                            "crash_reason",
+                            "ansi_color"
                           ])
 
   @special_metadata_keys MapSet.new([

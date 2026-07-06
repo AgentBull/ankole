@@ -12,9 +12,11 @@ defmodule Ankole.E2E.FakeOpenAISkillScenarios do
   @spec tool_call_for(atom(), pos_integer()) :: map() | nil
   def tool_call_for(:skill_view_tool, 1), do: skill_view_tool_call("nano-pdf")
 
-  def tool_call_for(:skill_view_all_tool, 1), do: skill_view_tool_call("jupyter-live-kernel")
-  def tool_call_for(:skill_view_all_tool, 2), do: skill_view_tool_call("nano-pdf")
-  def tool_call_for(:skill_view_all_tool, 3), do: skill_view_tool_call("ppt-master")
+  def tool_call_for(:skill_view_all_tool, 1), do: skill_view_tool_call("docx")
+  def tool_call_for(:skill_view_all_tool, 2), do: skill_view_tool_call("jupyter-live-kernel")
+  def tool_call_for(:skill_view_all_tool, 3), do: skill_view_tool_call("nano-pdf")
+  def tool_call_for(:skill_view_all_tool, 4), do: skill_view_tool_call("pptx")
+  def tool_call_for(:skill_view_all_tool, 5), do: skill_view_tool_call("xlsx")
 
   def tool_call_for(:skill_append_tool, 1) do
     %{

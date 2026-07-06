@@ -2,7 +2,7 @@ defmodule Ankole.SignalsGateway.FactNormalizer do
   @moduledoc false
 
   alias Ankole.Principals
-  alias Ankole.SignalsGateway.JsonPayload
+  alias Ankole.Ecto.JsonPayload
   alias Ankole.SignalsGateway.Sanitizer
   alias Ankole.SignalsGateway.Binding
 

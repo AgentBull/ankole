@@ -2,10 +2,15 @@ name: ankole-dev
 
 services:
   postgres:
-    build:
-      context: ./postgres-for-ankole
-    image: postgres-for-ankole:dev
-    command: ["postgres", "-c", "max_connections=${ANKOLE_POSTGRES_MAX_CONNECTIONS:-300}"]
+    image: ghcr.io/agentbull/ankole-postgres-for-ankole:main-latest
+    command:
+      [
+        "postgres",
+        "-c",
+        "max_connections=${ANKOLE_POSTGRES_MAX_CONNECTIONS:-300}",
+        "-c",
+        "shared_preload_libraries=pg_search"
+      ]
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: just4local-dev

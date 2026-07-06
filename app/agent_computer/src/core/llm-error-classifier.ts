@@ -9,6 +9,7 @@
 
 import { match, P } from '@pleisto/active-support'
 import { isRecord } from '@pleisto/active-support'
+import type { JsonObject } from '@pleisto/active-support'
 
 /** Backend-independent failure class derived from a raw LLM error. */
 export type LlmErrorKind = 'auth' | 'overflow' | 'rate_limit' | 'server' | 'timeout' | 'unknown'
@@ -224,7 +225,7 @@ function containsHttpStatus(text: string, status: number): boolean {
  */
 function localRetryableHint(error: unknown): boolean | undefined {
   if (!error || typeof error !== 'object') return undefined
-  const record = error as Record<string, unknown>
+  const record = error as JsonObject
   const details = record.details
   if (!isRecord(details)) return undefined
   const value = details.local_retryable
@@ -246,7 +247,7 @@ function findErrorProperty<T>(
 ): T | undefined {
   if (!error || typeof error !== 'object' || seen.has(error) || depth > 25) return undefined
   seen.add(error)
-  const record = error as Record<string, unknown>
+  const record = error as JsonObject
   for (const key of keys) {
     const parsed = parse(record[key])
     if (parsed !== undefined) return parsed
@@ -276,7 +277,7 @@ function collectMessages(error: unknown, messages: string[], seen: WeakSet<objec
 
   if (seen.has(error)) return
   seen.add(error)
-  const record = error as Record<string, unknown>
+  const record = error as JsonObject
   match(error)
     .when(
       (value): value is Error => value instanceof Error,

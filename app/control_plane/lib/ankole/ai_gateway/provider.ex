@@ -14,8 +14,9 @@ defmodule Ankole.AIGateway.Provider do
   @doc "Returns a provider-specific metadata source descriptor when one exists."
   @callback models_metadata_source(map()) :: {:ok, term()} | {:error, term()}
 
-  @doc "Performs a provider-owned live connection check."
-  @callback check_connection(map()) :: {:ok, map()} | {:error, term()}
+  @doc "Prepares a provider-owned live connection check."
+  @callback prepare_connection_check(map()) ::
+              {:ok, Ankole.AIGateway.ProviderConnectionCheck.t()} | {:error, term()}
 
-  @optional_callbacks models_metadata_source: 1, check_connection: 1
+  @optional_callbacks models_metadata_source: 1, prepare_connection_check: 1
 end

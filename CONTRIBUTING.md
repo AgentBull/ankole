@@ -13,6 +13,22 @@ Thank you for your interest in contributing to Ankole! We welcome bug reports, f
 - **Rust toolchain** (stable, with `clippy` and `rustfmt`) — required for the native kernel under `app/kernel`, which is loaded by Elixir (Rustler) and Bun (N-API).
 - **Docker** — used to run local PostgreSQL through the devkit Compose file, and to build/run the Agent Computer worker image.
 
+On a fresh macOS or Linux machine, bootstrap those prerequisites with:
+
+```sh
+bash tools/devkit/scripts/env-setup.sh
+```
+
+After Bun is available, the same installer is exposed through the devkit:
+
+```sh
+bun run kit env-setup
+```
+
+Windows hosts are not supported by this installer yet; use WSL2 or GitHub Codespaces.
+
+GitHub Codespaces uses the repository's `.devcontainer/` configuration. It builds an Ubuntu-based development container, installs the same Bun/Rust/Elixir toolchain, enables Docker-in-Docker for worker images and devkit services, and runs `bun install` after creation.
+
 ### First run
 
 ```sh

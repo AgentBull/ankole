@@ -5,6 +5,7 @@ defmodule Ankole.AIGateway.Providers.GoogleAIStudioOpenAI do
 
   use Ankole.AIGateway.ProviderDSL
 
+  alias Ankole.AIGateway.ProviderConnectionCheck
   alias Ankole.AIGateway.ReasoningEffort
   alias Ankole.AIGateway.UniversalAIRequest
 
@@ -80,26 +81,17 @@ defmodule Ankole.AIGateway.Providers.GoogleAIStudioOpenAI do
   end
 
   @doc """
-  Checks Google AI Studio connectivity through the native Gemini model catalog endpoint.
+  Prepares a Google AI Studio connection check through the native Gemini model catalog endpoint.
   """
   @impl true
-  def check_connection(ctx) when is_map(ctx) do
+  def prepare_connection_check(ctx) when is_map(ctx) do
     credential = ctx.settings[:api_key] || ""
 
-    with {:ok, %{"status" => status, "body" => body}} when status in 200..299 <-
-           UniversalAIRequest.raw_get(
-             ctx,
-             "https://generativelanguage.googleapis.com/v1beta/models?key=#{URI.encode_www_form(credential)}",
-             headers: []
-           ) do
-      {:ok, body}
-    else
-      {:ok, %{"status" => status, "body" => body}} ->
-        {:error, {:provider_connection_check_failed, status, body}}
-
-      {:error, _reason} = error ->
-        error
-    end
+    ProviderConnectionCheck.get(
+      ctx,
+      "https://generativelanguage.googleapis.com/v1beta/models?key=#{URI.encode_www_form(credential)}",
+      headers: []
+    )
   end
 
   # The official embeddings API uses `embedContent` for one input and

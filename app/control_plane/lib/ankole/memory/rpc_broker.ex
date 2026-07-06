@@ -3,110 +3,88 @@ defmodule Ankole.Memory.RPCBroker do
   RuntimeFabric RPC entry point for worker-originated Memory tools.
   """
 
+  alias Ankole.ActorRuntime.TurnRef
   alias Ankole.Memory
 
   @type action :: String.t()
-  @type route_authorizer :: (map(), String.t(), :read | :write -> :ok | {:error, atom()})
 
-  @spec handle_request(action(), route_authorizer(), map(), String.t()) ::
+  @spec handle_request(action(), TurnRef.t(), map(), String.t()) ::
           {:ok, map()} | {:error, map()}
-  def handle_request(action, authorize_turn_route, request, route)
-      when is_binary(action) and is_function(authorize_turn_route, 3) and is_map(request) and
-             is_binary(route) do
+  def handle_request(action, %TurnRef{} = turn_ref, request, _route)
+      when is_binary(action) and is_map(request) do
     request_id = text(request, "request_id") || "memory-rpc-#{Ecto.UUID.generate()}"
 
     request
-    |> dispatch(action, route, authorize_turn_route)
+    |> dispatch(action, turn_ref)
     |> case do
       {:ok, payload} -> {:ok, Map.put_new(payload, "request_id", request_id)}
       {:error, reason} -> {:error, error_payload(request_id, reason)}
     end
   end
 
-  def handle_request(action, _authorize_turn_route, _request, _route),
+  def handle_request(action, _turn_ref, _request, _route),
     do: {:error, error_payload("", {:invalid_memory_rpc_request, action})}
 
-  defp dispatch(request, "memory_note.save", route, authorize_turn_route) do
-    with {:ok, turn} <- turn_ref(request),
-         {:ok, actor_event} <- actor_event(request),
-         :ok <- authorize_turn_route.(turn, route, :write),
-         {agent_uid, _session_id} <- actor_identity(turn),
+  defp dispatch(request, "memory_note.save", %TurnRef{} = turn_ref) do
+    with {:ok, actor_event} <- actor_event(request),
          {:ok, channel_id} <- current_channel(actor_event),
          {:ok, content} <- required_text(request, "content"),
          {:ok, note} <-
-           Memory.save_note(agent_uid, channel_id, content, note_source(actor_event, request)) do
+           Memory.save_note(
+             turn_ref.agent_uid,
+             channel_id,
+             content,
+             note_source(actor_event, request)
+           ) do
       {:ok, %{"status" => "saved", "note" => note_projection(note)}}
     end
   end
 
-  defp dispatch(request, "memory_note.update", route, authorize_turn_route) do
-    with {:ok, turn} <- turn_ref(request),
-         {:ok, actor_event} <- actor_event(request),
-         :ok <- authorize_turn_route.(turn, route, :write),
-         {agent_uid, _session_id} <- actor_identity(turn),
+  defp dispatch(request, "memory_note.update", %TurnRef{} = turn_ref) do
+    with {:ok, actor_event} <- actor_event(request),
          {:ok, channel_id} <- current_channel(actor_event),
          {:ok, note_id} <- required_text(request, "note_id"),
          {:ok, content} <- required_text(request, "content"),
-         {:ok, note} <- Memory.update_note(agent_uid, channel_id, note_id, content) do
+         {:ok, note} <- Memory.update_note(turn_ref.agent_uid, channel_id, note_id, content) do
       {:ok, %{"status" => "updated", "note" => note_projection(note)}}
     end
   end
 
-  defp dispatch(request, "memory_note.forget", route, authorize_turn_route) do
-    with {:ok, turn} <- turn_ref(request),
-         {:ok, actor_event} <- actor_event(request),
-         :ok <- authorize_turn_route.(turn, route, :write),
-         {agent_uid, _session_id} <- actor_identity(turn),
+  defp dispatch(request, "memory_note.forget", %TurnRef{} = turn_ref) do
+    with {:ok, actor_event} <- actor_event(request),
          {:ok, channel_id} <- current_channel(actor_event),
          {:ok, note_id} <- required_text(request, "note_id"),
-         {:ok, note} <- Memory.forget_note(agent_uid, channel_id, note_id) do
+         {:ok, note} <- Memory.forget_note(turn_ref.agent_uid, channel_id, note_id) do
       {:ok, %{"status" => "forgotten", "note" => note_projection(note)}}
     end
   end
 
-  defp dispatch(request, "memory_note.list", route, authorize_turn_route) do
-    with {:ok, turn} <- turn_ref(request),
-         {:ok, actor_event} <- actor_event(request),
-         :ok <- authorize_turn_route.(turn, route, :read),
-         {agent_uid, _session_id} <- actor_identity(turn),
+  defp dispatch(request, "memory_note.list", %TurnRef{} = turn_ref) do
+    with {:ok, actor_event} <- actor_event(request),
          {:ok, channel_id} <- current_channel(actor_event) do
       {:ok,
        %{
          "status" => "ok",
          "channel_id" => channel_id,
-         "notes" => Memory.list_notes(agent_uid, channel_id)
+         "notes" => Memory.list_notes(turn_ref.agent_uid, channel_id)
        }}
     end
   end
 
-  defp dispatch(request, "memory_search", route, authorize_turn_route) do
-    with {:ok, turn} <- turn_ref(request),
-         :ok <- authorize_turn_route.(turn, route, :read) do
-      request
-      |> Map.put("turn_ref", turn)
-      |> Memory.search()
-    end
+  defp dispatch(request, "memory_search", %TurnRef{} = turn_ref) do
+    request
+    |> Map.put("turn_ref", turn_ref)
+    |> Memory.search()
   end
 
-  defp dispatch(request, "memory_browse", route, authorize_turn_route) do
-    with {:ok, turn} <- turn_ref(request),
-         :ok <- authorize_turn_route.(turn, route, :read) do
-      request
-      |> Map.put("turn_ref", turn)
-      |> Memory.browse()
-    end
+  defp dispatch(request, "memory_browse", %TurnRef{} = turn_ref) do
+    request
+    |> Map.put("turn_ref", turn_ref)
+    |> Memory.browse()
   end
 
-  defp dispatch(_request, action, _route, _authorize_turn_route),
+  defp dispatch(_request, action, _turn_ref),
     do: {:error, {:unknown_memory_action, action}}
-
-  defp turn_ref(request) do
-    case Map.get(request, "turn_ref") || Map.get(request, :turn_ref) || Map.get(request, "turn") ||
-           Map.get(request, :turn) do
-      turn when is_map(turn) -> {:ok, stringify_keys(turn)}
-      _value -> {:error, :missing_turn_ref}
-    end
-  end
 
   defp actor_event(request) do
     case Map.get(request, "actor_event") || Map.get(request, :actor_event) do
@@ -119,12 +97,6 @@ defmodule Ankole.Memory.RPCBroker do
     do: {:ok, channel_id}
 
   defp current_channel(_actor_event), do: {:error, :missing_current_channel}
-
-  defp actor_identity(%{"actor" => %{"agent_uid" => agent_uid, "session_id" => session_id}})
-       when is_binary(agent_uid) and is_binary(session_id),
-       do: {String.downcase(agent_uid), session_id}
-
-  defp actor_identity(_turn), do: {"", ""}
 
   defp note_source(actor_event, request) do
     %{

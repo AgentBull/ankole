@@ -19,55 +19,23 @@ defmodule Ankole.Plugins.LarkAdapter do
   def api_version, do: 1
 
   @impl true
-  def display_name, do: "Lark / Feishu"
+  def display_name do
+    %{
+      "default" => "Lark Adapter",
+      "zh-Hans-CN" => "飞书适配器"
+    }
+  end
 
   @impl true
   def description do
-    "Connects Lark / Feishu self-built apps to SignalsGateway and Principals."
+    %{
+      "default" => "Connects Lark self-built apps as a signals provider and login provider.",
+      "zh-Hans-CN" => "连接飞书自建应用作为信号提供方与登录提供方。"
+    }
   end
 
   @impl true
   def app_config_patterns, do: Config.app_config_patterns()
-
-  @impl true
-  def setup_metadata do
-    # Setup metadata is data, not UI code. The control plane can render these
-    # fields without loading provider-specific forms into the core application.
-    [
-      %{
-        contract_id: "signals_gateway.adapter.setup",
-        adapter_id: "lark",
-        default_binding_name: "lark",
-        display_name: "Lark / Feishu",
-        config_key_pattern: "signals_gateway.lark.bindings.<id>",
-        fields: chat_fields(),
-        group_message_modes: [
-          %{
-            value: "addressed_only",
-            binding_policy: "ignore",
-            label: "Addressed messages only"
-          },
-          %{
-            value: "observe_all",
-            binding_policy: "record_only",
-            label: "Observe unaddressed group messages"
-          },
-          %{
-            value: "may_intervene",
-            binding_policy: "may_intervene",
-            label: "Let the agent consider intervening"
-          }
-        ]
-      },
-      %{
-        contract_id: "principals.identity_provider.setup",
-        adapter_id: "lark",
-        display_name: "Lark / Feishu",
-        config_key_pattern: "principals.identity_providers.lark.<id>",
-        fields: identity_fields()
-      }
-    ]
-  end
 
   @impl true
   def adapter_declarations do
@@ -78,7 +46,11 @@ defmodule Ankole.Plugins.LarkAdapter do
         contract_id: "signals_gateway.adapter",
         id: "lark",
         plugin_id: plugin_id(),
-        display_name: "Lark / Feishu",
+        display_name: adapter_display_name(),
+        config_key_pattern: "signals_gateway.lark.bindings.<id>",
+        config_module: Config,
+        fields: chat_fields(),
+        supported_group_message_modes: ["addressed_only", "observe_all", "may_intervene"],
         ingress_module: Inbound,
         outbox_module: Outbox,
         connection_supervisor: ConnectionSupervisor,
@@ -105,14 +77,15 @@ defmodule Ankole.Plugins.LarkAdapter do
         contract_id: "principals.identity_provider",
         id: "lark",
         plugin_id: plugin_id(),
-        display_name: "Lark / Feishu",
+        display_name: adapter_display_name(),
+        config_key_pattern: "principals.identity_providers.lark.<id>",
+        fields: identity_fields(),
         module: IdentityProvider,
         capabilities: [
           "oidc_authorization",
           "oidc_code_exchange",
-          "user_full_sync",
-          "department_access_check",
-          "contact_realtime_sync"
+          "directory_full_sync",
+          "directory_realtime_sync"
         ]
       }
     ]
@@ -130,43 +103,191 @@ defmodule Ankole.Plugins.LarkAdapter do
     ]
   end
 
+  defp adapter_display_name do
+    %{
+      "default" => "Lark",
+      "zh-Hans-CN" => "飞书"
+    }
+  end
+
   defp chat_fields do
     [
-      field("appId", "App ID", :string, required: true),
-      field("appSecret", "App Secret", :secret, required: true, encrypted: true),
-      field("domain", "Domain", :select, default: "feishu", options: ["feishu", "lark"]),
-      field("group_message_mode", "Group message mode", :select,
-        default: "observe_all",
-        options: ["addressed_only", "observe_all", "may_intervene"]
+      field(
+        "appId",
+        %{"default" => "App ID", "zh-Hans-CN" => "应用 ID"},
+        %{"default" => "Self-built app identifier.", "zh-Hans-CN" => "自建应用的 App ID。"},
+        :string,
+        required: true
       ),
-      field("platformSubjectNamespace", "Platform subject namespace", :string,
+      field(
+        "appSecret",
+        %{"default" => "App Secret", "zh-Hans-CN" => "应用密钥"},
+        %{"default" => "Self-built app secret.", "zh-Hans-CN" => "自建应用的 App Secret。"},
+        :secret,
+        required: true,
+        encrypted: true
+      ),
+      field(
+        "domain",
+        %{"default" => "Domain", "zh-Hans-CN" => "域"},
+        %{"default" => "Provider network to call.", "zh-Hans-CN" => "要连接的服务网络。"},
+        :select,
+        default: "feishu",
+        options: [
+          option("feishu", %{"default" => "Feishu.cn", "zh-Hans-CN" => "Feishu.cn"}),
+          option("lark", %{"default" => "Larksuite.com", "zh-Hans-CN" => "Larksuite.com"})
+        ]
+      ),
+      field(
+        "baseUrl",
+        %{"default" => "Base URL", "zh-Hans-CN" => "基础 URL"},
+        %{
+          "default" => "Optional override for local provider-compatible testing.",
+          "zh-Hans-CN" => "可选，本地或兼容服务测试时覆盖 provider URL。"
+        },
+        :string,
+        []
+      ),
+      field(
+        "platformSubjectNamespace",
+        %{"default" => "Platform subject namespace", "zh-Hans-CN" => "平台主体命名空间"},
+        %{
+          "default" => "Namespace used when mapping provider users into Ankole subjects.",
+          "zh-Hans-CN" => "映射 provider 用户到 Ankole 主体时使用的命名空间。"
+        },
+        :string,
         default: "lark-main"
       ),
-      field("userName", "Output display name", :string, default: "Lark / Feishu"),
-      field("botOpenId", "Bot open_id", :string, []),
-      field("botUserId", "Bot user_id", :string, [])
+      field(
+        "userName",
+        %{"default" => "Output display name", "zh-Hans-CN" => "输出显示名"},
+        %{
+          "default" => "Name shown for outbound provider messages.",
+          "zh-Hans-CN" => "发送 provider 消息时显示的名称。"
+        },
+        :string,
+        default: "Lark / Feishu"
+      ),
+      field(
+        "botOpenId",
+        %{"default" => "Bot open_id", "zh-Hans-CN" => "机器人 open_id"},
+        %{
+          "default" => "Bot open_id used to recognize messages addressed to this bot.",
+          "zh-Hans-CN" => "用于识别发给当前机器人的消息。"
+        },
+        :string,
+        []
+      ),
+      field(
+        "botUserId",
+        %{"default" => "Bot user_id", "zh-Hans-CN" => "机器人 user_id"},
+        %{
+          "default" => "Bot user_id used to resolve the runtime bot open_id.",
+          "zh-Hans-CN" => "用于运行时解析机器人 open_id。"
+        },
+        :string,
+        []
+      )
     ]
   end
 
   defp identity_fields do
     [
-      field("appId", "App ID", :string, required: true),
-      field("appSecret", "App Secret", :secret, required: true, encrypted: true),
-      field("domain", "Domain", :select, default: "feishu", options: ["feishu", "lark"]),
-      field("oidc.enabled", "Enable OIDC", :boolean, default: true),
-      field("oidc.scopes", "OIDC scopes", :string_array,
-        default: ["contact:user.employee_id:readonly"]
+      field(
+        "appId",
+        %{"default" => "App ID", "zh-Hans-CN" => "应用 ID"},
+        %{"default" => "Self-built app identifier.", "zh-Hans-CN" => "自建应用的 App ID。"},
+        :string,
+        required: true
       ),
-      field("sync.users", "Sync users", :boolean, default: true),
-      field("sync.departments", "Sync departments", :boolean, default: true),
-      field("sync.websocket", "Realtime contact sync", :boolean, default: true),
-      field("sync.pageSize", "Sync page size", :integer, default: 50, min: 1, max: 50)
+      field(
+        "appSecret",
+        %{"default" => "App Secret", "zh-Hans-CN" => "应用密钥"},
+        %{"default" => "Self-built app secret.", "zh-Hans-CN" => "自建应用的 App Secret。"},
+        :secret,
+        required: true,
+        encrypted: true
+      ),
+      field(
+        "domain",
+        %{"default" => "Domain", "zh-Hans-CN" => "域"},
+        %{"default" => "Provider network to call.", "zh-Hans-CN" => "要连接的服务网络。"},
+        :select,
+        default: "feishu",
+        options: [
+          option("feishu", %{"default" => "Feishu", "zh-Hans-CN" => "飞书"}),
+          option("lark", %{"default" => "Lark", "zh-Hans-CN" => "Lark"})
+        ]
+      ),
+      field(
+        "oidc.enabled",
+        %{"default" => "Enable OIDC", "zh-Hans-CN" => "启用 OIDC"},
+        %{
+          "default" => "Allows operators to sign in through this provider.",
+          "zh-Hans-CN" => "允许管理员通过该身份提供方登录。"
+        },
+        :boolean,
+        default: true
+      ),
+      field(
+        "oidc.scopes",
+        %{"default" => "OIDC scopes", "zh-Hans-CN" => "OIDC 权限范围"},
+        %{
+          "default" => "Scopes requested during OIDC authorization.",
+          "zh-Hans-CN" => "OIDC 授权时请求的 scope。"
+        },
+        :string_array,
+        default: ["contact:user.employee_id:readonly"],
+        advanced: true
+      ),
+      field(
+        "sync.contacts",
+        %{"default" => "Sync directory", "zh-Hans-CN" => "同步通讯录"},
+        %{
+          "default" => "Imports provider contacts into Principals and directory access checks.",
+          "zh-Hans-CN" => "将 provider 通讯录导入 Principals 和目录权限检查。"
+        },
+        :boolean,
+        default: true
+      ),
+      field(
+        "sync.websocket",
+        %{"default" => "Incremental contact sync", "zh-Hans-CN" => "增量通讯录同步"},
+        %{
+          "default" => "Consumes provider contact-change events when directory sync is enabled.",
+          "zh-Hans-CN" => "通讯录同步开启时，通过长连接消费 provider 通讯录变更事件。"
+        },
+        :boolean,
+        default: true,
+        advanced: true
+      ),
+      field(
+        "sync.pageSize",
+        %{"default" => "Sync page size", "zh-Hans-CN" => "同步分页大小"},
+        %{
+          "default" => "Provider page size for full directory sync.",
+          "zh-Hans-CN" => "全量通讯录同步时使用的 provider 分页大小。"
+        },
+        :integer,
+        default: 50,
+        min: 1,
+        max: 50,
+        advanced: true
+      )
     ]
   end
 
-  defp field(path, label, type, opts) do
+  defp field(path, label, description, type, opts) do
     opts
     |> Map.new()
-    |> Map.merge(%{path: path, label: label, type: Atom.to_string(type)})
+    |> Map.put_new(:advanced, false)
+    |> Map.merge(%{
+      path: path,
+      label: label,
+      description: description,
+      type: Atom.to_string(type)
+    })
   end
+
+  defp option(value, label), do: %{value: value, label: label}
 end

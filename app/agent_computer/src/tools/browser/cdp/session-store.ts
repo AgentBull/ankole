@@ -1,13 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { safePath, sanitizeId } from './utils'
-import type { BrowserRef, BrowserSessionMeta } from './types'
+import type { BrowserRef, BrowserRuntimeOptions, BrowserSessionMeta } from './types'
 
 /**
  * Reads persisted metadata for a browser session.
  */
-export function readSessionMeta(session: string): BrowserSessionMeta | undefined {
-  const path = sessionPath(session)
+export function readSessionMeta(session: string, options?: BrowserRuntimeOptions): BrowserSessionMeta | undefined {
+  const path = sessionPath(session, options)
   if (!existsSync(path)) return undefined
   return JSON.parse(readFileSync(path, 'utf8')) as BrowserSessionMeta
 }
@@ -15,8 +15,8 @@ export function readSessionMeta(session: string): BrowserSessionMeta | undefined
 /**
  * Writes persisted metadata for a browser session.
  */
-export function writeSessionMeta(session: string, meta: BrowserSessionMeta): void {
-  const path = sessionPath(session)
+export function writeSessionMeta(session: string, meta: BrowserSessionMeta, options?: BrowserRuntimeOptions): void {
+  const path = sessionPath(session, options)
   mkdirSync(dirname(path), { recursive: true })
   writeFileSync(path, JSON.stringify(meta, null, 2))
 }
@@ -24,15 +24,15 @@ export function writeSessionMeta(session: string, meta: BrowserSessionMeta): voi
 /**
  * Returns the metadata path for a browser session.
  */
-function sessionPath(session: string): string {
-  return resolve(browserRoot(session), 'session.json')
+function sessionPath(session: string, options?: BrowserRuntimeOptions): string {
+  return resolve(browserRoot(session, options), 'session.json')
 }
 
 /**
  * Reads the latest snapshot refs for a browser session.
  */
-export function readRefs(session: string): BrowserRef[] {
-  const path = resolve(browserRoot(session), 'refs.json')
+export function readRefs(session: string, options?: BrowserRuntimeOptions): BrowserRef[] {
+  const path = resolve(browserRoot(session, options), 'refs.json')
   if (!existsSync(path)) return []
   const payload = JSON.parse(readFileSync(path, 'utf8')) as { elements?: BrowserRef[] }
   return payload.elements ?? []
@@ -41,8 +41,8 @@ export function readRefs(session: string): BrowserRef[] {
 /**
  * Writes the latest snapshot refs for a browser session.
  */
-export function writeRefs(session: string, elements: BrowserRef[]): void {
-  const path = resolve(browserRoot(session), 'refs.json')
+export function writeRefs(session: string, elements: BrowserRef[], options?: BrowserRuntimeOptions): void {
+  const path = resolve(browserRoot(session, options), 'refs.json')
   mkdirSync(dirname(path), { recursive: true })
   writeFileSync(path, JSON.stringify({ elements, updated_at_unix_ms: Date.now() }, null, 2))
 }
@@ -50,6 +50,6 @@ export function writeRefs(session: string, elements: BrowserRef[]): void {
 /**
  * Returns the browser state directory for a session.
  */
-export function browserRoot(session: string): string {
-  return safePath(`/workspace/.sessions/${sanitizeId(session)}/browser`)
+export function browserRoot(session: string, options?: BrowserRuntimeOptions): string {
+  return safePath(`/workspace/.sessions/${sanitizeId(session)}/browser`, options)
 }

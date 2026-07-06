@@ -9,6 +9,7 @@ import {
   parseWorkerBootstrapSpec,
   type WorkerBootstrapSpec
 } from './dev'
+import { mixCommand } from '../utils'
 
 const spec: WorkerBootstrapSpec = {
   worker_id: 'local-dev-worker',
@@ -71,6 +72,15 @@ describe('buildControlPlaneEnv', () => {
   })
 })
 
+describe('mixCommand', () => {
+  test('dispatches directly to mix without shell-specific toolchain setup', () => {
+    expect(mixCommand(['phx.server'])).toEqual({
+      command: 'mix',
+      args: ['phx.server']
+    })
+  })
+})
+
 describe('managed worker cleanup args', () => {
   test('looks up containers by both managed label and exact dev worker name', () => {
     expect(buildManagedWorkerPsArgs('ankole-dev-agent-computer')).toEqual([
@@ -90,7 +100,7 @@ describe('managed worker cleanup args', () => {
 })
 
 describe('buildWorkerDockerArgs', () => {
-  test('mounts workspace plus local worker source/bin and runs Bun watch mode', () => {
+  test('mounts workspace plus local worker source and runs Bun watch mode', () => {
     const repoRoot = path.resolve('/tmp/ankole')
     const args = buildWorkerDockerArgs(spec, { repoRoot, containerName: 'ankole-dev-agent-computer' })
 
@@ -111,9 +121,6 @@ describe('buildWorkerDockerArgs', () => {
     expect(args).toContain('type=bind,src=/repo/var/ankole-dev/worker/shared,dst=/workspace/shared')
     expect(args).toContain(
       `type=bind,src=${path.join(repoRoot, 'app', 'agent_computer', 'src')},dst=/repo/app/agent_computer/src,readonly`
-    )
-    expect(args).toContain(
-      `type=bind,src=${path.join(repoRoot, 'app', 'agent_computer', 'bin')},dst=/repo/app/agent_computer/bin,readonly`
     )
     expect(args.slice(-4)).toEqual([
       'ankole-agent-computer:0.1.0',

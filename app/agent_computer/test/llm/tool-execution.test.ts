@@ -1,39 +1,13 @@
 import { describe, expect, it } from 'bun:test'
-import { tmpdir } from 'node:os'
+import type { JsonObject } from '@pleisto/active-support'
 import { z } from 'zod'
 import { runAgentLoop } from '../../src/core/agent-loop'
-import {
-  callModel,
-  createModel,
-  zodToJSONSchema,
-  type ContentPart,
-  type ResponseWebSocketLike
-} from '../../src/core/llm'
-import { classifyLlmError, isLocallyRetryableLlmError } from '../../src/core/llm-error-classifier'
-import { actorEventUserContent } from '../../src/core/turns/actor_event_content'
-import { statefulTruncationFromActorEventPayload } from '../../src/core/turns/actor_event_text'
-import {
-  actorEventEnvironmentInfoLines,
-  prependEnvironmentInfoLinesToUserMessage
-} from '../../src/core/turns/message_context'
-import { runtimeModelFromAIGatewayApiKey } from '../../src/core/turns/model_runtime'
-import { textTurnResultFromAssistantReply } from '../../src/core/turns/text_turn'
-import { steeringMessages } from '../../src/core/turns/turn_control'
-import {
-  FakeResponseSocket,
-  fakeResponseSocket,
-  fallbackModelForTest,
-  imageActorEventPayload,
-  modelRefForTest,
-  parallelReadTool,
-  toolResultsRecordedFrame,
-  turnStartForTest,
-  withImageWorkspace
-} from '../support/llm'
+import { createModel } from '../../src/core/llm'
+import { fakeResponseSocket, parallelReadTool, toolResultsRecordedFrame } from '../support/llm'
 
 describe('@ankole/agent-computer llm helpers: tool execution scheduling and guards', () => {
   it('feeds invalid tool arguments back as function_call_output instead of executing the tool', async () => {
-    const sentPayloads: Record<string, unknown>[] = []
+    const sentPayloads: JsonObject[] = []
     let toolExecutions = 0
     const model = createModel({
       apiKey: 'unused',
@@ -45,7 +19,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
         authorization: () => 'Bearer agent-key',
         createWebSocket: (_url, init) =>
           fakeResponseSocket(init, data => {
-            const payload = JSON.parse(data) as Record<string, unknown>
+            const payload = JSON.parse(data) as JsonObject
             sentPayloads.push(payload)
 
             if (payload.type === 'response.tool_results.record') {
@@ -129,7 +103,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
         }
       ]
     })
-    const output = (sentPayloads[1]!.input as Array<Record<string, unknown>>)[0]!.output
+    const output = (sentPayloads[1]!.input as Array<JsonObject>)[0]!.output
     expect(output).toContain('Invalid arguments for tool lookup')
     expect(output).toContain('expected string')
     expectWrappedToolOutput(output)
@@ -141,7 +115,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
   })
 
   it('does not execute tools without structured function_call items', async () => {
-    const sentPayloads: Record<string, unknown>[] = []
+    const sentPayloads: JsonObject[] = []
     let toolExecutions = 0
     const leakedText =
       '[{"name":"lookup","arguments":{"q":"should not execute"}}]\nassistant to=functions.lookup {"q":"also not executable"}'
@@ -155,7 +129,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
         authorization: () => 'Bearer agent-key',
         createWebSocket: (_url, init) =>
           fakeResponseSocket(init, data => {
-            const payload = JSON.parse(data) as Record<string, unknown>
+            const payload = JSON.parse(data) as JsonObject
             sentPayloads.push(payload)
 
             return [
@@ -207,7 +181,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
   })
 
   it('does not count tool execution against model inactivity tracking', async () => {
-    const sentPayloads: Record<string, unknown>[] = []
+    const sentPayloads: JsonObject[] = []
     const events: string[] = []
     const model = createModel({
       apiKey: 'unused',
@@ -219,7 +193,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
         authorization: () => 'Bearer agent-key',
         createWebSocket: (_url, init) =>
           fakeResponseSocket(init, data => {
-            const payload = JSON.parse(data) as Record<string, unknown>
+            const payload = JSON.parse(data) as JsonObject
             sentPayloads.push(payload)
 
             if (payload.type === 'response.tool_results.record') {
@@ -307,7 +281,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
   })
 
   it('executes pure read-only tool batches in parallel while preserving result order', async () => {
-    const sentPayloads: Record<string, unknown>[] = []
+    const sentPayloads: JsonObject[] = []
     const events: string[] = []
     const model = createModel({
       apiKey: 'unused',
@@ -319,7 +293,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
         authorization: () => 'Bearer agent-key',
         createWebSocket: (_url, init) =>
           fakeResponseSocket(init, data => {
-            const payload = JSON.parse(data) as Record<string, unknown>
+            const payload = JSON.parse(data) as JsonObject
             sentPayloads.push(payload)
 
             if (payload.type === 'response.tool_results.record') {
@@ -393,7 +367,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
         { type: 'function_call_output', call_id: 'call_read_b' }
       ]
     })
-    const outputs = sentPayloads[1]!.input as Array<Record<string, unknown>>
+    const outputs = sentPayloads[1]!.input as Array<JsonObject>
     expect(outputs[0]!.output).toContain('A')
     expect(outputs[1]!.output).toContain('B')
     expectWrappedToolOutput(outputs[0]!.output)
@@ -401,7 +375,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
   })
 
   it('keeps mixed side-effecting tool batches sequential', async () => {
-    const sentPayloads: Record<string, unknown>[] = []
+    const sentPayloads: JsonObject[] = []
     const events: string[] = []
     const model = createModel({
       apiKey: 'unused',
@@ -413,7 +387,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
         authorization: () => 'Bearer agent-key',
         createWebSocket: (_url, init) =>
           fakeResponseSocket(init, data => {
-            const payload = JSON.parse(data) as Record<string, unknown>
+            const payload = JSON.parse(data) as JsonObject
             sentPayloads.push(payload)
 
             if (payload.type === 'response.tool_results.record') {

@@ -33,6 +33,25 @@
         "x-struct": null,
         "x-validate": null
       },
+      "LocalizedText": {
+        "additionalProperties": {
+          "type": "string",
+          "x-struct": null,
+          "x-validate": null
+        },
+        "properties": {
+          "default": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": ["default"],
+        "title": "LocalizedText",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
       "AuthSessionDeleteResponse": {
         "additionalProperties": false,
         "properties": {
@@ -93,6 +112,33 @@
         "x-struct": null,
         "x-validate": null
       },
+      "IdentityProviderSyncRunItem": {
+        "additionalProperties": false,
+        "properties": {
+          "job_id": {
+            "nullable": true,
+            "type": "integer",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "provider_id": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "status": {
+            "enum": ["enqueued"],
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": ["provider_id", "status"],
+        "title": "IdentityProviderSyncRunItem",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
       "ModelProfileResponse": {
         "additionalProperties": false,
         "properties": {
@@ -113,6 +159,24 @@
         "description": "Any JSON-compatible value. AppConfigure validates the concrete key schema.",
         "nullable": true,
         "title": "JsonValue",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "IdentityProviderListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/IdentityProviderItem"
+            },
+            "type": "array",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": ["data"],
+        "title": "IdentityProviderListResponse",
+        "type": "object",
         "x-struct": null,
         "x-validate": null
       },
@@ -201,6 +265,44 @@
         "x-struct": null,
         "x-validate": null
       },
+      "IdentityProviderItem": {
+        "additionalProperties": false,
+        "properties": {
+          "adapter_id": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "config": {
+            "$ref": "#/components/schemas/JsonValue"
+          },
+          "config_key": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "enabled": {
+            "type": "boolean",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "plugin_id": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "provider_id": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": ["provider_id", "adapter_id", "plugin_id", "config_key", "enabled", "config"],
+        "title": "IdentityProviderItem",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
       "AIGatewayProviderEncryptedOptionProjection": {
         "additionalProperties": false,
         "properties": {
@@ -218,6 +320,19 @@
         },
         "required": ["present"],
         "title": "AIGatewayProviderEncryptedOptionProjection",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "IdentityProviderResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/IdentityProviderItem"
+          }
+        },
+        "required": ["data"],
+        "title": "IdentityProviderResponse",
         "type": "object",
         "x-struct": null,
         "x-validate": null
@@ -317,6 +432,24 @@
         "x-struct": null,
         "x-validate": null
       },
+      "SignalAdapterListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/SignalAdapterItem"
+            },
+            "type": "array",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": ["data"],
+        "title": "SignalAdapterListResponse",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
       "SignalBindingResponse": {
         "additionalProperties": false,
         "properties": {
@@ -379,6 +512,108 @@
         "x-struct": null,
         "x-validate": null
       },
+      "SignalAdapterItem": {
+        "additionalProperties": false,
+        "properties": {
+          "adapter_id": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "display_name": {
+            "$ref": "#/components/schemas/LocalizedText"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/SignalAdapterField"
+            },
+            "type": "array",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "group_message_mode_field": {
+            "$ref": "#/components/schemas/SignalAdapterField"
+          },
+          "plugin_id": {
+            "nullable": true,
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": ["adapter_id", "fields", "group_message_mode_field"],
+        "title": "SignalAdapterItem",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "SignalAdapterField": {
+        "additionalProperties": true,
+        "properties": {
+          "advanced": {
+            "type": "boolean",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "default": {
+            "$ref": "#/components/schemas/JsonValue"
+          },
+          "description": {
+            "$ref": "#/components/schemas/LocalizedText"
+          },
+          "encrypted": {
+            "nullable": true,
+            "type": "boolean",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "label": {
+            "$ref": "#/components/schemas/LocalizedText"
+          },
+          "max": {
+            "nullable": true,
+            "type": "integer",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "min": {
+            "nullable": true,
+            "type": "integer",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/SignalAdapterFieldOption"
+            },
+            "nullable": true,
+            "type": "array",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "path": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "required": {
+            "nullable": true,
+            "type": "boolean",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "type": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": ["path", "type"],
+        "title": "SignalAdapterField",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
       "ConsoleTokenRequest": {
         "additionalProperties": false,
         "properties": {
@@ -413,6 +648,27 @@
         },
         "required": ["data"],
         "title": "ScheduleEventListResponse",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "SignalAdapterFieldOption": {
+        "additionalProperties": true,
+        "properties": {
+          "description": {
+            "$ref": "#/components/schemas/LocalizedText"
+          },
+          "label": {
+            "$ref": "#/components/schemas/LocalizedText"
+          },
+          "value": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": ["value"],
+        "title": "SignalAdapterFieldOption",
         "type": "object",
         "x-struct": null,
         "x-validate": null
@@ -497,6 +753,26 @@
         },
         "required": ["data"],
         "title": "SignalBindingListResponse",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "SignalBindingWriteRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/JsonValue"
+          },
+          "group_message_mode": {
+            "enum": ["addressed_only", "observe_all", "may_intervene"],
+            "nullable": true,
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": ["config"],
+        "title": "SignalBindingWriteRequest",
         "type": "object",
         "x-struct": null,
         "x-validate": null
@@ -769,6 +1045,19 @@
         "x-struct": null,
         "x-validate": null
       },
+      "IdentityProviderSyncRunResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/IdentityProviderSyncRunItem"
+          }
+        },
+        "required": ["data"],
+        "title": "IdentityProviderSyncRunResponse",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
       "AgentListResponse": {
         "additionalProperties": false,
         "properties": {
@@ -783,6 +1072,24 @@
         },
         "required": ["data"],
         "title": "AgentListResponse",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "IdentityProviderAdapterListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/IdentityProviderAdapterItem"
+            },
+            "type": "array",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": ["data"],
+        "title": "IdentityProviderAdapterListResponse",
         "type": "object",
         "x-struct": null,
         "x-validate": null
@@ -870,6 +1177,53 @@
         },
         "required": ["data"],
         "title": "AIGatewayProviderResponse",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "IdentityProviderAdapterItem": {
+        "additionalProperties": false,
+        "properties": {
+          "adapter_id": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "capabilities": {
+            "items": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            },
+            "type": "array",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "default_provider_id": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "display_name": {
+            "$ref": "#/components/schemas/LocalizedText"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/SignalAdapterField"
+            },
+            "type": "array",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "plugin_id": {
+            "nullable": true,
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": ["adapter_id", "capabilities", "fields", "default_provider_id"],
+        "title": "IdentityProviderAdapterItem",
         "type": "object",
         "x-struct": null,
         "x-validate": null
@@ -1040,15 +1394,25 @@
         "x-struct": null,
         "x-validate": null
       },
-      "SignalBindingLarkWriteRequest": {
+      "IdentityProviderWriteRequest": {
         "additionalProperties": false,
         "properties": {
+          "adapter_id": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
           "config": {
             "$ref": "#/components/schemas/JsonValue"
+          },
+          "enabled": {
+            "type": "boolean",
+            "x-struct": null,
+            "x-validate": null
           }
         },
-        "required": ["config"],
-        "title": "SignalBindingLarkWriteRequest",
+        "required": ["adapter_id", "config"],
+        "title": "IdentityProviderWriteRequest",
         "type": "object",
         "x-struct": null,
         "x-validate": null
@@ -1100,94 +1464,21 @@
   },
   "openapi": "3.0.0",
   "paths": {
-    "/.internal-apis/oauth/token": {
-      "post": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.AuthController.oauth_token",
-        "parameters": [],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ConsoleTokenRequest"
-              }
-            }
-          },
-          "description": "Token grant",
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleTokenResponse"
-                }
-              }
-            },
-            "description": "Console tokens"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OAuthErrorResponse"
-                }
-              }
-            },
-            "description": "Invalid token grant"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OAuthErrorResponse"
-                }
-              }
-            },
-            "description": "Inactive browser session"
-          }
-        },
-        "summary": "Exchange a browser admin session or refresh token for console bearer tokens",
-        "tags": ["Auth"]
-      }
-    },
-    "/.internal-apis/session": {
-      "delete": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.AuthController.delete_session",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AuthSessionDeleteResponse"
-                }
-              }
-            },
-            "description": "Deleted session"
-          }
-        },
-        "summary": "Clear the current browser admin session",
-        "tags": ["Auth"]
-      }
-    },
-    "/api/v1/agents": {
+    "/api/v1/identity-providers": {
       "get": {
         "callbacks": {},
-        "operationId": "AnkoleWeb.AgentController.index",
+        "operationId": "AnkoleWeb.IdentityProviderController.index",
         "parameters": [],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AgentListResponse"
+                  "$ref": "#/components/schemas/IdentityProviderListResponse"
                 }
               }
             },
-            "description": "Agents"
+            "description": "Identity providers"
           },
           "401": {
             "content": {
@@ -1215,22 +1506,220 @@
             "consoleBearer": []
           }
         ],
-        "summary": "List active agents",
-        "tags": ["Agents"]
+        "summary": "List configured identity providers",
+        "tags": ["Identity Providers"]
+      }
+    },
+    "/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/pause": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.ScheduleController.pause_cron",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "agent_uid",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "cron_schedule_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleCronScheduleResponse"
+                }
+              }
+            },
+            "description": "Cron schedule"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Pause one recurring schedule",
+        "tags": ["Schedule"]
+      }
+    },
+    "/api/v1/app-configurations": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AppConfigurationController.index",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppConfigurationListResponse"
+                }
+              }
+            },
+            "description": "AppConfigure entries"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "List console-visible AppConfigure entries",
+        "tags": ["AppConfigure"]
+      }
+    },
+    "/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.ScheduleController.index_cron",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "agent_uid",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleCronScheduleListResponse"
+                }
+              }
+            },
+            "description": "Cron schedules"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "List recurring schedules for one agent session",
+        "tags": ["Schedule"]
       },
       "post": {
         "callbacks": {},
-        "operationId": "AnkoleWeb.AgentController.create",
-        "parameters": [],
+        "operationId": "AnkoleWeb.ScheduleController.create_cron",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "agent_uid",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AgentCreateRequest"
+                "$ref": "#/components/schemas/ScheduleCronWriteRequest"
               }
             }
           },
-          "description": "Agent",
+          "description": "Cron schedule",
           "required": true
         },
         "responses": {
@@ -1238,11 +1727,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AgentResponse"
+                  "$ref": "#/components/schemas/ScheduleCronScheduleResponse"
                 }
               }
             },
-            "description": "Agent"
+            "description": "Cron schedule"
           },
           "401": {
             "content": {
@@ -1272,7 +1761,7 @@
                 }
               }
             },
-            "description": "Invalid agent"
+            "description": "Invalid schedule"
           }
         },
         "security": [
@@ -1280,8 +1769,994 @@
             "consoleBearer": []
           }
         ],
-        "summary": "Create one agent",
-        "tags": ["Agents"]
+        "summary": "Create one recurring schedule",
+        "tags": ["Schedule"]
+      }
+    },
+    "/api/v1/ai-gateway/responses": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AIGatewayController.responses",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object",
+                "x-struct": null,
+                "x-validate": null
+              }
+            }
+          },
+          "description": "OpenResponses request",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "x-struct": null,
+                  "x-validate": null
+                }
+              }
+            },
+            "description": "OpenResponses response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "x-struct": null,
+                  "x-validate": null
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "aiGatewayBearer": []
+          },
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Create a stateless OpenResponses response",
+        "tags": ["AIGateway"]
+      }
+    },
+    "/api/v1/ai-gateway/provider-kinds": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AIGatewayProviderController.provider_kinds",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIGatewayProviderKindListResponse"
+                }
+              }
+            },
+            "description": "Provider kinds"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "List AIGateway provider kinds",
+        "tags": ["AIGateway"]
+      }
+    },
+    "/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/resume": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.ScheduleController.resume_cron",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "agent_uid",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "cron_schedule_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleCronScheduleResponse"
+                }
+              }
+            },
+            "description": "Cron schedule"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Resume one recurring schedule",
+        "tags": ["Schedule"]
+      }
+    },
+    "/api/v1/ai-gateway/providers/{provider_id}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AIGatewayProviderController.delete_provider",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "provider_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIGatewayProviderResponse"
+                }
+              }
+            },
+            "description": "AIGateway provider"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Provider in use"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Disable one AIGateway provider",
+        "tags": ["AIGateway"]
+      },
+      "put": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AIGatewayProviderController.put_provider",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "provider_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIGatewayProviderWriteRequest"
+              }
+            }
+          },
+          "description": "AIGateway provider",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIGatewayProviderResponse"
+                }
+              }
+            },
+            "description": "AIGateway provider"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid provider"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Create or update one AIGateway provider",
+        "tags": ["AIGateway"]
+      }
+    },
+    "/api/v1/ai-gateway/models": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AIGatewayController.models",
+        "parameters": [
+          {
+            "description": "Comma-separated output modalities or all",
+            "in": "query",
+            "name": "output_modalities",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "Comma-separated input modalities",
+            "in": "query",
+            "name": "input_modalities",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "Comma-separated supported request parameters",
+            "in": "query",
+            "name": "supported_parameters",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "OpenRouter-style sort key",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "Free-text selector search",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "Minimum context length",
+            "in": "query",
+            "name": "context",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "Minimum prompt price",
+            "in": "query",
+            "name": "min_price",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "Maximum prompt price",
+            "in": "query",
+            "name": "max_price",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "x-struct": null,
+                  "x-validate": null
+                }
+              }
+            },
+            "description": "OpenRouter-style model list"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "x-struct": null,
+                  "x-validate": null
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "aiGatewayBearer": []
+          },
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "List AIGateway model selectors",
+        "tags": ["AIGateway"]
+      }
+    },
+    "/api/v1/ai-gateway/web_fetch": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AIGatewayController.web_fetch",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object",
+                "x-struct": null,
+                "x-validate": null
+              }
+            }
+          },
+          "description": "Web fetch request",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "x-struct": null,
+                  "x-validate": null
+                }
+              }
+            },
+            "description": "Web fetch response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "x-struct": null,
+                  "x-validate": null
+                }
+              }
+            },
+            "description": "Invalid web fetch request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "x-struct": null,
+                  "x-validate": null
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "aiGatewayBearer": []
+          },
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Fetch web pages through AIGateway",
+        "tags": ["AIGateway"]
+      }
+    },
+    "/api/v1/identity-providers/{provider_id}": {
+      "put": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.IdentityProviderController.put_provider",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "provider_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IdentityProviderWriteRequest"
+              }
+            }
+          },
+          "description": "Identity provider",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityProviderResponse"
+                }
+              }
+            },
+            "description": "Identity provider"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid provider"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Create or update one identity provider",
+        "tags": ["Identity Providers"]
+      }
+    },
+    "/api/v1/agents/{agent_uid}/signal-bindings": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.SignalBindingController.index",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "agent_uid",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignalBindingListResponse"
+                }
+              }
+            },
+            "description": "Signal bindings"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "List signal bindings for one agent",
+        "tags": ["Signal Bindings"]
+      }
+    },
+    "/api/v1/agents/{agent_uid}/model-profiles/{profile}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AIGatewayProviderController.delete_model_profile",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "agent_uid",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "profile",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelProfileResponse"
+                }
+              }
+            },
+            "description": "Model profile"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Profile cannot be cleared"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Clear one optional model profile for an agent",
+        "tags": ["AIGateway"]
+      },
+      "put": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AIGatewayProviderController.put_model_profile",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "agent_uid",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "profile",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelProfileWriteRequest"
+              }
+            }
+          },
+          "description": "Model profile",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelProfileResponse"
+                }
+              }
+            },
+            "description": "Model profile"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid model profile"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Create or update one model profile for an agent",
+        "tags": ["AIGateway"]
+      }
+    },
+    "/api/v1/identity-provider-adapters": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.IdentityProviderController.adapters",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityProviderAdapterListResponse"
+                }
+              }
+            },
+            "description": "Identity-provider adapters"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "List identity-provider adapters",
+        "tags": ["Identity Providers"]
+      }
+    },
+    "/api/v1/ai-gateway/responses/{response_id}": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AIGatewayController.retrieve_response",
+        "parameters": [
+          {
+            "description": "Stored response id, formatted as resp_{uuid}",
+            "in": "path",
+            "name": "response_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "x-struct": null,
+                  "x-validate": null
+                }
+              }
+            },
+            "description": "OpenResponses response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "x-struct": null,
+                  "x-validate": null
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "x-struct": null,
+                  "x-validate": null
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "aiGatewayBearer": []
+          },
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Retrieve a stored stateful OpenResponses response",
+        "tags": ["AIGateway"]
       }
     },
     "/api/v1/agents/{agent_uid}": {
@@ -1505,6 +2980,362 @@
         "tags": ["Agents"]
       }
     },
+    "/api/v1/ai-gateway/responses/compact": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AIGatewayController.compact_response",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object",
+                "x-struct": null,
+                "x-validate": null
+              }
+            }
+          },
+          "description": "OpenResponses compact request",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "x-struct": null,
+                  "x-validate": null
+                }
+              }
+            },
+            "description": "OpenResponses response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "x-struct": null,
+                  "x-validate": null
+                }
+              }
+            },
+            "description": "Invalid compact request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "x-struct": null,
+                  "x-validate": null
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "aiGatewayBearer": []
+          },
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Create a stateful compaction response",
+        "tags": ["AIGateway"]
+      }
+    },
+    "/api/v1/identity-providers/{provider_id}/sync-runs": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.IdentityProviderController.run_sync",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "provider_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityProviderSyncRunResponse"
+                }
+              }
+            },
+            "description": "Identity-provider sync run"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Sync disabled"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Enqueue one identity-provider full directory sync",
+        "tags": ["Identity Providers"]
+      }
+    },
+    "/api/v1/agents": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AgentController.index",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentListResponse"
+                }
+              }
+            },
+            "description": "Agents"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "List active agents",
+        "tags": ["Agents"]
+      },
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AgentController.create",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentCreateRequest"
+              }
+            }
+          },
+          "description": "Agent",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentResponse"
+                }
+              }
+            },
+            "description": "Agent"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid agent"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Create one agent",
+        "tags": ["Agents"]
+      }
+    },
+    "/api/v1/ai-gateway/providers": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AIGatewayProviderController.index",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIGatewayProviderListResponse"
+                }
+              }
+            },
+            "description": "AIGateway providers"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "List configured AIGateway providers",
+        "tags": ["AIGateway"]
+      }
+    },
+    "/api/v1/agents/{agent_uid}/sessions/{session_id}/checkbacks": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.ScheduleController.index_checkbacks",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "agent_uid",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleEventListResponse"
+                }
+              }
+            },
+            "description": "Scheduled events"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "List checkback wakeups for one agent session",
+        "tags": ["Schedule"]
+      }
+    },
     "/api/v1/agents/{agent_uid}/model-profiles": {
       "get": {
         "callbacks": {},
@@ -1573,340 +3404,21 @@
         "tags": ["AIGateway"]
       }
     },
-    "/api/v1/agents/{agent_uid}/model-profiles/{profile}": {
-      "delete": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.AIGatewayProviderController.delete_model_profile",
-        "parameters": [
-          {
-            "description": "",
-            "in": "path",
-            "name": "agent_uid",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
-            }
-          },
-          {
-            "description": "",
-            "in": "path",
-            "name": "profile",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ModelProfileResponse"
-                }
-              }
-            },
-            "description": "Model profile"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Not found"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Profile cannot be cleared"
-          }
-        },
-        "security": [
-          {
-            "consoleBearer": []
-          }
-        ],
-        "summary": "Clear one optional model profile for an agent",
-        "tags": ["AIGateway"]
-      },
-      "put": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.AIGatewayProviderController.put_model_profile",
-        "parameters": [
-          {
-            "description": "",
-            "in": "path",
-            "name": "agent_uid",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
-            }
-          },
-          {
-            "description": "",
-            "in": "path",
-            "name": "profile",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ModelProfileWriteRequest"
-              }
-            }
-          },
-          "description": "Model profile",
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ModelProfileResponse"
-                }
-              }
-            },
-            "description": "Model profile"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Not found"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Invalid model profile"
-          }
-        },
-        "security": [
-          {
-            "consoleBearer": []
-          }
-        ],
-        "summary": "Create or update one model profile for an agent",
-        "tags": ["AIGateway"]
-      }
-    },
-    "/api/v1/agents/{agent_uid}/sessions/{session_id}/checkbacks": {
+    "/api/v1/signal-adapters": {
       "get": {
         "callbacks": {},
-        "operationId": "AnkoleWeb.ScheduleController.index_checkbacks",
-        "parameters": [
-          {
-            "description": "",
-            "in": "path",
-            "name": "agent_uid",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
-            }
-          },
-          {
-            "description": "",
-            "in": "path",
-            "name": "session_id",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
-            }
-          }
-        ],
+        "operationId": "AnkoleWeb.SignalBindingController.adapters",
+        "parameters": [],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ScheduleEventListResponse"
+                  "$ref": "#/components/schemas/SignalAdapterListResponse"
                 }
               }
             },
-            "description": "Scheduled events"
-          }
-        },
-        "security": [
-          {
-            "consoleBearer": []
-          }
-        ],
-        "summary": "List checkback wakeups for one agent session",
-        "tags": ["Schedule"]
-      }
-    },
-    "/api/v1/agents/{agent_uid}/sessions/{session_id}/checkbacks/{scheduled_event_id}": {
-      "delete": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.ScheduleController.cancel_checkback",
-        "parameters": [
-          {
-            "description": "",
-            "in": "path",
-            "name": "agent_uid",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
-            }
-          },
-          {
-            "description": "",
-            "in": "path",
-            "name": "session_id",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
-            }
-          },
-          {
-            "description": "",
-            "in": "path",
-            "name": "scheduled_event_id",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ScheduleEventResponse"
-                }
-              }
-            },
-            "description": "Scheduled event"
-          }
-        },
-        "security": [
-          {
-            "consoleBearer": []
-          }
-        ],
-        "summary": "Cancel one pending checkback wakeup",
-        "tags": ["Schedule"]
-      }
-    },
-    "/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules": {
-      "get": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.ScheduleController.index_cron",
-        "parameters": [
-          {
-            "description": "",
-            "in": "path",
-            "name": "agent_uid",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
-            }
-          },
-          {
-            "description": "",
-            "in": "path",
-            "name": "session_id",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ScheduleCronScheduleListResponse"
-                }
-              }
-            },
-            "description": "Cron schedules"
+            "description": "Signal adapters"
           },
           "401": {
             "content": {
@@ -1934,96 +3446,8 @@
             "consoleBearer": []
           }
         ],
-        "summary": "List recurring schedules for one agent session",
-        "tags": ["Schedule"]
-      },
-      "post": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.ScheduleController.create_cron",
-        "parameters": [
-          {
-            "description": "",
-            "in": "path",
-            "name": "agent_uid",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
-            }
-          },
-          {
-            "description": "",
-            "in": "path",
-            "name": "session_id",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ScheduleCronWriteRequest"
-              }
-            }
-          },
-          "description": "Cron schedule",
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ScheduleCronScheduleResponse"
-                }
-              }
-            },
-            "description": "Cron schedule"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Invalid schedule"
-          }
-        },
-        "security": [
-          {
-            "consoleBearer": []
-          }
-        ],
-        "summary": "Create one recurring schedule",
-        "tags": ["Schedule"]
+        "summary": "List signal adapters available for bindings",
+        "tags": ["Signal Bindings"]
       }
     },
     "/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}": {
@@ -2283,126 +3707,6 @@
         "tags": ["Schedule"]
       }
     },
-    "/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/pause": {
-      "post": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.ScheduleController.pause_cron",
-        "parameters": [
-          {
-            "description": "",
-            "in": "path",
-            "name": "agent_uid",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
-            }
-          },
-          {
-            "description": "",
-            "in": "path",
-            "name": "session_id",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
-            }
-          },
-          {
-            "description": "",
-            "in": "path",
-            "name": "cron_schedule_id",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ScheduleCronScheduleResponse"
-                }
-              }
-            },
-            "description": "Cron schedule"
-          }
-        },
-        "security": [
-          {
-            "consoleBearer": []
-          }
-        ],
-        "summary": "Pause one recurring schedule",
-        "tags": ["Schedule"]
-      }
-    },
-    "/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/resume": {
-      "post": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.ScheduleController.resume_cron",
-        "parameters": [
-          {
-            "description": "",
-            "in": "path",
-            "name": "agent_uid",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
-            }
-          },
-          {
-            "description": "",
-            "in": "path",
-            "name": "session_id",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
-            }
-          },
-          {
-            "description": "",
-            "in": "path",
-            "name": "cron_schedule_id",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ScheduleCronScheduleResponse"
-                }
-              }
-            },
-            "description": "Cron schedule"
-          }
-        },
-        "security": [
-          {
-            "consoleBearer": []
-          }
-        ],
-        "summary": "Resume one recurring schedule",
-        "tags": ["Schedule"]
-      }
-    },
     "/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/runs": {
       "get": {
         "callbacks": {},
@@ -2532,174 +3836,6 @@
         "tags": ["Schedule"]
       }
     },
-    "/api/v1/agents/{agent_uid}/signal-bindings": {
-      "get": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.SignalBindingController.index",
-        "parameters": [
-          {
-            "description": "",
-            "in": "path",
-            "name": "agent_uid",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SignalBindingListResponse"
-                }
-              }
-            },
-            "description": "Signal bindings"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Not found"
-          }
-        },
-        "security": [
-          {
-            "consoleBearer": []
-          }
-        ],
-        "summary": "List signal bindings for one agent",
-        "tags": ["Signal Bindings"]
-      }
-    },
-    "/api/v1/agents/{agent_uid}/signal-bindings/lark/{binding_name}": {
-      "put": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.SignalBindingController.put_lark",
-        "parameters": [
-          {
-            "description": "",
-            "in": "path",
-            "name": "agent_uid",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
-            }
-          },
-          {
-            "description": "",
-            "in": "path",
-            "name": "binding_name",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SignalBindingLarkWriteRequest"
-              }
-            }
-          },
-          "description": "Lark signal binding",
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SignalBindingResponse"
-                }
-              }
-            },
-            "description": "Signal binding"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Not found"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Invalid value"
-          }
-        },
-        "security": [
-          {
-            "consoleBearer": []
-          }
-        ],
-        "summary": "Create or update one Lark signal binding for an agent",
-        "tags": ["Signal Bindings"]
-      }
-    },
     "/api/v1/agents/{agent_uid}/signal-bindings/{binding_name}": {
       "delete": {
         "callbacks": {},
@@ -2779,645 +3915,37 @@
         "tags": ["Signal Bindings"]
       }
     },
-    "/api/v1/ai-gateway/embeddings": {
-      "post": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.AIGatewayController.embeddings",
-        "parameters": [],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "additionalProperties": true,
-                "type": "object",
-                "x-struct": null,
-                "x-validate": null
-              }
-            }
-          },
-          "description": "Embedding request",
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "x-struct": null,
-                  "x-validate": null
-                }
-              }
-            },
-            "description": "Embedding response"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "x-struct": null,
-                  "x-validate": null
-                }
-              }
-            },
-            "description": "Unauthorized"
-          }
-        },
-        "security": [
-          {
-            "aiGatewayBearer": []
-          },
-          {
-            "consoleBearer": []
-          }
-        ],
-        "summary": "Create embeddings through AIGateway",
-        "tags": ["AIGateway"]
-      }
-    },
-    "/api/v1/ai-gateway/models": {
-      "get": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.AIGatewayController.models",
-        "parameters": [
-          {
-            "description": "Comma-separated output modalities or all",
-            "in": "query",
-            "name": "output_modalities",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
-            }
-          },
-          {
-            "description": "Comma-separated input modalities",
-            "in": "query",
-            "name": "input_modalities",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
-            }
-          },
-          {
-            "description": "Comma-separated supported request parameters",
-            "in": "query",
-            "name": "supported_parameters",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
-            }
-          },
-          {
-            "description": "OpenRouter-style sort key",
-            "in": "query",
-            "name": "sort",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
-            }
-          },
-          {
-            "description": "Free-text selector search",
-            "in": "query",
-            "name": "q",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
-            }
-          },
-          {
-            "description": "Minimum context length",
-            "in": "query",
-            "name": "context",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "x-struct": null,
-              "x-validate": null
-            }
-          },
-          {
-            "description": "Minimum prompt price",
-            "in": "query",
-            "name": "min_price",
-            "required": false,
-            "schema": {
-              "type": "number",
-              "x-struct": null,
-              "x-validate": null
-            }
-          },
-          {
-            "description": "Maximum prompt price",
-            "in": "query",
-            "name": "max_price",
-            "required": false,
-            "schema": {
-              "type": "number",
-              "x-struct": null,
-              "x-validate": null
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "x-struct": null,
-                  "x-validate": null
-                }
-              }
-            },
-            "description": "OpenRouter-style model list"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "x-struct": null,
-                  "x-validate": null
-                }
-              }
-            },
-            "description": "Unauthorized"
-          }
-        },
-        "security": [
-          {
-            "aiGatewayBearer": []
-          },
-          {
-            "consoleBearer": []
-          }
-        ],
-        "summary": "List AIGateway model selectors",
-        "tags": ["AIGateway"]
-      }
-    },
-    "/api/v1/ai-gateway/provider-kinds": {
-      "get": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.AIGatewayProviderController.provider_kinds",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AIGatewayProviderKindListResponse"
-                }
-              }
-            },
-            "description": "Provider kinds"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Forbidden"
-          }
-        },
-        "security": [
-          {
-            "consoleBearer": []
-          }
-        ],
-        "summary": "List AIGateway provider kinds",
-        "tags": ["AIGateway"]
-      }
-    },
-    "/api/v1/ai-gateway/providers": {
-      "get": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.AIGatewayProviderController.index",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AIGatewayProviderListResponse"
-                }
-              }
-            },
-            "description": "AIGateway providers"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Forbidden"
-          }
-        },
-        "security": [
-          {
-            "consoleBearer": []
-          }
-        ],
-        "summary": "List configured AIGateway providers",
-        "tags": ["AIGateway"]
-      }
-    },
-    "/api/v1/ai-gateway/providers/{provider_id}": {
+    "/api/v1/agents/{agent_uid}/sessions/{session_id}/checkbacks/{scheduled_event_id}": {
       "delete": {
         "callbacks": {},
-        "operationId": "AnkoleWeb.AIGatewayProviderController.delete_provider",
+        "operationId": "AnkoleWeb.ScheduleController.cancel_checkback",
         "parameters": [
           {
             "description": "",
             "in": "path",
-            "name": "provider_id",
+            "name": "agent_uid",
             "required": true,
             "schema": {
               "type": "string",
               "x-struct": null,
               "x-validate": null
             }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AIGatewayProviderResponse"
-                }
-              }
-            },
-            "description": "AIGateway provider"
           },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Not found"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Provider in use"
-          }
-        },
-        "security": [
-          {
-            "consoleBearer": []
-          }
-        ],
-        "summary": "Disable one AIGateway provider",
-        "tags": ["AIGateway"]
-      },
-      "put": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.AIGatewayProviderController.put_provider",
-        "parameters": [
           {
             "description": "",
             "in": "path",
-            "name": "provider_id",
+            "name": "session_id",
             "required": true,
             "schema": {
               "type": "string",
               "x-struct": null,
               "x-validate": null
             }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AIGatewayProviderWriteRequest"
-              }
-            }
-          },
-          "description": "AIGateway provider",
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AIGatewayProviderResponse"
-                }
-              }
-            },
-            "description": "AIGateway provider"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Invalid provider"
-          }
-        },
-        "security": [
-          {
-            "consoleBearer": []
-          }
-        ],
-        "summary": "Create or update one AIGateway provider",
-        "tags": ["AIGateway"]
-      }
-    },
-    "/api/v1/ai-gateway/rerank": {
-      "post": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.AIGatewayController.rerank",
-        "parameters": [],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "additionalProperties": true,
-                "type": "object",
-                "x-struct": null,
-                "x-validate": null
-              }
-            }
-          },
-          "description": "Rerank request",
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "x-struct": null,
-                  "x-validate": null
-                }
-              }
-            },
-            "description": "Rerank response"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "x-struct": null,
-                  "x-validate": null
-                }
-              }
-            },
-            "description": "Unauthorized"
-          }
-        },
-        "security": [
-          {
-            "aiGatewayBearer": []
           },
           {
-            "consoleBearer": []
-          }
-        ],
-        "summary": "Create a rerank result through AIGateway",
-        "tags": ["AIGateway"]
-      }
-    },
-    "/api/v1/ai-gateway/responses": {
-      "post": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.AIGatewayController.responses",
-        "parameters": [],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "additionalProperties": true,
-                "type": "object",
-                "x-struct": null,
-                "x-validate": null
-              }
-            }
-          },
-          "description": "OpenResponses request",
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "x-struct": null,
-                  "x-validate": null
-                }
-              }
-            },
-            "description": "OpenResponses response"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "x-struct": null,
-                  "x-validate": null
-                }
-              }
-            },
-            "description": "Unauthorized"
-          }
-        },
-        "security": [
-          {
-            "aiGatewayBearer": []
-          },
-          {
-            "consoleBearer": []
-          }
-        ],
-        "summary": "Create a stateless OpenResponses response",
-        "tags": ["AIGateway"]
-      }
-    },
-    "/api/v1/ai-gateway/responses/compact": {
-      "post": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.AIGatewayController.compact_response",
-        "parameters": [],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "additionalProperties": true,
-                "type": "object",
-                "x-struct": null,
-                "x-validate": null
-              }
-            }
-          },
-          "description": "OpenResponses compact request",
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "x-struct": null,
-                  "x-validate": null
-                }
-              }
-            },
-            "description": "OpenResponses response"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "x-struct": null,
-                  "x-validate": null
-                }
-              }
-            },
-            "description": "Invalid compact request"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "x-struct": null,
-                  "x-validate": null
-                }
-              }
-            },
-            "description": "Unauthorized"
-          }
-        },
-        "security": [
-          {
-            "aiGatewayBearer": []
-          },
-          {
-            "consoleBearer": []
-          }
-        ],
-        "summary": "Create a stateful compaction response",
-        "tags": ["AIGateway"]
-      }
-    },
-    "/api/v1/ai-gateway/responses/{response_id}": {
-      "get": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.AIGatewayController.retrieve_response",
-        "parameters": [
-          {
-            "description": "Stored response id, formatted as resp_{uuid}",
+            "description": "",
             "in": "path",
-            "name": "response_id",
+            "name": "scheduled_event_id",
             "required": true,
             "schema": {
               "type": "string",
@@ -3431,124 +3959,20 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "x-struct": null,
-                  "x-validate": null
+                  "$ref": "#/components/schemas/ScheduleEventResponse"
                 }
               }
             },
-            "description": "OpenResponses response"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "x-struct": null,
-                  "x-validate": null
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "x-struct": null,
-                  "x-validate": null
-                }
-              }
-            },
-            "description": "Not found"
+            "description": "Scheduled event"
           }
         },
         "security": [
           {
-            "aiGatewayBearer": []
-          },
-          {
             "consoleBearer": []
           }
         ],
-        "summary": "Retrieve a stored stateful OpenResponses response",
-        "tags": ["AIGateway"]
-      }
-    },
-    "/api/v1/ai-gateway/web_fetch": {
-      "post": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.AIGatewayController.web_fetch",
-        "parameters": [],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "additionalProperties": true,
-                "type": "object",
-                "x-struct": null,
-                "x-validate": null
-              }
-            }
-          },
-          "description": "Web fetch request",
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "x-struct": null,
-                  "x-validate": null
-                }
-              }
-            },
-            "description": "Web fetch response"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "x-struct": null,
-                  "x-validate": null
-                }
-              }
-            },
-            "description": "Invalid web fetch request"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "x-struct": null,
-                  "x-validate": null
-                }
-              }
-            },
-            "description": "Unauthorized"
-          }
-        },
-        "security": [
-          {
-            "aiGatewayBearer": []
-          },
-          {
-            "consoleBearer": []
-          }
-        ],
-        "summary": "Fetch web pages through AIGateway",
-        "tags": ["AIGateway"]
+        "summary": "Cancel one pending checkback wakeup",
+        "tags": ["Schedule"]
       }
     },
     "/api/v1/ai-gateway/web_search": {
@@ -3668,21 +4092,66 @@
         "tags": ["AIGateway"]
       }
     },
-    "/api/v1/app-configurations": {
-      "get": {
+    "/api/v1/agents/{agent_uid}/signal-bindings/{adapter_id}/{binding_name}": {
+      "put": {
         "callbacks": {},
-        "operationId": "AnkoleWeb.AppConfigurationController.index",
-        "parameters": [],
+        "operationId": "AnkoleWeb.SignalBindingController.put_binding",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "agent_uid",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "adapter_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "binding_name",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignalBindingWriteRequest"
+              }
+            }
+          },
+          "description": "Signal binding",
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AppConfigurationListResponse"
+                  "$ref": "#/components/schemas/SignalBindingResponse"
                 }
               }
             },
-            "description": "AppConfigure entries"
+            "description": "Signal binding"
           },
           "401": {
             "content": {
@@ -3703,6 +4172,26 @@
               }
             },
             "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid value"
           }
         },
         "security": [
@@ -3710,8 +4199,225 @@
             "consoleBearer": []
           }
         ],
-        "summary": "List console-visible AppConfigure entries",
+        "summary": "Create or update one signal binding for an agent",
+        "tags": ["Signal Bindings"]
+      }
+    },
+    "/.internal-apis/session": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AuthController.delete_session",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthSessionDeleteResponse"
+                }
+              }
+            },
+            "description": "Deleted session"
+          }
+        },
+        "summary": "Clear the current browser admin session",
+        "tags": ["Auth"]
+      }
+    },
+    "/api/v1/ai-gateway/rerank": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AIGatewayController.rerank",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object",
+                "x-struct": null,
+                "x-validate": null
+              }
+            }
+          },
+          "description": "Rerank request",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "x-struct": null,
+                  "x-validate": null
+                }
+              }
+            },
+            "description": "Rerank response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "x-struct": null,
+                  "x-validate": null
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "aiGatewayBearer": []
+          },
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Create a rerank result through AIGateway",
+        "tags": ["AIGateway"]
+      }
+    },
+    "/api/v1/app-configurations/{key}/decryptions": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AppConfigurationController.decrypt",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppConfigurationDecryptionResponse"
+                }
+              }
+            },
+            "description": "Decrypted value"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not encrypted"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Reveal one encrypted AppConfigure value on demand",
         "tags": ["AppConfigure"]
+      }
+    },
+    "/api/v1/ai-gateway/embeddings": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AIGatewayController.embeddings",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object",
+                "x-struct": null,
+                "x-validate": null
+              }
+            }
+          },
+          "description": "Embedding request",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "x-struct": null,
+                  "x-validate": null
+                }
+              }
+            },
+            "description": "Embedding response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "x-struct": null,
+                  "x-validate": null
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "aiGatewayBearer": []
+          },
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Create embeddings through AIGateway",
+        "tags": ["AIGateway"]
       }
     },
     "/api/v1/app-configurations/{key}": {
@@ -3955,82 +4661,56 @@
         "tags": ["AppConfigure"]
       }
     },
-    "/api/v1/app-configurations/{key}/decryptions": {
+    "/.internal-apis/oauth/token": {
       "post": {
         "callbacks": {},
-        "operationId": "AnkoleWeb.AppConfigurationController.decrypt",
-        "parameters": [
-          {
-            "description": "",
-            "in": "path",
-            "name": "key",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+        "operationId": "AnkoleWeb.AuthController.oauth_token",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConsoleTokenRequest"
+              }
             }
-          }
-        ],
+          },
+          "description": "Token grant",
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AppConfigurationDecryptionResponse"
+                  "$ref": "#/components/schemas/ConsoleTokenResponse"
                 }
               }
             },
-            "description": "Decrypted value"
+            "description": "Console tokens"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid token grant"
           },
           "401": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                  "$ref": "#/components/schemas/OAuthErrorResponse"
                 }
               }
             },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Not found"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Not encrypted"
+            "description": "Inactive browser session"
           }
         },
-        "security": [
-          {
-            "consoleBearer": []
-          }
-        ],
-        "summary": "Reveal one encrypted AppConfigure value on demand",
-        "tags": ["AppConfigure"]
+        "summary": "Exchange a browser admin session or refresh token for console bearer tokens",
+        "tags": ["Auth"]
       }
     }
   },
@@ -4057,6 +4737,10 @@
     {
       "description": "Operator-managed LLM provider and agent model profile configuration",
       "name": "LLM Runtime"
+    },
+    {
+      "description": "Operator-managed identity-provider configuration and directory sync",
+      "name": "Identity Providers"
     },
     {
       "description": "Agent-authenticated AI provider gateway",

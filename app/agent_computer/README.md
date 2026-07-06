@@ -153,10 +153,10 @@ worker.remote_browser_cdp_config = nil
 worker.local_browser_idle_ttl_ms = 1800000
 ```
 
-By default the browser tools use the Chromium binary installed in the worker
-image. Chromium is not started at container boot. The main Bun worker resolves
-the effective browser backend for each turn; if no remote CDP config is present,
-it lazily starts one headless Chromium sidecar through the in-process
+By default the browser tools use the Chromium headless shell binary installed in
+the worker image. It is not started at container boot. The main Bun worker
+resolves the effective browser backend for each turn; if no remote CDP config is
+present, it lazily starts one local Chromium sidecar through the in-process
 `LocalSidecarManager`, polls `/json/version`, and persists CDP session metadata
 under `/workspace/.sessions/<browser-session>/browser/session.json`.
 Local session isolation uses Chromium CDP `Target.createBrowserContext`: each
@@ -168,10 +168,9 @@ released after `worker.local_browser_idle_ttl_ms` of inactivity, defaulting to
 30 minutes. Each browser action refreshes the idle timer; release is a
 leak-prevention guard, not an aggressive cleanup policy.
 
-Production `browser_*` tools call the Bun CDP engine directly. The
-`ankole-browser` CLI remains a diagnostic/operator entrypoint, not the
-model-facing runtime boundary. Tini remains PID 1 for signal forwarding and
-zombie reaping.
+Production `browser_*` tools call the Bun CDP engine directly. There is no
+separate browser CLI surface in the worker image. Tini remains PID 1 for signal
+forwarding and zombie reaping.
 
 Operators may set the encrypted scoped AppConfigure key
 `worker.remote_browser_cdp_config` to override local Chromium with a remote
@@ -205,9 +204,9 @@ Session-request form:
 }
 ```
 
-There is no HTTP fetch browser fallback. If local Chromium is unavailable and
-no remote CDP config is set, browser tools fail closed in `browser_doctor` and
-session launch.
+There is no HTTP fetch browser fallback. If the local Chromium-compatible
+binary is unavailable and no remote CDP config is set, browser tools fail closed
+during session launch.
 
 `browser_run` may pass `ANKOLE_BROWSER_START_URL` to the helper script for that
 single tool call; it is not a worker startup setting.
@@ -308,9 +307,8 @@ bun run --filter @ankole/agent-computer fmt:check
 bun run --filter @ankole/agent-computer lint
 ```
 
-Package tests run inside the Docker image and mount the local `bin/`, `src/`,
-and `test/` directories into the container. Build the image once before running
-them:
+Package tests run inside the Docker image and mount the local `src/` and `test/`
+directories into the container. Build the image once before running them:
 
 ```shell
 docker build -f app/agent_computer/Dockerfile -t ankole-agent-computer:0.1.0 .
@@ -319,9 +317,9 @@ bun run agent-computer:test
 
 Rebuild the image after changes to the Dockerfile, package dependencies, the
 kernel build output, image-level tools, or built-in library files. Plain
-TypeScript source/test changes and browser CLI/bin changes are picked up by the
-package test volume mounts, so most browser runtime debugging can use the
-no-build `bun run agent-computer:test` path.
+TypeScript source/test changes are picked up by the package test volume mounts,
+so most browser runtime debugging can use the no-build `bun run
+agent-computer:test` path.
 
 ## Worker E2E
 
@@ -352,9 +350,8 @@ ANKOLE_E2E_HOST_WORKSPACE_ROOT=/tmp/ankole-worker-workspace
 ```
 
 The first mounts local `src/` into the worker image for faster edit/run
-feedback; it also mounts local `bin/` so CLI/bin changes can be exercised
-without rebuilding the image. The second mounts `/workspace` so artifacts
-remain inspectable after failures.
+feedback. The second mounts `/workspace` so artifacts remain inspectable after
+failures.
 
 ## Logs And Failure Signals
 

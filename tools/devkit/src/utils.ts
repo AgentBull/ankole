@@ -33,17 +33,10 @@ export async function runChild(command: string, args: string[], options: SpawnOp
   })
 }
 
-const mixShellScript = [
-  'if [ -f "$HOME/.kiex/elixirs/elixir-1.20.1-29.env" ]; then',
-  '  source "$HOME/.kiex/elixirs/elixir-1.20.1-29.env"',
-  'fi',
-  'exec "$@"'
-].join('\n')
-
 export function mixCommand(args: string[]): { command: string; args: string[] } {
   return {
-    command: '/bin/bash',
-    args: ['-lc', mixShellScript, 'ankole-mix', 'mix', ...args]
+    command: 'mix',
+    args
   }
 }
 

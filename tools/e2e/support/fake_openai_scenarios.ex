@@ -74,9 +74,6 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       String.contains?(prompt, "CHAOS_TODO_TOOL") ->
         :todo_tool
 
-      String.contains?(prompt, "CHAOS_BROWSER_DOCTOR") ->
-        :browser_doctor_tool
-
       String.contains?(prompt, "CHAOS_BACKGROUND_COMMAND") ->
         :background_command_tool
 
@@ -271,7 +268,6 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       {"CHAOS_RECALLED_FOLLOWUP_SHOULD_NOT_RUN", "CHAOS_RECALLED_FOLLOWUP_SHOULD_NOT_RUN"},
       {"CHAOS_REPLY_ATTACHMENT", "CHAOS_REPLY_ATTACHMENT"},
       {"CHAOS_TODO_TOOL", "CHAOS_TODO_TOOL"},
-      {"CHAOS_BROWSER_DOCTOR", "CHAOS_BROWSER_DOCTOR"},
       {"CHAOS_BACKGROUND_COMMAND", "CHAOS_BACKGROUND_COMMAND"},
       {"CHAOS_BACKGROUND_LIFECYCLE", "CHAOS_BACKGROUND_LIFECYCLE"},
       {"CHAOS_INTERACTIVE_TERMINAL", "CHAOS_INTERACTIVE_TERMINAL"},
@@ -385,7 +381,6 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
         "CHAOS_RECALLED_FOLLOWUP_SHOULD_NOT_RUN",
         "CHAOS_REPLY_ATTACHMENT",
         "CHAOS_TODO_TOOL",
-        "CHAOS_BROWSER_DOCTOR",
         "CHAOS_BACKGROUND_COMMAND",
         "CHAOS_BACKGROUND_LIFECYCLE",
         "CHAOS_INTERACTIVE_TERMINAL",
@@ -435,7 +430,6 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
   defp reply_for(:ambient_reply), do: "CHAOS_AMBIENT_OK"
   defp reply_for(:background_command_tool), do: "CHAOS_BACKGROUND_COMMAND_OK"
   defp reply_for(:background_lifecycle_tool), do: "CHAOS_BACKGROUND_LIFECYCLE_OK"
-  defp reply_for(:browser_doctor_tool), do: "CHAOS_BROWSER_DOCTOR_OK"
   defp reply_for(:browser_extract_tool), do: "CHAOS_BROWSER_EXTRACT_OK"
   defp reply_for(:browser_open_tool), do: "CHAOS_BROWSER_OPEN_OK"
   defp reply_for(:browser_run_tool), do: "CHAOS_BROWSER_RUN_OK"
@@ -476,7 +470,6 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
   defp tool_call_for(:reply_attachment, 2), do: tool_call_for(:reply_attachment_tool)
   defp tool_call_for(:todo_tool, 1), do: tool_call_for(:todo_tool_start)
   defp tool_call_for(:todo_tool, 2), do: tool_call_for(:todo_tool_complete)
-  defp tool_call_for(:browser_doctor_tool, 1), do: tool_call_for(:browser_doctor_tool)
   defp tool_call_for(:background_command_tool, 1), do: tool_call_for(:background_command_tool)
 
   defp tool_call_for(:interactive_terminal_tool, count) when count in 1..4,
@@ -611,14 +604,6 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
           %{"id" => "3", "content" => "Report the final chaos result", "status" => "completed"}
         ]
       }
-    }
-  end
-
-  defp tool_call_for(:browser_doctor_tool) do
-    %{
-      id: "call_lark_chaos_browser_doctor",
-      name: "browser_doctor",
-      arguments: %{"fetch" => false}
     }
   end
 

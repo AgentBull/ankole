@@ -1,7 +1,7 @@
 import { isRecord, match, safeJsonParse } from '@pleisto/active-support'
+import type { JsonObject } from '@pleisto/active-support'
 import { DEFAULT_CDP_CONNECT_TIMEOUT_MS, REMOTE_CONFIG_ENV } from './constants'
-import { redactBrowserJson, redactUrl } from './utils'
-import type { BrowserRuntimeOptions, JsonObject, RemoteBrowserCdpConfig, RemoteSessionResponse } from './types'
+import type { BrowserRuntimeOptions, RemoteBrowserCdpConfig, RemoteSessionResponse } from './types'
 
 /**
  * Parses remote CDP configuration from the operator-provided environment value.
@@ -33,35 +33,6 @@ export function remoteBrowserCdpConfigFromOptions(options?: BrowserRuntimeOption
   }
 
   return remoteBrowserCdpConfigFromEnv()
-}
-
-/**
- * Redacts a remote CDP config for diagnostics.
- */
-export function redactRemoteBrowserConfig(config: RemoteBrowserCdpConfig): JsonObject {
-  const redacted = redactBrowserJson(config) as JsonObject
-  redactUrlFields(redacted)
-  return redacted
-}
-
-/**
- * Redacts URL-like fields after generic secret redaction has run.
- */
-function redactUrlFields(value: unknown): void {
-  if (Array.isArray(value)) {
-    for (const item of value) redactUrlFields(item)
-    return
-  }
-  if (!isRecord(value)) return
-
-  for (const [key, item] of Object.entries(value)) {
-    if (typeof item === 'string' && /(^url$|_url$|endpoint_url)/i.test(key)) {
-      const record = value as JsonObject
-      record[key] = redactUrl(item)
-    } else {
-      redactUrlFields(item)
-    }
-  }
 }
 
 /**

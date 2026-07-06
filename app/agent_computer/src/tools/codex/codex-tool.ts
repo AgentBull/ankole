@@ -1,4 +1,5 @@
 import { match } from '@pleisto/active-support'
+import type { JsonObject } from '@pleisto/active-support'
 import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../../core'
 import type { TurnStart } from '../../lanes/actor_lane'
@@ -191,10 +192,10 @@ function snapshotFromResponse(response: {
   queued_at?: string
   started_at?: string
   completed_at?: string
-  result?: Record<string, unknown>
-  error?: Record<string, unknown>
+  result?: JsonObject
+  error?: JsonObject
   last_event_seq?: number
-  result_ref?: Record<string, unknown>
+  result_ref?: JsonObject
 }): CodexDelegationSnapshot {
   const error =
     response.error && typeof response.error.error === 'string'

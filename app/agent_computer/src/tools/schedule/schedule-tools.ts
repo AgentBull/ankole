@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto'
 import { compactRecord, deepString as rawDeepString, match } from '@pleisto/active-support'
 import { z } from 'zod'
-import type { ActorEventEnvelope, JsonObject, TurnStart } from '../../lanes/actor_lane'
+import type { JsonObject } from '@pleisto/active-support'
+import { deepString } from '@pleisto/active-support'
+import type { ActorEventEnvelope, TurnStart } from '../../lanes/actor_lane'
 import type { AgentTool, AgentToolResult } from '../../core'
 import { rpcMethods, type RpcMethod, type ScheduleRpcRequest } from '../../lanes/rpc_lane'
 
@@ -338,17 +340,17 @@ function replyRouteFromInput(input: ActorEventEnvelope): ReplyRoute {
       deepString(payload, ['data', 'session', 'binding_name']),
     signal_channel_id:
       input.signal_channel_id ??
-      deepString(payload, ['data', 'reply_route', 'signal_channel_id']) ??
-      deepString(payload, ['data', 'channel', 'id']) ??
-      deepString(payload, ['data', 'entry', 'signal_channel_id']),
+      nonEmptyDeepString(payload, ['data', 'reply_route', 'signal_channel_id']) ??
+      nonEmptyDeepString(payload, ['data', 'channel', 'id']) ??
+      nonEmptyDeepString(payload, ['data', 'entry', 'signal_channel_id']),
     provider_thread_id:
       input.provider_thread_id ??
-      deepString(payload, ['data', 'reply_route', 'provider_thread_id']) ??
-      deepString(payload, ['data', 'entry', 'provider_thread_id']),
+      nonEmptyDeepString(payload, ['data', 'reply_route', 'provider_thread_id']) ??
+      nonEmptyDeepString(payload, ['data', 'entry', 'provider_thread_id']),
     source_entry_id:
       input.source_entry_id ??
-      deepString(payload, ['data', 'reply_route', 'source_entry_id']) ??
-      deepString(payload, ['data', 'entry', 'source_entry_id'])
+      nonEmptyDeepString(payload, ['data', 'reply_route', 'source_entry_id']) ??
+      nonEmptyDeepString(payload, ['data', 'entry', 'source_entry_id'])
   })
 }
 
@@ -365,7 +367,7 @@ function jsonToolResult(details: JsonObject): AgentToolResult<ScheduleToolDetail
 /**
  * Reads a non-empty string from a nested payload path.
  */
-function deepString(value: unknown, path: string[]): string | undefined {
+function nonEmptyDeepString(value: unknown, path: string[]): string | undefined {
   const text = rawDeepString(value, path)?.trim()
   return text ? text : undefined
 }
@@ -386,9 +388,7 @@ function stableJson(value: unknown): string {
   }
 
   if (value && typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>).sort(([left], [right]) =>
-      left.localeCompare(right)
-    )
+    const entries = Object.entries(value as JsonObject).sort(([left], [right]) => left.localeCompare(right))
     return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`).join(',')}}`
   }
 

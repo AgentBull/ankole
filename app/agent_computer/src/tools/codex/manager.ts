@@ -1,7 +1,13 @@
 import { jsonObject, match } from '@pleisto/active-support'
 import { mkdirSync, rmSync } from 'node:fs'
-import { resolve, relative, join } from 'node:path'
-import type { JsonObject } from '../../fabric/fabric'
+import { resolve } from 'node:path'
+import type { JsonObject } from '@pleisto/active-support'
+import {
+  insideWorkspace,
+  resolveWorkspacePath,
+  toWorkspacePath as modelPath,
+  WORKSPACE_MODEL_ROOT
+} from '../../core/workspace-paths'
 import type {
   AIGatewayApiKeyRejected,
   AIGatewayApiKeyRequest,
@@ -643,8 +649,9 @@ async function resolveAIGatewayKey(job: CodexJob): Promise<AIGatewayApiKeyRespon
     request_id: `codex-ai-gateway-key-${crypto.randomUUID()}`,
     agent_uid: job.agentUid
   })
-  if ('code' in response)
+  if ('code' in response) {
     throw new Error(`AIGateway API key rejected for Codex: ${response.code} ${response.message ?? ''}`)
+  }
   return response
 }
 
@@ -692,18 +699,10 @@ function snapshot(job: CodexJob): CodexDelegationSnapshot {
 }
 
 function resolveCodexWorkdir(workspaceRoot: string, workdir?: string): string {
-  const root = resolve(workspaceRoot)
-  const candidate = !workdir
-    ? root
-    : workdir.startsWith('/workspace')
-      ? resolve(root, workdir.slice('/workspace'.length).replace(/^\/+/, ''))
-      : resolve(root, workdir)
-
-  if (candidate !== root && !candidate.startsWith(`${root}/`)) {
-    throw new Error('Codex workdir must stay inside the session workspace')
-  }
-
-  return candidate
+  return resolveWorkspacePath(workspaceRoot, workdir ?? WORKSPACE_MODEL_ROOT, {
+    nonWorkspaceAbsolute: 'reject',
+    errorMessage: 'Codex workdir must stay inside the session workspace'
+  })
 }
 
 function codexSandboxEnv(
@@ -713,8 +712,8 @@ function codexSandboxEnv(
 ): Record<string, string> {
   const shellBootstrap = process.env.BASH_ENV ?? env.BASH_ENV ?? '/etc/profile.d/ankole-agent-computer.sh'
   const next = { ...env }
-  next.HOME = '/workspace'
-  next.ANKOLE_WORKSPACE_ROOT = '/workspace'
+  next.HOME = WORKSPACE_MODEL_ROOT
+  next.ANKOLE_WORKSPACE_ROOT = WORKSPACE_MODEL_ROOT
   next.SHELL = process.env.SHELL ?? next.SHELL ?? '/bin/bash'
   next.BASH_ENV = shellBootstrap
   next.ENV = process.env.ENV ?? next.ENV ?? shellBootstrap
@@ -731,26 +730,13 @@ function codexHomeBindForSandbox(
   return { source: codexHome, target: resolve(codexHome) }
 }
 
-function insideWorkspace(workspaceRoot: string, path: string): boolean {
-  const root = resolve(workspaceRoot)
-  const resolved = resolve(path)
-  return resolved === root || resolved.startsWith(`${root}/`)
-}
-
 function codexCommandForSandbox(workspaceRoot: string): string[] {
   const binary = process.env.ANKOLE_CODEX_BINARY
   if (!binary) return ['codex']
   if (!binary.startsWith('/')) return [binary]
 
-  const root = resolve(workspaceRoot)
   const resolved = resolve(binary)
-  return [resolved === root || resolved.startsWith(`${root}/`) ? modelPath(workspaceRoot, resolved) : resolved]
-}
-
-function modelPath(workspaceRoot: string, path: string): string {
-  const rel = relative(resolve(workspaceRoot), resolve(path))
-  if (!rel || rel === '.') return '/workspace'
-  return join('/workspace', rel).replaceAll('\\', '/')
+  return [insideWorkspace(workspaceRoot, resolved) ? modelPath(workspaceRoot, resolved) : resolved]
 }
 
 function textInput(text: string): Array<JsonObject> {

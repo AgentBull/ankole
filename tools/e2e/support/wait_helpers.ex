@@ -16,6 +16,7 @@ defmodule Ankole.E2E.WaitHelpers do
   alias Ankole.Repo
   alias Ankole.Schedule.Schemas.CronSchedule
   alias Ankole.Schedule.Schemas.ScheduledEvent
+  alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Entry
 
@@ -283,13 +284,27 @@ defmodule Ankole.E2E.WaitHelpers do
   @doc """
   Waits for the latest final IM mirror of one completed actor event.
 
-  Ordinary streamed AI replies do not produce durable outbox rows under the
-  stateful AIGateway plan. They become provider-visible through the live
-  AIReplyPreview path, then are mirrored as `signal_gateway_entries.ai_message_id`.
+  Ordinary streamed AI replies commit a final `ai-reply:<message_id>` outbox row.
+  The production dispatcher eventually sends it; the e2e helper drives that
+  dispatch directly so the test can wait on the durable provider mirror without
+  a background scheduler.
   """
   @spec wait_for_completed_final_reply(map() | port(), Ecto.UUID.t(), integer()) ::
           {:ok, Entry.t(), Message.t()}
   def wait_for_completed_final_reply(process, actor_event_id, deadline) do
+    Process.put(
+      :ankole_e2e_timeout_debug,
+      fn ->
+        "durable_state=#{inspect(durable_commit_state(actor_event_id))} messages=#{inspect(ai_messages_for_actor_event(actor_event_id))}"
+      end
+    )
+
+    if System.monotonic_time(:millisecond) > deadline do
+      flunk(
+        "timed out waiting for final reply: durable_state=#{inspect(durable_commit_state(actor_event_id))} messages=#{inspect(ai_messages_for_actor_event(actor_event_id))} #{inspect_process(process)} #{received_process_output(process_port(process))}"
+      )
+    end
+
     case {Repo.get(ActorEvent, actor_event_id),
           mirrored_latest_final_reply_for_actor_event(actor_event_id)} do
       {%ActorEvent{completed_at: %DateTime{}}, {%Entry{} = reply, %Message{} = message}} ->
@@ -298,6 +313,7 @@ defmodule Ankole.E2E.WaitHelpers do
       {%ActorEvent{completed_at: %DateTime{}}, nil} ->
         with {:ok, message} <-
                wait_for_completed_actor_event_message(process, actor_event_id, deadline),
+             :ok <- dispatch_final_reply_outbox(message),
              {:ok, reply} <-
                wait_for_final_mirror(process, message.id, deadline) do
           {:ok, reply, message}
@@ -311,15 +327,14 @@ defmodule Ankole.E2E.WaitHelpers do
   end
 
   @doc """
-  Waits for the outbox row committed for one actor event and AI message.
+  Waits for the explicit side-effect outbox row committed for one actor event
+  and AI message. Plain final-reply rows use the `ai-reply:<message_id>` key and
+  are handled by `wait_for_completed_final_reply/3`.
   """
   @spec wait_for_outbox_for_input(map() | port(), Ecto.UUID.t(), integer(), Ecto.UUID.t()) ::
           {:ok, OutboxEntry.t()}
   def wait_for_outbox_for_input(process, source_actor_event_id, deadline, ai_message_id) do
-    case Repo.get_by(OutboxEntry,
-           source_actor_event_id: source_actor_event_id,
-           ai_message_id: ai_message_id
-         ) do
+    case side_effect_outbox_for_input(source_actor_event_id, ai_message_id) do
       %OutboxEntry{} = outbox ->
         {:ok, outbox}
 
@@ -329,10 +344,7 @@ defmodule Ankole.E2E.WaitHelpers do
           source_actor_event_id,
           "outbox for source_actor_event_id=#{source_actor_event_id}",
           fn ->
-            Repo.get_by(OutboxEntry,
-              source_actor_event_id: source_actor_event_id,
-              ai_message_id: ai_message_id
-            )
+            side_effect_outbox_for_input(source_actor_event_id, ai_message_id)
           end
         )
 
@@ -340,6 +352,18 @@ defmodule Ankole.E2E.WaitHelpers do
           wait_for_outbox_for_input(process, source_actor_event_id, deadline, ai_message_id)
         end)
     end
+  end
+
+  defp side_effect_outbox_for_input(source_actor_event_id, ai_message_id) do
+    final_reply_key = "ai-reply:#{ai_message_id}"
+
+    OutboxEntry
+    |> where([outbox], outbox.source_actor_event_id == ^source_actor_event_id)
+    |> where([outbox], outbox.ai_message_id == ^ai_message_id)
+    |> where([outbox], outbox.outbound_key != ^final_reply_key)
+    |> order_by([outbox], asc: outbox.inserted_at, asc: outbox.outbound_key)
+    |> limit(1)
+    |> Repo.one()
   end
 
   @doc """
@@ -496,6 +520,24 @@ defmodule Ankole.E2E.WaitHelpers do
     end
   end
 
+  defp dispatch_final_reply_outbox(%Message{id: message_id}) do
+    case Repo.get_by(OutboxEntry, outbound_key: "ai-reply:#{message_id}") do
+      %OutboxEntry{status: status} = outbox when status in [:created, :failed, :sending] ->
+        case SignalsGateway.dispatch_outbox_by_key(
+               outbox.agent_uid,
+               outbox.binding_name,
+               outbox.outbound_key,
+               now: DateTime.utc_now(:microsecond)
+             ) do
+          {:ok, _outbox} -> :ok
+          {:error, reason} -> flunk("final reply outbox dispatch failed: #{inspect(reason)}")
+        end
+
+      _outbox ->
+        :ok
+    end
+  end
+
   defp final_answer_messages_for_actor_event(actor_event_id) do
     Message
     |> where([message], fragment("?->>'actor_event_id'", message.metadata) == ^actor_event_id)
@@ -564,8 +606,14 @@ defmodule Ankole.E2E.WaitHelpers do
 
   defp receive_port_or_wait(process, deadline, next) do
     if System.monotonic_time(:millisecond) > deadline do
+      debug =
+        case Process.get(:ankole_e2e_timeout_debug) do
+          fun when is_function(fun, 0) -> " #{fun.()}"
+          _other -> ""
+        end
+
       flunk(
-        "worker e2e timed out: #{inspect_process(process)} #{received_process_output(process_port(process))}"
+        "worker e2e timed out:#{debug} #{inspect_process(process)} #{received_process_output(process_port(process))}"
       )
     end
 

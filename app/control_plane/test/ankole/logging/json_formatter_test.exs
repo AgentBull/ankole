@@ -129,6 +129,23 @@ defmodule Ankole.Logging.JSONFormatterTest do
     refute Enum.any?(Map.keys(entry), &String.starts_with?(&1, "logging.googleapis.com/"))
   end
 
+  test "drops console formatter metadata from Ecto logs" do
+    entry =
+      format(%{
+        level: :debug,
+        msg: {:string, "QUERY OK source=\"app_configure\" db=1.9ms"},
+        meta: %{
+          ansi_color: :cyan,
+          source: "app_configure",
+          query: "SELECT a0.\"scope\" FROM \"app_configure\" AS a0 []"
+        }
+      })
+
+    refute Map.has_key?(entry, "ansi_color")
+    assert entry["source"] == "app_configure"
+    assert entry["query"] =~ "SELECT"
+  end
+
   test "Phoenix request logger emits http_request with error severity for 5xx" do
     conn =
       :get

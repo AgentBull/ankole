@@ -1,13 +1,9 @@
-import pino, {
-  type DestinationStream,
-  type Logger as PinoLogger,
-  type LoggerOptions,
-  type TransportSingleOptions
-} from 'pino'
+import pino, { type DestinationStream, type Logger as PinoLogger, type LoggerOptions } from 'pino'
+import type { JsonObject } from '@pleisto/active-support'
 
 export type LogSeverity = 'DEBUG' | 'INFO' | 'NOTICE' | 'WARNING' | 'ERROR' | 'CRITICAL' | 'ALERT' | 'EMERGENCY'
 
-export type WorkerLogFields = Record<string, unknown>
+export type WorkerLogFields = JsonObject
 
 export type WorkerLoggerChildOptions = {
   component?: string
@@ -113,20 +109,7 @@ export function createWorkerPinoOptions(env: Record<string, string | undefined> 
     }
   }
 
-  if (resolveWorkerLogFormat(env) === 'pretty') {
-    options.transport = {
-      target: new URL('./logging_pretty_transport.ts', import.meta.url).pathname,
-      options: {}
-    } satisfies TransportSingleOptions
-  }
-
   return options
-}
-
-export function resolveWorkerLogFormat(env: Record<string, string | undefined> = Bun.env): 'json' | 'pretty' {
-  const configured = env.ANKOLE_LOG_FORMAT?.trim().toLowerCase()
-  if (configured === 'json' || configured === 'pretty') return configured
-  return env.NODE_ENV === 'production' ? 'json' : 'pretty'
 }
 
 export function resolveLogSeverity(value: string | undefined, fallback: LogSeverity): LogSeverity {
@@ -161,7 +144,7 @@ function wrapPinoLogger(logger: PinoLogger, context: WorkerLoggerContext): Worke
       const childLabels = compactLabels({
         ...context.labels,
         component: options.component ?? context.labels.component,
-        ...(options.labels ?? {})
+        ...options.labels
       })
       return wrapPinoLogger(logger.child(normalizeFields(options.fields ?? {})), { labels: childLabels })
     }

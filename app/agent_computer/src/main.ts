@@ -1,5 +1,5 @@
 import * as kernel from '../../kernel'
-import { match } from '@pleisto/active-support'
+import { match, type JsonObject } from '@pleisto/active-support'
 import { mailboxUpdatedFromEnvelope, turnControlFromEnvelope, turnStartFromEnvelope } from './lanes/actor_lane'
 import { runTurnHandlers } from './core'
 import { turnAcceptedEnvelope, turnErrorEnvelope, turnNoopCompletedEnvelope } from './fabric/envelopes'
@@ -361,7 +361,7 @@ function errorValue(error: unknown): unknown {
   return error instanceof Error ? error : new Error(String(error))
 }
 
-function turnOperation(actorEventId: string, flags: { first?: boolean; last?: boolean } = {}): Record<string, unknown> {
+function turnOperation(actorEventId: string, flags: { first?: boolean; last?: boolean } = {}): JsonObject {
   return {
     id: actorEventId,
     producer: 'ankole-worker/turn',

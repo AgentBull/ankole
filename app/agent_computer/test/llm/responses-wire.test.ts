@@ -1,46 +1,20 @@
 import { describe, expect, it } from 'bun:test'
-import { tmpdir } from 'node:os'
-import { z } from 'zod'
-import { runAgentLoop } from '../../src/core/agent-loop'
-import {
-  callModel,
-  createModel,
-  zodToJSONSchema,
-  type ContentPart,
-  type ResponseWebSocketLike
-} from '../../src/core/llm'
+import type { JsonObject } from '@pleisto/active-support'
+import { callModel, createModel } from '../../src/core/llm'
 import { classifyLlmError, isLocallyRetryableLlmError } from '../../src/core/llm-error-classifier'
-import { actorEventUserContent } from '../../src/core/turns/actor_event_content'
-import { statefulTruncationFromActorEventPayload } from '../../src/core/turns/actor_event_text'
-import {
-  actorEventEnvironmentInfoLines,
-  prependEnvironmentInfoLinesToUserMessage
-} from '../../src/core/turns/message_context'
-import { runtimeModelFromAIGatewayApiKey } from '../../src/core/turns/model_runtime'
-import { textTurnResultFromAssistantReply } from '../../src/core/turns/text_turn'
-import { steeringMessages } from '../../src/core/turns/turn_control'
-import {
-  FakeResponseSocket,
-  fakeResponseSocket,
-  fallbackModelForTest,
-  imageActorEventPayload,
-  modelRefForTest,
-  parallelReadTool,
-  toolResultsRecordedFrame,
-  turnStartForTest,
-  withImageWorkspace
-} from '../support/llm'
+
+import { fakeResponseSocket } from '../support/llm'
 
 describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire shape', () => {
   it('passes image input through as Responses input_image content', async () => {
-    const bodies: Record<string, unknown>[] = []
+    const bodies: JsonObject[] = []
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
       selector: 'primary',
       fetch: (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
         const request = input instanceof Request ? input : new Request(input, init)
-        bodies.push(JSON.parse(await request.text()) as Record<string, unknown>)
+        bodies.push(JSON.parse(await request.text()) as JsonObject)
 
         return new Response(
           JSON.stringify({
@@ -84,14 +58,14 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
   })
 
   it('encodes binary PNG image input as a base64 PNG data URL', async () => {
-    const bodies: Record<string, unknown>[] = []
+    const bodies: JsonObject[] = []
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
       selector: 'primary',
       fetch: (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
         const request = input instanceof Request ? input : new Request(input, init)
-        bodies.push(JSON.parse(await request.text()) as Record<string, unknown>)
+        bodies.push(JSON.parse(await request.text()) as JsonObject)
 
         return new Response(
           JSON.stringify({
@@ -128,7 +102,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       ]
     })
 
-    const input = bodies[0]!.input as Array<{ content: Array<Record<string, unknown>> }>
+    const input = bodies[0]!.input as Array<{ content: Array<JsonObject> }>
     const imageUrl = input[0]!.content[1]!.image_url
 
     expect(typeof imageUrl).toBe('string')
@@ -139,14 +113,14 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
   })
 
   it('passes Responses structured output text format through HTTP calls', async () => {
-    const bodies: Record<string, unknown>[] = []
+    const bodies: JsonObject[] = []
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
       selector: 'primary',
       fetch: (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
         const request = input instanceof Request ? input : new Request(input, init)
-        bodies.push(JSON.parse(await request.text()) as Record<string, unknown>)
+        bodies.push(JSON.parse(await request.text()) as JsonObject)
 
         return new Response(
           JSON.stringify({
@@ -195,14 +169,14 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
   })
 
   it('omits max_output_tokens unless the agent runtime policy provides one', async () => {
-    const bodies: Record<string, unknown>[] = []
+    const bodies: JsonObject[] = []
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
       selector: 'primary',
       fetch: (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
         const request = input instanceof Request ? input : new Request(input, init)
-        bodies.push(JSON.parse(await request.text()) as Record<string, unknown>)
+        bodies.push(JSON.parse(await request.text()) as JsonObject)
 
         return new Response(
           JSON.stringify({
@@ -343,7 +317,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
   })
 
   it('sends stateful response.create over AIGateway WebSocket', async () => {
-    const sentPayloads: Record<string, unknown>[] = []
+    const sentPayloads: JsonObject[] = []
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
@@ -354,7 +328,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
         authorization: () => 'Bearer agent-key',
         createWebSocket: (_url, init) =>
           fakeResponseSocket(init, data => {
-            sentPayloads.push(JSON.parse(data) as Record<string, unknown>)
+            sentPayloads.push(JSON.parse(data) as JsonObject)
             return [
               {
                 type: 'response.completed',
@@ -401,7 +375,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
   })
 
   it('keeps user text parts as Responses input_text parts', async () => {
-    const sentPayloads: Record<string, unknown>[] = []
+    const sentPayloads: JsonObject[] = []
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
@@ -412,7 +386,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
         authorization: () => 'Bearer agent-key',
         createWebSocket: (_url, init) =>
           fakeResponseSocket(init, data => {
-            sentPayloads.push(JSON.parse(data) as Record<string, unknown>)
+            sentPayloads.push(JSON.parse(data) as JsonObject)
             return [
               {
                 type: 'response.completed',
@@ -463,7 +437,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
   })
 
   it('uses the native WebSocket constructor when no test socket factory is injected', async () => {
-    const sentPayloads: Record<string, unknown>[] = []
+    const sentPayloads: JsonObject[] = []
     const server = Bun.serve({
       port: 0,
       fetch(request, server) {
@@ -473,7 +447,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       websocket: {
         message(ws, message) {
           const text = typeof message === 'string' ? message : new TextDecoder().decode(message as BufferSource)
-          sentPayloads.push(JSON.parse(text) as Record<string, unknown>)
+          sentPayloads.push(JSON.parse(text) as JsonObject)
           ws.send(
             JSON.stringify({
               type: 'response.completed',

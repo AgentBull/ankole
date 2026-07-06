@@ -2,12 +2,14 @@ defmodule AnkoleWeb.SetupControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
   import Ecto.Query
+  import ExUnit.CaptureLog
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AuthZ
   alias Ankole.AuthZ.Grant
+  alias Ankole.Plugins.Config, as: PluginsConfig
   alias Ankole.Repo
   alias Ankole.Setup.Bootstrap
   alias Ankole.Setup.Config, as: SetupConfig
@@ -23,6 +25,32 @@ defmodule AnkoleWeb.SetupControllerTest do
     :ok = SetupConfig.delete_bootstrap_activation_code()
 
     :ok
+  end
+
+  test "POST /.internal-apis/setup/bootstrap-activation-code/log-entries reprints the current activation code",
+       %{conn: conn} do
+    assert {:ok, "ABCDEFGH"} = SetupConfig.put_bootstrap_activation_code("ABCDEFGH")
+    original_logger_level = Logger.level()
+    Logger.configure(level: :notice)
+    on_exit(fn -> Logger.configure(level: original_logger_level) end)
+
+    test_pid = self()
+
+    log =
+      capture_log([level: :notice, metadata: [:activation_code]], fn ->
+        conn =
+          conn
+          |> init_test_session(%{})
+          |> post(~p"/.internal-apis/setup/bootstrap-activation-code/log-entries", %{})
+
+        send(test_pid, {:response, conn})
+      end)
+
+    assert_receive {:response, conn}
+    assert json_response(conn, 200) == %{"ok" => true}
+    assert log =~ "SETUP ACTIVATION CODE: ABCDEFGH"
+    assert log =~ "ABCDEFGH"
+    assert {:ok, "ABCDEFGH"} = SetupConfig.bootstrap_activation_code()
   end
 
   test "POST /.internal-apis/setup/sessions clears old setup session and OIDC state on invalid activation code",
@@ -65,6 +93,43 @@ defmodule AnkoleWeb.SetupControllerTest do
                  grant.resource_pattern == "**" and grant.action == "read" and
                    grant.condition == "true"
            )
+  end
+
+  test "GET /.internal-apis/setup/identity-provider-adapters uses adapter declaration fields",
+       %{conn: conn} do
+    :ok = PluginsConfig.ensure_registered()
+
+    conn =
+      conn
+      |> init_test_session(%{})
+      |> WebSession.put_setup_session()
+      |> get(~p"/.internal-apis/setup/identity-provider-adapters")
+
+    assert %{"adapters" => adapters} = json_response(conn, 200)
+
+    lark = Enum.find(adapters, &(&1["adapterId"] == "lark"))
+    assert lark["displayName"]["default"] == "Lark"
+    assert lark["defaultProviderId"] == "lark-main"
+
+    assert Enum.map(lark["fields"], & &1["path"]) == [
+             "appId",
+             "appSecret",
+             "domain",
+             "oidc.enabled",
+             "oidc.scopes",
+             "sync.contacts",
+             "sync.websocket",
+             "sync.pageSize"
+           ]
+
+    assert hd(lark["fields"])["label"]["zh-Hans-CN"] == "应用 ID"
+    assert hd(lark["fields"])["description"]["default"] == "Self-built app identifier."
+
+    fields_by_path = Map.new(lark["fields"], &{&1["path"], &1})
+    assert fields_by_path["appId"]["advanced"] == false
+    assert fields_by_path["oidc.scopes"]["advanced"] == true
+    assert fields_by_path["sync.websocket"]["advanced"] == true
+    assert fields_by_path["sync.pageSize"]["advanced"] == true
   end
 
   defp allow_cache_database_access do

@@ -1,5 +1,6 @@
 import type { ActorTurnRef } from '../lanes/actor_lane'
-import type { JsonObject, RuntimeFabricEnvelope } from './fabric'
+import type { RuntimeFabricEnvelope } from './fabric'
+import type { JsonObject } from '@pleisto/active-support'
 
 /**
  * Builds the acceptance fence for a received turn revision.

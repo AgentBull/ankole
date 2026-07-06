@@ -1,5 +1,12 @@
 defmodule Ankole.SignalsGateway.Ingress do
-  @moduledoc false
+  @moduledoc """
+  Adapter-facing provider ingress API for SignalsGateway.
+
+  This module is the single public surface for normalized provider facts. It
+  resolves the binding route, constructs typed ingress facts, applies binding
+  filters, updates the provider mirror, manages inbound batches, and appends
+  actor-facing events when the accepted fact should wake an actor.
+  """
 
   alias Ankole.ActorRuntime.TurnRetry
   alias Ankole.Actors

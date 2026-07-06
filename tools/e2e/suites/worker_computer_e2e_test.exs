@@ -151,16 +151,6 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
       "om_todo_tool_1"
     )
 
-    browser_doctor = run_browser_doctor_tool_loop(ctx)
-
-    assert_lark_final_reply(
-      ctx.fake_feishu,
-      browser_doctor.reply,
-      "CHAOS_BROWSER_DOCTOR_OK",
-      :reply,
-      "om_browser_doctor_1"
-    )
-
     background = run_background_command_tool_loop(ctx)
 
     assert_lark_final_reply(
@@ -305,7 +295,6 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
     assert counters[:generic] == 1
     assert counters[:reply_attachment] == 3
     assert counters[:todo_tool] == 3
-    assert counters[:browser_doctor_tool] == 2
     assert counters[:background_command_tool] == 2
     assert counters[:background_lifecycle_tool] == 4
     assert counters[:interactive_terminal_tool] == 5
@@ -315,7 +304,7 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
     assert counters[:browser_run_tool] == 2
     assert counters[:browser_extract_tool] == 2
     assert counters[:skill_view_tool] == 2
-    assert counters[:skill_view_all_tool] == 4
+    assert counters[:skill_view_all_tool] == 6
     assert counters[:skill_append_tool] == 2
     assert counters[:skill_disabled_tool] == 2
     assert counters[:read_file_tool] == 3

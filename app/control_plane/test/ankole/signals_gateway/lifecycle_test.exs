@@ -5,6 +5,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
   alias Ankole.Actors.ActorEvent
   alias Ankole.Repo
   alias Ankole.SignalsGateway
+  alias Ankole.SignalsGateway.Ingress
   alias Ankole.SignalsGateway.InboundBatch
   alias Ankole.SignalsGateway.InputTombstone
   alias Ankole.SignalsGateway.OutboxEntry
@@ -23,7 +24,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               SignalsGateway.emit_entry_removed(
+               Ingress.emit_entry_removed(
                  agent.uid,
                  "bot",
                  lifecycle_entry(%{source_event_id: "delete-1"}),
@@ -33,7 +34,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
       assert Repo.aggregate(InputTombstone, :count) == 1
 
       assert {:ok, %{status: :dropped_tombstoned}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{explicit: true, source_event_id: "evt-late"}),
@@ -66,7 +67,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
       started_at = System.monotonic_time(:millisecond)
 
       assert {:ok, %{status: :accepted}} =
-               SignalsGateway.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -80,7 +81,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted, inbound_batch: batch}} =
-               SignalsGateway.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -88,7 +89,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
       assert batch.batch_state == "open"
 
       assert {:ok, %{updated_inbound_batches: 1, canceled_actor_events: 0, lifecycle_events: []}} =
-               SignalsGateway.emit_entry_removed(
+               Ingress.emit_entry_removed(
                  agent.uid,
                  "bot",
                  lifecycle_entry(%{source_event_id: "recall-1"}),
@@ -120,7 +121,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                )
 
       assert {:ok, %{lifecycle_events: [lifecycle_event]}} =
-               SignalsGateway.emit_entry_removed(
+               Ingress.emit_entry_removed(
                  agent.uid,
                  "bot",
                  lifecycle_entry(%{source_event_id: "delete-consumed"}),
@@ -139,7 +140,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
       alice = %{principal_uid: "alice", id: "provider-alice", display_name: "Alice"}
 
       assert {:ok, %{status: :accepted}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{
@@ -153,7 +154,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                )
 
       assert {:ok, %{status: :accepted}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{
@@ -180,7 +181,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                )
 
       assert {:ok, %{lifecycle_events: [lifecycle_event]}} =
-               SignalsGateway.emit_entry_removed(
+               Ingress.emit_entry_removed(
                  agent.uid,
                  "bot",
                  lifecycle_entry(%{
@@ -203,7 +204,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
         emit_addressed_actor_event(agent.uid, "bot", group_entry(%{explicit: true}))
 
       assert {:ok, _} =
-               SignalsGateway.emit_entry_removed(
+               Ingress.emit_entry_removed(
                  agent.uid,
                  "bot",
                  lifecycle_entry(%{source_event_id: "recall-before-commit"}),
@@ -255,10 +256,10 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
       binding_fixture(agent.uid, "bot", :record_only)
 
       assert {:ok, %{status: :recorded}} =
-               SignalsGateway.emit_entry(agent.uid, "bot", group_entry(), now: @base_time)
+               Ingress.emit_entry(agent.uid, "bot", group_entry(), now: @base_time)
 
       assert {:ok, %{canceled_actor_events: 0, lifecycle_events: []}} =
-               SignalsGateway.emit_entry_removed(
+               Ingress.emit_entry_removed(
                  agent.uid,
                  "bot",
                  lifecycle_entry(%{source_event_id: "delete-record-only"}),
@@ -276,7 +277,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
       binding_fixture(agent.uid, "bot", :record_only)
 
       assert {:ok, %{status: :recorded}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{
@@ -287,7 +288,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                )
 
       assert {:ok, %{status: :mirrored}} =
-               SignalsGateway.emit_reaction(
+               Ingress.emit_reaction(
                  agent.uid,
                  "bot",
                  %{
@@ -301,7 +302,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                )
 
       assert {:ok, %{status: :recorded}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{
@@ -328,7 +329,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
       binding_fixture(agent.uid, "bot", :record_only)
 
       assert {:ok, %{status: :ignored_unknown_entry}} =
-               SignalsGateway.emit_reaction(
+               Ingress.emit_reaction(
                  agent.uid,
                  "bot",
                  %{
@@ -346,7 +347,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
       binding_fixture(agent.uid, "bot", :record_only)
 
       assert {:ok, %{status: :recorded}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{
@@ -361,7 +362,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                )
 
       assert {:ok, _} =
-               SignalsGateway.emit_entry_removed(
+               Ingress.emit_entry_removed(
                  agent.uid,
                  "bot",
                  lifecycle_entry(%{
@@ -384,7 +385,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
       binding_fixture(agent.uid, "bot", :record_only)
 
       assert {:error, {:invalid_attachment_payload, preview}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{
@@ -397,7 +398,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
       assert Repo.aggregate(Entry, :count) == 0
 
       assert {:error, {:attachment_not_materialized, _attachment}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{
@@ -407,7 +408,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                )
 
       assert {:ok, %{signal_entry: entry}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{
@@ -432,7 +433,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:error, {:invalid_json_payload, :metadata, :unsupported_runtime_value}} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{explicit: true, metadata: %{"pid" => self()}}),

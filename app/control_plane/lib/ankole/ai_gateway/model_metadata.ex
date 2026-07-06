@@ -8,13 +8,12 @@ defmodule Ankole.AIGateway.ModelMetadata do
   """
 
   alias Ankole.AIGateway.ModelMetadata.Cache
-  alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ProviderConfigs.Provider
+  alias Ankole.AIGateway.ProviderRuntime
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.UniversalAIRequest
 
   @default_cache_ttl_ms :timer.hours(1)
-  @default_timeout_ms 15_000
 
   @base_supported_parameters ~w(
     temperature top_p max_tokens max_output_tokens response_format tools tool_choice metadata
@@ -64,7 +63,7 @@ defmodule Ankole.AIGateway.ModelMetadata do
     with {:ok, definition} <- Providers.fetch(provider.provider_kind) do
       case function_exported?(definition.module, :models_metadata_source, 1) do
         true ->
-          with {:ok, context} <- metadata_source_context(provider, opts) do
+          with {:ok, context} <- ProviderRuntime.context(provider, opts) do
             apply(definition.module, :models_metadata_source, [context])
           end
 
@@ -145,23 +144,6 @@ defmodule Ankole.AIGateway.ModelMetadata do
   end
 
   defp normalized_provider_candidates(_value), do: []
-
-  defp metadata_source_context(%Provider{} = provider, opts) do
-    timeout_ms = Keyword.get(opts, :timeout_ms, @default_timeout_ms)
-
-    with {:ok, connection} <- ProviderConfigs.runtime_connection(provider) do
-      {:ok,
-       %{
-         provider_id: provider.provider_id,
-         provider_kind: provider.provider_kind,
-         capability: Keyword.get(opts, :capability, "llm"),
-         connection: connection,
-         settings: atomize_keys(connection),
-         timeout_ms: timeout_ms,
-         http_client: Keyword.get(opts, :http_client)
-       }}
-    end
-  end
 
   defp list_source_models(_provider, {:llm_db, provider_atom}, _opts) do
     models =
@@ -725,13 +707,6 @@ defmodule Ankole.AIGateway.ModelMetadata do
   defp stringify_keys(map) when is_map(map) do
     Map.new(map, fn
       {key, value} when is_atom(key) -> {Atom.to_string(key), value}
-      {key, value} -> {key, value}
-    end)
-  end
-
-  defp atomize_keys(map) when is_map(map) do
-    Map.new(map, fn
-      {key, value} when is_binary(key) -> {String.to_atom(key), value}
       {key, value} -> {key, value}
     end)
   end

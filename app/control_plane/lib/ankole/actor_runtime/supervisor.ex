@@ -31,6 +31,7 @@ defmodule Ankole.ActorRuntime.Supervisor do
     :ok = WorkerBrowserConfig.ensure_registered()
     :ok = WorkerCodexConfig.ensure_registered()
     :ok = Ankole.Memory.ensure_registered()
+    :ok = Ankole.IdentityProviders.Config.ensure_registered()
 
     # The transport broker, directory, and dynamic supervisor are the core path:
     # without them no actor turn can be sent or routed. Runtime wakeups and

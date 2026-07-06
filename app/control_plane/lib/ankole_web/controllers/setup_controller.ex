@@ -10,6 +10,7 @@ defmodule AnkoleWeb.SetupController do
   use AnkoleWeb, :controller
 
   alias Ankole.I18n
+  alias Ankole.Setup.Bootstrap
   alias Ankole.Plugins
   alias Ankole.Setup.Config, as: SetupConfig
   alias AnkoleWeb.Session, as: WebSession
@@ -83,6 +84,18 @@ defmodule AnkoleWeb.SetupController do
   end
 
   @doc """
+  Reprints the current bootstrap activation code to the server log.
+  """
+  def create_activation_code_log_entry(conn, _params) do
+    case Bootstrap.log_current_activation_code() do
+      :ok -> json(conn, %{ok: true})
+      {:error, :setup_completed} -> error(conn, 409, "setup already completed")
+      :error -> error(conn, 503, "setup bootstrap activation code is not available")
+      {:error, reason} -> error(conn, 500, reason)
+    end
+  end
+
+  @doc """
   Lists discovered plugins and the currently enabled setup selection.
   """
   def plugins(conn, _params) do
@@ -125,7 +138,7 @@ defmodule AnkoleWeb.SetupController do
   def identity_provider_adapters(conn, _params) do
     with :ok <- require_setup_session(conn) do
       json(conn, %{
-        adapters: Enum.map(IdentityProviders.list_setup_adapters(), &adapter_json/1)
+        adapters: Enum.map(IdentityProviders.list_adapters(), &adapter_json/1)
       })
     else
       {:error, status, reason} -> error(conn, status, reason)
@@ -255,9 +268,8 @@ defmodule AnkoleWeb.SetupController do
   defp plugin_json(plugin) do
     %{
       id: plugin.id,
-      displayName: plugin.display_name || plugin.id,
-      description: plugin.description,
-      setupMetadata: plugin.setup_metadata
+      displayName: plugin.display_name || default_text(plugin.id),
+      description: plugin.description
     }
   end
 
@@ -270,6 +282,8 @@ defmodule AnkoleWeb.SetupController do
       defaultProviderId: adapter.default_provider_id
     }
   end
+
+  defp default_text(value), do: %{"default" => value}
 
   # Rebuilds this request's origin so the OIDC redirect URI is absolute (same
   # approach as AuthController; trusts the proxy-normalized scheme/host/port).

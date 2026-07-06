@@ -1,10 +1,9 @@
 defmodule Ankole.SignalsGateway.AdapterContext do
   @moduledoc """
-  Concrete ingress API handed to a signal adapter for one binding.
+  Binding runtime context and helper access handed to a signal adapter.
   """
 
   alias Ankole.Principals
-  alias Ankole.SignalsGateway
 
   @enforce_keys [:agent_uid, :binding_name, :adapter, :user_name]
   defstruct [:agent_uid, :binding_name, :adapter, :user_name]
@@ -19,9 +18,9 @@ defmodule Ankole.SignalsGateway.AdapterContext do
   @doc """
   Builds the adapter-facing context for one configured signal binding.
 
-  The context carries only binding identity and lightweight helper access. It
-  does not expose database handles, so adapters must enter ingress through the
-  explicit emit functions below.
+  The context carries only binding identity and lightweight helper access.
+  Adapters submit normalized provider facts through
+  `Ankole.SignalsGateway.Ingress`.
   """
   @spec new(keyword() | map()) :: t()
   def new(attrs) do
@@ -33,45 +32,6 @@ defmodule Ankole.SignalsGateway.AdapterContext do
       # so an adapter that doesn't supply one still has something to show.
       user_name: fetch(attrs, :user_name) || fetch!(attrs, :adapter)
     }
-  end
-
-  @doc """
-  Emits a provider entry as actor-visible input for this binding.
-  """
-  @spec emit_entry(t(), map(), keyword()) :: SignalsGateway.ingress_result()
-  def emit_entry(%__MODULE__{} = context, input, options \\ []) do
-    SignalsGateway.emit_entry(context.agent_uid, context.binding_name, input, options)
-  end
-
-  @doc """
-  Emits a provider-entry removal for this binding.
-
-  Provider-specific delete or recall names collapse to the same Ankole lifecycle:
-  remove pending work when possible, or append one removed notice if the actor
-  already consumed the original entry.
-  """
-  @spec emit_entry_removed(t(), map(), keyword()) :: SignalsGateway.ingress_result()
-  def emit_entry_removed(%__MODULE__{} = context, input, options \\ []) do
-    SignalsGateway.emit_entry_removed(context.agent_uid, context.binding_name, input, options)
-  end
-
-  @doc """
-  Emits a provider reaction event for this binding.
-  """
-  @spec emit_reaction(t(), map(), keyword()) :: SignalsGateway.ingress_result()
-  def emit_reaction(%__MODULE__{} = context, input, options \\ []) do
-    SignalsGateway.emit_reaction(context.agent_uid, context.binding_name, input, options)
-  end
-
-  @doc """
-  Emits a provider action event for this binding.
-
-  Actions represent explicit UI or command callbacks that should enter the same
-  ordered actor-event journal as messages.
-  """
-  @spec emit_action(t(), map(), keyword()) :: SignalsGateway.ingress_result()
-  def emit_action(%__MODULE__{} = context, input, options \\ []) do
-    SignalsGateway.emit_action(context.agent_uid, context.binding_name, input, options)
   end
 
   @doc """

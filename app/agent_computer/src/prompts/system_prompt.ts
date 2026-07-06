@@ -11,7 +11,7 @@
  */
 import type { TurnStart } from '../lanes/actor_lane'
 import type { AgentConversationContext, RuntimeSkillSummary } from '../lanes/rpc_lane'
-import { isRecord, match, recordArg, type JsonObject } from '@pleisto/active-support'
+import { isRecord, match, recordArg, stringArg as rawStringArg, type JsonObject } from '@pleisto/active-support'
 import { formatSkillsForSystemPrompt, type SkillPromptEntry } from './skills_prompt'
 
 export type BuildAgentSystemPromptOptions = {
@@ -119,21 +119,21 @@ function scheduleOriginLines(opts: BuildAgentSystemPromptOptions): string[] {
   if (!origin) return []
 
   const lines = [
-    `Schedule turn mode: ${stringArg(context, 'turn_mode') ?? 'unknown'}`,
-    `Schedule event ID: ${stringArg(origin, 'scheduled_event_id') ?? 'unknown'}`,
-    `Schedule due at: ${stringArg(origin, 'due_at') ?? 'unknown'}`,
-    `Schedule fired at: ${stringArg(origin, 'fired_at') ?? 'unknown'}`,
-    `Schedule timezone: ${stringArg(origin, 'timezone') ?? 'unknown'}`
+    `Schedule turn mode: ${nonEmptyStringArg(context, 'turn_mode') ?? 'unknown'}`,
+    `Schedule event ID: ${nonEmptyStringArg(origin, 'scheduled_event_id') ?? 'unknown'}`,
+    `Schedule due at: ${nonEmptyStringArg(origin, 'due_at') ?? 'unknown'}`,
+    `Schedule fired at: ${nonEmptyStringArg(origin, 'fired_at') ?? 'unknown'}`,
+    `Schedule timezone: ${nonEmptyStringArg(origin, 'timezone') ?? 'unknown'}`
   ]
 
-  const cronScheduleId = stringArg(origin, 'cron_schedule_id')
-  const cronScheduleName = stringArg(origin, 'cron_schedule_name')
+  const cronScheduleId = nonEmptyStringArg(origin, 'cron_schedule_id')
+  const cronScheduleName = nonEmptyStringArg(origin, 'cron_schedule_name')
   if (cronScheduleId) lines.push(`Cron schedule ID: ${cronScheduleId}`)
   if (cronScheduleName) lines.push(`Cron schedule name: ${cronScheduleName}`)
   const payload = recordArg(origin, 'payload')
   if (payload && Object.keys(payload).length > 0) lines.push(`Schedule payload: ${JSON.stringify(payload)}`)
 
-  const turnMode = stringArg(context, 'turn_mode')
+  const turnMode = nonEmptyStringArg(context, 'turn_mode')
   lines.push('Schedule-origin context is system-managed wakeup context, not text written by a human user.')
   if (turnMode === 'check_back_later') {
     lines.push(
@@ -387,9 +387,9 @@ function platformLabel(platform: string | undefined, noun: string): string {
 /**
  * Reads and trims a string field from prompt-building context.
  */
-function stringArg(args: JsonObject | undefined, key: string): string | undefined {
-  const value = args?.[key]
-  return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined
+function nonEmptyStringArg(args: JsonObject | undefined, key: string): string | undefined {
+  const value = rawStringArg(args, key)?.trim()
+  return value ? value : undefined
 }
 
 /**

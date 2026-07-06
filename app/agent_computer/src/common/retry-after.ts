@@ -1,3 +1,5 @@
+import type { JsonObject } from '@pleisto/active-support'
+
 /**
  * Extracts a server-requested backoff delay (in milliseconds) from a thrown
  * value, by hunting for rate-limit headers anywhere in the error's shape.
@@ -62,7 +64,7 @@ function retryAfterMsFromUnknown(value: unknown, seen: WeakSet<object>): number 
   if (seen.has(value)) return undefined
   seen.add(value)
 
-  const record = value as Record<string, unknown>
+  const record = value as JsonObject
   const fromHeaders = parseRetryAfterHeaders(record.headers)
   if (fromHeaders !== undefined) return fromHeaders
 
@@ -86,7 +88,7 @@ function headerValue(headers: unknown, key: string): string | undefined {
   if (!headers) return undefined
   if (typeof Headers !== 'undefined' && headers instanceof Headers) return headers.get(key) ?? undefined
   if (typeof headers === 'object') {
-    const record = headers as Record<string, unknown>
+    const record = headers as JsonObject
     const direct =
       record[key] ?? record[key.toLowerCase()] ?? record[key.toUpperCase()] ?? findCaseInsensitive(record, key)
     if (typeof direct === 'string') return direct
@@ -102,7 +104,7 @@ function headerValue(headers: unknown, key: string): string | undefined {
 /**
  * Finds a plain-object header by case-insensitive name.
  */
-function findCaseInsensitive(record: Record<string, unknown>, key: string): unknown {
+function findCaseInsensitive(record: JsonObject, key: string): unknown {
   const lowerKey = key.toLowerCase()
   const entry = Object.entries(record).find(([candidate]) => candidate.toLowerCase() === lowerKey)
   return entry?.[1]

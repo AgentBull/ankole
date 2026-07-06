@@ -12,7 +12,6 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   @chat_key_pattern ~r/\Asignals_gateway\.lark\.bindings\.[A-Za-z0-9_.:-]+\z/
   @identity_key_pattern ~r/\Aprincipals\.identity_providers\.lark\.[A-Za-z0-9_.:-]+\z/
   @domains ["feishu", "lark"]
-  @group_message_modes ["addressed_only", "observe_all", "may_intervene"]
   @default_oidc_scopes ["contact:user.employee_id:readonly"]
 
   @type chat_config :: map()
@@ -62,8 +61,6 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
          {:ok, app_secret} <- required_string(value, "appSecret"),
          {:ok, domain} <- enum_string(value, "domain", @domains, "feishu"),
          {:ok, base_url} <- optional_base_url(value, "baseUrl"),
-         {:ok, group_message_mode} <-
-           enum_string(value, "group_message_mode", @group_message_modes, "observe_all"),
          {:ok, platform_subject_namespace} <-
            optional_string(value, "platformSubjectNamespace", "lark-main"),
          {:ok, user_name} <- optional_string(value, "userName", "Lark / Feishu"),
@@ -75,7 +72,6 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
          "appSecret" => app_secret,
          "domain" => domain,
          "baseUrl" => base_url,
-         "group_message_mode" => group_message_mode,
          "platformSubjectNamespace" => platform_subject_namespace,
          "userName" => user_name,
          "botOpenId" => bot_open_id,
@@ -85,6 +81,17 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   end
 
   def validate_chat_config(_value), do: {:error, :invalid_chat_config}
+
+  @doc """
+  Validates chat config when it is used as a SignalsGateway binding.
+  """
+  @spec validate_binding_config(term()) :: {:ok, chat_config()} | {:error, term()}
+  def validate_binding_config(value) do
+    with {:ok, config} <- validate_chat_config(value),
+         :ok <- require_bot_identity(config) do
+      {:ok, config}
+    end
+  end
 
   @doc """
   Normalizes and validates identity-provider configuration loaded from AppConfigure.
@@ -98,10 +105,11 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
          sync <- MapHelpers.fetch_map(value, "sync", %{}),
          {:ok, oidc_enabled} <- optional_boolean(oidc, "enabled", true),
          {:ok, oidc_scopes} <- string_array(oidc, "scopes", @default_oidc_scopes),
-         {:ok, sync_users} <- optional_boolean(sync, "users", true),
-         {:ok, sync_departments} <- optional_boolean(sync, "departments", true),
+         {:ok, sync_contacts} <- optional_boolean(sync, "contacts", true),
          {:ok, sync_websocket} <- optional_boolean(sync, "websocket", true),
          {:ok, sync_page_size} <- integer_between(sync, "pageSize", 50, 1, 50) do
+      sync_websocket = sync_websocket and sync_contacts
+
       {:ok,
        %{
          "appId" => app_id,
@@ -109,8 +117,7 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
          "domain" => domain,
          "oidc" => %{"enabled" => oidc_enabled, "scopes" => oidc_scopes},
          "sync" => %{
-           "users" => sync_users,
-           "departments" => sync_departments,
+           "contacts" => sync_contacts,
            "websocket" => sync_websocket,
            "pageSize" => sync_page_size
          }
@@ -224,14 +231,6 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   end
 
   @doc """
-  Converts setup's group-message mode into SignalsGateway binding policy.
-  """
-  @spec group_message_policy(String.t()) :: :ignore | :record_only | :may_intervene
-  def group_message_policy("addressed_only"), do: :ignore
-  def group_message_policy("observe_all"), do: :record_only
-  def group_message_policy("may_intervene"), do: :may_intervene
-
-  @doc """
   Returns the provider base URL for the configured Lark product region.
   """
   @spec domain_base_url(String.t()) :: String.t()
@@ -267,6 +266,15 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
 
   defp present_string?(value) when is_binary(value), do: String.trim(value) != ""
   defp present_string?(_value), do: false
+
+  defp require_bot_identity(config) when is_map(config) do
+    if present_string?(Map.get(config, "botOpenId")) or
+         present_string?(Map.get(config, "botUserId")) do
+      :ok
+    else
+      {:error, :missing_lark_bot_identity}
+    end
+  end
 
   defp required_string(map, key) do
     case MapHelpers.fetch_value(map, key) do

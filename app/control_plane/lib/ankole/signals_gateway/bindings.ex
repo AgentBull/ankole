@@ -5,11 +5,14 @@ defmodule Ankole.SignalsGateway.Bindings do
 
   alias Ankole.Repo
   alias Ankole.AppConfigure
-  alias Ankole.Plugins.LarkAdapter.Config, as: LarkConfig
+  alias Ankole.Plugins
   alias Ankole.Principals
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Binding
+  alias Ankole.SignalsGateway.GroupMessageModes
   alias Ankole.SignalsGateway.Utils
+
+  @adapter_contract_id "signals_gateway.adapter"
 
   @spec upsert_binding(map()) :: {:ok, Binding.t()} | {:error, term()}
   def upsert_binding(attrs) when is_map(attrs) do
@@ -22,21 +25,32 @@ defmodule Ankole.SignalsGateway.Bindings do
     )
   end
 
-  @spec put_lark_binding(String.t(), String.t(), map()) ::
+  @spec list_adapters() :: [map()]
+  def list_adapters do
+    @adapter_contract_id
+    |> Plugins.adapter_declarations()
+    |> Enum.map(&adapter_catalog/1)
+    |> Enum.sort_by(& &1.adapter_id)
+  end
+
+  @spec put_binding(String.t(), String.t(), String.t(), map()) ::
           {:ok, %{binding: Binding.t(), config_key: String.t()}} | {:error, term()}
-  def put_lark_binding(agent_uid, binding_name, config)
-      when is_binary(binding_name) and is_map(config) do
+  def put_binding(agent_uid, adapter_id, binding_name, attrs)
+      when is_binary(adapter_id) and is_binary(binding_name) and is_map(attrs) do
     with {:ok, %{principal: principal}} <- Principals.get_agent(agent_uid),
-         {:ok, normalized_config} <- LarkConfig.validate_chat_config(config),
-         :ok <- require_lark_bot_identity(normalized_config),
-         {:ok, policy} <- policy_from_lark_group_mode(normalized_config["group_message_mode"]),
-         config_key = LarkConfig.chat_config_key(binding_name),
+         {:ok, declaration} <- fetch_adapter_declaration(adapter_id),
+         {:ok, config} <- binding_config(attrs),
+         {:ok, normalized_config} <- validate_binding_config(declaration, config),
+         {:ok, mode} <- group_message_mode(attrs),
+         :ok <- validate_supported_group_message_mode(declaration, mode),
+         {:ok, policy} <- GroupMessageModes.policy(mode),
+         {:ok, config_key} <- binding_config_key(declaration, binding_name),
          {:ok, _stored_config} <- AppConfigure.put_global_by_key(config_key, normalized_config),
          {:ok, binding} <-
            upsert_binding(%{
              agent_uid: principal.uid,
              name: binding_name,
-             adapter: "lark",
+             adapter: adapter_id,
              config_ref: "app-config://#{config_key}",
              filters: %{},
              unaddressed_group_message_policy: policy,
@@ -49,7 +63,8 @@ defmodule Ankole.SignalsGateway.Bindings do
     end
   end
 
-  def put_lark_binding(_agent_uid, _binding_name, _config), do: {:error, :invalid_lark_binding}
+  def put_binding(_agent_uid, _adapter_id, _binding_name, _attrs),
+    do: {:error, :invalid_signal_binding}
 
   @spec get_binding(String.t(), String.t()) :: {:ok, Binding.t()} | {:error, term()}
   def get_binding(agent_uid, binding_name) do
@@ -110,10 +125,76 @@ defmodule Ankole.SignalsGateway.Bindings do
 
   def disable_binding(_agent_uid, _binding_name), do: {:error, :binding_not_found}
 
-  defp policy_from_lark_group_mode("addressed_only"), do: {:ok, :ignore}
-  defp policy_from_lark_group_mode("observe_all"), do: {:ok, :record_only}
-  defp policy_from_lark_group_mode("may_intervene"), do: {:ok, :may_intervene}
-  defp policy_from_lark_group_mode(_mode), do: {:error, :invalid_group_message_mode}
+  defp adapter_catalog(declaration) do
+    supported_modes = value(declaration, :supported_group_message_modes)
+    adapter_id = value(declaration, :id)
+
+    %{
+      adapter_id: adapter_id,
+      plugin_id: value(declaration, :plugin_id),
+      display_name: value(declaration, :display_name) || default_text(adapter_id),
+      fields: value(declaration, :fields) || [],
+      group_message_mode_field: GroupMessageModes.field(supported_modes)
+    }
+  end
+
+  defp fetch_adapter_declaration(adapter_id) do
+    @adapter_contract_id
+    |> Plugins.adapter_declarations()
+    |> Enum.find(&(value(&1, :id) == adapter_id))
+    |> case do
+      nil -> {:error, {:unknown_signal_adapter, adapter_id}}
+      declaration -> {:ok, declaration}
+    end
+  end
+
+  defp binding_config(%{"config" => config}) when is_map(config), do: {:ok, config}
+  defp binding_config(%{config: config}) when is_map(config), do: {:ok, config}
+  defp binding_config(_attrs), do: {:error, :missing_config}
+
+  defp group_message_mode(attrs) do
+    case value(attrs, :group_message_mode) do
+      mode when is_binary(mode) and mode != "" -> {:ok, mode}
+      nil -> {:ok, GroupMessageModes.default_mode()}
+      mode -> {:error, {:invalid_group_message_mode, mode}}
+    end
+  end
+
+  defp validate_supported_group_message_mode(declaration, mode) do
+    case value(declaration, :supported_group_message_modes) do
+      modes when is_list(modes) ->
+        case mode in modes do
+          true -> :ok
+          false -> {:error, {:unsupported_group_message_mode, value(declaration, :id), mode}}
+        end
+
+      _modes ->
+        :ok
+    end
+  end
+
+  defp validate_binding_config(declaration, config) do
+    case value(declaration, :config_module) do
+      nil ->
+        {:ok, config}
+
+      module when is_atom(module) ->
+        case function_exported?(module, :validate_binding_config, 1) do
+          true -> module.validate_binding_config(config)
+          false -> {:ok, config}
+        end
+
+      module ->
+        {:error, {:invalid_adapter_config_module, module}}
+    end
+  end
+
+  defp binding_config_key(declaration, binding_name) do
+    case value(declaration, :config_key_pattern) do
+      pattern when is_binary(pattern) -> {:ok, String.replace(pattern, "<id>", binding_name)}
+      _pattern -> {:error, {:missing_adapter_config_key_pattern, value(declaration, :id)}}
+    end
+  end
 
   defp lock_binding(repo, agent_uid, binding_name) do
     Binding
@@ -121,17 +202,6 @@ defmodule Ankole.SignalsGateway.Bindings do
     |> lock("FOR UPDATE")
     |> repo.one()
   end
-
-  defp require_lark_bot_identity(config) when is_map(config) do
-    if present_text?(Map.get(config, "botOpenId")) or present_text?(Map.get(config, "botUserId")) do
-      :ok
-    else
-      {:error, :missing_lark_bot_identity}
-    end
-  end
-
-  defp present_text?(value) when is_binary(value), do: String.trim(value) != ""
-  defp present_text?(_value), do: false
 
   @spec list_enabled_bindings(String.t(), keyword()) :: [Binding.t()]
   def list_enabled_bindings(adapter, opts \\ []) when is_binary(adapter) do
@@ -164,4 +234,16 @@ defmodule Ankole.SignalsGateway.Bindings do
         {:error, :binding_not_found}
     end
   end
+
+  defp value(map, key) when is_map(map) do
+    string_key = Atom.to_string(key)
+
+    cond do
+      Map.has_key?(map, key) -> Map.fetch!(map, key)
+      Map.has_key?(map, string_key) -> Map.fetch!(map, string_key)
+      true -> nil
+    end
+  end
+
+  defp default_text(value), do: %{"default" => value}
 end

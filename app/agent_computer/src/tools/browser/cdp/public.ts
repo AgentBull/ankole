@@ -1,15 +1,15 @@
 import { mkdirSync } from 'node:fs'
 import { resolve } from 'node:path'
+import type { JsonObject } from '@pleisto/active-support'
 import { CdpClient } from './client'
 import { BROWSER_NAVIGATION_ATTEMPTS, DEFAULT_BROWSER_COMMAND_TIMEOUT_MS, DEFAULT_WAIT_MS } from './constants'
 import {
   createLocalBrowserContext,
-  findChromium,
   ensureLocalChromiumSidecar,
   localBrowserIdleTtlMs,
   localSidecarKey
 } from './chromium'
-import { remoteBrowserCdpConfigFromOptions, redactRemoteBrowserConfig } from './config'
+import { remoteBrowserCdpConfigFromOptions } from './config'
 import { resolveConnectionForSession, resolveRemoteConnection } from './connection'
 import { captureScreenshot, captureSnapshot, evaluate, waitForReadyState, waitPredicate } from './page'
 import { actOnRef, forgetActiveBrowserSession, withPage } from './runtime'
@@ -24,8 +24,7 @@ import {
   sleep,
   toWorkspacePath,
   truncate,
-  waitBriefly,
-  waitForTermination
+  waitBriefly
 } from './utils'
 import {
   browserNavigationFailureReason,
@@ -38,58 +37,9 @@ import type {
   BrowserRuntimeOptions,
   BrowserSessionMeta,
   BrowserSnapshot,
-  JsonObject,
   PageNavigateResult,
   PageSession
 } from './types'
-
-/**
- * Reports which browser backend the worker can use and redacts backend config.
- */
-export function browserDoctor(options?: BrowserRuntimeOptions): JsonObject {
-  const remoteConfig = remoteBrowserCdpConfigFromOptions(options)
-  if (remoteConfig) {
-    return {
-      ok: true,
-      backend: 'remote_cdp',
-      adapter: remoteConfig.adapter,
-      remote_cdp_configured: true,
-      remote_cdp_config: redactRemoteBrowserConfig(remoteConfig),
-      local_browser_idle_ttl_ms: localBrowserIdleTtlMs(options)
-    }
-  }
-
-  const chromium = findChromium()
-  return {
-    ok: Boolean(chromium),
-    backend: 'chromium',
-    adapter: 'chromium',
-    chromium_path: chromium,
-    remote_cdp_configured: false,
-    local_browser_idle_ttl_ms: localBrowserIdleTtlMs(options)
-  }
-}
-
-/**
- * Starts a browser session and keeps the process alive until termination.
- *
- * This is used by the CLI helper mode; normal tool calls use
- * ensureBrowserSession and short-lived function calls instead.
- */
-export async function launchBrowserSession(
-  args: {
-    session: string | undefined
-    headless?: boolean
-  },
-  options?: BrowserRuntimeOptions
-): Promise<JsonObject> {
-  const session = sanitizeId(args.session || 'default')
-  const ready = await startBrowserSession(session, options)
-  process.stdout.write(`${JSON.stringify(ready)}\n`)
-  await waitForTermination()
-  await releaseBrowserSession({ session }, options)
-  return { ...ready, ok: false, exit_code: 0 }
-}
 
 /**
  * Ensures a named browser session exists before a tool uses it.
@@ -117,7 +67,7 @@ export async function releaseBrowserSession(
   const session = sanitizeId(args.session || 'default')
   forgetActiveBrowserSession(session)
 
-  const meta = readSessionMeta(session)
+  const meta = readSessionMeta(session, options)
   let browserContextDisposed = false
   let browserContextDisposeError: string | undefined
   if (meta?.browser_context_id) {
@@ -142,8 +92,12 @@ export async function releaseBrowserSession(
       browserContextDisposeError = error instanceof Error ? error.message : String(error)
     }
 
-    const { browser_context_id: _browserContextId, target_id: _targetId, ...updated } = readSessionMeta(session) ?? meta
-    writeSessionMeta(session, updated)
+    const {
+      browser_context_id: _browserContextId,
+      target_id: _targetId,
+      ...updated
+    } = readSessionMeta(session, options) ?? meta
+    writeSessionMeta(session, updated, options)
   }
 
   return {
@@ -161,7 +115,7 @@ export async function releaseBrowserSession(
 async function startBrowserSession(session: string, options?: BrowserRuntimeOptions): Promise<JsonObject> {
   const remoteConfig = remoteBrowserCdpConfigFromOptions(options)
 
-  const root = browserRoot(session)
+  const root = browserRoot(session, options)
   const profileDir = resolve(root, 'profile')
   mkdirSync(profileDir, { recursive: true })
 
@@ -178,7 +132,7 @@ async function startBrowserSession(session: string, options?: BrowserRuntimeOpti
       connect_url_source: remoteConfig.adapter === 'cdp_session_request' ? 'session' : 'config',
       started_at_unix_ms: Date.now()
     }
-    writeSessionMeta(session, meta)
+    writeSessionMeta(session, meta, options)
 
     return {
       ok: true,
@@ -190,7 +144,11 @@ async function startBrowserSession(session: string, options?: BrowserRuntimeOpti
     }
   }
 
-  const sidecar = await ensureLocalChromiumSidecar(localSidecarKey(), localBrowserIdleTtlMs(options))
+  const sidecar = await ensureLocalChromiumSidecar(
+    localSidecarKey(),
+    localBrowserIdleTtlMs(options),
+    options?.workspaceRoot
+  )
   const connectUrl = sidecar.connectUrl
   const context = await createLocalBrowserContext(connectUrl)
 
@@ -209,7 +167,7 @@ async function startBrowserSession(session: string, options?: BrowserRuntimeOpti
     profile_dir: toWorkspacePath(profileDir),
     started_at_unix_ms: Date.now()
   }
-  writeSessionMeta(session, meta)
+  writeSessionMeta(session, meta, options)
 
   const ready = {
     ok: true,
@@ -235,7 +193,7 @@ export async function browserStatus(
 ): Promise<JsonObject> {
   const session = sanitizeId(args.session || 'default')
 
-  const meta = readSessionMeta(session)
+  const meta = readSessionMeta(session, options)
   if (!meta) {
     const remoteConfig = remoteBrowserCdpConfigFromOptions(options)
     return {
@@ -310,7 +268,7 @@ export async function browserNavigate(
         resetPageNavigationState(page)
         const navigation = await cdp.send<PageNavigateResult>('Page.navigate', { url: args.url }, page.sessionId)
         await waitForReadyState(cdp, page, DEFAULT_WAIT_MS)
-        snapshot = await captureSnapshot(cdp, page, session)
+        snapshot = await captureSnapshot(cdp, page, session, options)
         navigationFailure = navigation.errorText || browserNavigationFailureReason(snapshot)
         if (!navigationFailure) break
         if (attempt < BROWSER_NAVIGATION_ATTEMPTS) await sleep(500)
@@ -329,7 +287,7 @@ export async function browserNavigate(
         snapshot: formatSnapshot(snapshot)
       }
       if (args.screenshot) {
-        Object.assign(result, await captureScreenshot(cdp, page, session, args.taskId))
+        Object.assign(result, await captureScreenshot(cdp, page, session, args.taskId, undefined, options))
       }
       return result
     },
@@ -348,7 +306,7 @@ export async function browserSnapshot(
     args.session,
     options,
     async (cdp, page, session, connection) => {
-      const snapshot = await captureSnapshot(cdp, page, session)
+      const snapshot = await captureSnapshot(cdp, page, session, options)
       return {
         ok: true,
         backend: connection.backend,
@@ -465,7 +423,7 @@ export async function browserClick(
       page.sessionId
     )
     await waitBriefly()
-    let snapshot = await captureSnapshot(cdp, page, session)
+    let snapshot = await captureSnapshot(cdp, page, session, options)
     let usedHrefFallback = false
     if (
       typeof clicked.href === 'string' &&
@@ -476,7 +434,7 @@ export async function browserClick(
       resetPageNavigationState(page)
       const navigation = await cdp.send<PageNavigateResult>('Page.navigate', { url: clicked.href }, page.sessionId)
       await waitForReadyState(cdp, page, DEFAULT_WAIT_MS)
-      snapshot = await captureSnapshot(cdp, page, session)
+      snapshot = await captureSnapshot(cdp, page, session, options)
       const fallbackFailure = navigation.errorText || browserNavigationFailureReason(snapshot)
       if (fallbackFailure) throw new Error(`browser click navigation failed: ${fallbackFailure}`)
       usedHrefFallback = true
@@ -540,7 +498,7 @@ export async function browserType(
       })()`
     )
     await waitBriefly()
-    const snapshot = await captureSnapshot(cdp, page, session)
+    const snapshot = await captureSnapshot(cdp, page, session, options)
     return {
       ok: true,
       backend: connection.backend,
@@ -566,7 +524,7 @@ export async function browserPress(
     if (key.text) await cdp.send('Input.dispatchKeyEvent', { type: 'char', ...key }, page.sessionId)
     await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', ...key }, page.sessionId)
     await waitBriefly()
-    const snapshot = await captureSnapshot(cdp, page, session)
+    const snapshot = await captureSnapshot(cdp, page, session, options)
     return {
       ok: true,
       backend: connection.backend,
@@ -606,7 +564,7 @@ export async function browserScroll(
         })()`
       )
       await waitBriefly()
-      const snapshot = await captureSnapshot(cdp, page, session)
+      const snapshot = await captureSnapshot(cdp, page, session, options)
       return {
         ok: true,
         backend: connection.backend,
@@ -621,7 +579,7 @@ export async function browserScroll(
   return withPage(args.session, options, async (cdp, page, session, connection) => {
     await evaluate(cdp, page, `window.scrollBy({ top: ${direction * pixels}, behavior: 'instant' })`)
     await waitBriefly()
-    const snapshot = await captureSnapshot(cdp, page, session)
+    const snapshot = await captureSnapshot(cdp, page, session, options)
     return {
       ok: true,
       backend: connection.backend,
@@ -661,7 +619,7 @@ export async function browserSelect(
       })()`
     )
     await waitBriefly()
-    const snapshot = await captureSnapshot(cdp, page, session)
+    const snapshot = await captureSnapshot(cdp, page, session, options)
     return {
       ok: true,
       backend: connection.backend,
@@ -698,7 +656,7 @@ export async function browserWait(
         if (allowReadyProbe) nextFallbackProbeAt = Date.now() + 1_000
         const ok = await waitPredicate(cdp, page, args, { allowReadyProbe })
         if (ok) {
-          const snapshot = await captureSnapshot(cdp, page, session)
+          const snapshot = await captureSnapshot(cdp, page, session, options)
           return {
             ok: true,
             backend: connection.backend,
@@ -737,7 +695,7 @@ export async function browserBack(
       resetPageNavigationState(page)
       await cdp.send('Page.navigateToHistoryEntry', { entryId: entry.id }, page.sessionId)
       await waitForReadyState(cdp, page, DEFAULT_WAIT_MS)
-      const snapshot = await captureSnapshot(cdp, page, session)
+      const snapshot = await captureSnapshot(cdp, page, session, options)
       return {
         ok: true,
         backend: connection.backend,
@@ -777,7 +735,7 @@ export async function browserScreenshot(
     args.session,
     options,
     async (cdp, page, session, connection) => {
-      const screenshot = await captureScreenshot(cdp, page, session, args.taskId, args.path)
+      const screenshot = await captureScreenshot(cdp, page, session, args.taskId, args.path, options)
       if (screenshot.screenshot_unsupported === true) {
         return {
           ok: false,

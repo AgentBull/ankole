@@ -13,13 +13,23 @@ import {
 } from '@ankole/uikit/components/field'
 import { Input } from '@ankole/uikit/components/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@ankole/uikit/components/select'
-import { Textarea } from '@ankole/uikit/components/textarea'
+import { toast } from '@ankole/uikit/components/sonner'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import * as v from 'valibot'
-import { apiErrorMessage, apiGet, apiPost, apiPut, type JsonObject, type JsonValue } from '../common/api'
+import { internalApiGet, internalApiPost, internalApiPut } from '../common/Internal-api-client'
+import {
+  ConfigFields,
+  defaultConfig,
+  localizedText,
+  setPath,
+  type ConfigFieldDefinition,
+  type LocalizedText
+} from '../common/config-fields'
 import i18n, { nativeLocaleLabel } from '../common/i18n'
+import type { JsonObject } from '@pleisto/active-support'
+import { requestErrorMessage } from '../common/request-errors'
 import { SetupLayout } from './layout'
 
 type SetupState = {
@@ -29,25 +39,13 @@ type SetupState = {
   currentLocale: string
 }
 
-type LocalizedText = string | Record<string, string> | null | undefined
-
 type Plugin = {
   id: string
   displayName?: LocalizedText
   description?: LocalizedText
 }
 
-type SetupField = {
-  default?: JsonValue
-  description?: LocalizedText
-  label?: LocalizedText
-  max?: number
-  min?: number
-  options?: Array<string | { label?: LocalizedText; value: string }>
-  path: string
-  required?: boolean
-  type: string
-}
+type SetupField = ConfigFieldDefinition
 
 type IdentityAdapter = {
   adapterId: string
@@ -74,7 +72,7 @@ export function SetupApp() {
   const [step, setStep] = useState<'plugins' | 'identity'>('plugins')
   const state = useQuery({
     queryKey: ['setup-state'],
-    queryFn: () => apiGet<SetupState>('/.internal-apis/setup/state')
+    queryFn: () => internalApiGet<SetupState>('/.internal-apis/setup/state')
   })
 
   useEffect(() => {
@@ -137,8 +135,12 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
   })
   const mutation = useMutation({
     mutationFn: (input: v.InferOutput<typeof BootstrapSchema>) =>
-      apiPost<{ ok: true }>('/.internal-apis/setup/sessions', input),
+      internalApiPost<{ ok: true }>('/.internal-apis/setup/sessions', input),
     onSuccess: onAuthenticated
+  })
+  const printActivationCode = useMutation({
+    mutationFn: () => internalApiPost<{ ok: true }>('/.internal-apis/setup/bootstrap-activation-code/log-entries'),
+    onSuccess: () => toast.success(t('setup.activation_printed'))
   })
   const availableLocales = useMemo(
     // Include the current locale even if catalog reload state is temporarily
@@ -150,7 +152,7 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
   return (
     <Panel title={t('setup.bootstrap_title')}>
       <p className="text-sm leading-6 text-muted-foreground">{t('setup.activation_hint')}</p>
-      <ErrorAlert error={mutation.error} />
+      <ErrorAlert error={mutation.error ?? printActivationCode.error} />
       <Form className="grid gap-6" of={form} onSubmit={output => mutation.mutate(output)}>
         <FieldGroup className="grid gap-5 md:grid-cols-2">
           <FormField of={form} path={['locale']}>
@@ -182,7 +184,16 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
           <FormField of={form} path={['activationCode']}>
             {field => (
               <Field>
-                <FieldLabel>{t('setup.activation_code')}</FieldLabel>
+                <div className="flex flex-wrap items-center gap-2">
+                  <FieldLabel>{t('setup.activation_code')}</FieldLabel>
+                  <button
+                    className="text-sm leading-5 text-primary underline underline-offset-4 hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={printActivationCode.isPending}
+                    onClick={() => printActivationCode.mutate()}
+                    type="button">
+                    {printActivationCode.isPending ? t('setup.activation_printing') : t('setup.activation_print')}
+                  </button>
+                </div>
                 <Input
                   {...field.props}
                   aria-invalid={field.errors ? true : undefined}
@@ -211,7 +222,7 @@ function PluginsStep({ onContinue }: { onContinue: () => void }) {
   const { i18n: i18next, t } = useTranslation()
   const query = useQuery({
     queryKey: ['setup-plugins'],
-    queryFn: () => apiGet<{ enabledPluginIds: string[]; plugins: Plugin[] }>('/.internal-apis/setup/plugins')
+    queryFn: () => internalApiGet<{ enabledPluginIds: string[]; plugins: Plugin[] }>('/.internal-apis/setup/plugins')
   })
   const [selected, setSelected] = useState<Set<string> | null>(null)
   // `null` means the user has not touched the form yet. Until then, the server
@@ -219,7 +230,9 @@ function PluginsStep({ onContinue }: { onContinue: () => void }) {
   const selectedIds = selected ?? new Set(query.data?.enabledPluginIds ?? [])
   const mutation = useMutation({
     mutationFn: () =>
-      apiPut<{ enabledPluginIds: string[] }>('/.internal-apis/setup/plugins/enabled', { pluginIds: [...selectedIds] }),
+      internalApiPut<{ enabledPluginIds: string[] }>('/.internal-apis/setup/plugins/enabled', {
+        pluginIds: [...selectedIds]
+      }),
     onSuccess: onContinue
   })
 
@@ -268,7 +281,7 @@ function PluginsStep({ onContinue }: { onContinue: () => void }) {
 function IdentityStep() {
   const query = useQuery({
     queryKey: ['setup-identity-provider-adapters'],
-    queryFn: () => apiGet<{ adapters: IdentityAdapter[] }>('/.internal-apis/setup/identity-provider-adapters')
+    queryFn: () => internalApiGet<{ adapters: IdentityAdapter[] }>('/.internal-apis/setup/identity-provider-adapters')
   })
 
   if (query.isLoading) return <Panel title="">{i18n.t('common.loading')}</Panel>
@@ -295,12 +308,12 @@ function IdentityForm({ adapters }: { adapters: IdentityAdapter[] }) {
   const [config, setConfig] = useState<JsonObject>(() => defaultConfig(activeAdapter.fields))
   const mutation = useMutation({
     mutationFn: async (input: v.InferOutput<typeof IdentitySchema>) => {
-      await apiPut(`/.internal-apis/setup/identity-providers/${encodeURIComponent(input.providerId)}`, {
+      await internalApiPut(`/.internal-apis/setup/identity-providers/${encodeURIComponent(input.providerId)}`, {
         adapter: input.adapterId,
         config,
         enabled: true
       })
-      return apiPost<{ authorizationUrl: string }>(
+      return internalApiPost<{ authorizationUrl: string }>(
         `/.internal-apis/setup/identity-providers/${encodeURIComponent(input.providerId)}/oidc/authorizations`
       )
     },
@@ -332,12 +345,16 @@ function IdentityForm({ adapters }: { adapters: IdentityAdapter[] }) {
                     if (value) changeAdapter(value)
                   }}>
                   <SelectTrigger className="w-full">
-                    <SelectValue />
+                    <SelectValue>
+                      {value =>
+                        identityAdapterLabel(adapterById(adapters, value ?? activeAdapter.adapterId), i18next.language)
+                      }
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {adapters.map(adapter => (
                       <SelectItem key={adapter.adapterId} value={adapter.adapterId}>
-                        {localizedText(adapter.displayName, i18next.language) ?? adapter.adapterId}
+                        {identityAdapterLabel(adapter, i18next.language)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -368,17 +385,13 @@ function IdentityForm({ adapters }: { adapters: IdentityAdapter[] }) {
           <h2 className="text-sm font-semibold uppercase tracking-normal text-muted-foreground">
             {t('setup.adapter_config')}
           </h2>
-          <FieldGroup className="grid gap-5 md:grid-cols-2">
-            {activeAdapter.fields.map(field => (
-              <ConfigField
-                field={field}
-                key={field.path}
-                locale={i18next.language}
-                value={getPath(config, field.path)}
-                onChange={value => setConfig(previous => setPath(previous, field.path, value))}
-              />
-            ))}
-          </FieldGroup>
+          <ConfigFields
+            advancedLabel={t('setup.advanced_config')}
+            config={config}
+            fields={activeAdapter.fields}
+            locale={i18next.language}
+            onChange={(path, value) => setConfig(previous => setPath(previous, path, value))}
+          />
         </section>
 
         <div className="flex flex-wrap items-center gap-3 border-t border-border/70 pt-5">
@@ -392,95 +405,6 @@ function IdentityForm({ adapters }: { adapters: IdentityAdapter[] }) {
   )
 }
 
-/** Renders one plugin-declared setup field into a JSON config value. */
-function ConfigField({
-  field,
-  locale,
-  onChange,
-  value
-}: {
-  field: SetupField
-  locale: string
-  onChange(value: JsonValue): void
-  value: JsonValue | undefined
-}) {
-  const label = localizedText(field.label, locale) ?? field.path
-  const description = localizedText(field.description, locale)
-
-  if (field.type === 'boolean') {
-    return (
-      <Field orientation="horizontal" className="items-center justify-between border border-border/70 bg-card/60 p-4">
-        <div className="grid gap-1">
-          <FieldLabel>{label}</FieldLabel>
-          {description ? <FieldDescription>{description}</FieldDescription> : null}
-        </div>
-        <Checkbox checked={Boolean(value)} onCheckedChange={checked => onChange(checked === true)} />
-      </Field>
-    )
-  }
-
-  if (field.type === 'select') {
-    const options = (field.options ?? []).map(option =>
-      typeof option === 'string' ? { label: option, value: option } : option
-    )
-
-    return (
-      <Field>
-        <FieldLabel>{label}</FieldLabel>
-        <Select value={typeof value === 'string' ? value : ''} onValueChange={next => onChange(next ?? '')}>
-          <SelectTrigger className="w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {options.map(option => (
-              <SelectItem key={option.value} value={option.value}>
-                {localizedText(option.label, locale) ?? option.value}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {description ? <FieldDescription>{description}</FieldDescription> : null}
-      </Field>
-    )
-  }
-
-  if (field.type === 'string_array') {
-    return (
-      <Field>
-        <FieldLabel>{label}</FieldLabel>
-        <Textarea
-          value={Array.isArray(value) ? value.join('\n') : ''}
-          onChange={event =>
-            // Accept both newline and comma input because setup fields often copy
-            // from provider consoles or docs with different list formats.
-            onChange(
-              event.target.value
-                .split(/\n|,/)
-                .map(item => item.trim())
-                .filter(Boolean)
-            )
-          }
-        />
-        {description ? <FieldDescription>{description}</FieldDescription> : null}
-      </Field>
-    )
-  }
-
-  return (
-    <Field>
-      <FieldLabel>{label}</FieldLabel>
-      <Input
-        max={field.max}
-        min={field.min}
-        type={field.type === 'secret' ? 'password' : field.type === 'integer' ? 'number' : 'text'}
-        value={value == null ? '' : String(value)}
-        onChange={event => onChange(field.type === 'integer' ? Number(event.target.value) : event.target.value)}
-      />
-      {description ? <FieldDescription>{description}</FieldDescription> : null}
-    </Field>
-  )
-}
-
 /** Shows the identity step when no enabled plugin contributes an adapter. */
 function NoAdapters({ error }: { error: unknown }) {
   const { t } = useTranslation()
@@ -491,6 +415,14 @@ function NoAdapters({ error }: { error: unknown }) {
       <ErrorAlert error={error} />
     </Panel>
   )
+}
+
+function adapterById(adapters: IdentityAdapter[], adapterId: string): IdentityAdapter {
+  return adapters.find(adapter => adapter.adapterId === adapterId) ?? adapters[0]
+}
+
+function identityAdapterLabel(adapter: IdentityAdapter, locale: string): string {
+  return localizedText(adapter.displayName, locale) ?? adapter.adapterId
 }
 
 /** Shared setup panel frame. */
@@ -514,7 +446,7 @@ function ErrorAlert({ error }: { error?: unknown }) {
     <Alert variant="destructive">
       <AlertTitle>{t('common.error')}</AlertTitle>
       <AlertDescription>
-        <pre className="whitespace-pre-wrap text-xs">{apiErrorMessage(error)}</pre>
+        <pre className="whitespace-pre-wrap text-xs">{requestErrorMessage(error)}</pre>
       </AlertDescription>
     </Alert>
   )
@@ -523,60 +455,6 @@ function ErrorAlert({ error }: { error?: unknown }) {
 /** Shows the first validation error from Formisch field state. */
 function FormFieldError({ errors }: { errors: [string, ...string[]] | null }) {
   return errors ? <UiFieldError>{errors[0]}</UiFieldError> : null
-}
-
-/** Resolves plugin-provided localized text with simple language fallback. */
-function localizedText(value: LocalizedText, locale: string): string | undefined {
-  if (!value) return undefined
-  if (typeof value === 'string') return value
-
-  const language = locale.split('-')[0]
-  return value[locale] ?? value[language] ?? value['en-US'] ?? Object.values(value)[0]
-}
-
-/** Builds the initial config object from plugin-declared field defaults. */
-function defaultConfig(fields: SetupField[]): JsonObject {
-  return fields.reduce<JsonObject>((config, field) => setPath(config, field.path, defaultValue(field)), {})
-}
-
-/** Chooses a JSON-safe fallback value for a setup field without an explicit default. */
-function defaultValue(field: SetupField): JsonValue {
-  if (field.default !== undefined) return field.default
-  if (field.type === 'boolean') return false
-  if (field.type === 'integer') return 0
-  if (field.type === 'string_array') return []
-  if (field.type === 'select') {
-    const first = field.options?.[0]
-    return typeof first === 'string' ? first : (first?.value ?? '')
-  }
-  return ''
-}
-
-/** Reads a dot-path from a JSON object used by plugin setup fields. */
-function getPath(source: JsonObject, path: string): JsonValue | undefined {
-  return path.split('.').reduce<JsonValue | undefined>((value, segment) => {
-    if (value && typeof value === 'object' && !Array.isArray(value)) return value[segment]
-    return undefined
-  }, source)
-}
-
-/** Writes a dot-path without mutating the previous setup config object. */
-function setPath(source: JsonObject, path: string, value: JsonValue): JsonObject {
-  const segments = path.split('.')
-  const [head, ...rest] = segments
-
-  if (!head) return source
-  if (rest.length === 0) return { ...source, [head]: value }
-
-  const current = source[head]
-  // Only plain object children can be traversed. Arrays and scalars are replaced
-  // so a stale field shape cannot corrupt a nested adapter config.
-  const child = current && typeof current === 'object' && !Array.isArray(current) ? (current as JsonObject) : {}
-
-  return {
-    ...source,
-    [head]: setPath(child, rest.join('.'), value)
-  }
 }
 
 /** Returns unique non-empty values while preserving user-visible order. */

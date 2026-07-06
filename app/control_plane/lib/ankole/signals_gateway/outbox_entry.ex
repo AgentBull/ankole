@@ -21,9 +21,10 @@ defmodule Ankole.SignalsGateway.OutboxEntry do
   use Ecto.Schema
 
   import Ecto.Changeset
+  import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
 
   alias Ankole.Principals.Principal
-  alias Ankole.SignalsGateway.JsonPayload
+  alias Ankole.Ecto.JsonPayload
 
   @primary_key false
   @foreign_key_type :string
@@ -33,7 +34,7 @@ defmodule Ankole.SignalsGateway.OutboxEntry do
     belongs_to :agent, Principal,
       foreign_key: :agent_uid,
       references: :uid,
-      type: :string,
+      type: Ankole.Ecto.PrincipalKey,
       primary_key: true
 
     field :binding_name, :string, primary_key: true
@@ -127,7 +128,6 @@ defmodule Ankole.SignalsGateway.OutboxEntry do
       :fallback_visible_text,
       :idempotency_key
     ])
-    |> normalize_uid(:agent_uid)
     |> validate_required([
       :agent_uid,
       :binding_name,
@@ -153,29 +153,5 @@ defmodule Ankole.SignalsGateway.OutboxEntry do
     |> check_constraint(:last_error, name: :signal_gateway_outbox_last_error_object)
     |> check_constraint(:recovery_state, name: :signal_gateway_outbox_recovery_state_object)
     |> check_constraint(:attempt_count, name: :signal_gateway_outbox_attempts_non_negative)
-  end
-
-  defp normalize_blank(changeset, fields) when is_list(fields) do
-    Enum.reduce(fields, changeset, &normalize_blank(&2, &1))
-  end
-
-  defp normalize_blank(changeset, field) do
-    update_change(changeset, field, fn
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          trimmed -> trimmed
-        end
-
-      value ->
-        value
-    end)
-  end
-
-  defp normalize_uid(changeset, field) do
-    update_change(changeset, field, fn
-      value when is_binary(value) -> String.downcase(value)
-      value -> value
-    end)
   end
 end

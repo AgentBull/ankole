@@ -56,6 +56,7 @@ config :ankole, Oban,
     {Oban.Plugins.Cron,
      crontab: [
        {"* * * * *", Ankole.ActorRuntime.Jobs.EnqueueDailySessionResets},
+       {"0 * * * *", Ankole.IdentityProviders.Jobs.EnqueueDirectorySyncs},
        {"*/5 * * * *", Ankole.Memory.Jobs.EnqueueEpisodeSummaries},
        {"*/5 * * * *", Ankole.Memory.Jobs.EmbedPendingEpisodes},
        {"*/15 * * * *", Ankole.SignalsGateway.Jobs.CleanupExpiredState}

@@ -11,36 +11,33 @@ defmodule Ankole.ActorRuntime.AgentConversationContextBroker do
 
   alias Ankole.AIAgent.Library
   alias Ankole.AIGateway.Schemas.Conversation
-  alias Ankole.ActorRuntime.WorkerRouteAuth
+  alias Ankole.ActorRuntime.TurnRef
   alias Ankole.Memory
   alias Ankole.Principals.Agent, as: PrincipalAgent
   alias Ankole.Principals.Principal
   alias Ankole.Repo
   alias Ankole.SystemConfig
 
-  @spec handle_request(map(), String.t()) :: {:ok, map()} | {:error, map()}
-  def handle_request(request, route) when is_map(request) and is_binary(route) do
+  @spec handle_request(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
+  def handle_request(%TurnRef{} = turn_ref, request, _route) when is_map(request) do
     request_id =
       text(request, "request_id") || "agent-conversation-context-#{Ecto.UUID.generate()}"
 
-    with {:ok, turn} <- turn_ref(request),
-         {:ok, actor_event} <- actor_event(request),
-         {agent_uid, session_id} <- actor_identity(turn),
-         :ok <- WorkerRouteAuth.authorize_turn_route(turn, route, :read),
-         %Conversation{} = conversation <- active_conversation(agent_uid, session_id),
-         {:ok, agent} <- agent_profile(agent_uid),
-         {:ok, soul} <- Library.get_soul(agent_uid),
-         {:ok, mission} <- Library.get_mission(agent_uid),
-         {:ok, skills} <- Library.skills_for_system_prompt(agent_uid) do
+    with {:ok, actor_event} <- actor_event(request),
+         %Conversation{} = conversation <- active_conversation(turn_ref),
+         {:ok, agent} <- agent_profile(turn_ref.agent_uid),
+         {:ok, soul} <- Library.get_soul(turn_ref.agent_uid),
+         {:ok, mission} <- Library.get_mission(turn_ref.agent_uid),
+         {:ok, skills} <- Library.skills_for_system_prompt(turn_ref.agent_uid) do
       timezone = installation_timezone()
-      memory_notes = Memory.notes_for_context(agent_uid, current_channel_id(actor_event))
+      memory_notes = Memory.notes_for_context(turn_ref.agent_uid, current_channel_id(actor_event))
 
       {:ok,
        %{
          "request_id" => request_id,
          "agent_uid" => conversation.agent_uid,
          "session_id" => conversation.conversation_key,
-         "turn" => turn,
+         "turn" => TurnRef.to_wire(turn_ref),
          "agent" => agent,
          "conversation" => %{
            "id" => conversation.id,
@@ -61,7 +58,7 @@ defmodule Ankole.ActorRuntime.AgentConversationContextBroker do
     end
   end
 
-  def handle_request(_request, _route),
+  def handle_request(_turn_ref, _request, _route),
     do:
       {:error,
        %{
@@ -71,16 +68,16 @@ defmodule Ankole.ActorRuntime.AgentConversationContextBroker do
          "details_json" => %{}
        }}
 
-  defp active_conversation(agent_uid, session_id) do
+  defp active_conversation(%TurnRef{} = turn_ref) do
     Conversation
-    |> where([conversation], conversation.agent_uid == ^String.downcase(agent_uid))
-    |> where([conversation], conversation.conversation_key == ^session_id)
+    |> where([conversation], conversation.agent_uid == ^turn_ref.agent_uid)
+    |> where([conversation], conversation.conversation_key == ^turn_ref.session_id)
     |> where([conversation], is_nil(conversation.ended_at))
     |> Repo.one()
   end
 
   defp agent_profile(agent_uid) do
-    case Repo.get(Principal, String.downcase(agent_uid)) do
+    case Repo.get(Principal, agent_uid) do
       %Principal{} = principal ->
         agent = Repo.get(PrincipalAgent, principal.uid)
 
@@ -123,10 +120,6 @@ defmodule Ankole.ActorRuntime.AgentConversationContextBroker do
     "agent-conversation-context:" <> Base.encode16(:crypto.hash(:sha256, content), case: :lower)
   end
 
-  defp turn_ref(%{"turn" => turn}) when is_map(turn), do: {:ok, turn}
-  defp turn_ref(%{turn: turn}) when is_map(turn), do: {:ok, stringify_keys(turn)}
-  defp turn_ref(_request), do: {:error, :missing_turn_ref}
-
   defp actor_event(%{"actor_event" => actor_event}) when is_map(actor_event),
     do: {:ok, stringify_keys(actor_event)}
 
@@ -134,12 +127,6 @@ defmodule Ankole.ActorRuntime.AgentConversationContextBroker do
     do: {:ok, stringify_keys(actor_event)}
 
   defp actor_event(_request), do: {:ok, %{}}
-
-  defp actor_identity(%{"actor" => %{"agent_uid" => agent_uid, "session_id" => session_id}})
-       when is_binary(agent_uid) and is_binary(session_id),
-       do: {agent_uid, session_id}
-
-  defp actor_identity(_turn), do: {"", ""}
 
   defp current_channel_id(%{"signal_channel_id" => channel_id}) when is_binary(channel_id),
     do: channel_id

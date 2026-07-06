@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { z } from 'zod'
+import type { JsonObject } from '@pleisto/active-support'
 import { createModel, type ResponseWebSocketLike } from '../../src/core/llm'
 
 export function parallelReadTool(name: string, events: string[], delayMs: number, text: string) {
@@ -94,14 +95,14 @@ export function modelRefForTest(inputModalities: string[]) {
   }
 }
 
-export function fallbackModelForTest(summary: string, bodies: Record<string, unknown>[]) {
+export function fallbackModelForTest(summary: string, bodies: JsonObject[]) {
   return createModel({
     apiKey: 'unused',
     baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
     selector: 'vision_fallback',
     fetch: (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       const request = input instanceof Request ? input : new Request(input, init)
-      bodies.push(JSON.parse(await request.text()) as Record<string, unknown>)
+      bodies.push(JSON.parse(await request.text()) as JsonObject)
 
       return new Response(
         JSON.stringify({
@@ -122,7 +123,7 @@ export function fallbackModelForTest(summary: string, bodies: Record<string, unk
   })
 }
 
-export function toolResultsRecordedFrame(id: string): Record<string, unknown> {
+export function toolResultsRecordedFrame(id: string): JsonObject {
   return {
     type: 'response.tool_results.recorded',
     response_id: id,
@@ -136,7 +137,7 @@ export function toolResultsRecordedFrame(id: string): Record<string, unknown> {
 
 export function fakeResponseSocket(
   init: { headers: Record<string, string> },
-  onSend: (data: string, socket: FakeResponseSocket) => Record<string, unknown>[]
+  onSend: (data: string, socket: FakeResponseSocket) => JsonObject[]
 ): ResponseWebSocketLike {
   const socket = new FakeResponseSocket(init, onSend)
   queueMicrotask(() => socket.emitOpen())
@@ -150,7 +151,7 @@ export class FakeResponseSocket {
 
   constructor(
     readonly init: { headers: Record<string, string> },
-    private readonly onSend: (data: string, socket: FakeResponseSocket) => Record<string, unknown>[]
+    private readonly onSend: (data: string, socket: FakeResponseSocket) => JsonObject[]
   ) {}
 
   send(data: string): void {
@@ -196,7 +197,7 @@ export class FakeResponseSocket {
     this.emit('error', {})
   }
 
-  private emitMessage(frame: Record<string, unknown>): void {
+  private emitMessage(frame: JsonObject): void {
     this.emit('message', { data: JSON.stringify(frame) })
   }
 

@@ -8,6 +8,7 @@ defmodule Ankole.Memory do
   alias Ankole.AIGateway
   alias Ankole.AIGateway.ModelProfiles
   alias Ankole.Actors.ActorEvent
+  alias Ankole.ActorRuntime.TurnRef
   alias Ankole.Ecto.UUIDv7
   alias Ankole.Memory.ChannelCursor
   alias Ankole.Memory.Config
@@ -144,13 +145,13 @@ defmodule Ankole.Memory do
   def search(%{} = attrs) do
     with {:ok, recall_config} <- Config.recall(),
          {:ok, query} <- required_text(attrs, "query"),
-         {:ok, turn} <- required_map(attrs, "turn_ref"),
+         {:ok, turn_ref} <- required_turn_ref(attrs),
          {:ok, actor_event} <- optional_map(attrs, "actor_event"),
          {:ok, scope} <- search_scope(attrs),
          {:ok, limit} <- bounded_limit(attrs, recall_config),
          {:ok, time_range} <- time_range(attrs),
-         {agent_uid, _session_id} <- actor_identity(turn),
-         {:ok, current_channel_id} <- current_channel_id(actor_event, turn),
+         agent_uid = turn_ref.agent_uid,
+         {:ok, current_channel_id} <- current_channel_id(actor_event, turn_ref),
          {:ok, allowed_channels} <- allowed_channels(agent_uid, current_channel_id, scope) do
       {bm25_results, bm25_degraded} =
         case bm25_search(
@@ -190,10 +191,10 @@ defmodule Ankole.Memory do
 
   @spec browse(map()) :: {:ok, map()} | {:error, term()}
   def browse(%{} = attrs) do
-    with {:ok, turn} <- required_map(attrs, "turn_ref"),
+    with {:ok, turn_ref} <- required_turn_ref(attrs),
          {:ok, actor_event} <- optional_map(attrs, "actor_event"),
-         {agent_uid, _session_id} <- actor_identity(turn),
-         {:ok, current_channel_id} <- current_channel_id(actor_event, turn),
+         agent_uid = turn_ref.agent_uid,
+         {:ok, current_channel_id} <- current_channel_id(actor_event, turn_ref),
          {:ok, signal_channel_id} <- browse_channel(attrs, agent_uid, current_channel_id),
          {:ok, limit} <- browse_limit(attrs),
          {:ok, time_range} <- time_range(attrs),
@@ -1651,21 +1652,12 @@ defmodule Ankole.Memory do
   defp current_channel_id(%{"signal_channel_id" => channel_id}, _turn) when is_binary(channel_id),
     do: {:ok, channel_id}
 
-  defp current_channel_id(_actor_event, %{"actor_event_id" => actor_event_id})
-       when is_binary(actor_event_id) do
+  defp current_channel_id(_actor_event, %TurnRef{actor_event_id: actor_event_id}) do
     case Repo.get(ActorEvent, actor_event_id) do
       %ActorEvent{signal_channel_id: channel_id} when is_binary(channel_id) -> {:ok, channel_id}
       _value -> {:ok, nil}
     end
   end
-
-  defp current_channel_id(_actor_event, _turn), do: {:ok, nil}
-
-  defp actor_identity(%{"actor" => %{"agent_uid" => agent_uid, "session_id" => session_id}})
-       when is_binary(agent_uid) and is_binary(session_id),
-       do: {String.downcase(agent_uid), session_id}
-
-  defp actor_identity(_turn), do: {"", ""}
 
   defp required_text(map, key) do
     case text(map, key) do
@@ -1687,10 +1679,10 @@ defmodule Ankole.Memory do
     end
   end
 
-  defp required_map(map, key) do
-    case Map.get(map, key) || Map.get(map, String.to_atom(key)) do
-      value when is_map(value) -> {:ok, stringify_keys(value)}
-      _value -> {:error, {:missing, key}}
+  defp required_turn_ref(attrs) do
+    case Map.get(attrs, "turn_ref") || Map.get(attrs, :turn_ref) do
+      nil -> {:error, {:missing, "turn_ref"}}
+      turn_ref -> TurnRef.from_wire(turn_ref)
     end
   end
 

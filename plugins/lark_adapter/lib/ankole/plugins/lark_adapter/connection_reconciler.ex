@@ -200,7 +200,7 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
          "config_key" => config_key
        }) do
     with {:ok, config} <- Config.load_identity_config_key(config_key),
-         true <- get_in(config, ["sync", "websocket"]) != false || :skip do
+         true <- realtime_identity_sync_enabled?(config) || :skip do
       {:ok, Config.connection_key(config),
        %{
          config: config,
@@ -212,6 +212,11 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
       :error -> {:error, :identity_config_not_found}
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  defp realtime_identity_sync_enabled?(config) when is_map(config) do
+    get_in(config, ["sync", "contacts"]) != false and
+      get_in(config, ["sync", "websocket"]) != false
   end
 
   defp merge_connection_spec(specs, key, spec, _conflict_error, errors)

@@ -5,6 +5,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
 
   alias Ankole.Repo
   alias Ankole.SignalsGateway
+  alias Ankole.SignalsGateway.Ingress
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Entry
 
@@ -19,7 +20,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               SignalsGateway.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -86,7 +87,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               SignalsGateway.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -132,7 +133,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               SignalsGateway.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -194,7 +195,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               SignalsGateway.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -231,7 +232,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               SignalsGateway.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -293,7 +294,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               SignalsGateway.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
                  now: @base_time
                )
 

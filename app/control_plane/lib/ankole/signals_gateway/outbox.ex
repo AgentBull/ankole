@@ -8,7 +8,7 @@ defmodule Ankole.SignalsGateway.Outbox do
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Repo
   alias Ankole.RuntimeEvents
-  alias Ankole.SignalsGateway.JsonPayload
+  alias Ankole.Ecto.JsonPayload
   alias Ankole.SignalsGateway.OutboxAdapter
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Projection

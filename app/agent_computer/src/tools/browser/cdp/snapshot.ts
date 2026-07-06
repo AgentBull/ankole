@@ -1,6 +1,7 @@
 import { SNAPSHOT_TEXT_MAX } from './constants'
 import { redactText } from './utils'
-import type { BrowserFindMatch, BrowserSnapshot, JsonObject } from './types'
+import type { JsonObject } from '@pleisto/active-support'
+import type { BrowserFindMatch, BrowserSnapshot } from './types'
 
 /**
  * Formats a browser snapshot into compact text for the model.

@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
+import type { JsonObject } from '@pleisto/active-support'
 import { CdpClient } from './client'
 import { LOCAL_BROWSER_READY_STABLE_MS, SNAPSHOT_ELEMENT_MAX } from './constants'
 import { writeRefs } from './session-store'
@@ -7,7 +8,7 @@ import { snapshotScript } from './snapshot'
 import { isUnsupportedCdpMethod, safePath, sanitizeId, sleep, toWorkspacePath } from './utils'
 import type {
   BrowserSnapshot,
-  JsonObject,
+  BrowserRuntimeOptions,
   PageFrameNavigatedEvent,
   PageFrameTree,
   PageSession,
@@ -116,9 +117,14 @@ function installPageContextTracking(cdp: CdpClient, page: PageSession): void {
 /**
  * Captures the page snapshot and persists element refs for later actions.
  */
-export async function captureSnapshot(cdp: CdpClient, page: PageSession, session: string): Promise<BrowserSnapshot> {
+export async function captureSnapshot(
+  cdp: CdpClient,
+  page: PageSession,
+  session: string,
+  options?: BrowserRuntimeOptions
+): Promise<BrowserSnapshot> {
   const snapshot = await evaluate<BrowserSnapshot>(cdp, page, `(${snapshotScript.toString()})(${SNAPSHOT_ELEMENT_MAX})`)
-  writeRefs(session, snapshot.elements)
+  writeRefs(session, snapshot.elements, options)
   return snapshot
 }
 
@@ -133,7 +139,8 @@ export async function captureScreenshot(
   page: PageSession,
   session: string,
   taskId?: string,
-  explicitPath?: string
+  explicitPath?: string,
+  options?: BrowserRuntimeOptions
 ): Promise<JsonObject> {
   let result: { data: string }
   try {
@@ -153,11 +160,11 @@ export async function captureScreenshot(
     throw error
   }
   const outputPath = explicitPath
-    ? safePath(explicitPath)
-    : safePath(`/workspace/user-files/browser/${session}/${sanitizeId(taskId || 'latest')}/screenshot.png`)
+    ? safePath(explicitPath, options)
+    : safePath(`/workspace/user-files/browser/${session}/${sanitizeId(taskId || 'latest')}/screenshot.png`, options)
   mkdirSync(dirname(outputPath), { recursive: true })
   writeFileSync(outputPath, Buffer.from(result.data, 'base64'))
-  return { screenshot_path: toWorkspacePath(outputPath) }
+  return { screenshot_path: toWorkspacePath(outputPath, options) }
 }
 
 /**

@@ -31,7 +31,6 @@ defmodule Ankole.Plugins.Spec do
     :description,
     app_config_definitions: [],
     app_config_patterns: [],
-    setup_metadata: [],
     adapter_declarations: [],
     children: []
   ]
@@ -45,7 +44,6 @@ defmodule Ankole.Plugins.Spec do
           description: localized_text() | nil,
           app_config_definitions: [Definition.t()],
           app_config_patterns: [PatternDefinition.t()],
-          setup_metadata: [map()],
           adapter_declarations: [map()],
           children: [Supervisor.child_spec()]
         }
@@ -68,7 +66,6 @@ defmodule Ankole.Plugins.Spec do
          {:ok, description} <- optional_localized_text(module, :description),
          {:ok, definitions} <- optional_list(module, :app_config_definitions, &definition?/1),
          {:ok, patterns} <- optional_list(module, :app_config_patterns, &pattern?/1),
-         {:ok, setup_metadata} <- optional_list(module, :setup_metadata, &map?/1),
          {:ok, adapter_declarations} <- optional_adapter_declarations(module),
          {:ok, children} <- optional_children(module) do
       {:ok,
@@ -80,7 +77,6 @@ defmodule Ankole.Plugins.Spec do
          description: description,
          app_config_definitions: definitions,
          app_config_patterns: patterns,
-         setup_metadata: setup_metadata,
          adapter_declarations: adapter_declarations,
          children: children
        }}
@@ -126,17 +122,22 @@ defmodule Ankole.Plugins.Spec do
   end
 
   defp normalize_localized_text(nil, _function), do: {:ok, nil}
-  defp normalize_localized_text(value, _function) when is_binary(value), do: {:ok, value}
 
-  defp normalize_localized_text(value, _function) when is_map(value) do
-    case Enum.all?(value, &localized_text_entry?/1) do
+  defp normalize_localized_text(value, function) when is_map(value) do
+    case localized_text_map?(value) do
       true -> {:ok, value}
-      false -> {:error, {:invalid_localized_text, value}}
+      false -> {:error, {:invalid_localized_text, function, value}}
     end
   end
 
   defp normalize_localized_text(value, function),
     do: {:error, {:invalid_localized_text, function, value}}
+
+  defp localized_text_map?(value) when is_map(value) do
+    is_binary(Map.get(value, "default")) and Enum.all?(value, &localized_text_entry?/1)
+  end
+
+  defp localized_text_map?(_value), do: false
 
   defp localized_text_entry?({locale, text}) when is_binary(locale) and is_binary(text), do: true
   defp localized_text_entry?(_entry), do: false
@@ -210,6 +211,7 @@ defmodule Ankole.Plugins.Spec do
          {:ok, adapter_id} <- declaration_text(declaration, :id),
          :ok <- validate_adapter_id(adapter_id),
          :ok <- validate_optional_adapter_id(declaration, :plugin_id),
+         :ok <- validate_optional_declaration_localized_text(declaration, :display_name),
          :ok <- validate_optional_module(declaration, :module) do
       validate_known_adapter_contract(contract_id, declaration)
     end
@@ -223,7 +225,8 @@ defmodule Ankole.Plugins.Spec do
   defp validate_known_adapter_contract("signals_gateway.adapter", declaration) do
     with :ok <- validate_signals_ingress(declaration),
          :ok <- validate_signals_outbox(declaration),
-         :ok <- validate_connection_supervisor(declaration) do
+         :ok <- validate_connection_supervisor(declaration),
+         :ok <- validate_signal_config_module(declaration) do
       :ok
     end
   end
@@ -310,6 +313,14 @@ defmodule Ankole.Plugins.Spec do
     end
   end
 
+  defp validate_signal_config_module(declaration) do
+    case declaration_module(declaration, :config_module) do
+      {:ok, module} -> validate_module_callback(module, :validate_binding_config, 1)
+      {:error, {:missing_adapter_module, :config_module}} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   defp validate_identity_capabilities(module, declaration) do
     declaration
     |> declaration_list(:capabilities)
@@ -327,13 +338,10 @@ defmodule Ankole.Plugins.Spec do
   defp validate_identity_capability(module, "oidc_code_exchange"),
     do: validate_module_callback(module, :exchange_code, 3)
 
-  defp validate_identity_capability(module, "user_full_sync"),
-    do: validate_module_callback(module, :sync_users, 3)
+  defp validate_identity_capability(module, "directory_full_sync"),
+    do: validate_module_callback(module, :sync_directory, 3)
 
-  defp validate_identity_capability(module, "department_access_check"),
-    do: validate_module_callback(module, :sync_departments, 3)
-
-  defp validate_identity_capability(module, "contact_realtime_sync"),
+  defp validate_identity_capability(module, "directory_realtime_sync"),
     do: validate_module_callback(module, :handle_contact_event, 3)
 
   defp validate_identity_capability(_module, capability),
@@ -424,6 +432,19 @@ defmodule Ankole.Plugins.Spec do
       {:ok, _module} -> :ok
       {:error, {:missing_adapter_module, ^key}} -> :ok
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp validate_optional_declaration_localized_text(declaration, key) do
+    case declaration_value(declaration, key) do
+      {:ok, value} ->
+        case localized_text_map?(value) do
+          true -> :ok
+          false -> {:error, {:invalid_adapter_localized_text, key, value}}
+        end
+
+      :error ->
+        :ok
     end
   end
 

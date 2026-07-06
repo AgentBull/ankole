@@ -7,7 +7,7 @@
  */
 
 import OpenAI from 'openai'
-import { match, P, recordValue, safeJsonParse } from '@pleisto/active-support'
+import { match, P, recordValue, safeJsonParse, type JsonObject } from '@pleisto/active-support'
 import { Buffer } from 'node:buffer'
 import { z } from 'zod'
 import type {
@@ -240,7 +240,7 @@ export type StatefulResponseContext = {
   conversationId?: string
   previousResponseId?: string
   truncation?: 'auto' | 'disabled'
-  metadata?: Record<string, unknown>
+  metadata?: JsonObject
 }
 
 /**
@@ -480,7 +480,7 @@ function statefulResponseParams(params: ResponseCreateParams, stateful: Stateful
     ...params,
     store: true,
     metadata
-  } as ResponseCreateParams & Record<string, unknown>
+  } as ResponseCreateParams & JsonObject
 
   match([stateful.previousResponseId, stateful.conversationId] as const)
     .with([P.string, P._], ([previousResponseId]) => {
@@ -1083,7 +1083,7 @@ function parseOutputItems(
 /**
  * Remembers a function_call output item by its stable call id.
  */
-function rememberFunctionCall(calls: Map<string, ResponseFunctionToolCall>, item: Record<string, unknown>): void {
+function rememberFunctionCall(calls: Map<string, ResponseFunctionToolCall>, item: JsonObject): void {
   if (item.type !== 'function_call') return
   const call = item as unknown as ResponseFunctionToolCall
   const callId = responseFunctionCallKey(call)
@@ -1119,10 +1119,7 @@ function usageFromResponse(usage: unknown): ModelUsage | undefined {
  * Extracts a useful terminal error message from failed or incomplete Responses
  * frames without depending on one exact gateway error schema.
  */
-function terminalErrorMessage(
-  response: Record<string, unknown> | undefined,
-  frame: Record<string, unknown>
-): string | undefined {
+function terminalErrorMessage(response: JsonObject | undefined, frame: JsonObject): string | undefined {
   const error = recordValue(response?.error) ?? recordValue(frame.error)
   const status =
     numberValue(error?.status) ??
@@ -1151,7 +1148,7 @@ function terminalErrorMessage(
 /**
  * Converts an AIGateway error event frame into a structured Error object.
  */
-function aigatewayErrorFromFrame(frame: Record<string, unknown>): AIGatewayWebSocketError {
+function aigatewayErrorFromFrame(frame: JsonObject): AIGatewayWebSocketError {
   const error = recordValue(frame.error)
 
   return new AIGatewayWebSocketError(errorFrameMessage(frame), {
@@ -1168,7 +1165,7 @@ function aigatewayErrorFromFrame(frame: Record<string, unknown>): AIGatewayWebSo
 /**
  * Extracts the most readable message from an error frame.
  */
-function errorFrameMessage(frame: Record<string, unknown>): string {
+function errorFrameMessage(frame: JsonObject): string {
   const error = recordValue(frame.error)
   if (typeof error?.message === 'string') return error.message
   if (typeof frame.message === 'string') return frame.message
@@ -1209,8 +1206,8 @@ function stringValue(value: unknown): string | undefined {
 /**
  * Converts a Zod schema to a JSON Schema for OpenAI tool definitions.
  */
-export function zodToJSONSchema(schema: z.ZodType): Record<string, unknown> {
-  return z.toJSONSchema(schema) as Record<string, unknown>
+export function zodToJSONSchema(schema: z.ZodType): JsonObject {
+  return z.toJSONSchema(schema) as JsonObject
 }
 
 /**

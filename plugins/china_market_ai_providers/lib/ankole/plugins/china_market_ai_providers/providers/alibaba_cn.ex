@@ -5,7 +5,7 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.AlibabaCN do
 
   use Ankole.AIGateway.ProviderDSL
 
-  alias Ankole.AIGateway.Providers.OpenAICompatible
+  alias Ankole.AIGateway.ProviderConnectionCheck
   alias Ankole.AIGateway.UniversalAIRequest
 
   provider "alibaba_cn" do
@@ -42,12 +42,12 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.AlibabaCN do
   end
 
   @impl true
-  def check_connection(ctx) when is_map(ctx) do
+  def prepare_connection_check(ctx) when is_map(ctx) do
     headers =
       ctx
       |> UniversalAIRequest.raw_headers()
       |> UniversalAIRequest.bearer_auth(ctx.settings[:api_key])
 
-    OpenAICompatible.check_models_endpoint(ctx, headers)
+    ProviderConnectionCheck.get(ctx, "models", headers: headers)
   end
 end

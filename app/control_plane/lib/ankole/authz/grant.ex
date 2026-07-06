@@ -6,7 +6,9 @@ defmodule Ankole.AuthZ.Grant do
   use Ecto.Schema
 
   import Ecto.Changeset
+  import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
 
+  alias Ankole.Ecto.JsonPayload
   alias Ankole.AuthZ.Group
   alias Ankole.Principals.Principal
 
@@ -18,7 +20,7 @@ defmodule Ankole.AuthZ.Grant do
     belongs_to :principal, Principal,
       foreign_key: :principal_uid,
       references: :uid,
-      type: :string
+      type: Ankole.Ecto.PrincipalKey
 
     belongs_to :group, Group, type: :binary_id
 
@@ -55,10 +57,9 @@ defmodule Ankole.AuthZ.Grant do
       :description
     ])
     |> default_condition()
-    |> normalize_uid(:principal_uid)
     |> validate_required([:resource_pattern, :action, :condition, :metadata])
     |> validate_no_colon(:action)
-    |> validate_map(:metadata)
+    |> JsonPayload.validate_map(:metadata)
     |> validate_owner_shape()
     |> validate_resource_pattern(:resource_pattern)
     |> validate_condition(:condition)
@@ -148,37 +149,4 @@ defmodule Ankole.AuthZ.Grant do
   end
 
   defp validate_kernel_condition(_value), do: {:error, "must be a string"}
-
-  defp normalize_uid(changeset, field) do
-    update_change(changeset, field, fn
-      value when is_binary(value) -> String.downcase(value)
-      value -> value
-    end)
-  end
-
-  defp normalize_blank(changeset, fields) when is_list(fields) do
-    Enum.reduce(fields, changeset, &normalize_blank(&2, &1))
-  end
-
-  defp normalize_blank(changeset, field) do
-    update_change(changeset, field, fn
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          trimmed -> trimmed
-        end
-
-      value ->
-        value
-    end)
-  end
-
-  defp validate_map(changeset, field) do
-    validate_change(changeset, field, fn ^field, value ->
-      case is_map(value) do
-        true -> []
-        false -> [{field, "must be a map"}]
-      end
-    end)
-  end
 end

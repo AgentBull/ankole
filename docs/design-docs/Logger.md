@@ -177,7 +177,8 @@ Public methods:
 
 The facade sets Pino `messageKey: "message"`, `errorKey: "error"`, ISO
 timestamps, and `base: null`. Pino level formatter outputs only `severity`.
-`pino-pretty` is a development display layer, not the production contract.
+`pino-pretty` is a development display layer owned by the repository devkit,
+not the worker runtime package or the production contract.
 
 ### Elixir Control Plane
 
@@ -220,11 +221,12 @@ VM, the configured formatter still emits structured JSON for those records.
 | Variable | Values | Default |
 | --- | --- | --- |
 | `ANKOLE_LOG_LEVEL` | severity name or alias | `INFO` |
-| `ANKOLE_LOG_FORMAT` | `json` or `pretty` | production: `json`; Bun development: `pretty` |
 
-Kubernetes and Docker deployments should use `ANKOLE_LOG_FORMAT=json` for both
-the control plane and worker. Pretty logs are only for local development and
-must not be treated as the ingestion format.
+Kubernetes, Docker deployments, and worker runtime code emit structured JSON
+log lines. Pretty logs are only for local development and must not be treated
+as the ingestion format. The root `dev` script pipes the devkit process through
+`bun run kit logs pretty`, which applies the local display formatting outside
+the worker runtime boundary.
 
 ## Event Naming
 
@@ -281,7 +283,9 @@ stable and JSON-safe.
 The logging contract is protected by focused tests:
 
 - `app/agent_computer/test/logging.test.ts` checks the Bun worker facade,
-  severity mapping, error serialization, labels, and pretty transport choice.
+  severity mapping, error serialization, labels, and structured output.
+- `tools/devkit/src/commands/logs.test.ts` checks the local pretty-display
+  options used by `bun run kit logs pretty`.
 - `app/control_plane/test/ankole/logging/json_formatter_test.exs`
   checks the control-plane formatter, top-level structured fields, labels, `http_request`,
   and reserved-field protection.
@@ -301,13 +305,11 @@ Expected result: no output.
 Useful commands:
 
 ```sh
-source /Users/ding/.kiex/elixirs/elixir-1.20.1-29.env
-cd /Users/ding/Projects/ankole/app/control_plane
 MIX_ENV=test mix compile --warnings-as-errors
 MIX_ENV=test mix test test/ankole/logging/json_formatter_test.exs test/ankole/i18n_test.exs
 
-cd /Users/ding/Projects/ankole
-bun test app/agent_computer/test/logging.test.ts
+cd ankole
+bun test app/agent_computer/test/logging.test.ts tools/devkit/src/commands/logs.test.ts
 ```
 
 The worker package type-check can fail for unrelated type errors outside the

@@ -10,8 +10,9 @@ defmodule Ankole.ActorRuntime.Schemas.AgentComputerWorker do
   use Ecto.Schema
 
   import Ecto.Changeset
+  import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
 
-  alias Ankole.SignalsGateway.JsonPayload
+  alias Ankole.Ecto.JsonPayload
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @timestamps_opts [type: :utc_datetime_usec]
@@ -80,23 +81,6 @@ defmodule Ankole.ActorRuntime.Schemas.AgentComputerWorker do
     # stops two rows claiming the same route to send to.
     |> unique_constraint([:worker_id], name: :agent_computer_workers_worker_id_index)
     |> unique_constraint([:transport_route], name: :agent_computer_workers_transport_route_index)
-  end
-
-  defp normalize_blank(changeset, fields) when is_list(fields) do
-    Enum.reduce(fields, changeset, &normalize_blank(&2, &1))
-  end
-
-  defp normalize_blank(changeset, field) do
-    update_change(changeset, field, fn
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          trimmed -> trimmed
-        end
-
-      value ->
-        value
-    end)
   end
 
   # Runtime metadata is required so operators can distinguish worker families

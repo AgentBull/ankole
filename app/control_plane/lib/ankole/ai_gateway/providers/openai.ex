@@ -5,6 +5,7 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
 
   use Ankole.AIGateway.ProviderDSL
 
+  alias Ankole.AIGateway.ProviderConnectionCheck
   alias Ankole.AIGateway.ReasoningEffort
   alias Ankole.AIGateway.UniversalAIRequest
 
@@ -67,13 +68,13 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
   def prepare_language_model(ctx), do: prepare_sse_language_model(ctx)
 
   @doc """
-  Checks OpenAI connectivity through the native model catalog path.
+  Prepares an OpenAI connection check through the native model catalog path.
 
   Organization and project headers are optional OpenAI routing headers, so they
   are added only when configured.
   """
   @impl true
-  def check_connection(ctx) when is_map(ctx) do
+  def prepare_connection_check(ctx) when is_map(ctx) do
     headers =
       ctx
       |> UniversalAIRequest.raw_headers()
@@ -81,16 +82,7 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
       |> UniversalAIRequest.put_new_header("openai-project", ctx.settings[:project])
       |> UniversalAIRequest.bearer_auth(ctx.settings[:api_key])
 
-    with {:ok, %{"status" => status, "body" => body}} when status in 200..299 <-
-           UniversalAIRequest.raw_get(ctx, "models", headers: headers) do
-      {:ok, body}
-    else
-      {:ok, %{"status" => status, "body" => body}} ->
-        {:error, {:provider_connection_check_failed, status, body}}
-
-      {:error, _reason} = error ->
-        error
-    end
+    ProviderConnectionCheck.get(ctx, "models", headers: headers)
   end
 
   # Endpoint kind is an operator choice because some OpenAI-compatible models or

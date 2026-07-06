@@ -24,7 +24,8 @@ import type {
   SkillOverlayResponse
 } from '../../lanes/rpc_lane'
 import type { ScheduleRpcRequester } from '../../tools/schedule/schedule-tools'
-import type { JsonObject, TurnSteerUpdate } from '../../lanes/actor_lane'
+import type { TurnSteerUpdate } from '../../lanes/actor_lane'
+import type { JsonObject } from '@pleisto/active-support'
 
 export type AIGatewayApiKeyRequestOptions = {
   forceRefresh?: boolean

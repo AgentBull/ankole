@@ -8,6 +8,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
   alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ProviderConfigs.Provider
+  alias Ankole.AIGateway.ProviderRuntime
   alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AIGateway.Schemas.Message
@@ -173,6 +174,40 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     refute inspect(json_secret_projection) =~ "sk-test"
   end
 
+  test "provider helper runtime context reuses the decrypted runtime connection" do
+    http_client = fn request -> {:ok, request} end
+
+    assert {:ok, provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openrouter-helper-context",
+               provider_kind: "openrouter",
+               connection_options: %{
+                 "api_key" => "sk-helper",
+                 "headers" => %{"X-Route" => "helper"},
+                 "transport" => %{"http_versions" => ["h1"]}
+               }
+             })
+
+    assert {:ok, ctx} =
+             ProviderRuntime.context(provider,
+               capability: "embedding",
+               timeout_ms: 2_500,
+               http_client: http_client
+             )
+
+    assert ctx.provider_id == "openrouter-helper-context"
+    assert ctx.provider_kind == "openrouter"
+    assert ctx.capability == "embedding"
+    assert ctx.connection["api_key"] == "sk-helper"
+    assert ctx.settings[:api_key] == "sk-helper"
+    assert ctx.settings[:headers] == %{"X-Route" => "helper"}
+    assert ctx.settings[:transport] == %{"http_versions" => ["h1"]}
+    assert ctx.timeout_ms == 2_500
+    assert ctx.http_client == http_client
+    refute Map.has_key?(ctx, :request)
+    refute Map.has_key?(ctx, :model)
+  end
+
   test "provider live_check performs a redacted operator-triggered provider call" do
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{
@@ -204,7 +239,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     end
 
     assert {:ok, result} =
-             ProviderConfigs.live_check_provider("openrouter-main", http_client: http_client)
+             ProviderRuntime.live_check_provider("openrouter-main", http_client: http_client)
 
     assert result["provider_id"] == "openrouter-main"
     assert result["provider_kind"] == "openrouter"
@@ -229,7 +264,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     end
 
     assert {:ok, %{"provider_kind" => "claude", "status" => "ok"}} =
-             ProviderConfigs.live_check_provider("claude-oauth", http_client: http_client)
+             ProviderRuntime.live_check_provider("claude-oauth", http_client: http_client)
   end
 
   test "provider live_check uses Azure OpenAI catalog path and auth scheme" do
@@ -254,7 +289,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     end
 
     assert {:ok, %{"provider_kind" => "azure_openai", "status" => "ok"}} =
-             ProviderConfigs.live_check_provider("azure-live", http_client: http_client)
+             ProviderRuntime.live_check_provider("azure-live", http_client: http_client)
   end
 
   test "provider live_check leaves missing encrypted options to provider-owned request logic" do
@@ -282,7 +317,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                "reason" => "upstream_error",
                "body" => "%{\"error\" => \"missing key\"}"
              }}} =
-             ProviderConfigs.live_check_provider("openrouter-no-key", http_client: http_client)
+             ProviderRuntime.live_check_provider("openrouter-no-key", http_client: http_client)
   end
 
   test "model profiles validate provider references and embedding/rerank capabilities" do
@@ -591,15 +626,16 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
   test "runtime RPCLane resolves agent conversation context and DB-backed skill overlays" do
     %{principal: agent} = agent_fixture()
-    assert {:ok, %{skills: 3}} = Library.sync_agent_skills(agent.uid)
+    assert {:ok, %{skills: 5}} = Library.sync_agent_skills(agent.uid)
     {route, turn} = assign_worker_route(agent.uid, "signal-channel:context")
+    mixed_case_turn = put_in(turn, ["actor", "agent_uid"], " #{String.upcase(agent.uid)} ")
 
     assert {:ok, context_envelope} =
              RPCLane.handle_request(
                %{
                  "request_id" => "turn-context-1",
                  "method" => "agent_conversation.context.resolve",
-                 "payload_json" => %{"turn" => turn}
+                 "payload_json" => %{"turn" => mixed_case_turn}
                },
                route
              )
@@ -621,7 +657,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                  "request_id" => "skill-overlay-replace-1",
                  "method" => "skills.overlay.replace",
                  "payload_json" => %{
-                   "turn" => turn,
+                   "turn" => mixed_case_turn,
                    "skill_name" => "nano-pdf",
                    "content" => "Prefer page-by-page verification."
                  }
@@ -638,7 +674,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                %{
                  "request_id" => "skill-overlay-resolve-1",
                  "method" => "skills.overlay.resolve",
-                 "payload_json" => %{"turn" => turn, "skill_name" => "nano-pdf"}
+                 "payload_json" => %{"turn" => mixed_case_turn, "skill_name" => "nano-pdf"}
                },
                route
              )
@@ -673,7 +709,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
   test "runtime RPCLane accepts overlay writes after active steer bumps revision" do
     %{principal: agent} = agent_fixture()
-    assert {:ok, %{skills: 3}} = Library.sync_agent_skills(agent.uid)
+    assert {:ok, %{skills: 5}} = Library.sync_agent_skills(agent.uid)
     {route, turn} = assign_worker_route(agent.uid, "signal-channel:steered-overlay")
 
     turn["activation_uid"]

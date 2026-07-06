@@ -10,7 +10,7 @@ defmodule Ankole.AuthZ.Grants do
   alias Ankole.AuthZ.Store
 
   @console_admin_resource_pattern "**"
-  @console_admin_actions ~w(read update delete reset decrypt)
+  @console_admin_actions ~w(read update delete reset decrypt sync)
 
   def create_permission_grant(repo, attrs) do
     with {:ok, attrs} <- grant_attrs(repo, attrs) do

@@ -20,6 +20,7 @@ defmodule Ankole.ActorRuntimeCase do
   alias Ankole.Plugins.Spec
   alias Ankole.Repo
   alias Ankole.SignalsGateway
+  alias Ankole.SignalsGateway.Ingress
   alias Ankole.SignalsGateway.InboundBatch
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Entry
@@ -56,6 +57,7 @@ defmodule Ankole.ActorRuntimeCase do
       alias Ankole.ActorRuntime.WorkerBootstrap, warn: false
       alias Ankole.Repo, warn: false
       alias Ankole.SignalsGateway, warn: false
+      alias Ankole.SignalsGateway.Ingress, warn: false
       alias Ankole.SignalsGateway.InboundBatch, warn: false
       alias Ankole.SignalsGateway.OutboxEntry, warn: false
       alias Ankole.SignalsGateway.Entry, warn: false
@@ -144,7 +146,7 @@ defmodule Ankole.ActorRuntimeCase do
   end
 
   def emit_entry(agent_uid, binding_name, input, opts) do
-    with {:ok, result} <- SignalsGateway.emit_entry(agent_uid, binding_name, input, opts) do
+    with {:ok, result} <- Ingress.emit_entry(agent_uid, binding_name, input, opts) do
       {:ok, maybe_finalize_test_inbound_batch(result)}
     end
   end

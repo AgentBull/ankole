@@ -1,39 +1,14 @@
 import { describe, expect, it } from 'bun:test'
-import { tmpdir } from 'node:os'
-import { z } from 'zod'
+import type { JsonObject } from '@pleisto/active-support'
 import { runAgentLoop } from '../../src/core/agent-loop'
-import {
-  callModel,
-  createModel,
-  zodToJSONSchema,
-  type ContentPart,
-  type ResponseWebSocketLike
-} from '../../src/core/llm'
+import { callModel, createModel, type ResponseWebSocketLike } from '../../src/core/llm'
 import { classifyLlmError, isLocallyRetryableLlmError } from '../../src/core/llm-error-classifier'
-import { actorEventUserContent } from '../../src/core/turns/actor_event_content'
 import { statefulTruncationFromActorEventPayload } from '../../src/core/turns/actor_event_text'
-import {
-  actorEventEnvironmentInfoLines,
-  prependEnvironmentInfoLinesToUserMessage
-} from '../../src/core/turns/message_context'
-import { runtimeModelFromAIGatewayApiKey } from '../../src/core/turns/model_runtime'
-import { textTurnResultFromAssistantReply } from '../../src/core/turns/text_turn'
-import { steeringMessages } from '../../src/core/turns/turn_control'
-import {
-  FakeResponseSocket,
-  fakeResponseSocket,
-  fallbackModelForTest,
-  imageActorEventPayload,
-  modelRefForTest,
-  parallelReadTool,
-  toolResultsRecordedFrame,
-  turnStartForTest,
-  withImageWorkspace
-} from '../support/llm'
+import { FakeResponseSocket, fakeResponseSocket } from '../support/llm'
 
 describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and overflow', () => {
   it('retries AIGateway WebSocket close before open without sending a duplicate request', async () => {
-    const sentPayloads: Record<string, unknown>[] = []
+    const sentPayloads: JsonObject[] = []
     let attempts = 0
     const model = createModel({
       apiKey: 'unused',
@@ -54,7 +29,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
           }
 
           return fakeResponseSocket(init, data => {
-            sentPayloads.push(JSON.parse(data) as Record<string, unknown>)
+            sentPayloads.push(JSON.parse(data) as JsonObject)
             return [
               {
                 type: 'response.completed',
@@ -91,7 +66,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
   })
 
   it('does not locally retry AIGateway WebSocket close after response.create was sent', async () => {
-    const sentPayloads: Record<string, unknown>[] = []
+    const sentPayloads: JsonObject[] = []
     let caught: unknown
     const model = createModel({
       apiKey: 'unused',
@@ -103,7 +78,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
         authorization: () => 'Bearer agent-key',
         createWebSocket: (_url, init) =>
           fakeResponseSocket(init, (data, socket) => {
-            sentPayloads.push(JSON.parse(data) as Record<string, unknown>)
+            sentPayloads.push(JSON.parse(data) as JsonObject)
             queueMicrotask(() => socket.emitClose('gateway restart after response.create'))
             return []
           })
@@ -131,7 +106,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
   })
 
   it('does not locally retry AIGateway WebSocket error after response.create was sent', async () => {
-    const sentPayloads: Record<string, unknown>[] = []
+    const sentPayloads: JsonObject[] = []
     let caught: unknown
     const model = createModel({
       apiKey: 'unused',
@@ -143,7 +118,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
         authorization: () => 'Bearer agent-key',
         createWebSocket: (_url, init) =>
           fakeResponseSocket(init, (data, socket) => {
-            sentPayloads.push(JSON.parse(data) as Record<string, unknown>)
+            sentPayloads.push(JSON.parse(data) as JsonObject)
             queueMicrotask(() => socket.emitError())
             return []
           })
@@ -171,7 +146,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
   })
 
   it('retries retryable AIGateway WebSocket open errors in the agent loop', async () => {
-    const sentPayloads: Record<string, unknown>[] = []
+    const sentPayloads: JsonObject[] = []
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
@@ -182,7 +157,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
         authorization: () => 'Bearer agent-key',
         createWebSocket: (_url, init) =>
           fakeResponseSocket(init, data => {
-            sentPayloads.push(JSON.parse(data) as Record<string, unknown>)
+            sentPayloads.push(JSON.parse(data) as JsonObject)
 
             if (sentPayloads.length === 1) {
               return [
@@ -245,7 +220,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
   })
 
   it('retries retryable terminal response.failed results in the agent loop', async () => {
-    const sentPayloads: Record<string, unknown>[] = []
+    const sentPayloads: JsonObject[] = []
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
@@ -256,7 +231,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
         authorization: () => 'Bearer agent-key',
         createWebSocket: (_url, init) =>
           fakeResponseSocket(init, data => {
-            sentPayloads.push(JSON.parse(data) as Record<string, unknown>)
+            sentPayloads.push(JSON.parse(data) as JsonObject)
 
             if (sentPayloads.length === 1) {
               return [
@@ -364,7 +339,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
   })
 
   it('sends truncation auto for overflow retry actor events', async () => {
-    const sentPayloads: Record<string, unknown>[] = []
+    const sentPayloads: JsonObject[] = []
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
@@ -375,7 +350,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
         authorization: () => 'Bearer agent-key',
         createWebSocket: (_url, init) =>
           fakeResponseSocket(init, data => {
-            sentPayloads.push(JSON.parse(data) as Record<string, unknown>)
+            sentPayloads.push(JSON.parse(data) as JsonObject)
             return [
               {
                 type: 'response.completed',

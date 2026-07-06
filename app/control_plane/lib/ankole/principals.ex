@@ -7,6 +7,7 @@ defmodule Ankole.Principals do
   import Ecto.Query, warn: false
 
   alias Ecto.Changeset
+  alias Ankole.PrincipalKey
   alias Ankole.Principals.Agent
   alias Ankole.Principals.ExternalIdentity
   alias Ankole.Principals.HumanUser
@@ -25,14 +26,7 @@ defmodule Ankole.Principals do
   Normalizes a public Principal UID.
   """
   @spec normalize_uid(term()) :: {:ok, String.t()} | {:error, :invalid_uid}
-  def normalize_uid(uid) when is_binary(uid) do
-    case uid |> String.trim() |> String.downcase() do
-      "" -> {:error, :invalid_uid}
-      normalized -> {:ok, normalized}
-    end
-  end
-
-  def normalize_uid(_uid), do: {:error, :invalid_uid}
+  def normalize_uid(uid), do: PrincipalKey.normalize(uid)
 
   @doc """
   Looks up a Principal by UID.

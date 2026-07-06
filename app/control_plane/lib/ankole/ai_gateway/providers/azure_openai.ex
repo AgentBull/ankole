@@ -5,6 +5,7 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
 
   use Ankole.AIGateway.ProviderDSL
 
+  alias Ankole.AIGateway.ProviderConnectionCheck
   alias Ankole.AIGateway.ReasoningEffort
   alias Ankole.AIGateway.UniversalAIRequest
 
@@ -55,26 +56,17 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
   end
 
   @doc """
-  Checks Azure OpenAI connectivity through the configured model catalog path.
+  Prepares an Azure OpenAI connection check through the configured model catalog path.
   """
   @impl true
-  def check_connection(ctx) when is_map(ctx) do
+  def prepare_connection_check(ctx) when is_map(ctx) do
     with {:ok, path} <- azure_models_path(ctx) do
       headers =
         ctx
         |> UniversalAIRequest.raw_headers()
         |> put_auth(ctx)
 
-      with {:ok, %{"status" => status, "body" => body}} when status in 200..299 <-
-             UniversalAIRequest.raw_get(ctx, path, headers: headers) do
-        {:ok, body}
-      else
-        {:ok, %{"status" => status, "body" => body}} ->
-          {:error, {:provider_connection_check_failed, status, body}}
-
-        {:error, _reason} = error ->
-          error
-      end
+      ProviderConnectionCheck.get(ctx, path, headers: headers)
     end
   end
 

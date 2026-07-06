@@ -15,6 +15,7 @@ import {
 import { createInteractiveTerminalTool } from '../src/tools/computer/interactive-terminal-tool'
 import { createPatchTool } from '../src/tools/computer/patch-tool'
 import { createReadFileTool } from '../src/tools/computer/read-file-tool'
+import { createReplyAttachmentTool } from '../src/tools/computer/reply-attachment-tool'
 
 class FakeFinishedCommand implements CommandFinished {
   constructor(
@@ -160,23 +161,14 @@ function ensureFakeBwrap(): void {
 }
 
 describe('computer tools', () => {
-  it('runs browser tools in the worker process without shelling through ankole-browser', async () => {
+  it('exposes browser actions without the removed browser_doctor tool', () => {
     const computer = new FakeComputer()
-    let runCalled = false
-    computer.runImpl = async () => {
-      runCalled = true
-      throw new Error('browser tool should not shell out')
-    }
-    const browserDoctor = createBrowserTools(contextFor(computer, { localBrowserIdleTtlMs: 2_700_000 })).find(
-      tool => tool.name === 'browser_doctor'
-    )
+    const names = createBrowserTools(contextFor(computer)).map(tool => tool.name)
 
-    expect(browserDoctor).toBeTruthy()
-    const result = await browserDoctor!.execute('call-browser-doctor', {})
-
-    expect(runCalled).toBe(false)
-    expect(textOf(result)).toContain('"backend"')
-    expect(textOf(result)).toContain('"local_browser_idle_ttl_ms": 2700000')
+    expect(names).not.toContain('browser_doctor')
+    expect(names).toContain('browser_navigate')
+    expect(names).toContain('browser_snapshot')
+    expect(names).toContain('browser_click')
   })
 
   it('adds duration and expected nonzero exit-code notes to command output', async () => {
@@ -190,6 +182,33 @@ describe('computer tools', () => {
     expect(text).toContain('exit_code=1')
     expect(text).toContain('duration=')
     expect(text).toContain('exit_code_note: rg exit 1 = no matches found (not an error)')
+  })
+
+  it('records reply attachments only for files under /workspace/user-files', async () => {
+    const computer = new FakeComputer()
+    computer.files.set('/workspace/user-files/report.txt', Buffer.from('report'))
+    const tool = createReplyAttachmentTool(contextFor(computer))
+
+    const result = await tool.execute('call-reply-attachment', { path: '/workspace/user-files/report.txt' })
+
+    expect(result.details.attachments).toEqual([
+      {
+        agent_computer_path: '/workspace/user-files/report.txt',
+        user_files_relative_path: 'report.txt',
+        name: 'report.txt',
+        size: 6
+      }
+    ])
+  })
+
+  it('rejects reply attachment paths that normalize outside /workspace/user-files', async () => {
+    const computer = new FakeComputer()
+    computer.files.set('/workspace/user-files/../temp/secret.txt', Buffer.from('secret'))
+    const tool = createReplyAttachmentTool(contextFor(computer))
+
+    await expect(
+      tool.execute('call-reply-attachment-escape', { path: '/workspace/user-files/../temp/secret.txt' })
+    ).rejects.toThrow('reply_attachment only accepts files under /workspace/user-files')
   })
 
   it('explains foreground timeout recovery when a command hits exit 124', async () => {

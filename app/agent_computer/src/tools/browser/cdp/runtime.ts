@@ -36,11 +36,11 @@ export async function withPage<T>(
   opts: { retryLocalDisconnect?: boolean } = {}
 ): Promise<T> {
   const session = sanitizeId(rawSession || 'default')
-  const meta = readSessionMeta(session)
+  const meta = readSessionMeta(session, options)
   if (!meta) throw new Error('No active browser session; run browser_navigate first.')
 
   const connection = await resolveConnectionForSession(session, meta, options)
-  const active = await activePageForSession(session, connection, meta)
+  const active = await activePageForSession(session, connection, meta, options)
   try {
     return await fn(active.cdp, active.page, session, connection)
   } catch (error) {
@@ -49,12 +49,13 @@ export async function withPage<T>(
       throw error
     }
 
-    const currentMeta = readSessionMeta(session) ?? meta
+    const currentMeta = readSessionMeta(session, options) ?? meta
     const recoveredConnection = await recoverLocalChromiumConnection(session, currentMeta, options)
     const recoveredActive = await activePageForSession(
       session,
       recoveredConnection,
-      readSessionMeta(session) ?? currentMeta
+      readSessionMeta(session, options) ?? currentMeta,
+      options
     )
     return await fn(recoveredActive.cdp, recoveredActive.page, session, recoveredConnection)
   }
@@ -85,18 +86,22 @@ export async function recoverLocalChromiumConnection(
   await stopLocalSidecarByKey(sidecarKey)
 
   const idleTtlMs = localBrowserIdleTtlMs(options)
-  const recovered = await ensureLocalChromiumSidecar(sidecarKey, idleTtlMs)
+  const recovered = await ensureLocalChromiumSidecar(sidecarKey, idleTtlMs, options?.workspaceRoot)
   const context = await createLocalBrowserContext(recovered.connectUrl)
-  writeSessionMeta(session, {
-    ...meta,
-    local_sidecar_key: recovered.key,
-    pid: recovered.proc.pid,
-    connect_url: recovered.connectUrl,
-    connect_url_redacted: redactUrl(recovered.connectUrl),
-    connect_url_source: 'session',
-    browser_context_id: context.browserContextId,
-    target_id: context.targetId
-  })
+  writeSessionMeta(
+    session,
+    {
+      ...meta,
+      local_sidecar_key: recovered.key,
+      pid: recovered.proc.pid,
+      connect_url: recovered.connectUrl,
+      connect_url_redacted: redactUrl(recovered.connectUrl),
+      connect_url_source: 'session',
+      browser_context_id: context.browserContextId,
+      target_id: context.targetId
+    },
+    options
+  )
   return {
     backend: 'chromium',
     adapter: 'chromium',
@@ -114,7 +119,8 @@ export async function recoverLocalChromiumConnection(
 export async function activePageForSession(
   session: string,
   connection: BrowserConnection,
-  meta: BrowserSessionMeta
+  meta: BrowserSessionMeta,
+  options?: BrowserRuntimeOptions
 ): Promise<ActiveBrowserSession> {
   const headersKey = stableHeadersKey(connection.headers)
   const existing = activeBrowserSessions.get(session)
@@ -132,7 +138,7 @@ export async function activePageForSession(
   const cdp = await CdpClient.connect(connection.connectUrl, { headers: connection.headers })
   const page = await attachPage(cdp, meta.target_id, meta.browser_context_id)
   if (meta.target_id !== page.targetId) {
-    writeSessionMeta(session, { ...(readSessionMeta(session) ?? meta), target_id: page.targetId })
+    writeSessionMeta(session, { ...(readSessionMeta(session, options) ?? meta), target_id: page.targetId }, options)
   }
 
   const active: ActiveBrowserSession = {
@@ -161,7 +167,7 @@ export async function actOnRef<T>(
   fn: (cdp: CdpClient, page: PageSession, ref: BrowserRef, session: string, connection: BrowserConnection) => Promise<T>
 ): Promise<T> {
   return withPage(rawSession, options, async (cdp, page, session, connection) => {
-    const ref = readRefs(session).find(item => item.ref === refName)
+    const ref = readRefs(session, options).find(item => item.ref === refName)
     if (!ref) throw new Error('Unknown or stale browser ref; take a new browser_snapshot and use the new ref.')
     return await fn(cdp, page, ref, session, connection)
   })

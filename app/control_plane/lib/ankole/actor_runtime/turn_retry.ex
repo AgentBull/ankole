@@ -22,6 +22,7 @@ defmodule Ankole.ActorRuntime.TurnRetry do
   alias Ankole.ActorRuntime.Transport.Broker
   alias Ankole.ActorRuntime.TurnEnvelope
   alias Ankole.ActorRuntime.TurnLifecycle
+  alias Ankole.ActorRuntime.TurnRef
   alias Ankole.ActorRuntime.WorkerAdmission
 
   @doc """
@@ -485,18 +486,9 @@ defmodule Ankole.ActorRuntime.TurnRetry do
   defp request_ref_actor_event_ids(_request_refs), do: []
 
   defp turn_ref(%ActorEventDelivery{} = delivery) do
-    %{
-      "actor" => %{
-        "agent_uid" => delivery.agent_uid,
-        "session_id" => delivery.session_id
-      },
-      # Source table: retry control turn_ref copies the original
-      # actor_event_deliveries fence values, which were copied from activation.
-      "activation_uid" => delivery.activation_uid,
-      "actor_epoch" => delivery.actor_epoch,
-      "actor_event_id" => delivery.actor_event_id_fence,
-      "revision" => delivery.revision
-    }
+    delivery
+    |> TurnRef.from_delivery()
+    |> TurnRef.to_wire()
   end
 
   defp current_actor_event_id([

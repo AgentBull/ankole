@@ -1,6 +1,7 @@
 import { compactRecord, match } from '@pleisto/active-support'
 import { z } from 'zod'
-import type { JsonObject, TurnStart } from '../../lanes/actor_lane'
+import type { TurnStart } from '../../lanes/actor_lane'
+import type { JsonObject } from '@pleisto/active-support'
 import type { AgentTool, AgentToolResult } from '../../core'
 import { rpcMethods, type MemoryRpcRequest, type RpcMethod } from '../../lanes/rpc_lane'
 

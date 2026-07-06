@@ -1,0 +1,48 @@
+{
+  "name": "Ankole",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "version": "latest",
+      "moby": true
+    }
+  },
+  "remoteUser": "vscode",
+  "remoteEnv": {
+    "PATH": "/home/vscode/.local/share/mise/shims:/home/vscode/.local/bin:/home/vscode/.cargo/bin:/home/vscode/.bun/bin:${containerEnv:PATH}"
+  },
+  "postCreateCommand": "bash -lc 'bun install'",
+  "forwardPorts": [4000, 3035, 5433, 6010],
+  "portsAttributes": {
+    "4000": {
+      "label": "Phoenix control plane"
+    },
+    "3035": {
+      "label": "Webapps dev server"
+    },
+    "5433": {
+      "label": "Devkit PostgreSQL"
+    },
+    "6010": {
+      "label": "RuntimeFabric"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "elixir-lsp.elixir-ls",
+        "ms-azuretools.vscode-docker",
+        "oven.bun-vscode",
+        "rust-lang.rust-analyzer"
+      ]
+    }
+  },
+  "hostRequirements": {
+    "cpus": 4,
+    "memory": "8gb",
+    "storage": "32gb"
+  }
+}

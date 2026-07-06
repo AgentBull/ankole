@@ -1,12 +1,12 @@
 import { readFile, stat } from 'node:fs/promises'
-import { normalize, resolve } from 'node:path'
-import type { JsonObject, TurnModelRef } from '../../lanes/actor_lane'
+import type { JsonObject } from '@pleisto/active-support'
+import type { TurnModelRef } from '../../lanes/actor_lane'
+import { resolveWorkspacePath } from '../workspace-paths'
 import type { ContentPart, ImageContent, ModelConfig } from '../llm'
 import {
-  describeImagesWithFallback,
   imageContentPartFromBuffer,
   imageSummaryBlock,
-  modelSupportsImage,
+  modelImageAdaptation,
   responseImageUnavailableText,
   VISION_MAX_IMAGES_PER_TURN
 } from '../vision'
@@ -32,15 +32,20 @@ export async function actorEventUserContent(
 ): Promise<string | ContentPart[]> {
   const baseText = actorEventText(payload, fallbackType)
   const imageParts = await actorEventImageParts(payload, opts.workspaceRoot)
+  const adaptation = await modelImageAdaptation(imageParts, modelRef, {
+    visionFallbackModel: opts.visionFallbackModel,
+    abortSignal: opts.abortSignal
+  })
 
-  if (imageParts.length === 0) return baseText
+  if (adaptation.kind === 'none') return baseText
 
-  if (modelSupportsImage(modelRef)) {
-    return [{ type: 'text', text: baseText }, ...imageParts]
+  if (adaptation.kind === 'direct') {
+    return [{ type: 'text', text: baseText }, ...adaptation.images]
   }
 
-  const summary = await fallbackSummary(opts.visionFallbackModel, imageParts, opts.abortSignal)
-  if (summary) return `${baseText}\n\n${imageSummaryBlock(summary)}`
+  if (adaptation.kind === 'summary') {
+    return `${baseText}\n\n${imageSummaryBlock(adaptation.summary)}`
+  }
 
   return `${baseText}\n\n${responseImageUnavailableText()}`
 }
@@ -106,34 +111,5 @@ async function imagePartFromWorkspacePath(path: string, workspaceRoot: string): 
  * workspace root.
  */
 function workspaceFilePath(path: string, workspaceRoot: string): string {
-  const root = resolve(workspaceRoot)
-  const normalized = normalize(path)
-  const resolved = normalized.startsWith('/workspace')
-    ? resolve(root, `.${normalized.slice('/workspace'.length)}`)
-    : normalized.startsWith('/')
-      ? resolve(root, `.${normalized}`)
-      : resolve(root, normalized)
-
-  if (resolved !== root && !resolved.startsWith(`${root}/`)) {
-    throw new Error('image path escapes workspace root')
-  }
-
-  return resolved
-}
-
-/**
- * Summarizes images through a fallback model when the main model is text-only.
- */
-async function fallbackSummary(
-  fallbackModel: ModelConfig | undefined,
-  images: ImageContent[],
-  abortSignal: AbortSignal | undefined
-): Promise<string | undefined> {
-  if (!fallbackModel) return undefined
-
-  try {
-    return await describeImagesWithFallback(fallbackModel, images, { abortSignal })
-  } catch {
-    return undefined
-  }
+  return resolveWorkspacePath(workspaceRoot, path, { errorMessage: 'image path escapes workspace root' })
 }

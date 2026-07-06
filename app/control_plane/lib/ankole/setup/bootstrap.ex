@@ -46,6 +46,25 @@ defmodule Ankole.Setup.Bootstrap do
     |> List.to_string()
   end
 
+  @doc """
+  Prints the current bootstrap activation code to the operator log.
+  """
+  @spec log_current_activation_code() :: :ok | :error | {:error, term()}
+  def log_current_activation_code do
+    with :ok <- Config.ensure_registered(),
+         {:ok, false} <- Config.completed?(),
+         {:ok, code} <- Config.bootstrap_activation_code() do
+      log_activation_code(
+        "setup.bootstrap.activation_code_printed",
+        "SETUP ACTIVATION CODE: #{code}",
+        code
+      )
+    else
+      {:ok, true} -> {:error, :setup_completed}
+      other -> other
+    end
+  end
+
   @impl true
   def init(_opts) do
     state =
@@ -54,12 +73,10 @@ defmodule Ankole.Setup.Bootstrap do
           %{completed: true, activation_code: nil}
 
         {:ok, %{completed: false, activation_code: code}} ->
-          Logging.notice(
+          log_activation_code(
             "setup.bootstrap.activation_code_reset",
-            "setup bootstrap activation code reset",
-            %{
-              activation_code: code
-            }
+            "SETUP ACTIVATION CODE: #{code}",
+            code
           )
 
           %{completed: false, activation_code: code}
@@ -121,5 +138,9 @@ defmodule Ankole.Setup.Bootstrap do
 
         :ok
     end
+  end
+
+  defp log_activation_code(event, message, code) do
+    Logging.notice(event, message, %{activation_code: code})
   end
 end

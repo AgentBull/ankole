@@ -9,20 +9,15 @@ defmodule Ankole.ActorRuntime.TurnEnvelope do
   alias Ankole.Actors.ActorEvent
   alias Ankole.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.ActorRuntime.Schemas.ActorSessionActivation
+  alias Ankole.ActorRuntime.TurnRef
 
   @doc """
   Builds the compact fence that every worker reply must echo.
   """
   def turn_ref(actor_key, %ActorSessionActivation{} = activation) do
-    %{
-      "actor" => actor_ref(actor_key),
-      "activation_uid" => activation.activation_uid,
-      "actor_epoch" => activation.actor_epoch,
-      # Source table: actor_session_activations.current_actor_event_id stores
-      # actor_events.id for the currently running worker execution.
-      "actor_event_id" => activation.current_actor_event_id,
-      "revision" => activation.revision
-    }
+    actor_key
+    |> TurnRef.from_activation(activation)
+    |> TurnRef.to_wire()
   end
 
   @doc """
@@ -50,7 +45,7 @@ defmodule Ankole.ActorRuntime.TurnEnvelope do
       "body" => %{
         "type" => "turn_start",
         "turn_start" => %{
-          "turn" => turn_ref,
+          "turn" => turn_wire(turn_ref),
           "actor_event" => actor_event_envelope(actor_event),
           "model_ref" => turn_model_ref(turn_start_spec),
           "request_context" => turn_request_context(turn_start_spec)
@@ -77,7 +72,7 @@ defmodule Ankole.ActorRuntime.TurnEnvelope do
       "body" => %{
         "type" => "mailbox_updated",
         "mailbox_updated" => %{
-          "turn" => turn_ref,
+          "turn" => turn_wire(turn_ref),
           "reason" => "command.steer",
           "actor_event" => actor_event_envelope(actor_event)
         }
@@ -102,7 +97,7 @@ defmodule Ankole.ActorRuntime.TurnEnvelope do
       "body" => %{
         "type" => "turn_control",
         "turn_control" => %{
-          "turn" => turn_ref,
+          "turn" => turn_wire(turn_ref),
           "command" => command,
           "payload_json" => payload
         }
@@ -110,14 +105,8 @@ defmodule Ankole.ActorRuntime.TurnEnvelope do
     }
   end
 
-  # ActorKey is a fence, not an agent profile. Display identity is resolved by
-  # workers through RPCLane when a prompt actually needs it.
-  defp actor_ref(actor_key) do
-    %{
-      "agent_uid" => actor_key.agent_uid,
-      "session_id" => actor_key.session_id
-    }
-  end
+  defp turn_wire(%TurnRef{} = turn_ref), do: TurnRef.to_wire(turn_ref)
+  defp turn_wire(turn_ref) when is_map(turn_ref), do: turn_ref
 
   defp turn_model_ref(turn_start_spec) do
     model_ref = map_get(turn_start_spec, :model_ref) || %{}

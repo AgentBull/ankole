@@ -1,0 +1,35 @@
+THIRD-PARTY NOTICES
+
+This Ankole builtin skill includes modified documentation from OfficeCLI.
+
+Upstream project: iOfficeAI/OfficeCLI
+Upstream URL: https://github.com/iOfficeAI/OfficeCLI
+Upstream tag: v1.0.129
+License: Apache License 2.0
+License URL: https://github.com/iOfficeAI/OfficeCLI/blob/v1.0.129/LICENSE
+Notice URL: https://github.com/iOfficeAI/OfficeCLI/blob/v1.0.129/NOTICE
+
+Imported source files:
+- SKILL.md <= skills/officecli-pptx/SKILL.md (upstream sha256: 0d53192751d5770984f16f3c34f9923377651555c667150d7f96e16e8c9757b3)
+- references/pitch-deck.md <= skills/officecli-pitch-deck/SKILL.md (upstream sha256: 6b59efdc094451945fd059548771326cce4bd2e3544d0659d3d6acf0825ea2b1)
+
+Modifications:
+- Copied upstream SKILL.md content first, then changed Ankole-local frontmatter names so the skill name matches its installed directory.
+- Replaced self-install setup instructions with Ankole Agent Computer preinstalled-runtime notes.
+- Converted scene-layer skills into local reference files where applicable.
+
+Upstream NOTICE:
+
+OfficeCLI
+Copyright 2026 OfficeCLI (https://OfficeCLI.AI)
+
+Created and maintained by goworm.
+
+This product is licensed under the Apache License, Version 2.0.
+You may obtain a copy of the License in the LICENSE file or at
+http://www.apache.org/licenses/LICENSE-2.0
+
+This NOTICE file is part of the required attribution under
+Section 4 of the Apache License, Version 2.0. Redistributions
+of this work, with or without modification, must retain this
+notice.

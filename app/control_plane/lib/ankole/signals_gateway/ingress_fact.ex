@@ -7,7 +7,7 @@ defmodule Ankole.SignalsGateway.IngressFact do
   this struct before routing, mirroring, or actor event planning.
   """
 
-  alias Ankole.SignalsGateway.JsonPayload
+  alias Ankole.Ecto.JsonPayload
 
   # Every accepted signal shape is represented by this one struct. Only the
   # routing identity that all shapes share is enforced; the rest of the fields

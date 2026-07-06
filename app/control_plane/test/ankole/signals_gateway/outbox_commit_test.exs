@@ -4,6 +4,7 @@ defmodule Ankole.SignalsGatewayOutboxCommitTest do
   alias Ankole.Actors.ActorEvent
   alias Ankole.Repo
   alias Ankole.SignalsGateway
+  alias Ankole.SignalsGateway.Ingress
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Entry
   alias Ankole.SignalsGatewayFixtures.ModuleOutboxAdapter
@@ -51,7 +52,7 @@ defmodule Ankole.SignalsGatewayOutboxCommitTest do
       binding_fixture(agent.uid, "webhook", :ignore)
 
       assert {:ok, _result} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "webhook",
                  webhook_entry(%{actor_event_type: "webhook.received"}),
@@ -144,7 +145,7 @@ defmodule Ankole.SignalsGatewayOutboxCommitTest do
       binding_fixture(agent.uid, "webhook", :ignore)
 
       assert {:ok, _channel} =
-               SignalsGateway.emit_entry(
+               Ingress.emit_entry(
                  agent.uid,
                  "webhook",
                  webhook_entry(%{actor_event_type: "webhook.received"}),
@@ -186,7 +187,7 @@ defmodule Ankole.SignalsGatewayOutboxCommitTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               SignalsGateway.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -228,7 +229,7 @@ defmodule Ankole.SignalsGatewayOutboxCommitTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               SignalsGateway.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -264,7 +265,7 @@ defmodule Ankole.SignalsGatewayOutboxCommitTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               SignalsGateway.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
                  now: @base_time
                )
 

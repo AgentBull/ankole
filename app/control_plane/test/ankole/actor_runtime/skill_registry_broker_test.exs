@@ -1,6 +1,8 @@
 defmodule Ankole.ActorRuntime.SkillRegistryBrokerTest do
   use Ankole.ActorRuntimeCase
 
+  import Ecto.Query, only: [from: 2]
+
   alias Ankole.AIAgent.Library.Schemas.AgentSkill
 
   describe "skills.installed.replace RPC" do
@@ -13,7 +15,10 @@ defmodule Ankole.ActorRuntime.SkillRegistryBrokerTest do
       on_exit(fn -> Broker.unregister_local_worker(route) end)
       assert {:ok, _worker} = admit_worker(route)
 
-      turn_ref = start_turn!(agent.uid, route)
+      turn_ref =
+        agent.uid
+        |> start_turn!(route)
+        |> put_in(["actor", "agent_uid"], " #{String.upcase(agent.uid)} ")
 
       assert {:ok, envelope} =
                RPCLane.handle_request(
@@ -42,7 +47,13 @@ defmodule Ankole.ActorRuntime.SkillRegistryBrokerTest do
       payload = get_in(envelope, ["body", "rpc_response", "payload_json"])
       assert payload["request_id"] == "installed-skills-1"
       assert payload["agent_uid"] == agent.uid
-      assert payload["skills"] == 4
+
+      assert payload["skills"] ==
+               Repo.aggregate(
+                 from(skill in AgentSkill, where: skill.agent_uid == ^agent.uid),
+                 :count
+               )
+
       assert payload["files"] >= 4
 
       assert %AgentSkill{source_kind: "installed", enabled: true} =

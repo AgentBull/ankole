@@ -29,3 +29,8 @@ declare module '*.svg' {
 }
 
 declare module '*.css'
+
+declare module '*.toml' {
+  const data: unknown
+  export default data
+}

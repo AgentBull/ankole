@@ -25,11 +25,11 @@ export function actorEventEnvironmentInfoLines(
   payload: JsonObject | undefined,
   opts: { timezone?: string | null } = {}
 ): string[] {
-  const data = objectValue(payload?.data)
-  const entry = objectValue(data.entry)
-  const channel = objectValue(data.channel)
-  const author = objectValue(entry.author)
-  const lifecycle = objectValue(data.lifecycle)
+  const data = recordValue(payload?.data) ?? {}
+  const entry = recordValue(data.entry) ?? {}
+  const channel = recordValue(data.channel) ?? {}
+  const author = recordValue(entry.author) ?? {}
+  const lifecycle = recordValue(data.lifecycle) ?? {}
   const lines: string[] = []
 
   const sendAt = stringValue(entry.provider_time) ?? stringValue(payload?.time)
@@ -41,7 +41,7 @@ export function actorEventEnvironmentInfoLines(
   const speaker = speakerLabel(author)
   if (speaker) lines.push(`speaker: ${speaker}`)
 
-  const senderType = stringValue(objectValue(author.metadata).sender_type)
+  const senderType = stringValue((recordValue(author.metadata) ?? {}).sender_type)
   if (senderType) lines.push(`speaker_role: ${senderType}`)
 
   const lifecycleKind = stringValue(lifecycle.kind)
@@ -145,13 +145,6 @@ function formatTimestamp(value: string, timezone?: string): string {
   } catch {
     return value
   }
-}
-
-/**
- * Narrows unknown values to JSON objects, using an empty object as fallback.
- */
-function objectValue(value: unknown): JsonObject {
-  return recordValue(value) ?? {}
 }
 
 /**

@@ -348,6 +348,10 @@ SignalsGateway does not own:
   output;
 - Principal/AuthZ truth, except for exposing a host-owned bridge that adapters
   can call with observed platform-subject facts;
+- identity-provider catalog/config persistence, full directory sync scheduling,
+  or full sync execution. Those belong to `Ankole.IdentityProviders`,
+  AppConfigure, and Oban; SignalsGateway only shares provider ingress resources
+  with realtime identity consumers when an adapter needs that;
 - plugin discovery, plugin activation, or provider setup persistence;
 - a universal audit log of every upstream provider payload;
 - a universal rule-routing engine or arbitrary runtime delivery rules;
@@ -1653,6 +1657,51 @@ For a shared app, chat consumers should be included before identity realtime
 sync opens or reuses the connection, and identity consumers should be included
 before its startup full sync. Otherwise Feishu/Lark's non-broadcast delivery can
 route events away from the runtime path that needs them.
+
+### Identity Provider Directory Sync
+
+Directory sync is an identity-provider capability, not a SignalsGateway binding
+policy. The generic capabilities are `directory_full_sync` and
+`directory_realtime_sync` on the `principals.identity_provider` adapter
+declaration. A provider that does not declare `directory_full_sync` must not get
+full-sync jobs just because its config happens to contain `sync.contacts`.
+
+The common config switch is `sync.contacts`. It means "sync the provider
+directory" as one unit; Ankole does not expose separate `sync.users` and
+`sync.departments` switches. For Lark, the full sync entry point is
+`sync_directory/3`: it pages contact users and departments with `sync.pageSize`,
+upserts users into Principal platform-subject identity, and checks department
+access/count without making departments a separate operator-controlled feature.
+
+Full directory sync always runs in Oban through
+`Ankole.IdentityProviders.Jobs.SyncProvider`. It is enqueued by three edges:
+
+- saving an enabled identity provider whose `sync.contacts` is true;
+- the console manual "run full sync" action for a saved provider whose adapter
+  declares `directory_full_sync`;
+- `Ankole.IdentityProviders.Jobs.EnqueueDirectorySyncs`, a periodic wake edge
+  that scans enabled providers and enqueues due full-sync jobs.
+
+The periodic wake edge is not itself the six-hour guarantee. It may run more
+often, but the inserted `SyncProvider` job uses Oban uniqueness over
+`provider_id + reason + source` for the configured full-sync interval. The
+interval is AppConfigure-owned at
+`principals.identity_providers.directory_full_sync_interval_hours`, with a
+default of 6 hours.
+
+Realtime directory sync is incremental and provider-specific. For Lark it uses
+the same `domain + app_id` long-connection owner as chat ingress, because the
+provider's long-connection delivery is cluster-mode. The Lark identity consumer
+starts only when `sync.contacts == true` and `sync.websocket == true`; the
+validator normalizes `sync.websocket` to false when contacts sync is disabled.
+Contact user events can upsert platform-subject facts directly. Events that
+cannot safely be merged incrementally, such as missing identity information or
+`contact.scope.updated_v3`, enqueue a full directory sync instead of guessing.
+
+None of these sync paths create signal entries, actor events, inbound batches,
+or outbox rows. They write Principal/AuthZ-owned identity facts through the
+host-owned bridge. Chat ingress may use those facts for attribution later, but
+directory sync itself is outside the provider mirror and actor event journal.
 
 The Elixir adapter should use `libs/feishu_openapi`, especially
 `FeishuOpenAPI.WS.Client` and `FeishuOpenAPI.Event.Dispatcher`, for the

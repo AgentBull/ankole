@@ -5,6 +5,7 @@ defmodule Ankole.AIGateway.Providers.Claude do
 
   use Ankole.AIGateway.ProviderDSL
 
+  alias Ankole.AIGateway.ProviderConnectionCheck
   alias Ankole.AIGateway.ReasoningEffort
   alias Ankole.AIGateway.UniversalAIRequest
 
@@ -69,10 +70,10 @@ defmodule Ankole.AIGateway.Providers.Claude do
   end
 
   @doc """
-  Checks Anthropic connectivity using the same version/auth headers as model requests.
+  Prepares an Anthropic connection check using the same version/auth headers as model requests.
   """
   @impl true
-  def check_connection(ctx) when is_map(ctx) do
+  def prepare_connection_check(ctx) when is_map(ctx) do
     headers =
       ctx
       |> UniversalAIRequest.raw_headers()
@@ -83,16 +84,7 @@ defmodule Ankole.AIGateway.Providers.Claude do
       |> maybe_put_beta(ctx.settings[:anthropic_beta])
       |> put_auth(ctx)
 
-    with {:ok, %{"status" => status, "body" => body}} when status in 200..299 <-
-           UniversalAIRequest.raw_get(ctx, "v1/models", headers: headers) do
-      {:ok, body}
-    else
-      {:ok, %{"status" => status, "body" => body}} ->
-        {:error, {:provider_connection_check_failed, status, body}}
-
-      {:error, _reason} = error ->
-        error
-    end
+    ProviderConnectionCheck.get(ctx, "v1/models", headers: headers)
   end
 
   # Anthropic-compatible gateways may accept OAuth-style bearer tokens, while

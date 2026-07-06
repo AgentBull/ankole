@@ -1,4 +1,4 @@
-import type { JsonObject } from './types'
+import type { JsonObject } from '@pleisto/active-support'
 import { DEFAULT_BROWSER_COMMAND_TIMEOUT_MS, DEFAULT_CDP_CONNECT_TIMEOUT_MS } from './constants'
 
 /**

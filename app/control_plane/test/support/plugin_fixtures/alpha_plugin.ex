@@ -23,7 +23,7 @@ defmodule Ankole.PluginFixtures.AlphaPlugin do
   def api_version, do: 1
 
   @impl true
-  def display_name, do: %{"en-US" => "Alpha"}
+  def display_name, do: %{"default" => "Alpha"}
 
   @impl true
   def app_config_definitions do

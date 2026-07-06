@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { deepString, isRecord, safeJsonParse, safeJsonStringify } from '@pleisto/active-support'
-import type { JsonObject } from '../../lanes/actor_lane'
+import type { JsonObject } from '@pleisto/active-support'
 import { browserExtractFromSession, ensureBrowserSession, type BrowserRuntimeOptions } from '../browser/cdp'
 import type { AgentTool, AgentToolResult } from '../../core'
 import type { AIGatewayHttpClient } from '../../core/turns/model_runtime'

@@ -8,6 +8,7 @@ defmodule Ankole.ScheduleTest do
   alias Ankole.Actors
   alias Ankole.Actors.ActorEvent
   alias Ankole.ActorRuntime
+  alias Ankole.ActorRuntime.TurnRef
   alias Ankole.ActorRuntime.WorkerRouteAuth
   alias Ankole.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.ActorRuntime.Transport.Broker
@@ -21,6 +22,7 @@ defmodule Ankole.ScheduleTest do
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.AdapterContext
   alias Ankole.SignalsGateway.InboundBatch
+  alias Ankole.SignalsGateway.Ingress
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Entry
 
@@ -320,7 +322,7 @@ defmodule Ankole.ScheduleTest do
                )
 
       assert {:ok, %{lifecycle_events: [lifecycle_event]}} =
-               SignalsGateway.emit_entry_removed(
+               Ingress.emit_entry_removed(
                  agent.uid,
                  "bot",
                  lifecycle_entry(%{source_event_id: "delete-source"}),
@@ -1248,7 +1250,7 @@ defmodule Ankole.ScheduleTest do
   end
 
   defp emit_entry(agent_uid, binding_name, input, opts) do
-    with {:ok, result} <- SignalsGateway.emit_entry(agent_uid, binding_name, input, opts) do
+    with {:ok, result} <- Ingress.emit_entry(agent_uid, binding_name, input, opts) do
       {:ok, maybe_finalize_test_inbound_batch(result)}
     end
   end
@@ -1372,8 +1374,38 @@ defmodule Ankole.ScheduleTest do
   end
 
   defp schedule_rpc(action, request, route) do
-    RPCBroker.handle_request(action, &WorkerRouteAuth.authorize_turn_route/3, request, route)
+    with {:ok, turn_ref} <- TurnRef.from_request(request, :turn_ref),
+         :ok <- WorkerRouteAuth.authorize_turn_route(turn_ref, route, schedule_rpc_effect(action)) do
+      RPCBroker.handle_request(action, turn_ref, request, route)
+    else
+      {:error, reason} -> {:error, schedule_rpc_error(reason)}
+    end
   end
+
+  defp schedule_rpc_effect(action) when action in ["cron.list", "cron.get", "cron.runs"],
+    do: :read
+
+  defp schedule_rpc_effect(_action), do: :write
+
+  defp schedule_rpc_error(reason) do
+    %{
+      "request_id" => "",
+      "code" => schedule_rpc_error_code(reason),
+      "message" => schedule_rpc_error_message(reason),
+      "details_json" => %{"reason" => inspect(reason)}
+    }
+  end
+
+  defp schedule_rpc_error_code(reason) when is_atom(reason), do: Atom.to_string(reason)
+
+  defp schedule_rpc_error_code({reason, _details}) when is_atom(reason),
+    do: Atom.to_string(reason)
+
+  defp schedule_rpc_error_code(_reason), do: "schedule_rpc_failed"
+
+  defp schedule_rpc_error_message(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp schedule_rpc_error_message({reason, details}), do: "#{reason}: #{inspect(details)}"
+  defp schedule_rpc_error_message(reason), do: inspect(reason)
 
   defp stringify_keys(map) do
     Map.new(map, fn

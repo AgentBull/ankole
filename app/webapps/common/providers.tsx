@@ -1,3 +1,4 @@
+import { Toaster } from '@ankole/uikit/components/sonner'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { HelmetProvider } from 'react-helmet-async'
@@ -24,7 +25,10 @@ export function AppProviders({ children, queryClient }: { children: ReactNode; q
   return (
     <HelmetProvider>
       <I18nextProvider i18n={i18n}>
-        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        <QueryClientProvider client={queryClient}>
+          {children}
+          <Toaster />
+        </QueryClientProvider>
       </I18nextProvider>
     </HelmetProvider>
   )

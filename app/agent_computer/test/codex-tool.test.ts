@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test'
+import type { JsonObject } from '@pleisto/active-support'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -90,6 +91,31 @@ describe('@ankole/agent-computer Codex delegation', () => {
       expect(tool.description).toContain('start: background mode')
       expect(tool.description).not.toContain('timeout_seconds')
       expect(tool.description).not.toContain('Delegate coding work to a nested OpenAI Codex')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects non-workspace absolute Codex workdirs before creating a delegation', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-codex-workdir-'))
+    const events: CodexDelegationEventAppendRequest[] = []
+    const statusUpdates: CodexDelegationStatusUpdateRequest[] = []
+    try {
+      const tool = createCodexDelegateTool({
+        turnStart: turnStartForTest(),
+        workspaceRoot: root,
+        ...codexRequesters(events, statusUpdates)
+      })
+
+      await expect(
+        tool.execute('tool-call-invalid-workdir', {
+          action: 'start',
+          prompt: 'inspect the repo',
+          workdir: '/tmp/outside'
+        })
+      ).rejects.toThrow('Codex workdir must stay inside the session workspace')
+      expect(events).toHaveLength(0)
+      expect(statusUpdates).toHaveLength(0)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -377,7 +403,7 @@ describe('@ankole/agent-computer Codex delegation', () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-codex-no-request-handler-'))
     const fakeCodex = join(root, 'fake-codex')
     writeFakeCodex(fakeCodex, 20, { requestUserInput: true })
-    const audits: Array<{ direction: string; message: Record<string, unknown> }> = []
+    const audits: Array<{ direction: string; message: JsonObject }> = []
     const client = new CodexAppServerClient({
       command: fakeCodex,
       cwd: root,
@@ -800,7 +826,7 @@ process.stdin.on('data', chunk => {
   chmodSync(path, 0o755)
 }
 
-function textInputForTest(text: string): Array<Record<string, unknown>> {
+function textInputForTest(text: string): Array<JsonObject> {
   return [{ type: 'text', text, text_elements: [] }]
 }
 

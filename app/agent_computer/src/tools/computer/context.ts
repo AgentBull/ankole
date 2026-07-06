@@ -1,7 +1,9 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import { dirname, normalize, resolve } from 'node:path'
+import { dirname, resolve } from 'node:path'
 import { createHash } from 'node:crypto'
+import type { JsonObject } from '@pleisto/active-support'
+import { resolveWorkspacePath, WORKSPACE_MODEL_ROOT } from '../../core/workspace-paths'
 import { bubblewrapArgv } from './bubblewrap'
 
 export type CommandOutputMode = 'stdout' | 'stderr' | 'both'
@@ -87,7 +89,7 @@ export interface ComputerToolContext {
    */
   executionScopeId: string
   /** Decrypted remote browser CDP config for this turn, resolved by control-plane RPC. */
-  browserRemoteCdpConfig?: Record<string, unknown> | null
+  browserRemoteCdpConfig?: JsonObject | null
   /** Local browser idle release TTL in milliseconds, resolved by AppConfigure. */
   localBrowserIdleTtlMs?: number
   /** Resolve-or-create the agent's container computer facade (memoized for the run). */
@@ -116,7 +118,6 @@ const BACKGROUND_OUTPUT_MAX_CHARS = 200_000
 // registry without bound. Running commands are never evicted.
 const BACKGROUND_COMMANDS_MAX = 64
 const backgroundCommands = new Map<string, MutableBackgroundCommand>()
-const WORKSPACE_VIRTUAL_ROOT = '/workspace'
 
 /**
  * Evicts old finished background commands while never dropping running ones.
@@ -143,10 +144,7 @@ export function createContainerComputer(workspaceRoot: string, executionScopeId:
   const root = resolve(workspaceRoot)
   const backgroundScopeKey = scopedBackgroundCommandKey(root, executionScopeId)
 
-  const safePath = (path: string, cwd?: string): string => {
-    const base = cwd ? workspacePath(root, cwd) : root
-    return resolveWorkspacePath(root, path, base)
-  }
+  const safePath = (path: string, cwd?: string): string => resolveWorkspacePath(root, path, { cwd })
 
   const runTmux = async (args: string[], opts?: { signal?: AbortSignal }): Promise<CommandFinished> =>
     runContainerControlCommand({ cmd: 'tmux', args, signal: opts?.signal }, root)
@@ -271,31 +269,7 @@ export function executionScopeTag(context: Pick<ComputerToolContext, 'executionS
  * Resolves a path against the workspace root.
  */
 function workspacePath(root: string, path: string): string {
-  return resolveWorkspacePath(root, path, root)
-}
-
-/**
- * Resolves absolute, relative, and `/workspace/...` virtual paths safely under
- * the real workspace root.
- */
-function resolveWorkspacePath(root: string, path: string, base: string): string {
-  const resolved = isWorkspaceVirtualPath(path)
-    ? resolve(root, `.${path.slice(WORKSPACE_VIRTUAL_ROOT.length)}`)
-    : path.startsWith('/')
-      ? resolve(root, `.${normalize(path)}`)
-      : resolve(base, normalize(path))
-
-  if (resolved !== root && !resolved.startsWith(`${root}/`)) {
-    throw new Error('path escapes workspace root')
-  }
-  return resolved
-}
-
-/**
- * Checks whether a path uses the model-facing `/workspace` virtual root.
- */
-function isWorkspaceVirtualPath(path: string): boolean {
-  return path === WORKSPACE_VIRTUAL_ROOT || path.startsWith(`${WORKSPACE_VIRTUAL_ROOT}/`)
+  return resolveWorkspacePath(root, path)
 }
 
 /**
@@ -589,14 +563,14 @@ function commandEnv(inputEnv: Record<string, string> | undefined): Record<string
   const shellBootstrap = process.env.BASH_ENV ?? '/etc/profile.d/ankole-agent-computer.sh'
   const env: Record<string, string> = {
     PATH: commandPath(process.env.PATH),
-    HOME: process.env.HOME ?? '/workspace',
+    HOME: process.env.HOME ?? WORKSPACE_MODEL_ROOT,
     LANG: process.env.LANG ?? 'C.UTF-8',
     TERM: process.env.TERM ?? 'xterm-256color',
     SHELL: process.env.SHELL ?? '/bin/bash',
     BASH_ENV: shellBootstrap,
     ENV: process.env.ENV ?? shellBootstrap,
     CODEX_UNSAFE_ALLOW_NO_SANDBOX: process.env.CODEX_UNSAFE_ALLOW_NO_SANDBOX ?? '1',
-    ANKOLE_WORKSPACE_ROOT: process.env.ANKOLE_WORKSPACE_ROOT ?? '/workspace'
+    ANKOLE_WORKSPACE_ROOT: process.env.ANKOLE_WORKSPACE_ROOT ?? WORKSPACE_MODEL_ROOT
   }
 
   for (const [key, value] of Object.entries(inputEnv ?? {})) {

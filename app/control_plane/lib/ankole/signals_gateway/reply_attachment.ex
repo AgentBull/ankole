@@ -4,7 +4,7 @@ defmodule Ankole.SignalsGateway.ReplyAttachment do
   """
 
   alias Ankole.JSON
-  alias Ankole.SignalsGateway.JsonPayload
+  alias Ankole.Ecto.JsonPayload
 
   @tool_name "reply_attachment"
   @user_files_prefix "/workspace/user-files/"

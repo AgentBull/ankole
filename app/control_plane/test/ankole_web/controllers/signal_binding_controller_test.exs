@@ -34,11 +34,11 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       conn
       |> bearer_conn()
       |> put(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
+        "group_message_mode" => "may_intervene",
         "config" => %{
           "appId" => "cli_lark_main",
           "appSecret" => "secret-lark-main",
           "domain" => "feishu",
-          "group_message_mode" => "may_intervene",
           "platformSubjectNamespace" => "lark-main",
           "userName" => "Research Bot",
           "botOpenId" => "ou_bot_main",
@@ -69,6 +69,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     assert config["appId"] == "cli_lark_main"
     assert config["appSecret"] == "secret-lark-main"
     assert config["botOpenId"] == "ou_bot_main"
+    refute Map.has_key?(config, "group_message_mode")
 
     conn =
       conn
@@ -96,10 +97,10 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       conn
       |> bearer_conn()
       |> put(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
+        "group_message_mode" => "observe_all",
         "config" => %{
           "appId" => "cli_lark_main",
-          "appSecret" => "secret-lark-main",
-          "group_message_mode" => "observe_all"
+          "appSecret" => "secret-lark-main"
         }
       })
 
@@ -113,12 +114,54 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     assert {:error, :binding_not_found} = SignalsGateway.get_binding(agent.uid, "lark-main")
   end
 
+  test "admin lists signal adapter catalog with provider fields and common group mode field", %{
+    conn: conn
+  } do
+    conn =
+      conn
+      |> bearer_conn()
+      |> get(~p"/api/v1/signal-adapters")
+
+    assert %{"data" => [adapter]} = json_response(conn, 200)
+    assert adapter["adapter_id"] == "lark"
+    assert adapter["display_name"]["default"] == "Lark"
+
+    assert Enum.map(adapter["fields"], & &1["path"]) == [
+             "appId",
+             "appSecret",
+             "domain",
+             "baseUrl",
+             "platformSubjectNamespace",
+             "userName",
+             "botOpenId",
+             "botUserId"
+           ]
+
+    assert Enum.all?(adapter["fields"], &(&1["advanced"] == false))
+
+    assert adapter["group_message_mode_field"]["path"] == "group_message_mode"
+    assert adapter["group_message_mode_field"]["advanced"] == false
+    assert adapter["group_message_mode_field"]["default"] == "addressed_only"
+
+    assert Enum.map(adapter["group_message_mode_field"]["options"], & &1["value"]) == [
+             "addressed_only",
+             "observe_all",
+             "may_intervene"
+           ]
+  end
+
   test "OpenAPI JSON includes signal binding configuration endpoint", %{conn: conn} do
     conn = get(conn, ~p"/api/v1/openapi.json")
     paths = json_response(conn, 200)["paths"]
 
+    assert Map.has_key?(paths, "/api/v1/signal-adapters")
     assert Map.has_key?(paths, "/api/v1/agents/{agent_uid}/signal-bindings")
-    assert Map.has_key?(paths, "/api/v1/agents/{agent_uid}/signal-bindings/lark/{binding_name}")
+
+    assert Map.has_key?(
+             paths,
+             "/api/v1/agents/{agent_uid}/signal-bindings/{adapter_id}/{binding_name}"
+           )
+
     assert Map.has_key?(paths, "/api/v1/agents/{agent_uid}/signal-bindings/{binding_name}")
   end
 

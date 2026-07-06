@@ -1,6 +1,7 @@
-import { basename } from 'node:path'
+import { basename, relative, resolve } from 'node:path'
 import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../../core'
+import { insideWorkspace, resolveWorkspacePath } from '../../core/workspace-paths'
 import type { ComputerToolContext } from './context'
 
 const ReplyAttachmentParams = z.object({
@@ -72,22 +73,16 @@ export function createReplyAttachmentTool(
  * Converts accepted workspace paths to a user-files-relative path.
  */
 function userFilesRelativePath(path: string, workspaceRoot: string): string {
-  const normalized = path.replaceAll('\\', '/')
-  const userFilesPrefix = `${workspaceRoot.replace(/\/+$/, '')}/user-files/`
+  const resolved =
+    path.startsWith('/') && insideWorkspace(workspaceRoot, path)
+      ? resolve(path)
+      : resolveWorkspacePath(workspaceRoot, path)
+  const userFilesRoot = resolve(workspaceRoot, 'user-files')
+  const relativePath = relative(userFilesRoot, resolved).replaceAll('\\', '/')
 
-  if (normalized.startsWith(userFilesPrefix)) {
-    return trimLeadingSlash(normalized.slice(userFilesPrefix.length))
+  if (!relativePath || relativePath === '..' || relativePath.startsWith('../')) {
+    throw new Error('reply_attachment only accepts files under /workspace/user-files')
   }
-  if (normalized.startsWith('/workspace/user-files/')) {
-    return trimLeadingSlash(normalized.slice('/workspace/user-files/'.length))
-  }
 
-  throw new Error('reply_attachment only accepts files under /workspace/user-files')
-}
-
-/**
- * Removes leading slash characters from a relative path.
- */
-function trimLeadingSlash(value: string): string {
-  return value.replace(/^\/+/, '')
+  return relativePath
 }

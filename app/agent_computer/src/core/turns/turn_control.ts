@@ -4,14 +4,6 @@ import { userMessage } from '../llm'
 import { actorEventText } from './actor_event_text'
 
 /**
- * Detects ambient observation turns that should run through the recognizer
- * before deciding whether to speak visibly.
- */
-export function isAmbientMayInterveneTurn(turnStart: TurnStart): boolean {
-  return turnStart.actor_event.type === 'im.message.may_intervene'
-}
-
-/**
  * Converts applicable active steering updates into model-visible user messages.
  *
  * The worker only uses mailbox updates that match the current durable turn

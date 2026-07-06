@@ -6,9 +6,10 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
   use Ecto.Schema
 
   import Ecto.Changeset
+  import Ankole.Ecto.Changeset, only: [normalize_blank: 2, normalize_lower: 2]
 
   alias Ankole.AIGateway.Providers
-  alias Ankole.SignalsGateway.JsonPayload
+  alias Ankole.Ecto.JsonPayload
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @timestamps_opts [type: :utc_datetime_usec]
@@ -100,39 +101,6 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
         {:ok, _options} -> []
         {:error, reason} -> [connection_options: inspect(reason)]
       end
-    end)
-  end
-
-  # Blank strings from forms are stored as nil so database constraints and
-  # runtime fallback logic see the same absence value.
-  defp normalize_blank(changeset, fields) when is_list(fields) do
-    Enum.reduce(fields, changeset, fn field, changeset -> normalize_blank(changeset, field) end)
-  end
-
-  defp normalize_blank(changeset, field) do
-    update_change(changeset, field, fn
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          trimmed -> trimmed
-        end
-
-      value ->
-        value
-    end)
-  end
-
-  # Provider ids are operator-facing stable slugs. Lowercasing them at the
-  # changeset boundary keeps model selectors case-insensitive without adding
-  # alternate lookup paths.
-  defp normalize_lower(changeset, fields) when is_list(fields) do
-    Enum.reduce(fields, changeset, fn field, changeset -> normalize_lower(changeset, field) end)
-  end
-
-  defp normalize_lower(changeset, field) do
-    update_change(changeset, field, fn
-      value when is_binary(value) -> String.downcase(value)
-      value -> value
     end)
   end
 end

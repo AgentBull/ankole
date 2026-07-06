@@ -2,21 +2,15 @@ defmodule Ankole.SignalsGateway do
   @moduledoc """
   Boundary between signal ingress, actor event handoff, and provider outbox.
 
-  This module is the public facade for the SignalsGateway namespace. The
-  implementation is split under `Ankole.SignalsGateway.*` by durable ownership:
-  binding lookup, ingress admission, fact normalization, provider projection,
-  inbound IM batching, actor-event envelope construction, outbox dispatch, and
-  TTL cleanup.
-
-  External adapters and runtime code should keep calling this module. The
-  namespace split keeps the implementation cohesive without expanding the public
-  contract.
+  This module is the public facade for binding management, provider-visible
+  outbox work, cleanup, and runtime support queries. Provider facts enter through
+  `Ankole.SignalsGateway.Ingress`, which owns admission, projection, batching,
+  and actor-event handoff.
   """
 
   alias Ankole.Actors.ActorEvent
   alias Ankole.SignalsGateway.AIReplyPreview
   alias Ankole.SignalsGateway.Bindings
-  alias Ankole.SignalsGateway.Ingress
   alias Ankole.SignalsGateway.InboundBatches
   alias Ankole.SignalsGateway.Outbox
   alias Ankole.SignalsGateway.OutboxEntry
@@ -25,17 +19,21 @@ defmodule Ankole.SignalsGateway do
   alias Ankole.SignalsGateway.StateCleanup
   alias Ankole.SignalsGateway.Utils
 
-  @type ingress_result :: {:ok, map()} | {:error, term()}
-
   @doc """
   Creates or updates a per-agent signal binding.
   """
   @spec upsert_binding(map()) :: {:ok, Binding.t()} | {:error, term()}
   defdelegate upsert_binding(attrs), to: Bindings
 
-  @spec put_lark_binding(String.t(), String.t(), map()) ::
+  @doc """
+  Lists signal adapters available for operator-managed bindings.
+  """
+  @spec list_adapters() :: [map()]
+  defdelegate list_adapters(), to: Bindings
+
+  @spec put_binding(String.t(), String.t(), String.t(), map()) ::
           {:ok, %{binding: Binding.t(), config_key: String.t()}} | {:error, term()}
-  defdelegate put_lark_binding(agent_uid, binding_name, config), to: Bindings
+  defdelegate put_binding(agent_uid, adapter_id, binding_name, attrs), to: Bindings
 
   @doc """
   Loads an enabled binding by route key.
@@ -82,30 +80,6 @@ defmodule Ankole.SignalsGateway do
       opts
     )
   end
-
-  @doc """
-  Concrete adapter API for a provider entry receive.
-  """
-  @spec emit_entry(String.t(), String.t(), map(), keyword()) :: ingress_result()
-  defdelegate emit_entry(agent_uid, binding_name, input, options \\ []), to: Ingress
-
-  @doc """
-  Concrete adapter API for a provider entry removal.
-  """
-  @spec emit_entry_removed(String.t(), String.t(), map(), keyword()) :: ingress_result()
-  defdelegate emit_entry_removed(agent_uid, binding_name, input, options \\ []), to: Ingress
-
-  @doc """
-  Concrete adapter API for reaction changes.
-  """
-  @spec emit_reaction(String.t(), String.t(), map(), keyword()) :: ingress_result()
-  defdelegate emit_reaction(agent_uid, binding_name, input, options \\ []), to: Ingress
-
-  @doc """
-  Concrete adapter API for provider actions such as card clicks.
-  """
-  @spec emit_action(String.t(), String.t(), map(), keyword()) :: ingress_result()
-  defdelegate emit_action(agent_uid, binding_name, input, options \\ []), to: Ingress
 
   @doc """
   Records a provider-visible outbox intent committed by the actor runtime.

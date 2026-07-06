@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
-import type { JsonObject, TurnStart } from '../src/lanes/actor_lane'
+import type { TurnStart } from '../src/lanes/actor_lane'
+import type { JsonObject } from '@pleisto/active-support'
 import { createMemoryTools } from '../src/tools/memory/memory-tools'
 
 describe('memory tools', () => {

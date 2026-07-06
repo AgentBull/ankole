@@ -1,6 +1,7 @@
 import type { ActorEventEnvelope, ActorTurnRef } from './actor_lane'
-import type { JsonObject, RuntimeFabricEnvelope } from '../fabric/fabric'
+import type { RuntimeFabricEnvelope } from '../fabric/fabric'
 import type { ReliableEnvelopeSender } from '../fabric/sender'
+import type { JsonObject } from '@pleisto/active-support'
 
 export const rpcMethods = {
   aiGatewayApiKeyForCreateOrFindByAgent: 'ai_gateway.api_key_for.create_or_find_by_agent',

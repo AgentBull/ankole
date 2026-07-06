@@ -6,6 +6,12 @@ import type { TurnModelRef } from '../lanes/actor_lane'
 export const VISION_MAX_IMAGE_BYTES = 4 * 1024 * 1024
 export const VISION_MAX_IMAGES_PER_TURN = 8
 
+export type ModelImageAdaptation =
+  | { kind: 'none' }
+  | { kind: 'direct'; images: ImageContent[] }
+  | { kind: 'summary'; summary: string }
+  | { kind: 'unavailable' }
+
 const visionFallbackInstructions = [
   'Describe everything visible in the attached image(s) in thorough detail.',
   'Include any text, code, UI, data, objects, people, layout, colors, and any other notable visual information.',
@@ -17,6 +23,34 @@ const visionFallbackInstructions = [
  */
 export function modelSupportsImage(modelRef: Pick<TurnModelRef, 'input_modalities'> | undefined | null): boolean {
   return modelRef?.input_modalities?.includes('image') ?? false
+}
+
+/**
+ * Chooses the model-visible image path for a turn or tool result.
+ */
+export async function modelImageAdaptation(
+  images: ImageContent[],
+  modelRef: Pick<TurnModelRef, 'input_modalities'> | undefined | null,
+  opts: { visionFallbackModel?: ModelConfig; abortSignal?: AbortSignal } = {}
+): Promise<ModelImageAdaptation> {
+  if (images.length === 0) return { kind: 'none' }
+
+  if (modelSupportsImage(modelRef)) {
+    return { kind: 'direct', images }
+  }
+
+  if (!opts.visionFallbackModel) return { kind: 'unavailable' }
+
+  try {
+    const summary = await describeImagesWithFallback(opts.visionFallbackModel, images, {
+      abortSignal: opts.abortSignal
+    })
+    if (summary) return { kind: 'summary', summary }
+  } catch {
+    return { kind: 'unavailable' }
+  }
+
+  return { kind: 'unavailable' }
 }
 
 /**

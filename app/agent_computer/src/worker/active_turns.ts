@@ -1,6 +1,6 @@
 import { classifyLlmError } from '../core/llm-error-classifier'
 import { workerProgressEnvelope } from '../fabric/envelopes'
-import type { JsonObject } from '../fabric/fabric'
+import type { JsonObject } from '@pleisto/active-support'
 import { isRuntimeFabricBackpressure, type ReliableEnvelopeSender } from '../fabric/sender'
 import type { ActorTurnRef, TurnStart, TurnSteerUpdate } from '../lanes/actor_lane'
 import type { WorkerConfig } from './config'
@@ -112,7 +112,7 @@ export function turnFailureDetails(error: unknown): JsonObject {
 export function aigatewayErrorDetails(error: unknown): JsonObject | undefined {
   if (!error || typeof error !== 'object') return undefined
 
-  const record = error as Record<string, unknown>
+  const record = error as JsonObject
   const details: JsonObject = {}
 
   if (typeof record.code === 'string') details.code = record.code

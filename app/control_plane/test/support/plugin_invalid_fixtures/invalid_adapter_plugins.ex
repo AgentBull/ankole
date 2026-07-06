@@ -21,6 +21,59 @@ defmodule Ankole.PluginFixtures.InvalidAdapterModulePlugin do
   end
 end
 
+defmodule Ankole.PluginFixtures.StringLocalizedTextPlugin do
+  @moduledoc false
+
+  @behaviour Ankole.Plugins.Plugin
+
+  @impl true
+  def plugin_id, do: "string-localized-text"
+
+  @impl true
+  def api_version, do: 1
+
+  @impl true
+  def display_name, do: "String Display Name"
+end
+
+defmodule Ankole.PluginFixtures.MissingDefaultLocalizedTextPlugin do
+  @moduledoc false
+
+  @behaviour Ankole.Plugins.Plugin
+
+  @impl true
+  def plugin_id, do: "missing-default-localized-text"
+
+  @impl true
+  def api_version, do: 1
+
+  @impl true
+  def display_name, do: %{"en-US" => "Missing Default"}
+end
+
+defmodule Ankole.PluginFixtures.StringAdapterDisplayNamePlugin do
+  @moduledoc false
+
+  @behaviour Ankole.Plugins.Plugin
+
+  @impl true
+  def plugin_id, do: "string-adapter-display-name"
+
+  @impl true
+  def api_version, do: 1
+
+  @impl true
+  def adapter_declarations do
+    [
+      %{
+        contract_id: "test.adapter",
+        id: "string-display",
+        display_name: "String Display Name"
+      }
+    ]
+  end
+end
+
 defmodule Ankole.PluginFixtures.MissingIdentityCallbackPlugin do
   @moduledoc false
 
@@ -138,13 +191,13 @@ defmodule Ankole.PluginFixtures.UnknownIdentityCapabilityPlugin do
         contract_id: "principals.identity_provider",
         id: "unknown-identity-capability",
         module: __MODULE__,
-        capabilities: ["user_full_sync", "made_up"]
+        capabilities: ["directory_full_sync", "made_up"]
       }
     ]
   end
 
   def upsert_user(_provider_id, _user), do: {:ok, %{}}
-  def sync_users(_provider_id, _config, _opts), do: {:ok, %{users: 0}}
+  def sync_directory(_provider_id, _config, _opts), do: {:ok, %{users: 0, departments: 0}}
 end
 
 defmodule Ankole.PluginFixtures.MissingAIGatewayProviderDefinitionPlugin do

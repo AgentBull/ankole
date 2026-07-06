@@ -12,61 +12,55 @@ defmodule Ankole.ActorRuntime.RPCLane do
   alias Ankole.ActorRuntime.CodexDelegationBroker
   alias Ankole.ActorRuntime.SkillRegistryBroker
   alias Ankole.ActorRuntime.SkillOverlayBroker
+  alias Ankole.ActorRuntime.TurnRef
   alias Ankole.ActorRuntime.WorkerRouteAuth
   alias Ankole.Memory.RPCBroker, as: MemoryRPCBroker
   alias Ankole.Schedule.RPCBroker
 
   @method_handlers %{
     "ai_gateway.api_key_for.create_or_find_by_agent" =>
-      {AIGatewayApiKeyBroker, :handle_request, []},
-    "agent_conversation.context.resolve" => {AgentConversationContextBroker, :handle_request, []},
-    "app_configure.resolve" => {AppConfigureBroker, :handle_request, []},
-    "codex.delegation.create" => {CodexDelegationBroker, :handle_create, []},
-    "codex.delegation.get" => {CodexDelegationBroker, :handle_get, []},
-    "codex.delegation.event.append" => {CodexDelegationBroker, :handle_append_event, []},
-    "codex.delegation.status.update" => {CodexDelegationBroker, :handle_update_status, []},
+      {:plain, AIGatewayApiKeyBroker, :handle_request, []},
+    "agent_conversation.context.resolve" =>
+      {:turn, AgentConversationContextBroker, :handle_request, [], :turn, :read},
+    "app_configure.resolve" => {:plain, AppConfigureBroker, :handle_request, []},
+    "codex.delegation.create" => {:plain, CodexDelegationBroker, :handle_create, []},
+    "codex.delegation.get" => {:plain, CodexDelegationBroker, :handle_get, []},
+    "codex.delegation.event.append" => {:plain, CodexDelegationBroker, :handle_append_event, []},
+    "codex.delegation.status.update" =>
+      {:plain, CodexDelegationBroker, :handle_update_status, []},
     "memory_note.save" =>
-      {MemoryRPCBroker, :handle_request,
-       ["memory_note.save", &WorkerRouteAuth.authorize_turn_route/3]},
+      {:turn, MemoryRPCBroker, :handle_request, ["memory_note.save"], :turn_ref, :write},
     "memory_note.update" =>
-      {MemoryRPCBroker, :handle_request,
-       ["memory_note.update", &WorkerRouteAuth.authorize_turn_route/3]},
+      {:turn, MemoryRPCBroker, :handle_request, ["memory_note.update"], :turn_ref, :write},
     "memory_note.forget" =>
-      {MemoryRPCBroker, :handle_request,
-       ["memory_note.forget", &WorkerRouteAuth.authorize_turn_route/3]},
+      {:turn, MemoryRPCBroker, :handle_request, ["memory_note.forget"], :turn_ref, :write},
     "memory_note.list" =>
-      {MemoryRPCBroker, :handle_request,
-       ["memory_note.list", &WorkerRouteAuth.authorize_turn_route/3]},
+      {:turn, MemoryRPCBroker, :handle_request, ["memory_note.list"], :turn_ref, :read},
     "memory_search" =>
-      {MemoryRPCBroker, :handle_request,
-       ["memory_search", &WorkerRouteAuth.authorize_turn_route/3]},
+      {:turn, MemoryRPCBroker, :handle_request, ["memory_search"], :turn_ref, :read},
     "memory_browse" =>
-      {MemoryRPCBroker, :handle_request,
-       ["memory_browse", &WorkerRouteAuth.authorize_turn_route/3]},
+      {:turn, MemoryRPCBroker, :handle_request, ["memory_browse"], :turn_ref, :read},
     "schedule.check_back_later.create" =>
-      {RPCBroker, :handle_request,
-       ["check_back_later.create", &WorkerRouteAuth.authorize_turn_route/3]},
-    "schedule.cron.list" =>
-      {RPCBroker, :handle_request, ["cron.list", &WorkerRouteAuth.authorize_turn_route/3]},
-    "schedule.cron.get" =>
-      {RPCBroker, :handle_request, ["cron.get", &WorkerRouteAuth.authorize_turn_route/3]},
-    "schedule.cron.runs" =>
-      {RPCBroker, :handle_request, ["cron.runs", &WorkerRouteAuth.authorize_turn_route/3]},
-    "schedule.cron.add" =>
-      {RPCBroker, :handle_request, ["cron.add", &WorkerRouteAuth.authorize_turn_route/3]},
+      {:turn, RPCBroker, :handle_request, ["check_back_later.create"], :turn_ref, :write},
+    "schedule.cron.list" => {:turn, RPCBroker, :handle_request, ["cron.list"], :turn_ref, :read},
+    "schedule.cron.get" => {:turn, RPCBroker, :handle_request, ["cron.get"], :turn_ref, :read},
+    "schedule.cron.runs" => {:turn, RPCBroker, :handle_request, ["cron.runs"], :turn_ref, :read},
+    "schedule.cron.add" => {:turn, RPCBroker, :handle_request, ["cron.add"], :turn_ref, :write},
     "schedule.cron.update" =>
-      {RPCBroker, :handle_request, ["cron.update", &WorkerRouteAuth.authorize_turn_route/3]},
+      {:turn, RPCBroker, :handle_request, ["cron.update"], :turn_ref, :write},
     "schedule.cron.pause" =>
-      {RPCBroker, :handle_request, ["cron.pause", &WorkerRouteAuth.authorize_turn_route/3]},
+      {:turn, RPCBroker, :handle_request, ["cron.pause"], :turn_ref, :write},
     "schedule.cron.resume" =>
-      {RPCBroker, :handle_request, ["cron.resume", &WorkerRouteAuth.authorize_turn_route/3]},
+      {:turn, RPCBroker, :handle_request, ["cron.resume"], :turn_ref, :write},
     "schedule.cron.remove" =>
-      {RPCBroker, :handle_request, ["cron.remove", &WorkerRouteAuth.authorize_turn_route/3]},
-    "schedule.cron.run" =>
-      {RPCBroker, :handle_request, ["cron.run", &WorkerRouteAuth.authorize_turn_route/3]},
-    "skills.installed.replace" => {SkillRegistryBroker, :handle_replace, []},
-    "skills.overlay.resolve" => {SkillOverlayBroker, :handle_request, ["resolve"]},
-    "skills.overlay.replace" => {SkillOverlayBroker, :handle_request, ["replace"]}
+      {:turn, RPCBroker, :handle_request, ["cron.remove"], :turn_ref, :write},
+    "schedule.cron.run" => {:turn, RPCBroker, :handle_request, ["cron.run"], :turn_ref, :write},
+    "skills.installed.replace" =>
+      {:turn, SkillRegistryBroker, :handle_replace, [], :turn, :write},
+    "skills.overlay.resolve" =>
+      {:turn, SkillOverlayBroker, :handle_request, ["resolve"], :turn, :read},
+    "skills.overlay.replace" =>
+      {:turn, SkillOverlayBroker, :handle_request, ["replace"], :turn, :write}
   }
 
   @spec handle_request(map(), String.t()) :: {:ok, map()} | {:error, term()}
@@ -88,8 +82,11 @@ defmodule Ankole.ActorRuntime.RPCLane do
 
   defp dispatch_method(method, payload, route) do
     case Map.fetch(@method_handlers, method) do
-      {:ok, {module, function, leading_args}} ->
+      {:ok, {:plain, module, function, leading_args}} ->
         apply(module, function, leading_args ++ [payload, route])
+
+      {:ok, {:turn, module, function, leading_args, turn_key, effect}} ->
+        dispatch_turn_method(module, function, leading_args, turn_key, effect, payload, route)
 
       :error ->
         {:error,
@@ -98,6 +95,15 @@ defmodule Ankole.ActorRuntime.RPCLane do
            "message" => "unknown RPC method: #{method}",
            "details_json" => %{"method" => method}
          }}
+    end
+  end
+
+  defp dispatch_turn_method(module, function, leading_args, turn_key, effect, payload, route) do
+    with {:ok, turn_ref} <- TurnRef.from_request(payload, turn_key),
+         :ok <- WorkerRouteAuth.authorize_turn_route(turn_ref, route, effect) do
+      apply(module, function, leading_args ++ [turn_ref, payload, route])
+    else
+      {:error, reason} -> {:error, error_payload(payload, reason)}
     end
   end
 
@@ -147,6 +153,23 @@ defmodule Ankole.ActorRuntime.RPCLane do
       _value -> %{}
     end
   end
+
+  defp error_payload(payload, reason) do
+    %{
+      "request_id" => text(payload, "request_id") || "",
+      "code" => error_code(reason),
+      "message" => error_message(reason),
+      "details_json" => %{"reason" => inspect(reason)}
+    }
+  end
+
+  defp error_code(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp error_code({reason, _details}) when is_atom(reason), do: Atom.to_string(reason)
+  defp error_code(_reason), do: "rpc_request_failed"
+
+  defp error_message(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp error_message({reason, details}) when is_atom(reason), do: "#{reason}: #{inspect(details)}"
+  defp error_message(reason), do: inspect(reason)
 
   defp text(map, key) do
     case Map.get(map, key) || Map.get(map, String.to_atom(key)) do

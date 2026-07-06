@@ -6,6 +6,7 @@ defmodule Ankole.SignalsGatewayFixtures do
   alias Ankole.Actors.ActorEvent
   alias Ankole.RuntimeEvents
   alias Ankole.SignalsGateway
+  alias Ankole.SignalsGateway.Ingress
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
 
@@ -36,7 +37,7 @@ defmodule Ankole.SignalsGatewayFixtures do
 
   def emit_addressed_actor_event(agent_uid, binding_name, entry, now \\ @base_time) do
     assert {:ok, %{status: :accepted, inbound_batch: batch}} =
-             SignalsGateway.emit_entry(agent_uid, binding_name, entry, now: now)
+             Ingress.emit_entry(agent_uid, binding_name, entry, now: now)
 
     assert {:ok, results} =
              finalize_due_inbound_batch_events(now: DateTime.add(now, 600, :millisecond))

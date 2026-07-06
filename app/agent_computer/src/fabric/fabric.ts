@@ -1,7 +1,5 @@
 import * as kernel from '../../../kernel'
 
-export type { JsonObject } from '@pleisto/active-support'
-
 /**
  * JSON-shaped host representation of a RuntimeFabric protobuf envelope.
  *

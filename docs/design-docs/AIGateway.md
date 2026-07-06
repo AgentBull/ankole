@@ -124,8 +124,10 @@ Operator live checks follow the provider-owned request boundary.
 `ProviderConfigs` may decrypt the configured secret and build the provider
 context, but it must not know provider-specific probe paths, auth headers, API
 versions, or attribution headers. A provider module may expose
-`check_connection/1`; if it does, that function receives a context with
-`settings` and builds any raw `UniversalAIRequest` call itself.
+`prepare_connection_check/1`; if it does, that function receives a context with
+`settings` and returns a `ProviderConnectionCheck` prepared with the provider's
+path and headers. `ProviderConfigs` executes that prepared check through the
+shared raw `UniversalAIRequest` path and owns the common upstream error shape.
 
 Model metadata is a separate catalog concern. Provider modules may optionally
 expose `models_metadata_source/1`, which returns a provider-owned source

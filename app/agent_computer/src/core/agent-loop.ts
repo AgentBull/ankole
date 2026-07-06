@@ -13,7 +13,7 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto'
-import { safeJsonParse, safeJsonStringify } from '@pleisto/active-support'
+import { safeJsonParse, safeJsonStringify, type JsonObject } from '@pleisto/active-support'
 import { withRetry } from '../common/async'
 import {
   callModel,
@@ -30,13 +30,7 @@ import {
 } from './llm'
 import { isLocallyRetryableLlmError, isRetryableLlmError } from './llm-error-classifier'
 import type { AgentLoopConfig, AgentTool, AgentToolResult } from './types'
-import {
-  contentText,
-  describeImagesWithFallback,
-  imageSummaryBlock,
-  modelSupportsImage,
-  responseImageUnavailableText
-} from './vision'
+import { contentText, imageSummaryBlock, modelImageAdaptation, responseImageUnavailableText } from './vision'
 
 const DEFAULT_MAX_MODEL_ITERATIONS = 90
 const DEFAULT_MAX_TOOL_ROUNDS = 90
@@ -671,7 +665,7 @@ function scrubVolatileToolArguments(value: unknown): unknown {
   if (!value || typeof value !== 'object') return value
 
   return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
+    Object.entries(value as JsonObject)
       .filter(([key]) => !VOLATILE_TOOL_ARGUMENT_KEYS.has(key))
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([key, entry]) => [key, scrubVolatileToolArguments(entry)])
@@ -681,7 +675,7 @@ function scrubVolatileToolArguments(value: unknown): unknown {
 function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`
   if (value && typeof value === 'object') {
-    return `{${Object.entries(value as Record<string, unknown>)
+    return `{${Object.entries(value as JsonObject)
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`)
       .join(',')}}`
@@ -702,20 +696,30 @@ async function processToolResultForModel(
 ): Promise<{ outputText: string; followUpMessages: UserMessage[] }> {
   const text = contentText(toolResult.content)
   const images = toolResult.content.filter((part): part is ImageContent => part.type === 'image')
-  if (images.length === 0) return { outputText: text, followUpMessages: [] }
+  const adaptation = await modelImageAdaptation(
+    images,
+    { input_modalities: config.modelInputModalities },
+    {
+      visionFallbackModel: config.visionFallbackModel,
+      abortSignal: config.abortSignal
+    }
+  )
 
-  if (modelSupportsImage({ input_modalities: config.modelInputModalities })) {
+  if (adaptation.kind === 'none') return { outputText: text, followUpMessages: [] }
+
+  if (adaptation.kind === 'direct') {
     return {
-      outputText: toolImageOutputText(text, images.length),
-      followUpMessages: [{ role: 'user', content: [{ type: 'text', text: 'Tool returned image content.' }, ...images] }]
+      outputText: toolImageOutputText(text, adaptation.images.length),
+      followUpMessages: [
+        { role: 'user', content: [{ type: 'text', text: 'Tool returned image content.' }, ...adaptation.images] }
+      ]
     }
   }
 
-  const summary = await toolImageSummary(config, images)
-  if (summary) {
+  if (adaptation.kind === 'summary') {
     return {
       outputText: toolImageOutputText(text, images.length),
-      followUpMessages: [{ role: 'user', content: `${imageSummaryBlock(summary, 'tool')}` }]
+      followUpMessages: [{ role: 'user', content: `${imageSummaryBlock(adaptation.summary, 'tool')}` }]
     }
   }
 
@@ -733,19 +737,4 @@ function toolImageOutputText(text: string, imageCount: number): string {
   return [text, `[${imageCount} image result${imageCount === 1 ? '' : 's'} attached as follow-up user input]`]
     .filter(Boolean)
     .join('\n')
-}
-
-/**
- * Summarizes tool images through the configured vision fallback model.
- */
-async function toolImageSummary(config: AgentLoopConfig, images: ImageContent[]): Promise<string | undefined> {
-  if (!config.visionFallbackModel) return undefined
-
-  try {
-    return await describeImagesWithFallback(config.visionFallbackModel, images, {
-      abortSignal: config.abortSignal
-    })
-  } catch {
-    return undefined
-  }
 }

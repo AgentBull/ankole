@@ -1,4 +1,4 @@
-export type JsonObject = Record<string, unknown>
+import type { JsonObject } from '@pleisto/active-support'
 
 export type BrowserBackend = 'chromium' | 'remote_cdp'
 export type BrowserAdapterKind = 'chromium' | 'cdp_endpoint' | 'cdp_session_request'
@@ -41,7 +41,8 @@ export type RemoteBrowserCdpConfig =
     }
 
 export interface BrowserRuntimeOptions {
-  remoteCdpConfig?: Record<string, unknown> | RemoteBrowserCdpConfig | null
+  workspaceRoot?: string
+  remoteCdpConfig?: JsonObject | RemoteBrowserCdpConfig | null
   localBrowserIdleTtlMs?: number
 }
 

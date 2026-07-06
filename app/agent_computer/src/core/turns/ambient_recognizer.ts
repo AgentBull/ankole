@@ -1,15 +1,13 @@
 import {
   arrayPath,
   deepString,
-  err,
   firstString,
   isRecord,
-  ok,
+  recordValue,
   safeJsonParse,
   safeJsonStringify,
   stringArg,
-  type JsonObject,
-  type Result
+  type JsonObject
 } from '@pleisto/active-support'
 import type { TurnStart } from '../../lanes/actor_lane'
 import { buildAmbientRecognizerSystemPrompt, buildAmbientRecognizerUserPrompt } from '../../prompts/ambient_prompt'
@@ -258,23 +256,20 @@ function parseJsonObject(text: string): JsonObject {
   if (!trimmed) return {}
 
   const parsed = parseJsonRecord(trimmed)
-  if (parsed.isOk()) return parsed.value
+  if (parsed) return parsed
 
   const start = trimmed.indexOf('{')
   const end = trimmed.lastIndexOf('}')
   if (start >= 0 && end > start) {
-    return parseJsonRecord(trimmed.slice(start, end + 1)).match(
-      value => value,
-      () => ({ reason: safeJsonStringify({ invalid_json: trimmed }) })
-    )
+    return parseJsonRecord(trimmed.slice(start, end + 1)) ?? { reason: safeJsonStringify({ invalid_json: trimmed }) }
   }
   return { reason: safeJsonStringify({ invalid_json: trimmed }) }
 }
 
-function parseJsonRecord(text: string): Result<JsonObject, Error> {
+function parseJsonRecord(text: string): JsonObject | undefined {
   const parsed = safeJsonParse(text)
-  if (parsed.isErr()) {
-    return err(parsed.error instanceof Error ? parsed.error : new Error(String(parsed.error)))
-  }
-  return ok(isRecord(parsed.value) ? parsed.value : {})
+  return parsed.match(
+    value => recordValue(value) ?? {},
+    () => undefined
+  )
 }

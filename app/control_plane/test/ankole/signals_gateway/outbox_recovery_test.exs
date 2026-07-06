@@ -4,6 +4,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
   alias Ankole.Repo
   alias Ankole.RuntimeEvents
   alias Ankole.SignalsGateway
+  alias Ankole.SignalsGateway.Ingress
   alias Ankole.SignalsGateway.InputTombstone
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Entry
@@ -19,7 +20,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               SignalsGateway.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -116,7 +117,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               SignalsGateway.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -161,7 +162,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               SignalsGateway.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -233,7 +234,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               SignalsGateway.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
                  now: @base_time
                )
 
@@ -291,7 +292,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, _} =
-               SignalsGateway.emit_entry_removed(
+               Ingress.emit_entry_removed(
                  agent.uid,
                  "bot",
                  lifecycle_entry(%{source_event_id: "delete-expiring"}),

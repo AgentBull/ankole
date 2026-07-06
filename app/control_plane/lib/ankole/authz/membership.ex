@@ -19,7 +19,7 @@ defmodule Ankole.AuthZ.Membership do
     belongs_to :principal, Principal,
       foreign_key: :principal_uid,
       references: :uid,
-      type: :string,
+      type: Ankole.Ecto.PrincipalKey,
       primary_key: true
 
     timestamps(updated_at: false)
@@ -32,17 +32,9 @@ defmodule Ankole.AuthZ.Membership do
   def changeset(membership, attrs) do
     membership
     |> cast(attrs, [:group_id, :principal_uid])
-    |> normalize_uid(:principal_uid)
     |> validate_required([:group_id, :principal_uid])
     |> foreign_key_constraint(:group_id)
     |> foreign_key_constraint(:principal_uid)
     |> unique_constraint(:group_id, name: :principal_group_memberships_pkey)
-  end
-
-  defp normalize_uid(changeset, field) do
-    update_change(changeset, field, fn
-      value when is_binary(value) -> value |> String.trim() |> String.downcase()
-      value -> value
-    end)
   end
 end

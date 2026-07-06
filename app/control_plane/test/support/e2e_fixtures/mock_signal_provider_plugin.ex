@@ -13,7 +13,7 @@ defmodule Ankole.PluginFixtures.MockSignalProviderPlugin do
   def api_version, do: 1
 
   @impl true
-  def display_name, do: "Mock Signal Provider"
+  def display_name, do: %{"default" => "Mock Signal Provider"}
 
   @impl true
   def adapter_declarations do
@@ -22,7 +22,7 @@ defmodule Ankole.PluginFixtures.MockSignalProviderPlugin do
         contract_id: "signals_gateway.adapter",
         id: "mock-provider",
         plugin_id: plugin_id(),
-        display_name: "Mock Signal Provider",
+        display_name: %{"default" => "Mock Signal Provider"},
         ingress_module: Inbound,
         outbox_module: Outbox,
         inbound_capabilities: ["entry_receive"],
@@ -36,6 +36,7 @@ defmodule Ankole.PluginFixtures.MockSignalProvider.Inbound do
   @moduledoc false
 
   alias Ankole.SignalsGateway.AdapterContext
+  alias Ankole.SignalsGateway.Ingress
 
   @spec chat_consumer(AdapterContext.t(), map(), keyword()) :: map()
   def chat_consumer(%AdapterContext{} = context, config, opts \\ []) when is_map(config) do
@@ -64,7 +65,7 @@ defmodule Ankole.PluginFixtures.MockSignalProvider.Inbound do
         _value -> []
       end
 
-    AdapterContext.emit_entry(context, entry_input(event), options)
+    Ingress.emit_entry(context.agent_uid, context.binding_name, entry_input(event), options)
   end
 
   defp emit_receive(_consumer, _event), do: {:error, :invalid_mock_consumer}

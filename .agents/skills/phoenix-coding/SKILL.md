@@ -180,7 +180,7 @@ resolves the Vite entry tags.
 From `app/control_plane`:
 
 ```bash
-source /Users/ding/.kiex/elixirs/elixir-1.20.1-29.env
+source ~/.kiex/elixirs/elixir-1.20.1-29.env
 mix format
 MIX_ENV=test mix compile --warnings-as-errors
 MIX_ENV=test mix test

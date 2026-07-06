@@ -86,6 +86,18 @@ import type {
   AnkoleWebAuthControllerOauthTokenData,
   AnkoleWebAuthControllerOauthTokenErrors,
   AnkoleWebAuthControllerOauthTokenResponses,
+  AnkoleWebIdentityProviderControllerAdaptersData,
+  AnkoleWebIdentityProviderControllerAdaptersErrors,
+  AnkoleWebIdentityProviderControllerAdaptersResponses,
+  AnkoleWebIdentityProviderControllerIndexData,
+  AnkoleWebIdentityProviderControllerIndexErrors,
+  AnkoleWebIdentityProviderControllerIndexResponses,
+  AnkoleWebIdentityProviderControllerPutProviderData,
+  AnkoleWebIdentityProviderControllerPutProviderErrors,
+  AnkoleWebIdentityProviderControllerPutProviderResponses,
+  AnkoleWebIdentityProviderControllerRunSyncData,
+  AnkoleWebIdentityProviderControllerRunSyncErrors,
+  AnkoleWebIdentityProviderControllerRunSyncResponses,
   AnkoleWebScheduleControllerCancelCheckbackData,
   AnkoleWebScheduleControllerCancelCheckbackResponses,
   AnkoleWebScheduleControllerCreateCronData,
@@ -112,15 +124,18 @@ import type {
   AnkoleWebScheduleControllerUpdateCronData,
   AnkoleWebScheduleControllerUpdateCronErrors,
   AnkoleWebScheduleControllerUpdateCronResponses,
+  AnkoleWebSignalBindingControllerAdaptersData,
+  AnkoleWebSignalBindingControllerAdaptersErrors,
+  AnkoleWebSignalBindingControllerAdaptersResponses,
   AnkoleWebSignalBindingControllerDeleteData,
   AnkoleWebSignalBindingControllerDeleteErrors,
   AnkoleWebSignalBindingControllerDeleteResponses,
   AnkoleWebSignalBindingControllerIndexData,
   AnkoleWebSignalBindingControllerIndexErrors,
   AnkoleWebSignalBindingControllerIndexResponses,
-  AnkoleWebSignalBindingControllerPutLarkData,
-  AnkoleWebSignalBindingControllerPutLarkErrors,
-  AnkoleWebSignalBindingControllerPutLarkResponses
+  AnkoleWebSignalBindingControllerPutBindingData,
+  AnkoleWebSignalBindingControllerPutBindingErrors,
+  AnkoleWebSignalBindingControllerPutBindingResponses
 } from './types.gen'
 
 export type Options<
@@ -142,44 +157,18 @@ export type Options<
 }
 
 /**
- * Exchange a browser admin session or refresh token for console bearer tokens
+ * List configured identity providers
  */
-export const ankoleWebAuthControllerOauthToken = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAuthControllerOauthTokenData, ThrowOnError>
-): RequestResult<AnkoleWebAuthControllerOauthTokenResponses, AnkoleWebAuthControllerOauthTokenErrors, ThrowOnError> =>
-  (options.client ?? client).post<
-    AnkoleWebAuthControllerOauthTokenResponses,
-    AnkoleWebAuthControllerOauthTokenErrors,
-    ThrowOnError
-  >({
-    url: '/.internal-apis/oauth/token',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Clear the current browser admin session
- */
-export const ankoleWebAuthControllerDeleteSession = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebAuthControllerDeleteSessionData, ThrowOnError>
-): RequestResult<AnkoleWebAuthControllerDeleteSessionResponses, unknown, ThrowOnError> =>
-  (options?.client ?? client).delete<AnkoleWebAuthControllerDeleteSessionResponses, unknown, ThrowOnError>({
-    url: '/.internal-apis/session',
-    ...options
-  })
-
-/**
- * List active agents
- */
-export const ankoleWebAgentControllerIndex = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebAgentControllerIndexData, ThrowOnError>
-): RequestResult<AnkoleWebAgentControllerIndexResponses, AnkoleWebAgentControllerIndexErrors, ThrowOnError> =>
+export const ankoleWebIdentityProviderControllerIndex = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebIdentityProviderControllerIndexData, ThrowOnError>
+): RequestResult<
+  AnkoleWebIdentityProviderControllerIndexResponses,
+  AnkoleWebIdentityProviderControllerIndexErrors,
+  ThrowOnError
+> =>
   (options?.client ?? client).get<
-    AnkoleWebAgentControllerIndexResponses,
-    AnkoleWebAgentControllerIndexErrors,
+    AnkoleWebIdentityProviderControllerIndexResponses,
+    AnkoleWebIdentityProviderControllerIndexErrors,
     ThrowOnError
   >({
     security: [
@@ -189,19 +178,41 @@ export const ankoleWebAgentControllerIndex = <ThrowOnError extends boolean = fal
         type: 'http'
       }
     ],
-    url: '/api/v1/agents',
+    url: '/api/v1/identity-providers',
     ...options
   })
 
 /**
- * Create one agent
+ * Pause one recurring schedule
  */
-export const ankoleWebAgentControllerCreate = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentControllerCreateData, ThrowOnError>
-): RequestResult<AnkoleWebAgentControllerCreateResponses, AnkoleWebAgentControllerCreateErrors, ThrowOnError> =>
-  (options.client ?? client).post<
-    AnkoleWebAgentControllerCreateResponses,
-    AnkoleWebAgentControllerCreateErrors,
+export const ankoleWebScheduleControllerPauseCron = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebScheduleControllerPauseCronData, ThrowOnError>
+): RequestResult<AnkoleWebScheduleControllerPauseCronResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).post<AnkoleWebScheduleControllerPauseCronResponses, unknown, ThrowOnError>({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/pause',
+    ...options
+  })
+
+/**
+ * List console-visible AppConfigure entries
+ */
+export const ankoleWebAppConfigurationControllerIndex = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebAppConfigurationControllerIndexData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAppConfigurationControllerIndexResponses,
+  AnkoleWebAppConfigurationControllerIndexErrors,
+  ThrowOnError
+> =>
+  (options?.client ?? client).get<
+    AnkoleWebAppConfigurationControllerIndexResponses,
+    AnkoleWebAppConfigurationControllerIndexErrors,
     ThrowOnError
   >({
     security: [
@@ -211,12 +222,430 @@ export const ankoleWebAgentControllerCreate = <ThrowOnError extends boolean = fa
         type: 'http'
       }
     ],
-    url: '/api/v1/agents',
+    url: '/api/v1/app-configurations',
+    ...options
+  })
+
+/**
+ * List recurring schedules for one agent session
+ */
+export const ankoleWebScheduleControllerIndexCron = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebScheduleControllerIndexCronData, ThrowOnError>
+): RequestResult<
+  AnkoleWebScheduleControllerIndexCronResponses,
+  AnkoleWebScheduleControllerIndexCronErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebScheduleControllerIndexCronResponses,
+    AnkoleWebScheduleControllerIndexCronErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules',
+    ...options
+  })
+
+/**
+ * Create one recurring schedule
+ */
+export const ankoleWebScheduleControllerCreateCron = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebScheduleControllerCreateCronData, ThrowOnError>
+): RequestResult<
+  AnkoleWebScheduleControllerCreateCronResponses,
+  AnkoleWebScheduleControllerCreateCronErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebScheduleControllerCreateCronResponses,
+    AnkoleWebScheduleControllerCreateCronErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules',
     ...options,
     headers: {
       'Content-Type': 'application/json',
       ...options.headers
     }
+  })
+
+/**
+ * Create a stateless OpenResponses response
+ */
+export const ankoleWebAiGatewayControllerResponses = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayControllerResponsesData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayControllerResponsesResponses,
+  AnkoleWebAiGatewayControllerResponsesErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebAiGatewayControllerResponsesResponses,
+    AnkoleWebAiGatewayControllerResponsesErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'aiGatewayBearer',
+        scheme: 'bearer',
+        type: 'http'
+      },
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/ai-gateway/responses',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * List AIGateway provider kinds
+ */
+export const ankoleWebAiGatewayProviderControllerProviderKinds = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebAiGatewayProviderControllerProviderKindsData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayProviderControllerProviderKindsResponses,
+  AnkoleWebAiGatewayProviderControllerProviderKindsErrors,
+  ThrowOnError
+> =>
+  (options?.client ?? client).get<
+    AnkoleWebAiGatewayProviderControllerProviderKindsResponses,
+    AnkoleWebAiGatewayProviderControllerProviderKindsErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/ai-gateway/provider-kinds',
+    ...options
+  })
+
+/**
+ * Resume one recurring schedule
+ */
+export const ankoleWebScheduleControllerResumeCron = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebScheduleControllerResumeCronData, ThrowOnError>
+): RequestResult<AnkoleWebScheduleControllerResumeCronResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).post<AnkoleWebScheduleControllerResumeCronResponses, unknown, ThrowOnError>({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/resume',
+    ...options
+  })
+
+/**
+ * Disable one AIGateway provider
+ */
+export const ankoleWebAiGatewayProviderControllerDeleteProvider = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayProviderControllerDeleteProviderData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayProviderControllerDeleteProviderResponses,
+  AnkoleWebAiGatewayProviderControllerDeleteProviderErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).delete<
+    AnkoleWebAiGatewayProviderControllerDeleteProviderResponses,
+    AnkoleWebAiGatewayProviderControllerDeleteProviderErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/ai-gateway/providers/{provider_id}',
+    ...options
+  })
+
+/**
+ * Create or update one AIGateway provider
+ */
+export const ankoleWebAiGatewayProviderControllerPutProvider = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayProviderControllerPutProviderData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayProviderControllerPutProviderResponses,
+  AnkoleWebAiGatewayProviderControllerPutProviderErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).put<
+    AnkoleWebAiGatewayProviderControllerPutProviderResponses,
+    AnkoleWebAiGatewayProviderControllerPutProviderErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/ai-gateway/providers/{provider_id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * List AIGateway model selectors
+ */
+export const ankoleWebAiGatewayControllerModels = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebAiGatewayControllerModelsData, ThrowOnError>
+): RequestResult<AnkoleWebAiGatewayControllerModelsResponses, AnkoleWebAiGatewayControllerModelsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<
+    AnkoleWebAiGatewayControllerModelsResponses,
+    AnkoleWebAiGatewayControllerModelsErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'aiGatewayBearer',
+        scheme: 'bearer',
+        type: 'http'
+      },
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/ai-gateway/models',
+    ...options
+  })
+
+/**
+ * Fetch web pages through AIGateway
+ */
+export const ankoleWebAiGatewayControllerWebFetch = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayControllerWebFetchData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayControllerWebFetchResponses,
+  AnkoleWebAiGatewayControllerWebFetchErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebAiGatewayControllerWebFetchResponses,
+    AnkoleWebAiGatewayControllerWebFetchErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'aiGatewayBearer',
+        scheme: 'bearer',
+        type: 'http'
+      },
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/ai-gateway/web_fetch',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Create or update one identity provider
+ */
+export const ankoleWebIdentityProviderControllerPutProvider = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebIdentityProviderControllerPutProviderData, ThrowOnError>
+): RequestResult<
+  AnkoleWebIdentityProviderControllerPutProviderResponses,
+  AnkoleWebIdentityProviderControllerPutProviderErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).put<
+    AnkoleWebIdentityProviderControllerPutProviderResponses,
+    AnkoleWebIdentityProviderControllerPutProviderErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/identity-providers/{provider_id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * List signal bindings for one agent
+ */
+export const ankoleWebSignalBindingControllerIndex = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebSignalBindingControllerIndexData, ThrowOnError>
+): RequestResult<
+  AnkoleWebSignalBindingControllerIndexResponses,
+  AnkoleWebSignalBindingControllerIndexErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebSignalBindingControllerIndexResponses,
+    AnkoleWebSignalBindingControllerIndexErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/signal-bindings',
+    ...options
+  })
+
+/**
+ * Clear one optional model profile for an agent
+ */
+export const ankoleWebAiGatewayProviderControllerDeleteModelProfile = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayProviderControllerDeleteModelProfileData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayProviderControllerDeleteModelProfileResponses,
+  AnkoleWebAiGatewayProviderControllerDeleteModelProfileErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).delete<
+    AnkoleWebAiGatewayProviderControllerDeleteModelProfileResponses,
+    AnkoleWebAiGatewayProviderControllerDeleteModelProfileErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/model-profiles/{profile}',
+    ...options
+  })
+
+/**
+ * Create or update one model profile for an agent
+ */
+export const ankoleWebAiGatewayProviderControllerPutModelProfile = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayProviderControllerPutModelProfileData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayProviderControllerPutModelProfileResponses,
+  AnkoleWebAiGatewayProviderControllerPutModelProfileErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).put<
+    AnkoleWebAiGatewayProviderControllerPutModelProfileResponses,
+    AnkoleWebAiGatewayProviderControllerPutModelProfileErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/model-profiles/{profile}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * List identity-provider adapters
+ */
+export const ankoleWebIdentityProviderControllerAdapters = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebIdentityProviderControllerAdaptersData, ThrowOnError>
+): RequestResult<
+  AnkoleWebIdentityProviderControllerAdaptersResponses,
+  AnkoleWebIdentityProviderControllerAdaptersErrors,
+  ThrowOnError
+> =>
+  (options?.client ?? client).get<
+    AnkoleWebIdentityProviderControllerAdaptersResponses,
+    AnkoleWebIdentityProviderControllerAdaptersErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/identity-provider-adapters',
+    ...options
+  })
+
+/**
+ * Retrieve a stored stateful OpenResponses response
+ */
+export const ankoleWebAiGatewayControllerRetrieveResponse = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayControllerRetrieveResponseData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayControllerRetrieveResponseResponses,
+  AnkoleWebAiGatewayControllerRetrieveResponseErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebAiGatewayControllerRetrieveResponseResponses,
+    AnkoleWebAiGatewayControllerRetrieveResponseErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'aiGatewayBearer',
+        scheme: 'bearer',
+        type: 'http'
+      },
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/ai-gateway/responses/{response_id}',
+    ...options
   })
 
 /**
@@ -290,6 +719,159 @@ export const ankoleWebAgentControllerUpdate = <ThrowOnError extends boolean = fa
   })
 
 /**
+ * Create a stateful compaction response
+ */
+export const ankoleWebAiGatewayControllerCompactResponse = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayControllerCompactResponseData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayControllerCompactResponseResponses,
+  AnkoleWebAiGatewayControllerCompactResponseErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebAiGatewayControllerCompactResponseResponses,
+    AnkoleWebAiGatewayControllerCompactResponseErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'aiGatewayBearer',
+        scheme: 'bearer',
+        type: 'http'
+      },
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/ai-gateway/responses/compact',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Enqueue one identity-provider full directory sync
+ */
+export const ankoleWebIdentityProviderControllerRunSync = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebIdentityProviderControllerRunSyncData, ThrowOnError>
+): RequestResult<
+  AnkoleWebIdentityProviderControllerRunSyncResponses,
+  AnkoleWebIdentityProviderControllerRunSyncErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebIdentityProviderControllerRunSyncResponses,
+    AnkoleWebIdentityProviderControllerRunSyncErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/identity-providers/{provider_id}/sync-runs',
+    ...options
+  })
+
+/**
+ * List active agents
+ */
+export const ankoleWebAgentControllerIndex = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebAgentControllerIndexData, ThrowOnError>
+): RequestResult<AnkoleWebAgentControllerIndexResponses, AnkoleWebAgentControllerIndexErrors, ThrowOnError> =>
+  (options?.client ?? client).get<
+    AnkoleWebAgentControllerIndexResponses,
+    AnkoleWebAgentControllerIndexErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents',
+    ...options
+  })
+
+/**
+ * Create one agent
+ */
+export const ankoleWebAgentControllerCreate = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAgentControllerCreateData, ThrowOnError>
+): RequestResult<AnkoleWebAgentControllerCreateResponses, AnkoleWebAgentControllerCreateErrors, ThrowOnError> =>
+  (options.client ?? client).post<
+    AnkoleWebAgentControllerCreateResponses,
+    AnkoleWebAgentControllerCreateErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * List configured AIGateway providers
+ */
+export const ankoleWebAiGatewayProviderControllerIndex = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebAiGatewayProviderControllerIndexData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayProviderControllerIndexResponses,
+  AnkoleWebAiGatewayProviderControllerIndexErrors,
+  ThrowOnError
+> =>
+  (options?.client ?? client).get<
+    AnkoleWebAiGatewayProviderControllerIndexResponses,
+    AnkoleWebAiGatewayProviderControllerIndexErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/ai-gateway/providers',
+    ...options
+  })
+
+/**
+ * List checkback wakeups for one agent session
+ */
+export const ankoleWebScheduleControllerIndexCheckbacks = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebScheduleControllerIndexCheckbacksData, ThrowOnError>
+): RequestResult<AnkoleWebScheduleControllerIndexCheckbacksResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).get<AnkoleWebScheduleControllerIndexCheckbacksResponses, unknown, ThrowOnError>({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/checkbacks',
+    ...options
+  })
+
+/**
  * Read all model profiles for one agent
  */
 export const ankoleWebAiGatewayProviderControllerIndexModelProfiles = <ThrowOnError extends boolean = false>(
@@ -316,18 +898,18 @@ export const ankoleWebAiGatewayProviderControllerIndexModelProfiles = <ThrowOnEr
   })
 
 /**
- * Clear one optional model profile for an agent
+ * List signal adapters available for bindings
  */
-export const ankoleWebAiGatewayProviderControllerDeleteModelProfile = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayProviderControllerDeleteModelProfileData, ThrowOnError>
+export const ankoleWebSignalBindingControllerAdapters = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebSignalBindingControllerAdaptersData, ThrowOnError>
 ): RequestResult<
-  AnkoleWebAiGatewayProviderControllerDeleteModelProfileResponses,
-  AnkoleWebAiGatewayProviderControllerDeleteModelProfileErrors,
+  AnkoleWebSignalBindingControllerAdaptersResponses,
+  AnkoleWebSignalBindingControllerAdaptersErrors,
   ThrowOnError
 > =>
-  (options.client ?? client).delete<
-    AnkoleWebAiGatewayProviderControllerDeleteModelProfileResponses,
-    AnkoleWebAiGatewayProviderControllerDeleteModelProfileErrors,
+  (options?.client ?? client).get<
+    AnkoleWebSignalBindingControllerAdaptersResponses,
+    AnkoleWebSignalBindingControllerAdaptersErrors,
     ThrowOnError
   >({
     security: [
@@ -337,130 +919,8 @@ export const ankoleWebAiGatewayProviderControllerDeleteModelProfile = <ThrowOnEr
         type: 'http'
       }
     ],
-    url: '/api/v1/agents/{agent_uid}/model-profiles/{profile}',
+    url: '/api/v1/signal-adapters',
     ...options
-  })
-
-/**
- * Create or update one model profile for an agent
- */
-export const ankoleWebAiGatewayProviderControllerPutModelProfile = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayProviderControllerPutModelProfileData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerPutModelProfileResponses,
-  AnkoleWebAiGatewayProviderControllerPutModelProfileErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebAiGatewayProviderControllerPutModelProfileResponses,
-    AnkoleWebAiGatewayProviderControllerPutModelProfileErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/agents/{agent_uid}/model-profiles/{profile}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * List checkback wakeups for one agent session
- */
-export const ankoleWebScheduleControllerIndexCheckbacks = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebScheduleControllerIndexCheckbacksData, ThrowOnError>
-): RequestResult<AnkoleWebScheduleControllerIndexCheckbacksResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).get<AnkoleWebScheduleControllerIndexCheckbacksResponses, unknown, ThrowOnError>({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/checkbacks',
-    ...options
-  })
-
-/**
- * Cancel one pending checkback wakeup
- */
-export const ankoleWebScheduleControllerCancelCheckback = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebScheduleControllerCancelCheckbackData, ThrowOnError>
-): RequestResult<AnkoleWebScheduleControllerCancelCheckbackResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).delete<AnkoleWebScheduleControllerCancelCheckbackResponses, unknown, ThrowOnError>({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/checkbacks/{scheduled_event_id}',
-    ...options
-  })
-
-/**
- * List recurring schedules for one agent session
- */
-export const ankoleWebScheduleControllerIndexCron = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebScheduleControllerIndexCronData, ThrowOnError>
-): RequestResult<
-  AnkoleWebScheduleControllerIndexCronResponses,
-  AnkoleWebScheduleControllerIndexCronErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebScheduleControllerIndexCronResponses,
-    AnkoleWebScheduleControllerIndexCronErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules',
-    ...options
-  })
-
-/**
- * Create one recurring schedule
- */
-export const ankoleWebScheduleControllerCreateCron = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebScheduleControllerCreateCronData, ThrowOnError>
-): RequestResult<
-  AnkoleWebScheduleControllerCreateCronResponses,
-  AnkoleWebScheduleControllerCreateCronErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebScheduleControllerCreateCronResponses,
-    AnkoleWebScheduleControllerCreateCronErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
   })
 
 /**
@@ -538,42 +998,6 @@ export const ankoleWebScheduleControllerUpdateCron = <ThrowOnError extends boole
   })
 
 /**
- * Pause one recurring schedule
- */
-export const ankoleWebScheduleControllerPauseCron = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebScheduleControllerPauseCronData, ThrowOnError>
-): RequestResult<AnkoleWebScheduleControllerPauseCronResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).post<AnkoleWebScheduleControllerPauseCronResponses, unknown, ThrowOnError>({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/pause',
-    ...options
-  })
-
-/**
- * Resume one recurring schedule
- */
-export const ankoleWebScheduleControllerResumeCron = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebScheduleControllerResumeCronData, ThrowOnError>
-): RequestResult<AnkoleWebScheduleControllerResumeCronResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).post<AnkoleWebScheduleControllerResumeCronResponses, unknown, ThrowOnError>({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/resume',
-    ...options
-  })
-
-/**
  * List recent concrete fires for one recurring schedule
  */
 export const ankoleWebScheduleControllerCronRuns = <ThrowOnError extends boolean = false>(
@@ -610,62 +1034,6 @@ export const ankoleWebScheduleControllerRunCron = <ThrowOnError extends boolean 
   })
 
 /**
- * List signal bindings for one agent
- */
-export const ankoleWebSignalBindingControllerIndex = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebSignalBindingControllerIndexData, ThrowOnError>
-): RequestResult<
-  AnkoleWebSignalBindingControllerIndexResponses,
-  AnkoleWebSignalBindingControllerIndexErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebSignalBindingControllerIndexResponses,
-    AnkoleWebSignalBindingControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/agents/{agent_uid}/signal-bindings',
-    ...options
-  })
-
-/**
- * Create or update one Lark signal binding for an agent
- */
-export const ankoleWebSignalBindingControllerPutLark = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebSignalBindingControllerPutLarkData, ThrowOnError>
-): RequestResult<
-  AnkoleWebSignalBindingControllerPutLarkResponses,
-  AnkoleWebSignalBindingControllerPutLarkErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebSignalBindingControllerPutLarkResponses,
-    AnkoleWebSignalBindingControllerPutLarkErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/agents/{agent_uid}/signal-bindings/lark/{binding_name}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
  * Disable one signal binding for an agent
  */
 export const ankoleWebSignalBindingControllerDelete = <ThrowOnError extends boolean = false>(
@@ -692,340 +1060,21 @@ export const ankoleWebSignalBindingControllerDelete = <ThrowOnError extends bool
   })
 
 /**
- * Create embeddings through AIGateway
+ * Cancel one pending checkback wakeup
  */
-export const ankoleWebAiGatewayControllerEmbeddings = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayControllerEmbeddingsData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayControllerEmbeddingsResponses,
-  AnkoleWebAiGatewayControllerEmbeddingsErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAiGatewayControllerEmbeddingsResponses,
-    AnkoleWebAiGatewayControllerEmbeddingsErrors,
-    ThrowOnError
-  >({
+export const ankoleWebScheduleControllerCancelCheckback = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebScheduleControllerCancelCheckbackData, ThrowOnError>
+): RequestResult<AnkoleWebScheduleControllerCancelCheckbackResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).delete<AnkoleWebScheduleControllerCancelCheckbackResponses, unknown, ThrowOnError>({
     security: [
-      {
-        key: 'aiGatewayBearer',
-        scheme: 'bearer',
-        type: 'http'
-      },
       {
         key: 'consoleBearer',
         scheme: 'bearer',
         type: 'http'
       }
     ],
-    url: '/api/v1/ai-gateway/embeddings',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * List AIGateway model selectors
- */
-export const ankoleWebAiGatewayControllerModels = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebAiGatewayControllerModelsData, ThrowOnError>
-): RequestResult<AnkoleWebAiGatewayControllerModelsResponses, AnkoleWebAiGatewayControllerModelsErrors, ThrowOnError> =>
-  (options?.client ?? client).get<
-    AnkoleWebAiGatewayControllerModelsResponses,
-    AnkoleWebAiGatewayControllerModelsErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'aiGatewayBearer',
-        scheme: 'bearer',
-        type: 'http'
-      },
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/ai-gateway/models',
+    url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/checkbacks/{scheduled_event_id}',
     ...options
-  })
-
-/**
- * List AIGateway provider kinds
- */
-export const ankoleWebAiGatewayProviderControllerProviderKinds = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebAiGatewayProviderControllerProviderKindsData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerProviderKindsResponses,
-  AnkoleWebAiGatewayProviderControllerProviderKindsErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebAiGatewayProviderControllerProviderKindsResponses,
-    AnkoleWebAiGatewayProviderControllerProviderKindsErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/ai-gateway/provider-kinds',
-    ...options
-  })
-
-/**
- * List configured AIGateway providers
- */
-export const ankoleWebAiGatewayProviderControllerIndex = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebAiGatewayProviderControllerIndexData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerIndexResponses,
-  AnkoleWebAiGatewayProviderControllerIndexErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebAiGatewayProviderControllerIndexResponses,
-    AnkoleWebAiGatewayProviderControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/ai-gateway/providers',
-    ...options
-  })
-
-/**
- * Disable one AIGateway provider
- */
-export const ankoleWebAiGatewayProviderControllerDeleteProvider = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayProviderControllerDeleteProviderData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerDeleteProviderResponses,
-  AnkoleWebAiGatewayProviderControllerDeleteProviderErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).delete<
-    AnkoleWebAiGatewayProviderControllerDeleteProviderResponses,
-    AnkoleWebAiGatewayProviderControllerDeleteProviderErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/ai-gateway/providers/{provider_id}',
-    ...options
-  })
-
-/**
- * Create or update one AIGateway provider
- */
-export const ankoleWebAiGatewayProviderControllerPutProvider = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayProviderControllerPutProviderData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerPutProviderResponses,
-  AnkoleWebAiGatewayProviderControllerPutProviderErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebAiGatewayProviderControllerPutProviderResponses,
-    AnkoleWebAiGatewayProviderControllerPutProviderErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/ai-gateway/providers/{provider_id}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Create a rerank result through AIGateway
- */
-export const ankoleWebAiGatewayControllerRerank = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayControllerRerankData, ThrowOnError>
-): RequestResult<AnkoleWebAiGatewayControllerRerankResponses, AnkoleWebAiGatewayControllerRerankErrors, ThrowOnError> =>
-  (options.client ?? client).post<
-    AnkoleWebAiGatewayControllerRerankResponses,
-    AnkoleWebAiGatewayControllerRerankErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'aiGatewayBearer',
-        scheme: 'bearer',
-        type: 'http'
-      },
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/ai-gateway/rerank',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Create a stateless OpenResponses response
- */
-export const ankoleWebAiGatewayControllerResponses = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayControllerResponsesData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayControllerResponsesResponses,
-  AnkoleWebAiGatewayControllerResponsesErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAiGatewayControllerResponsesResponses,
-    AnkoleWebAiGatewayControllerResponsesErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'aiGatewayBearer',
-        scheme: 'bearer',
-        type: 'http'
-      },
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/ai-gateway/responses',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Create a stateful compaction response
- */
-export const ankoleWebAiGatewayControllerCompactResponse = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayControllerCompactResponseData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayControllerCompactResponseResponses,
-  AnkoleWebAiGatewayControllerCompactResponseErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAiGatewayControllerCompactResponseResponses,
-    AnkoleWebAiGatewayControllerCompactResponseErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'aiGatewayBearer',
-        scheme: 'bearer',
-        type: 'http'
-      },
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/ai-gateway/responses/compact',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Retrieve a stored stateful OpenResponses response
- */
-export const ankoleWebAiGatewayControllerRetrieveResponse = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayControllerRetrieveResponseData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayControllerRetrieveResponseResponses,
-  AnkoleWebAiGatewayControllerRetrieveResponseErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebAiGatewayControllerRetrieveResponseResponses,
-    AnkoleWebAiGatewayControllerRetrieveResponseErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'aiGatewayBearer',
-        scheme: 'bearer',
-        type: 'http'
-      },
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/ai-gateway/responses/{response_id}',
-    ...options
-  })
-
-/**
- * Fetch web pages through AIGateway
- */
-export const ankoleWebAiGatewayControllerWebFetch = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayControllerWebFetchData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayControllerWebFetchResponses,
-  AnkoleWebAiGatewayControllerWebFetchErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAiGatewayControllerWebFetchResponses,
-    AnkoleWebAiGatewayControllerWebFetchErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'aiGatewayBearer',
-        scheme: 'bearer',
-        type: 'http'
-      },
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/ai-gateway/web_fetch',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
   })
 
 /**
@@ -1095,18 +1144,18 @@ export const ankoleWebAiGatewayControllerWebTools = <ThrowOnError extends boolea
   })
 
 /**
- * List console-visible AppConfigure entries
+ * Create or update one signal binding for an agent
  */
-export const ankoleWebAppConfigurationControllerIndex = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebAppConfigurationControllerIndexData, ThrowOnError>
+export const ankoleWebSignalBindingControllerPutBinding = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebSignalBindingControllerPutBindingData, ThrowOnError>
 ): RequestResult<
-  AnkoleWebAppConfigurationControllerIndexResponses,
-  AnkoleWebAppConfigurationControllerIndexErrors,
+  AnkoleWebSignalBindingControllerPutBindingResponses,
+  AnkoleWebSignalBindingControllerPutBindingErrors,
   ThrowOnError
 > =>
-  (options?.client ?? client).get<
-    AnkoleWebAppConfigurationControllerIndexResponses,
-    AnkoleWebAppConfigurationControllerIndexErrors,
+  (options.client ?? client).put<
+    AnkoleWebSignalBindingControllerPutBindingResponses,
+    AnkoleWebSignalBindingControllerPutBindingErrors,
     ThrowOnError
   >({
     security: [
@@ -1116,8 +1165,115 @@ export const ankoleWebAppConfigurationControllerIndex = <ThrowOnError extends bo
         type: 'http'
       }
     ],
-    url: '/api/v1/app-configurations',
+    url: '/api/v1/agents/{agent_uid}/signal-bindings/{adapter_id}/{binding_name}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Clear the current browser admin session
+ */
+export const ankoleWebAuthControllerDeleteSession = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebAuthControllerDeleteSessionData, ThrowOnError>
+): RequestResult<AnkoleWebAuthControllerDeleteSessionResponses, unknown, ThrowOnError> =>
+  (options?.client ?? client).delete<AnkoleWebAuthControllerDeleteSessionResponses, unknown, ThrowOnError>({
+    url: '/.internal-apis/session',
     ...options
+  })
+
+/**
+ * Create a rerank result through AIGateway
+ */
+export const ankoleWebAiGatewayControllerRerank = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayControllerRerankData, ThrowOnError>
+): RequestResult<AnkoleWebAiGatewayControllerRerankResponses, AnkoleWebAiGatewayControllerRerankErrors, ThrowOnError> =>
+  (options.client ?? client).post<
+    AnkoleWebAiGatewayControllerRerankResponses,
+    AnkoleWebAiGatewayControllerRerankErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'aiGatewayBearer',
+        scheme: 'bearer',
+        type: 'http'
+      },
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/ai-gateway/rerank',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Reveal one encrypted AppConfigure value on demand
+ */
+export const ankoleWebAppConfigurationControllerDecrypt = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAppConfigurationControllerDecryptData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAppConfigurationControllerDecryptResponses,
+  AnkoleWebAppConfigurationControllerDecryptErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebAppConfigurationControllerDecryptResponses,
+    AnkoleWebAppConfigurationControllerDecryptErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/app-configurations/{key}/decryptions',
+    ...options
+  })
+
+/**
+ * Create embeddings through AIGateway
+ */
+export const ankoleWebAiGatewayControllerEmbeddings = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayControllerEmbeddingsData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayControllerEmbeddingsResponses,
+  AnkoleWebAiGatewayControllerEmbeddingsErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebAiGatewayControllerEmbeddingsResponses,
+    AnkoleWebAiGatewayControllerEmbeddingsErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'aiGatewayBearer',
+        scheme: 'bearer',
+        type: 'http'
+      },
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/ai-gateway/embeddings',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
   })
 
 /**
@@ -1203,27 +1359,20 @@ export const ankoleWebAppConfigurationControllerUpdate = <ThrowOnError extends b
   })
 
 /**
- * Reveal one encrypted AppConfigure value on demand
+ * Exchange a browser admin session or refresh token for console bearer tokens
  */
-export const ankoleWebAppConfigurationControllerDecrypt = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAppConfigurationControllerDecryptData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAppConfigurationControllerDecryptResponses,
-  AnkoleWebAppConfigurationControllerDecryptErrors,
-  ThrowOnError
-> =>
+export const ankoleWebAuthControllerOauthToken = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAuthControllerOauthTokenData, ThrowOnError>
+): RequestResult<AnkoleWebAuthControllerOauthTokenResponses, AnkoleWebAuthControllerOauthTokenErrors, ThrowOnError> =>
   (options.client ?? client).post<
-    AnkoleWebAppConfigurationControllerDecryptResponses,
-    AnkoleWebAppConfigurationControllerDecryptErrors,
+    AnkoleWebAuthControllerOauthTokenResponses,
+    AnkoleWebAuthControllerOauthTokenErrors,
     ThrowOnError
   >({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/app-configurations/{key}/decryptions',
-    ...options
+    url: '/.internal-apis/oauth/token',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
   })

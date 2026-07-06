@@ -6,13 +6,6 @@ CONTROL_PLANE_DIR="$ROOT_DIR/app/control_plane"
 WORKER_IMAGE="ankole-agent-computer:0.1.0"
 POSTGRES_PORT="${POSTGRES_PORT:-5433}"
 
-if [[ -f "$HOME/.kiex/elixirs/elixir-1.20.1-29.env" ]]; then
-  # Keep the one-command entrypoint consistent with the Elixir version used by
-  # the rest of the Ankole control-plane checks on this machine.
-  # shellcheck disable=SC1090
-  source "$HOME/.kiex/elixirs/elixir-1.20.1-29.env"
-fi
-
 load_dotenv_file() {
   local file="$1"
 

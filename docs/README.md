@@ -336,8 +336,8 @@ The model-visible tool surface is deliberately narrow (see
 (`src/tools/todo/todo-tool.ts`); the computer tools `command`,
 `interactive_terminal`, `read_file`, `patch`, and `reply_attachment`
 (`src/tools/computer/`); `codex_delegate` (`src/tools/codex/`); the browser
-tools `browser_open`, `browser_run`,
-`browser_extract`, and `browser_doctor` (`src/tools/browser/`); the schedule
+tools `browser_navigate`, `browser_snapshot`, `browser_find`, `browser_click`,
+`browser_open`, `browser_run`, and `browser_extract` (`src/tools/browser/`); the schedule
 tools `check_back_later` and `cron` (`src/tools/schedule/schedule-tools.ts`); and the
 memory tools `memory_note`, `memory_search`, and `memory_browse`
 (`src/tools/memory/`); and the skill tools `skill_view` and `skill_append`
@@ -460,7 +460,7 @@ answers after one shell command.
 
 1. **Ingress.** `plugins/lark_adapter/.../inbound.ex` receives
    `im.message.receive_v1` on the long connection and calls
-   `Ankole.SignalsGateway.emit_entry/3`. The gateway resolves the binding,
+   `Ankole.SignalsGateway.Ingress.emit_entry/4`. The gateway resolves the binding,
    evaluates filters (kernel CEL), checks the tombstone, upserts
    `signal_gateway_channels` / `signal_gateway_entries`, and opens or extends an inbound
    batch.
@@ -582,7 +582,7 @@ schema, a default base URL, and capabilities with a `prepare/1` that builds a
 `UniversalAIRequest` against one of the kernel's API resolvers
 (responses / chat-completions / claude / embedding / rerank shapes). Built-in
 providers register in `Ankole.AIGateway.Providers`; plugin providers declare
-the `ai_gateway.provider` contract. Optional: `check_connection/1`,
+the `ai_gateway.provider` contract. Optional: `prepare_connection_check/1`,
 `models_metadata_source/1`. Operators then create an `ai_gateway_providers`
 row via the console and bind agent model profiles. Smoke-test with
 `mix e2e.ai_gateway_real_provider`.
@@ -600,7 +600,7 @@ belongs in `tools/e2e/suites/worker_computer_e2e_test.exs`.
 implementing `Ankole.Plugins.Plugin`, declaring `signals_gateway.adapter`
 with your inbound and outbox modules, setup metadata, and config patterns
 for credentials. Inbound code normalizes provider events into
-`SignalsGateway.emit_*` facts; the outbox module implements only the
+`SignalsGateway.Ingress.emit_*` facts; the outbox module implements only the
 operations you can honestly support. Long connections run as plugin
 `children/0`. `plugins/lark_adapter` is the reference; the contract lives in
 `design-docs/SignalsGateway.md` and `design-docs/plugins/FeishuAdapter.md`.

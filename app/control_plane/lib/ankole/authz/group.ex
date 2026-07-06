@@ -6,7 +6,9 @@ defmodule Ankole.AuthZ.Group do
   use Ecto.Schema
 
   import Ecto.Changeset
+  import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
 
+  alias Ankole.Ecto.JsonPayload
   alias Ankole.AuthZ.ExternalBinding
   alias Ankole.AuthZ.Grant
   alias Ankole.AuthZ.Membership
@@ -49,7 +51,7 @@ defmodule Ankole.AuthZ.Group do
     |> normalize_blank([:name, :display_name, :computed_condition, :description])
     |> normalize_name()
     |> validate_required([:name, :display_name, :kind, :built_in, :metadata])
-    |> validate_map(:metadata)
+    |> JsonPayload.validate_map(:metadata)
     |> validate_kind_shape()
     |> unique_constraint(:name, name: :principal_groups_name_index)
     |> check_constraint(:name, name: :principal_groups_name_present)
@@ -110,32 +112,6 @@ defmodule Ankole.AuthZ.Group do
     update_change(changeset, :name, fn
       value when is_binary(value) -> String.downcase(value)
       value -> value
-    end)
-  end
-
-  defp normalize_blank(changeset, fields) when is_list(fields) do
-    Enum.reduce(fields, changeset, &normalize_blank(&2, &1))
-  end
-
-  defp normalize_blank(changeset, field) do
-    update_change(changeset, field, fn
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          trimmed -> trimmed
-        end
-
-      value ->
-        value
-    end)
-  end
-
-  defp validate_map(changeset, field) do
-    validate_change(changeset, field, fn ^field, value ->
-      case is_map(value) do
-        true -> []
-        false -> [{field, "must be a map"}]
-      end
     end)
   end
 end

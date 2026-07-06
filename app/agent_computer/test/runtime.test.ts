@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test'
+import type { JsonObject } from '@pleisto/active-support'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { zstdCompressBlock, zstdDecompressBlock } from '@ankole/kernel'
 import { tmpdir } from 'node:os'
@@ -523,11 +524,11 @@ function boolFrame(value: boolean): Buffer {
   return Buffer.from([value ? 1 : 0])
 }
 
-function decodeEntries(frame: Buffer): Array<Record<string, unknown>> {
+function decodeEntries(frame: Buffer): Array<JsonObject> {
   let offset = 0
   const count = frame.readUInt32BE(offset)
   offset += 4
-  const entries: Array<Record<string, unknown>> = []
+  const entries: Array<JsonObject> = []
 
   for (let index = 0; index < count; index += 1) {
     const relativePath = readSizedString(frame, offset)

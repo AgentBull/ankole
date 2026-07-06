@@ -6,9 +6,10 @@ defmodule Ankole.CodexDelegations.Schemas.Delegation do
   use Ecto.Schema
 
   import Ecto.Changeset
+  import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
 
   alias Ankole.Principals.Principal
-  alias Ankole.SignalsGateway.JsonPayload
+  alias Ankole.Ecto.JsonPayload
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
@@ -19,7 +20,7 @@ defmodule Ankole.CodexDelegations.Schemas.Delegation do
     belongs_to(:agent, Principal,
       foreign_key: :agent_uid,
       references: :uid,
-      type: :string
+      type: Ankole.Ecto.PrincipalKey
     )
 
     field(:session_id, :string)
@@ -64,7 +65,6 @@ defmodule Ankole.CodexDelegations.Schemas.Delegation do
       :workdir,
       :status
     ])
-    |> normalize_uid(:agent_uid)
     |> validate_required([:agent_uid, :session_id, :status, :result, :error, :metadata])
     |> validate_inclusion(:status, @statuses)
     |> JsonPayload.validate_map(:result, allow_datetime: true)
@@ -76,29 +76,5 @@ defmodule Ankole.CodexDelegations.Schemas.Delegation do
     |> check_constraint(:result, name: :codex_delegations_result_object)
     |> check_constraint(:error, name: :codex_delegations_error_object)
     |> check_constraint(:metadata, name: :codex_delegations_metadata_object)
-  end
-
-  defp normalize_blank(changeset, fields) when is_list(fields) do
-    Enum.reduce(fields, changeset, &normalize_blank(&2, &1))
-  end
-
-  defp normalize_blank(changeset, field) do
-    update_change(changeset, field, fn
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          trimmed -> trimmed
-        end
-
-      value ->
-        value
-    end)
-  end
-
-  defp normalize_uid(changeset, field) do
-    update_change(changeset, field, fn
-      value when is_binary(value) -> String.downcase(value)
-      value -> value
-    end)
   end
 end

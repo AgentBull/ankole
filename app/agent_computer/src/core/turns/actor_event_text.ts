@@ -9,7 +9,8 @@ import {
   P,
   stringArg
 } from '@pleisto/active-support'
-import type { JsonObject, TurnStart } from '../../lanes/actor_lane'
+import type { JsonObject } from '@pleisto/active-support'
+import type { TurnStart } from '../../lanes/actor_lane'
 import type { CurrentChannelContext } from '../../prompts/system_prompt'
 
 /**

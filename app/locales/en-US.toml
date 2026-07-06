@@ -1,2 +1,51 @@
 [__meta__]
 bcp47 = "en-US"
+
+[auth]
+description = "Sign in with the identity provider configured during setup."
+no_providers = "No identity providers are configured."
+provider_label = "Identity provider"
+sign_in = "Sign in"
+title = "Sign in to Ankole"
+
+[common]
+back = "Back"
+cancel = "Cancel"
+continue = "Continue"
+error = "Request failed"
+loading = "Loading"
+placeholder = "Placeholder"
+ready = "Ready for implementation"
+save = "Save"
+
+[console]
+description = "The authenticated console shell is mounted with routing, query state, i18n, and document head support."
+title = "Ankole Console"
+
+[locale]
+native_label = "English"
+
+[setup]
+activation_code = "Bootstrap activation code"
+activation_hint = "Use the activation code printed in the server log for this process."
+activation_print = "Print to log"
+activation_printed = "Printed to server log."
+activation_printing = "Printing..."
+adapter = "Identity provider adapter"
+adapter_config = "Adapter configuration"
+advanced_config = "Advanced settings"
+authenticated_note = "Setup session active"
+bootstrap_title = "Unlock setup"
+choose_plugins = "Choose plugins"
+complete_with_oidc = "Save and sign in with OIDC"
+description = "Choose installation plugins, configure the first identity provider, and claim the first administrator."
+identity_provider = "Identity provider"
+language = "Language"
+no_adapters = "No enabled plugin exposes an identity provider adapter."
+plugin_restart_note = "Plugin enablement is persisted and takes full effect on the next server start."
+provider_id = "Provider ID"
+provider_id_hint = "This becomes the external identity namespace stored in Principals."
+save_plugins = "Save plugin selection"
+step_identity = "Identity"
+step_plugins = "Plugins"
+title = "Ankole setup"

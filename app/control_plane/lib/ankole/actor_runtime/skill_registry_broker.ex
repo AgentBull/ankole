@@ -8,23 +8,20 @@ defmodule Ankole.ActorRuntime.SkillRegistryBroker do
   """
 
   alias Ankole.AIAgent.Library
-  alias Ankole.ActorRuntime.WorkerRouteAuth
+  alias Ankole.ActorRuntime.TurnRef
 
-  @spec handle_replace(map(), String.t()) :: {:ok, map()} | {:error, map()}
-  def handle_replace(request, route) when is_map(request) and is_binary(route) do
+  @spec handle_replace(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
+  def handle_replace(%TurnRef{} = turn_ref, request, _route) when is_map(request) do
     request_id = text(request, "request_id") || "skills-installed-replace-#{Ecto.UUID.generate()}"
 
-    with {:ok, turn} <- turn_ref(request),
-         {agent_uid, session_id} <- actor_identity(turn),
-         observations when is_list(observations) <- list_value(request, "observations"),
-         :ok <- WorkerRouteAuth.authorize_turn_route(turn, route, :write) do
-      case Library.replace_installed_skill_observations(agent_uid, observations) do
+    with observations when is_list(observations) <- list_value(request, "observations") do
+      case Library.replace_installed_skill_observations(turn_ref.agent_uid, observations) do
         {:ok, result} ->
           {:ok,
            %{
              "request_id" => request_id,
-             "agent_uid" => agent_uid,
-             "session_id" => session_id,
+             "agent_uid" => turn_ref.agent_uid,
+             "session_id" => turn_ref.session_id,
              "changed" => result.changed,
              "skills" => result.skills,
              "files" => result.files,
@@ -32,42 +29,15 @@ defmodule Ankole.ActorRuntime.SkillRegistryBroker do
            }}
 
         {:error, reason} ->
-          error(request_id, reason, %{"agent_uid" => agent_uid})
+          error(request_id, reason, %{"agent_uid" => turn_ref.agent_uid})
       end
     else
       nil -> error(request_id, :invalid_skill_observations, %{})
-      {:error, reason} -> error(request_id, reason, %{})
     end
   end
 
-  def handle_replace(_request, _route),
+  def handle_replace(_turn_ref, _request, _route),
     do: error("", :invalid_skill_registry_request, %{})
-
-  defp turn_ref(%{"turn" => turn}) when is_map(turn), do: {:ok, turn}
-  defp turn_ref(%{turn: turn}) when is_map(turn), do: {:ok, stringify_keys(turn)}
-  defp turn_ref(_request), do: {:error, :missing_turn_ref}
-
-  defp actor_identity(%{"actor" => %{"agent_uid" => agent_uid, "session_id" => session_id}})
-       when is_binary(agent_uid) and is_binary(session_id),
-       do: {agent_uid, session_id}
-
-  defp actor_identity(_turn), do: {"", ""}
-
-  defp stringify_keys(map) do
-    Map.new(map, fn
-      {key, value} when is_atom(key) and is_map(value) ->
-        {Atom.to_string(key), stringify_keys(value)}
-
-      {key, value} when is_atom(key) ->
-        {Atom.to_string(key), value}
-
-      {key, value} when is_map(value) ->
-        {key, stringify_keys(value)}
-
-      pair ->
-        pair
-    end)
-  end
 
   defp error(request_id, reason, details) do
     {:error,

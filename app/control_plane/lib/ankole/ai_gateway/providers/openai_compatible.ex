@@ -5,6 +5,7 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
 
   use Ankole.AIGateway.ProviderDSL
 
+  alias Ankole.AIGateway.ProviderConnectionCheck
   alias Ankole.AIGateway.ReasoningEffort
   alias Ankole.AIGateway.UniversalAIRequest
 
@@ -55,33 +56,16 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
   end
 
   @doc """
-  Checks connectivity for providers that expose an OpenAI-compatible `/models` route.
+  Prepares a connection check for providers that expose an OpenAI-compatible `/models` route.
   """
   @impl true
-  def check_connection(ctx) when is_map(ctx) do
+  def prepare_connection_check(ctx) when is_map(ctx) do
     headers =
       ctx
       |> UniversalAIRequest.raw_headers()
       |> UniversalAIRequest.bearer_auth(ctx.settings[:api_key])
 
-    check_models_endpoint(ctx, headers)
-  end
-
-  @doc """
-  Shared `/models` live check for OpenAI-compatible provider modules.
-  """
-  @spec check_models_endpoint(map(), map()) :: {:ok, map()} | {:error, term()}
-  def check_models_endpoint(ctx, headers) when is_map(ctx) and is_map(headers) do
-    with {:ok, %{"status" => status, "body" => body}} when status in 200..299 <-
-           UniversalAIRequest.raw_get(ctx, "models", headers: headers) do
-      {:ok, body}
-    else
-      {:ok, %{"status" => status, "body" => body}} ->
-        {:error, {:provider_connection_check_failed, status, body}}
-
-      {:error, _reason} = error ->
-        error
-    end
+    ProviderConnectionCheck.get(ctx, "models", headers: headers)
   end
 
   # Unknown endpoint settings fall back to Chat Completions because that is the

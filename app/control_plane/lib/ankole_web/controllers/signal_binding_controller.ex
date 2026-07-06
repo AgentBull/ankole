@@ -10,15 +10,25 @@ defmodule AnkoleWeb.SignalBindingController do
   alias Ankole.SignalsGateway.Binding
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.ConsoleApi.ErrorEnvelope
+  alias AnkoleWeb.Schemas.ConsoleApi.SignalAdapterListResponse
   alias AnkoleWeb.Schemas.ConsoleApi.SignalBindingListResponse
-  alias AnkoleWeb.Schemas.ConsoleApi.SignalBindingLarkWriteRequest
   alias AnkoleWeb.Schemas.ConsoleApi.SignalBindingResponse
+  alias AnkoleWeb.Schemas.ConsoleApi.SignalBindingWriteRequest
 
   tags(["Signal Bindings"])
   security([%{"consoleBearer" => []}])
 
   plug OpenApiSpex.Plug.CastAndValidate,
     render_error: AnkoleWeb.OpenApiValidationErrorRenderer
+
+  operation(:adapters,
+    summary: "List signal adapters available for bindings",
+    responses: [
+      ok: {"Signal adapters", "application/json", SignalAdapterListResponse},
+      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope}
+    ]
+  )
 
   operation(:index,
     summary: "List signal bindings for one agent",
@@ -33,14 +43,15 @@ defmodule AnkoleWeb.SignalBindingController do
     ]
   )
 
-  operation(:put_lark,
-    summary: "Create or update one Lark signal binding for an agent",
+  operation(:put_binding,
+    summary: "Create or update one signal binding for an agent",
     parameters: [
       agent_uid: [in: :path, type: :string, required: true],
+      adapter_id: [in: :path, type: :string, required: true],
       binding_name: [in: :path, type: :string, required: true]
     ],
     request_body:
-      {"Lark signal binding", "application/json", SignalBindingLarkWriteRequest, required: true},
+      {"Signal binding", "application/json", SignalBindingWriteRequest, required: true},
     responses: [
       ok: {"Signal binding", "application/json", SignalBindingResponse},
       unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
@@ -64,6 +75,14 @@ defmodule AnkoleWeb.SignalBindingController do
     ]
   )
 
+  def adapters(conn, _params) do
+    with :ok <- ConsolePolicy.authorize(conn, "signal_gateway_adapters", "read") do
+      json(conn, %{data: SignalsGateway.list_adapters()})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
   def index(conn, params) do
     with {:ok, agent_uid} <- text_param(params, "agent_uid"),
          :ok <-
@@ -75,13 +94,14 @@ defmodule AnkoleWeb.SignalBindingController do
     end
   end
 
-  def put_lark(conn, params) do
+  def put_binding(conn, params) do
     with {:ok, agent_uid} <- text_param(params, "agent_uid"),
+         {:ok, adapter_id} <- text_param(params, "adapter_id"),
          {:ok, binding_name} <- text_param(params, "binding_name"),
          :ok <-
            ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_gateway_bindings", "update"),
-         {:ok, config} <- lark_config(conn.body_params),
-         {:ok, result} <- SignalsGateway.put_lark_binding(agent_uid, binding_name, config) do
+         {:ok, result} <-
+           SignalsGateway.put_binding(agent_uid, adapter_id, binding_name, conn.body_params) do
       json(conn, %{data: signal_binding_json(result)})
     else
       {:error, reason} -> error(conn, reason)
@@ -99,10 +119,6 @@ defmodule AnkoleWeb.SignalBindingController do
       {:error, reason} -> error(conn, reason)
     end
   end
-
-  defp lark_config(%{"config" => config}) when is_map(config), do: {:ok, config}
-  defp lark_config(%{config: config}) when is_map(config), do: {:ok, config}
-  defp lark_config(_params), do: {:error, :missing_config}
 
   defp signal_binding_json(%{binding: %Binding{} = binding, config_key: config_key}) do
     %{
@@ -149,11 +165,15 @@ defmodule AnkoleWeb.SignalBindingController do
   end
 
   defp param_atom("agent_uid"), do: :agent_uid
+  defp param_atom("adapter_id"), do: :adapter_id
   defp param_atom("binding_name"), do: :binding_name
 
   defp error(conn, :forbidden), do: error(conn, 403, "forbidden", "access denied")
   defp error(conn, :agent_not_found), do: error(conn, 404, "not_found", "agent was not found")
   defp error(conn, :binding_not_found), do: error(conn, 404, "not_found", "binding was not found")
+
+  defp error(conn, {:unknown_signal_adapter, _adapter_id}),
+    do: error(conn, 404, "not_found", "signal adapter was not found")
 
   defp error(conn, :missing_config),
     do: error(conn, 422, "validation_failed", "config is required")

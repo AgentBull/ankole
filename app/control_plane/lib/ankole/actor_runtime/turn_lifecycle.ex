@@ -14,6 +14,7 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
   alias Ankole.ActorRuntime.Schemas.ActorSessionActivation
   alias Ankole.ActorRuntime.Schemas.ActorSessionWorkerAssignment
   alias Ankole.ActorRuntime.TurnEnvelope
+  alias Ankole.ActorRuntime.TurnRef
   alias Ankole.ActorRuntime.Transport.Broker
   alias Ankole.ActorRuntime.WorkerAdmission
   alias Ankole.ActorRuntime.WorkerPool
@@ -153,27 +154,27 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
   @spec handle_turn_accepted(map()) :: {:ok, [ActorEventDelivery.t()]} | {:error, term()}
   def handle_turn_accepted(envelope) when is_map(envelope) do
     payload = unwrap_body(envelope, "turn_accepted")
-    turn_ref = fetch_map!(payload, "turn")
 
-    accepted_actor_event_id = fetch_turn_id(turn_ref)
+    with {:ok, turn_ref} <- TurnRef.from_request(payload, :turn) do
+      accepted_actor_event_id = turn_ref.actor_event_id
+      now = DateTime.utc_now(:microsecond)
 
-    now = DateTime.utc_now(:microsecond)
+      Repo.transact(fn repo ->
+        deliveries =
+          pending_deliveries_for_turn_ref(repo, turn_ref)
 
-    Repo.transact(fn repo ->
-      deliveries =
-        pending_deliveries_for_turn_ref(repo, turn_ref)
-
-      with :ok <- require_sent_event_accepted(deliveries, accepted_actor_event_id),
-           :ok <- validate_deliveries_turn_ref(deliveries, turn_ref, :exact_revision) do
-        deliveries
-        |> Enum.map(fn delivery ->
-          delivery
-          |> ActorEventDelivery.changeset(%{state: "accepted", accepted_at: now})
-          |> repo.update()
-        end)
-        |> collect_results()
-      end
-    end)
+        with :ok <- require_sent_event_accepted(deliveries, accepted_actor_event_id),
+             :ok <- validate_deliveries_turn_ref(deliveries, turn_ref, :exact_revision) do
+          deliveries
+          |> Enum.map(fn delivery ->
+            delivery
+            |> ActorEventDelivery.changeset(%{state: "accepted", accepted_at: now})
+            |> repo.update()
+          end)
+          |> collect_results()
+        end
+      end)
+    end
   end
 
   @doc """
@@ -187,19 +188,21 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
           {:ok, ActorSessionActivation.t()} | {:error, term()}
   def handle_worker_progress(envelope, opts \\ []) when is_map(envelope) do
     payload = unwrap_body(envelope, "worker_progress")
-    turn_ref = fetch_map!(payload, "turn")
-    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
-    lease_seconds = Keyword.get(opts, :lease_seconds, @activation_progress_lease_seconds)
 
-    Repo.transact(fn repo ->
-      with %ActorSessionActivation{} = activation <- activation_for_turn_ref(repo, turn_ref),
-           :ok <- activation_accepts_progress(activation, turn_ref, now) do
-        renew_activation_lease(repo, activation, now, lease_seconds)
-      else
-        nil -> {:error, :actor_runtime_fence_not_found}
-        {:error, _reason} = error -> error
-      end
-    end)
+    with {:ok, turn_ref} <- TurnRef.from_request(payload, :turn) do
+      now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+      lease_seconds = Keyword.get(opts, :lease_seconds, @activation_progress_lease_seconds)
+
+      Repo.transact(fn repo ->
+        with %ActorSessionActivation{} = activation <- activation_for_turn_ref(repo, turn_ref),
+             :ok <- activation_accepts_progress(activation, turn_ref, now) do
+          renew_activation_lease(repo, activation, now, lease_seconds)
+        else
+          nil -> {:error, :actor_runtime_fence_not_found}
+          {:error, _reason} = error -> error
+        end
+      end)
+    end
   end
 
   @doc """
@@ -212,35 +215,38 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
   @spec handle_turn_noop_completed(map()) :: {:ok, map()} | {:error, term()}
   def handle_turn_noop_completed(envelope) when is_map(envelope) do
     payload = unwrap_body(envelope, "turn_noop_completed")
-    turn_ref = fetch_map!(payload, "turn")
-    reason = map_text(payload, "reason") || "noop_completed"
-    now = DateTime.utc_now(:microsecond)
 
-    Repo.transact(fn repo ->
-      with %ActorEvent{} = event <- lock_actor_event_for_turn_ref(repo, turn_ref),
-           %ActorSessionActivation{} = activation <- activation_for_turn_ref(repo, turn_ref),
-           :ok <- activation_accepts_progress(activation, turn_ref, now),
-           already_completed? = match?(%DateTime{}, event.completed_at),
-           {:ok, deliveries} <- live_deliveries_for_noop(repo, event, turn_ref),
-           {:ok, _completed_events} <- mark_noop_delivery_events_completed(repo, deliveries, now),
-           {:ok, event} <- mark_noop_event_completed(repo, event, now),
-           {deleted_count, superseded_count} <-
-             cleanup_noop_deliveries(repo, fetch_turn_id(turn_ref), now, reason) do
-        {:ok,
-         %{
-           status: if(already_completed?, do: :already_completed, else: :noop_completed),
-           reason: reason,
-           actor_event: event,
-           activation: activation,
-           delivery_count: length(deliveries),
-           deleted_deliveries: deleted_count,
-           superseded_deliveries: superseded_count
-         }}
-      else
-        nil -> {:error, :actor_runtime_fence_not_found}
-        {:error, _reason} = error -> error
-      end
-    end)
+    with {:ok, turn_ref} <- TurnRef.from_request(payload, :turn) do
+      reason = map_text(payload, "reason") || "noop_completed"
+      now = DateTime.utc_now(:microsecond)
+
+      Repo.transact(fn repo ->
+        with %ActorEvent{} = event <- lock_actor_event_for_turn_ref(repo, turn_ref),
+             %ActorSessionActivation{} = activation <- activation_for_turn_ref(repo, turn_ref),
+             :ok <- activation_accepts_progress(activation, turn_ref, now),
+             already_completed? = match?(%DateTime{}, event.completed_at),
+             {:ok, deliveries} <- live_deliveries_for_noop(repo, event, turn_ref),
+             {:ok, _completed_events} <-
+               mark_noop_delivery_events_completed(repo, deliveries, now),
+             {:ok, event} <- mark_noop_event_completed(repo, event, now),
+             {deleted_count, superseded_count} <-
+               cleanup_noop_deliveries(repo, turn_ref.actor_event_id, now, reason) do
+          {:ok,
+           %{
+             status: if(already_completed?, do: :already_completed, else: :noop_completed),
+             reason: reason,
+             actor_event: event,
+             activation: activation,
+             delivery_count: length(deliveries),
+             deleted_deliveries: deleted_count,
+             superseded_deliveries: superseded_count
+           }}
+        else
+          nil -> {:error, :actor_runtime_fence_not_found}
+          {:error, _reason} = error -> error
+        end
+      end)
+    end
   end
 
   @doc """
@@ -253,38 +259,47 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
   @spec handle_turn_error(map(), keyword()) :: {:ok, map()} | {:error, term()}
   def handle_turn_error(envelope, opts \\ []) when is_map(envelope) do
     payload = unwrap_body(envelope, "turn_error")
-    turn_ref = fetch_map!(payload, "turn")
-    reason = turn_error_reason(payload)
-    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
-    Repo.transact(fn repo ->
-      with %ActorEvent{} = event <- lock_actor_event_for_turn_ref(repo, turn_ref),
-           %ActorSessionActivation{} = activation <- activation_for_turn_ref(repo, turn_ref),
-           :ok <- activation_accepts_progress(activation, turn_ref, now),
-           {:ok, deliveries} <- live_deliveries_for_turn_ref(repo, turn_ref),
-           {:ok, event} <- maybe_mark_overflow_retry(repo, event, reason),
-           dead_letter? = dead_letter_after_turn_error?(deliveries, reason),
-           {superseded_count, _rows} <- supersede_live_deliveries(repo, turn_ref, now, reason),
-           {:ok, event} <- maybe_mark_event_dead_letter(repo, event, dead_letter?, now),
-           {:ok, event} <-
-             maybe_delay_retryable_turn_error(repo, event, deliveries, reason, now, dead_letter?),
-           {:ok, activation} <- fail_activation_for_turn_error(repo, activation, reason, now) do
-        {:ok,
-         %{
-           status: if(dead_letter?, do: :turn_dead_lettered, else: :turn_failed),
-           reason: reason,
-           actor_event: event,
-           activation: activation,
-           delivery_count: length(deliveries),
-           superseded_deliveries: superseded_count,
-           dead_lettered?: dead_letter?,
-           retry_available_at: retry_available_at(event)
-         }}
-      else
-        nil -> {:error, :actor_runtime_fence_not_found}
-        {:error, _reason} = error -> error
-      end
-    end)
+    with {:ok, turn_ref} <- TurnRef.from_request(payload, :turn) do
+      reason = turn_error_reason(payload)
+      now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+
+      Repo.transact(fn repo ->
+        with %ActorEvent{} = event <- lock_actor_event_for_turn_ref(repo, turn_ref),
+             %ActorSessionActivation{} = activation <- activation_for_turn_ref(repo, turn_ref),
+             :ok <- activation_accepts_progress(activation, turn_ref, now),
+             {:ok, deliveries} <- live_deliveries_for_turn_ref(repo, turn_ref),
+             {:ok, event} <- maybe_mark_overflow_retry(repo, event, reason),
+             dead_letter? = dead_letter_after_turn_error?(deliveries, reason),
+             {superseded_count, _rows} <- supersede_live_deliveries(repo, turn_ref, now, reason),
+             {:ok, event} <- maybe_mark_event_dead_letter(repo, event, dead_letter?, now),
+             {:ok, event} <-
+               maybe_delay_retryable_turn_error(
+                 repo,
+                 event,
+                 deliveries,
+                 reason,
+                 now,
+                 dead_letter?
+               ),
+             {:ok, activation} <- fail_activation_for_turn_error(repo, activation, reason, now) do
+          {:ok,
+           %{
+             status: if(dead_letter?, do: :turn_dead_lettered, else: :turn_failed),
+             reason: reason,
+             actor_event: event,
+             activation: activation,
+             delivery_count: length(deliveries),
+             superseded_deliveries: superseded_count,
+             dead_lettered?: dead_letter?,
+             retry_available_at: retry_available_at(event)
+           }}
+        else
+          nil -> {:error, :actor_runtime_fence_not_found}
+          {:error, _reason} = error -> error
+        end
+      end)
+    end
   end
 
   # Sends the already persisted turn-start envelope after the transaction has
@@ -501,22 +516,22 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
       not activation_lease_alive?(activation, now) ->
         {:error, :activation_lease_expired}
 
-      activation.agent_uid != fetch_actor_agent_uid(turn_ref) ->
+      activation.agent_uid != turn_ref.agent_uid ->
         {:error, :stale_actor_key}
 
-      activation.session_id != fetch_actor_session_id(turn_ref) ->
+      activation.session_id != turn_ref.session_id ->
         {:error, :stale_actor_key}
 
-      activation.activation_uid != fetch_text!(turn_ref, "activation_uid") ->
+      activation.activation_uid != turn_ref.activation_uid ->
         {:error, :stale_activation_uid}
 
-      activation.actor_epoch != fetch_int!(turn_ref, "actor_epoch") ->
+      activation.actor_epoch != turn_ref.actor_epoch ->
         {:error, :stale_actor_epoch}
 
-      activation.revision < fetch_int!(turn_ref, "revision") ->
+      activation.revision < turn_ref.revision ->
         {:error, :stale_revision}
 
-      activation.current_actor_event_id != fetch_turn_id(turn_ref) ->
+      activation.current_actor_event_id != turn_ref.actor_event_id ->
         {:error, :stale_actor_event_id}
 
       true ->
@@ -785,18 +800,18 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
   # trusted only after matching the locked row, not because it came from a route.
   defp activation_for_turn_ref(repo, turn_ref) do
     ActorSessionActivation
-    |> where([activation], activation.agent_uid == ^fetch_actor_agent_uid(turn_ref))
-    |> where([activation], activation.session_id == ^fetch_actor_session_id(turn_ref))
-    |> where([activation], activation.activation_uid == ^fetch_text!(turn_ref, "activation_uid"))
+    |> where([activation], activation.agent_uid == ^turn_ref.agent_uid)
+    |> where([activation], activation.session_id == ^turn_ref.session_id)
+    |> where([activation], activation.activation_uid == ^turn_ref.activation_uid)
     |> lock("FOR UPDATE")
     |> repo.one()
   end
 
   defp lock_actor_event_for_turn_ref(repo, turn_ref) do
     ActorEvent
-    |> where([event], event.id == ^fetch_turn_id(turn_ref))
-    |> where([event], event.agent_uid == ^fetch_actor_agent_uid(turn_ref))
-    |> where([event], event.session_id == ^fetch_actor_session_id(turn_ref))
+    |> where([event], event.id == ^turn_ref.actor_event_id)
+    |> where([event], event.agent_uid == ^turn_ref.agent_uid)
+    |> where([event], event.session_id == ^turn_ref.session_id)
     |> lock("FOR UPDATE")
     |> repo.one()
   end
@@ -804,7 +819,7 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
   defp live_deliveries_for_turn_ref(repo, turn_ref) do
     deliveries =
       ActorEventDelivery
-      |> where([delivery], delivery.actor_event_id_fence == ^fetch_turn_id(turn_ref))
+      |> where([delivery], delivery.actor_event_id_fence == ^turn_ref.actor_event_id)
       |> where([delivery], delivery.state in ^ActorEventDelivery.live_states())
       |> lock("FOR UPDATE")
       |> repo.all()
@@ -886,7 +901,7 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
 
   defp supersede_live_deliveries(repo, turn_ref, now, reason) do
     ActorEventDelivery
-    |> where([delivery], delivery.actor_event_id_fence == ^fetch_turn_id(turn_ref))
+    |> where([delivery], delivery.actor_event_id_fence == ^turn_ref.actor_event_id)
     |> where([delivery], delivery.state in ^ActorEventDelivery.live_states())
     |> repo.update_all(
       set: [
@@ -1305,12 +1320,12 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
 
   defp pending_deliveries_for_turn_ref(repo, turn_ref) do
     ActorEventDelivery
-    |> where([delivery], delivery.agent_uid == ^fetch_actor_agent_uid(turn_ref))
-    |> where([delivery], delivery.session_id == ^fetch_actor_session_id(turn_ref))
-    |> where([delivery], delivery.activation_uid == ^fetch_text!(turn_ref, "activation_uid"))
-    |> where([delivery], delivery.actor_epoch == ^fetch_int!(turn_ref, "actor_epoch"))
-    |> where([delivery], delivery.actor_event_id_fence == ^fetch_turn_id(turn_ref))
-    |> where([delivery], delivery.revision == ^fetch_int!(turn_ref, "revision"))
+    |> where([delivery], delivery.agent_uid == ^turn_ref.agent_uid)
+    |> where([delivery], delivery.session_id == ^turn_ref.session_id)
+    |> where([delivery], delivery.activation_uid == ^turn_ref.activation_uid)
+    |> where([delivery], delivery.actor_epoch == ^turn_ref.actor_epoch)
+    |> where([delivery], delivery.actor_event_id_fence == ^turn_ref.actor_event_id)
+    |> where([delivery], delivery.revision == ^turn_ref.revision)
     |> where([delivery], delivery.state in ["created", "sent"])
     |> lock("FOR UPDATE")
     |> repo.all()
@@ -1348,24 +1363,24 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
   # The route alone is not a durable identity, because workers reconnect.
   defp delivery_matches_turn_ref(%ActorEventDelivery{} = delivery, turn_ref, revision_mode) do
     cond do
-      delivery.agent_uid != fetch_actor_agent_uid(turn_ref) ->
+      delivery.agent_uid != turn_ref.agent_uid ->
         {:error, :stale_actor_key}
 
-      delivery.session_id != fetch_actor_session_id(turn_ref) ->
+      delivery.session_id != turn_ref.session_id ->
         {:error, :stale_actor_key}
 
-      delivery.activation_uid != fetch_text!(turn_ref, "activation_uid") ->
+      delivery.activation_uid != turn_ref.activation_uid ->
         {:error, :stale_activation_uid}
 
-      delivery.actor_epoch != fetch_int!(turn_ref, "actor_epoch") ->
+      delivery.actor_epoch != turn_ref.actor_epoch ->
         {:error, :stale_actor_epoch}
 
-      delivery.actor_event_id_fence != fetch_turn_id(turn_ref) ->
+      delivery.actor_event_id_fence != turn_ref.actor_event_id ->
         {:error, :stale_actor_event_id}
 
       not delivery_revision_matches?(
         delivery.revision,
-        fetch_int!(turn_ref, "revision"),
+        turn_ref.revision,
         revision_mode
       ) ->
         {:error, :stale_revision}

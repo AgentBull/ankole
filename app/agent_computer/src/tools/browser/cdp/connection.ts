@@ -1,3 +1,4 @@
+import type { JsonObject } from '@pleisto/active-support'
 import { remoteBrowserCdpConfigFromOptions, connectTimeoutMs, valueAtJsonPath } from './config'
 import {
   ensureLocalChromiumSidecar,
@@ -7,14 +8,8 @@ import {
   touchLocalChromiumSidecar
 } from './chromium'
 import { writeSessionMeta } from './session-store'
-import { browserHttpUrl, localCdpEndpointAlive, redactUrl } from './utils'
-import type {
-  BrowserConnection,
-  BrowserRuntimeOptions,
-  BrowserSessionMeta,
-  JsonObject,
-  RemoteBrowserCdpConfig
-} from './types'
+import { localCdpEndpointAlive, redactUrl } from './utils'
+import type { BrowserConnection, BrowserRuntimeOptions, BrowserSessionMeta, RemoteBrowserCdpConfig } from './types'
 
 /**
  * Resolves the CDP endpoint that should back an existing browser session.
@@ -43,12 +38,16 @@ export async function resolveConnectionForSession(
           : await resolveRemoteConnection(remoteConfig)
 
     if (!meta.connect_url && connection.connectUrl) {
-      writeSessionMeta(session, {
-        ...meta,
-        connect_url: connection.connectUrl,
-        connect_url_redacted: connection.redactedConnectUrl,
-        connect_url_source: 'session'
-      })
+      writeSessionMeta(
+        session,
+        {
+          ...meta,
+          connect_url: connection.connectUrl,
+          connect_url_redacted: connection.redactedConnectUrl,
+          connect_url_source: 'session'
+        },
+        options
+      )
     }
 
     return connection
@@ -65,11 +64,15 @@ export async function resolveConnectionForSession(
       touchLocalChromiumSidecar(sidecarKey, idleTtlMs)
       if (!meta.browser_context_id || !meta.target_id) {
         const context = await createLocalBrowserContext(meta.connect_url)
-        writeSessionMeta(session, {
-          ...meta,
-          browser_context_id: context.browserContextId,
-          target_id: context.targetId
-        })
+        writeSessionMeta(
+          session,
+          {
+            ...meta,
+            browser_context_id: context.browserContextId,
+            target_id: context.targetId
+          },
+          options
+        )
       }
       return {
         backend: 'chromium',
@@ -79,23 +82,27 @@ export async function resolveConnectionForSession(
       }
     }
 
-    const sidecar = await ensureLocalChromiumSidecar(sidecarKey, idleTtlMs)
+    const sidecar = await ensureLocalChromiumSidecar(sidecarKey, idleTtlMs, options?.workspaceRoot)
     const sidecarChanged = meta.connect_url !== sidecar.connectUrl || meta.pid !== sidecar.proc.pid
     const context =
       sidecarChanged || !meta.browser_context_id || !meta.target_id
         ? await createLocalBrowserContext(sidecar.connectUrl)
         : { browserContextId: meta.browser_context_id, targetId: meta.target_id }
     if (sidecarChanged || meta.browser_context_id !== context.browserContextId || meta.target_id !== context.targetId) {
-      writeSessionMeta(session, {
-        ...meta,
-        local_sidecar_key: sidecar.key,
-        pid: sidecar.proc.pid,
-        connect_url: sidecar.connectUrl,
-        connect_url_redacted: redactUrl(sidecar.connectUrl),
-        connect_url_source: 'session',
-        browser_context_id: context.browserContextId,
-        target_id: context.targetId
-      })
+      writeSessionMeta(
+        session,
+        {
+          ...meta,
+          local_sidecar_key: sidecar.key,
+          pid: sidecar.proc.pid,
+          connect_url: sidecar.connectUrl,
+          connect_url_redacted: redactUrl(sidecar.connectUrl),
+          connect_url_source: 'session',
+          browser_context_id: context.browserContextId,
+          target_id: context.targetId
+        },
+        options
+      )
     }
     return {
       backend: 'chromium',
