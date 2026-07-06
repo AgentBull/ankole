@@ -1,0 +1,176 @@
+name: Publish postgres-for-ankole image
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: "Force postgres-for-ankole image rebuild"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: postgres-for-ankole-image-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  POSTGRES_IMAGE: ghcr.io/agentbull/ankole-postgres-for-ankole
+  IMAGE_TAG: main-latest
+
+jobs:
+  detect_postgres_image:
+    name: Detect postgres-for-ankole image changes
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.changes.outputs.changed }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Detect postgres-for-ankole image changes
+        id: changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="${POSTGRES_IMAGE}"
+          target_sha="${GITHUB_SHA}"
+          force_rebuild="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force_rebuild == 'true' }}"
+
+          if [ "${force_rebuild}" = "true" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Forced postgres-for-ankole rebuild requested"
+            exit 0
+          fi
+
+          published_metadata="$(docker buildx imagetools inspect "${image}:${IMAGE_TAG}" --format '{{json .}}' 2>/dev/null || true)"
+          if [ -z "${published_metadata}" ]; then
+            published_metadata="{}"
+          fi
+
+          published_revision="$(
+            jq -r '(.image["linux/amd64"].config.Labels // {})["org.opencontainers.image.revision"] // empty' \
+              <<<"${published_metadata}"
+          )"
+
+          if [ -z "${published_revision}" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "No published revision label found on ${image}:${IMAGE_TAG}; rebuilding"
+            exit 0
+          fi
+
+          if ! git cat-file -e "${published_revision}^{commit}" 2>/dev/null; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Published revision ${published_revision} is not present in this checkout; rebuilding"
+            exit 0
+          fi
+
+          changed_files="$(git diff --name-only "${published_revision}" "${target_sha}")"
+          postgres_pattern='^(tools/devkit/postgres-for-ankole/|\.github/workflows/postgres-for-ankole-image\.yml$)'
+
+          if grep -Eq "${postgres_pattern}" <<<"${changed_files}"; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "postgres-for-ankole image changes since published revision ${published_revision}:"
+            grep -E "${postgres_pattern}" <<<"${changed_files}" || true
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No postgres-for-ankole image changes since published revision ${published_revision}"
+          fi
+
+      - name: Skip postgres-for-ankole image
+        if: ${{ steps.changes.outputs.changed != 'true' }}
+        run: echo "No postgres-for-ankole image changes detected."
+
+  build_postgres_image:
+    name: Build and push postgres-for-ankole image (${{ matrix.arch }})
+    needs: detect_postgres_image
+    if: ${{ needs.detect_postgres_image.outputs.changed == 'true' }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push postgres-for-ankole image
+        uses: docker/build-push-action@v6
+        with:
+          context: tools/devkit/postgres-for-ankole
+          file: tools/devkit/postgres-for-ankole/Dockerfile
+          push: true
+          platforms: ${{ matrix.platform }}
+          tags: ${{ env.POSTGRES_IMAGE }}:${{ env.IMAGE_TAG }}-${{ matrix.arch }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=registry,ref=${{ env.POSTGRES_IMAGE }}:buildcache-${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ env.POSTGRES_IMAGE }}:buildcache-${{ matrix.arch }},mode=max
+          provenance: false
+
+  publish_postgres_manifest:
+    name: Publish postgres-for-ankole manifest
+    needs:
+      - detect_postgres_image
+      - build_postgres_image
+    if: ${{ needs.detect_postgres_image.outputs.changed == 'true' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish multi-platform manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker buildx imagetools create \
+            --tag "${POSTGRES_IMAGE}:${IMAGE_TAG}" \
+            "${POSTGRES_IMAGE}:${IMAGE_TAG}-amd64" \
+            "${POSTGRES_IMAGE}:${IMAGE_TAG}-arm64"
+
+          docker buildx imagetools inspect "${POSTGRES_IMAGE}:${IMAGE_TAG}"
