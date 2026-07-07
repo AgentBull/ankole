@@ -415,10 +415,10 @@ Recognized visible commands are classified after explicit IM admission:
 `/compress` is a visible command event. It produces
 `ActorEvent(type = command.compress)` and runs entirely in the control plane:
 AIGateway summarizes the older history prefix with the agent's `light` model
-profile (falling back to `primary`), keeps the recent tail verbatim, and writes
-one `type = "compaction"` row into `ai_gateway_messages`. The user gets fixed
-command feedback through the outbox. No worker turn starts and no RPC is
-involved.
+profile (falling back to `primary`), keeps the recent tail inside a compaction
+artifact, and writes a `type = "checkpoint"` row that points at that artifact.
+The user gets fixed command feedback through the outbox. No worker turn starts
+and no RPC is involved.
 
 For mentioned commands, the adapter or shared parser strips only a provider
 confirmed structured mention prefix before matching. Full-width spaces and

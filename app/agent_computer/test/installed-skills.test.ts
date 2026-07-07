@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { scanInstalledSkills } from '../src/worker/installed_skills'
+import { scanInstalledSkills } from '../src/skills/installed_skills'
 
 describe('@ankole/agent-computer installed skill scanner', () => {
   it('parses valid installed skills and skips excluded or symlinked files', async () => {

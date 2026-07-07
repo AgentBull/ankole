@@ -1,7 +1,7 @@
 import { Card, CardContent, CardHeader } from '@ankole/uikit/components/card'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { internalApiGet, internalApiPost } from '../common/Internal-api-client'
+import { internalApiGet, internalApiPost } from '../common/internal-api-client'
 import { requestErrorMessage } from '../common/request-errors'
 
 type LoginProvider = {

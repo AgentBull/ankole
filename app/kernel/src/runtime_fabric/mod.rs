@@ -4,13 +4,14 @@
 //! protocol validation and protobuf bytes. That keeps Elixir and Bun bindings
 //! thin while avoiding a second JSON wire protocol.
 
+mod body;
 mod codec;
-mod decode;
-mod encode;
 mod enums;
+mod from_host_json;
 mod json;
 #[cfg(test)]
 mod tests;
+mod to_host_json;
 mod validate;
 
 pub mod proto {
@@ -19,6 +20,7 @@ pub mod proto {
 
 pub mod transport;
 
+pub(crate) use codec::decode_envelope_view;
 pub use codec::{decode_envelope, encode_envelope};
 
 const PROTOCOL_VERSION: u32 = 1;

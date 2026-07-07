@@ -3,11 +3,10 @@ defmodule Ankole.Plugins.Spec do
   Validates a plugin module's callbacks into a normalized `Spec` struct.
 
   This is the gate that turns a discovered module into a usable plugin. It runs
-  at boot (via the registry), so validation is strict and fail-fast: every
-  callback value is checked, and for known subsystem contracts the declared
-  adapter modules are checked to actually export the callbacks that contract
-  requires. A plugin that mis-declares an adapter fails Ankole startup here
-  rather than crashing later when a subsystem first tries to invoke it.
+  at boot (via the registry), so validation is strict for plugin-owned shape:
+  plugin identity, localized text, AppConfigure declarations, supervision
+  children, and the generic adapter declaration envelope. Contract-specific
+  callback semantics stay with the subsystem that consumes that contract.
   """
 
   alias Ankole.AppConfigure.Definition
@@ -20,7 +19,6 @@ defmodule Ankole.Plugins.Spec do
   # so subsystem contracts can be namespaced, e.g. "signals_gateway.adapter".
   @id_pattern ~r/\A[a-z][a-z0-9_-]*\z/
   @contract_id_pattern ~r/\A[a-z][a-z0-9_.-]*\z/
-  @ai_gateway_provider_kind_pattern ~r/\A[a-z][a-z0-9_]{0,62}\z/
 
   @enforce_keys [:module, :id, :api_version]
   defstruct [
@@ -213,196 +211,8 @@ defmodule Ankole.Plugins.Spec do
          :ok <- validate_optional_adapter_id(declaration, :plugin_id),
          :ok <- validate_optional_declaration_localized_text(declaration, :display_name),
          :ok <- validate_optional_module(declaration, :module) do
-      validate_known_adapter_contract(contract_id, declaration)
-    end
-  end
-
-  # Per-contract structural checks. A declaration names which contract it plugs
-  # into; for the contracts Ankole ships, we verify the declared adapter modules
-  # actually export the callbacks that contract will call at runtime. Setup and
-  # test-only contracts still pass through here because their consumers validate
-  # their data shape at the point of use.
-  defp validate_known_adapter_contract("signals_gateway.adapter", declaration) do
-    with :ok <- validate_signals_ingress(declaration),
-         :ok <- validate_signals_outbox(declaration),
-         :ok <- validate_connection_supervisor(declaration),
-         :ok <- validate_signal_config_module(declaration) do
       :ok
     end
-  end
-
-  defp validate_known_adapter_contract("principals.identity_provider", declaration) do
-    with {:ok, module} <- declaration_module(declaration, :module),
-         :ok <- validate_module_callback(module, :upsert_user, 2),
-         :ok <- validate_identity_capabilities(module, declaration) do
-      :ok
-    end
-  end
-
-  defp validate_known_adapter_contract("ai_gateway.provider", declaration) do
-    with {:ok, module} <- declaration_module(declaration, :module),
-         :ok <- validate_module_callback(module, :provider_definition, 0),
-         :ok <- validate_ai_gateway_provider_definition(module, declaration) do
-      :ok
-    end
-  end
-
-  defp validate_known_adapter_contract(_contract_id, _declaration), do: :ok
-
-  # A plugin opts into ingress by listing inbound capabilities; each capability
-  # name maps to one required callback on its ingress module (see the
-  # `validate_signals_inbound_capability/2` clauses). Declaring no inbound
-  # capabilities is valid for an outbound-only adapter.
-  defp validate_signals_ingress(declaration) do
-    capabilities = declaration_list(declaration, :inbound_capabilities)
-
-    if capabilities == [] do
-      :ok
-    else
-      with {:ok, module} <- declaration_module(declaration, :ingress_module),
-           :ok <- validate_module_callback(module, :chat_consumer, 3) do
-        Enum.reduce_while(capabilities, :ok, fn capability, :ok ->
-          case validate_signals_inbound_capability(module, capability) do
-            :ok -> {:cont, :ok}
-            {:error, reason} -> {:halt, {:error, reason}}
-          end
-        end)
-      end
-    end
-  end
-
-  defp validate_signals_inbound_capability(module, "entry_receive"),
-    do: validate_module_callback(module, :handle_message_receive, 3)
-
-  defp validate_signals_inbound_capability(module, "entry_removed"),
-    do: validate_module_callback(module, :handle_message_removed, 3)
-
-  defp validate_signals_inbound_capability(module, "reaction_add"),
-    do: validate_module_callback(module, :handle_reaction_created, 3)
-
-  defp validate_signals_inbound_capability(module, "reaction_remove"),
-    do: validate_module_callback(module, :handle_reaction_deleted, 3)
-
-  defp validate_signals_inbound_capability(module, "action_event"),
-    do: validate_module_callback(module, :handle_card_action, 3)
-
-  defp validate_signals_inbound_capability(_module, capability),
-    do: {:error, {:unknown_inbound_capability, capability}}
-
-  defp validate_signals_outbox(declaration) do
-    capabilities = declaration_list(declaration, :outbound_capabilities)
-
-    if capabilities == [] do
-      :ok
-    else
-      with {:ok, module} <- declaration_module(declaration, :outbox_module),
-           :ok <- validate_module_callback(module, :send, 1) do
-        case "outbound_reconciliation" in capabilities do
-          true -> validate_module_callback(module, :reconcile, 1)
-          false -> :ok
-        end
-      end
-    end
-  end
-
-  defp validate_connection_supervisor(declaration) do
-    case declaration_module(declaration, :connection_supervisor) do
-      {:ok, module} -> validate_module_callback(module, :ensure_started, 3)
-      {:error, {:missing_adapter_module, :connection_supervisor}} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp validate_signal_config_module(declaration) do
-    case declaration_module(declaration, :config_module) do
-      {:ok, module} -> validate_module_callback(module, :validate_binding_config, 1)
-      {:error, {:missing_adapter_module, :config_module}} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp validate_identity_capabilities(module, declaration) do
-    declaration
-    |> declaration_list(:capabilities)
-    |> Enum.reduce_while(:ok, fn capability, :ok ->
-      case validate_identity_capability(module, capability) do
-        :ok -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-  end
-
-  defp validate_identity_capability(module, "oidc_authorization"),
-    do: validate_module_callback(module, :authorization_url, 2)
-
-  defp validate_identity_capability(module, "oidc_code_exchange"),
-    do: validate_module_callback(module, :exchange_code, 3)
-
-  defp validate_identity_capability(module, "directory_full_sync"),
-    do: validate_module_callback(module, :sync_directory, 3)
-
-  defp validate_identity_capability(module, "directory_realtime_sync"),
-    do: validate_module_callback(module, :handle_contact_event, 3)
-
-  defp validate_identity_capability(_module, capability),
-    do: {:error, {:unknown_identity_capability, capability}}
-
-  defp validate_ai_gateway_provider_definition(module, declaration) do
-    definition = module.provider_definition()
-
-    with :ok <- validate_ai_gateway_provider_id(definition, declaration),
-         :ok <- validate_ai_gateway_capabilities(definition),
-         :ok <- validate_ai_gateway_prepare_callbacks(module, definition) do
-      :ok
-    end
-  end
-
-  defp validate_ai_gateway_provider_id(%{provider_kind: provider_kind}, declaration) do
-    with {:ok, declaration_id} <- declaration_text(declaration, :id) do
-      with :ok <- validate_ai_gateway_provider_kind(declaration_id),
-           :ok <- validate_ai_gateway_provider_kind(provider_kind) do
-        case provider_kind do
-          ^declaration_id -> :ok
-          module_id -> {:error, {:ai_gateway_provider_id_mismatch, declaration_id, module_id}}
-        end
-      end
-    end
-  end
-
-  defp validate_ai_gateway_provider_kind(provider_kind) when is_binary(provider_kind) do
-    case Regex.match?(@ai_gateway_provider_kind_pattern, provider_kind) do
-      true -> :ok
-      false -> {:error, {:invalid_ai_gateway_provider_kind, provider_kind}}
-    end
-  end
-
-  defp validate_ai_gateway_provider_kind(provider_kind),
-    do: {:error, {:invalid_ai_gateway_provider_kind, provider_kind}}
-
-  defp validate_ai_gateway_capabilities(%{capabilities: capabilities})
-       when is_list(capabilities) do
-    case Enum.all?(capabilities, &valid_ai_gateway_capability?/1) do
-      true -> :ok
-      false -> {:error, {:invalid_ai_gateway_capabilities, capabilities}}
-    end
-  end
-
-  defp validate_ai_gateway_capabilities(%{capabilities: capabilities}),
-    do: {:error, {:invalid_ai_gateway_capabilities, capabilities}}
-
-  defp valid_ai_gateway_capability?(%Ankole.AIGateway.ProviderDefinition.Capability{kind: kind})
-       when kind in [:language_model, :embedding_model, :rerank_model],
-       do: true
-
-  defp valid_ai_gateway_capability?(_capability), do: false
-
-  defp validate_ai_gateway_prepare_callbacks(module, %{capabilities: capabilities}) do
-    Enum.reduce_while(capabilities, :ok, fn capability, :ok ->
-      case validate_module_callback(module, capability.prepare, 1) do
-        :ok -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
   end
 
   defp validate_contract_id(contract_id) do
@@ -448,13 +258,6 @@ defmodule Ankole.Plugins.Spec do
     end
   end
 
-  defp validate_module_callback(module, function, arity) do
-    case function_exported?(module, function, arity) do
-      true -> :ok
-      false -> {:error, {:missing_adapter_callback, module, function, arity}}
-    end
-  end
-
   defp declaration_module(declaration, key) do
     case declaration_value(declaration, key) do
       {:ok, module} when is_atom(module) ->
@@ -476,13 +279,6 @@ defmodule Ankole.Plugins.Spec do
       {:ok, value} when is_binary(value) and value != "" -> {:ok, value}
       {:ok, value} -> {:error, {:invalid_adapter_text, key, value}}
       :error -> {:error, {:missing_adapter_text, key}}
-    end
-  end
-
-  defp declaration_list(declaration, key) do
-    case declaration_value(declaration, key) do
-      {:ok, values} when is_list(values) -> values
-      _other -> []
     end
   end
 

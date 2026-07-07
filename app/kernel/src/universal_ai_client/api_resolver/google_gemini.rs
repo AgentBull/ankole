@@ -1,10 +1,11 @@
+use super::*;
 #[derive(Debug)]
-struct GoogleGeminiState {
+pub(super) struct GoogleGeminiState {
     inner: ChatState,
 }
 
 impl GoogleGeminiState {
-    fn new(model: String) -> Self {
+    pub(super) fn new(model: String) -> Self {
         Self {
             inner: ChatState::new(model),
         }
@@ -14,7 +15,7 @@ impl GoogleGeminiState {
         let mut events = self.inner.ensure_response_started(context);
 
         if let Some(usage) = value.get("usageMetadata") {
-            self.inner.usage = normalize_provider_token_usage(usage);
+            self.inner.set_usage(normalize_provider_token_usage(usage));
         }
 
         for candidate in value
@@ -39,7 +40,7 @@ impl GoogleGeminiState {
                         .map(|args| sonic_rs::to_string(args).unwrap_or_else(|_| "{}".to_string()))
                         .unwrap_or_else(|| "{}".to_string());
                     events.extend(self.inner.tool_call_delta(&json!({
-                        "index": self.inner.tool_calls.len(),
+                        "index": self.inner.next_tool_call_index(),
                         "function": {
                             "name": call.get("name").and_then(Value::as_str).unwrap_or("unknown"),
                             "arguments": arguments
@@ -48,16 +49,23 @@ impl GoogleGeminiState {
                 }
             }
 
-            if candidate
-                .get("finishReason")
-                .and_then(Value::as_str)
-                .is_some()
-            {
-                events.extend(self.inner.finish(context, "completed", None));
+            if let Some(finish_reason) = candidate.get("finishReason").and_then(Value::as_str) {
+                events.extend(self.finish_reason(context, finish_reason));
             }
         }
 
         events
+    }
+
+    fn finish_reason(&mut self, context: &ResponseContext, reason: &str) -> Vec<Value> {
+        match gemini_terminal(reason) {
+            ProviderTerminal::Completed => self.inner.finish(context, "completed", None),
+            ProviderTerminal::Incomplete(incomplete_reason) => {
+                self.inner
+                    .finish(context, "incomplete", Some(incomplete_reason))
+            }
+            ProviderTerminal::Failed(error) => self.inner.fail(context, &error),
+        }
     }
 
     fn finish(
@@ -108,14 +116,14 @@ impl ApiProtocol for GoogleGeminiState {
     }
 
     fn is_terminal(&self) -> bool {
-        self.inner.terminal
+        self.inner.is_terminal()
     }
 }
 
 fn google_gemini_body_to_response(context: &ResponseContext, body: Value) -> Value {
     let mut state = GoogleGeminiState::new(context.model.clone());
     let mut events = state.ingest(context, body);
-    if !state.inner.terminal {
+    if !state.inner.is_terminal() {
         events.extend(state.finish(context, "completed", None));
     }
     events
@@ -123,4 +131,37 @@ fn google_gemini_body_to_response(context: &ResponseContext, body: Value) -> Val
         .rev()
         .find_map(|event| event.get("response").cloned())
         .unwrap_or_else(|| complete_response_resource(context, json!({ "output": [] })))
+}
+
+pub(super) enum ProviderTerminal {
+    Completed,
+    Incomplete(&'static str),
+    Failed(StreamError),
+}
+
+fn gemini_terminal(reason: &str) -> ProviderTerminal {
+    match reason {
+        "STOP" => ProviderTerminal::Completed,
+        "MAX_TOKENS" => ProviderTerminal::Incomplete("max_output_tokens"),
+        "SAFETY"
+        | "RECITATION"
+        | "SPII"
+        | "PROHIBITED_CONTENT"
+        | "BLOCKLIST"
+        | "MALFORMED_FUNCTION_CALL"
+        | "MODEL_ARMOR"
+        | "OTHER"
+        | "FINISH_REASON_UNSPECIFIED" => {
+            ProviderTerminal::Failed(provider_terminal_rejected("Google Gemini", reason))
+        }
+        other => ProviderTerminal::Failed(provider_terminal_rejected("Google Gemini", other)),
+    }
+}
+
+pub(super) fn provider_terminal_rejected(provider: &str, reason: &str) -> StreamError {
+    StreamError::new(
+        StreamErrorCode::ProviderTerminalRejected,
+        "api_resolver",
+        format!("{provider} rejected the response with terminal reason {reason}"),
+    )
 }

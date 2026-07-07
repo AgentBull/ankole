@@ -207,15 +207,15 @@ defmodule Ankole.Plugins.LarkAdapter.Card do
   defp table_count(elements), do: Enum.count(elements, &table_element?/1)
 
   defp table_chunks(elements) do
-    {chunks, current, _has_table?} =
-      Enum.reduce(elements, {[], [], false}, fn element, {chunks, current, has_table?} ->
+    {chunks, current_rev, _has_table?} =
+      Enum.reduce(elements, {[], [], false}, fn element, {chunks, current_rev, has_table?} ->
         case table_element?(element) and has_table? do
-          true -> {[current | chunks], [element], true}
-          false -> {chunks, current ++ [element], has_table? or table_element?(element)}
+          true -> {[Enum.reverse(current_rev) | chunks], [element], true}
+          false -> {chunks, [element | current_rev], has_table? or table_element?(element)}
         end
       end)
 
-    [current | chunks]
+    [Enum.reverse(current_rev) | chunks]
     |> Enum.reverse()
     |> Enum.reject(&(&1 == []))
   end

@@ -8,7 +8,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
 
     1. Resolves `previous_response_id` / `conversation` into a message chain.
     2. Creates one `ai_gateway_messages` row with `status = "generating"` and
-       `metadata.actor_event_id`.
+       optional `metadata.actor_event_id` correlation metadata.
     3. Returns the row so the transport can build the provider-facing input
        (expanded history + current request items) and call the provider.
     4. While the provider streams, live chunk events are published via
@@ -26,6 +26,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
   import Ecto.Query, warn: false
 
   alias Ecto.Adapters.SQL
+  alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AIGateway.Schemas.Message
@@ -58,8 +59,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
       - `agent_uid` (required) — the agent principal uid
       - `conversation_id` (required) — the ai_gateway_conversations.id
       - `actor_event_id` (optional for internal callers) — worker correlation key
-        written into metadata. HTTP/WS stateful entrypoints require it before
-        this helper is called.
+        written into metadata when present.
       - `previous_response_id` (optional) — "resp_{uuid}" decoded to a
         raw UUID pointing at the anchor message
       - `request_items` (optional) — initial content items (input/function_call_output)
@@ -756,10 +756,12 @@ defmodule Ankole.AIGateway.StatefulResponses do
     with {:ok, conversation_id} <- cast_uuid(conversation_id),
          {:ok, anchor_id} <- history_anchor(conversation_id, opts) do
       if anchor_id do
-        protected_tail_items = Keyword.get(opts, :protected_tail_items, [])
-
         # Walk the chain backward from the anchor, collecting complete rows.
-        walk_message_chain(conversation_id, anchor_id, protected_tail_items)
+        walk_message_chain(
+          conversation_id,
+          anchor_id,
+          Keyword.get(opts, :protected_tail_items, [])
+        )
       else
         []
       end
@@ -824,7 +826,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
   This is intentionally narrower than historical retraction. It only deletes a
   contiguous terminal suffix of ordinary complete message rows whose
   `metadata.actor_event_id` equals the removed source event's actor event. Once
-  another actor event or a compaction row has been appended, v1 leaves history
+  another actor event or a checkpoint row has been appended, v1 leaves history
   untouched instead of rewriting derived state.
   """
   @spec hard_delete_visible_tail_for_actor_event_in_tx(module(), ActorEvent.t(), keyword()) ::
@@ -1027,42 +1029,44 @@ defmodule Ankole.AIGateway.StatefulResponses do
   end
 
   @doc """
-  Writes one manual stateful compaction row after a completed response anchor.
-  """
-  @spec compact_response(String.t(), binary(), map(), map()) ::
-          {:ok, Message.t()} | {:error, :invalid_anchor | Ecto.Changeset.t()}
-  def compact_response(agent_uid, previous_response_id, compaction_item, metadata \\ %{}) do
-    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
-         {:ok, previous_message_id} <- decode_response_id(previous_response_id),
-         %Message{status: "complete"} = anchor <-
-           complete_message_for_agent(agent_uid, previous_message_id) do
-      insert_compaction_row(anchor, anchor.id, compaction_item, metadata)
-    else
-      _not_found_or_invalid -> {:error, :invalid_anchor}
-    end
-  end
+  Writes one response-chain checkpoint that points at a compaction artifact.
 
-  @doc """
-  Writes a compaction row after an anchor while covering a prefix ending at
-  `covers_until_response_id` on that anchor's own ancestor chain.
+  The checkpoint and artifact share the same raw UUID. The checkpoint is only a
+  continuation anchor; provider replay loads the artifact output from
+  `ai_gateway_compaction_artifacts`.
   """
-  @spec compact_history_prefix(String.t(), binary(), binary(), map(), map()) ::
-          {:ok, Message.t()} | {:error, :invalid_anchor | Ecto.Changeset.t()}
-  def compact_history_prefix(
+  @spec create_compaction_checkpoint(map()) ::
+          {:ok, Message.t()}
+          | {:error,
+             :invalid_anchor
+             | :invalid_conversation
+             | :stateful_anchor_conflict
+             | Ecto.Changeset.t()}
+  def create_compaction_checkpoint(attrs) when is_map(attrs) do
+    raw_agent_uid = Map.fetch!(attrs, :agent_uid)
+    artifact = Map.fetch!(attrs, :artifact)
+    metadata = Map.get(attrs, :metadata, Map.get(attrs, "metadata", %{}))
+    conversation_id = conversation_id(attrs)
+    previous_response_id = previous_response_id(attrs)
+
+    with {:ok, agent_uid} <- Principals.normalize_uid(raw_agent_uid),
+         {:ok, previous_message_id} <- decode_optional_response_id(previous_response_id),
+         {:ok, conversation_id, previous_message_id} <-
+           resolve_checkpoint_chain(agent_uid, conversation_id, previous_message_id, artifact) do
+      insert_checkpoint_row(
         agent_uid,
-        previous_response_id,
-        covers_until_response_id,
-        compaction_item,
-        metadata \\ %{}
-      ) do
-    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
-         {:ok, previous_message_id} <- decode_response_id(previous_response_id),
-         {:ok, covers_until_message_id} <- decode_response_id(covers_until_response_id),
-         %Message{status: "complete"} = anchor <-
-           complete_message_for_agent(agent_uid, previous_message_id),
-         true <- ancestor_message?(anchor, covers_until_message_id) do
-      insert_compaction_row(anchor, covers_until_message_id, compaction_item, metadata)
+        conversation_id,
+        previous_message_id,
+        artifact.id,
+        metadata
+      )
     else
+      {:error, :invalid_response_id} -> {:error, :invalid_anchor}
+      {:error, :invalid_uuid} -> {:error, :invalid_conversation}
+      {:error, :invalid_uid} -> {:error, :invalid_conversation}
+      false -> {:error, :invalid_anchor}
+      nil -> {:error, :invalid_anchor}
+      {:error, _reason} = error -> error
       _not_found_or_invalid -> {:error, :invalid_anchor}
     end
   end
@@ -1117,6 +1121,16 @@ defmodule Ankole.AIGateway.StatefulResponses do
           {:ok, Conversation.t()} | {:error, term()}
   def ensure_conversation(agent_uid, conversation_key) do
     Conversations.ensure_conversation(agent_uid, conversation_key)
+  end
+
+  @doc """
+  Creates a conversation implicitly for stateful Responses callers that start
+  with `store=true` and no explicit conversation or previous response anchor.
+  """
+  @spec create_managed_stateful_responses_conversation(String.t()) ::
+          {:ok, Conversation.t()} | {:error, term()}
+  def create_managed_stateful_responses_conversation(agent_uid) do
+    Conversations.create_managed_stateful_responses_conversation(agent_uid)
   end
 
   # ───────────────────────────────────────────────────────────────
@@ -1186,38 +1200,44 @@ defmodule Ankole.AIGateway.StatefulResponses do
     )
   end
 
-  defp insert_compaction_row(
-         %Message{} = anchor,
-         covers_until_message_id,
-         compaction_item,
+  defp resolve_checkpoint_chain(agent_uid, conversation_id, previous_message_id, artifact) do
+    case previous_message_id do
+      nil ->
+        with conversation_id when is_binary(conversation_id) <-
+               conversation_id || artifact.conversation_id,
+             {:ok, conversation} <- get_conversation_for_agent(agent_uid, conversation_id) do
+          {:ok, conversation.id, nil}
+        end
+
+      previous_message_id ->
+        with %Message{conversation_id: anchor_conversation_id} <-
+               complete_message_for_agent(agent_uid, previous_message_id),
+             {:ok, conversation} <-
+               get_conversation_for_agent(agent_uid, conversation_id || anchor_conversation_id),
+             true <- conversation.id == anchor_conversation_id do
+          {:ok, conversation.id, previous_message_id}
+        end
+    end
+  end
+
+  defp insert_checkpoint_row(
+         agent_uid,
+         conversation_id,
+         previous_message_id,
+         artifact_id,
          metadata
        ) do
-    base_item =
-      compaction_item
-      |> Map.delete("id")
-      |> Map.put("type", "compaction")
-
-    Repo.transact(fn repo ->
-      with {:ok, inserted} <-
-             %Message{}
-             |> Message.changeset(%{
-               agent_uid: anchor.agent_uid,
-               conversation_id: anchor.conversation_id,
-               type: "compaction",
-               status: "complete",
-               previous_message_id: anchor.id,
-               covers_until_message_id: covers_until_message_id,
-               content: [base_item],
-               metadata: metadata
-             })
-             |> repo.insert() do
-        compaction_item = Map.put(base_item, "id", "cmp_#{inserted.id}")
-
-        inserted
-        |> Message.changeset(%{content: [compaction_item]})
-        |> repo.update()
-      end
-    end)
+    %Message{id: artifact_id}
+    |> Message.changeset(%{
+      agent_uid: agent_uid,
+      conversation_id: conversation_id,
+      type: "checkpoint",
+      status: "complete",
+      previous_message_id: previous_message_id,
+      content: [CompactionArtifacts.ref_item(artifact_id)],
+      metadata: metadata
+    })
+    |> Repo.insert()
   end
 
   # Terminal provider items append to the request-side items saved when the
@@ -1538,9 +1558,9 @@ defmodule Ankole.AIGateway.StatefulResponses do
   end
 
   # Walks the previous_message_id chain backward from the anchor, collecting
-  # rows. A compaction row represents a compressed prefix inside its own
-  # ancestor chain; it is projected before the uncovered tail between
-  # `covers_until_message_id` and the compaction row's direct anchor.
+  # provider-visible rows. A checkpoint row is a hard provider-visible boundary:
+  # its artifact output replaces the older prefix, while the raw chain remains
+  # available to audit and function-call counting through `chain_messages/4`.
   defp walk_message_chain(conversation_id, anchor_id, protected_tail_items) do
     walk_message_chain(Repo, conversation_id, anchor_id, protected_tail_items)
   end
@@ -1621,32 +1641,16 @@ defmodule Ankole.AIGateway.StatefulResponses do
 
             new_acc = if include?, do: [message | acc], else: acc
 
-            case covered_prefix_anchor(include?, message) do
-              nil ->
-                walk_chain(
-                  messages_by_id,
-                  message.previous_message_id,
-                  new_acc,
-                  seen,
-                  protected_tail_items
-                )
-
-              covers_until_message_id ->
-                tail =
-                  uncovered_tail_after_prefix(
-                    messages_by_id,
-                    message.previous_message_id,
-                    covers_until_message_id,
-                    [],
-                    seen
-                  )
-                  |> repair_compaction_tail_tool_boundary(
-                    messages_by_id,
-                    covers_until_message_id,
-                    protected_tail_items
-                  )
-
-                [message | tail ++ acc]
+            if include? and message.type == "checkpoint" do
+              new_acc
+            else
+              walk_chain(
+                messages_by_id,
+                message.previous_message_id,
+                new_acc,
+                seen,
+                protected_tail_items
+              )
             end
 
           :error ->
@@ -1657,217 +1661,6 @@ defmodule Ankole.AIGateway.StatefulResponses do
 
   defp project_message?(%Message{status: "complete"}), do: true
   defp project_message?(_message), do: false
-
-  defp uncovered_tail_after_prefix(
-         _messages_by_id,
-         nil,
-         _covers_until_message_id,
-         acc,
-         _seen
-       ),
-       do: acc
-
-  defp uncovered_tail_after_prefix(
-         _messages_by_id,
-         covers_until_message_id,
-         covers_until_message_id,
-         acc,
-         _seen
-       ),
-       do: acc
-
-  defp uncovered_tail_after_prefix(
-         messages_by_id,
-         message_id,
-         covers_until_message_id,
-         acc,
-         seen
-       ) do
-    cond do
-      MapSet.member?(seen, message_id) ->
-        acc
-
-      true ->
-        case Map.fetch(messages_by_id, message_id) do
-          {:ok, %Message{} = message} ->
-            acc =
-              if project_message?(message),
-                do: [message | acc],
-                else: acc
-
-            uncovered_tail_after_prefix(
-              messages_by_id,
-              message.previous_message_id,
-              covers_until_message_id,
-              acc,
-              MapSet.put(seen, message_id)
-            )
-
-          :error ->
-            acc
-        end
-    end
-  end
-
-  defp repair_compaction_tail_tool_boundary(
-         tail,
-         messages_by_id,
-         covers_until_message_id,
-         protected_tail_items
-       ) do
-    missing_call_ids = orphaned_tool_output_call_ids(tail, protected_tail_items)
-
-    if MapSet.size(missing_call_ids) == 0 do
-      tail
-    else
-      messages_by_id
-      |> covered_suffix_through_tool_calls(covers_until_message_id, missing_call_ids)
-      |> dedupe_messages(tail)
-    end
-  end
-
-  defp orphaned_tool_output_call_ids(messages, protected_tail_items) do
-    items = messages_to_items(messages)
-    protected_items = input_items(protected_tail_items)
-
-    call_ids =
-      (items ++ protected_items)
-      |> item_call_ids("function_call")
-
-    output_call_ids =
-      (items ++ protected_items)
-      |> item_call_ids("function_call_output")
-
-    MapSet.difference(output_call_ids, call_ids)
-  end
-
-  defp covered_suffix_through_tool_calls(messages_by_id, message_id, missing_call_ids) do
-    case collect_covered_suffix(messages_by_id, message_id, missing_call_ids, [], MapSet.new()) do
-      {:ok, suffix} -> suffix
-      :not_found -> []
-    end
-  end
-
-  defp collect_covered_suffix(_messages_by_id, nil, _missing_call_ids, _acc, _seen),
-    do: :not_found
-
-  defp collect_covered_suffix(messages_by_id, message_id, missing_call_ids, acc, seen) do
-    cond do
-      MapSet.member?(seen, message_id) ->
-        :not_found
-
-      true ->
-        case Map.fetch(messages_by_id, message_id) do
-          {:ok, %Message{} = message} ->
-            acc =
-              if project_message?(message),
-                do: [message | acc],
-                else: acc
-
-            missing_call_ids =
-              MapSet.difference(missing_call_ids, message_tool_call_ids(message))
-
-            if MapSet.size(missing_call_ids) == 0 do
-              {:ok, acc}
-            else
-              collect_covered_suffix(
-                messages_by_id,
-                message.previous_message_id,
-                missing_call_ids,
-                acc,
-                MapSet.put(seen, message_id)
-              )
-            end
-
-          :error ->
-            :not_found
-        end
-    end
-  end
-
-  defp dedupe_messages(prefix, tail) do
-    {_seen, messages} =
-      Enum.reduce(prefix ++ tail, {MapSet.new(), []}, fn
-        %Message{id: id} = message, {seen, acc} ->
-          if MapSet.member?(seen, id) do
-            {seen, acc}
-          else
-            {MapSet.put(seen, id), [message | acc]}
-          end
-
-        _message, result ->
-          result
-      end)
-
-    Enum.reverse(messages)
-  end
-
-  defp message_tool_call_ids(%Message{} = message) do
-    message
-    |> message_items()
-    |> item_call_ids("function_call")
-  end
-
-  defp messages_to_items(messages) when is_list(messages) do
-    Enum.flat_map(messages, &message_items/1)
-  end
-
-  defp messages_to_items(_messages), do: []
-
-  defp message_items(%Message{content: content}) when is_list(content), do: content
-  defp message_items(_message), do: []
-
-  defp input_items(items) when is_list(items), do: Enum.filter(items, &is_map/1)
-  defp input_items(_items), do: []
-
-  defp item_call_ids(items, item_type) do
-    items
-    |> Enum.reduce(MapSet.new(), fn
-      %{"type" => ^item_type, "call_id" => call_id}, acc when is_binary(call_id) ->
-        MapSet.put(acc, call_id)
-
-      _item, acc ->
-        acc
-    end)
-  end
-
-  defp covered_prefix_anchor(true, %Message{
-         type: "compaction",
-         covers_until_message_id: message_id
-       })
-       when is_binary(message_id),
-       do: message_id
-
-  defp covered_prefix_anchor(_include?, _message), do: nil
-
-  defp ancestor_message?(%Message{} = anchor, target_id) do
-    do_ancestor_message?(anchor.conversation_id, anchor.id, target_id, MapSet.new())
-  end
-
-  defp do_ancestor_message?(_conversation_id, nil, _target_id, _seen), do: false
-
-  defp do_ancestor_message?(_conversation_id, message_id, message_id, _seen), do: true
-
-  defp do_ancestor_message?(conversation_id, message_id, target_id, seen) do
-    cond do
-      MapSet.member?(seen, message_id) ->
-        false
-
-      true ->
-        case Repo.get(Message, message_id) do
-          %Message{conversation_id: ^conversation_id, status: "complete"} = message ->
-            do_ancestor_message?(
-              conversation_id,
-              message.previous_message_id,
-              target_id,
-              MapSet.put(seen, message_id)
-            )
-
-          _missing_or_invalid ->
-            false
-        end
-    end
-  end
 
   # Publishes a live event to the PubSub topic keyed by actor_event_id.
   # This lets the preview handler subscribe once per actor event and receive

@@ -17,6 +17,7 @@ import {
 } from '@ankole/uikit'
 import { RiArrowDownSLine } from '@remixicon/react'
 import type { JsonObject } from '@pleisto/active-support'
+import i18n from './i18n'
 
 export type LocalizedText = Record<string, string> | null | undefined
 
@@ -34,7 +35,7 @@ export type ConfigFieldDefinition = {
 }
 
 export function ConfigFields({
-  advancedLabel = 'Advanced settings',
+  advancedLabel = i18n.t('common.advanced_settings'),
   config,
   fieldGroupClassName = 'grid gap-5 md:grid-cols-2',
   fields,

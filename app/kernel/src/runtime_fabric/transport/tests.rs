@@ -12,6 +12,20 @@ use super::router::RouterEventSink;
 use super::*;
 
 #[test]
+fn transport_errors_expose_stable_ffi_messages() {
+    assert_eq!(TransportError::UnknownRoute.code(), "unknown_route");
+    assert_eq!(TransportError::UnknownRoute.ffi_message(), "unknown_route");
+    assert_eq!(TransportError::Backpressure.code(), "backpressure");
+    assert_eq!(TransportError::Backpressure.ffi_message(), "backpressure");
+    assert_eq!(TransportError::Timeout.ffi_message(), "timeout");
+    assert_eq!(TransportError::SocketClosed.ffi_message(), "socket_closed");
+    assert_eq!(
+        TransportError::InvalidEnvelope("bad body".to_string()).ffi_message(),
+        "invalid_envelope: bad body"
+    );
+}
+
+#[test]
 fn validates_transport_config_bounds() {
     let mut router = router_config();
     router.poll_interval_ms = Some(0);

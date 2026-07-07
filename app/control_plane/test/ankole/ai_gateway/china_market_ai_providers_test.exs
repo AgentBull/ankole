@@ -1,9 +1,13 @@
 defmodule Ankole.AIGateway.ChinaMarketAIProvidersTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Ankole.AIGateway.PrepareContext
   alias Ankole.AIGateway.ProviderDefinition
+  alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.UniversalAIRequest
+  alias Ankole.PluginFixtures.KebabAIGatewayProviderKindPlugin
+  alias Ankole.PluginFixtures.MissingAIGatewayEmbeddingPreparePlugin
+  alias Ankole.PluginFixtures.MissingAIGatewayProviderDefinitionPlugin
   alias Ankole.Plugins.ChinaMarketAIProviders
   alias Ankole.Plugins.ChinaMarketAIProviders.Providers.AlibabaCN
   alias Ankole.Plugins.ChinaMarketAIProviders.Providers.VolcengineArk
@@ -36,6 +40,34 @@ defmodule Ankole.AIGateway.ChinaMarketAIProvidersTest do
                plugin_id: "china-market-ai-providers",
                module: ^module
              } = Map.fetch!(declarations, provider_id)
+    end
+  end
+
+  test "invalid plugin providers are rejected instead of skipped" do
+    declarations =
+      MissingAIGatewayProviderDefinitionPlugin.adapter_declarations() ++
+        MissingAIGatewayEmbeddingPreparePlugin.adapter_declarations() ++
+        KebabAIGatewayProviderKindPlugin.adapter_declarations()
+
+    assert {:error, {:invalid_ai_gateway_provider_kind, "missing-provider-definition"}} =
+             declarations
+             |> List.first()
+             |> Providers.validate_adapter_declaration()
+
+    assert {:error,
+            {:missing_provider_callback, MissingAIGatewayEmbeddingPreparePlugin,
+             :prepare_embedding_model, 1}} =
+             MissingAIGatewayEmbeddingPreparePlugin.adapter_declarations()
+             |> List.first()
+             |> Providers.validate_adapter_declaration()
+
+    assert {:error, {:invalid_ai_gateway_provider_kind, "kebab-provider"}} =
+             KebabAIGatewayProviderKindPlugin.adapter_declarations()
+             |> List.first()
+             |> Providers.validate_adapter_declaration()
+
+    assert_raise ArgumentError, ~r/invalid AI Gateway provider declaration/, fn ->
+      Providers.refresh_from_adapter_declarations(declarations)
     end
   end
 

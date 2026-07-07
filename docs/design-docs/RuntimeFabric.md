@@ -290,7 +290,8 @@ control plane accepted the steer for the active turn.
 
 `request_context` is not conversation history and is not agent identity.
 Conversation history never crosses this lane: AIGateway expands it from
-`previous_response_id` or `conversation` on each `response.create` (see
+`previous_response_id` or `conversation` on each `response.create`, or starts a
+managed conversation when a stateful Responses request names neither (see
 `docs/design-docs/AIGateway.md`).
 
 `turn_control(command = "retry")` is a stop signal for a turn the control plane

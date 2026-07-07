@@ -1,4 +1,5 @@
 import { err, isRecord, ok, Result, type JsonObject } from '@pleisto/active-support'
+import { errorMessage, toError } from '../../common/errors'
 
 export type JsonRpcMessage = JsonObject & {
   id?: string | number
@@ -87,7 +88,7 @@ export class CodexAppServerClient {
       },
       error => {
         if (!this.closed) {
-          const normalized = error instanceof Error ? error : new Error(String(error))
+          const normalized = toError(error)
           this.rejectPending(normalized)
           this.opts.onExit?.(normalized)
         }
@@ -204,7 +205,7 @@ export class CodexAppServerClient {
           error => {
             this.opts.onNotification?.({
               method: '$server_request_error',
-              params: { error: error instanceof Error ? error.message : String(error) }
+              params: { error: errorMessage(error) }
             })
           }
         )
@@ -214,7 +215,7 @@ export class CodexAppServerClient {
       void handler(rpc, this).catch(error => {
         this.opts.onNotification?.({
           method: '$server_request_error',
-          params: { error: error instanceof Error ? error.message : String(error) }
+          params: { error: errorMessage(error) }
         })
       })
       return
@@ -315,5 +316,5 @@ function jsonErrorMessage(error: unknown): string {
 }
 
 function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  return errorMessage(error)
 }

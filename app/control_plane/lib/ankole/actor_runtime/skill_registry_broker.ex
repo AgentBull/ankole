@@ -8,11 +8,14 @@ defmodule Ankole.ActorRuntime.SkillRegistryBroker do
   """
 
   alias Ankole.AIAgent.Library
+  alias Ankole.ActorRuntime.RPCWire
   alias Ankole.ActorRuntime.TurnRef
 
   @spec handle_replace(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
   def handle_replace(%TurnRef{} = turn_ref, request, _route) when is_map(request) do
-    request_id = text(request, "request_id") || "skills-installed-replace-#{Ecto.UUID.generate()}"
+    request_id =
+      RPCWire.text(request, "request_id", trim: false) ||
+        "skills-installed-replace-#{Ecto.UUID.generate()}"
 
     with observations when is_list(observations) <- list_value(request, "observations") do
       case Library.replace_installed_skill_observations(turn_ref.agent_uid, observations) do
@@ -41,29 +44,15 @@ defmodule Ankole.ActorRuntime.SkillRegistryBroker do
 
   defp error(request_id, reason, details) do
     {:error,
-     %{
-       "request_id" => request_id,
-       "code" => error_code(reason),
-       "message" => error_message(reason),
-       "details_json" => details
-     }}
-  end
-
-  defp error_code(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp error_code(_reason), do: "skill_registry_request_failed"
-
-  defp error_message(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp error_message(reason), do: inspect(reason)
-
-  defp text(map, key) do
-    case Map.get(map, key) || Map.get(map, String.to_atom(key)) do
-      value when is_binary(value) -> value
-      _value -> nil
-    end
+     RPCWire.error_payload(request_id, reason,
+       fallback_code: "skill_registry_request_failed",
+       message_style: :tuple_inspect,
+       details_json: details
+     )}
   end
 
   defp list_value(map, key) do
-    case Map.get(map, key) || Map.get(map, String.to_atom(key)) do
+    case RPCWire.value(map, key) do
       value when is_list(value) -> value
       _value -> nil
     end

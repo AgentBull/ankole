@@ -2,6 +2,7 @@ import type { ActorEventEnvelope, ActorTurnRef } from './actor_lane'
 import type { RuntimeFabricEnvelope } from '../fabric/fabric'
 import type { ReliableEnvelopeSender } from '../fabric/sender'
 import type { JsonObject } from '@pleisto/active-support'
+import type { InstalledSkillObservation } from '../skills/types'
 
 export const rpcMethods = {
   aiGatewayApiKeyForCreateOrFindByAgent: 'ai_gateway.api_key_for.create_or_find_by_agent',
@@ -51,6 +52,35 @@ export type RpcError = {
   code: string
   message?: string
   details_json?: JsonObject
+}
+
+export type RpcRejectedResponse = {
+  code: string
+  message?: string
+}
+
+export function isRpcRejected(response: unknown): response is RpcRejectedResponse {
+  return Boolean(
+    response &&
+    typeof response === 'object' &&
+    'code' in response &&
+    typeof (response as { code?: unknown }).code === 'string'
+  )
+}
+
+export function isRpcError(response: unknown): response is RpcError {
+  return isRpcRejected(response) && typeof (response as { request_id?: unknown }).request_id === 'string'
+}
+
+export function rpcRejectedMessage(label: string, response: RpcRejectedResponse): string {
+  return `${label}: ${response.code} ${response.message ?? ''}`.trim()
+}
+
+export function assertRpcResponse<TResponse>(
+  response: TResponse | RpcRejectedResponse,
+  label: string
+): asserts response is TResponse {
+  if (isRpcRejected(response)) throw new Error(rpcRejectedMessage(label, response))
 }
 
 export type RuntimeSkillSummary = {
@@ -135,17 +165,6 @@ export type SkillOverlayResponse = {
   has_overlay: boolean
   overlay_json: JsonObject
   content_hash?: string
-}
-
-export type InstalledSkillObservation = {
-  skill_name: string
-  relative_path?: string
-  description: string
-  default_enabled?: boolean
-  metadata?: JsonObject
-  content_hash?: string
-  xxh3_128?: string
-  file_count?: number
 }
 
 export type InstalledSkillReplaceRequest = {

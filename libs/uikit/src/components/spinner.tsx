@@ -1,11 +1,12 @@
-import { RiLoaderLine } from '@remixicon/react'
-import type { ComponentPropsWithoutRef } from 'react'
-import { cn } from '../lib/utils'
+import { cn } from "@ankole/uikit/lib/utils"
+import { RiLoaderLine } from "@remixicon/react"
 
-type SpinnerProps = Omit<ComponentPropsWithoutRef<typeof RiLoaderLine>, 'children'>
+type SpinnerProps = Omit<React.ComponentPropsWithoutRef<typeof RiLoaderLine>, "children">
 
 function Spinner({ className, ...props }: SpinnerProps) {
-  return <RiLoaderLine role="status" aria-label="Loading" className={cn('size-4 animate-spin', className)} {...props} />
+  return (
+    <RiLoaderLine data-slot="spinner" role="status" aria-label="Loading" className={cn("size-4 animate-spin", className)} {...props} />
+  )
 }
 
 export { Spinner }

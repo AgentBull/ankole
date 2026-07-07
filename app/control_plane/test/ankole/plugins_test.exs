@@ -25,6 +25,8 @@ defmodule Ankole.PluginsTest do
   alias Ankole.Plugins.Registry
   alias Ankole.Plugins.Spec
 
+  import ExUnit.CaptureLog
+
   setup do
     allow_cache_database_access()
     AppConfigureRegistry.clear_for_test()
@@ -122,7 +124,7 @@ defmodule Ankole.PluginsTest do
     assert DuplicateAlphaPlugin in modules
   end
 
-  test "invalid adapter declarations fail spec normalization" do
+  test "adapter declarations only validate plugin-owned generic shape" do
     assert {:error,
             {InvalidAdapterModulePlugin,
              {:invalid_adapter_declaration,
@@ -130,47 +132,41 @@ defmodule Ankole.PluginsTest do
                _reason}}}} =
              Spec.from_module(InvalidAdapterModulePlugin)
 
-    assert {:error,
-            {MissingIdentityCallbackPlugin,
-             {:invalid_adapter_declaration,
-              {:missing_adapter_callback, MissingIdentityCallbackPlugin, :upsert_user, 2}}}} =
-             Spec.from_module(MissingIdentityCallbackPlugin)
+    for module <- [
+          MissingIdentityCallbackPlugin,
+          MissingRemovedCallbackPlugin,
+          UnknownSignalsInboundCapabilityPlugin,
+          UnknownIdentityCapabilityPlugin,
+          MissingAIGatewayProviderDefinitionPlugin,
+          MissingAIGatewayEmbeddingPreparePlugin,
+          KebabAIGatewayProviderKindPlugin
+        ] do
+      assert {:ok, %Spec{}} = Spec.from_module(module)
+    end
+  end
 
-    assert {:error,
-            {MissingRemovedCallbackPlugin,
-             {:invalid_adapter_declaration,
-              {:missing_adapter_callback, MissingRemovedCallbackPlugin, :handle_message_removed,
-               3}}}} =
-             Spec.from_module(MissingRemovedCallbackPlugin)
+  test "active invalid known adapter contract declarations fail registry startup" do
+    assert_contract_startup_failure(
+      MissingRemovedCallbackPlugin,
+      "signals_gateway.adapter",
+      "missing-removed-callback",
+      {:missing_adapter_callback, MissingRemovedCallbackPlugin, :handle_message_removed, 3}
+    )
 
-    assert {:error,
-            {UnknownSignalsInboundCapabilityPlugin,
-             {:invalid_adapter_declaration, {:unknown_inbound_capability, "made_up"}}}} =
-             Spec.from_module(UnknownSignalsInboundCapabilityPlugin)
+    assert_contract_startup_failure(
+      MissingIdentityCallbackPlugin,
+      "principals.identity_provider",
+      "missing-callback",
+      {:unsupported_identity_provider_operation, MissingIdentityCallbackPlugin, :upsert_user, 2}
+    )
 
-    assert {:error,
-            {UnknownIdentityCapabilityPlugin,
-             {:invalid_adapter_declaration, {:unknown_identity_capability, "made_up"}}}} =
-             Spec.from_module(UnknownIdentityCapabilityPlugin)
-
-    assert {:error,
-            {MissingAIGatewayProviderDefinitionPlugin,
-             {:invalid_adapter_declaration,
-              {:missing_adapter_callback, MissingAIGatewayProviderDefinitionPlugin,
-               :provider_definition, 0}}}} =
-             Spec.from_module(MissingAIGatewayProviderDefinitionPlugin)
-
-    assert {:error,
-            {MissingAIGatewayEmbeddingPreparePlugin,
-             {:invalid_adapter_declaration,
-              {:missing_adapter_callback, MissingAIGatewayEmbeddingPreparePlugin,
-               :prepare_embedding_model, 1}}}} =
-             Spec.from_module(MissingAIGatewayEmbeddingPreparePlugin)
-
-    assert {:error,
-            {KebabAIGatewayProviderKindPlugin,
-             {:invalid_adapter_declaration, {:invalid_ai_gateway_provider_kind, "kebab-provider"}}}} =
-             Spec.from_module(KebabAIGatewayProviderKindPlugin)
+    assert_contract_startup_failure(
+      MissingAIGatewayEmbeddingPreparePlugin,
+      "ai_gateway.provider",
+      "missing_embedding_prepare",
+      {:missing_provider_callback, MissingAIGatewayEmbeddingPreparePlugin,
+       :prepare_embedding_model, 1}
+    )
   end
 
   test "plugin localized text must be an open locale map with a default fallback" do
@@ -243,6 +239,26 @@ defmodule Ankole.PluginsTest do
 
   defp supervisor_name do
     :"ankole_plugin_supervisor_#{System.unique_integer([:positive])}"
+  end
+
+  defp assert_contract_startup_failure(module, contract_id, adapter_id, expected_reason) do
+    log =
+      capture_log(fn ->
+        assert {:stop, reason} =
+                 Registry.init(
+                   discovery: [
+                     paths: [],
+                     modules: [module]
+                   ]
+                 )
+
+        assert {:invalid_adapter_contract_declaration, ^contract_id, ^adapter_id, _plugin_id,
+                ^module, ^expected_reason} = reason
+      end)
+
+    assert log =~ "Plugin registry startup failed"
+    assert log =~ contract_id
+    assert log =~ adapter_id
   end
 
   defp allow_cache_database_access do

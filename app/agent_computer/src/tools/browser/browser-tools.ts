@@ -2,7 +2,8 @@ import { z } from 'zod'
 import { isRecord, type JsonObject } from '@pleisto/active-support'
 import type { AgentTool, AgentToolResult } from '../../core'
 import { imageContentPartFromBuffer } from '../../core/vision'
-import { executionScopeTag, type CommandFinished, type ComputerToolContext } from '../computer/context'
+import type { CommandFinished } from '../computer/computer'
+import { executionScopeTag, type ComputerToolContext } from '../computer/context'
 import { truncateOutput } from '../computer/format'
 import {
   browserBack,
@@ -150,6 +151,26 @@ interface BrowserToolDetails {
   result?: unknown
 }
 
+type BrowserToolParams = {
+  session?: string
+}
+
+interface BrowserToolRunContext<TParams extends BrowserToolParams> {
+  params: TParams
+  session: string
+  options: BrowserRuntimeOptions
+  signal: AbortSignal | undefined
+}
+
+interface BrowserToolSpec<TSchema extends z.ZodType> {
+  name: `browser_${string}`
+  description: string
+  schema: TSchema
+  isReadOnly?: boolean
+  isDestructive?: boolean
+  operation: (context: BrowserToolRunContext<z.output<TSchema> & BrowserToolParams>) => Promise<JsonObject>
+}
+
 /**
  * Builds the browser tool family bound to one run's computer context. These
  * tools run in the main Bun worker process. The browser endpoint resolver uses
@@ -161,119 +182,40 @@ export function createBrowserTools(context: ComputerToolContext): AgentTool<any>
   const schemas = browserSchemas()
 
   return [
-    createBrowserNavigateTool(context, schemas),
-    createBrowserSnapshotTool(context, schemas),
-    createBrowserFindTool(context, schemas),
-    createBrowserClickTool(context, schemas),
-    createBrowserTypeTool(context, schemas),
-    createBrowserPressTool(context, schemas),
-    createBrowserScrollTool(context, schemas),
-    createBrowserSelectTool(context, schemas),
-    createBrowserWaitTool(context, schemas),
-    createBrowserBackTool(context, schemas),
-    createBrowserScreenshotTool(context, schemas),
-    createBrowserOpenTool(context, schemas),
-    createBrowserExtractTool(context, schemas),
-    createBrowserRunTool(context, schemas)
+    ...browserToolSpecs(schemas).map(spec => defineBrowserTool(context, spec)),
+    createBrowserRunTool(context, schemas.run)
   ]
 }
 
-/**
- * Opens a URL in the persistent rendered browser. Screenshot is best-effort
- * because some CDP backends do not support it.
- */
-function createBrowserOpenTool(
-  context: ComputerToolContext,
-  schemas: BrowserSchemas
-): AgentTool<any, BrowserToolDetails> {
-  return {
-    name: 'browser_open',
-    description:
-      'Compatibility alias for browser_navigate that opens a URL in the persistent browser session and captures a screenshot artifact when the backend supports screenshots. Prefer browser_navigate for new multi-step browser work.',
-    schema: schemas.open,
-    executionMode: 'sequential',
-    isReadOnly: false,
-    isDestructive: false,
-    async execute(_toolCallId, params, signal) {
-      const session = sessionFor(context, params.session)
-      return runBrowserOperation(context, session, signal, async options => {
-        await ensureCdpBrowserSession({ session }, options)
-        return await browserNavigate({ session, url: params.url, taskId: params.taskId, screenshot: true }, options)
-      })
-    }
-  }
+function browserToolSpec<TSchema extends z.ZodType>(spec: BrowserToolSpec<TSchema>): BrowserToolSpec<TSchema> {
+  return spec
 }
 
-/**
- * Builds the main URL navigation browser tool.
- */
-function createBrowserNavigateTool(
-  context: ComputerToolContext,
-  schemas: BrowserSchemas
-): AgentTool<any, BrowserToolDetails> {
-  return {
-    name: 'browser_navigate',
-    description:
-      'Open a URL in the persistent browser session. Returns a text snapshot with stable element refs like e1; use those refs with browser_click/browser_type/etc. Cookies and page state persist for this execution scope while the CDP backend is alive.',
-    schema: schemas.navigate,
-    executionMode: 'sequential',
-    isReadOnly: false,
-    isDestructive: false,
-    async execute(_toolCallId, params, signal) {
-      const session = sessionFor(context, params.session)
-      return runBrowserOperation(context, session, signal, async options => {
-        await ensureCdpBrowserSession({ session }, options)
-        return await browserNavigate({ session, url: params.url, taskId: params.taskId }, options)
-      })
-    }
-  }
-}
-
-/**
- * Builds the page observation browser tool.
- */
-function createBrowserSnapshotTool(
-  context: ComputerToolContext,
-  schemas: BrowserSchemas
-): AgentTool<any, BrowserToolDetails> {
-  return {
-    name: 'browser_snapshot',
-    description:
-      'Observe the current browser page as text. The snapshot lists interactive elements with refs; refs are valid only for the latest page state, so take a new snapshot after navigation or DOM-changing actions.',
-    schema: schemas.snapshot,
-    executionMode: 'sequential',
-    isReadOnly: false,
-    isDestructive: false,
-    async execute(_toolCallId, params, signal) {
-      const session = sessionFor(context, params.session)
-      return runBrowserOperation(context, session, signal, async options => {
-        await ensureCdpBrowserSession({ session }, options)
-        return await browserSnapshot({ session, full: params.full }, options)
-      })
-    }
-  }
-}
-
-/**
- * Builds the in-page text search browser tool.
- */
-function createBrowserFindTool(
-  context: ComputerToolContext,
-  schemas: BrowserSchemas
-): AgentTool<any, BrowserToolDetails> {
-  return {
-    name: 'browser_find',
-    description:
-      'Find text in the current rendered browser page and return matching lines with nearby context. Use this after browser_navigate/browser_snapshot on long pages when the relevant text is outside the bounded snapshot.',
-    schema: schemas.find,
-    executionMode: 'sequential',
-    isReadOnly: true,
-    isDestructive: false,
-    async execute(_toolCallId, params, signal) {
-      const session = sessionFor(context, params.session)
-      return runBrowserOperation(context, session, signal, async options => {
-        await ensureCdpBrowserSession({ session }, options)
-        return await browserFindInSession(
+function browserToolSpecs(schemas: BrowserSchemas) {
+  return [
+    browserToolSpec({
+      name: 'browser_navigate',
+      description:
+        'Open a URL in the persistent browser session. Returns a text snapshot with stable element refs like e1; use those refs with browser_click/browser_type/etc. Cookies and page state persist for this execution scope while the CDP backend is alive.',
+      schema: schemas.navigate,
+      operation: async ({ session, params, options }) =>
+        browserNavigate({ session, url: params.url, taskId: params.taskId }, options)
+    }),
+    browserToolSpec({
+      name: 'browser_snapshot',
+      description:
+        'Observe the current browser page as text. The snapshot lists interactive elements with refs; refs are valid only for the latest page state, so take a new snapshot after navigation or DOM-changing actions.',
+      schema: schemas.snapshot,
+      operation: async ({ session, params, options }) => browserSnapshot({ session, full: params.full }, options)
+    }),
+    browserToolSpec({
+      name: 'browser_find',
+      description:
+        'Find text in the current rendered browser page and return matching lines with nearby context. Use this after browser_navigate/browser_snapshot on long pages when the relevant text is outside the bounded snapshot.',
+      schema: schemas.find,
+      isReadOnly: true,
+      operation: async ({ session, params, options }) =>
+        browserFindInSession(
           {
             session,
             query: params.query,
@@ -283,158 +225,51 @@ function createBrowserFindTool(
           },
           options
         )
-      })
-    }
-  }
-}
-
-/**
- * Builds the element-click browser tool.
- */
-function createBrowserClickTool(
-  context: ComputerToolContext,
-  schemas: BrowserSchemas
-): AgentTool<any, BrowserToolDetails> {
-  return {
-    name: 'browser_click',
-    description:
-      'Click an element by ref from the latest browser snapshot, then return a fresh text snapshot. If the ref is stale, take browser_snapshot and retry with the new ref.',
-    schema: schemas.click,
-    executionMode: 'sequential',
-    isReadOnly: false,
-    isDestructive: false,
-    async execute(_toolCallId, params, signal) {
-      const session = sessionFor(context, params.session)
-      return runBrowserOperation(context, session, signal, async options => {
-        await ensureCdpBrowserSession({ session }, options)
-        return await browserClick({ session, ref: params.ref }, options)
-      })
-    }
-  }
-}
-
-/**
- * Builds the text-entry browser tool.
- */
-function createBrowserTypeTool(
-  context: ComputerToolContext,
-  schemas: BrowserSchemas
-): AgentTool<any, BrowserToolDetails> {
-  return {
-    name: 'browser_type',
-    description:
-      'Replace the value of an input-like element by ref, dispatching input/change events for framework-controlled fields, then return a fresh snapshot.',
-    schema: schemas.type,
-    executionMode: 'sequential',
-    isReadOnly: false,
-    isDestructive: false,
-    async execute(_toolCallId, params, signal) {
-      const session = sessionFor(context, params.session)
-      return runBrowserOperation(context, session, signal, async options => {
-        await ensureCdpBrowserSession({ session }, options)
-        return await browserType({ session, ref: params.ref, text: params.text }, options)
-      })
-    }
-  }
-}
-
-/**
- * Builds the key-press browser tool.
- */
-function createBrowserPressTool(
-  context: ComputerToolContext,
-  schemas: BrowserSchemas
-): AgentTool<any, BrowserToolDetails> {
-  return {
-    name: 'browser_press',
-    description: 'Press a keyboard key in the persistent browser page, then return a fresh snapshot.',
-    schema: schemas.press,
-    executionMode: 'sequential',
-    isReadOnly: false,
-    isDestructive: false,
-    async execute(_toolCallId, params, signal) {
-      const session = sessionFor(context, params.session)
-      return runBrowserOperation(context, session, signal, async options => {
-        await ensureCdpBrowserSession({ session }, options)
-        return await browserPress({ session, key: params.key }, options)
-      })
-    }
-  }
-}
-
-/**
- * Builds the page or element scroll browser tool.
- */
-function createBrowserScrollTool(
-  context: ComputerToolContext,
-  schemas: BrowserSchemas
-): AgentTool<any, BrowserToolDetails> {
-  return {
-    name: 'browser_scroll',
-    description:
-      'Scroll the page or a scrollable element ref, then return a fresh snapshot. Use this when relevant refs are not visible in the current snapshot.',
-    schema: schemas.scroll,
-    executionMode: 'sequential',
-    isReadOnly: false,
-    isDestructive: false,
-    async execute(_toolCallId, params, signal) {
-      const session = sessionFor(context, params.session)
-      return runBrowserOperation(context, session, signal, async options => {
-        await ensureCdpBrowserSession({ session }, options)
-        return await browserScroll(
-          { session, ref: params.ref, direction: params.direction, pixels: params.pixels },
-          options
-        )
-      })
-    }
-  }
-}
-
-/**
- * Builds the select-option browser tool.
- */
-function createBrowserSelectTool(
-  context: ComputerToolContext,
-  schemas: BrowserSchemas
-): AgentTool<any, BrowserToolDetails> {
-  return {
-    name: 'browser_select',
-    description:
-      'Select an option in a select element by ref and option value or visible text, then return a snapshot.',
-    schema: schemas.select,
-    executionMode: 'sequential',
-    isReadOnly: false,
-    isDestructive: false,
-    async execute(_toolCallId, params, signal) {
-      const session = sessionFor(context, params.session)
-      return runBrowserOperation(context, session, signal, async options => {
-        await ensureCdpBrowserSession({ session }, options)
-        return await browserSelect({ session, ref: params.ref, value: params.value }, options)
-      })
-    }
-  }
-}
-
-/**
- * Builds the condition-wait browser tool.
- */
-function createBrowserWaitTool(
-  context: ComputerToolContext,
-  schemas: BrowserSchemas
-): AgentTool<any, BrowserToolDetails> {
-  return {
-    name: 'browser_wait',
-    description:
-      'Wait for page load readiness, a selector, or visible text in the persistent browser page, then return a fresh snapshot.',
-    schema: schemas.wait,
-    executionMode: 'sequential',
-    isReadOnly: false,
-    isDestructive: false,
-    async execute(_toolCallId, params, signal) {
-      const session = sessionFor(context, params.session)
-      return runBrowserOperation(context, session, signal, async options => {
-        await ensureCdpBrowserSession({ session }, options)
-        return await browserWait(
+    }),
+    browserToolSpec({
+      name: 'browser_click',
+      description:
+        'Click an element by ref from the latest browser snapshot, then return a fresh text snapshot. If the ref is stale, take browser_snapshot and retry with the new ref.',
+      schema: schemas.click,
+      operation: async ({ session, params, options }) => browserClick({ session, ref: params.ref }, options)
+    }),
+    browserToolSpec({
+      name: 'browser_type',
+      description:
+        'Replace the value of an input-like element by ref, dispatching input/change events for framework-controlled fields, then return a fresh snapshot.',
+      schema: schemas.type,
+      operation: async ({ session, params, options }) =>
+        browserType({ session, ref: params.ref, text: params.text }, options)
+    }),
+    browserToolSpec({
+      name: 'browser_press',
+      description: 'Press a keyboard key in the persistent browser page, then return a fresh snapshot.',
+      schema: schemas.press,
+      operation: async ({ session, params, options }) => browserPress({ session, key: params.key }, options)
+    }),
+    browserToolSpec({
+      name: 'browser_scroll',
+      description:
+        'Scroll the page or a scrollable element ref, then return a fresh snapshot. Use this when relevant refs are not visible in the current snapshot.',
+      schema: schemas.scroll,
+      operation: async ({ session, params, options }) =>
+        browserScroll({ session, ref: params.ref, direction: params.direction, pixels: params.pixels }, options)
+    }),
+    browserToolSpec({
+      name: 'browser_select',
+      description:
+        'Select an option in a select element by ref and option value or visible text, then return a snapshot.',
+      schema: schemas.select,
+      operation: async ({ session, params, options }) =>
+        browserSelect({ session, ref: params.ref, value: params.value }, options)
+    }),
+    browserToolSpec({
+      name: 'browser_wait',
+      description:
+        'Wait for page load readiness, a selector, or visible text in the persistent browser page, then return a fresh snapshot.',
+      schema: schemas.wait,
+      operation: async ({ session, params, options }) =>
+        browserWait(
           {
             session,
             kind: params.kind,
@@ -444,87 +279,65 @@ function createBrowserWaitTool(
           },
           options
         )
-      })
-    }
-  }
-}
-
-/**
- * Builds the browser-history back tool.
- */
-function createBrowserBackTool(
-  context: ComputerToolContext,
-  schemas: BrowserSchemas
-): AgentTool<any, BrowserToolDetails> {
-  return {
-    name: 'browser_back',
-    description: 'Navigate the persistent browser page back one history entry, then return a fresh snapshot.',
-    schema: schemas.back,
-    executionMode: 'sequential',
-    isReadOnly: false,
-    isDestructive: false,
-    async execute(_toolCallId, params, signal) {
-      const session = sessionFor(context, params.session)
-      return runBrowserOperation(context, session, signal, async options => {
-        await ensureCdpBrowserSession({ session }, options)
-        return await browserBack({ session }, options)
-      })
-    }
-  }
-}
-
-/**
- * Builds the screenshot capture browser tool.
- */
-function createBrowserScreenshotTool(
-  context: ComputerToolContext,
-  schemas: BrowserSchemas
-): AgentTool<any, BrowserToolDetails> {
-  return {
-    name: 'browser_screenshot',
-    description:
-      'Capture a real PNG screenshot of the current persistent browser viewport. The image is saved under /workspace/user-files by default and may be attached for image-capable models.',
-    schema: schemas.screenshot,
-    executionMode: 'sequential',
-    isReadOnly: false,
-    isDestructive: false,
-    async execute(_toolCallId, params, signal) {
-      const session = sessionFor(context, params.session)
-      return runBrowserOperation(context, session, signal, async options => {
-        await ensureCdpBrowserSession({ session }, options)
-        return await browserScreenshot({ session, path: params.path, taskId: params.taskId }, options)
-      })
-    }
-  }
-}
-
-/**
- * Extracts text either from a fresh URL capture or from this session's latest
- * capture when `url` is omitted.
- */
-function createBrowserExtractTool(
-  context: ComputerToolContext,
-  schemas: BrowserSchemas
-): AgentTool<any, BrowserToolDetails> {
-  return {
-    name: 'browser_extract',
-    description:
-      'Extract text from a URL or from the current browser page for this agent session. URL extraction reuses the persistent CDP browser session.',
-    schema: schemas.extract,
-    executionMode: 'sequential',
-    isReadOnly: false,
-    isDestructive: false,
-    async execute(_toolCallId, params, signal) {
-      const session = sessionFor(context, params.session)
-      return runBrowserOperation(context, session, signal, async options => {
-        await ensureCdpBrowserSession({ session }, options)
+    }),
+    browserToolSpec({
+      name: 'browser_back',
+      description: 'Navigate the persistent browser page back one history entry, then return a fresh snapshot.',
+      schema: schemas.back,
+      operation: async ({ session, options }) => browserBack({ session }, options)
+    }),
+    browserToolSpec({
+      name: 'browser_screenshot',
+      description:
+        'Capture a real PNG screenshot of the current persistent browser viewport. The image is saved under /workspace/user-files by default and may be attached for image-capable models.',
+      schema: schemas.screenshot,
+      operation: async ({ session, params, options }) =>
+        browserScreenshot({ session, path: params.path, taskId: params.taskId }, options)
+    }),
+    browserToolSpec({
+      name: 'browser_open',
+      description:
+        'Compatibility alias for browser_navigate that opens a URL in the persistent browser session and captures a screenshot artifact when the backend supports screenshots. Prefer browser_navigate for new multi-step browser work.',
+      schema: schemas.open,
+      operation: async ({ session, params, options }) =>
+        browserNavigate({ session, url: params.url, taskId: params.taskId, screenshot: true }, options)
+    }),
+    browserToolSpec({
+      name: 'browser_extract',
+      description:
+        'Extract text from a URL or from the current browser page for this agent session. URL extraction reuses the persistent CDP browser session.',
+      schema: schemas.extract,
+      operation: async ({ session, params, options }) => {
         const extracted = await browserExtractFromSession(
           { session, url: params.url, pattern: params.pattern, taskId: params.taskId },
           options
         )
         if (!extracted) throw new Error('No active browser session; run browser_navigate first.')
         return extracted
-      })
+      }
+    })
+  ]
+}
+
+function defineBrowserTool<TSchema extends z.ZodType>(
+  context: ComputerToolContext,
+  spec: BrowserToolSpec<TSchema>
+): AgentTool<TSchema, BrowserToolDetails> {
+  return {
+    name: spec.name,
+    description: spec.description,
+    schema: spec.schema,
+    executionMode: 'sequential',
+    isReadOnly: spec.isReadOnly ?? false,
+    isDestructive: spec.isDestructive ?? false,
+    async execute(_toolCallId, params, signal) {
+      const toolParams = params as z.output<TSchema> & BrowserToolParams
+      const session = sessionFor(context, toolParams.session)
+      const options = browserRuntimeOptions(context)
+      if (signal?.aborted) throw new Error('browser command aborted')
+      await ensureCdpBrowserSession({ session }, options)
+      const result = await spec.operation({ params: toolParams, session, options, signal })
+      return browserToolResult(context, result, signal)
     }
   }
 }
@@ -536,13 +349,13 @@ function createBrowserExtractTool(
  */
 function createBrowserRunTool(
   context: ComputerToolContext,
-  schemas: BrowserSchemas
-): AgentTool<any, BrowserToolDetails> {
+  schema: BrowserSchemas['run']
+): AgentTool<BrowserSchemas['run'], BrowserToolDetails> {
   return {
     name: 'browser_run',
     description:
       'Run a Python helper script inside the computer. No browser automation package is injected; use only Python modules and binaries available in the container. The script is stored under /workspace/user-files/browser/tasks and runs with cwd=/workspace.',
-    schema: schemas.run,
+    schema,
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: true,
@@ -579,21 +392,6 @@ function createBrowserRunTool(
       )
     }
   }
-}
-
-/**
- * Runs one browser operation with runtime options.
- */
-async function runBrowserOperation(
-  context: ComputerToolContext,
-  _session: string,
-  signal: AbortSignal | undefined,
-  operation: (options: BrowserRuntimeOptions) => Promise<JsonObject>
-): Promise<AgentToolResult<BrowserToolDetails>> {
-  const options = browserRuntimeOptions(context)
-  if (signal?.aborted) throw new Error('browser command aborted')
-  const result = await operation(options)
-  return browserToolResult(context, result, signal)
 }
 
 /**

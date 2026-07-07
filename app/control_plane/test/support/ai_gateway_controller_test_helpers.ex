@@ -474,7 +474,9 @@ defmodule AnkoleWeb.AIGatewayControllerTestHelpers do
 
   defp assert_openresponses_output_item(%{"type" => "compaction"} = item) do
     assert is_binary(item["id"])
-    assert is_binary(item["summary"]) or is_list(item["content"])
+
+    assert is_binary(item["encrypted_content"]) or is_binary(item["summary"]) or
+             is_list(item["content"])
   end
 
   defp assert_openresponses_output_item(item),

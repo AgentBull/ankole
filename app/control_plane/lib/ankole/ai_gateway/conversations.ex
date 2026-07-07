@@ -7,6 +7,7 @@ defmodule Ankole.AIGateway.Conversations do
 
   alias Ankole.AIGateway.AgentConfig
   alias Ankole.AIGateway.Schemas.Conversation
+  alias Ankole.Ecto.UUIDv7
   alias Ankole.AIGateway.ModelMetadata
   alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway.ProviderConfigs
@@ -27,6 +28,29 @@ defmodule Ankole.AIGateway.Conversations do
   def ensure_conversation(agent_uid, session_id, opts \\ []) do
     repo = Keyword.get(opts, :repo, Repo)
     ensure_conversation_in_tx(repo, normalize_uid(agent_uid), session_id)
+  end
+
+  @doc """
+  Creates a conversation for a first `response.create store=true` request that
+  did not name an existing conversation or previous response anchor.
+
+  The generated conversation key is an implementation detail. The metadata flag
+  lets operators and future cleanup distinguish conversations created implicitly
+  by the stateful Responses API from actor-session conversations.
+  """
+  @spec create_managed_stateful_responses_conversation(String.t(), keyword()) ::
+          {:ok, Conversation.t()} | {:error, term()}
+  def create_managed_stateful_responses_conversation(agent_uid, opts \\ []) do
+    repo = Keyword.get(opts, :repo, Repo)
+    metadata = managed_stateful_responses_metadata(Keyword.get(opts, :metadata, %{}))
+
+    %Conversation{}
+    |> Conversation.changeset(%{
+      agent_uid: normalize_uid(agent_uid),
+      conversation_key: managed_stateful_responses_conversation_key(),
+      metadata: metadata
+    })
+    |> repo.insert()
   end
 
   @doc """
@@ -155,6 +179,18 @@ defmodule Ankole.AIGateway.Conversations do
   end
 
   defp normalize_uid(value) when is_binary(value), do: String.downcase(value)
+
+  defp managed_stateful_responses_metadata(metadata) when is_map(metadata) do
+    Map.put(metadata, "managed_by_stateful_responses_api", true)
+  end
+
+  defp managed_stateful_responses_metadata(_metadata) do
+    %{"managed_by_stateful_responses_api" => true}
+  end
+
+  defp managed_stateful_responses_conversation_key do
+    "stateful-responses-api:#{UUIDv7.autogenerate()}"
+  end
 
   defp model_ref_from_runtime_profile(runtime_profile) when is_map(runtime_profile) do
     %{

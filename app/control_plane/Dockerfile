@@ -75,6 +75,7 @@ COPY tsconfig.json tsconfig.base.json ./
 COPY app/control_plane ./app/control_plane
 COPY app/kernel ./app/kernel
 COPY app/library ./app/library
+COPY app/locales ./app/locales
 COPY app/webapps ./app/webapps
 COPY libs/feishu_openapi ./libs/feishu_openapi
 COPY libs/uikit ./libs/uikit
@@ -127,6 +128,7 @@ RUN useradd --system --home-dir /app --shell /usr/sbin/nologin ankole \
   && chown ankole:ankole /app
 
 COPY --from=build --chown=ankole:ankole /repo/app/control_plane/_build/prod/rel/ankole ./
+COPY --from=build --chown=ankole:ankole /repo/app/locales ./lib/locales
 COPY --from=build --chown=ankole:ankole /repo/app/library ./app/library
 COPY --from=build --chown=ankole:ankole /repo/plugins ./plugins
 

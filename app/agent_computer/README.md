@@ -57,6 +57,8 @@ payloads.
 - `src/main.ts` - worker event loop and turn dispatch.
 - `src/worker/` - startup environment parsing, lifecycle envelopes, workspace
   preparation, and readiness checks.
+- `src/skills/` - installed skill filesystem observation, fingerprinting, and
+  pre-turn registry sync.
 - `src/fabric/` - RuntimeFabric envelope shape, kernel protobuf codec adapter,
   turn envelope builders, and bounded retry sender.
 - `src/lanes/` - actor, RPC, and worker-file lane contracts.
@@ -233,8 +235,8 @@ For each turn, `prepareTurnWorkspace` creates:
 
 Built-in skills are read from `/repo/app/library/skills`; internal images may
 also mount `/repo/internals/skills`. Agent-installed skills are read from
-`/workspace/shared/skills/agents/<agent_uid>/...`. Before context resolution,
-the worker scans that installed-skill directory and sends
+`/workspace/shared/skills/agents/<agent_uid>/...`. Before dispatching turn
+handlers, the worker scans that installed-skill directory and sends
 `skills.installed.replace` observations when the fingerprint changed. Skill
 overlays are database-backed semantic data accessed through RuntimeFabric RPC,
 not mutable files in the worker workspace.

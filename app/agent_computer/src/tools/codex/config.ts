@@ -98,6 +98,7 @@ function aigatewayConfigToml(baseUrl: string): string {
   return [
     'model = "coding"',
     'model_provider = "ankole_aigateway"',
+    'model_reasoning_effort = "xhigh"',
     'approval_policy = "never"',
     'sandbox_mode = "danger-full-access"',
     'cli_auth_credentials_store = "file"',
@@ -107,6 +108,7 @@ function aigatewayConfigToml(baseUrl: string): string {
     `base_url = ${tomlString(baseUrl.replace(/\/+$/, ''))}`,
     'env_key = "ANKOLE_AIGATEWAY_API_KEY"',
     'wire_api = "responses"',
+    'supports_websockets = true',
     ''
   ].join('\n')
 }

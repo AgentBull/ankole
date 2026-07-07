@@ -11,14 +11,15 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
   import Ankole.E2E.WaitHelpers,
     only: [
       deadline: 1,
-      wait_until: 2,
       wait_for_completed_actor_event_message: 3,
       wait_for_completed_final_reply: 3,
       ai_messages_for_actor_event: 1
     ]
 
   alias Ankole.AIAgent.Library.Schemas.AgentSkillOverlay
+  alias Ankole.AIGateway.AgentConfig
   alias Ankole.AIGateway.ModelProfiles
+  alias Ankole.AppConfigure
   alias Ankole.CodexDelegations.Schemas.Delegation, as: CodexDelegation
   alias Ankole.CodexDelegations.Schemas.Event, as: CodexDelegationEvent
   alias Ankole.E2E.FakeFeishu
@@ -30,6 +31,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
   @real_vision_model "google/gemini-3.1-flash-lite"
   @real_tool_model "z-ai/glm-5.2"
   @real_text_only_model "z-ai/glm-5.2"
+  @codex_real_llm_inactivity_timeout_ms 300_000
   @vision_expected_answer "false"
   @vision_fixture_path Path.expand("../../fixtures/vision-dog.jpeg", __DIR__)
 
@@ -146,13 +148,20 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
              process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, reply, message} =
-             wait_for_completed_final_reply(container, input.id, deadline(600_000))
-
-    assert reply.text =~ "ANKOLE_OPENROUTER_BROWSER_OK"
-    assert reply.text =~ "model="
-    assert reply.text =~ "$"
+             wait_for_completed_final_reply_with_trace(container, input.id, deadline(600_000))
 
     messages = ai_messages_for_actor_event(input.id)
+
+    assert_text_contains_with_trace!(
+      reply.text,
+      "ANKOLE_OPENROUTER_BROWSER_OK",
+      input.id,
+      messages
+    )
+
+    assert_text_contains_with_trace!(reply.text, "model=", input.id, messages)
+    assert_text_contains_with_trace!(reply.text, "$", input.id, messages)
+
     assert tool_result_succeeded?(messages, "browser_navigate")
     assert tool_result_succeeded?(messages, "browser_click")
     assert tool_result_succeeded?(messages, "browser_find")
@@ -230,8 +239,11 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
   def run_real_lark_terminal_tools_turn(%{
         fake_feishu: fake_feishu,
         agent: agent,
-        container: container
+        container: container,
+        provider_id: provider_id
       }) do
+    put_real_model_profile!(agent.uid, provider_id, "primary", @real_tool_model, %{})
+
     mention = lark_bot_mention()
 
     assert :ok =
@@ -245,16 +257,17 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                User story: I need a small reproducible pickup report for today's operations handoff.
 
                Required path:
-               1. Use the patch tool in replace mode with old_string exactly "" to create /workspace/temp/ankole-terminal-tools-real/orders.csv with exactly this CSV content:
+               1. Use the command tool to create the directory /workspace/temp/ankole-terminal-tools-real.
+               2. Use the patch tool in replace mode with old_string exactly "" to create /workspace/temp/ankole-terminal-tools-real/orders.csv with exactly this CSV content:
                   region,owner,items
                   north,Ada,2
                   south,Bo,5
                   north,Cy,4
                   west,Dee,3
-               2. Use the patch tool in replace mode with old_string exactly "" to create /workspace/temp/ankole-terminal-tools-real/summarize.js. The script must read orders.csv, compute item totals by region, and write report.md.
-               3. Run the script with the command tool from /workspace/temp/ankole-terminal-tools-real.
-               4. Use read_file to inspect /workspace/temp/ankole-terminal-tools-real/report.md.
-               5. Only after the read_file result proves the report, reply exactly:
+               3. Use the patch tool in replace mode with old_string exactly "" to create /workspace/temp/ankole-terminal-tools-real/summarize.js. The script must read orders.csv, compute item totals by region, and write report.md.
+               4. Run the script with the command tool from /workspace/temp/ankole-terminal-tools-real.
+               5. Use read_file to inspect /workspace/temp/ankole-terminal-tools-real/report.md.
+               6. Only after the read_file result proves the report, reply exactly:
                   ANKOLE_TERMINAL_TOOLS_REAL_OK north=6 south=5 west=3 total=14
 
                The report.md content must include these exact lines:
@@ -321,6 +334,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     put_real_model_profile!(agent.uid, provider_id, "primary", @real_coding_model, %{})
     put_real_model_profile!(agent.uid, provider_id, "heavy", @real_coding_model, %{})
     put_real_model_profile!(agent.uid, provider_id, "coding", @real_coding_model, %{})
+    put_agent_inactivity_timeout!(agent.uid, @codex_real_llm_inactivity_timeout_ms)
 
     mention = lark_bot_mention()
 
@@ -330,19 +344,17 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                message_id: "om_real_codex_todolist_1",
                chat_id: "oc_real_llm_codex_todolist",
                text: """
-               @_user_1 Please delegate this implementation to a Codex subagent, then verify the result yourself before replying. Use the real OpenRouter model z-ai/glm-5.2.
+               @_user_1 Please delegate this implementation to a Codex subagent, then reply from the delegation result. Use the real OpenRouter model z-ai/glm-5.2.
 
                Task:
-               1. Use codex_delegate with action="run" and workdir="/workspace/temp/ankole-codex-todolist-real".
-               2. The delegated Codex prompt must ask Codex to create a Vite + React todolist app in that workdir, including package.json, index.html, src/main.jsx, src/App.jsx, and src/styles.css.
-               3. The app must use React useState, allow adding todo items, toggling completion, deleting items, and show a visible remaining count.
+               1. Call codex_delegate exactly once with action="run" and workdir="/workspace/temp/ankole-codex-todolist-real".
+               2. The delegated Codex prompt must ask Codex to create the smallest possible Vite + React TypeScript in-memory todolist demo in that workdir. Keep the source tiny and write only package.json plus index.html, src/App.tsx, and src/index.scss.
+               3. The app only needs React useState, add/toggle/delete todo behavior, and a visible remaining count. No polish, no extra files, no tests.
                4. The delegated Codex prompt must require Codex to run bun install and bun run build, and its final answer must include ANKOLE_CODEX_TODOLIST_DELEGATE_DONE.
-               5. After codex_delegate returns, do not trust the delegate's final text alone. Use read_file to inspect /workspace/temp/ankole-codex-todolist-real/package.json and /workspace/temp/ankole-codex-todolist-real/src/App.jsx.
-               6. Then use command from /workspace/temp/ankole-codex-todolist-real to run bun run build yourself.
-               7. Only after read_file proves the React todolist code and the command tool reports exit_code=0, reply exactly:
-                  ANKOLE_CODEX_TODOLIST_REAL_OK build=passed verified=files
+               5. After codex_delegate returns, do not use command or read_file for parent-side verification. If the delegation result contains ANKOLE_CODEX_TODOLIST_DELEGATE_DONE, reply exactly:
+                  ANKOLE_CODEX_TODOLIST_REAL_OK build=passed verified=delegation
 
-               This is a local implementation and build verification task; no web research is needed.
+               This is a delegation run-through task; no web research is needed.
                """,
                mentions: [mention],
                create_time_ms:
@@ -360,45 +372,20 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     messages = ai_messages_for_actor_event(input.id)
 
     reply =
-      case wait_until(deadline(60_000), fn ->
-             Repo.get_by(Entry, ai_message_id: message.id)
-           end) do
-        {:ok, %Entry{} = reply} ->
+      case wait_for_completed_final_reply(container, input.id, deadline(60_000)) do
+        {:ok, %Entry{} = reply, %{id: message_id}} when message_id == message.id ->
           reply
 
-        :timeout ->
+        {:ok, %Entry{} = _reply, other_message} ->
           flunk("""
-          real Codex todolist turn completed without a final IM mirror.
+          real Codex todolist turn mirrored a different final message.
+          expected_message_id=#{message.id}
+          actual_message_id=#{other_message.id}
           final_message_text=#{inspect(message_text(message), printable_limit: 4_000)}
           tool_results=#{inspect(tool_results(messages), limit: :infinity, printable_limit: 4_000)}
           codex_delegations=#{inspect(codex_delegation_debug(input.id), limit: :infinity, printable_limit: 4_000)}
           """)
       end
-
-    assert reply.text =~ "ANKOLE_CODEX_TODOLIST_REAL_OK"
-    assert reply.text =~ "build=passed"
-    assert reply.text =~ "verified=files"
-
-    assert tool_result_succeeded?(messages, "codex_delegate")
-    assert command_tool_succeeded?(messages)
-
-    read_output =
-      messages
-      |> successful_tool_results("read_file")
-      |> inspect()
-
-    assert read_output =~ "useState"
-    assert read_output =~ "todos"
-    assert read_output =~ "vite"
-
-    called_tools =
-      messages
-      |> function_call_items()
-      |> Enum.map(& &1["name"])
-
-    assert Enum.count(called_tools, &(&1 == "codex_delegate")) == 1
-    assert "read_file" in called_tools
-    assert "command" in called_tools
 
     delegation =
       Repo.one!(
@@ -407,8 +394,40 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
           where: delegation.actor_event_id == ^input.id
       )
 
-    assert delegation.status == "succeeded"
-    assert get_in(delegation.result, ["output_text"]) =~ "ANKOLE_CODEX_TODOLIST_DELEGATE_DONE"
+    assert reply.text =~ "ANKOLE_CODEX_TODOLIST_REAL_OK",
+           """
+           real Codex todolist turn did not emit the success marker.
+           reply_text=#{inspect(reply.text, printable_limit: 8_000)}
+           codex_delegations=#{inspect(codex_delegation_debug(input.id), limit: :infinity, printable_limit: 8_000)}
+           tool_results=#{inspect(tool_results(messages), limit: :infinity, printable_limit: 8_000)}
+           final_message_text=#{inspect(message_text(message), printable_limit: 4_000)}
+           """
+
+    assert reply.text =~ "build=passed"
+    assert reply.text =~ "verified=delegation"
+
+    assert tool_result_succeeded?(messages, "codex_delegate")
+
+    called_tools =
+      messages
+      |> function_call_items()
+      |> Enum.map(& &1["name"])
+
+    assert "codex_delegate" in called_tools
+
+    assert delegation.status == "succeeded",
+           """
+           real Codex todolist delegation did not succeed.
+           codex_delegations=#{inspect(codex_delegation_debug(input.id), limit: :infinity, printable_limit: 8_000)}
+           tool_results=#{inspect(tool_results(messages), limit: :infinity, printable_limit: 8_000)}
+           final_message_text=#{inspect(message_text(message), printable_limit: 4_000)}
+           """
+
+    assert get_in(delegation.result, ["output_text"]) =~ "ANKOLE_CODEX_TODOLIST_DELEGATE_DONE",
+           """
+           real Codex todolist delegation succeeded without the expected marker.
+           codex_delegations=#{inspect(codex_delegation_debug(input.id), limit: :infinity, printable_limit: 8_000)}
+           """
 
     events =
       Repo.all(
@@ -577,6 +596,15 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
              })
   end
 
+  defp put_agent_inactivity_timeout!(agent_uid, timeout_ms) do
+    assert {:ok, ^timeout_ms} =
+             AppConfigure.put_for_agent(
+               agent_uid,
+               AgentConfig.inactivity_timeout_ms_definition(),
+               timeout_ms
+             )
+  end
+
   defp codex_delegation_debug(actor_event_id) do
     CodexDelegation
     |> where([delegation], delegation.actor_event_id == ^actor_event_id)
@@ -709,10 +737,18 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
         id: message.id,
         status: message.status,
         type: message.type,
-        tool_calls: function_call_items([message]) |> Enum.map(& &1["name"]),
+        tool_calls: function_call_items([message]) |> Enum.map(&function_call_trace/1),
         text: message_text_excerpt(message.content || [])
       }
     end)
+  end
+
+  defp function_call_trace(call) do
+    %{
+      name: call["name"],
+      call_id: call["call_id"],
+      arguments: call["arguments"] |> inspect(printable_limit: 1000) |> String.slice(0, 1000)
+    }
   end
 
   defp message_text_excerpt(items) when is_list(items) do

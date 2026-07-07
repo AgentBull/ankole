@@ -9,7 +9,7 @@ import type { TurnStart } from '../../lanes/actor_lane'
 import { createCombinedAbortSignal } from '../../common/async'
 import { arrayPath } from '@pleisto/active-support'
 import { recognizeAmbientIntervention } from './ambient_recognizer'
-import { assertAIGatewayApiKeyMatchesTurn, runtimeModelFromAIGatewayApiKey } from './model_runtime'
+import { acquireTurnAIGatewayAccess } from './turn_aigateway_access'
 import { runTextTurnLoop } from './text_turn'
 import { resolveAgentConversationContext } from './turn_context'
 import type { TextTurnLoopOptions, TurnHandlerResult } from './turn_options'
@@ -32,25 +32,10 @@ export async function runAmbientMayInterveneHandler(
     throw new Error('ambient turn is missing a real model_ref')
   }
 
-  const apiKeyRequest = {
-    request_id: `ambient-ai-gateway-key-${crypto.randomUUID()}`,
-    agent_uid: turnStart.turn.actor.agent_uid
-  }
-  const apiKey = await opts.requestAIGatewayApiKey(apiKeyRequest)
-  if ('code' in apiKey) {
-    throw new Error(`AIGateway API key rejected: ${apiKey.code} ${apiKey.message ?? ''}`.trim())
-  }
-  assertAIGatewayApiKeyMatchesTurn(turnStart, apiKey)
-
-  const model = runtimeModelFromAIGatewayApiKey(modelRef, apiKey, refreshOptions =>
-    opts.requestAIGatewayApiKey(
-      {
-        ...apiKeyRequest,
-        request_id: `ambient-ai-gateway-key-${crypto.randomUUID()}`
-      },
-      refreshOptions
-    )
-  )
+  const { model } = await acquireTurnAIGatewayAccess(turnStart, {
+    requestAIGatewayApiKey: opts.requestAIGatewayApiKey,
+    requestIdPrefix: 'ambient-ai-gateway-key'
+  })
   const agentConversationContext = await resolveAgentConversationContext(turnStart, opts)
 
   const recognizerTimeout = createCombinedAbortSignal(opts.abortSignal, AMBIENT_RECOGNIZER_TIMEOUT_MS)

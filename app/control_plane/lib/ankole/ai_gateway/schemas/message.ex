@@ -2,13 +2,14 @@ defmodule Ankole.AIGateway.Schemas.Message do
   @moduledoc """
   Stored AI-gateway message-log fact (formerly `ai_agent_messages`).
 
-  One row represents one stateful Responses run, one stateful compaction, or one
-  internal AI-gateway message fact. AIGateway owns this table; the worker does
-  not read or write it directly.
+  One row represents one stateful Responses run, one compaction checkpoint, or
+  one internal AI-gateway message fact. AIGateway owns this table; the worker
+  does not read or write it directly.
 
   Row-level `type` + `status` together express full semantics:
     - `type = "message"`: an ordinary response/message fact.
-    - `type = "compaction"`: a compression fact (content must include a compaction item).
+    - `type = "checkpoint"`: a response-chain checkpoint that points at one
+      compaction artifact.
     - `status = "generating"`: row is in an active actor-event Responses loop.
     - `status = "complete"`: row can enter normal model-chain projection.
     - `status = "error"`: terminal failure; content/metadata.error preserves audit facts.
@@ -33,8 +34,8 @@ defmodule Ankole.AIGateway.Schemas.Message do
   # other non-message items do not carry a role. Response.output partitioning is
   # decided by item provenance (item type + item-level role), not this column.
   @roles ~w(user assistant tool im_ambient)
-  # Row-level type separates ordinary message facts from compaction facts.
-  @types ~w(message compaction)
+  # Row-level type separates ordinary message facts from compaction checkpoints.
+  @types ~w(message checkpoint)
   # A message row is `generating` while still in an active Responses loop,
   # `complete` once final, `error` on terminal failure, or `retracted` for
   # future audit/recovery facts. v1 IM deletion does not write `retracted`.
@@ -56,9 +57,8 @@ defmodule Ankole.AIGateway.Schemas.Message do
     # `resp_#{id}` always equals `resp_#{ai_gateway_messages.id}` (see plan §1.4).
     field(:previous_message_id, Ecto.UUID)
     field(:content, Ankole.Types.JsonValue, default: [])
-    field(:covers_until_message_id, Ecto.UUID)
     # Auxiliary facts only: model/provider, usage, provider raw ids, renderer hints,
-    # actor_event_id (AIGateway/ActorRuntime correlation key), request refs, compaction refs.
+    # actor_event_id (AIGateway/ActorRuntime correlation key), request refs.
     # Must NOT carry a second item list.
     field(:metadata, :map, default: %{})
 
@@ -79,7 +79,6 @@ defmodule Ankole.AIGateway.Schemas.Message do
       :status,
       :previous_message_id,
       :content,
-      :covers_until_message_id,
       :metadata
     ])
     |> normalize_blank([:agent_uid, :type, :status, :role])
@@ -121,46 +120,48 @@ defmodule Ankole.AIGateway.Schemas.Message do
 
   defp validate_type_content_contract(changeset) do
     case get_field(changeset, :type) do
-      "compaction" ->
-        changeset
-        |> validate_exactly_one_compaction_item()
-        |> validate_required([:previous_message_id, :covers_until_message_id])
+      "checkpoint" ->
+        validate_exactly_one_compaction_artifact_ref(changeset)
 
       "message" ->
-        validate_no_compaction_item(changeset)
+        validate_no_compaction_or_artifact_ref(changeset)
 
       _type ->
         changeset
     end
   end
 
-  defp validate_no_compaction_item(changeset) do
-    case content_has_compaction_item?(get_field(changeset, :content)) do
-      true -> add_error(changeset, :content, "must not include a compaction item")
+  defp validate_no_compaction_or_artifact_ref(changeset) do
+    case content_has_compaction_or_artifact_ref?(get_field(changeset, :content)) do
+      true -> add_error(changeset, :content, "must not include compaction items or artifact refs")
       false -> changeset
     end
   end
 
-  defp validate_exactly_one_compaction_item(changeset) do
-    case count_compaction_items(get_field(changeset, :content)) do
-      1 -> changeset
-      _count -> add_error(changeset, :content, "must include exactly one compaction item")
+  defp validate_exactly_one_compaction_artifact_ref(changeset) do
+    case get_field(changeset, :content) do
+      [%{"type" => "compaction_artifact", "id" => "cmp_" <> uuid}] ->
+        case Ecto.UUID.cast(uuid) do
+          {:ok, _uuid} -> changeset
+          :error -> add_error(changeset, :content, "must reference a valid compaction artifact")
+        end
+
+      _content ->
+        add_error(changeset, :content, "must include exactly one compaction artifact ref")
     end
   end
 
-  defp content_has_compaction_item?(items) when is_list(items) do
-    Enum.any?(items, &compaction_item?/1)
+  defp content_has_compaction_or_artifact_ref?(items) when is_list(items) do
+    Enum.any?(items, &compaction_or_artifact_ref?/1)
   end
 
-  defp content_has_compaction_item?(_items), do: false
+  defp content_has_compaction_or_artifact_ref?(_items), do: false
 
-  defp count_compaction_items(items) when is_list(items),
-    do: Enum.count(items, &compaction_item?/1)
+  defp compaction_or_artifact_ref?(%{"type" => type})
+       when type in ["compaction", "compaction_artifact"],
+       do: true
 
-  defp count_compaction_items(_items), do: 0
-
-  defp compaction_item?(%{"type" => "compaction"}), do: true
-  defp compaction_item?(_item), do: false
+  defp compaction_or_artifact_ref?(_item), do: false
 
   defp json_value?(nil), do: true
   defp json_value?(value) when is_boolean(value), do: true

@@ -9,6 +9,7 @@ defmodule AnkoleWeb.ScheduleController do
   alias Ankole.Schedule
   alias Ankole.Schedule.Schemas.CronSchedule
   alias Ankole.Schedule.Schemas.ScheduledEvent
+  alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.ConsoleApi.ErrorEnvelope
   alias AnkoleWeb.Schemas.ConsoleApi.ScheduleCronScheduleListResponse
@@ -377,7 +378,7 @@ defmodule AnkoleWeb.ScheduleController do
       422,
       "validation_failed",
       "request validation failed",
-      changeset_details(changeset)
+      ConsoleErrors.changeset_details(changeset)
     )
   end
 
@@ -387,23 +388,7 @@ defmodule AnkoleWeb.ScheduleController do
     ])
   end
 
-  defp changeset_details(changeset) do
-    changeset
-    |> Ecto.Changeset.traverse_errors(&format_changeset_error/1)
-    |> Enum.flat_map(fn {field, messages} ->
-      Enum.map(messages, &%{path: to_string(field), message: &1})
-    end)
-  end
-
-  defp format_changeset_error({message, opts}) do
-    Enum.reduce(opts, message, fn {key, value}, message ->
-      String.replace(message, "%{#{key}}", to_string(value))
-    end)
-  end
-
   defp error(conn, status, code, message, details \\ []) do
-    conn
-    |> put_status(status)
-    |> json(%{error: %{code: code, message: message, details: details}})
+    ConsoleErrors.render(conn, status, code, message, details)
   end
 end

@@ -9,9 +9,9 @@ import {
   type BackgroundCommandSnapshot,
   type CommandFinished,
   type CommandOutputMode,
-  type ComputerToolContext,
   type ContainerComputer
-} from '../src/tools/computer/context'
+} from '../src/tools/computer/computer'
+import type { ComputerToolContext } from '../src/tools/computer/context'
 import { createInteractiveTerminalTool } from '../src/tools/computer/interactive-terminal-tool'
 import { createPatchTool } from '../src/tools/computer/patch-tool'
 import { createReadFileTool } from '../src/tools/computer/read-file-tool'
@@ -163,12 +163,35 @@ function ensureFakeBwrap(): void {
 describe('computer tools', () => {
   it('exposes browser actions without the removed browser_doctor tool', () => {
     const computer = new FakeComputer()
-    const names = createBrowserTools(contextFor(computer)).map(tool => tool.name)
+    const tools = createBrowserTools(contextFor(computer))
+    const names = tools.map(tool => tool.name)
 
     expect(names).not.toContain('browser_doctor')
-    expect(names).toContain('browser_navigate')
-    expect(names).toContain('browser_snapshot')
-    expect(names).toContain('browser_click')
+    expect(names).toEqual([
+      'browser_navigate',
+      'browser_snapshot',
+      'browser_find',
+      'browser_click',
+      'browser_type',
+      'browser_press',
+      'browser_scroll',
+      'browser_select',
+      'browser_wait',
+      'browser_back',
+      'browser_screenshot',
+      'browser_open',
+      'browser_extract',
+      'browser_run'
+    ])
+
+    const toolByName = new Map(tools.map(tool => [tool.name, tool]))
+    for (const tool of tools) expect(tool.executionMode).toBe('sequential')
+    expect(toolByName.get('browser_find')).toMatchObject({ isReadOnly: true, isDestructive: false })
+    expect(toolByName.get('browser_run')).toMatchObject({ isReadOnly: false, isDestructive: true })
+
+    for (const name of names.filter(name => name !== 'browser_find' && name !== 'browser_run')) {
+      expect(toolByName.get(name)).toMatchObject({ isReadOnly: false, isDestructive: false })
+    }
   })
 
   it('adds duration and expected nonzero exit-code notes to command output', async () => {

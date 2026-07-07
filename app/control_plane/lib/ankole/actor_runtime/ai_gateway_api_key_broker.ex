@@ -6,6 +6,7 @@ defmodule Ankole.ActorRuntime.AIGatewayApiKeyBroker do
   receives no provider credentials through this RPC.
   """
 
+  alias Ankole.ActorRuntime.RPCWire
   alias Ankole.Principals
   alias AnkoleWeb.AIGatewayTokens
   alias AnkoleWeb.Endpoint
@@ -15,7 +16,7 @@ defmodule Ankole.ActorRuntime.AIGatewayApiKeyBroker do
   """
   @spec handle_request(map(), String.t()) :: {:ok, map()} | {:error, map()}
   def handle_request(request, _route) when is_map(request) do
-    request_id = text(request, "request_id") || "ai-gateway-key-#{Ecto.UUID.generate()}"
+    request_id = RPCWire.text(request, "request_id") || "ai-gateway-key-#{Ecto.UUID.generate()}"
 
     result =
       with {:ok, agent_uid} <- request_agent_uid(request),
@@ -30,10 +31,11 @@ defmodule Ankole.ActorRuntime.AIGatewayApiKeyBroker do
         {:ok, payload}
 
       {:error, reason} ->
-        {:error, error_payload(request_id, text(request, "agent_uid") || "", reason)}
+        {:error, error_payload(request_id, RPCWire.text(request, "agent_uid") || "", reason)}
 
       :disabled ->
-        {:error, error_payload(request_id, text(request, "agent_uid") || "", :agent_disabled)}
+        {:error,
+         error_payload(request_id, RPCWire.text(request, "agent_uid") || "", :agent_disabled)}
     end
   end
 
@@ -41,7 +43,7 @@ defmodule Ankole.ActorRuntime.AIGatewayApiKeyBroker do
     do: {:error, error_payload("", "", :invalid_ai_gateway_api_key_request)}
 
   defp request_agent_uid(request) do
-    case text(request, "agent_uid") do
+    case RPCWire.text(request, "agent_uid") do
       nil -> {:error, :missing_agent_uid}
       agent_uid -> Principals.normalize_uid(agent_uid)
     end
@@ -91,32 +93,10 @@ defmodule Ankole.ActorRuntime.AIGatewayApiKeyBroker do
   end
 
   defp error_payload(request_id, agent_uid, reason) do
-    %{
-      "request_id" => request_id,
-      "code" => error_code(reason),
-      "message" => error_message(reason),
-      "details_json" => %{"agent_uid" => agent_uid}
-    }
-  end
-
-  defp error_code(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp error_code({reason, _details}) when is_atom(reason), do: Atom.to_string(reason)
-  defp error_code(_reason), do: "ai_gateway_api_key_request_failed"
-
-  defp error_message(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp error_message({reason, details}), do: "#{inspect(reason)}: #{inspect(details)}"
-  defp error_message(reason), do: inspect(reason)
-
-  defp text(map, key) do
-    case Map.get(map, key) || Map.get(map, String.to_atom(key)) do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          text -> text
-        end
-
-      _value ->
-        nil
-    end
+    RPCWire.error_payload(request_id, reason,
+      fallback_code: "ai_gateway_api_key_request_failed",
+      message_style: :inspect_tuple_reason,
+      details_json: %{"agent_uid" => agent_uid}
+    )
   end
 end

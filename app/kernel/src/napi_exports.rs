@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use serde_json::Value as JsonValue;
@@ -7,7 +9,7 @@ use std::time::Duration;
 use crate::authz;
 use crate::common;
 use crate::runtime_fabric;
-use crate::runtime_fabric::transport::{DealerEvent, DealerHandle};
+use crate::runtime_fabric::transport::{DealerEvent, DealerHandle, TransportError};
 use crate::signals_gateway;
 
 /// Converts a common kernel error into the generic N-API error shape.
@@ -16,6 +18,10 @@ use crate::signals_gateway;
 /// message keeps the public JS behavior aligned with the Elixir binding.
 fn napi_error(error: common::KernelError) -> Error {
     Error::new(Status::GenericFailure, error.to_string())
+}
+
+fn runtime_fabric_error(error: TransportError) -> Error {
+    Error::new(Status::GenericFailure, error.ffi_message())
 }
 
 /// Authorizes one exact action on one concrete resource.
@@ -127,7 +133,7 @@ impl JsRuntimeFabricDealer {
         self.handle
             .send_envelope(envelope)
             .map(|_| "sent_or_queued".to_string())
-            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+            .map_err(runtime_fabric_error)
     }
 
     #[napi(ts_args_type = "frames: Buffer[]")]
@@ -137,7 +143,7 @@ impl JsRuntimeFabricDealer {
         self.handle
             .send_file_frame(frames)
             .map(|_| "sent_or_queued".to_string())
-            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+            .map_err(runtime_fabric_error)
     }
 
     #[napi]
@@ -145,12 +151,13 @@ impl JsRuntimeFabricDealer {
         match self
             .handle
             .recv_envelope(Duration::from_millis(u64::from(timeout_ms)))
-            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?
+            .map_err(runtime_fabric_error)?
         {
             Some(DealerEvent::Received(payload)) => Ok(Some(Buffer::from(payload))),
-            Some(DealerEvent::FileFrame(_frames)) => {
-                unreachable!("recv_envelope filters file frames")
-            }
+            Some(DealerEvent::FileFrame(_frames)) => Err(Error::new(
+                Status::GenericFailure,
+                "received worker file lane frame; use recvRaw",
+            )),
             Some(DealerEvent::DecodeFailed(reason)) | Some(DealerEvent::SocketError(reason)) => {
                 Err(Error::new(Status::GenericFailure, reason))
             }
@@ -163,7 +170,7 @@ impl JsRuntimeFabricDealer {
         recv_raw_output(
             self.handle
                 .recv(Duration::from_millis(u64::from(timeout_ms)))
-                .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?,
+                .map_err(runtime_fabric_error)?,
         )
         .map_err(|error| Error::new(Status::GenericFailure, error))
     }
@@ -181,7 +188,7 @@ impl JsRuntimeFabricDealer {
         self.handle
             .stop()
             .map(|_| true)
-            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+            .map_err(runtime_fabric_error)
     }
 }
 
@@ -197,7 +204,7 @@ impl Task for RecvRawTask {
     fn compute(&mut self) -> Result<Self::Output> {
         self.handle
             .recv(Duration::from_millis(u64::from(self.timeout_ms)))
-            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+            .map_err(runtime_fabric_error)
             .and_then(|event| {
                 raw_dealer_frames(event).map_err(|error| Error::new(Status::GenericFailure, error))
             })
@@ -335,7 +342,11 @@ impl Task for UnifiedTextDiffTask {
     type JsValue = String;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        common::unified_text_diff(&self.before, &self.after, self.context_lines).map_err(napi_error)
+        Ok(common::unified_text_diff(
+            &self.before,
+            &self.after,
+            self.context_lines,
+        ))
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {

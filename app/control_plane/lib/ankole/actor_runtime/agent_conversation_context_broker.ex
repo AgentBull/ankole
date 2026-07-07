@@ -11,6 +11,7 @@ defmodule Ankole.ActorRuntime.AgentConversationContextBroker do
 
   alias Ankole.AIAgent.Library
   alias Ankole.AIGateway.Schemas.Conversation
+  alias Ankole.ActorRuntime.RPCWire
   alias Ankole.ActorRuntime.TurnRef
   alias Ankole.Memory
   alias Ankole.Principals.Agent, as: PrincipalAgent
@@ -21,7 +22,8 @@ defmodule Ankole.ActorRuntime.AgentConversationContextBroker do
   @spec handle_request(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
   def handle_request(%TurnRef{} = turn_ref, request, _route) when is_map(request) do
     request_id =
-      text(request, "request_id") || "agent-conversation-context-#{Ecto.UUID.generate()}"
+      RPCWire.text(request, "request_id", trim: false) ||
+        "agent-conversation-context-#{Ecto.UUID.generate()}"
 
     with {:ok, actor_event} <- actor_event(request),
          %Conversation{} = conversation <- active_conversation(turn_ref),
@@ -59,14 +61,7 @@ defmodule Ankole.ActorRuntime.AgentConversationContextBroker do
   end
 
   def handle_request(_turn_ref, _request, _route),
-    do:
-      {:error,
-       %{
-         "request_id" => "",
-         "code" => "invalid_agent_conversation_context_request",
-         "message" => "invalid_agent_conversation_context_request",
-         "details_json" => %{}
-       }}
+    do: error("", :invalid_agent_conversation_context_request)
 
   defp active_conversation(%TurnRef{} = turn_ref) do
     Conversation
@@ -121,10 +116,10 @@ defmodule Ankole.ActorRuntime.AgentConversationContextBroker do
   end
 
   defp actor_event(%{"actor_event" => actor_event}) when is_map(actor_event),
-    do: {:ok, stringify_keys(actor_event)}
+    do: {:ok, RPCWire.stringify_keys(actor_event)}
 
   defp actor_event(%{actor_event: actor_event}) when is_map(actor_event),
-    do: {:ok, stringify_keys(actor_event)}
+    do: {:ok, RPCWire.stringify_keys(actor_event)}
 
   defp actor_event(_request), do: {:ok, %{}}
 
@@ -133,46 +128,16 @@ defmodule Ankole.ActorRuntime.AgentConversationContextBroker do
 
   defp current_channel_id(_actor_event), do: nil
 
-  defp stringify_keys(map) do
-    Map.new(map, fn
-      {key, value} when is_atom(key) and is_map(value) ->
-        {Atom.to_string(key), stringify_keys(value)}
-
-      {key, value} when is_atom(key) ->
-        {Atom.to_string(key), value}
-
-      {key, value} when is_map(value) ->
-        {key, stringify_keys(value)}
-
-      pair ->
-        pair
-    end)
-  end
-
   defp datetime(%DateTime{} = value), do: DateTime.to_iso8601(value)
   defp datetime(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
   defp datetime(_value), do: nil
 
   defp error(request_id, reason) do
     {:error,
-     %{
-       "request_id" => request_id,
-       "code" => error_code(reason),
-       "message" => error_message(reason),
-       "details_json" => %{}
-     }}
-  end
-
-  defp error_code(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp error_code(_reason), do: "agent_conversation_context_request_failed"
-
-  defp error_message(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp error_message(reason), do: inspect(reason)
-
-  defp text(map, key) do
-    case Map.get(map, key) || Map.get(map, String.to_atom(key)) do
-      value when is_binary(value) -> value
-      _value -> nil
-    end
+     RPCWire.error_payload(request_id, reason,
+       fallback_code: "agent_conversation_context_request_failed",
+       message_style: :tuple_inspect,
+       details_json: %{}
+     )}
   end
 end

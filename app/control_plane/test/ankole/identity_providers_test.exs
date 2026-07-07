@@ -8,6 +8,8 @@ defmodule Ankole.IdentityProvidersTest do
   alias Ankole.IdentityProviders.Config, as: IdentityProviderConfig
   alias Ankole.IdentityProviders.Jobs.EnqueueDirectorySyncs
   alias Ankole.IdentityProviders.Jobs.SyncProvider
+  alias Ankole.PluginFixtures.MissingIdentityCallbackPlugin
+  alias Ankole.PluginFixtures.UnknownIdentityCapabilityPlugin
   alias Ankole.Plugins.LarkAdapter
 
   setup do
@@ -54,6 +56,49 @@ defmodule Ankole.IdentityProvidersTest do
         "source" => "setup"
       }
     )
+  end
+
+  test "invalid identity provider adapter declarations return contract errors" do
+    assert {:error,
+            {:unsupported_identity_provider_operation, MissingIdentityCallbackPlugin,
+             :upsert_user, 2}} =
+             MissingIdentityCallbackPlugin.adapter_declarations()
+             |> List.first()
+             |> IdentityProviders.validate_adapter_declaration()
+
+    assert {:error, {:unknown_identity_capability, "made_up"}} =
+             UnknownIdentityCapabilityPlugin.adapter_declarations()
+             |> List.first()
+             |> IdentityProviders.validate_adapter_declaration()
+  end
+
+  test "list_active_provider_refs returns only enabled refs for one adapter" do
+    assert {:ok, _provider} =
+             IdentityProviders.save_provider(
+               "lark-main",
+               "lark",
+               %{"appId" => "cli_identity", "appSecret" => "secret"},
+               true
+             )
+
+    assert {:ok, _provider} =
+             IdentityProviders.save_provider(
+               "lark-disabled",
+               "lark",
+               %{"appId" => "cli_identity_disabled", "appSecret" => "secret"},
+               false
+             )
+
+    assert {:ok, refs} = IdentityProviders.list_active_provider_refs("lark")
+
+    assert refs == [
+             %{
+               "provider_id" => "lark-main",
+               "adapter_id" => "lark",
+               "plugin_id" => "lark-adapter",
+               "config_key" => "principals.identity_providers.lark.lark-main"
+             }
+           ]
   end
 
   test "sync_provider honors disabled sync flags without calling the adapter" do

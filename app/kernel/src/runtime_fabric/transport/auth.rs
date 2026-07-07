@@ -51,28 +51,18 @@ pub(super) fn authenticated_route(
 pub(super) fn authenticated_envelope_route(
     auth_routes: &AuthenticatedRoutes,
     route: &str,
-    envelope_json: &serde_json::Value,
+    worker_ready_id: Option<&str>,
 ) -> Option<AuthenticatedWorker> {
     if let Some(authenticated) = authenticated_route(auth_routes, route) {
-        if let Some(worker_id) = worker_ready_id(envelope_json) {
+        if let Some(worker_id) = worker_ready_id {
             return (authenticated.worker_id == worker_id).then_some(authenticated);
         }
 
         return Some(authenticated);
     }
 
-    let worker_id = worker_ready_id(envelope_json)?;
+    let worker_id = worker_ready_id?;
     bind_authenticated_ready_route(auth_routes, route, worker_id)
-}
-
-fn worker_ready_id(envelope_json: &serde_json::Value) -> Option<&str> {
-    let body = envelope_json.get("body")?;
-
-    if body.get("type")?.as_str()? != "worker_ready" {
-        return None;
-    }
-
-    body.get("worker_ready")?.get("worker_id")?.as_str()
 }
 
 fn bind_authenticated_ready_route(
@@ -332,7 +322,6 @@ fn frame_string(frame: Option<&Vec<u8>>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     #[test]
     fn zap_success_with_route_identity_does_not_enqueue_pending_worker() {
@@ -366,19 +355,9 @@ mod tests {
         let response = zap_response("ankole", &auth, &auth_routes, &frames);
         assert_eq!(response[2], b"200");
 
-        let authenticated = authenticated_envelope_route(
-            &auth_routes,
-            "worker-instance-a",
-            &json!({
-                "body": {
-                    "type": "worker_ready",
-                    "worker_ready": {
-                        "worker_id": "worker-a"
-                    }
-                }
-            }),
-        )
-        .expect("pending auth binds to ready route");
+        let authenticated =
+            authenticated_envelope_route(&auth_routes, "worker-instance-a", Some("worker-a"))
+                .expect("pending auth binds to ready route");
 
         assert_eq!(authenticated.worker_id, "worker-a");
 

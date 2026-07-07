@@ -10,18 +10,110 @@ sign_in = "登录"
 title = "登录 Ankole"
 
 [common]
+advanced_settings = "高级设置"
 back = "返回"
 cancel = "取消"
 continue = "继续"
 error = "请求失败"
 loading = "加载中"
+must_be_json_object = "{$field} 必须是 JSON 对象"
+must_be_valid_json = "{$field} 必须是合法 JSON：{$detail}"
+new = "新增"
 placeholder = "占位"
 ready = "已就绪"
 save = "保存"
 
 [console]
+control_plane = "控制面"
 description = "控制台 shell 已挂载，后续功能会在这里展开。"
+no_records = "暂无记录。"
+no_setting = "未选择设置"
+no_settings = "暂无控制台可见的设置。"
 title = "Ankole 控制台"
+
+[console.agents]
+agent = "Agent"
+avatar_url = "头像 URL"
+display_name = "显示名称"
+new = "新增 agent"
+options = "选项"
+role = "角色"
+status = "状态"
+title = "Agents"
+uid = "UID"
+
+[console.aria]
+disable_agent = "禁用 agent"
+disable_binding = "禁用绑定"
+disable_provider = "禁用 provider"
+refresh = "刷新"
+reset = "重置"
+sections = "控制台分区"
+sign_out = "退出登录"
+
+[console.identity]
+adapter = "适配器"
+enabled = "启用"
+enabled_hint = "可用于登录和目录同步。"
+new = "新增身份提供方"
+provider = "Provider"
+provider_id = "Provider ID"
+provider_id_required = "Provider ID 为必填项。"
+run_full_sync = "执行完整同步"
+state = "状态"
+sync = "同步"
+title = "身份提供方"
+
+[console.models]
+clear = "清除"
+context = "上下文长度"
+model = "模型"
+provider = "Provider"
+provider_options = "Provider 选项"
+title = "模型配置"
+
+[console.nav]
+agents = "Agents"
+identity = "身份提供方"
+providers = "LLM Providers"
+settings = "AppConfigure"
+signals = "Signal Bindings"
+
+[console.providers]
+base_url = "Base URL"
+connection_options = "连接选项"
+credentials = "凭据"
+kind = "类型"
+new = "新增 provider"
+provider = "Provider"
+provider_id = "Provider ID"
+title = "LLM Providers"
+
+[console.settings]
+key = "键"
+kind = "类型"
+reveal = "查看"
+source = "来源"
+title = "AppConfigure"
+
+[console.signals]
+adapter = "适配器"
+binding_name = "绑定名称"
+binding_name_required = "绑定名称为必填项。"
+group_message_mode_invalid = "群消息模式无效。"
+name = "名称"
+new = "Signal 绑定"
+policy = "策略"
+state = "状态"
+title = "Signal 绑定"
+
+[console.status]
+contacts = "联系人"
+disabled = "已禁用"
+enabled = "已启用"
+encrypted = "已加密"
+global = "全局"
+off = "关闭"
 
 [locale]
 native_label = "简体中文"

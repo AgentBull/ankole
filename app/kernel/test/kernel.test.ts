@@ -41,6 +41,15 @@ describe('@ankole/kernel', () => {
     expect(diff).toContain('+TWO\n')
   })
 
+  it('compresses and bounds zstd worker-file blocks through the Bun bridge', async () => {
+    const payload = Buffer.from('worker-file-block'.repeat(128))
+    const compressed = await kernel.zstdCompressBlock(payload, 3)
+    const decompressed = await kernel.zstdDecompressBlock(compressed, payload.length)
+
+    expect(Buffer.from(decompressed).equals(payload)).toBe(true)
+    await expect(kernel.zstdDecompressBlock(compressed, 8)).rejects.toThrow(/decompressed block exceeds max_out/)
+  })
+
   it('declares RuntimeFabric raw file-transfer methods', () => {
     expect(kernel.RuntimeFabricDealer.prototype.sendFileFrame).toBeFunction()
     expect(kernel.RuntimeFabricDealer.prototype.recvRaw).toBeFunction()

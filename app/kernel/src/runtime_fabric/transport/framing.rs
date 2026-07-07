@@ -57,9 +57,8 @@ pub(super) fn parse_dealer_frames(
         ));
     }
 
-    if frames.len() >= 2 && frames[0].is_empty() {
-        frames.remove(0);
-    } else if frames.len() >= 2 && frames[1].as_slice() == FILE_TRANSFER_PROTOCOL {
+    if frames.len() >= 2 && (frames[0].is_empty() || frames[1].as_slice() == FILE_TRANSFER_PROTOCOL)
+    {
         frames.remove(0);
     }
 

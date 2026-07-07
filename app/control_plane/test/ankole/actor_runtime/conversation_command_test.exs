@@ -1,6 +1,9 @@
 defmodule Ankole.ActorRuntime.ConversationCommandTest do
   use Ankole.ActorRuntimeCase
 
+  alias Ankole.AIGateway.CompactionArtifacts
+  alias Ankole.AIGateway.Schemas.CompactionArtifact
+
   setup {Ankole.ActorRuntimeCase, :use_mock_signal_provider_plugin}
 
   describe "conversation and summary commands" do
@@ -27,7 +30,7 @@ defmodule Ankole.ActorRuntime.ConversationCommandTest do
       assert Repo.aggregate(Message, :count) == initial_message_count
     end
 
-    test "/compress writes an AIGateway compaction fact and feedback outbox" do
+    test "/compress writes an AIGateway compaction artifact and feedback outbox" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
       test_pid = self()
@@ -128,15 +131,15 @@ defmodule Ankole.ActorRuntime.ConversationCommandTest do
       assert_receive {:gateway_request, request}
       assert request.path == "v1/responses"
 
-      assert compaction.type == "compaction"
+      assert compaction.type == "checkpoint"
       assert compaction.status == "complete"
       assert compaction.previous_message_id == tail.id
-      assert compaction.covers_until_message_id == old.id
       assert compaction.metadata["manual"] == true
       assert compaction.metadata["auto"] == false
+      assert compaction.content == [CompactionArtifacts.ref_item(compaction.id)]
 
-      assert [%{"type" => "compaction", "summary" => "Manual compressed history."}] =
-               compaction.content
+      assert %CompactionArtifact{} = artifact = Repo.get!(CompactionArtifact, compaction.id)
+      assert get_in(artifact.content, ["summary", "text"]) == "Manual compressed history."
 
       assert %DateTime{} = Repo.get!(ActorEvent, compress_event.id).completed_at
 
@@ -271,12 +274,14 @@ defmodule Ankole.ActorRuntime.ConversationCommandTest do
       assert request.path == "v1/responses"
       assert request.body["input"] =~ "phase code ANKOLE_REAL_E2E"
 
-      assert compaction.type == "compaction"
+      assert compaction.type == "checkpoint"
       assert compaction.previous_message_id != nil
-      assert compaction.covers_until_message_id == old.id
+      assert compaction.content == [CompactionArtifacts.ref_item(compaction.id)]
 
-      assert [%{"type" => "compaction", "summary" => "Real role/content history compressed."}] =
-               compaction.content
+      assert %CompactionArtifact{} = artifact = Repo.get!(CompactionArtifact, compaction.id)
+
+      assert get_in(artifact.content, ["summary", "text"]) ==
+               "Real role/content history compressed."
 
       assert %DateTime{} = Repo.get!(ActorEvent, compress_event.id).completed_at
     end
@@ -423,7 +428,7 @@ defmodule Ankole.ActorRuntime.ConversationCommandTest do
 
       assert compress_event_id == compress_event.id
       assert is_nil(Repo.get!(ActorEvent, compress_event.id).completed_at)
-      refute Repo.exists?(from(message in Message, where: message.type == "compaction"))
+      refute Repo.exists?(from(message in Message, where: message.type == "checkpoint"))
       refute_receive {:gateway_request, _request}, 100
 
       complete_aigateway_turn!(active_turn_ref, "fresh answer", run: active_run)
@@ -439,10 +444,11 @@ defmodule Ankole.ActorRuntime.ConversationCommandTest do
                process_ready_events_once(now: DateTime.add(@base_time, 4, :second))
 
       assert_receive {:gateway_request, _request}
-      assert compaction.type == "compaction"
+      assert compaction.type == "checkpoint"
+      assert compaction.content == [CompactionArtifacts.ref_item(compaction.id)]
 
-      assert [%{"type" => "compaction", "summary" => "Deferred compressed history."}] =
-               compaction.content
+      assert %CompactionArtifact{} = artifact = Repo.get!(CompactionArtifact, compaction.id)
+      assert get_in(artifact.content, ["summary", "text"]) == "Deferred compressed history."
 
       assert %DateTime{} = Repo.get!(ActorEvent, compress_event.id).completed_at
     end

@@ -2,6 +2,8 @@ import { Crust } from '@crustjs/core'
 import { isRecord, type JsonObject } from '@pleisto/active-support'
 import build from 'pino-pretty'
 
+import { bootstrapActivationCodeLine } from './bootstrap-activation-code'
+
 type PrettyLog = JsonObject
 type PrettyOptions = NonNullable<Parameters<typeof build>[0]>
 
@@ -31,9 +33,11 @@ export function formatPrettyLogMessage(log: PrettyLog, messageKey: string): stri
   const context = [component, event].filter(Boolean).join(' ')
   const message = typeof log[messageKey] === 'string' ? log[messageKey] : ''
   if (event?.startsWith('setup.bootstrap.activation_code_') && activationCode) {
+    const line = bootstrapActivationCodeLine(activationCode)
+
     return [
       '    ------------------------------------------------------------',
-      context ? `${context}: SETUP ACTIVATION CODE: ${activationCode}` : `SETUP ACTIVATION CODE: ${activationCode}`,
+      context ? `${context}: ${line}` : line,
       '    ------------------------------------------------------------',
       '    Open /setup and enter this code.'
     ].join('\n')

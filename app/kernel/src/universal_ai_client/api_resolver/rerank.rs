@@ -1,8 +1,9 @@
+use super::*;
 #[derive(Debug)]
-struct OpenrouterRerank;
+pub(super) struct OpenrouterRerank;
 
 #[derive(Debug)]
-struct JinaRerank;
+pub(super) struct JinaRerank;
 
 impl ApiProtocol for OpenrouterRerank {
     fn on_provider_body(

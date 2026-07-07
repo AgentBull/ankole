@@ -6,6 +6,7 @@ defmodule Ankole.ActorRuntime.CodexDelegationBroker do
   PostgreSQL audit writes those processes produce.
   """
 
+  alias Ankole.ActorRuntime.RPCWire
   alias Ankole.CodexDelegations
   alias Ankole.CodexDelegations.Schemas.Delegation
   alias Ankole.CodexDelegations.Schemas.Event
@@ -17,7 +18,8 @@ defmodule Ankole.ActorRuntime.CodexDelegationBroker do
   """
   @spec handle_create(map(), String.t()) :: {:ok, map()} | {:error, map()}
   def handle_create(request, route) when is_map(request) do
-    request_id = text(request, "request_id") || "codex-delegation-create-#{Ecto.UUID.generate()}"
+    request_id =
+      RPCWire.text(request, "request_id") || "codex-delegation-create-#{Ecto.UUID.generate()}"
 
     request
     |> Map.put_new("status", "queued")
@@ -28,7 +30,7 @@ defmodule Ankole.ActorRuntime.CodexDelegationBroker do
         {:ok, delegation_payload(request_id, delegation)}
 
       {:error, reason} ->
-        {:error, error_payload(request_id, text(request, "agent_uid") || "", reason)}
+        {:error, error_payload(request_id, RPCWire.text(request, "agent_uid") || "", reason)}
     end
   end
 
@@ -40,9 +42,11 @@ defmodule Ankole.ActorRuntime.CodexDelegationBroker do
   """
   @spec handle_get(map(), String.t()) :: {:ok, map()} | {:error, map()}
   def handle_get(request, _route) when is_map(request) do
-    request_id = text(request, "request_id") || "codex-delegation-get-#{Ecto.UUID.generate()}"
-    delegation_id = text(request, "delegation_id")
-    agent_uid = text(request, "agent_uid") || ""
+    request_id =
+      RPCWire.text(request, "request_id") || "codex-delegation-get-#{Ecto.UUID.generate()}"
+
+    delegation_id = RPCWire.text(request, "delegation_id")
+    agent_uid = RPCWire.text(request, "agent_uid") || ""
 
     case CodexDelegations.get_delegation_summary_for_agent(delegation_id || "", agent_uid) do
       {:ok, %{delegation: %Delegation{} = delegation, last_event_seq: last_event_seq}} ->
@@ -67,7 +71,8 @@ defmodule Ankole.ActorRuntime.CodexDelegationBroker do
   """
   @spec handle_append_event(map(), String.t()) :: {:ok, map()} | {:error, map()}
   def handle_append_event(request, _route) when is_map(request) do
-    request_id = text(request, "request_id") || "codex-delegation-event-#{Ecto.UUID.generate()}"
+    request_id =
+      RPCWire.text(request, "request_id") || "codex-delegation-event-#{Ecto.UUID.generate()}"
 
     request
     |> CodexDelegations.append_event()
@@ -76,7 +81,7 @@ defmodule Ankole.ActorRuntime.CodexDelegationBroker do
         {:ok, event_payload(request_id, event)}
 
       {:error, reason} ->
-        {:error, error_payload(request_id, text(request, "agent_uid") || "", reason)}
+        {:error, error_payload(request_id, RPCWire.text(request, "agent_uid") || "", reason)}
     end
   end
 
@@ -88,9 +93,11 @@ defmodule Ankole.ActorRuntime.CodexDelegationBroker do
   """
   @spec handle_update_status(map(), String.t()) :: {:ok, map()} | {:error, map()}
   def handle_update_status(request, route) when is_map(request) do
-    request_id = text(request, "request_id") || "codex-delegation-update-#{Ecto.UUID.generate()}"
-    delegation_id = text(request, "delegation_id")
-    agent_uid = text(request, "agent_uid") || ""
+    request_id =
+      RPCWire.text(request, "request_id") || "codex-delegation-update-#{Ecto.UUID.generate()}"
+
+    delegation_id = RPCWire.text(request, "delegation_id")
+    agent_uid = RPCWire.text(request, "agent_uid") || ""
 
     attrs =
       request
@@ -140,22 +147,13 @@ defmodule Ankole.ActorRuntime.CodexDelegationBroker do
   end
 
   defp error_payload(request_id, agent_uid, reason) do
-    %{
-      "request_id" => request_id,
-      "code" => error_code(reason),
-      "message" => error_message(reason),
-      "details_json" => %{"agent_uid" => agent_uid}
-    }
+    RPCWire.error_payload(request_id, reason,
+      fallback_code: "codex_delegation_failed",
+      changeset_code: "invalid_codex_delegation",
+      message_style: :tuple_inspect,
+      details_json: %{"agent_uid" => agent_uid}
+    )
   end
-
-  defp error_code(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp error_code(%Ecto.Changeset{}), do: "invalid_codex_delegation"
-  defp error_code({reason, _details}) when is_atom(reason), do: Atom.to_string(reason)
-  defp error_code(_reason), do: "codex_delegation_failed"
-
-  defp error_message(%Ecto.Changeset{} = changeset), do: inspect(changeset.errors)
-  defp error_message(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp error_message(reason), do: inspect(reason)
 
   defp iso8601(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
   defp iso8601(_value), do: nil
@@ -171,29 +169,9 @@ defmodule Ankole.ActorRuntime.CodexDelegationBroker do
   defp maybe_put_result_ref(map, %Delegation{}), do: map
 
   defp put_worker_route_metadata(map, route) when is_map(map) and is_binary(route) do
-    metadata = map_value(map, "metadata")
+    metadata = RPCWire.map_value(map, "metadata", %{})
     Map.put(map, "metadata", Map.put(metadata, "worker_route", route))
   end
 
   defp put_worker_route_metadata(map, _route), do: map
-
-  defp map_value(map, key) do
-    case Map.get(map, key) || Map.get(map, String.to_atom(key)) do
-      value when is_map(value) -> value
-      _value -> %{}
-    end
-  end
-
-  defp text(map, key) do
-    case Map.get(map, key) || Map.get(map, String.to_atom(key)) do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          text -> text
-        end
-
-      _value ->
-        nil
-    end
-  end
 end

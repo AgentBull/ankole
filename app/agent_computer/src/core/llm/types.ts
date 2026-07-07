@@ -1,0 +1,145 @@
+import OpenAI from 'openai'
+import type { JsonObject } from '@pleisto/active-support'
+import type { z } from 'zod'
+import type { ResponseCreateParams, ResponseFunctionToolCall } from 'openai/resources/responses/responses'
+
+export interface TextContent {
+  type: 'text'
+  text: string
+}
+
+export interface ImageContent {
+  type: 'image'
+  image: string | URL | Uint8Array | BufferSource
+  mimeType?: string
+}
+
+export type ContentPart = TextContent | ImageContent
+
+export interface ToolCall {
+  id: string
+  type: 'function'
+  name: string
+  arguments: string
+}
+
+export interface UserMessage {
+  role: 'user'
+  content: string | ContentPart[]
+}
+
+export interface AssistantMessage {
+  role: 'assistant'
+  content: TextContent[]
+  toolCalls?: ToolCall[]
+  usage?: ModelUsage
+  stopReason?: StopReason
+  model?: string
+  errorMessage?: string
+}
+
+export interface ToolResultMessage {
+  role: 'tool'
+  toolCallId: string
+  result: string
+}
+
+export type Message = UserMessage | AssistantMessage | ToolResultMessage
+
+export interface ModelUsage {
+  inputTokens: number
+  outputTokens: number
+  reasoningTokens?: number
+  cachedInputTokens?: number
+}
+
+export type StopReason = 'stop' | 'length' | 'toolUse' | 'error' | 'aborted'
+
+export interface ModelConfig {
+  client: OpenAI
+  selector: string
+  name: string
+  provider: string
+  responseWebSocket?: ResponseWebSocketTransport
+}
+
+export type ResponseWebSocketTransport = {
+  kind: 'aigateway-websocket'
+  url: string
+  authorization: (options?: ResponseWebSocketAuthorizationOptions) => Promise<string> | string
+  /** Test seam for fake AIGateway sockets; production uses OpenAI SDK ResponsesWS. */
+  createWebSocket?: (
+    url: string,
+    init: { headers: Record<string, string> }
+  ) => {
+    readyState?: number
+    send(data: string): void
+    close(code?: number, reason?: string): void
+    addEventListener(type: 'open', listener: (event: Event) => void, options?: { once?: boolean }): void
+    addEventListener(type: 'message', listener: (event: MessageEvent) => void, options?: { once?: boolean }): void
+    addEventListener(type: 'error', listener: (event: Event) => void, options?: { once?: boolean }): void
+    addEventListener(type: 'close', listener: (event: CloseEvent) => void, options?: { once?: boolean }): void
+    removeEventListener?(type: string, listener: (event: unknown) => void): void
+  }
+}
+
+export type ResponseWebSocketAuthorizationOptions = {
+  forceRefresh?: boolean
+}
+
+export interface ToolDefinition<TSchema extends z.ZodType = z.ZodType> {
+  name: string
+  description?: string
+  parameters: TSchema
+  execute?: (args: z.infer<TSchema>, opts: { toolCallId: string }) => Promise<unknown> | unknown
+}
+
+export type ToolSet = Record<string, ToolDefinition>
+
+export interface CallModelOptions {
+  instructions?: string
+  messages: Message[]
+  tools?: ToolSet
+  maxOutputTokens?: number
+  temperature?: number
+  text?: ResponseCreateParams['text']
+  abortSignal?: AbortSignal
+  beforeCall?: (payload: ResponseCreateParams) => void | Promise<void>
+  onTextDelta?: (delta: string) => void
+  onActivity?: (description?: string) => void
+  stateful?: StatefulResponseContext
+}
+
+export type ModelTurnCallOptions = Omit<CallModelOptions, 'stateful' | 'abortSignal' | 'onActivity' | 'onTextDelta'>
+
+export type StatefulResponseContext = {
+  actorEventId: string
+  conversationId?: string
+  previousResponseId?: string
+  truncation?: 'auto' | 'disabled'
+  metadata?: JsonObject
+}
+
+export interface ModelCallResult {
+  message: AssistantMessage
+  functionCalls: ResponseFunctionToolCall[]
+  hasToolCalls: boolean
+  responseId?: string
+}
+
+export interface ToolResultsRecordResult {
+  responseId: string
+}
+
+export interface ModelTurn {
+  call(options: ModelTurnCallOptions): Promise<ModelCallResult>
+  recordToolResults(messages: Message[]): Promise<ToolResultsRecordResult>
+  close(): void
+}
+
+export interface ModelTurnOptions {
+  stateful: StatefulResponseContext
+  abortSignal?: AbortSignal
+  onTextDelta?: (delta: string) => void
+  onActivity?: (description?: string) => void
+}

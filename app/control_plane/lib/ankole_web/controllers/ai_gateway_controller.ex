@@ -11,7 +11,6 @@ defmodule AnkoleWeb.AIGatewayController do
   alias OpenApiSpex.Schema
 
   @json_object %Schema{type: :object, additionalProperties: true}
-  @native_stream_receive_timeout_ms 61_000
 
   tags(["AIGateway"])
   security([%{"aiGatewayBearer" => []}, %{"consoleBearer" => []}])
@@ -289,10 +288,6 @@ defmodule AnkoleWeb.AIGatewayController do
 
           {:universal_ai_client, ref, :aborted} when ref == stream.ref ->
             conn
-        after
-          @native_stream_receive_timeout_ms ->
-            _ = UniversalAIClient.cancel(stream)
-            conn
         end
 
       {:error, _reason} ->
@@ -331,16 +326,24 @@ defmodule AnkoleWeb.AIGatewayController do
   defp error_tuple(:invalid_request_body),
     do: {400, "invalid_request_body", "JSON object body required"}
 
-  defp error_tuple(:unsupported_stateless_compact),
-    do: {400, "unsupported_stateless_compact", "stateless /responses/compact is unsupported"}
-
   defp error_tuple(:invalid_compaction_item),
     do: {400, "invalid_compaction_item", "input must contain exactly one compaction item"}
+
+  defp error_tuple(:invalid_compaction_handle),
+    do: {400, "invalid_compaction_handle", "compaction encrypted_content handle is invalid"}
+
+  defp error_tuple(:compact_store_required),
+    do:
+      {400, "compact_store_required",
+       "previous_response_id or conversation on /responses/compact requires store=true"}
 
   defp error_tuple(:invalid_anchor),
     do:
       {400, "invalid_previous_response_id",
        "previous_response_id must reference a stored response"}
+
+  defp error_tuple(:invalid_conversation),
+    do: {400, "invalid_conversation", "conversation must reference a stored conversation"}
 
   defp error_tuple({:stateful_http_field_forbidden, field}),
     do:

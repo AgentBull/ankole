@@ -2,7 +2,7 @@
  * Agent loop — worker-driven Responses loop using AIGateway's stateful Responses transport.
  *
  * The loop is simple (plan §4.2):
- *   1. Call the model via `callModel()` (one response.create round).
+ *   1. Call the model via a turn-scoped OpenAI Responses adapter.
  *   2. If the response contains function_call items, execute them locally.
  *   3. Record function_call_output results through AIGateway.
  *   4. Continue from the recorded journal anchor until no function_call items are returned.
@@ -15,17 +15,17 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { safeJsonParse, safeJsonStringify, type JsonObject } from '@pleisto/active-support'
 import { withRetry } from '../common/async'
+import { errorMessage } from '../common/errors'
 import {
-  callModel,
   assistantText,
-  createResponseWebSocketSession,
-  recordToolResults,
+  createModelTurn,
   validateToolArguments,
   type Message,
   type AssistantMessage,
   type ToolResultMessage,
   type UserMessage,
   type ImageContent,
+  type ModelTurn,
   type ToolCall
 } from './llm'
 import { isLocallyRetryableLlmError, isRetryableLlmError } from './llm-error-classifier'
@@ -61,7 +61,6 @@ const VOLATILE_TOOL_ARGUMENT_KEYS = new Set([
  */
 export async function runAgentLoop(config: AgentLoopConfig): Promise<AssistantMessage> {
   let pendingMessages: Message[] = [...config.messages]
-  let stateful = config.stateful
   let latestAssistant: AssistantMessage | undefined
   let modelIterations = 0
   let toolRounds = 0
@@ -71,9 +70,15 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AssistantMe
   const maxModelIterations = config.maxModelIterations ?? DEFAULT_MAX_MODEL_ITERATIONS
   const maxToolRounds = config.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS
   const toolByName = config.tools?.length ? agentToolMap(config.tools) : undefined
-  const responseWebSocketSession = config.model.responseWebSocket
-    ? createResponseWebSocketSession(config.model)
-    : undefined
+  const modelTurn = createModelTurn(config.model, {
+    stateful: config.stateful,
+    abortSignal: config.abortSignal,
+    onActivity: config.onActivity,
+    onTextDelta: delta => {
+      config.onActivity?.('model_text_delta')
+      config.onTextDelta?.(delta)
+    }
+  })
 
   try {
     while (true) {
@@ -81,10 +86,8 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AssistantMe
         const synthesized = await synthesizeAfterModelIterationLimit({
           config,
           maxModelIterations,
-          responseWebSocketSession,
-          stateful
+          modelTurn
         })
-        stateful = synthesized.stateful
         latestAssistant = synthesized.message
         break
       }
@@ -112,20 +115,12 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AssistantMe
       const result = await withRetry(
         async () => {
           config.onActivity?.('model_call_start')
-          const result = await callModel(config.model, {
+          const result = await modelTurn.call({
             instructions: config.systemPrompt,
             messages: pendingMessages,
             tools: tools as never,
             maxOutputTokens: config.maxTokens,
-            temperature: config.temperature,
-            abortSignal: config.abortSignal,
-            onTextDelta: delta => {
-              config.onActivity?.('model_text_delta')
-              config.onTextDelta?.(delta)
-            },
-            onActivity: config.onActivity,
-            stateful,
-            responseWebSocketSession
+            temperature: config.temperature
           })
           config.onActivity?.('model_call_done')
           const retryableError = retryableTerminalModelError(result.message)
@@ -140,13 +135,6 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AssistantMe
       )
 
       latestAssistant = result.message
-      if (result.responseId) {
-        stateful = {
-          ...stateful,
-          conversationId: undefined,
-          previousResponseId: result.responseId
-        }
-      }
 
       // If no tool calls, the loop is done.
       if (!result.hasToolCalls || !latestAssistant.toolCalls?.length) {
@@ -164,11 +152,9 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AssistantMe
         const synthesized = await synthesizeAfterToolRoundLimit({
           config,
           maxToolRounds,
-          responseWebSocketSession,
-          stateful,
+          modelTurn,
           toolCalls: latestAssistant.toolCalls
         })
-        stateful = synthesized.stateful
         latestAssistant = synthesized.message
         break
       }
@@ -193,17 +179,13 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AssistantMe
       // In stateful mode, tool results become a stored AIGateway response. The
       // next model call should anchor to that response id instead of sending the
       // same function_call_output messages again.
-      if (toolJournalMessages.length > 0 && stateful.previousResponseId && responseWebSocketSession) {
-        const recorded = await withRetry(
+      if (toolJournalMessages.length > 0) {
+        await withRetry(
           () => {
             config.onActivity?.('tool_results_record_start')
-            return recordToolResults(config.model, {
-              messages: toolJournalMessages,
-              stateful,
-              abortSignal: config.abortSignal,
-              onActivity: config.onActivity,
-              responseWebSocketSession
-            }).finally(() => config.onActivity?.('tool_results_record_done'))
+            return modelTurn
+              .recordToolResults(toolJournalMessages)
+              .finally(() => config.onActivity?.('tool_results_record_done'))
           },
           {
             maxAttempts: 2,
@@ -212,11 +194,6 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AssistantMe
           }
         )
 
-        stateful = {
-          ...stateful,
-          conversationId: undefined,
-          previousResponseId: recorded.responseId
-        }
         nextMessages = []
       }
 
@@ -224,7 +201,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AssistantMe
       pendingMessages = [...nextMessages, ...steeringMessages]
     }
   } finally {
-    responseWebSocketSession?.close()
+    modelTurn.close()
   }
 
   if (!latestAssistant) {
@@ -248,13 +225,6 @@ function agentToolMap(tools: AgentTool[]): Map<string, AgentTool> {
   }
 
   return byName
-}
-
-/**
- * Converts unknown thrown values into readable text.
- */
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 /**
@@ -300,16 +270,14 @@ interface RepeatedToolFailureState {
 interface ToolLimitSynthesisInput {
   config: AgentLoopConfig
   maxToolRounds: number
-  responseWebSocketSession: ReturnType<typeof createResponseWebSocketSession> | undefined
-  stateful: AgentLoopConfig['stateful']
+  modelTurn: ModelTurn
   toolCalls: ToolCall[]
 }
 
 interface ModelIterationLimitSynthesisInput {
   config: AgentLoopConfig
   maxModelIterations: number
-  responseWebSocketSession: ReturnType<typeof createResponseWebSocketSession> | undefined
-  stateful: AgentLoopConfig['stateful']
+  modelTurn: ModelTurn
 }
 
 /**
@@ -321,25 +289,19 @@ interface ModelIterationLimitSynthesisInput {
  */
 async function synthesizeAfterToolRoundLimit(input: ToolLimitSynthesisInput): Promise<{
   message: AssistantMessage
-  stateful: AgentLoopConfig['stateful']
 }> {
-  let stateful = input.stateful
   let pendingMessages: Message[] = [
     ...input.toolCalls.map(toolCall => toolRoundLimitResult(toolCall, input.maxToolRounds)),
     { role: 'user' as const, content: TOOL_ROUND_LIMIT_SYNTHESIS_TEXT }
   ]
 
-  if (input.toolCalls.length > 0 && stateful.previousResponseId && input.responseWebSocketSession) {
-    const recorded = await withRetry(
+  if (input.toolCalls.length > 0) {
+    await withRetry(
       () => {
         input.config.onActivity?.('tool_round_limit_record_start')
-        return recordToolResults(input.config.model, {
-          messages: pendingMessages,
-          stateful,
-          abortSignal: input.config.abortSignal,
-          onActivity: input.config.onActivity,
-          responseWebSocketSession: input.responseWebSocketSession
-        }).finally(() => input.config.onActivity?.('tool_round_limit_record_done'))
+        return input.modelTurn
+          .recordToolResults(pendingMessages)
+          .finally(() => input.config.onActivity?.('tool_round_limit_record_done'))
       },
       {
         maxAttempts: 2,
@@ -348,31 +310,20 @@ async function synthesizeAfterToolRoundLimit(input: ToolLimitSynthesisInput): Pr
       }
     )
 
-    stateful = {
-      ...stateful,
-      conversationId: undefined,
-      previousResponseId: recorded.responseId
-    }
     pendingMessages = []
   }
 
   const result = await withRetry(
     () => {
       input.config.onActivity?.('tool_round_limit_synthesis_start')
-      return callModel(input.config.model, {
-        instructions: input.config.systemPrompt,
-        messages: pendingMessages,
-        maxOutputTokens: input.config.maxTokens,
-        temperature: input.config.temperature,
-        abortSignal: input.config.abortSignal,
-        onTextDelta: delta => {
-          input.config.onActivity?.('model_text_delta')
-          input.config.onTextDelta?.(delta)
-        },
-        onActivity: input.config.onActivity,
-        stateful,
-        responseWebSocketSession: input.responseWebSocketSession
-      }).finally(() => input.config.onActivity?.('tool_round_limit_synthesis_done'))
+      return input.modelTurn
+        .call({
+          instructions: input.config.systemPrompt,
+          messages: pendingMessages,
+          maxOutputTokens: input.config.maxTokens,
+          temperature: input.config.temperature
+        })
+        .finally(() => input.config.onActivity?.('tool_round_limit_synthesis_done'))
     },
     {
       maxAttempts: 2,
@@ -381,19 +332,10 @@ async function synthesizeAfterToolRoundLimit(input: ToolLimitSynthesisInput): Pr
     }
   )
 
-  if (result.responseId) {
-    stateful = {
-      ...stateful,
-      conversationId: undefined,
-      previousResponseId: result.responseId
-    }
-  }
-
   return {
     // There is no public "interrupted" stop reason in the worker type. Marking
     // this as length preserves that the answer came from a bounded partial run.
-    message: result.message.stopReason === 'stop' ? { ...result.message, stopReason: 'length' } : result.message,
-    stateful
+    message: result.message.stopReason === 'stop' ? { ...result.message, stopReason: 'length' } : result.message
   }
 }
 
@@ -403,9 +345,7 @@ async function synthesizeAfterToolRoundLimit(input: ToolLimitSynthesisInput): Pr
  */
 async function synthesizeAfterModelIterationLimit(input: ModelIterationLimitSynthesisInput): Promise<{
   message: AssistantMessage
-  stateful: AgentLoopConfig['stateful']
 }> {
-  let stateful = input.stateful
   const pendingMessages: Message[] = [
     {
       role: 'user' as const,
@@ -416,20 +356,14 @@ async function synthesizeAfterModelIterationLimit(input: ModelIterationLimitSynt
   const result = await withRetry(
     () => {
       input.config.onActivity?.('model_iteration_limit_synthesis_start')
-      return callModel(input.config.model, {
-        instructions: input.config.systemPrompt,
-        messages: pendingMessages,
-        maxOutputTokens: input.config.maxTokens,
-        temperature: input.config.temperature,
-        abortSignal: input.config.abortSignal,
-        onTextDelta: delta => {
-          input.config.onActivity?.('model_text_delta')
-          input.config.onTextDelta?.(delta)
-        },
-        onActivity: input.config.onActivity,
-        stateful,
-        responseWebSocketSession: input.responseWebSocketSession
-      }).finally(() => input.config.onActivity?.('model_iteration_limit_synthesis_done'))
+      return input.modelTurn
+        .call({
+          instructions: input.config.systemPrompt,
+          messages: pendingMessages,
+          maxOutputTokens: input.config.maxTokens,
+          temperature: input.config.temperature
+        })
+        .finally(() => input.config.onActivity?.('model_iteration_limit_synthesis_done'))
     },
     {
       maxAttempts: 2,
@@ -438,17 +372,8 @@ async function synthesizeAfterModelIterationLimit(input: ModelIterationLimitSynt
     }
   )
 
-  if (result.responseId) {
-    stateful = {
-      ...stateful,
-      conversationId: undefined,
-      previousResponseId: result.responseId
-    }
-  }
-
   return {
-    message: result.message.stopReason === 'stop' ? { ...result.message, stopReason: 'length' } : result.message,
-    stateful
+    message: result.message.stopReason === 'stop' ? { ...result.message, stopReason: 'length' } : result.message
   }
 }
 
@@ -563,7 +488,7 @@ async function executeToolCall(
     resultText = processed.outputText
     followUpMessages = processed.followUpMessages
   } catch (e) {
-    const message = `Error: ${e instanceof Error ? e.message : String(e)}`
+    const message = `Error: ${errorMessage(e)}`
     toolResult = {
       content: [{ type: 'text', text: message }],
       details: { error: String(e) }

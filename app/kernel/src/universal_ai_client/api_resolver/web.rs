@@ -1,20 +1,21 @@
+use super::*;
 #[derive(Debug)]
-struct ParallelWebSearch;
+pub(super) struct ParallelWebSearch;
 
 #[derive(Debug)]
-struct ParallelWebFetch;
+pub(super) struct ParallelWebFetch;
 
 #[derive(Debug)]
-struct BrightDataSerpWebSearch;
+pub(super) struct BrightDataSerpWebSearch;
 
 #[derive(Debug)]
-struct AgentBullWebSearch;
+pub(super) struct AgentBullWebSearch;
 
 #[derive(Debug)]
-struct JinaSearchWebSearch;
+pub(super) struct JinaSearchWebSearch;
 
 #[derive(Debug)]
-struct JinaReaderWebFetch;
+pub(super) struct JinaReaderWebFetch;
 
 impl ApiProtocol for ParallelWebSearch {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
@@ -257,20 +258,14 @@ fn normalize_parallel_search_body(
     status: u16,
     body: Value,
 ) -> Result<Value, StreamError> {
-    let object = checked_provider_object(status, body, "Parallel search")?;
-    let results = object
-        .get("results")
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .enumerate()
-                .map(|(index, item)| normalize_parallel_search_result(index, item))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    Ok(search_response(context, results))
+    normalize_search_body(
+        context,
+        status,
+        body,
+        "Parallel search",
+        &["results"],
+        normalize_parallel_search_result,
+    )
 }
 
 fn normalize_bright_data_search_body(
@@ -278,23 +273,14 @@ fn normalize_bright_data_search_body(
     status: u16,
     body: Value,
 ) -> Result<Value, StreamError> {
-    let object = checked_provider_object(status, body, "Bright Data SERP")?;
-    let source = object
-        .get("organic_results")
-        .or_else(|| object.get("organic"))
-        .or_else(|| object.get("results"));
-    let results = source
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .enumerate()
-                .map(|(index, item)| normalize_bright_data_result(index, item))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    Ok(search_response(context, results))
+    normalize_search_body(
+        context,
+        status,
+        body,
+        "Bright Data SERP",
+        &["organic_results", "organic", "results"],
+        normalize_bright_data_result,
+    )
 }
 
 fn normalize_agentbull_search_body(
@@ -302,20 +288,14 @@ fn normalize_agentbull_search_body(
     status: u16,
     body: Value,
 ) -> Result<Value, StreamError> {
-    let object = checked_provider_object(status, body, "AgentBull search")?;
-    let results = object
-        .get("items")
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .enumerate()
-                .map(|(index, item)| normalize_agentbull_result(index, item))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    Ok(search_response(context, results))
+    normalize_search_body(
+        context,
+        status,
+        body,
+        "AgentBull search",
+        &["items"],
+        normalize_agentbull_result,
+    )
 }
 
 fn normalize_jina_search_body(
@@ -323,23 +303,14 @@ fn normalize_jina_search_body(
     status: u16,
     body: Value,
 ) -> Result<Value, StreamError> {
-    let object = checked_provider_object(status, body, "Jina Search")?;
-    let source = object
-        .get("results")
-        .or_else(|| object.get("data"))
-        .or_else(|| object.get("items"));
-    let results = source
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .enumerate()
-                .map(|(index, item)| normalize_jina_search_result(index, item))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    Ok(search_response(context, results))
+    normalize_search_body(
+        context,
+        status,
+        body,
+        "Jina Search",
+        &["results", "data", "items"],
+        normalize_jina_search_result,
+    )
 }
 
 fn normalize_parallel_extract_body(status: u16, body: Value) -> Result<Value, StreamError> {
@@ -407,6 +378,31 @@ fn checked_provider_object(
         .unwrap_or_default())
 }
 
+fn normalize_search_body(
+    context: &ResponseContext,
+    status: u16,
+    body: Value,
+    label: &'static str,
+    result_keys: &[&str],
+    normalize: fn(usize, &Value) -> Value,
+) -> Result<Value, StreamError> {
+    let object = checked_provider_object(status, body, label)?;
+    let results = result_keys
+        .iter()
+        .find_map(|key| object.get(*key))
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .enumerate()
+                .map(|(index, item)| normalize(index, item))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Ok(search_response(context, results))
+}
+
 fn search_response(context: &ResponseContext, results: Vec<Value>) -> Value {
     let request = context.resolved_provider_request_object();
     json!({
@@ -418,7 +414,7 @@ fn search_response(context: &ResponseContext, results: Vec<Value>) -> Value {
 
 fn extract_response(results: Vec<Value>) -> Value {
     json!({
-        "success": results.iter().all(|result| result.get("error").map_or(true, Value::is_null)),
+        "success": results.iter().all(|result| result.get("error").is_none_or(Value::is_null)),
         "results": results
     })
 }

@@ -1,13 +1,13 @@
 import { existsSync } from 'node:fs'
 import type { RuntimeFabricEnvelope } from '../fabric/fabric'
 import {
-  SANDBOX_AGENT_INSTALLED_SKILLS_ROOT,
-  SANDBOX_BUILTIN_SKILLS_ROOT,
-  SANDBOX_SHARED_FS_ROOT,
-  SANDBOX_USER_FILES_ROOT,
-  SANDBOX_WORKSPACE_ROOT,
-  SANDBOX_WORKSPACE_SESSIONS_ROOT
-} from './sandbox_paths'
+  BUILTIN_SKILLS_ROOT,
+  WORKSPACE_AGENT_INSTALLED_SKILLS_ROOT,
+  WORKSPACE_MODEL_ROOT,
+  WORKSPACE_SESSIONS_ROOT,
+  WORKSPACE_SHARED_ROOT,
+  WORKSPACE_USER_FILES_ROOT
+} from '../core/workspace-paths'
 
 export type WorkerConfig = {
   endpoint: string
@@ -49,16 +49,16 @@ export function parseWorkerEnv(env: Record<string, string | undefined> = Bun.env
   return {
     ...parseRuntimeFabricUrl(requiredEnv(env, 'RUNTIME_FABRIC_URL')),
     workerId: requiredEnv(env, 'WORKER_ID'),
-    workspaceRoot: optionalEnv(env, 'ANKOLE_WORKSPACE_ROOT', SANDBOX_WORKSPACE_ROOT),
-    workspaceSessionsRoot: optionalEnv(env, 'ANKOLE_WORKSPACE_SESSIONS_ROOT', SANDBOX_WORKSPACE_SESSIONS_ROOT),
-    sharedFsRoot: optionalEnv(env, 'ANKOLE_SHARED_FS_ROOT', SANDBOX_SHARED_FS_ROOT),
-    userFilesRoot: optionalEnv(env, 'ANKOLE_USER_FILES_ROOT', SANDBOX_USER_FILES_ROOT),
+    workspaceRoot: optionalEnv(env, 'ANKOLE_WORKSPACE_ROOT', WORKSPACE_MODEL_ROOT),
+    workspaceSessionsRoot: optionalEnv(env, 'ANKOLE_WORKSPACE_SESSIONS_ROOT', WORKSPACE_SESSIONS_ROOT),
+    sharedFsRoot: optionalEnv(env, 'ANKOLE_SHARED_FS_ROOT', WORKSPACE_SHARED_ROOT),
+    userFilesRoot: optionalEnv(env, 'ANKOLE_USER_FILES_ROOT', WORKSPACE_USER_FILES_ROOT),
     agentInstalledSkillsRoot: optionalEnv(
       env,
       'ANKOLE_AGENT_INSTALLED_SKILLS_ROOT',
-      SANDBOX_AGENT_INSTALLED_SKILLS_ROOT
+      WORKSPACE_AGENT_INSTALLED_SKILLS_ROOT
     ),
-    builtinSkillsRoot: optionalEnv(env, 'ANKOLE_BUILTIN_SKILLS_ROOT', SANDBOX_BUILTIN_SKILLS_ROOT),
+    builtinSkillsRoot: optionalEnv(env, 'ANKOLE_BUILTIN_SKILLS_ROOT', BUILTIN_SKILLS_ROOT),
     internalSkillsRoot: optionalEnv(env, 'ANKOLE_INTERNAL_SKILLS_ROOT'),
     maxConcurrentTurns: optionalPositiveIntegerEnv(env, 'ANKOLE_MAX_CONCURRENT_TURNS', defaultMaxConcurrentTurns)
   }

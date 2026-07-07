@@ -23,6 +23,4 @@ describe('logs pretty', () => {
       )
     ).toBe('worker worker.turn_completed 42ms: turn completed')
   })
-
-
 })

@@ -4,8 +4,11 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
   import AnkoleWeb.AIGatewayControllerTestHelpers, only: [decode_sse_events: 1]
 
   alias Ankole.AIGateway.Compaction
+  alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.StatefulResponses
+  alias Ankole.AIGateway.Schemas.Conversation
+  alias Ankole.AIGateway.Schemas.CompactionArtifact
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Actors.ActorEvent
   alias Ankole.Kernel.UniversalAIClient
@@ -130,6 +133,62 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     refute_receive {:gateway_request, _request}
   end
 
+  test "websocket store true without previous_response_id or conversation creates a managed conversation" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-stateful-auto-conversation",
+               provider_kind: "openai",
+               base_url: "https://api.openai.test/v1",
+               connection_options: %{
+                 "api_key" => "sk-openai",
+                 "upstream_transport" => "websocket"
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-stateful-auto-conversation",
+               model: "gpt-5.5"
+             })
+
+    assert {:ok, request} =
+             AIGateway.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => "hello",
+               "store" => true,
+               "metadata" => %{"request_tag" => "kept"}
+             })
+
+    provider_request = request.response_context.request
+
+    assert provider_request["store"] == false
+    assert provider_request["metadata"] == %{"request_tag" => "kept"}
+    refute Map.has_key?(provider_request, "conversation")
+    refute Map.has_key?(provider_request, "previous_response_id")
+
+    assert [
+             %{
+               "type" => "message",
+               "role" => "user",
+               "content" => [%{"type" => "input_text", "text" => "hello"}]
+             }
+           ] = provider_request["input"]
+
+    conversation =
+      Repo.one!(
+        from(conversation in Conversation,
+          where: conversation.agent_uid == ^agent.uid,
+          where:
+            fragment("?->>'managed_by_stateful_responses_api'", conversation.metadata) == "true"
+        )
+      )
+
+    assert String.starts_with?(conversation.conversation_key, "stateful-responses-api:")
+    assert conversation.metadata == %{"managed_by_stateful_responses_api" => true}
+  end
+
   test "websocket stateful previous_response_id expands history without provider state fields" do
     %{principal: agent} = agent_fixture()
 
@@ -235,6 +294,17 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert provider_request["store"] == false
     refute Map.has_key?(provider_request, "conversation")
     assert provider_request["metadata"] == %{"kept" => "public"}
+
+    assert {:ok, no_event_request} =
+             AIGateway.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => current_input,
+               "store" => true,
+               "previous_response_id" => "resp_#{first.id}"
+             })
+
+    assert no_event_request.response_context.request["input"] == history_input ++ current_input
+    refute Map.has_key?(no_event_request.response_context.request, "metadata")
 
     assert {:ok, string_request} =
              AIGateway.prepare_websocket_request(agent.uid, %{
@@ -520,19 +590,15 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     {:ok, second} = StatefulResponses.commit_complete(second, [text_message("assistant", "tail")])
 
-    compaction =
-      %Message{}
-      |> Message.changeset(%{
-        agent_uid: agent.uid,
-        conversation_id: conversation.id,
-        type: "compaction",
-        status: "complete",
-        previous_message_id: second.id,
-        covers_until_message_id: first.id,
-        content: [%{"type" => "compaction", "summary" => "first tool round summarized"}],
-        metadata: %{"auto" => true}
-      })
-      |> Repo.insert!()
+    {:ok, compaction} =
+      insert_compaction_checkpoint(
+        agent.uid,
+        conversation,
+        second,
+        "first tool round summarized",
+        [],
+        %{"auto" => true}
+      )
 
     tools = [
       %{
@@ -642,7 +708,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert is_nil(Repo.get!(ActorEvent, actor_event.id).completed_at)
   end
 
-  test "websocket stateful conversation run stores compaction leaf instead of projected tail as durable anchor" do
+  test "websocket stateful conversation run stores checkpoint instead of projected tail as durable anchor" do
     %{principal: agent} = agent_fixture()
 
     assert {:ok, _provider} =
@@ -690,17 +756,16 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     {:ok, m3} = StatefulResponses.commit_complete(m3, [])
 
     {:ok, compaction} =
-      StatefulResponses.compact_history_prefix(
+      insert_compaction_checkpoint(
         agent.uid,
-        "resp_#{m3.id}",
-        "resp_#{m1.id}",
-        %{"type" => "compaction", "summary" => "first turn compressed"}
+        conversation,
+        m3,
+        "first turn compressed",
+        m2.content ++ m3.content
       )
 
     assert Enum.map(StatefulResponses.expand_history(conversation.id), & &1.id) == [
-             compaction.id,
-             m2.id,
-             m3.id
+             compaction.id
            ]
 
     actor_event =
@@ -755,6 +820,52 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              threshold: 0.25,
              max_threshold_tokens: 200_000
            } = Compaction.threshold_spec(%{"context_length" => 400_000}, %{})
+  end
+
+  test "websocket stateful memory pre-compaction nudge does not hijack empty continuations" do
+    %{principal: agent} = agent_fixture()
+
+    with_compaction_config(threshold: 0.50, max_threshold_tokens: 10, tail_rows: 1)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-memory-nudge-empty-continuation",
+               provider_kind: "openai",
+               base_url: "http://127.0.0.1:1/v1",
+               connection_options: %{
+                 "api_key" => "sk-openai",
+                 "upstream_transport" => "websocket"
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-memory-nudge-empty-continuation",
+               model: "gpt-main"
+             })
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "dispatch-memory-nudge-empty-continuation")
+
+    {:ok, message} =
+      start_stateful_message(agent.uid, conversation, "memory-nudge-empty-anchor", [
+        text_message("user", "tool result continuation anchor")
+      ])
+
+    {:ok, message} = StatefulResponses.commit_complete(message, [], usage(20))
+
+    assert {:ok, request} =
+             AIGateway.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => [],
+               "store" => true,
+               "previous_response_id" => "resp_#{message.id}",
+               "metadata" => %{"actor_event_id" => "memory-nudge-empty-continuation-event"}
+             })
+
+    provider_input = request.response_context.request["input"]
+    assert provider_input == message.content
+    refute inspect(provider_input) =~ memory_pre_compaction_nudge_marker()
   end
 
   test "websocket stateful history auto-compacts before creating the provider request" do
@@ -867,17 +978,26 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     assert provider_request["store"] == false
     assert compaction_item["type"] == "compaction"
-    assert compaction_item["summary"] == "## Active Task\nPrior two turns were compressed."
+
+    assert compaction_item["encrypted_content"] ==
+             "## Active Task\nPrior two turns were compressed."
+
     assert rest == m3.content ++ current_input
 
     [compaction] =
       Repo.all(Message)
-      |> Enum.filter(&(&1.type == "compaction"))
+      |> Enum.filter(&(&1.type == "checkpoint"))
 
     assert compaction.previous_message_id == m3.id
-    assert compaction.covers_until_message_id == m2.id
     assert compaction.metadata["auto"] == true
     assert get_in(compaction.metadata, ["summarizer", "usage", "total_tokens"]) == 18
+
+    assert %CompactionArtifact{} = artifact = Repo.get!(CompactionArtifact, compaction.id)
+
+    assert get_in(artifact.content, ["summary", "text"]) ==
+             "## Active Task\nPrior two turns were compressed."
+
+    assert Enum.drop(artifact.content["output"], 1) == m3.content
   end
 
   test "websocket stateful auto-compaction keeps function calls with protected tool results" do
@@ -999,16 +1119,19 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     [compaction_item | rest] = provider_request["input"]
 
     assert compaction_item["type"] == "compaction"
-    assert compaction_item["summary"] == "Only the first row was compressed."
+    assert compaction_item["encrypted_content"] == "Only the first row was compressed."
     assert rest == function_call ++ tool_result ++ m4.content ++ current_input
 
     [compaction] =
       Repo.all(Message)
-      |> Enum.filter(&(&1.type == "compaction"))
+      |> Enum.filter(&(&1.type == "checkpoint"))
 
     assert compaction.previous_message_id == m4.id
-    assert compaction.covers_until_message_id == m1.id
     assert compaction.metadata["auto"] == true
+
+    assert %CompactionArtifact{} = artifact = Repo.get!(CompactionArtifact, compaction.id)
+    assert get_in(artifact.content, ["summary", "text"]) == "Only the first row was compressed."
+    assert Enum.drop(artifact.content["output"], 1) == function_call ++ tool_result ++ m4.content
   end
 
   test "websocket stateful overflow returns an explicit error when truncation is disabled" do
@@ -1062,7 +1185,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     assert history_usage_tokens > 10
-    refute Enum.any?(Repo.all(Message), &(&1.type == "compaction"))
+    refute Enum.any?(Repo.all(Message), &(&1.type == "checkpoint"))
     refute_receive {:gateway_request, _request}
   end
 
@@ -1123,7 +1246,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     provider_request = request.response_context.request
     assert provider_request["input"] == m2.content ++ current_input
     assert provider_request["truncation"] == "auto"
-    refute Enum.any?(Repo.all(Message), &(&1.type == "compaction"))
+    refute Enum.any?(Repo.all(Message), &(&1.type == "checkpoint"))
     refute_receive {:gateway_request, _request}
 
     actor_event =
@@ -1345,7 +1468,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     provider_request = request.response_context.request
     refute Enum.any?(provider_request["input"], &(&1 in m1.content))
     assert Enum.take(provider_request["input"], -2) == m3.content ++ current_input
-    refute Enum.any?(Repo.all(Message), &(&1.type == "compaction"))
+    refute Enum.any?(Repo.all(Message), &(&1.type == "checkpoint"))
   end
 
   test "explicit provider selectors can carry request-scoped provider options" do
@@ -2465,6 +2588,36 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       _result = Compaction.delete_config()
       :ok
     end)
+  end
+
+  defp insert_compaction_checkpoint(
+         agent_uid,
+         conversation,
+         previous_message,
+         summary_text,
+         retained_items,
+         metadata \\ %{}
+       ) do
+    with {:ok, artifact} <-
+           CompactionArtifacts.insert_artifact(%{
+             agent_uid: agent_uid,
+             conversation_id: conversation.id,
+             summary_text: summary_text,
+             retained_items: retained_items,
+             retention: %{
+               "strategy" => "tail_rows",
+               "requested" => 2,
+               "actual" => length(retained_items)
+             },
+             usage: %{}
+           }) do
+      StatefulResponses.create_compaction_checkpoint(%{
+        agent_uid: agent_uid,
+        previous_response_id: "resp_#{previous_message.id}",
+        artifact: artifact,
+        metadata: metadata
+      })
+    end
   end
 
   defp actor_event_fixture(agent_uid, session_id, source_event_id) do

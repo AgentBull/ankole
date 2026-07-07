@@ -7,6 +7,7 @@ defmodule Ankole.Schedule.RPCBroker do
 
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Actors.ActorEvent
+  alias Ankole.ActorRuntime.RPCWire
   alias Ankole.ActorRuntime.TurnRef
   alias Ankole.Repo
   alias Ankole.Schedule
@@ -17,7 +18,7 @@ defmodule Ankole.Schedule.RPCBroker do
           {:ok, map()} | {:error, map()}
   def handle_request(action, %TurnRef{} = turn_ref, request, route)
       when is_binary(action) and is_map(request) and is_binary(route) do
-    request_id = text(request, "request_id") || "schedule-rpc-#{Ecto.UUID.generate()}"
+    request_id = RPCWire.text(request, "request_id") || "schedule-rpc-#{Ecto.UUID.generate()}"
 
     request
     |> dispatch(action, route, request_id, turn_ref)
@@ -31,7 +32,7 @@ defmodule Ankole.Schedule.RPCBroker do
     do: {:error, error_payload("", {:invalid_schedule_rpc_request, action})}
 
   defp dispatch(request, "check_back_later.create", route, _request_id, turn_ref) do
-    with {:ok, source} <- validate_reply_route(turn_ref, map_value(request, "reply_route")),
+    with {:ok, source} <- validate_reply_route(turn_ref, RPCWire.value(request, "reply_route")),
          {:ok, attrs} <- checkback_attrs(request, turn_ref, source, route),
          {:ok, %{status: status, scheduled_event: event}} <-
            Schedule.create_check_back_later(attrs) do
@@ -95,7 +96,7 @@ defmodule Ankole.Schedule.RPCBroker do
          {:ok, cron_schedule_id} <- required_text(request, "cron_schedule_id"),
          {:ok, schedule} <- Schedule.get_cron_schedule(cron_schedule_id),
          :ok <- cron_belongs_to_turn(schedule, turn_ref),
-         updates <- map_value(request, "updates") || %{},
+         updates <- RPCWire.value(request, "updates") || %{},
          :ok <- validate_cron_update_delivery_route(turn_ref, schedule.binding_name, updates),
          {:ok, updated} <-
            Schedule.update_cron_schedule(cron_schedule_id, updates) do
@@ -160,7 +161,7 @@ defmodule Ankole.Schedule.RPCBroker do
   end
 
   defp checkback_attrs(request, %TurnRef{} = turn_ref, source, route) do
-    reply_route = map_value(request, "reply_route") || %{}
+    reply_route = RPCWire.value(request, "reply_route") || %{}
 
     with {:ok, tool_call_id} <- required_text(request, "tool_call_id"),
          {:ok, idempotency_key} <- required_text(request, "idempotency_key") do
@@ -168,20 +169,20 @@ defmodule Ankole.Schedule.RPCBroker do
        %{
          "agent_uid" => turn_ref.agent_uid,
          "session_id" => turn_ref.session_id,
-         "binding_name" => text(reply_route, "binding_name") || source.binding_name,
+         "binding_name" => RPCWire.text(reply_route, "binding_name") || source.binding_name,
          "tool_call_id" => tool_call_id,
          "idempotency_key" => idempotency_key,
-         "schedule" => map_value(request, "schedule"),
-         "reason" => text(request, "reason"),
-         "check" => text(request, "check"),
-         "context_summary" => text(request, "context_summary"),
+         "schedule" => RPCWire.value(request, "schedule"),
+         "reason" => RPCWire.text(request, "reason"),
+         "check" => RPCWire.text(request, "check"),
+         "context_summary" => RPCWire.text(request, "context_summary"),
          "reply_route" => reply_route,
          # Source tables: current_ai_message_id resolves ai_gateway_messages.id;
          # source.actor_event_id is the actor_events.id currently being served.
          "origin_ai_message_id" => current_ai_message_id(turn_ref),
          "source_actor_event_id" => source.actor_event_id,
          "source_provenance" => %{
-           "rpc_request_id" => text(request, "request_id"),
+           "rpc_request_id" => RPCWire.text(request, "request_id"),
            "transport_route" => route,
            # Source table: these fence values are copied from the turn_ref
            # originally produced from actor_session_activations.
@@ -196,19 +197,19 @@ defmodule Ankole.Schedule.RPCBroker do
   defp cron_attrs(request, %TurnRef{} = turn_ref) do
     with {:ok, idempotency_key} <- required_text(request, "idempotency_key"),
          {:ok, binding_name} <- required_text(request, "binding_name"),
-         delivery <- map_value(request, "delivery"),
+         delivery <- RPCWire.value(request, "delivery"),
          :ok <- validate_cron_delivery_route(turn_ref, binding_name, delivery) do
       {:ok,
        %{
          "agent_uid" => turn_ref.agent_uid,
          "session_id" => turn_ref.session_id,
          "binding_name" => binding_name,
-         "name" => text(request, "name"),
-         "schedule" => map_value(request, "schedule"),
-         "payload" => map_value(request, "payload") || %{},
+         "name" => RPCWire.text(request, "name"),
+         "schedule" => RPCWire.value(request, "schedule"),
+         "payload" => RPCWire.value(request, "payload") || %{},
          "delivery" => delivery,
          "idempotency_key" => idempotency_key,
-         "failure_policy" => map_value(request, "failure_policy") || %{}
+         "failure_policy" => RPCWire.value(request, "failure_policy") || %{}
        }}
     end
   end
@@ -243,7 +244,7 @@ defmodule Ankole.Schedule.RPCBroker do
 
   defp validate_cron_update_delivery_route(turn, binding_name, updates) do
     case Map.has_key?(updates, "delivery") or Map.has_key?(updates, :delivery) do
-      true -> validate_cron_delivery_route(turn, binding_name, map_value(updates, "delivery"))
+      true -> validate_cron_delivery_route(turn, binding_name, RPCWire.value(updates, "delivery"))
       false -> :ok
     end
   end
@@ -285,14 +286,14 @@ defmodule Ankole.Schedule.RPCBroker do
   end
 
   defp reply_route_matches?(source, reply_route) do
-    text(reply_route, "binding_name") == source.binding_name and
-      text(reply_route, "signal_channel_id") == source.signal_channel_id and
+    RPCWire.text(reply_route, "binding_name") == source.binding_name and
+      RPCWire.text(reply_route, "signal_channel_id") == source.signal_channel_id and
       nullable_text(reply_route, "provider_thread_id") == source.provider_thread_id and
       nullable_text(reply_route, "source_entry_id") == source.source_entry_id
   end
 
   defp cron_delivery_route_matches?(source, binding_name, delivery) do
-    text(delivery, "signal_channel_id") == source.signal_channel_id and
+    RPCWire.text(delivery, "signal_channel_id") == source.signal_channel_id and
       binding_name == source.binding_name and
       cron_provider_thread_matches?(
         source.provider_thread_id,
@@ -358,48 +359,23 @@ defmodule Ankole.Schedule.RPCBroker do
   end
 
   defp error_payload(request_id, reason) do
-    %{
-      "request_id" => request_id,
-      "code" => error_code(reason),
-      "message" => error_message(reason),
-      "details_json" => %{"reason" => inspect(reason)}
-    }
+    RPCWire.error_payload(request_id, reason,
+      fallback_code: "schedule_rpc_failed",
+      details_json: %{"reason" => inspect(reason)}
+    )
   end
 
-  defp error_code(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp error_code({reason, _details}) when is_atom(reason), do: Atom.to_string(reason)
-  defp error_code(_reason), do: "schedule_rpc_failed"
-
-  defp error_message(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp error_message({reason, details}), do: "#{reason}: #{inspect(details)}"
-  defp error_message(reason), do: inspect(reason)
-
   defp required_text(map, key) do
-    case text(map, key) do
+    case RPCWire.text(map, key) do
       value when is_binary(value) and value != "" -> {:ok, value}
       _value -> {:error, {:missing_text, key}}
     end
   end
 
-  defp nullable_text(map, key), do: text(map, key)
-
-  defp text(map, key) when is_map(map) do
-    case Map.get(map, key) || Map.get(map, String.to_atom(key)) do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          trimmed -> trimmed
-        end
-
-      _value ->
-        nil
-    end
-  end
-
-  defp text(_map, _key), do: nil
+  defp nullable_text(map, key), do: RPCWire.text(map, key)
 
   defp integer(map, key) when is_map(map) do
-    case Map.get(map, key) || Map.get(map, String.to_atom(key)) do
+    case RPCWire.value(map, key) do
       value when is_integer(value) -> value
       value when is_binary(value) -> parse_integer(value)
       _value -> nil
@@ -414,9 +390,4 @@ defmodule Ankole.Schedule.RPCBroker do
       _value -> nil
     end
   end
-
-  defp map_value(map, key) when is_map(map),
-    do: Map.get(map, key) || Map.get(map, String.to_atom(key))
-
-  defp map_value(_map, _key), do: nil
 end

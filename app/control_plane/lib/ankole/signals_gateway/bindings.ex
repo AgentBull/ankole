@@ -27,11 +27,36 @@ defmodule Ankole.SignalsGateway.Bindings do
 
   @spec list_adapters() :: [map()]
   def list_adapters do
-    @adapter_contract_id
-    |> Plugins.adapter_declarations()
+    adapter_declarations()
     |> Enum.map(&adapter_catalog/1)
     |> Enum.sort_by(& &1.adapter_id)
   end
+
+  @doc false
+  @spec validate_adapter_declaration(map()) :: :ok | {:error, term()}
+  def validate_adapter_declaration(declaration) when is_map(declaration) do
+    with :ok <- validate_inbound_adapter(declaration),
+         :ok <- validate_outbound_adapter(declaration),
+         :ok <-
+           validate_optional_adapter_module(
+             declaration,
+             :connection_supervisor,
+             :ensure_started,
+             3
+           ),
+         :ok <-
+           validate_optional_adapter_module(
+             declaration,
+             :config_module,
+             :validate_binding_config,
+             1
+           ) do
+      :ok
+    end
+  end
+
+  def validate_adapter_declaration(declaration),
+    do: {:error, {:invalid_signal_adapter_declaration, declaration}}
 
   @spec put_binding(String.t(), String.t(), String.t(), map()) ::
           {:ok, %{binding: Binding.t(), config_key: String.t()}} | {:error, term()}
@@ -139,12 +164,105 @@ defmodule Ankole.SignalsGateway.Bindings do
   end
 
   defp fetch_adapter_declaration(adapter_id) do
-    @adapter_contract_id
-    |> Plugins.adapter_declarations()
+    adapter_declarations()
     |> Enum.find(&(value(&1, :id) == adapter_id))
     |> case do
       nil -> {:error, {:unknown_signal_adapter, adapter_id}}
       declaration -> {:ok, declaration}
+    end
+  end
+
+  defp adapter_declarations do
+    Plugins.adapter_declarations(@adapter_contract_id)
+  end
+
+  defp validate_inbound_adapter(declaration) do
+    capabilities = declaration_list(declaration, :inbound_capabilities)
+
+    if capabilities == [] do
+      :ok
+    else
+      with {:ok, module} <- declaration_module(declaration, :ingress_module),
+           :ok <- validate_module_callback(module, :chat_consumer, 3) do
+        Enum.reduce_while(capabilities, :ok, fn capability, :ok ->
+          case validate_inbound_capability(module, capability) do
+            :ok -> {:cont, :ok}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+        end)
+      end
+    end
+  end
+
+  defp validate_inbound_capability(module, "entry_receive"),
+    do: validate_module_callback(module, :handle_message_receive, 3)
+
+  defp validate_inbound_capability(module, "entry_removed"),
+    do: validate_module_callback(module, :handle_message_removed, 3)
+
+  defp validate_inbound_capability(module, "reaction_add"),
+    do: validate_module_callback(module, :handle_reaction_created, 3)
+
+  defp validate_inbound_capability(module, "reaction_remove"),
+    do: validate_module_callback(module, :handle_reaction_deleted, 3)
+
+  defp validate_inbound_capability(module, "action_event"),
+    do: validate_module_callback(module, :handle_card_action, 3)
+
+  defp validate_inbound_capability(_module, capability),
+    do: {:error, {:unknown_inbound_capability, capability}}
+
+  defp validate_outbound_adapter(declaration) do
+    capabilities = declaration_list(declaration, :outbound_capabilities)
+
+    if capabilities == [] do
+      :ok
+    else
+      with {:ok, module} <- declaration_module(declaration, :outbox_module),
+           :ok <- validate_module_callback(module, :send, 1) do
+        case "outbound_reconciliation" in capabilities do
+          true -> validate_module_callback(module, :reconcile, 1)
+          false -> :ok
+        end
+      end
+    end
+  end
+
+  defp validate_optional_adapter_module(declaration, key, callback, arity) do
+    case declaration_module(declaration, key) do
+      {:ok, module} -> validate_module_callback(module, callback, arity)
+      {:error, {:missing_adapter_module, ^key}} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp declaration_module(declaration, key) do
+    case value(declaration, key) do
+      module when is_atom(module) and not is_nil(module) ->
+        case Code.ensure_loaded(module) do
+          {:module, ^module} -> {:ok, module}
+          {:error, reason} -> {:error, {:adapter_module_not_loaded, key, module, reason}}
+        end
+
+      nil ->
+        {:error, {:missing_adapter_module, key}}
+
+      module ->
+        {:error, {:invalid_adapter_module, key, module}}
+    end
+  end
+
+  defp validate_module_callback(module, function, arity) do
+    case function_exported?(module, function, arity) do
+      true -> :ok
+      false -> {:error, {:missing_adapter_callback, module, function, arity}}
+    end
+  end
+
+  defp declaration_list(declaration, key) do
+    case value(declaration, key) do
+      values when is_list(values) -> values
+      _value -> []
     end
   end
 

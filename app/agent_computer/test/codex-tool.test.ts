@@ -36,9 +36,11 @@ describe('@ankole/agent-computer Codex delegation', () => {
       const defaultToml = readFileSync(join(defaultConfig.codexHome, 'config.toml'), 'utf8')
       expect(defaultToml).toContain('model = "coding"')
       expect(defaultToml).toContain('model_provider = "ankole_aigateway"')
+      expect(defaultToml).toContain('model_reasoning_effort = "xhigh"')
       expect(defaultToml).toContain('approval_policy = "never"')
       expect(defaultToml).toContain('sandbox_mode = "danger-full-access"')
       expect(defaultToml).toContain('base_url = "http://aigateway.test/v1"')
+      expect(defaultToml).toContain('supports_websockets = true')
       expect(defaultConfig.env.CODEX_HOME).toBe(defaultConfig.codexHome)
       expect(defaultConfig.env.ANKOLE_AIGATEWAY_API_KEY).toBe('sk-aigateway')
 

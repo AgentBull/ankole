@@ -6,7 +6,7 @@
 
 #![allow(dead_code, unused_imports)]
 
-mod cel;
+pub(crate) mod cel;
 mod decision;
 mod resource_pattern;
 

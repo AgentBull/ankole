@@ -1,7 +1,5 @@
 use std::fmt;
 
-use crate::common::KernelError;
-
 #[derive(Clone, Debug)]
 pub enum TransportError {
     UnknownRoute,
@@ -14,28 +12,44 @@ pub enum TransportError {
     Zmq(String),
 }
 
+impl TransportError {
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::UnknownRoute => "unknown_route",
+            Self::Backpressure => "backpressure",
+            Self::Timeout => "timeout",
+            Self::SocketClosed => "socket_closed",
+            Self::InvalidConfig(_reason) => "invalid_config",
+            Self::InvalidEnvelope(_reason) => "invalid_envelope",
+            Self::InvalidFrame(_reason) => "invalid_frame",
+            Self::Zmq(_reason) => "zmq",
+        }
+    }
+
+    pub fn ffi_message(&self) -> String {
+        match self {
+            Self::UnknownRoute | Self::Backpressure | Self::Timeout | Self::SocketClosed => {
+                self.code().to_string()
+            }
+            Self::InvalidConfig(reason)
+            | Self::InvalidEnvelope(reason)
+            | Self::InvalidFrame(reason)
+            | Self::Zmq(reason) => format!("{}: {reason}", self.code()),
+        }
+    }
+
+    pub(super) fn invalid_envelope(error: crate::common::KernelError) -> Self {
+        Self::InvalidEnvelope(error.to_string())
+    }
+}
+
 impl fmt::Display for TransportError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::UnknownRoute => write!(f, "unknown_route"),
-            Self::Backpressure => write!(f, "backpressure"),
-            Self::Timeout => write!(f, "timeout"),
-            Self::SocketClosed => write!(f, "socket_closed"),
-            Self::InvalidConfig(reason) => write!(f, "invalid_config: {reason}"),
-            Self::InvalidEnvelope(reason) => write!(f, "invalid_envelope: {reason}"),
-            Self::InvalidFrame(reason) => write!(f, "invalid_frame: {reason}"),
-            Self::Zmq(reason) => write!(f, "zmq: {reason}"),
-        }
+        f.write_str(&self.ffi_message())
     }
 }
 
 impl std::error::Error for TransportError {}
-
-impl From<TransportError> for KernelError {
-    fn from(error: TransportError) -> Self {
-        KernelError::new(error.to_string())
-    }
-}
 
 // Maps ZeroMQ send failures into actor-runtime scheduling language.
 pub(super) fn map_send_error(error: zmq::Error) -> TransportError {
@@ -49,10 +63,4 @@ pub(super) fn map_send_error(error: zmq::Error) -> TransportError {
 
 pub(super) fn transport_error(error: zmq::Error) -> TransportError {
     TransportError::Zmq(error.to_string())
-}
-
-impl From<KernelError> for TransportError {
-    fn from(error: KernelError) -> Self {
-        TransportError::InvalidEnvelope(error.to_string())
-    }
 }

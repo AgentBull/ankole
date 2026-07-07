@@ -9,6 +9,7 @@ defmodule Ankole.ActorRuntime.AppConfigureBroker do
   """
 
   alias Ankole.AppConfigure
+  alias Ankole.ActorRuntime.RPCWire
   alias Ankole.Principals
 
   @doc """
@@ -16,7 +17,8 @@ defmodule Ankole.ActorRuntime.AppConfigureBroker do
   """
   @spec handle_request(map(), String.t()) :: {:ok, map()} | {:error, map()}
   def handle_request(request, _route) when is_map(request) do
-    request_id = text(request, "request_id") || "app-configure-resolve-#{Ecto.UUID.generate()}"
+    request_id =
+      RPCWire.text(request, "request_id") || "app-configure-resolve-#{Ecto.UUID.generate()}"
 
     result =
       with {:ok, agent_uid} <- request_agent_uid(request),
@@ -32,10 +34,11 @@ defmodule Ankole.ActorRuntime.AppConfigureBroker do
         {:ok, payload}
 
       {:error, reason} ->
-        {:error, error_payload(request_id, text(request, "agent_uid") || "", reason)}
+        {:error, error_payload(request_id, RPCWire.text(request, "agent_uid") || "", reason)}
 
       :disabled ->
-        {:error, error_payload(request_id, text(request, "agent_uid") || "", :agent_disabled)}
+        {:error,
+         error_payload(request_id, RPCWire.text(request, "agent_uid") || "", :agent_disabled)}
     end
   end
 
@@ -43,14 +46,14 @@ defmodule Ankole.ActorRuntime.AppConfigureBroker do
     do: {:error, error_payload("", "", :invalid_app_configure_resolve_request)}
 
   defp request_agent_uid(request) do
-    case text(request, "agent_uid") do
+    case RPCWire.text(request, "agent_uid") do
       nil -> {:error, :missing_agent_uid}
       agent_uid -> Principals.normalize_uid(agent_uid)
     end
   end
 
   defp request_keys(request) do
-    case Map.get(request, "keys") || Map.get(request, :keys) do
+    case RPCWire.value(request, "keys") do
       keys when is_list(keys) ->
         normalize_keys(keys)
 
@@ -111,35 +114,13 @@ defmodule Ankole.ActorRuntime.AppConfigureBroker do
   end
 
   defp error_payload(request_id, agent_uid, reason) do
-    %{
-      "request_id" => request_id,
-      "code" => error_code(reason),
-      "message" => error_message(reason),
-      "details_json" => %{"agent_uid" => agent_uid}
-    }
+    RPCWire.error_payload(request_id, reason,
+      fallback_code: "app_configure_resolve_failed",
+      message_style: :tuple_inspect,
+      details_json: %{"agent_uid" => agent_uid}
+    )
   end
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
-  defp error_code(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp error_code({reason, _key}) when is_atom(reason), do: Atom.to_string(reason)
-  defp error_code({reason, _key, _details}) when is_atom(reason), do: Atom.to_string(reason)
-  defp error_code(_reason), do: "app_configure_resolve_failed"
-
-  defp error_message(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp error_message(reason), do: inspect(reason)
-
-  defp text(map, key) do
-    case Map.get(map, key) || Map.get(map, String.to_atom(key)) do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          text -> text
-        end
-
-      _value ->
-        nil
-    end
-  end
 end

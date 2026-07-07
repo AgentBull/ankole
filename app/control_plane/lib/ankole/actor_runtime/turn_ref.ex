@@ -31,12 +31,6 @@ defmodule Ankole.ActorRuntime.TurnRef do
         }
 
   @spec from_wire(map()) :: {:ok, t()} | {:error, :invalid_turn_ref}
-  def from_wire(%__MODULE__{} = turn_ref) do
-    turn_ref
-    |> to_wire()
-    |> from_wire()
-  end
-
   def from_wire(%{} = turn_ref) do
     with %{} = actor <- map_value(turn_ref, "actor"),
          {:ok, agent_uid} <- actor |> text_value("agent_uid") |> Principals.normalize_uid(),
@@ -63,16 +57,16 @@ defmodule Ankole.ActorRuntime.TurnRef do
 
   def from_wire(_turn_ref), do: {:error, :invalid_turn_ref}
 
-  @spec from_request(map(), :turn | :turn_ref | String.t()) ::
+  @spec from_request(map(), :turn | :turn_ref) ::
           {:ok, t()} | {:error, :missing_turn_ref | :invalid_turn_ref}
-  def from_request(request, key) when is_map(request) and key in [:turn_ref, "turn_ref"] do
-    case map_value(request, "turn_ref") || map_value(request, "turn") do
+  def from_request(request, :turn_ref) when is_map(request) do
+    case map_value(request, "turn_ref") do
       nil -> {:error, :missing_turn_ref}
       turn_ref -> from_wire(turn_ref)
     end
   end
 
-  def from_request(request, key) when is_map(request) and key in [:turn, "turn"] do
+  def from_request(request, :turn) when is_map(request) do
     case map_value(request, "turn") do
       nil -> {:error, :missing_turn_ref}
       turn_ref -> from_wire(turn_ref)

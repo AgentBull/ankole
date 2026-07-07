@@ -675,7 +675,7 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
          %{} = turn <- Map.get(payload, "turn"),
          {:ok, turn_ref} <- TurnRef.from_wire(turn),
          :ok <- WorkerRouteAuth.authorize_turn_route(turn_ref, route, effect) do
-      {:ok, put_in(envelope, ["body", type, "turn"], turn_ref)}
+      {:ok, envelope}
     else
       nil -> {:error, :missing_turn_ref}
       {:error, _reason} = error -> error

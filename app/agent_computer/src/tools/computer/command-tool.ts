@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../../core'
-import type { BackgroundCommandSnapshot, ComputerToolContext } from './context'
+import type { BackgroundCommandSnapshot } from './computer'
+import type { ComputerToolContext } from './context'
 import { truncateOutput } from './format'
 
 const ForegroundCommandDefaultTimeoutSeconds = 180

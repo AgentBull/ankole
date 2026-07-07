@@ -5,6 +5,7 @@ defmodule Mix.Tasks.Ankole.Get do
 
   use Mix.Task
 
+  alias Ankole.Setup.BootstrapActivationCodeText
   alias Ankole.Setup.Config, as: SetupConfig
 
   @shortdoc "Reads a local Ankole value"
@@ -58,16 +59,16 @@ defmodule Mix.Tasks.Ankole.Get do
   defp get_value(key), do: {:error, {:unknown_key, key, @supported_keys}}
 
   defp print_result("text", {:ok, %{key: "bootstrap-activation-code", completed: true}}) do
-    Mix.shell().info("Setup is already completed. No bootstrap activation code is active.")
+    Mix.shell().info(BootstrapActivationCodeText.completed_message())
   end
 
   defp print_result("text", {:ok, %{key: "bootstrap-activation-code", value: code}})
        when is_binary(code) do
-    Mix.shell().info("SETUP ACTIVATION CODE: #{code}")
+    Mix.shell().info(BootstrapActivationCodeText.line(code))
   end
 
   defp print_result("text", {:ok, %{key: "bootstrap-activation-code", value: nil}}) do
-    Mix.shell().info("Setup is open, but no bootstrap activation code is stored.")
+    Mix.shell().info(BootstrapActivationCodeText.missing_message())
   end
 
   defp print_result("json", {:ok, result}) do

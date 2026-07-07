@@ -170,6 +170,10 @@ pub(super) fn bytes_to_json(bytes: &[u8]) -> KernelResult<Value> {
     }
 }
 
+pub(super) fn empty_json_payload_bytes(bytes: &[u8]) -> bool {
+    bytes.is_empty() || bytes == b"{}" || bytes == b"null"
+}
+
 pub(super) fn normalized_enum(value: &Value) -> KernelResult<String> {
     match value {
         Value::String(text) => Ok(normalized_name(text)),

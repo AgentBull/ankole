@@ -1,9 +1,10 @@
 import type { TurnStart } from '../../lanes/actor_lane'
 import { isRecord, type JsonObject } from '@pleisto/active-support'
+import { assertRpcResponse, type AppConfigureResolveResponse } from '../../lanes/rpc_lane'
 import { runAgentLoop } from '../agent-loop'
 import { buildAgentSystemPrompt } from '../../prompts/system_prompt'
 import { createComputerTools } from '../../tools/computer'
-import { createSkillTools } from '../../tools/library/skill-tools'
+import { createSkillTools, type SkillFileRoots } from '../../tools/library/skill-tools'
 import { createMemoryTools } from '../../tools/memory/memory-tools'
 import { createScheduleTools } from '../../tools/schedule/schedule-tools'
 import { createTodoTool, TodoStore } from '../../tools/todo/todo-tool'
@@ -12,17 +13,13 @@ import { createCodexDelegateTool } from '../../tools/codex/codex-tool'
 import { assistantText, userMessage } from '../llm'
 import { currentChannelFromTurnStart, statefulTruncationFromActorEventPayload } from './actor_event_text'
 import { actorEventUserContent } from './actor_event_content'
-import {
-  aiGatewayHttpClientFromApiKey,
-  assertAIGatewayApiKeyMatchesTurn,
-  runtimeModelFromAIGatewayApiKey
-} from './model_runtime'
+import { acquireTurnAIGatewayAccess } from './turn_aigateway_access'
 import { actorEventEnvironmentInfoLines, prependEnvironmentInfoLinesToUserMessage } from './message_context'
 import { steeringMessages } from './turn_control'
-import { TEXT_TURN_DEFAULT_INACTIVITY_TIMEOUT_MS } from './turn_config'
+import { createTurnActivity } from './turn_activity'
 import { resolveAgentConversationContext } from './turn_context'
+import { agentRuntimePolicyFromTurnStart } from './turn_runtime_policy'
 import type { TextTurnLoopOptions, TurnHandlerResult } from './turn_options'
-import { skillRootsFromOptions } from './turn_options'
 
 const silentSuccessMarker = '<silent_success/>'
 const RemoteBrowserCdpConfigKey = 'worker.remote_browser_cdp_config'
@@ -31,11 +28,6 @@ const LocalBrowserIdleTtlMsKey = 'worker.local_browser_idle_ttl_ms'
 type BrowserRuntimeConfig = {
   remoteCdpConfig: JsonObject | null
   localBrowserIdleTtlMs?: number
-}
-
-type AgentRuntimePolicy = {
-  maxOutputTokens?: number
-  inactivityTimeoutMs: number
 }
 
 /**
@@ -49,65 +41,32 @@ type AgentRuntimePolicy = {
 export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOptions): Promise<TurnHandlerResult> {
   const modelRef = turnStart.model_ref
   const runtimePolicy = agentRuntimePolicyFromTurnStart(turnStart)
-  const turnActivity = createAgentActivityWatchdog(opts.abortSignal, runtimePolicy.inactivityTimeoutMs)
+  const turnActivity = createTurnActivity({
+    sourceSignal: opts.abortSignal,
+    inactivityTimeoutMs: runtimePolicy.inactivityTimeoutMs
+  })
   try {
     if (!modelRef) {
       throw new Error('worker run is missing a real model_ref')
     }
 
-    const apiKeyRequest = {
-      request_id: `ai-gateway-key-${crypto.randomUUID()}`,
-      agent_uid: turnStart.turn.actor.agent_uid
-    }
-    const apiKey = await abortableTurnStep(
-      opts.requestAIGatewayApiKey(apiKeyRequest),
-      turnActivity.signal,
-      'AIGateway API key',
-      turnActivity.touch
-    )
-
-    if ('code' in apiKey) {
-      throw new Error(`AIGateway API key rejected: ${apiKey.code} ${apiKey.message ?? ''}`.trim())
-    }
-
-    assertAIGatewayApiKeyMatchesTurn(turnStart, apiKey)
-
-    const refreshAIGatewayApiKey = (refreshOptions?: { forceRefresh?: boolean }) =>
-      abortableTurnStep(
-        opts.requestAIGatewayApiKey(
-          {
-            ...apiKeyRequest,
-            request_id: `ai-gateway-key-${crypto.randomUUID()}`
-          },
-          refreshOptions
-        ),
-        turnActivity.signal,
-        'AIGateway API key refresh',
-        turnActivity.touch
-      )
-
-    const model = runtimeModelFromAIGatewayApiKey(modelRef, apiKey, refreshAIGatewayApiKey)
-    const aiGateway = aiGatewayHttpClientFromApiKey(apiKey, refreshAIGatewayApiKey)
-    const visionFallbackModel = modelRef.vision_fallback_model_ref
-      ? runtimeModelFromAIGatewayApiKey(modelRef.vision_fallback_model_ref, apiKey, refreshAIGatewayApiKey)
-      : undefined
-    const agentConversationContext = await abortableTurnStep(
+    const { model, aiGateway, visionFallbackModel } = await acquireTurnAIGatewayAccess(turnStart, {
+      requestAIGatewayApiKey: opts.requestAIGatewayApiKey,
+      runStep: turnActivity.runStep
+    })
+    const agentConversationContext = await turnActivity.runStep(
       resolveAgentConversationContext(turnStart, opts),
-      turnActivity.signal,
-      'agent conversation context',
-      turnActivity.touch
+      'agent conversation context'
     )
     const aiGatewayConversationId = agentConversationContext.conversation?.id
     if (!aiGatewayConversationId) {
       throw new Error('agent conversation context is missing AIGateway conversation id')
     }
-    const browserRuntimeConfig = await abortableTurnStep(
+    const browserRuntimeConfig = await turnActivity.runStep(
       resolveBrowserRuntimeConfig(turnStart, opts),
-      turnActivity.signal,
-      'browser runtime config',
-      turnActivity.touch
+      'browser runtime config'
     )
-    const webTools = await abortableTurnStep(
+    const webTools = await turnActivity.runStep(
       createWebTools({
         aiGateway,
         abortSignal: turnActivity.signal,
@@ -119,9 +78,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
             : {})
         }
       }),
-      turnActivity.signal,
-      'web tools availability',
-      turnActivity.touch
+      'web tools availability'
     )
 
     const todoStore = new TodoStore()
@@ -215,134 +172,6 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
   }
 }
 
-function abortableTurnStep<T>(
-  promise: Promise<T>,
-  signal: AbortSignal,
-  step: string,
-  onActivity?: (description?: string) => void
-): Promise<T> {
-  if (signal.aborted) return Promise.reject(turnAbortError(signal, step))
-  onActivity?.(`${step}:start`)
-
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = () => {
-      signal.removeEventListener('abort', onAbort)
-      reject(turnAbortError(signal, step))
-    }
-
-    signal.addEventListener('abort', onAbort, { once: true })
-    promise.then(
-      value => {
-        signal.removeEventListener('abort', onAbort)
-        onActivity?.(`${step}:done`)
-        resolve(value)
-      },
-      error => {
-        signal.removeEventListener('abort', onAbort)
-        reject(error)
-      }
-    )
-  })
-}
-
-function agentRuntimePolicyFromTurnStart(turnStart: TurnStart): AgentRuntimePolicy {
-  const rawPolicy = turnStart.request_context?.ai_agent
-  const policy = isRecord(rawPolicy) ? rawPolicy : {}
-  const maxOutputTokens = positiveInteger(policy.max_output_tokens)
-  const modelMaxCompletionTokens = positiveInteger(turnStart.model_ref?.max_completion_tokens)
-  const inactivityTimeoutMs =
-    nonNegativeInteger(policy.inactivity_timeout_ms) ?? TEXT_TURN_DEFAULT_INACTIVITY_TIMEOUT_MS
-
-  return {
-    ...(maxOutputTokens ? { maxOutputTokens: clampPositiveInteger(maxOutputTokens, modelMaxCompletionTokens) } : {}),
-    inactivityTimeoutMs
-  }
-}
-
-function positiveInteger(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined
-}
-
-function nonNegativeInteger(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined
-}
-
-function clampPositiveInteger(value: number, ceiling: number | undefined): number {
-  return ceiling ? Math.min(value, ceiling) : value
-}
-
-function createAgentActivityWatchdog(
-  sourceSignal: AbortSignal | undefined,
-  inactivityTimeoutMs: number
-): {
-  signal: AbortSignal
-  touch: (description?: string) => void
-  withSuspended: <T>(description: string, fn: () => Promise<T>) => Promise<T>
-  cleanup: () => void
-} {
-  const controller = new AbortController()
-  let timeout: ReturnType<typeof setTimeout> | undefined
-  let suspended = 0
-  const enabled = Number.isFinite(inactivityTimeoutMs) && inactivityTimeoutMs > 0
-
-  const clear = (): void => {
-    if (!timeout) return
-    clearTimeout(timeout)
-    timeout = undefined
-  }
-
-  const abort = (reason: unknown): void => {
-    clear()
-    if (!controller.signal.aborted) controller.abort(reason)
-  }
-
-  const touch = (): void => {
-    if (!enabled || suspended > 0 || controller.signal.aborted) return
-    clear()
-    timeout = setTimeout(() => {
-      abort(
-        new DOMException(`Timed out after ${inactivityTimeoutMs}ms without model/provider activity`, 'TimeoutError')
-      )
-    }, inactivityTimeoutMs)
-  }
-
-  const withSuspended = async <T>(_description: string, fn: () => Promise<T>): Promise<T> => {
-    suspended += 1
-    clear()
-    try {
-      return await fn()
-    } finally {
-      suspended = Math.max(0, suspended - 1)
-      touch()
-    }
-  }
-
-  const onSourceAbort = (): void => abort(sourceSignal?.reason)
-
-  if (sourceSignal?.aborted) {
-    abort(sourceSignal.reason)
-  } else {
-    sourceSignal?.addEventListener('abort', onSourceAbort, { once: true })
-    touch()
-  }
-
-  return {
-    signal: controller.signal,
-    touch,
-    withSuspended,
-    cleanup: () => {
-      clear()
-      sourceSignal?.removeEventListener('abort', onSourceAbort)
-    }
-  }
-}
-
-function turnAbortError(signal: AbortSignal, step: string): Error {
-  const reason = signal.reason
-  const message = reason instanceof Error ? reason.message : typeof reason === 'string' ? reason : 'turn aborted'
-  return new Error(`${step} aborted: ${message}`)
-}
-
 /**
  * Converts final assistant text into the worker's turn result contract.
  *
@@ -369,6 +198,15 @@ function silentSuccessAllowed(turnStart: TurnStart): boolean {
   return turnStart.request_context?.silent_success_allowed === true
 }
 
+function skillRootsFromOptions(opts: TextTurnLoopOptions): SkillFileRoots | undefined {
+  if (!opts.builtinSkillsRoot || !opts.agentInstalledSkillsRoot) return undefined
+  return {
+    builtinSkillsRoot: opts.builtinSkillsRoot,
+    agentInstalledSkillsRoot: opts.agentInstalledSkillsRoot,
+    ...(opts.internalSkillsRoot ? { internalSkillsRoot: opts.internalSkillsRoot } : {})
+  }
+}
+
 /**
  * Resolves browser runtime knobs from AppConfigure.
  *
@@ -386,9 +224,7 @@ async function resolveBrowserRuntimeConfig(
     agent_uid: turnStart.turn.actor.agent_uid,
     keys: [RemoteBrowserCdpConfigKey, LocalBrowserIdleTtlMsKey]
   })
-  if ('code' in response) {
-    throw new Error(`browser runtime config rejected: ${response.code} ${response.message ?? ''}`.trim())
-  }
+  assertRpcResponse<AppConfigureResolveResponse>(response, 'browser runtime config rejected')
 
   const remoteCdpConfig = response.values[RemoteBrowserCdpConfigKey]?.value
   const localBrowserIdleTtlMs = response.values[LocalBrowserIdleTtlMsKey]?.value

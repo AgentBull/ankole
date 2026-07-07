@@ -1,11 +1,12 @@
+use super::*;
 #[derive(Debug)]
-struct OpenaiEmbeddings;
+pub(super) struct OpenaiEmbeddings;
 
 #[derive(Debug)]
-struct OpenrouterEmbeddings;
+pub(super) struct OpenrouterEmbeddings;
 
 #[derive(Debug)]
-struct JinaEmbeddings;
+pub(super) struct JinaEmbeddings;
 
 impl ApiProtocol for OpenaiEmbeddings {
     fn on_provider_body(

@@ -67,9 +67,11 @@ Anthropic support until those endpoint families get their own provider logic.
 OpenAI `responses` mode may opt into upstream WebSocket transport through
 provider connection options. In that case Elixir prepares only the endpoint,
 headers, transport preference, and public request context. Rust builds the
-top-level `response.create` WebSocket payload, removes HTTP SSE-only request
-fields such as `stream`, `stream_options`, and `background`, sends the payload,
-and normalizes the returned Responses events.
+top-level `response.create` WebSocket payload, preserves OpenAI
+`ResponseCreateWsRequest` fields such as `stream`, `stream_options`,
+`include`, `generate`, and `client_metadata`, removes fields that AIGateway
+owns internally such as `service_tier`, and normalizes the returned Responses
+events.
 
 Built-in embedding and rerank provider kinds:
 
@@ -180,30 +182,39 @@ model, send a request, get a response. Rules:
   allowed, with the same stateless meaning.
 - It never writes the `ai_gateway_messages` or `ai_gateway_conversations`
   tables. Nothing is stored.
-- A stateless request that carries `store=true`, `previous_response_id`, or
-  `conversation` is rejected with `400`. The caller must keep its own history
-  and send full context on every request.
+- Stateless HTTP rejects `store=true`, `previous_response_id`, and
+  `conversation` with `400`. A stateless WebSocket request may use
+  `previous_response_id` only when it names a response already completed on the
+  same socket; AIGateway expands that connection-local cache into input and
+  still writes no durable state. Unknown ids are rejected.
 - A stateless response still needs a schema-level id. It uses a transport-only
   id with the prefix `tmp_resp_`, for example
   `tmp_resp_0198f00d-31aa-7cde-9f00-3c9b52ab01aa`. A `tmp_resp_*` id can never
   be retrieved, chained, or stored. `GET /responses/:id` on it returns `404`.
 
-**The agent-computer stateful surface** serves exactly one caller: the Bun
-worker running an actor event. Rules:
+**The stateful Responses surface** serves the Bun worker running an actor
+event, and may also serve generic Codex-compatible clients through the same
+provider-facing contract. Those clients use the same stateful Responses rules
+without knowing Ankole actor-event metadata. Rules:
 
 - The transport is WebSocket `response.create` messages, plus an explicit
   `store=true` field, plus a valid agent token.
-- A new conversation session passes `conversation`. A continuation passes
-  `previous_response_id`. Exactly one of the two must be present; sending both
-  or neither is a `400`.
-- The request `metadata` carries the `actor_event_id` of the actor event the
-  worker is executing. AIGateway uses it for correlation and idempotency.
-  A stateful request without it is a `400`.
+- A request may pass `conversation` to attach to an existing
+  `ai_gateway_conversations` row, or pass `previous_response_id` to continue
+  from a stored response. Sending both is a `400`.
+- If `store=true` names neither `conversation` nor `previous_response_id`,
+  AIGateway creates a new conversation internally and marks it with
+  `metadata.managed_by_stateful_responses_api = true`.
+- The request `metadata` may carry the `actor_event_id` of the actor event the
+  worker is executing. AIGateway uses it for ActorRuntime correlation,
+  duplicate in-flight protection, preview/finalization, and tool-result
+  journaling. It is not a generic stateful Responses anchor and is not required
+  for ordinary `response.create`.
 - The worker opens one WebSocket connection per actor-event run, reuses it for
   tool-loop continuation `response.create` messages, and runs at most one
   in-flight response on that connection at a time.
-- `background=true` is unsupported. Ankole has no background response mode;
-  cancelling a running generation goes through ActorRuntime actor event
+- `background=true` does not enable an Ankole background response mode.
+  Cancelling a running generation goes through ActorRuntime actor event
   control, not through the AIGateway API.
 
 The gate is intentionally explicit. AIGateway never guesses from headers or
@@ -212,7 +223,7 @@ The gate is intentionally explicit. AIGateway never guesses from headers or
 
 Rejections are typed. A bad request shape (stateful fields on HTTP, a
 continuation without `store=true`, `conversation` and `previous_response_id`
-both present or both missing) is a `400`. A missing or invalid token is a
+both present) is a `400`. A missing or invalid token is a
 standard Bearer-auth failure: `401`. An authenticated subject that is explicitly
 refused is a `403`. A `conversation` or `previous_response_id` that does not
 resolve inside the token's agent scope is a `400` (unknown conversation /
@@ -278,10 +289,10 @@ repository includes a portable compliance CLI:
 `bun run test:compliance --base-url <url> --api-key <key> --model <selector>`.
 Local tests should mirror that suite instead of inventing a separate schema.
 The required local stateless HTTP set covers basic text, assistant phase
-history, system prompt input, tool calling, image input, multi-turn input, and
-SSE event schema. Compliance cases that need provider-side response state —
-`previous_response_id` recovery and `/responses/compact` — run against the
-stateful WebSocket surface; the stateless surface rejects them by contract.
+history, system prompt input, tool calling, image input, multi-turn input, SSE
+event schema, and standalone `/responses/compact`. Compliance cases that need
+provider-side response state, such as `previous_response_id` recovery, run
+against the WebSocket surface.
 
 `/models` follows the OpenRouter model list response style: top-level `data`
 contains model entries with `id`, `canonical_slug`, `name`, `description`,
@@ -307,11 +318,13 @@ The WebSocket transport is a raw JSON WebSocket protocol, not Phoenix Channels.
 Workers connect to `ws(s)://<host>/api/v1/ai-gateway/responses` with the same
 agent-scoped bearer credential used for HTTP. Client messages must be JSON
 objects with `type: "response.create"` plus the normal Responses create body.
-HTTP-only fields `stream`, `stream_options`, and `background` are rejected in
-WebSocket messages.
+The accepted body is intentionally compatible with Codex/OpenAI
+`ResponseCreateWsRequest`, including fields such as `stream`,
+`stream_options`, `include`, `service_tier`, `prompt_cache_key`, `text`,
+`generate`, and `client_metadata`. AIGateway consumes or strips internal policy
+fields before provider dispatch when they are not upstream request semantics.
 
-A WebSocket `response.create` without `store=true` is a stateless request. Like
-HTTP, it rejects `previous_response_id` and `conversation` with `400`. With
+A WebSocket `response.create` without `store=true` is a stateless request. With
 `store=true` and a valid agent token it enters the stateful path described in
 the sections below. For stateful runs, every server frame — including
 non-terminal frames such as `response.created` — carries
@@ -376,7 +389,8 @@ and what is different on purpose.
 Taken from OpenResponses:
 
 - object shapes, stream events, and the `ResponseItem[]` item model;
-- the `/responses/compact` request schema shape.
+- the `/responses/compact` standalone request and `response.compaction`
+  resource shape.
 
 Taken from the OpenAI Responses API, with Ankole-scoped semantics:
 
@@ -396,20 +410,23 @@ Deliberately not implemented:
   deletion;
 - `POST /responses/:id/cancel` — Ankole has no background response mode, so a
   running generation is cancelled through ActorRuntime actor event control;
-- OpenAI's `store=false` connection-local continuation over WebSocket.
 
 Field rules:
 
 - `instructions` always comes from the current request. It is never inherited
   from `previous_response_id` and never stored into the history projection.
-- `prompt_cache_key` is accepted and may be echoed, but it is a no-op. It is
-  stripped before the provider call. It does not read or write any cache, does
-  not locate history, and does not affect compaction, retrieval, or
+- `prompt_cache_key` is accepted and may be forwarded when the provider
+  resolver supports it, but AIGateway does not use it as a local cache key. It
+  does not locate history, and does not affect compaction, retrieval, or
   authorization.
 - `service_tier` is accepted but has no Ankole value domain. It is stripped
   before the provider call so upstream providers do not reject it. It does not
   affect scheduling, routing, billing, or priority. Responses may echo it or
   omit it.
+- WebSocket `store=false` `previous_response_id` is connection-local
+  compatibility only. It can refer to a response completed earlier on the same
+  WebSocket and is expanded into input items before provider dispatch. It never
+  creates `ai_gateway_messages` rows and cannot be retrieved later.
 
 ## Stateful Message Log
 
@@ -425,13 +442,22 @@ one `response.create` call.
 | `id` (uuid) | The row id. The API id `resp_#{id}` is this uuid with a prefix. |
 | `agent_uid` | Owning agent. Every query filters on it. |
 | `conversation_id` | The `ai_gateway_conversations` row this run belongs to. |
-| `type` | `message` (a Responses run) or `compaction` (a summary fact). |
+| `type` | `message` (a Responses run) or `checkpoint` (a compaction continuation anchor). |
 | `role` | Display hint for transcript projections only. Not authoritative. |
 | `status` | `generating`, `complete`, `error`, or `retracted`. |
 | `previous_message_id` | Self-reference to the anchor row. Rendered as `previous_response_id` at the API edge. |
-| `content` (jsonb) | The OpenResponses `ResponseItem[]` array for this run. |
-| `covers_until_message_id` | Compaction rows only: the last row id the summary covers. |
+| `content` (jsonb) | The OpenResponses `ResponseItem[]` array for message rows, or exactly one `compaction_artifact` ref for checkpoint rows. |
 | `metadata` (jsonb) | model/provider facts, usage, provider raw ids, `actor_event_id`, request refs, error details. |
+
+Compaction bodies live in `ai_gateway_compaction_artifacts`, not in
+`ai_gateway_messages`:
+
+| Column | Meaning |
+| --- | --- |
+| `id` (uuid) | The artifact id. When a checkpoint is written, the checkpoint row uses the same raw UUID. |
+| `agent_uid` | Owning agent. Every lookup filters on it. |
+| `conversation_id` | Nullable. Filled for stateful/checkpoint compaction; null for standalone artifacts. |
+| `content` (jsonb) | Versioned artifact body: summary, canonical `response.compaction.output`, retained tail, and usage. |
 
 `content` holds both sides of one run: the request-side input items and the
 model output items live in the same array, in one row. A two-round tool loop
@@ -466,9 +492,10 @@ flattened into plain text.
 
 Type and content combine under two rules, enforced in the changeset:
 
-- a `compaction` row contains exactly one compaction item, and must have both
-  `previous_message_id` and `covers_until_message_id`;
-- a `message` row must not contain a compaction item.
+- a `checkpoint` row contains exactly one
+  `{"type": "compaction_artifact", "id": "cmp_<uuid>"}` ref item;
+- a `message` row must not contain compaction items or compaction artifact
+  refs.
 
 Errors are statuses, not types. A failed run is a `message` row with
 `status = "error"`. `status = "retracted"` remains a cheap audit/recovery enum
@@ -482,12 +509,16 @@ One partial unique index protects the in-flight invariant:
 ((metadata->>'actor_event_id')) WHERE status = 'generating' AND type = 'message'
 ```
 
-Each actor event has at most one `generating` run row at any moment — the
-current `response.create`. Earlier rounds of the same loop are already
-`complete`, so they never occupy the index. Reconnect logic uses this index to
-find the current in-flight row for an actor event deterministically.
+Each actor event has at most one `generating` run row at any moment when
+`metadata.actor_event_id` is present — the current `response.create`. Earlier
+rounds of the same loop are already `complete`, so they never occupy the
+index. Reconnect logic uses this index to find the current in-flight row for
+an actor event deterministically. Generic stateful Responses runs may omit
+`actor_event_id`; PostgreSQL unique-index null semantics allow those runs to
+coexist because they are not ActorRuntime delivery facts.
 
-`metadata.actor_event_id` values always come from `actor_events.id`.
+When present, `metadata.actor_event_id` values always come from
+`actor_events.id`.
 `previous_message_id` values always come from `ai_gateway_messages.id`. The two
 id spaces never mix (see Response Identity).
 
@@ -500,6 +531,12 @@ id spaces never mix (see Response Identity).
 | `conversation_key` | Stable external key for the session scope. |
 | `ended_at` | Set when the session window is closed. |
 | `metadata` (jsonb) | Auxiliary facts. |
+
+Conversations created implicitly by `response.create store=true` with no
+`conversation` and no `previous_response_id` use an internal
+`conversation_key` and carry
+`metadata.managed_by_stateful_responses_api = true`. Actor-session
+conversations created through ActorRuntime do not need that marker.
 
 The conversation row deliberately stores no active-generation lease and no
 "current position" pointer. The continuation base is always derived from the
@@ -527,9 +564,9 @@ Two more prefixes exist:
 - `tmp_resp_*` is the transport-only id of a stateless response. It cannot be
   used in `previous_response_id`, `conversation`, `GET /responses/:id`, or any
   database write path.
-- `cmp_*` renders a stored compaction item, as `cmp_#{row id}` of the
-  compaction row. It is a rendering namespace only and is unrelated to
-  `tmp_resp_*`.
+- `cmp_*` renders a compaction artifact id. When a checkpoint exists, the
+  artifact, checkpoint row, `cmp_*`, and `resp_*` all share the same raw UUID
+  with different public prefixes.
 
 Across the whole system, any column or JSON key that references a model output
 is named `ai_message_id` and holds an `ai_gateway_messages.id`. This is one of
@@ -567,10 +604,10 @@ The "anchor" of a run is the row its `previous_message_id` points to — the
 previous hop of the chain. History projection walks that chain backwards:
 
 - it reads only `complete` rows and skips `retracted` rows;
-- it understands `covers_until_message_id`: when it meets a compaction row, it
-  uses the compaction item and does not also re-read the original rows the
-  summary covers. The coverage boundary is interpreted only on that compaction
-  row's own ancestor chain, never by comparing uuids or timestamps globally;
+- when it meets a checkpoint row, it keeps that checkpoint as the visible chain
+  element and stops provider-visible ancestor traversal. Provider replay loads
+  the referenced artifact output and resolves any Ankole compaction handle to
+  summary text before handing the request to the provider adapter;
 - it never reads `generating` rows;
 - the current request's input comes only from the current `response.create`
   payload, never from re-reading history.
@@ -587,6 +624,9 @@ from — a tail of the graph. Continuation resolves like this:
   exist because of branching, implicit continuation still picks only the
   latest; it never explores or merges the branch graph. A caller that wants an
   older branch must pass `previous_response_id` explicitly.
+- a `store=true` request with neither `conversation` nor
+  `previous_response_id` creates a new managed conversation and starts from
+  empty history.
 
 ## Stateful Write Path And Tool Loop
 
@@ -601,17 +641,20 @@ One `response.create` runs this pipeline:
 
 1. Gate: transport is WebSocket, `store=true` is present, the token is valid.
 2. Scope: all queries from here on filter by the token's `agent_uid`.
-3. Resolve the anchor from `previous_response_id` or `conversation`.
+3. Resolve the anchor from `previous_response_id` or `conversation`; if neither
+   is present, create a managed conversation and start from empty history.
 4. Expand history along the chain. If the estimated provider-facing input is
-   over budget, run auto-compaction first (see Compaction). The compaction row
-   is written before the run row, so the run row's `previous_message_id` points
-   at the compaction anchor from the start.
+   over budget, run auto-compaction first (see Compaction). The compaction
+   artifact and checkpoint row are written before the run row, so the run row's
+   `previous_message_id` points at the checkpoint from the start.
 5. Merge the request-side input items.
-6. Create the run row: `status = "generating"`, `metadata.actor_event_id`, and
-   the initial `content` holding the request-side items.
+6. Create the run row: `status = "generating"`, optional
+   `metadata.actor_event_id`, and the initial `content` holding the
+   request-side items.
 7. Strip internal fields — `previous_response_id`, `conversation`,
-   `service_tier`, `prompt_cache_key` — and build the provider request. The
-   upstream provider sees plain input items, never Ankole continuation fields.
+   `store`, `max_tool_calls`, `service_tier`, and
+   `metadata.actor_event_id` — and build the provider request. The upstream
+   provider sees plain input items, never Ankole continuation fields.
 8. Call the provider. While it streams, AIGateway publishes live chunk events
    as process messages (see Live Delivery). Chunks are not written to the row.
 9. On the provider terminal, normalize the final model facts into the same
@@ -645,6 +688,12 @@ response.create                          create run row 2 (generating)
 (stop; the loop is done)
 ```
 
+The main Ankole worker supplies `conversation` and `metadata.actor_event_id`
+because it is executing a durable actor event. Codex-compatible callers that
+only need the stateful Responses API may omit `actor_event_id`; if they also
+omit `conversation` and `previous_response_id`, AIGateway creates the managed
+conversation described above.
+
 The worker's rule is mechanical: response contains a `function_call` → execute
 it and send the next `response.create`; response contains no `function_call` →
 stop. All stop policy lives in AIGateway. When `max_tool_calls` is reached, the
@@ -677,23 +726,25 @@ Compaction folds an older history prefix into one summary so future runs fit
 the model context. It runs entirely in Elixir inside AIGateway. Workers never
 summarize and never commit summaries.
 
-A compaction is itself a message-log row: `type = "compaction"`,
-`status = "complete"`, exactly one compaction item in `content`,
-`previous_message_id` pointing at the pre-compaction anchor, and
-`covers_until_message_id` marking the end of the covered prefix. Projection
-then uses the summary and skips the covered rows.
+A compaction artifact is the durable summary source. Every compact path first
+writes `ai_gateway_compaction_artifacts.content` with a versioned body:
+summary text, canonical `response.compaction.output`, retained tail items, and
+usage. A checkpoint is optional and only exists when the caller needs
+`previous_response_id` continuation. Checkpoint rows have `type = "checkpoint"`
+and `content = [{"type": "compaction_artifact", "id": "cmp_<uuid>"}]`; the
+checkpoint row and artifact share the same raw UUID.
 
-Manual compaction is `POST /responses/compact` with a `previous_response_id`:
+`POST /responses/compact` always returns `object = "response.compaction"`:
 
-- AIGateway reads the chain from that anchor, writes one compaction row, and
-  returns `resp_#{new row id}`. The caller can chain from it like any other
-  response.
-- The stateless form — no `previous_response_id` — returns `400 unsupported`.
-  Note this differs from OpenAI's standalone compact, which returns a compacted
-  input window instead of a stored id.
+- With `store=false` or no `store`, AIGateway writes the artifact only. The
+  client continues by passing the returned `output` back as later input.
+- With `store=true`, AIGateway writes the artifact and a checkpoint row, then
+  adds an Ankole extension containing the checkpoint `response_id` and
+  conversation id. If no anchor or conversation is supplied, AIGateway creates
+  a managed conversation marked `managed_by_stateful_responses_api = true`.
 - The IM command `/compress` is a control-plane command that ends in this same
-  write: AIGateway summarizes and writes the compaction row, then the user gets
-  fixed command feedback through the outbox. See
+  artifact/checkpoint path: AIGateway summarizes and writes the artifact plus
+  checkpoint, then the user gets fixed command feedback through the outbox. See
   `docs/design-docs/SignalsGateway.md` for the command surface.
 
 Auto-compaction runs inside the write path, at history expansion:
@@ -703,18 +754,17 @@ Auto-compaction runs inside the write path, at history expansion:
   normalized `input_tokens + output_tokens` is used. Missing usage metadata is
   not replaced by a content-length heuristic.
 - Over the threshold, it selects the compactable prefix: `complete`
-  text-bearing rows after the last valid compaction. It never covers
-  `generating` rows, never covers `retracted` rows, and always keeps a recent
-  tail uncovered so the current task keeps its latest context.
+  text-bearing rows after the last checkpoint. It never covers `generating`
+  rows, never covers `retracted` rows, and always copies a recent retained tail
+  into the artifact output so the current task keeps its latest context.
 - An internal summarizer model generates the summary — the agent's `light`
   profile first, falling back to `primary`. The summarizer's usage is recorded
-  in the compaction row's `metadata` and can be folded into the triggering
-  run's usage.
-- The compaction row is written first, as its own complete fact. The
-  triggering run row then chains from it. The summary of already-complete rows
-  is valid whether or not the triggering run later succeeds.
-- If the summarizer fails, no compaction row is written. There is never a
-  half-written compaction fact. The request falls back to truncation, an
+  in the artifact and in checkpoint metadata for operator inspection.
+- The artifact/checkpoint is written first. The triggering run row then chains
+  from the checkpoint. The summary of already-complete rows is valid whether or
+  not the triggering run later succeeds.
+- If the summarizer fails, no artifact or checkpoint is written. There is never
+  a half-written compaction artifact. The request falls back to truncation, an
   overflow retry, or an explicit error.
 
 Truncation is the fallback ladder:
@@ -932,8 +982,14 @@ raw secret-bearing request headers.
 
 Stateful contract tests must cover:
 
-- the gate: `store=true` required for continuation fields, `conversation` XOR
-  `previous_response_id`, `400` / `401` / `403` ordering;
+- the gate: `store=true` required for durable continuation fields,
+  `conversation` and `previous_response_id` are mutually exclusive,
+  `store=true` with neither creates a managed conversation, and `400` / `401` /
+  `403` ordering;
+- WebSocket `store=false` compatibility: sequential responses on one socket,
+  same-socket `previous_response_id` continuation, reconnect miss returning
+  `previous_response_not_found`, and failed continuation evicting the cached
+  response id;
 - one run row per `response.create`, with request input items and output items
   in the same `content` array;
 - the in-flight partial unique index: a second `generating` row for the same
@@ -942,8 +998,9 @@ Stateful contract tests must cover:
   `response.id` rewriting to `resp_*` on every frame;
 - `GET /responses/:id` single-row synthesis, `in_progress` for `generating`
   rows with empty output, and `404` for `tmp_resp_*`;
-- `/responses/compact` writing one compaction row with both link fields, and
-  `400 unsupported` for the stateless form;
+- `/responses/compact` always returning `response.compaction`, artifact
+  persistence for compact output, and `store=true` compact creating a
+  checkpoint whose id matches the artifact id;
 - orphaned `generating` reclaim by staleness and `409 response_in_progress`
   for live generations;
 - `instructions` non-inheritance, `prompt_cache_key` no-op, and `service_tier`

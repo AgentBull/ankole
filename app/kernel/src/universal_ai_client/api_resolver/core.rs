@@ -1,11 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
-use std::time::{SystemTime, UNIX_EPOCH};
-
-use serde_json::{json, Map, Number, Value};
-use uuid::Uuid;
-
-use super::error::StreamError;
-use super::spec::{ApiResolverKind, ResponseContext};
+use super::*;
 
 #[derive(Debug)]
 pub struct ApiResolver {
@@ -13,7 +6,7 @@ pub struct ApiResolver {
     protocol: Box<dyn ApiProtocol>,
 }
 
-trait ApiProtocol: std::fmt::Debug + Send + Sync {
+pub(super) trait ApiProtocol: std::fmt::Debug + Send + Sync {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
         Ok(context.resolved_provider_request_object())
     }

@@ -201,11 +201,22 @@ function reservedPayloadKey(key: string): boolean {
 }
 
 function serializeError(error: Error): WorkerLogFields {
-  return {
+  const serialized: WorkerLogFields = {
     type: error.name,
     message: error.message,
     stack: error.stack
   }
+  const record = error as Error & { code?: unknown; status?: unknown; details?: unknown }
+
+  if (typeof record.code === 'string') serialized.code = record.code
+  if (typeof record.status === 'number') serialized.status = record.status
+  if (jsonObjectValue(record.details)) serialized.details = record.details
+
+  return serialized
+}
+
+function jsonObjectValue(value: unknown): value is JsonObject {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
 function compactLabels(labels: Record<string, string | number | boolean | undefined>): Record<string, string> {

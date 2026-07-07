@@ -1,4 +1,5 @@
-fn build_event(sequence: u64, event_type: &str, fields: Value) -> Value {
+use super::*;
+pub(super) fn build_event(sequence: u64, event_type: &str, fields: Value) -> Value {
     let mut event = json!({
         "type": event_type,
         "sequence_number": sequence
@@ -13,7 +14,7 @@ fn build_event(sequence: u64, event_type: &str, fields: Value) -> Value {
     event
 }
 
-fn terminal_event(status: &str) -> &'static str {
+pub(super) fn terminal_event(status: &str) -> &'static str {
     match status {
         "completed" => "response.completed",
         "incomplete" => "response.incomplete",
@@ -22,7 +23,7 @@ fn terminal_event(status: &str) -> &'static str {
     }
 }
 
-fn function_call_item(call: &ToolCall, status: &str) -> Value {
+pub(super) fn function_call_item(call: &ToolCall, status: &str) -> Value {
     json!({
         "id": call.id,
         "type": "function_call",
@@ -33,7 +34,7 @@ fn function_call_item(call: &ToolCall, status: &str) -> Value {
     })
 }
 
-fn failed_response_resource(
+pub(super) fn failed_response_resource(
     context: &ResponseContext,
     error: &StreamError,
     last_response: Option<Value>,
@@ -45,7 +46,7 @@ fn failed_response_resource(
     complete_response_resource(context, body)
 }
 
-fn complete_response_resource(context: &ResponseContext, body: Value) -> Value {
+pub(super) fn complete_response_resource(context: &ResponseContext, body: Value) -> Value {
     let request = context.resolved_request();
     let mut object = body.as_object().cloned().unwrap_or_default();
     let created_at = integer_value(
@@ -79,8 +80,10 @@ fn complete_response_resource(context: &ResponseContext, body: Value) -> Value {
     );
     object.insert(
         "model".to_string(),
-        json!(string_value(object.get("model").unwrap_or(&Value::Null))
-            .unwrap_or_else(|| context.model.clone())),
+        json!(
+            string_value(object.get("model").unwrap_or(&Value::Null))
+                .unwrap_or_else(|| context.model.clone())
+        ),
     );
     object.insert("previous_response_id".to_string(), Value::Null);
     object.insert(
@@ -217,26 +220,30 @@ fn complete_response_resource(context: &ResponseContext, body: Value) -> Value {
     Value::Object(object)
 }
 
-fn preferred<'a>(body: &'a Map<String, Value>, request: &'a Value, key: &str) -> &'a Value {
+pub(super) fn preferred<'a>(
+    body: &'a Map<String, Value>,
+    request: &'a Value,
+    key: &str,
+) -> &'a Value {
     body.get(key)
         .or_else(|| request.get(key))
         .unwrap_or(&Value::Null)
 }
 
-fn put_default(object: &mut Map<String, Value>, key: &str, value: Value) {
+pub(super) fn put_default(object: &mut Map<String, Value>, key: &str, value: Value) {
     if !object.contains_key(key) || object.get(key).is_some_and(Value::is_null) {
         object.insert(key.to_string(), value);
     }
 }
 
-fn reject_provider_body_error(status: u16, body: &Value) -> Result<(), StreamError> {
+pub(super) fn reject_provider_body_error(status: u16, body: &Value) -> Result<(), StreamError> {
     match body.get("error") {
         Some(error) if !error.is_null() => Err(provider_body_error(status, body.clone())),
         _error => Ok(()),
     }
 }
 
-fn provider_object_body(
+pub(super) fn provider_object_body(
     status: u16,
     body: Value,
     label: &'static str,
@@ -252,7 +259,7 @@ fn provider_object_body(
     ))
 }
 
-fn invalid_upstream_body_error(
+pub(super) fn invalid_upstream_body_error(
     status: u16,
     body: Value,
     message: impl Into<String>,
@@ -263,7 +270,7 @@ fn invalid_upstream_body_error(
         .provider_body_excerpt(excerpt)
 }
 
-fn provider_body_error(status: u16, body: Value) -> StreamError {
+pub(super) fn provider_body_error(status: u16, body: Value) -> StreamError {
     let provider_status = upstream_body_error_status(status, &body);
     let excerpt = sonic_rs::to_vec(&body).unwrap_or_default();
     StreamError::new(
@@ -275,7 +282,7 @@ fn provider_body_error(status: u16, body: Value) -> StreamError {
     .provider_body_excerpt(excerpt)
 }
 
-fn upstream_body_error_status(status: u16, body: &Value) -> u16 {
+pub(super) fn upstream_body_error_status(status: u16, body: &Value) -> u16 {
     let body_code = body
         .get("error")
         .and_then(|error| error.get("code"))
@@ -288,7 +295,7 @@ fn upstream_body_error_status(status: u16, body: &Value) -> u16 {
         .unwrap_or(502)
 }
 
-fn normalize_input_items(input: &Value) -> Value {
+pub(super) fn normalize_input_items(input: &Value) -> Value {
     match input {
         Value::String(text) => json!([{
             "id": generated_id("msg"),
@@ -302,7 +309,7 @@ fn normalize_input_items(input: &Value) -> Value {
     }
 }
 
-fn normalize_input_item(item: &Value) -> Value {
+pub(super) fn normalize_input_item(item: &Value) -> Value {
     let Some(map) = item.as_object() else {
         return item.clone();
     };
@@ -346,14 +353,14 @@ fn normalize_input_item(item: &Value) -> Value {
     Value::Object(item)
 }
 
-fn normalize_output_items(output: &Value) -> Value {
+pub(super) fn normalize_output_items(output: &Value) -> Value {
     match output {
         Value::Array(items) => Value::Array(items.iter().map(normalize_output_item).collect()),
         _value => json!([]),
     }
 }
 
-fn normalize_output_item(item: &Value) -> Value {
+pub(super) fn normalize_output_item(item: &Value) -> Value {
     let Some(map) = item.as_object() else {
         return item.clone();
     };
@@ -380,7 +387,7 @@ fn normalize_output_item(item: &Value) -> Value {
     Value::Object(item)
 }
 
-fn normalize_message_content_for_role(role: &str, content: &Value) -> Value {
+pub(super) fn normalize_message_content_for_role(role: &str, content: &Value) -> Value {
     if matches!(role, "assistant" | "tool") {
         normalize_assistant_content(content)
     } else {
@@ -388,7 +395,7 @@ fn normalize_message_content_for_role(role: &str, content: &Value) -> Value {
     }
 }
 
-fn normalize_user_content(content: &Value) -> Value {
+pub(super) fn normalize_user_content(content: &Value) -> Value {
     match content {
         Value::String(text) => json!([{ "type": "input_text", "text": text }]),
         Value::Array(parts) => Value::Array(
@@ -415,7 +422,7 @@ fn normalize_user_content(content: &Value) -> Value {
     }
 }
 
-fn normalize_assistant_content(content: &Value) -> Value {
+pub(super) fn normalize_assistant_content(content: &Value) -> Value {
     match content {
         Value::String(text) => json!([{ "type": "output_text", "text": text, "annotations": [] }]),
         Value::Array(parts) => {
@@ -427,7 +434,7 @@ fn normalize_assistant_content(content: &Value) -> Value {
     }
 }
 
-fn normalize_output_content(content: &Value) -> Value {
+pub(super) fn normalize_output_content(content: &Value) -> Value {
     match content {
         Value::String(text) => json!([{ "type": "output_text", "text": text, "annotations": [] }]),
         Value::Array(parts) => {
@@ -437,7 +444,7 @@ fn normalize_output_content(content: &Value) -> Value {
     }
 }
 
-fn normalize_output_content_part(part: &Value) -> Value {
+pub(super) fn normalize_output_content_part(part: &Value) -> Value {
     match part {
         Value::Object(map) if map.get("type").and_then(Value::as_str) == Some("output_text") => {
             let mut map = map.clone();
@@ -460,7 +467,7 @@ fn normalize_output_content_part(part: &Value) -> Value {
     }
 }
 
-fn normalize_tools(tools: &Value) -> Value {
+pub(super) fn normalize_tools(tools: &Value) -> Value {
     match tools {
         Value::Array(tools) => Value::Array(
             tools
@@ -483,7 +490,7 @@ fn normalize_tools(tools: &Value) -> Value {
     }
 }
 
-fn normalize_tool_choice(choice: &Value) -> Value {
+pub(super) fn normalize_tool_choice(choice: &Value) -> Value {
     match choice {
         Value::String(value) if matches!(value.as_str(), "none" | "auto" | "required") => {
             json!(value)
@@ -493,14 +500,14 @@ fn normalize_tool_choice(choice: &Value) -> Value {
     }
 }
 
-fn normalize_truncation(value: &Value) -> Value {
+pub(super) fn normalize_truncation(value: &Value) -> Value {
     match value {
         Value::String(value) if matches!(value.as_str(), "auto" | "disabled") => json!(value),
         _value => json!("disabled"),
     }
 }
 
-fn normalize_text_field(value: &Value) -> Value {
+pub(super) fn normalize_text_field(value: &Value) -> Value {
     match value {
         Value::Object(map) => {
             let mut map = map.clone();
@@ -511,7 +518,7 @@ fn normalize_text_field(value: &Value) -> Value {
     }
 }
 
-fn normalize_reasoning(value: &Value) -> Value {
+pub(super) fn normalize_reasoning(value: &Value) -> Value {
     match value {
         Value::Object(map) => {
             let mut map = map.clone();
@@ -523,7 +530,7 @@ fn normalize_reasoning(value: &Value) -> Value {
     }
 }
 
-fn normalize_response_usage(usage: &Value) -> Value {
+pub(super) fn normalize_response_usage(usage: &Value) -> Value {
     let input_tokens = integer_value(
         usage
             .get("input_tokens")
@@ -567,7 +574,7 @@ fn normalize_response_usage(usage: &Value) -> Value {
     })
 }
 
-fn normalize_anthropic_usage(usage: &Value) -> Value {
+pub(super) fn normalize_anthropic_usage(usage: &Value) -> Value {
     if !usage.is_object() {
         return json!({});
     }
@@ -585,7 +592,7 @@ fn normalize_anthropic_usage(usage: &Value) -> Value {
     })
 }
 
-fn normalize_provider_token_usage(usage: &Value) -> Value {
+pub(super) fn normalize_provider_token_usage(usage: &Value) -> Value {
     if !usage.is_object() {
         return json!({});
     }
@@ -626,7 +633,7 @@ fn normalize_provider_token_usage(usage: &Value) -> Value {
     })
 }
 
-fn merge_anthropic_usage(left: Value, right: &Value) -> Value {
+pub(super) fn merge_anthropic_usage(left: Value, right: &Value) -> Value {
     let mut merged = left.as_object().cloned().unwrap_or_default();
     if let Some(right) = right.as_object() {
         for key in ["input_tokens", "output_tokens"] {
@@ -646,16 +653,11 @@ fn merge_anthropic_usage(left: Value, right: &Value) -> Value {
     Value::Object(merged)
 }
 
-fn openresponses_error(error: &StreamError) -> Value {
-    json!({
-        "message": error.message,
-        "type": "server_error",
-        "param": null,
-        "code": error.code
-    })
+pub(super) fn openresponses_error(error: &StreamError) -> Value {
+    error.to_openai_error_json()
 }
 
-fn normalize_metadata(metadata: &Value) -> Value {
+pub(super) fn normalize_metadata(metadata: &Value) -> Value {
     if metadata.is_object() {
         metadata.clone()
     } else {
@@ -663,14 +665,14 @@ fn normalize_metadata(metadata: &Value) -> Value {
     }
 }
 
-fn normalize_instructions(instructions: &Value) -> Value {
+pub(super) fn normalize_instructions(instructions: &Value) -> Value {
     match instructions {
         Value::String(_) | Value::Array(_) => instructions.clone(),
         _value => Value::Null,
     }
 }
 
-fn normalize_string_list(values: &Value) -> Value {
+pub(super) fn normalize_string_list(values: &Value) -> Value {
     match values {
         Value::Array(values) => Value::Array(
             values
@@ -683,7 +685,7 @@ fn normalize_string_list(values: &Value) -> Value {
     }
 }
 
-fn normalize_list(values: &Value) -> Value {
+pub(super) fn normalize_list(values: &Value) -> Value {
     if values.is_array() {
         values.clone()
     } else {
@@ -691,14 +693,14 @@ fn normalize_list(values: &Value) -> Value {
     }
 }
 
-fn normalize_prompt_cache_retention(value: &Value) -> Value {
+pub(super) fn normalize_prompt_cache_retention(value: &Value) -> Value {
     match value {
         Value::String(value) if matches!(value.as_str(), "in_memory" | "24h") => json!(value),
         _value => Value::Null,
     }
 }
 
-fn normalize_conversation(value: &Value) -> Value {
+pub(super) fn normalize_conversation(value: &Value) -> Value {
     match value {
         Value::String(id) if !id.is_empty() => json!({ "id": id }),
         Value::Object(map)
@@ -713,17 +715,17 @@ fn normalize_conversation(value: &Value) -> Value {
     }
 }
 
-fn bool_value(value: &Value, default: bool) -> bool {
+pub(super) fn bool_value(value: &Value, default: bool) -> bool {
     value.as_bool().unwrap_or(default)
 }
 
-fn integer_value(value: &Value) -> Option<i64> {
+pub(super) fn integer_value(value: &Value) -> Option<i64> {
     value
         .as_i64()
         .or_else(|| value.as_u64().map(|value| value as i64))
 }
 
-fn number_value(value: &Value, default: f64) -> Value {
+pub(super) fn number_value(value: &Value, default: f64) -> Value {
     value
         .as_f64()
         .and_then(Number::from_f64)
@@ -731,15 +733,15 @@ fn number_value(value: &Value, default: f64) -> Value {
         .unwrap_or_else(|| json!(default))
 }
 
-fn nullable_string(value: &Value) -> Value {
+pub(super) fn nullable_string(value: &Value) -> Value {
     string_value(value).map_or(Value::Null, Value::String)
 }
 
-fn string_value(value: &Value) -> Option<String> {
+pub(super) fn string_value(value: &Value) -> Option<String> {
     value.as_str().map(ToOwned::to_owned)
 }
 
-fn value_to_string(value: &Value) -> String {
+pub(super) fn value_to_string(value: &Value) -> String {
     match value {
         Value::String(value) => value.clone(),
         Value::Null => String::new(),
@@ -747,11 +749,11 @@ fn value_to_string(value: &Value) -> String {
     }
 }
 
-fn generated_id(prefix: &str) -> String {
+pub(super) fn generated_id(prefix: &str) -> String {
     format!("{prefix}_{}", Uuid::new_v4().simple())
 }
 
-fn now_seconds() -> i64 {
+pub(super) fn now_seconds() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs() as i64)
@@ -804,7 +806,7 @@ pub(super) fn put_default_if_useful(map: &mut Map<String, Value>, key: &str, val
     }
 }
 
-fn encode_protocol_json(value: Value) -> Result<String, StreamError> {
+pub(super) fn encode_protocol_json(value: Value) -> Result<String, StreamError> {
     sonic_rs::to_string(&value).map_err(|reason| {
         StreamError::new(
             "request_encode_failed",

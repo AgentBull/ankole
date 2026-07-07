@@ -3,6 +3,7 @@ defmodule Ankole.Memory.RPCBroker do
   RuntimeFabric RPC entry point for worker-originated Memory tools.
   """
 
+  alias Ankole.ActorRuntime.RPCWire
   alias Ankole.ActorRuntime.TurnRef
   alias Ankole.Memory
 
@@ -12,7 +13,7 @@ defmodule Ankole.Memory.RPCBroker do
           {:ok, map()} | {:error, map()}
   def handle_request(action, %TurnRef{} = turn_ref, request, _route)
       when is_binary(action) and is_map(request) do
-    request_id = text(request, "request_id") || "memory-rpc-#{Ecto.UUID.generate()}"
+    request_id = RPCWire.text(request, "request_id") || "memory-rpc-#{Ecto.UUID.generate()}"
 
     request
     |> dispatch(action, turn_ref)
@@ -88,7 +89,7 @@ defmodule Ankole.Memory.RPCBroker do
 
   defp actor_event(request) do
     case Map.get(request, "actor_event") || Map.get(request, :actor_event) do
-      event when is_map(event) -> {:ok, stringify_keys(event)}
+      event when is_map(event) -> {:ok, RPCWire.stringify_keys(event)}
       _value -> {:error, :missing_actor_event}
     end
   end
@@ -102,7 +103,7 @@ defmodule Ankole.Memory.RPCBroker do
     %{
       "actor_event_id" => Map.get(actor_event, "actor_event_id"),
       "source_entry_id" => Map.get(actor_event, "source_entry_id"),
-      "tool_call_id" => text(request, "tool_call_id")
+      "tool_call_id" => RPCWire.text(request, "tool_call_id")
     }
   end
 
@@ -119,57 +120,19 @@ defmodule Ankole.Memory.RPCBroker do
   end
 
   defp required_text(map, key) do
-    case text(map, key) do
+    case RPCWire.text(map, key) do
       value when is_binary(value) -> {:ok, value}
       _value -> {:error, {:missing, key}}
     end
   end
 
-  defp text(map, key) do
-    case Map.get(map, key) || Map.get(map, String.to_atom(key)) do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          trimmed -> trimmed
-        end
-
-      _value ->
-        nil
-    end
-  end
-
-  defp stringify_keys(map) do
-    Map.new(map, fn
-      {key, value} when is_atom(key) and is_map(value) ->
-        {Atom.to_string(key), stringify_keys(value)}
-
-      {key, value} when is_atom(key) ->
-        {Atom.to_string(key), value}
-
-      {key, value} when is_map(value) ->
-        {key, stringify_keys(value)}
-
-      pair ->
-        pair
-    end)
-  end
-
   defp error_payload(request_id, reason) do
-    %{
-      "request_id" => request_id,
-      "code" => error_code(reason),
-      "message" => error_message(reason),
-      "details_json" => error_details(reason)
-    }
+    RPCWire.error_payload(request_id, reason,
+      fallback_code: "memory_request_failed",
+      message_style: :tuple_reason,
+      details_json: error_details(reason)
+    )
   end
-
-  defp error_code(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp error_code({reason, _details}) when is_atom(reason), do: Atom.to_string(reason)
-  defp error_code(_reason), do: "memory_request_failed"
-
-  defp error_message(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp error_message({reason, _details}) when is_atom(reason), do: Atom.to_string(reason)
-  defp error_message(reason), do: inspect(reason)
 
   defp error_details({_reason, details}) when is_map(details), do: details
   defp error_details({_reason, details}), do: %{"reason" => inspect(details)}

@@ -10,7 +10,7 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
   alias Ankole.Plugins.LarkAdapter.IdentityProvider
   alias Ankole.Plugins.LarkAdapter.Inbound
   alias Ankole.Logging
-  alias Ankole.IdentityProviders.Config, as: IdentityProviderConfig
+  alias Ankole.IdentityProviders
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.AdapterContext
   alias Ankole.SignalsGateway.Binding
@@ -137,10 +137,9 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
   end
 
   defp add_identity_provider_specs({specs, errors}, _opts) do
-    case IdentityProviderConfig.active_providers() do
+    case IdentityProviders.list_active_provider_refs("lark") do
       {:ok, providers} ->
         providers
-        |> Enum.filter(&lark_identity_provider?/1)
         |> Enum.reduce({specs, errors}, &add_identity_provider_spec/2)
 
       {:error, reason} ->
@@ -281,9 +280,4 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
   end
 
   defp start_error({:error, reason}), do: %{reason: reason}
-
-  defp lark_identity_provider?(%{"adapter_id" => "lark", "enabled" => enabled}),
-    do: enabled != false
-
-  defp lark_identity_provider?(_provider), do: false
 end

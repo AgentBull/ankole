@@ -8,10 +8,16 @@ import { RuntimeRpcClient, handleWorkerRpcRequest } from './lanes/rpc_lane'
 import { parseWorkerEnv, workerCapacityEnvelope, workerHeartbeatEnvelope, workerReadyEnvelope } from './worker/config'
 import type { WorkerConfig } from './worker/config'
 import { decodeEnvelope, type RuntimeFabricEnvelope } from './fabric/fabric'
-import { isRuntimeFabricBackpressure, reliableEnvelopeSender, type ReliableEnvelopeSender } from './fabric/sender'
+import {
+  isRuntimeFabricBackpressure,
+  reliableEnvelopeSender,
+  reliableFileFrameSender,
+  type ReliableEnvelopeSender
+} from './fabric/sender'
 import { prepareTurnWorkspace, verifyWorkerFilesystem } from './worker/workspace'
-import { createFileTransferState, handleFileTransferFrame, isFileTransferFrame } from './lanes/file_transfer_lane'
+import { createFileTransferLane } from './lanes/file'
 import { resolveBubblewrapSupport } from './tools/computer/bubblewrap'
+import { syncInstalledSkillsForTurn } from './skills/installed_skill_sync'
 import {
   availableTurnSlots,
   startTurnProgress,
@@ -59,9 +65,10 @@ async function runWorker(): Promise<void> {
 
   const dealer = new kernel.RuntimeFabricDealer(config.endpoint, config.workerId, config.workerId, config.workerAuthKey)
   const sendEnvelope = reliableEnvelopeSender(envelope => dealer.sendEnvelope(envelope))
+  const sendFileFrame = reliableFileFrameSender(frames => dealer.sendFileFrame(frames))
   const rpcClient = new RuntimeRpcClient(sendEnvelope)
   const activeTurns = new Map<string, ActiveTurn>()
-  const fileTransfers = createFileTransferState()
+  const fileLane = createFileTransferLane(config, sendFileFrame)
   let stopping = false
 
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
@@ -92,8 +99,8 @@ async function runWorker(): Promise<void> {
       const frames = await dealer.recvRawAsync(500)
       if (!frames) continue
 
-      if (isFileTransferFrame(frames)) {
-        await handleFileTransferFrame(config, dealer, fileTransfers, frames)
+      if (fileLane.accepts(frames)) {
+        await fileLane.handle(frames)
         continue
       }
 
@@ -328,6 +335,11 @@ async function runActiveTurn(
     actor_event_id: turnStart.turn.actor_event_id,
     operation: turnOperation(turnStart.turn.actor_event_id)
   })
+  await syncInstalledSkillsForTurn(turnStart, {
+    agentInstalledSkillsRoot: config.agentInstalledSkillsRoot,
+    replaceInstalledSkillObservations: request => replaceInstalledSkillObservations(rpcClient, request),
+    logger: workerLogger
+  })
 
   const result = await runTurnHandlers(turnStart, {
     workspaceRoot,
@@ -345,7 +357,6 @@ async function runActiveTurn(
     requestMemoryRpc: (method, request) => requestMemoryRpc(rpcClient, method, request),
     requestSkillOverlay: request => requestSkillOverlay(rpcClient, request),
     replaceSkillOverlay: request => replaceSkillOverlay(rpcClient, request),
-    replaceInstalledSkillObservations: request => replaceInstalledSkillObservations(rpcClient, request),
     pollSteering: () => active.steeringUpdates.splice(0),
     abortSignal: active.abortController.signal
   })

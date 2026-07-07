@@ -27,7 +27,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   alias Ankole.Kernel.UniversalAIClient
   alias Ankole.Logging
 
-  @http_only_websocket_fields ~w(stream stream_options background)
+  @socket_response_history_limit 32
 
   # ─────────────────────────────────────────────────────────────────
   # Connection lifecycle
@@ -64,6 +64,17 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
 
         {:push, {:text, Ankole.JSON.encode!(event)}, state}
 
+      {:error, :previous_response_not_found} ->
+        event =
+          error_event(
+            400,
+            "previous_response_not_found",
+            "previous_response_id was not found on this WebSocket connection.",
+            "previous_response_id"
+          )
+
+        {:push, {:text, Ankole.JSON.encode!(event)}, state}
+
       {:error, :invalid_conversation} ->
         event =
           error_event(
@@ -79,7 +90,8 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
           error_event(
             400,
             "stateful_anchor_required",
-            "store=true requires either conversation or previous_response_id."
+            "previous_response_id is required for this stateful Responses operation.",
+            "previous_response_id"
           )
 
         {:push, {:text, Ankole.JSON.encode!(event)}, state}
@@ -109,7 +121,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
           error_event(
             400,
             "missing_actor_event_id",
-            "store=true requires metadata.actor_event_id for actor-event correlation.",
+            "metadata.actor_event_id is required for actor-event tool-result correlation.",
             "metadata.actor_event_id"
           )
 
@@ -223,9 +235,10 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   end
 
   defp handle_socket_event(%{"type" => "response.create"} = event, state) do
-    request = prepare_request(event)
-
-    with {:ok, active_stream} <- open_active_stream(state, request) do
+    with {:ok, request, socket_context} <-
+           prepare_response_create_request(state, prepare_request(event)),
+         {:ok, active_stream} <- open_active_stream(state, request) do
+      active_stream = Map.merge(active_stream, socket_context)
       {:ok, Map.put(state, :active_stream, active_stream)}
     end
   end
@@ -262,22 +275,31 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
     maybe_publish_typed_events(stateful, active, new_active, seq)
 
     if Map.get(new_active, :terminal_received, false) do
-      {:push, {:text, client_chunk}, clear_active_stream(state)}
+      state =
+        state
+        |> remember_socket_response(new_active)
+        |> clear_active_stream()
+
+      {:push, {:text, client_chunk}, state}
     else
       case UniversalAIClient.read(stream, 1) do
         :ok ->
           {:push, {:text, client_chunk}, Map.put(state, :active_stream, new_active)}
 
         {:error, reason} ->
-          commit_stateful_error(
-            Map.get(new_active, :stateful),
-            "stream_read_failed: #{inspect(reason)}",
-            unpersisted_items(new_active),
-            code: "provider_stream_error",
-            retryable: true
-          )
+          case fail_active_stream(
+                 state,
+                 new_active,
+                 "stream_read_failed: #{inspect(reason)}",
+                 code: "provider_stream_error",
+                 retryable: true
+               ) do
+            {:push, failed_chunk, state} ->
+              {:push, [{:text, client_chunk}, {:text, failed_chunk}], state}
 
-          {:push, {:text, client_chunk}, clear_active_stream(state)}
+            {:ok, state} ->
+              {:push, {:text, client_chunk}, state}
+          end
       end
     end
   end
@@ -312,18 +334,21 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
         {:universal_ai_client, ref, :done, _summary},
         %{active_stream: %{ref: ref, stateful: stateful} = active} = state
       ) do
-    unless Map.get(active, :terminal_committed, false) or
-             Map.get(active, :terminal_received, false) do
-      commit_stateful_error(
-        stateful,
-        "provider_stream_closed_without_terminal",
-        unpersisted_items(active),
-        code: "provider_stream_closed_without_terminal",
-        retryable: true
-      )
+    if Map.get(active, :terminal_committed, false) or
+         Map.get(active, :terminal_received, false) do
+      {:ok, clear_active_stream(state)}
+    else
+      case fail_active_stream(
+             state,
+             %{active | stateful: stateful},
+             "provider_stream_closed_without_terminal",
+             code: "provider_stream_closed_without_terminal",
+             retryable: true
+           ) do
+        {:push, failed_chunk, state} -> {:push, {:text, failed_chunk}, state}
+        {:ok, state} -> {:ok, state}
+      end
     end
-
-    {:ok, clear_active_stream(state)}
   end
 
   # Stream errored.
@@ -415,6 +440,8 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
 
   # Handles a parsed JSON chunk from the provider.
   defp handle_parsed_chunk(active, chunk, seq, original_string) do
+    active = remember_provider_response_id(active, chunk)
+
     case chunk["type"] do
       # ── Text delta ──
       "response.output_text.delta" ->
@@ -620,7 +647,13 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
          seq,
          original_string
        ) do
-    active = %{active | accumulated_items: all_items, terminal_error: terminal_error}
+    active =
+      Map.merge(active, %{
+        accumulated_items: all_items,
+        terminal_error: terminal_error,
+        terminal_response: terminal_response_for_history(chunk, all_items)
+      })
+
     terminal_committed? = terminal_committed_after_forward?(active)
     terminal_items = unpersisted_items(active)
 
@@ -788,8 +821,11 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
                stateful: stateful_context_from_meta(meta),
                # Completed Response items held in memory until terminal commit.
                accumulated_items: [],
+               request_input: Map.get(request, "input"),
                # Accumulated assistant text (for typed live chunk events).
                text_buffer: "",
+               provider_response_id: nil,
+               terminal_response: nil,
                seq: 0,
                terminal_error: nil,
                terminal_committed: false,
@@ -935,22 +971,22 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
         opts
       )
 
-      {:push, Ankole.JSON.encode!(stateful_cleanup_failed_chunk(active, reason, opts)),
-       clear_active_stream(state)}
+      state =
+        state
+        |> evict_socket_response_history(Map.get(active, :socket_previous_response_id))
+        |> clear_active_stream()
+
+      {:push, Ankole.JSON.encode!(stateful_cleanup_failed_chunk(active, reason, opts)), state}
     end
   end
 
   defp stateful_cleanup_failed_chunk(active, reason, opts) do
-    response_id =
-      case active.stateful do
-        %{message_id: message_id} -> "resp_#{message_id}"
-        _ -> nil
-      end
+    response_id = cleanup_response_id(active)
 
     error =
       %{
         "code" => Keyword.get(opts, :code, "provider_stream_error"),
-        "message" => "AIGateway provider stream_read_error before a terminal response.",
+        "message" => cleanup_error_message(Keyword.get(opts, :code, "provider_stream_error")),
         "details" => reason
       }
       |> maybe_put_retryable(Keyword.get(opts, :retryable, false))
@@ -966,6 +1002,35 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
       }
     }
   end
+
+  defp remember_provider_response_id(active, %{"response" => %{"id" => response_id}})
+       when is_binary(response_id) do
+    Map.put(active, :provider_response_id, Map.get(active, :provider_response_id) || response_id)
+  end
+
+  defp remember_provider_response_id(active, %{"response_id" => response_id})
+       when is_binary(response_id) do
+    Map.put(active, :provider_response_id, Map.get(active, :provider_response_id) || response_id)
+  end
+
+  defp remember_provider_response_id(active, _chunk), do: active
+
+  defp cleanup_response_id(%{stateful: %{message_id: message_id}}) when is_binary(message_id),
+    do: "resp_#{message_id}"
+
+  defp cleanup_response_id(%{provider_response_id: response_id}) when is_binary(response_id),
+    do: response_id
+
+  defp cleanup_response_id(_active), do: nil
+
+  defp cleanup_error_message("provider_stream_closed_without_terminal"),
+    do: "AIGateway provider stream closed before a terminal response."
+
+  defp cleanup_error_message("provider_stream_aborted"),
+    do: "AIGateway provider stream was aborted before a terminal response."
+
+  defp cleanup_error_message(_code),
+    do: "AIGateway provider stream failed before a terminal response."
 
   defp stateful_commit_failed_chunk(active, reason, sequence_number) do
     response_id =
@@ -1022,8 +1087,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   defp decode_socket_event(payload, state) do
     with {:ok, event} <- Ankole.JSON.decode(payload),
          {:ok, event} <- ensure_object(event),
-         :ok <- ensure_socket_event_type(event),
-         :ok <- reject_http_only_fields(event) do
+         :ok <- ensure_socket_event_type(event) do
       {:ok, event}
     else
       {:error, %{event: _event} = error} ->
@@ -1055,17 +1119,6 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
       {:error, "invalid_request_error",
        "WebSocket message type must be response.create or response.tool_results.record.", "type"}
 
-  defp reject_http_only_fields(event) do
-    case Enum.find(@http_only_websocket_fields, &Map.has_key?(event, &1)) do
-      nil ->
-        :ok
-
-      field ->
-        {:error, "invalid_request_error",
-         "#{field} must not be sent in WebSocket response.create messages.", field}
-    end
-  end
-
   # Only strip the socket event type here. store/previous_response_id/
   # conversation/metadata are preserved for the stateful path and stripped later
   # at the provider request boundary.
@@ -1074,6 +1127,118 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   end
 
   defp clear_active_stream(state), do: Map.delete(state, :active_stream)
+
+  defp prepare_response_create_request(state, %{"previous_response_id" => response_id} = request)
+       when is_binary(response_id) do
+    if request["store"] == true do
+      {:ok, request, %{}}
+    else
+      prepare_socket_local_previous_response(state, response_id, request)
+    end
+  end
+
+  defp prepare_response_create_request(_state, request), do: {:ok, request, %{}}
+
+  defp prepare_socket_local_previous_response(state, response_id, request) do
+    case get_in(state, [:response_history, response_id]) do
+      %{items: history_items} when is_list(history_items) ->
+        input = history_items ++ response_input_items(Map.get(request, "input"))
+
+        request =
+          request
+          |> Map.put("input", input)
+          |> Map.delete("previous_response_id")
+          |> Map.put("store", false)
+          |> Map.delete("conversation")
+          |> strip_internal_socket_metadata()
+
+        {:ok, request, %{socket_previous_response_id: response_id}}
+
+      _missing ->
+        {:error, :previous_response_not_found}
+    end
+  end
+
+  defp strip_internal_socket_metadata(%{"metadata" => %{} = metadata} = request) do
+    Map.put(request, "metadata", Map.delete(metadata, "actor_event_id"))
+  end
+
+  defp strip_internal_socket_metadata(request), do: request
+
+  defp remember_socket_response(
+         state,
+         %{
+           stateful: nil,
+           socket_previous_response_id: response_id,
+           terminal_error: terminal_error
+         }
+       )
+       when is_binary(response_id) and not is_nil(terminal_error) do
+    evict_socket_response_history(state, response_id)
+  end
+
+  defp remember_socket_response(
+         state,
+         %{stateful: nil, terminal_response: %{"id" => response_id}} = active
+       )
+       when is_binary(response_id) do
+    entry = %{
+      response: active.terminal_response,
+      items: response_input_items(Map.get(active, :request_input)) ++ unpersisted_items(active)
+    }
+
+    put_socket_response_history(state, response_id, entry)
+  end
+
+  defp remember_socket_response(state, _active), do: state
+
+  defp evict_socket_response_history(state, response_id) when is_binary(response_id) do
+    state
+    |> Map.update(:response_history, %{}, &Map.delete(&1, response_id))
+    |> Map.update(:response_history_order, [], &Enum.reject(&1, fn id -> id == response_id end))
+  end
+
+  defp evict_socket_response_history(state, _response_id), do: state
+
+  defp put_socket_response_history(state, response_id, entry) do
+    order =
+      [
+        response_id
+        | Enum.reject(Map.get(state, :response_history_order, []), &(&1 == response_id))
+      ]
+
+    {kept, _dropped} = Enum.split(order, @socket_response_history_limit)
+
+    history =
+      state
+      |> Map.get(:response_history, %{})
+      |> Map.put(response_id, entry)
+      |> Map.take(kept)
+
+    state
+    |> Map.put(:response_history, history)
+    |> Map.put(:response_history_order, kept)
+  end
+
+  defp response_input_items(input) when is_list(input), do: Enum.filter(input, &is_map/1)
+
+  defp response_input_items(input) when is_binary(input) do
+    [
+      %{
+        "type" => "message",
+        "role" => "user",
+        "content" => [%{"type" => "input_text", "text" => input}]
+      }
+    ]
+  end
+
+  defp response_input_items(_input), do: []
+
+  defp terminal_response_for_history(%{"response" => %{} = response}, all_items) do
+    Map.put(response, "output", all_items)
+  end
+
+  defp terminal_response_for_history(_chunk, all_items), do: %{"id" => nil, "output" => all_items}
 
   defp error_event(status, code, message, param \\ nil, details \\ nil) do
     error =

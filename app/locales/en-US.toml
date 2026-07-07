@@ -9,18 +9,110 @@ sign_in = "Sign in"
 title = "Sign in to Ankole"
 
 [common]
+advanced_settings = "Advanced settings"
 back = "Back"
 cancel = "Cancel"
 continue = "Continue"
 error = "Request failed"
 loading = "Loading"
+must_be_json_object = "{$field} must be a JSON object"
+must_be_valid_json = "{$field} must be valid JSON: {$detail}"
+new = "New"
 placeholder = "Placeholder"
 ready = "Ready for implementation"
 save = "Save"
 
 [console]
+control_plane = "Control plane"
 description = "The authenticated console shell is mounted with routing, query state, i18n, and document head support."
+no_records = "No records."
+no_setting = "No setting"
+no_settings = "No console-visible settings."
 title = "Ankole Console"
+
+[console.agents]
+agent = "Agent"
+avatar_url = "Avatar URL"
+display_name = "Display name"
+new = "New agent"
+options = "Options"
+role = "Role"
+status = "Status"
+title = "Agents"
+uid = "UID"
+
+[console.aria]
+disable_agent = "Disable agent"
+disable_binding = "Disable binding"
+disable_provider = "Disable provider"
+refresh = "Refresh"
+reset = "Reset"
+sections = "Console sections"
+sign_out = "Sign out"
+
+[console.identity]
+adapter = "Adapter"
+enabled = "Enabled"
+enabled_hint = "Available for login and directory sync."
+new = "New identity provider"
+provider = "Provider"
+provider_id = "Provider ID"
+provider_id_required = "Provider ID is required."
+run_full_sync = "Run full sync"
+state = "State"
+sync = "Sync"
+title = "Identity Providers"
+
+[console.models]
+clear = "Clear"
+context = "Context"
+model = "Model"
+provider = "Provider"
+provider_options = "Provider options"
+title = "Model profiles"
+
+[console.nav]
+agents = "Agents"
+identity = "Identity Providers"
+providers = "LLM Providers"
+settings = "AppConfigure"
+signals = "Signal Bindings"
+
+[console.providers]
+base_url = "Base URL"
+connection_options = "Connection options"
+credentials = "Credentials"
+kind = "Kind"
+new = "New provider"
+provider = "Provider"
+provider_id = "Provider ID"
+title = "LLM Providers"
+
+[console.settings]
+key = "Key"
+kind = "Kind"
+reveal = "Reveal"
+source = "Source"
+title = "AppConfigure"
+
+[console.signals]
+adapter = "Adapter"
+binding_name = "Binding name"
+binding_name_required = "Binding name is required."
+group_message_mode_invalid = "Group message mode is invalid."
+name = "Name"
+new = "Signal binding"
+policy = "Policy"
+state = "State"
+title = "Signal Bindings"
+
+[console.status]
+contacts = "contacts"
+disabled = "disabled"
+enabled = "enabled"
+encrypted = "encrypted"
+global = "global"
+off = "off"
 
 [locale]
 native_label = "English"

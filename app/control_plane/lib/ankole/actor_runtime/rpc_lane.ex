@@ -10,6 +10,7 @@ defmodule Ankole.ActorRuntime.RPCLane do
   alias Ankole.ActorRuntime.AIGatewayApiKeyBroker
   alias Ankole.ActorRuntime.AppConfigureBroker
   alias Ankole.ActorRuntime.CodexDelegationBroker
+  alias Ankole.ActorRuntime.RPCWire
   alias Ankole.ActorRuntime.SkillRegistryBroker
   alias Ankole.ActorRuntime.SkillOverlayBroker
   alias Ankole.ActorRuntime.TurnRef
@@ -18,55 +19,208 @@ defmodule Ankole.ActorRuntime.RPCLane do
   alias Ankole.Schedule.RPCBroker
 
   @method_handlers %{
-    "ai_gateway.api_key_for.create_or_find_by_agent" =>
-      {:plain, AIGatewayApiKeyBroker, :handle_request, []},
-    "agent_conversation.context.resolve" =>
-      {:turn, AgentConversationContextBroker, :handle_request, [], :turn, :read},
-    "app_configure.resolve" => {:plain, AppConfigureBroker, :handle_request, []},
-    "codex.delegation.create" => {:plain, CodexDelegationBroker, :handle_create, []},
-    "codex.delegation.get" => {:plain, CodexDelegationBroker, :handle_get, []},
-    "codex.delegation.event.append" => {:plain, CodexDelegationBroker, :handle_append_event, []},
-    "codex.delegation.status.update" =>
-      {:plain, CodexDelegationBroker, :handle_update_status, []},
-    "memory_note.save" =>
-      {:turn, MemoryRPCBroker, :handle_request, ["memory_note.save"], :turn_ref, :write},
-    "memory_note.update" =>
-      {:turn, MemoryRPCBroker, :handle_request, ["memory_note.update"], :turn_ref, :write},
-    "memory_note.forget" =>
-      {:turn, MemoryRPCBroker, :handle_request, ["memory_note.forget"], :turn_ref, :write},
-    "memory_note.list" =>
-      {:turn, MemoryRPCBroker, :handle_request, ["memory_note.list"], :turn_ref, :read},
-    "memory_search" =>
-      {:turn, MemoryRPCBroker, :handle_request, ["memory_search"], :turn_ref, :read},
-    "memory_browse" =>
-      {:turn, MemoryRPCBroker, :handle_request, ["memory_browse"], :turn_ref, :read},
-    "schedule.check_back_later.create" =>
-      {:turn, RPCBroker, :handle_request, ["check_back_later.create"], :turn_ref, :write},
-    "schedule.cron.list" => {:turn, RPCBroker, :handle_request, ["cron.list"], :turn_ref, :read},
-    "schedule.cron.get" => {:turn, RPCBroker, :handle_request, ["cron.get"], :turn_ref, :read},
-    "schedule.cron.runs" => {:turn, RPCBroker, :handle_request, ["cron.runs"], :turn_ref, :read},
-    "schedule.cron.add" => {:turn, RPCBroker, :handle_request, ["cron.add"], :turn_ref, :write},
-    "schedule.cron.update" =>
-      {:turn, RPCBroker, :handle_request, ["cron.update"], :turn_ref, :write},
-    "schedule.cron.pause" =>
-      {:turn, RPCBroker, :handle_request, ["cron.pause"], :turn_ref, :write},
-    "schedule.cron.resume" =>
-      {:turn, RPCBroker, :handle_request, ["cron.resume"], :turn_ref, :write},
-    "schedule.cron.remove" =>
-      {:turn, RPCBroker, :handle_request, ["cron.remove"], :turn_ref, :write},
-    "schedule.cron.run" => {:turn, RPCBroker, :handle_request, ["cron.run"], :turn_ref, :write},
-    "skills.installed.replace" =>
-      {:turn, SkillRegistryBroker, :handle_replace, [], :turn, :write},
-    "skills.overlay.resolve" =>
-      {:turn, SkillOverlayBroker, :handle_request, ["resolve"], :turn, :read},
-    "skills.overlay.replace" =>
-      {:turn, SkillOverlayBroker, :handle_request, ["replace"], :turn, :write}
+    "ai_gateway.api_key_for.create_or_find_by_agent" => %{
+      kind: :worker_agent,
+      module: AIGatewayApiKeyBroker,
+      function: :handle_request,
+      leading_args: []
+    },
+    "agent_conversation.context.resolve" => %{
+      kind: :turn,
+      module: AgentConversationContextBroker,
+      function: :handle_request,
+      leading_args: [],
+      turn_key: :turn,
+      effect: :read
+    },
+    "app_configure.resolve" => %{
+      kind: :worker_agent,
+      module: AppConfigureBroker,
+      function: :handle_request,
+      leading_args: []
+    },
+    "codex.delegation.create" => %{
+      kind: :worker_agent,
+      module: CodexDelegationBroker,
+      function: :handle_create,
+      leading_args: []
+    },
+    "codex.delegation.get" => %{
+      kind: :worker_agent,
+      module: CodexDelegationBroker,
+      function: :handle_get,
+      leading_args: []
+    },
+    "codex.delegation.event.append" => %{
+      kind: :worker_agent,
+      module: CodexDelegationBroker,
+      function: :handle_append_event,
+      leading_args: []
+    },
+    "codex.delegation.status.update" => %{
+      kind: :worker_agent,
+      module: CodexDelegationBroker,
+      function: :handle_update_status,
+      leading_args: []
+    },
+    "memory_note.save" => %{
+      kind: :turn,
+      module: MemoryRPCBroker,
+      function: :handle_request,
+      leading_args: ["memory_note.save"],
+      turn_key: :turn_ref,
+      effect: :write
+    },
+    "memory_note.update" => %{
+      kind: :turn,
+      module: MemoryRPCBroker,
+      function: :handle_request,
+      leading_args: ["memory_note.update"],
+      turn_key: :turn_ref,
+      effect: :write
+    },
+    "memory_note.forget" => %{
+      kind: :turn,
+      module: MemoryRPCBroker,
+      function: :handle_request,
+      leading_args: ["memory_note.forget"],
+      turn_key: :turn_ref,
+      effect: :write
+    },
+    "memory_note.list" => %{
+      kind: :turn,
+      module: MemoryRPCBroker,
+      function: :handle_request,
+      leading_args: ["memory_note.list"],
+      turn_key: :turn_ref,
+      effect: :read
+    },
+    "memory_search" => %{
+      kind: :turn,
+      module: MemoryRPCBroker,
+      function: :handle_request,
+      leading_args: ["memory_search"],
+      turn_key: :turn_ref,
+      effect: :read
+    },
+    "memory_browse" => %{
+      kind: :turn,
+      module: MemoryRPCBroker,
+      function: :handle_request,
+      leading_args: ["memory_browse"],
+      turn_key: :turn_ref,
+      effect: :read
+    },
+    "schedule.check_back_later.create" => %{
+      kind: :turn,
+      module: RPCBroker,
+      function: :handle_request,
+      leading_args: ["check_back_later.create"],
+      turn_key: :turn_ref,
+      effect: :write
+    },
+    "schedule.cron.list" => %{
+      kind: :turn,
+      module: RPCBroker,
+      function: :handle_request,
+      leading_args: ["cron.list"],
+      turn_key: :turn_ref,
+      effect: :read
+    },
+    "schedule.cron.get" => %{
+      kind: :turn,
+      module: RPCBroker,
+      function: :handle_request,
+      leading_args: ["cron.get"],
+      turn_key: :turn_ref,
+      effect: :read
+    },
+    "schedule.cron.runs" => %{
+      kind: :turn,
+      module: RPCBroker,
+      function: :handle_request,
+      leading_args: ["cron.runs"],
+      turn_key: :turn_ref,
+      effect: :read
+    },
+    "schedule.cron.add" => %{
+      kind: :turn,
+      module: RPCBroker,
+      function: :handle_request,
+      leading_args: ["cron.add"],
+      turn_key: :turn_ref,
+      effect: :write
+    },
+    "schedule.cron.update" => %{
+      kind: :turn,
+      module: RPCBroker,
+      function: :handle_request,
+      leading_args: ["cron.update"],
+      turn_key: :turn_ref,
+      effect: :write
+    },
+    "schedule.cron.pause" => %{
+      kind: :turn,
+      module: RPCBroker,
+      function: :handle_request,
+      leading_args: ["cron.pause"],
+      turn_key: :turn_ref,
+      effect: :write
+    },
+    "schedule.cron.resume" => %{
+      kind: :turn,
+      module: RPCBroker,
+      function: :handle_request,
+      leading_args: ["cron.resume"],
+      turn_key: :turn_ref,
+      effect: :write
+    },
+    "schedule.cron.remove" => %{
+      kind: :turn,
+      module: RPCBroker,
+      function: :handle_request,
+      leading_args: ["cron.remove"],
+      turn_key: :turn_ref,
+      effect: :write
+    },
+    "schedule.cron.run" => %{
+      kind: :turn,
+      module: RPCBroker,
+      function: :handle_request,
+      leading_args: ["cron.run"],
+      turn_key: :turn_ref,
+      effect: :write
+    },
+    "skills.installed.replace" => %{
+      kind: :turn,
+      module: SkillRegistryBroker,
+      function: :handle_replace,
+      leading_args: [],
+      turn_key: :turn,
+      effect: :write
+    },
+    "skills.overlay.resolve" => %{
+      kind: :turn,
+      module: SkillOverlayBroker,
+      function: :handle_request,
+      leading_args: ["resolve"],
+      turn_key: :turn,
+      effect: :read
+    },
+    "skills.overlay.replace" => %{
+      kind: :turn,
+      module: SkillOverlayBroker,
+      function: :handle_request,
+      leading_args: ["replace"],
+      turn_key: :turn,
+      effect: :write
+    }
   }
 
   @spec handle_request(map(), String.t()) :: {:ok, map()} | {:error, term()}
   def handle_request(request, route) when is_map(request) and is_binary(route) do
-    request_id = text(request, "request_id") || "rpc-#{Ecto.UUID.generate()}"
-    method = text(request, "method") || ""
+    request_id = RPCWire.text(request, "request_id") || "rpc-#{Ecto.UUID.generate()}"
+    method = RPCWire.text(request, "method") || ""
     payload = Map.put_new(request_payload(request), "request_id", request_id)
 
     case dispatch_method(method, payload, route) do
@@ -82,10 +236,19 @@ defmodule Ankole.ActorRuntime.RPCLane do
 
   defp dispatch_method(method, payload, route) do
     case Map.fetch(@method_handlers, method) do
-      {:ok, {:plain, module, function, leading_args}} ->
+      {:ok,
+       %{kind: :worker_agent, module: module, function: function, leading_args: leading_args}} ->
         apply(module, function, leading_args ++ [payload, route])
 
-      {:ok, {:turn, module, function, leading_args, turn_key, effect}} ->
+      {:ok,
+       %{
+         kind: :turn,
+         module: module,
+         function: function,
+         leading_args: leading_args,
+         turn_key: turn_key,
+         effect: effect
+       }} ->
         dispatch_turn_method(module, function, leading_args, turn_key, effect, payload, route)
 
       :error ->
@@ -134,10 +297,10 @@ defmodule Ankole.ActorRuntime.RPCLane do
       "body" => %{
         "type" => "rpc_error",
         "rpc_error" => %{
-          "request_id" => text(error_payload, "request_id") || request_id,
-          "code" => text(error_payload, "code") || "rpc_request_failed",
-          "message" => text(error_payload, "message") || "RPC request failed",
-          "details_json" => map_value(error_payload, "details_json")
+          "request_id" => RPCWire.text(error_payload, "request_id") || request_id,
+          "code" => RPCWire.text(error_payload, "code") || "rpc_request_failed",
+          "message" => RPCWire.text(error_payload, "message") || "RPC request failed",
+          "details_json" => RPCWire.map_value(error_payload, "details_json", %{})
         }
       }
     }
@@ -147,40 +310,10 @@ defmodule Ankole.ActorRuntime.RPCLane do
   defp request_payload(%{payload_json: payload}) when is_map(payload), do: payload
   defp request_payload(_request), do: %{}
 
-  defp map_value(map, key) do
-    case Map.get(map, key) || Map.get(map, String.to_atom(key)) do
-      value when is_map(value) -> value
-      _value -> %{}
-    end
-  end
-
   defp error_payload(payload, reason) do
-    %{
-      "request_id" => text(payload, "request_id") || "",
-      "code" => error_code(reason),
-      "message" => error_message(reason),
-      "details_json" => %{"reason" => inspect(reason)}
-    }
-  end
-
-  defp error_code(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp error_code({reason, _details}) when is_atom(reason), do: Atom.to_string(reason)
-  defp error_code(_reason), do: "rpc_request_failed"
-
-  defp error_message(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp error_message({reason, details}) when is_atom(reason), do: "#{reason}: #{inspect(details)}"
-  defp error_message(reason), do: inspect(reason)
-
-  defp text(map, key) do
-    case Map.get(map, key) || Map.get(map, String.to_atom(key)) do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          text -> text
-        end
-
-      _value ->
-        nil
-    end
+    RPCWire.error_payload(RPCWire.text(payload, "request_id") || "", reason,
+      fallback_code: "rpc_request_failed",
+      details_json: %{"reason" => inspect(reason)}
+    )
   end
 end

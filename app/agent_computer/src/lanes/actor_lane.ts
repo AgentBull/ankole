@@ -1,7 +1,6 @@
 import { isRecord } from '@pleisto/active-support'
-import type {  RuntimeFabricEnvelope } from '../fabric/fabric'
+import type { RuntimeFabricEnvelope } from '../fabric/fabric'
 import type { JsonObject } from '@pleisto/active-support'
-
 
 /**
  * Durable turn fence echoed by every worker reply.

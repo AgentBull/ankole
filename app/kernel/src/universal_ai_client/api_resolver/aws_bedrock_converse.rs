@@ -1,10 +1,11 @@
+use super::*;
 #[derive(Debug)]
-struct AwsBedrockConverseState {
+pub(super) struct AwsBedrockConverseState {
     inner: ChatState,
 }
 
 impl AwsBedrockConverseState {
-    fn new(model: String) -> Self {
+    pub(super) fn new(model: String) -> Self {
         Self {
             inner: ChatState::new(model),
         }
@@ -17,7 +18,7 @@ impl AwsBedrockConverseState {
             .get("metadata")
             .and_then(|metadata| metadata.get("usage"))
         {
-            self.inner.usage = normalize_provider_token_usage(usage);
+            self.inner.set_usage(normalize_provider_token_usage(usage));
         }
 
         if let Some(text) = value
@@ -28,11 +29,26 @@ impl AwsBedrockConverseState {
             events.extend(self.inner.text_delta(text));
         }
 
-        if value.get("messageStop").is_some() {
-            events.extend(self.inner.finish(context, "completed", None));
+        if let Some(message_stop) = value.get("messageStop") {
+            let stop_reason = message_stop
+                .get("stopReason")
+                .and_then(Value::as_str)
+                .unwrap_or("end_turn");
+            events.extend(self.stop_reason(context, stop_reason));
         }
 
         events
+    }
+
+    fn stop_reason(&mut self, context: &ResponseContext, reason: &str) -> Vec<Value> {
+        match bedrock_terminal(reason) {
+            ProviderTerminal::Completed => self.inner.finish(context, "completed", None),
+            ProviderTerminal::Incomplete(incomplete_reason) => {
+                self.inner
+                    .finish(context, "incomplete", Some(incomplete_reason))
+            }
+            ProviderTerminal::Failed(error) => self.inner.fail(context, &error),
+        }
     }
 
     fn finish(
@@ -83,14 +99,14 @@ impl ApiProtocol for AwsBedrockConverseState {
     }
 
     fn is_terminal(&self) -> bool {
-        self.inner.terminal
+        self.inner.is_terminal()
     }
 }
 
 fn aws_bedrock_converse_body_to_response(context: &ResponseContext, body: Value) -> Value {
     let mut state = AwsBedrockConverseState::new(context.model.clone());
     let mut events = state.ingest(context, body);
-    if !state.inner.terminal {
+    if !state.inner.is_terminal() {
         events.extend(state.finish(context, "completed", None));
     }
     events
@@ -98,4 +114,20 @@ fn aws_bedrock_converse_body_to_response(context: &ResponseContext, body: Value)
         .rev()
         .find_map(|event| event.get("response").cloned())
         .unwrap_or_else(|| complete_response_resource(context, json!({ "output": [] })))
+}
+
+fn bedrock_terminal(reason: &str) -> ProviderTerminal {
+    match reason {
+        "end_turn" | "stop_sequence" | "tool_use" => ProviderTerminal::Completed,
+        "max_tokens" | "model_context_window_exceeded" => {
+            ProviderTerminal::Incomplete("max_output_tokens")
+        }
+        "guardrail_intervened"
+        | "content_filtered"
+        | "malformed_model_output"
+        | "malformed_tool_use" => {
+            ProviderTerminal::Failed(provider_terminal_rejected("AWS Bedrock", reason))
+        }
+        other => ProviderTerminal::Failed(provider_terminal_rejected("AWS Bedrock", other)),
+    }
 }

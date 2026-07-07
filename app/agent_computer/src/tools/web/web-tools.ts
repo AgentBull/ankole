@@ -3,7 +3,8 @@ import { deepString, isRecord, safeJsonParse, safeJsonStringify } from '@pleisto
 import type { JsonObject } from '@pleisto/active-support'
 import { browserExtractFromSession, ensureBrowserSession, type BrowserRuntimeOptions } from '../browser/cdp'
 import type { AgentTool, AgentToolResult } from '../../core'
-import type { AIGatewayHttpClient } from '../../core/turns/model_runtime'
+import type { AIGatewayHttpClient } from '../../core/aigateway_transport'
+import { errorMessage } from '../../common/errors'
 
 type WebToolDetails = JsonObject
 
@@ -420,11 +421,4 @@ function sanitizeWebFetchId(value: string): string {
     .replace(/[^a-zA-Z0-9._-]+/g, '-')
     .replace(/^-+|-+$/g, '')
   return safe.slice(0, 96) || 'default'
-}
-
-/**
- * Converts unknown thrown values into readable text.
- */
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }

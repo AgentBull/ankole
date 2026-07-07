@@ -1,9 +1,11 @@
 //! Host-neutral kernel primitives shared by N-API and Rustler bindings.
 
+pub(crate) mod bounded_cache;
 mod crypto;
 mod diff;
 mod encoding;
 mod error;
+mod hash;
 mod ids;
 mod jwt;
 mod phone;
@@ -12,10 +14,9 @@ mod zstd_block;
 
 pub use crypto::{aead_decrypt, aead_encrypt, derive_key, generate_key};
 pub use diff::unified_text_diff;
-pub use encoding::{
-    base64_url_safe_decode, base64_url_safe_encode, generic_hash, xxh3_128_file_hex, xxh3_128_hex,
-};
+pub use encoding::{base64_url_safe_decode, base64_url_safe_encode};
 pub use error::{KernelError, KernelResult};
+pub use hash::{generic_hash, xxh3_128_file_hex, xxh3_128_hex};
 pub use ids::{gen_uuid, gen_uuid_v7};
 pub use jwt::{jwt_sign, jwt_verify};
 pub use phone::phone_normalize_e164;

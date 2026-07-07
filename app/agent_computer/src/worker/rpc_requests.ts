@@ -1,6 +1,8 @@
 import type { JsonObject } from '@pleisto/active-support'
 import {
   RuntimeRpcClient,
+  assertRpcResponse,
+  isRpcError,
   rpcMethods,
   type AgentConversationContext,
   type AgentConversationContextRequest,
@@ -22,6 +24,7 @@ import {
   type MemoryRpcRequest,
   type RpcError,
   type RpcMethod,
+  type RpcResponse,
   type ScheduleRpcRequest,
   type SkillOverlayReplaceRequest,
   type SkillOverlayRequest,
@@ -55,7 +58,7 @@ export async function requestAIGatewayApiKey(
     request,
     request.request_id
   )
-  if ('code' in response) {
+  if (isRpcError(response)) {
     return {
       request_id: request.request_id,
       agent_uid: stringFromDetails(response, 'agent_uid') || request.agent_uid,
@@ -80,7 +83,7 @@ export async function requestAppConfigure(
   request: AppConfigureResolveRequest
 ): Promise<AppConfigureResolveResponse | AppConfigureResolveRejected> {
   const response = await rpcClient.request(rpcMethods.appConfigureResolve, request, request.request_id)
-  if ('code' in response) {
+  if (isRpcError(response)) {
     return {
       request_id: request.request_id,
       agent_uid: stringFromDetails(response, 'agent_uid') || request.agent_uid,
@@ -97,7 +100,7 @@ export async function createCodexDelegation(
   request: CodexDelegationCreateRequest
 ): Promise<CodexDelegationResponse | CodexDelegationRejected> {
   const response = await rpcClient.request(rpcMethods.codexDelegationCreate, request, request.request_id)
-  if ('code' in response) return codexRejected(response, request)
+  if (isRpcError(response)) return codexRejected(response, request)
   return response.payload_json as CodexDelegationResponse
 }
 
@@ -106,7 +109,7 @@ export async function getCodexDelegation(
   request: CodexDelegationGetRequest
 ): Promise<CodexDelegationResponse | CodexDelegationRejected> {
   const response = await rpcClient.request(rpcMethods.codexDelegationGet, request, request.request_id)
-  if ('code' in response) return codexRejected(response, request)
+  if (isRpcError(response)) return codexRejected(response, request)
   return response.payload_json as CodexDelegationResponse
 }
 
@@ -115,7 +118,7 @@ export async function appendCodexDelegationEvent(
   request: CodexDelegationEventAppendRequest
 ): Promise<CodexDelegationEventResponse | CodexDelegationRejected> {
   const response = await rpcClient.request(rpcMethods.codexDelegationEventAppend, request, request.request_id)
-  if ('code' in response) return codexRejected(response, request)
+  if (isRpcError(response)) return codexRejected(response, request)
   return response.payload_json as CodexDelegationEventResponse
 }
 
@@ -124,7 +127,7 @@ export async function updateCodexDelegationStatus(
   request: CodexDelegationStatusUpdateRequest
 ): Promise<CodexDelegationResponse | CodexDelegationRejected> {
   const response = await rpcClient.request(rpcMethods.codexDelegationStatusUpdate, request, request.request_id)
-  if ('code' in response) return codexRejected(response, request)
+  if (isRpcError(response)) return codexRejected(response, request)
   return response.payload_json as CodexDelegationResponse
 }
 
@@ -139,9 +142,7 @@ export async function requestAgentConversationContext(
   request: AgentConversationContextRequest
 ): Promise<AgentConversationContext> {
   const response = await rpcClient.request(rpcMethods.agentConversationContextResolve, request, request.request_id)
-  if ('code' in response) {
-    throw new Error(`agent conversation context RPC failed: ${response.code} ${response.message ?? ''}`.trim())
-  }
+  assertRpcResponse<RpcResponse>(response, 'agent conversation context RPC failed')
   return response.payload_json as AgentConversationContext
 }
 
@@ -157,9 +158,7 @@ export async function requestScheduleRpc(
   request: ScheduleRpcRequest
 ): Promise<JsonObject> {
   const response = await rpcClient.request(method, request as never, request.request_id)
-  if ('code' in response) {
-    throw new Error(`schedule RPC failed: ${response.code} ${response.message ?? ''}`.trim())
-  }
+  assertRpcResponse<RpcResponse>(response, 'schedule RPC failed')
   return (response.payload_json ?? {}) as JsonObject
 }
 
@@ -172,9 +171,7 @@ export async function requestMemoryRpc(
   request: MemoryRpcRequest
 ): Promise<JsonObject> {
   const response = await rpcClient.request(method, request as never, request.request_id)
-  if ('code' in response) {
-    throw new Error(`memory RPC failed: ${response.code} ${response.message ?? ''}`.trim())
-  }
+  assertRpcResponse<RpcResponse>(response, 'memory RPC failed')
   return (response.payload_json ?? {}) as JsonObject
 }
 
@@ -189,9 +186,7 @@ export async function requestSkillOverlay(
   request: SkillOverlayRequest
 ): Promise<SkillOverlayResponse> {
   const response = await rpcClient.request(rpcMethods.skillsOverlayResolve, request, request.request_id)
-  if ('code' in response) {
-    throw new Error(`skill overlay RPC failed: ${response.code} ${response.message ?? ''}`.trim())
-  }
+  assertRpcResponse<RpcResponse>(response, 'skill overlay RPC failed')
   return response.payload_json as SkillOverlayResponse
 }
 
@@ -206,9 +201,7 @@ export async function replaceSkillOverlay(
   request: SkillOverlayReplaceRequest
 ): Promise<SkillOverlayResponse> {
   const response = await rpcClient.request(rpcMethods.skillsOverlayReplace, request, request.request_id)
-  if ('code' in response) {
-    throw new Error(`skill overlay replace RPC failed: ${response.code} ${response.message ?? ''}`.trim())
-  }
+  assertRpcResponse<RpcResponse>(response, 'skill overlay replace RPC failed')
   return response.payload_json as SkillOverlayResponse
 }
 
@@ -220,9 +213,7 @@ export async function replaceInstalledSkillObservations(
   request: InstalledSkillReplaceRequest
 ): Promise<InstalledSkillReplaceResponse> {
   const response = await rpcClient.request(rpcMethods.skillsInstalledReplace, request, request.request_id)
-  if ('code' in response) {
-    throw new Error(`installed skill registry RPC failed: ${response.code} ${response.message ?? ''}`.trim())
-  }
+  assertRpcResponse<RpcResponse>(response, 'installed skill registry RPC failed')
   return response.payload_json as InstalledSkillReplaceResponse
 }
 

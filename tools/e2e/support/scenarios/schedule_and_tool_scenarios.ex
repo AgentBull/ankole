@@ -438,7 +438,9 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
 
     [open_result] = open_results
     assert tool_detail(open_result, ["exitCode"]) == 0
-    assert tool_detail(open_result, ["result", "ok"]) == true
+
+    assert tool_detail(open_result, ["result", "ok"]) == true,
+           "browser_open successful result=#{inspect(open_result, limit: :infinity, printable_limit: 8_000)}"
 
     assert normalize_url_for_assertion(tool_detail(open_result, ["result", "url"])) ==
              "https://example.com"

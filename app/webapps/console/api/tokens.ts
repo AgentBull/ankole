@@ -28,7 +28,7 @@ export function configureConsoleApiClient() {
 }
 
 /** Clears the in-memory bearer credentials. */
-export function clearConsoleTokens() {
+function clearConsoleTokens() {
   tokens = null
   tokenRequest = null
 }

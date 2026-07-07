@@ -1,15 +1,18 @@
 import { Crust } from '@crustjs/core'
 import chalk from 'chalk'
 
+import {
+  bootstrapActivationCodeLabelWithColon,
+  bootstrapActivationCodeStatus,
+  type BootstrapActivationCodeState
+} from './bootstrap-activation-code'
 import { appRootPath, loadAppDevelopmentEnv, runMixCaptured } from '../utils'
 
 const showKeys = ['bootstrap-activation-code'] as const
 type ShowKey = (typeof showKeys)[number]
 
-type GetValueResult = {
+type GetValueResult = BootstrapActivationCodeState & {
   key?: string | null
-  value?: string | null
-  completed?: boolean
 }
 
 export async function readAnkoleValue(key: ShowKey): Promise<GetValueResult> {
@@ -67,15 +70,16 @@ export function showCommand(): Crust {
 }
 
 function printBootstrapActivationCode(result: GetValueResult): void {
-  if (result.completed) {
-    console.log(chalk.dim('Setup is already completed. No bootstrap activation code is active.'))
-    return
+  const status = bootstrapActivationCodeStatus(result)
+  switch (status.kind) {
+    case 'completed':
+      console.log(chalk.dim(status.text))
+      return
+    case 'active':
+      console.log(`${chalk.bold(bootstrapActivationCodeLabelWithColon)} ${chalk.magentaBright(status.code)}`)
+      return
+    case 'missing':
+      console.log(chalk.yellow(status.text))
+      return
   }
-
-  if (result.value) {
-    console.log(`${chalk.bold('SETUP ACTIVATION CODE:')} ${chalk.magentaBright(result.value)}`)
-    return
-  }
-
-  console.log(chalk.yellow('Setup is open, but no bootstrap activation code is stored.'))
 }

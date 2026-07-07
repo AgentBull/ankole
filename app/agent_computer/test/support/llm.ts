@@ -3,7 +3,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { z } from 'zod'
 import type { JsonObject } from '@pleisto/active-support'
-import { createModel, type ResponseWebSocketLike } from '../../src/core/llm'
+import { createModel } from '../../src/core/llm'
+
+type CreateModelOptions = Parameters<typeof createModel>[0]
+type TestResponseWebSocket = ReturnType<
+  NonNullable<NonNullable<CreateModelOptions['responseWebSocket']>['createWebSocket']>
+>
 
 export function parallelReadTool(name: string, events: string[], delayMs: number, text: string) {
   return {
@@ -138,10 +143,14 @@ export function toolResultsRecordedFrame(id: string): JsonObject {
 export function fakeResponseSocket(
   init: { headers: Record<string, string> },
   onSend: (data: string, socket: FakeResponseSocket) => JsonObject[]
-): ResponseWebSocketLike {
+): TestResponseWebSocket {
   const socket = new FakeResponseSocket(init, onSend)
   queueMicrotask(() => socket.emitOpen())
-  return socket as unknown as ResponseWebSocketLike
+  return testResponseSocket(socket)
+}
+
+export function testResponseSocket(socket: FakeResponseSocket): TestResponseWebSocket {
+  return socket as unknown as TestResponseWebSocket
 }
 
 export class FakeResponseSocket {
@@ -155,7 +164,7 @@ export class FakeResponseSocket {
   ) {}
 
   send(data: string): void {
-    if (!this.init.headers.authorization?.startsWith('Bearer ')) {
+    if (!authorizationHeader(this.init.headers).startsWith('Bearer ')) {
       throw new Error('missing authorization header')
     }
 
@@ -211,4 +220,8 @@ export class FakeResponseSocket {
       })
     )
   }
+}
+
+function authorizationHeader(headers: Record<string, string>): string {
+  return headers.authorization ?? headers.Authorization ?? ''
 }

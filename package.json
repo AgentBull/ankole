@@ -49,13 +49,13 @@
     "analyze:topology": "bun run kit analyze topology"
   },
   "dependencies": {
-    "turbo": "^2.10.3"
+    "turbo": "^2.10.4"
   },
   "devDependencies": {
     "@types/bun": "latest",
     "@typescript/native-preview": "^7.0.0-dev.20260706.1",
-    "oxfmt": "^0.57.0",
-    "oxlint": "^1.72.0"
+    "oxfmt": "^0.58.0",
+    "oxlint": "^1.73.0"
   },
   "packageManager": "bun@1.3.14"
 }

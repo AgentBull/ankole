@@ -4,6 +4,7 @@ use crate::common::{KernelError, KernelResult};
 
 use super::{
     PROTOCOL_VERSION,
+    body::BodyKind,
     enums::{durability_from_json, lane_from_json},
     json::*,
     proto,
@@ -41,52 +42,49 @@ fn typed_body_from_json(body: &Map<String, Value>) -> KernelResult<proto::envelo
 }
 
 fn named_body_from_json(name: &str, payload: &Value) -> KernelResult<proto::envelope::Body> {
-    match normalized_name(name).as_str() {
-        "worker_ready" => Ok(proto::envelope::Body::WorkerReady(worker_ready_from_json(
+    match BodyKind::from_name(name)? {
+        BodyKind::WorkerReady => Ok(proto::envelope::Body::WorkerReady(worker_ready_from_json(
             payload,
         )?)),
-        "worker_heartbeat" => Ok(proto::envelope::Body::WorkerHeartbeat(
+        BodyKind::WorkerHeartbeat => Ok(proto::envelope::Body::WorkerHeartbeat(
             worker_heartbeat_from_json(payload)?,
         )),
-        "worker_capacity" => Ok(proto::envelope::Body::WorkerCapacity(
+        BodyKind::WorkerCapacity => Ok(proto::envelope::Body::WorkerCapacity(
             worker_capacity_from_json(payload)?,
         )),
-        "turn_start" => Ok(proto::envelope::Body::TurnStart(turn_start_from_json(
+        BodyKind::TurnStart => Ok(proto::envelope::Body::TurnStart(turn_start_from_json(
             payload,
         )?)),
-        "mailbox_updated" => Ok(proto::envelope::Body::MailboxUpdated(
+        BodyKind::MailboxUpdated => Ok(proto::envelope::Body::MailboxUpdated(
             mailbox_updated_from_json(payload)?,
         )),
-        "turn_accepted" => Ok(proto::envelope::Body::TurnAccepted(
+        BodyKind::TurnAccepted => Ok(proto::envelope::Body::TurnAccepted(
             turn_accepted_from_json(payload)?,
         )),
-        "turn_control" => Ok(proto::envelope::Body::TurnControl(turn_control_from_json(
+        BodyKind::TurnControl => Ok(proto::envelope::Body::TurnControl(turn_control_from_json(
             payload,
         )?)),
-        "worker_progress" => Ok(proto::envelope::Body::WorkerProgress(
+        BodyKind::WorkerProgress => Ok(proto::envelope::Body::WorkerProgress(
             worker_progress_from_json(payload)?,
         )),
-        "turn_error" => Ok(proto::envelope::Body::TurnError(turn_error_from_json(
+        BodyKind::TurnError => Ok(proto::envelope::Body::TurnError(turn_error_from_json(
             payload,
         )?)),
-        "turn_noop_completed" => Ok(proto::envelope::Body::TurnNoopCompleted(
+        BodyKind::TurnNoopCompleted => Ok(proto::envelope::Body::TurnNoopCompleted(
             turn_noop_completed_from_json(payload)?,
         )),
-        "control_shutdown" => Ok(proto::envelope::Body::ControlShutdown(
+        BodyKind::ControlShutdown => Ok(proto::envelope::Body::ControlShutdown(
             control_shutdown_from_json(payload)?,
         )),
-        "rpc_request" => Ok(proto::envelope::Body::RpcRequest(rpc_request_from_json(
+        BodyKind::RpcRequest => Ok(proto::envelope::Body::RpcRequest(rpc_request_from_json(
             payload,
         )?)),
-        "rpc_response" => Ok(proto::envelope::Body::RpcResponse(rpc_response_from_json(
+        BodyKind::RpcResponse => Ok(proto::envelope::Body::RpcResponse(rpc_response_from_json(
             payload,
         )?)),
-        "rpc_error" => Ok(proto::envelope::Body::RpcError(rpc_error_from_json(
+        BodyKind::RpcError => Ok(proto::envelope::Body::RpcError(rpc_error_from_json(
             payload,
         )?)),
-        other => Err(KernelError::new(format!(
-            "unsupported runtime fabric body: {other}"
-        ))),
     }
 }
 

@@ -1,8 +1,7 @@
 import { match } from '@pleisto/active-support'
-import type { TurnModelRef, TurnStart } from '../../lanes/actor_lane'
-import type { ModelConfig } from '../llm'
-import { createModel } from '../llm'
-import type { AIGatewayApiKeyRejected, AIGatewayApiKeyResponse } from '../../lanes/rpc_lane'
+import type { TurnModelRef } from '../lanes/actor_lane'
+import { assertRpcResponse, type AIGatewayApiKeyRejected, type AIGatewayApiKeyResponse } from '../lanes/rpc_lane'
+import { createModel, type ModelConfig } from './llm'
 
 const aiGatewayApiKeyRefreshSkewMs = 60_000
 
@@ -25,33 +24,18 @@ export interface AIGatewayHttpClient {
 }
 
 /**
- * Verifies that the control-plane-issued key can only be used for this turn's
- * agent and for AIGateway bearer auth.
- */
-export function assertAIGatewayApiKeyMatchesTurn(turnStart: TurnStart, apiKey: AIGatewayApiKeyResponse): void {
-  if (
-    apiKey.agent_uid !== turnStart.turn.actor.agent_uid ||
-    apiKey.token_type !== 'Bearer' ||
-    !apiKey.api_key ||
-    !apiKey.base_url
-  ) {
-    throw new Error('AIGateway API key response does not match turn agent')
-  }
-}
-
-/**
- * Creates a ModelConfig pointed at AIGateway for the selected turn model.
+ * Creates a ModelConfig pointed at AIGateway for the selected worker model.
  *
  * HTTP and WebSocket transports share the same refresh callback so stateful
  * response.create can recover from both expiring and revoked keys.
  */
-export function runtimeModelFromAIGatewayApiKey(
+export function modelConfigFromAIGatewayApiKey(
   modelRef: TurnModelRef,
   apiKey: AIGatewayApiKeyResponse,
   refreshApiKey?: AIGatewayApiKeyRefresher
 ): ModelConfig {
   const selector = aiGatewayModelSelector(modelRef)
-  const { baseURL, fetch: gatewayFetch } = aiGatewayHttpClientFromApiKey(apiKey, refreshApiKey)
+  const { baseURL, fetch: gatewayFetch } = httpClientFromAIGatewayApiKey(apiKey, refreshApiKey)
   const authorization = aiGatewayAuthorization(apiKey, refreshApiKey)
 
   return createModel({
@@ -72,7 +56,7 @@ export function runtimeModelFromAIGatewayApiKey(
 /**
  * Builds the small HTTP client used by worker tools that call AIGateway.
  */
-export function aiGatewayHttpClientFromApiKey(
+export function httpClientFromAIGatewayApiKey(
   apiKey: AIGatewayApiKeyResponse,
   refreshApiKey?: AIGatewayApiKeyRefresher
 ): AIGatewayHttpClient {
@@ -168,9 +152,7 @@ async function refreshApiKeyOrThrow(
     throw new Error('AIGateway API key expired and no refresh callback is available')
   }
   const refreshed = await refreshApiKey(options)
-  if ('code' in refreshed) {
-    throw new Error(`AIGateway API key rejected: ${refreshed.code} ${refreshed.message ?? ''}`.trim())
-  }
+  assertRpcResponse<AIGatewayApiKeyResponse>(refreshed, 'AIGateway API key rejected')
   return refreshed
 }
 

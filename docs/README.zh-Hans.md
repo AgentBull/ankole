@@ -126,7 +126,7 @@ Kernel 从同一个 crate 编译两次：一次作为 Elixir 的 Rustler NIF（�
 | --- | --- |
 | `app/control_plane/` | Phoenix/OTP control plane。领域 context 在 `lib/ankole/`，web 界面在 `lib/ankole_web/`，migration 在 `priv/repo/migrations/`。 |
 | `app/kernel/` | Rust kernel crate。`src/common/`（crypto/ids/jwt/zstd）、`src/authz/`（CEL）、`src/runtime_fabric/`（protobuf + ZeroMQ）、`proto/`（envelope schema）、`src/nif_exports.rs` / `src/napi_exports.rs`（绑定接口）。 |
-| `app/agent_computer/` | Bun worker。`src/main.ts` 守护进程，`src/core/` agent loop + turn，`src/tools/`，`src/prompts/`，RuntimeFabric lane（`actor_lane.ts`、`rpc_lane.ts`、`file_transfer_lane.ts`）。只能在 Docker 运行时里运行。 |
+| `app/agent_computer/` | Bun worker。`src/main.ts` 守护进程，`src/core/` agent loop + turn，`src/tools/`，`src/prompts/`，RuntimeFabric lane（`actor_lane.ts`、`rpc_lane.ts`、`lanes/file/`）。只能在 Docker 运行时里运行。 |
 | `app/webapps/` | 三个 Vite + React SPA（`auth/`、`console/`、`setup/`），构建到 `app/control_plane/priv/static/assets/`。包含生成的 OpenAPI client。 |
 | `app/library/` | 内置 skill（`skills/nano-pdf`、`skills/jupyter-live-kernel`、`skills/powerpoint`）和 agent 起步模板（`templates/MISSION.md`、`templates/SOUL.md`）。 |
 | `app/locales/` | TOML 消息目录（`en-US.toml`、`zh-Hans-CN.toml`），Elixir I18n context 和 SPA 共用。 |
@@ -168,15 +168,15 @@ Kernel 从同一个 crate 编译两次：一次作为 Elixir 的 Rustler NIF（�
 `Ankole.AIGateway`（`lib/ankole/ai_gateway/`）。分成两半：
 
 - **Provider 边界。** `providers.ex` 注册内置 provider module（`providers/openai.ex`、`openai_compatible.ex`、`openrouter.ex`、`google_ai_studio_openai.ex`、`claude.ex`、`azure_openai.ex`、`jina.ex`），以及通过 `ai_gateway.provider` contract 发现的 plugin provider（目前包括 `plugins/china_market_ai_providers` 里的 `xiaomi_mimo`、`volcengine_ark`、`alibaba_cn`、`zai_coding_plan`）。Provider module 返回一个 `provider_definition()`（设置 schema、base URL、capability，以及用来构造 `UniversalAIRequest` 的 `prepare/1`）；真正发往上游的 HTTP/SSE 传输跑在 kernel 的 `universal_ai_client` 里（feature-gated 的 Rust、NIF 驱动）。Operator 实例存在 `ai_gateway_providers` 行里（加密凭证、base URL 覆盖）；agent 在 `agents.options["ai_agent"]["models"]` 里绑定 model alias（`primary`、`light`、`heavy`、`embedding`、`rerank`）。
-- **有状态 Responses 日志。** `stateful_responses.ex` 负责 run-row 生命周期：`start_response_run` 校验 anchor（`conversation` / `previous_response_id` 必须且只能有一个），通过 `previous_message_id` 图展开历史（跳过 `retracted`，折叠被 compaction 行覆盖的前缀），当历史消息记录的 provider usage 超预算时自动 compaction（`compaction.ex`，用 agent 的 `light` profile 总结），写入 `status = "generating"` 的行，把 provider chunk 流式推到 PubSub，并用乐观的 `WHERE status = 'generating'` 守卫做 terminal commit。链尾的 terminal commit 还会设置 `actor_events.completed_at` 并清理 delivery。孤立的 `generating` 行会按 `updated_at` 的陈旧程度恢复成 `error`（300 秒宽限期）。
+- **有状态 Responses 日志。** `stateful_responses.ex` 负责 run-row 生命周期：`start_response_run` 解析 `conversation` 或 `previous_response_id`；如果一个 `store=true` 请求两者都没有，就创建一个带 `metadata.managed_by_stateful_responses_api = true` 的 managed conversation。它通过 `previous_message_id` 图展开历史（跳过 `retracted`，折叠被 compaction 行覆盖的前缀），当历史消息记录的 provider usage 超预算时自动 compaction（`compaction.ex`，用 agent 的 `light` profile 总结），写入 `status = "generating"` 的行和可选的 `metadata.actor_event_id`，把 provider chunk 流式推到 PubSub，并用乐观的 `WHERE status = 'generating'` 守卫做 terminal commit。链尾的 terminal commit 还会设置 `actor_events.completed_at` 并清理 delivery。孤立的 `generating` 行会按 `updated_at` 的陈旧程度恢复成 `error`（300 秒宽限期）。
 
-Wire 接口是 OpenAI Responses 形状：worker 连接 `GET /api/v1/ai-gateway/responses`（WebSocket，`AnkoleWeb.AIGatewayResponsesSocket`），发送带 `store=true` 的 `response.create` frame；id 会被改写成 `resp_<message-row-uuid>`；HTTP 路由提供无状态调用、检索、手动 compaction、embedding 和 rerank。拥有的表：`ai_gateway_messages`、`ai_gateway_conversations`、`ai_gateway_providers`。
+Wire 接口是 OpenAI Responses 形状：worker 连接 `GET /api/v1/ai-gateway/responses`（WebSocket，`AnkoleWeb.AIGatewayResponsesSocket`），发送带 `store=true` 的 `response.create` frame；`conversation` 和 `previous_response_id` 是 AIGateway state anchor，`metadata.actor_event_id` 是 ActorRuntime correlation metadata，不是通用 Responses 的必填项；id 会被改写成 `resp_<message-row-uuid>`；HTTP 路由提供无状态调用、检索、手动 compaction、embedding 和 rerank。拥有的表：`ai_gateway_messages`、`ai_gateway_conversations`、`ai_gateway_providers`。
 
 ### RuntimeFabric：实时 ZeroMQ 传输
 
 设计见 `docs/design-docs/RuntimeFabric.md`；机制在 `app/kernel/src/runtime_fabric/`。Control plane 上有一个 ROUTER socket（由专用 Rust 线程持有，接受 `Ankole.ActorRuntime.Transport.Broker` 的命令），每个 worker 一个 DEALER（由 Rust 线程持有，从 `src/runtime_fabric_sender.ts` 驱动）。Worker 用 ZAP PLAIN 认证：username 是 `WORKER_ID`，password 是 installation 的 worker auth key（AppConfigure 持有，落盘加密）。
 
-Envelope 是 protobuf（`app/kernel/proto/ankole/runtime_fabric/v1/envelope.proto`），在任何 host 看到它们之前，先由 Rust 校验。四条 lane：CONTROL（`worker_ready`、心跳、容量、`turn_control`、关停）、TURN（`turn_start`、`mailbox_updated`、`turn_accepted`、`turn_error`、`turn_noop_completed`）、PROGRESS（`worker_progress`，只用于可观测性）、RPC（`rpc_request`/`rpc_response`/`rpc_error`）。另外还有一条 raw-frame 文件 lane（`ANKOLE_FILE/1`，2 MiB zstd 块、信用流控），在 control plane 和 worker 可见根 `user_files`、`agent_installed_skills` 之间搬运字节（`lib/ankole/actor_runtime/file_transfer_lane.ex` <-> `src/file_transfer_lane.ts`）。
+Envelope 是 protobuf（`app/kernel/proto/ankole/runtime_fabric/v1/envelope.proto`），在任何 host 看到它们之前，先由 Rust 校验。四条 lane：CONTROL（`worker_ready`、心跳、容量、`turn_control`、关停）、TURN（`turn_start`、`mailbox_updated`、`turn_accepted`、`turn_error`、`turn_noop_completed`）、PROGRESS（`worker_progress`，只用于可观测性）、RPC（`rpc_request`/`rpc_response`/`rpc_error`）。另外还有一条 raw-frame 文件 lane（`ANKOLE_FILE/1`，2 MiB zstd 块、信用流控），在 control plane 和 worker 可见根 `user_files`、`agent_installed_skills` 之间搬运字节（`lib/ankole/actor_runtime/file_transfer_lane.ex` <-> `src/lanes/file/`）。
 
 Worker->control-plane 的 RPC 方法注册在 `lib/ankole/actor_runtime/rpc_lane.ex`：`ai_gateway.api_key_for.create_or_find_by_agent`、`agent_conversation.context.resolve`、`skills.overlay.resolve` / `.replace`、`schedule.check_back_later.create`、`schedule.cron.*` 系列、`memory_note.*`、`memory_search`、`memory_browse`。
 
@@ -228,7 +228,7 @@ Canonical 链路：用户在飞书群里 mention 一个 agent，agent 在跑了�
 2. **一个工作项。** `InboundBatchFinalizer` 关闭 batch；一个事务写入一条 `actor_events` 行，`type = "im.message.addressed"`，对 `(agent_uid, binding_name, source_event_id)` 唯一，然后向 provider 确认。这一行就是持久的工作项；它会永久保留，工作完成时设置 `completed_at`。
 3. **分发。** ActorRuntime 的 session controller 选择下一个 ready event（`input_state = 'open' AND completed_at IS NULL`，且没有 live delivery），`ActivationManager` 持有激活租约，`WorkerPool` 分配 worker，`TurnLifecycle.start_worker_turn` 写入 `actor_event_deliveries` 的 fence 行，`Transport.Broker` 通过 ZeroMQ 发送 `turn_start` envelope（由 `turn_envelope.ex` 构造）。这里不传历史，只有一个 fence、一个 actor event、一个 model 引用。
 4. **Worker turn 准备。** `src/main.ts` 分发到 `core/turns/text_turn.ts`，后者通过 RPC 拿会话上下文和 agent 范围的 AIGateway key，构造 system prompt，组装 tool set。
-5. **第一次 model 调用。** `core/agent-loop.ts` 通过 AIGateway WebSocket 发送 `response.create`（`store=true`、`conversation`、用户文本作为 input items，并带 `metadata.actor_event_id`）。`AnkoleWeb.AIGatewayResponsesSocket` 把它交给 `StatefulResponses.start_response_run`，后者展开历史、必要时自动 compaction、写入 `generating` 行；provider 的 `prepare/1` 加 kernel `universal_ai_client` 流式调用上游。Chunk 发到 PubSub，绝不进数据库。
+5. **第一次 model 调用。** `core/agent-loop.ts` 通过 AIGateway WebSocket 发送 `response.create`（`store=true`、`conversation`、用户文本作为 input items，并带 `metadata.actor_event_id`）。`conversation` 是 Responses state anchor；`actor_event_id` 只是这个主 agent 用户故事里的 ActorRuntime correlation。`AnkoleWeb.AIGatewayResponsesSocket` 把它交给 `StatefulResponses.start_response_run`，后者展开历史、必要时自动 compaction、写入 `generating` 行；provider 的 `prepare/1` 加 kernel `universal_ai_client` 流式调用上游。Chunk 发到 PubSub，绝不进数据库。
 6. **实时预览。** `SignalsGateway.AIReplyPreview` 订阅这些 chunk，通过 lark adapter 的 CardKit 调用驱动流式飞书卡片：第一个 chunk 时发送，文本增长时编辑。
 7. **工具执行。** Model 返回 `function_call`；AIGateway 把行 commit 成 `complete`（input items + output items 在同一个 `content` 数组里）并发送 terminal frame。Worker 在 bubblewrap 里跑 shell 命令，然后用 `function_call_output` 发下一次 `response.create`，并通过 `previous_response_id` 链接。
 8. **Terminal commit。** 没有 tool call 的轮次是链尾，也就是这个 actor event 的最终 AI 输出。AIGateway 在一个事务里把它 commit 成 `complete`、设置 `actor_events.completed_at`、清理 delivery，然后 worker 才看到 terminal frame。Worker 成功时自己不报告任何东西；`turn_error` 和 `turn_noop_completed` 覆盖其他结束方式。
@@ -322,7 +322,8 @@ E2E harness（`tools/e2e/`）跑一个 fake 飞书平台，它用真实 WS 协�
 - **actor session**：`{agent_uid, session_id}`。Signal 支持的 session 从 channel 派生 `session_id`；一个 channel，一个 session actor。
 - **binding**：一个 agent 的一条 provider 入口配置，例如一个连接到 agent 的飞书 app。
 - **run row**：一次 `response.create` 调用写入的 `ai_gateway_messages` 行。在一个 `content` 数组里保存请求 input items 和 model output items。
-- **compaction row**：一条 `ai_gateway_messages` 行（`type = "compaction"`），总结较旧的历史前缀，让未来的 run 适配 model context。
+- **compaction artifact**：一条 `ai_gateway_compaction_artifacts` 行，保存 summary、canonical `response.compaction.output`、保留的 tail items 和 usage facts。
+- **checkpoint row**：一条 `ai_gateway_messages` 行（`type = "checkpoint"`），其 `content` 只包含一个 `compaction_artifact` ref。它是 response-chain continuation anchor，不是 summary 的事实源。
 - **anchor**：新 run 链接到的行（`previous_message_id`；在 API 边缘渲染成 `previous_response_id`）。
 - **visible leaf**：没有其他行链接到它的 `complete` 行。隐式续接总是选最新的 visible leaf。
 - **source mirror**：`signal_gateway_channels` + `signal_gateway_entries`，provider 侧当前显示内容的映像。不是队列，也不是 model 历史。

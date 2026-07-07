@@ -965,7 +965,16 @@ defmodule Ankole.E2E.Harness do
   defp decode_output_result(output) when is_binary(output) do
     case JSON.decode(output) do
       {:ok, decoded} -> %{"result" => decoded}
-      {:error, _reason} -> %{}
+      {:error, _reason} -> decode_json_prefix_result(output)
+    end
+  end
+
+  defp decode_json_prefix_result(output) do
+    with {:ok, json} <- json_container_prefix(output),
+         {:ok, decoded} <- JSON.decode(json) do
+      %{"result" => decoded}
+    else
+      _error -> %{}
     end
   end
 
@@ -987,6 +996,64 @@ defmodule Ankole.E2E.Harness do
       _empty -> %{"raw" => value}
     end
   end
+
+  defp json_container_prefix(value) when is_binary(value) do
+    value = String.trim_leading(value)
+
+    case value do
+      <<byte, _rest::binary>> when byte in [?{, ?[] ->
+        find_json_container_end(value, 0, [], false, false)
+
+      _other ->
+        :error
+    end
+  end
+
+  defp find_json_container_end(value, position, stack, in_string?, escaped?)
+       when position < byte_size(value) do
+    byte = :binary.at(value, position)
+
+    cond do
+      in_string? and escaped? ->
+        find_json_container_end(value, position + 1, stack, true, false)
+
+      in_string? and byte == ?\\ ->
+        find_json_container_end(value, position + 1, stack, true, true)
+
+      in_string? and byte == ?" ->
+        find_json_container_end(value, position + 1, stack, false, false)
+
+      in_string? ->
+        find_json_container_end(value, position + 1, stack, true, false)
+
+      byte == ?" ->
+        find_json_container_end(value, position + 1, stack, true, false)
+
+      byte == ?{ ->
+        find_json_container_end(value, position + 1, [?} | stack], false, false)
+
+      byte == ?[ ->
+        find_json_container_end(value, position + 1, [?] | stack], false, false)
+
+      byte in [?}, ?]] ->
+        case stack do
+          [^byte | rest] ->
+            if rest == [] do
+              {:ok, binary_part(value, 0, position + 1)}
+            else
+              find_json_container_end(value, position + 1, rest, false, false)
+            end
+
+          _mismatched ->
+            :error
+        end
+
+      true ->
+        find_json_container_end(value, position + 1, stack, false, false)
+    end
+  end
+
+  defp find_json_container_end(_value, _position, _stack, _in_string?, _escaped?), do: :error
 
   # -- misc ---------------------------------------------------------------------
 

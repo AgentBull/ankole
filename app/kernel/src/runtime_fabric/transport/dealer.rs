@@ -72,30 +72,30 @@ impl DealerInbox {
     }
 
     pub(super) fn push(&self, event: DealerEvent) {
-        if let Ok(mut state) = self.state.lock() {
-            if !state.closed {
-                let event_size = dealer_event_size(&event);
+        if let Ok(mut state) = self.state.lock()
+            && !state.closed
+        {
+            let event_size = dealer_event_size(&event);
 
-                if state.queue.len() >= self.max_events
-                    || state.queued_bytes.saturating_add(event_size) > self.max_bytes
-                {
-                    state.queue.clear();
-                    state.queued_bytes = 0;
-                    state.closed = true;
-                    let error = DealerEvent::SocketError(format!(
-                        "dealer inbox overflow: max_events={}, max_bytes={}",
-                        self.max_events, self.max_bytes
-                    ));
-                    state.queued_bytes = dealer_event_size(&error);
-                    state.queue.push_back(error);
-                    self.available.notify_all();
-                    return;
-                }
-
-                state.queued_bytes = state.queued_bytes.saturating_add(event_size);
-                state.queue.push_back(event);
-                self.available.notify_one();
+            if state.queue.len() >= self.max_events
+                || state.queued_bytes.saturating_add(event_size) > self.max_bytes
+            {
+                state.queue.clear();
+                state.queued_bytes = 0;
+                state.closed = true;
+                let error = DealerEvent::SocketError(format!(
+                    "dealer inbox overflow: max_events={}, max_bytes={}",
+                    self.max_events, self.max_bytes
+                ));
+                state.queued_bytes = dealer_event_size(&error);
+                state.queue.push_back(error);
+                self.available.notify_all();
+                return;
             }
+
+            state.queued_bytes = state.queued_bytes.saturating_add(event_size);
+            state.queue.push_back(event);
+            self.available.notify_one();
         }
     }
 
@@ -184,8 +184,8 @@ impl DealerHandle {
         &self,
         envelope_json: serde_json::Value,
     ) -> Result<SendOutcome, TransportError> {
-        let payload =
-            runtime_fabric::encode_envelope(envelope_json).map_err(TransportError::from)?;
+        let payload = runtime_fabric::encode_envelope(envelope_json)
+            .map_err(TransportError::invalid_envelope)?;
         self.send_payload(payload)
     }
 
@@ -275,7 +275,9 @@ impl Drop for DealerHandleInner {
 /// The handle exposes a blocking inbox so the Bun worker can run a simple loop
 /// without knowing about ZeroMQ polling.
 pub fn start_dealer(config: DealerConfig) -> KernelResult<DealerHandle> {
-    config.validate().map_err(KernelError::from)?;
+    config
+        .validate()
+        .map_err(|error| KernelError::new(error.ffi_message()))?;
 
     let (command_tx, command_rx) = mpsc::channel();
     let (init_tx, init_rx) = mpsc::sync_channel(1);
@@ -300,7 +302,7 @@ pub fn start_dealer(config: DealerConfig) -> KernelResult<DealerHandle> {
     init_rx
         .recv_timeout(command_timeout)
         .map_err(|_| KernelError::new("timed out starting actor lane dealer"))?
-        .map_err(KernelError::from)?;
+        .map_err(|error| KernelError::new(error.ffi_message()))?;
 
     Ok(DealerHandle {
         inner: Arc::new(DealerHandleInner {

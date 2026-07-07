@@ -1,6 +1,12 @@
 import { normalize, relative, resolve, join } from 'node:path'
 
 export const WORKSPACE_MODEL_ROOT = '/workspace'
+export const WORKSPACE_SESSIONS_ROOT = `${WORKSPACE_MODEL_ROOT}/.sessions`
+export const WORKSPACE_SHARED_ROOT = `${WORKSPACE_MODEL_ROOT}/shared`
+export const WORKSPACE_USER_FILES_ROOT = `${WORKSPACE_SHARED_ROOT}/user-files`
+export const WORKSPACE_AGENT_INSTALLED_SKILLS_ROOT = `${WORKSPACE_SHARED_ROOT}/skills/agents`
+export const BUILTIN_SKILLS_ROOT = '/repo/app/library/skills'
+export const INTERNAL_SKILLS_ROOT = '/repo/internals/skills'
 
 export type NonWorkspaceAbsolutePathMode = 'anchor' | 'reject'
 
@@ -21,10 +27,10 @@ export interface ResolveWorkspacePathOptions {
 
 export interface SanitizePathSegmentOptions {
   fallback?: string
-  maxLength?: number
   replacement?: string
-  trimReplacement?: boolean
 }
+
+const safePathSegmentMaxLength = 96
 
 /**
  * Resolves a model-facing path against the real session workspace root.
@@ -85,8 +91,7 @@ export function isWorkspacePath(path: string): boolean {
 export function sanitizePathSegment(value: string, options: SanitizePathSegmentOptions = {}): string {
   const replacement = options.replacement ?? '-'
   const fallback = options.fallback ?? 'default'
-  const maxLength = options.maxLength ?? 96
-  const trimReplacement = options.trimReplacement ?? replacement === '-'
+  const trimReplacement = replacement === '-'
   let safe = value.trim().replace(/[^a-zA-Z0-9._-]+/g, replacement)
 
   if (trimReplacement && replacement.length > 0) {
@@ -94,7 +99,7 @@ export function sanitizePathSegment(value: string, options: SanitizePathSegmentO
     safe = safe.replace(new RegExp(`^${escaped}+|${escaped}+$`, 'g'), '')
   }
 
-  if (maxLength > 0) safe = safe.slice(0, maxLength)
+  safe = safe.slice(0, safePathSegmentMaxLength)
   return safe || fallback
 }
 

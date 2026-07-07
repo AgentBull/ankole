@@ -7,6 +7,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
 
   alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway.Compaction
+  alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.AIGateway
   alias Ankole.AIGateway.ProviderConfigs
@@ -100,12 +101,13 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       }
     }
 
-    assert {:push, {:text, pushed}, _state} =
-             AIGatewayResponsesSocket.handle_info(
-               {:universal_ai_client, ref, :chunk, 0, :websocket_text,
-                Ankole.JSON.encode!(chunk)},
-               %{active_stream: active}
-             )
+    pushed =
+      first_pushed_text(
+        AIGatewayResponsesSocket.handle_info(
+          {:universal_ai_client, ref, :chunk, 0, :websocket_text, Ankole.JSON.encode!(chunk)},
+          %{active_stream: active}
+        )
+      )
 
     expected_response_id = "resp_#{message.id}"
 
@@ -136,12 +138,13 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       }
     }
 
-    assert {:push, {:text, pushed}, _state} =
-             AIGatewayResponsesSocket.handle_info(
-               {:universal_ai_client, ref, :chunk, 1, :websocket_text,
-                Ankole.JSON.encode!(chunk)},
-               %{active_stream: active}
-             )
+    pushed =
+      first_pushed_text(
+        AIGatewayResponsesSocket.handle_info(
+          {:universal_ai_client, ref, :chunk, 1, :websocket_text, Ankole.JSON.encode!(chunk)},
+          %{active_stream: active}
+        )
+      )
 
     expected_response_id = "resp_#{message.id}"
 
@@ -170,6 +173,429 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
            } = Ankole.JSON.decode!(pushed)
 
     assert Map.has_key?(state, :active_stream)
+  end
+
+  test "response.create accepts Codex ResponseCreateWsRequest fields" do
+    %{principal: agent} = agent_fixture()
+
+    server =
+      start_supervised!(
+        {Bandit,
+         plug: {NativeResponsesWebSocketUpstreamPlug, test_pid: self()},
+         scheme: :http,
+         ip: {127, 0, 0, 1},
+         port: 0}
+      )
+
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-native-socket-codex-response-create",
+               provider_kind: "openai",
+               base_url: "http://127.0.0.1:#{port}/v1",
+               connection_options: %{
+                 "api_key" => "sk-openai",
+                 "upstream_transport" => "websocket"
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-native-socket-codex-response-create",
+               model: "gpt-main"
+             })
+
+    request =
+      Ankole.JSON.encode!(%{
+        "type" => "response.create",
+        "model" => "primary",
+        "instructions" => "Use the available tools.",
+        "previous_response_id" => nil,
+        "input" => [text_message("user", "hello")],
+        "tools" => [
+          %{
+            "type" => "function",
+            "name" => "lookup",
+            "parameters" => %{"type" => "object"}
+          }
+        ],
+        "tool_choice" => "auto",
+        "parallel_tool_calls" => true,
+        "reasoning" => %{"effort" => "low"},
+        "store" => false,
+        "stream" => true,
+        "stream_options" => %{"include_usage" => true},
+        "include" => ["reasoning.encrypted_content"],
+        "service_tier" => "priority",
+        "prompt_cache_key" => "cache-key",
+        "text" => %{"verbosity" => "low"},
+        "generate" => false,
+        "client_metadata" => %{
+          "traceparent" => "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"
+        }
+      })
+
+    assert {:ok, %{active_stream: active} = state} =
+             AIGatewayResponsesSocket.handle_in({request, [opcode: :text]}, %{
+               subject_uid: agent.uid,
+               subject_type: "agent"
+             })
+
+    assert_receive {:native_socket_upstream_request, upstream_request}
+    assert upstream_request["type"] == "response.create"
+    assert upstream_request["model"] == "gpt-main"
+    assert upstream_request["instructions"] == "Use the available tools."
+    assert upstream_request["input"] == [text_message("user", "hello")]
+
+    assert upstream_request["tools"] == [
+             %{
+               "type" => "function",
+               "name" => "lookup",
+               "parameters" => %{"type" => "object"}
+             }
+           ]
+
+    assert upstream_request["tool_choice"] == "auto"
+    assert upstream_request["parallel_tool_calls"] == true
+    assert upstream_request["reasoning"] == %{"effort" => "low"}
+    assert upstream_request["store"] == false
+    assert upstream_request["stream"] == true
+    assert upstream_request["stream_options"] == %{"include_usage" => true}
+    assert upstream_request["include"] == ["reasoning.encrypted_content"]
+    assert upstream_request["prompt_cache_key"] == "cache-key"
+    assert upstream_request["text"] == %{"verbosity" => "low"}
+    assert upstream_request["generate"] == false
+
+    assert upstream_request["client_metadata"] == %{
+             "traceparent" => "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"
+           }
+
+    refute Map.has_key?(upstream_request, "service_tier")
+
+    _ = UniversalAIClient.cancel(state.active_stream.stream)
+    assert active.ref == state.active_stream.ref
+  end
+
+  test "response.create store true without previous_response_id or conversation creates a managed durable conversation" do
+    %{principal: agent} = agent_fixture()
+
+    server =
+      start_supervised!(
+        {Bandit,
+         plug: {NativeResponsesWebSocketUpstreamPlug, test_pid: self()},
+         scheme: :http,
+         ip: {127, 0, 0, 1},
+         port: 0}
+      )
+
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-native-socket-codex-store",
+               provider_kind: "openai",
+               base_url: "http://127.0.0.1:#{port}/v1",
+               connection_options: %{
+                 "api_key" => "sk-openai",
+                 "upstream_transport" => "websocket"
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-native-socket-codex-store",
+               model: "gpt-main"
+             })
+
+    request =
+      Ankole.JSON.encode!(%{
+        "type" => "response.create",
+        "model" => "primary",
+        "input" => [text_message("user", "hello")],
+        "store" => true
+      })
+
+    assert {:ok, %{active_stream: active} = state} =
+             AIGatewayResponsesSocket.handle_in({request, [opcode: :text]}, %{
+               subject_uid: agent.uid,
+               subject_type: "agent"
+             })
+
+    assert_receive {:native_socket_upstream_request, upstream_request}
+    assert upstream_request["type"] == "response.create"
+    assert upstream_request["store"] == false
+    refute Map.has_key?(upstream_request, "conversation")
+    refute Map.has_key?(upstream_request, "previous_response_id")
+
+    message = Repo.get!(Message, active.stateful.message_id)
+    conversation = Repo.get!(Conversation, message.conversation_id)
+
+    assert active.stateful.conversation_id == conversation.id
+    assert conversation.metadata == %{"managed_by_stateful_responses_api" => true}
+    refute Map.has_key?(message.metadata, "actor_event_id")
+    assert message.content == [text_message("user", "hello")]
+
+    _ = UniversalAIClient.cancel(state.active_stream.stream)
+    assert active.ref == state.active_stream.ref
+  end
+
+  test "response.create expands WebSocket previous_response_id from connection history" do
+    %{principal: agent} = agent_fixture()
+
+    server =
+      start_supervised!(
+        {Bandit,
+         plug: {NativeResponsesWebSocketUpstreamPlug, test_pid: self()},
+         scheme: :http,
+         ip: {127, 0, 0, 1},
+         port: 0}
+      )
+
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-native-socket-history",
+               provider_kind: "openai",
+               base_url: "http://127.0.0.1:#{port}/v1",
+               connection_options: %{
+                 "api_key" => "sk-openai",
+                 "upstream_transport" => "websocket"
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-native-socket-history",
+               model: "gpt-main"
+             })
+
+    function_call = %{
+      "id" => "fc_1",
+      "type" => "function_call",
+      "call_id" => "call_1",
+      "name" => "write_file",
+      "arguments" => "{\"path\":\"index.html\"}",
+      "status" => "completed"
+    }
+
+    tool_result = %{
+      "type" => "function_call_output",
+      "call_id" => "call_1",
+      "output" => "ok"
+    }
+
+    request =
+      Ankole.JSON.encode!(%{
+        "type" => "response.create",
+        "model" => "primary",
+        "previous_response_id" => "resp_socket_1",
+        "store" => false,
+        "input" => [tool_result]
+      })
+
+    assert {:ok, %{active_stream: active} = state} =
+             AIGatewayResponsesSocket.handle_in(
+               {request, [opcode: :text]},
+               %{
+                 subject_uid: agent.uid,
+                 subject_type: "agent",
+                 response_history: %{
+                   "resp_socket_1" => %{
+                     items: [text_message("user", "write the file"), function_call]
+                   }
+                 },
+                 response_history_order: ["resp_socket_1"]
+               }
+             )
+
+    assert_receive {:native_socket_upstream_request, upstream_request}
+
+    refute Map.has_key?(upstream_request, "previous_response_id")
+    assert upstream_request["store"] == false
+
+    assert [
+             %{"role" => "user"},
+             %{"type" => "function_call", "call_id" => "call_1"},
+             %{"type" => "function_call_output", "call_id" => "call_1"}
+           ] = upstream_request["input"]
+
+    _ = UniversalAIClient.cancel(state.active_stream.stream)
+    assert active.ref == state.active_stream.ref
+  end
+
+  test "response.create caches completed store false responses for same-socket continuation" do
+    %{principal: agent} = agent_fixture()
+
+    server =
+      start_supervised!(
+        {Bandit,
+         plug: {NativeResponsesWebSocketUpstreamPlug, test_pid: self()},
+         scheme: :http,
+         ip: {127, 0, 0, 1},
+         port: 0}
+      )
+
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-native-socket-same-connection-history",
+               provider_kind: "openai",
+               base_url: "http://127.0.0.1:#{port}/v1",
+               connection_options: %{
+                 "api_key" => "sk-openai",
+                 "upstream_transport" => "websocket"
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-native-socket-same-connection-history",
+               model: "gpt-main"
+             })
+
+    ref = make_ref()
+
+    first_input = [text_message("user", "remember cobalt")]
+
+    function_call = %{
+      "id" => "fc_cached",
+      "type" => "function_call",
+      "call_id" => "call_cached",
+      "name" => "lookup",
+      "arguments" => "{}",
+      "status" => "completed"
+    }
+
+    terminal_chunk = %{
+      "type" => "response.completed",
+      "sequence_number" => 4,
+      "response" => %{
+        "id" => "resp_socket_cached",
+        "object" => "response",
+        "status" => "completed",
+        "output" => [function_call]
+      }
+    }
+
+    assert {:push, {:text, _pushed}, state} =
+             AIGatewayResponsesSocket.handle_info(
+               {:universal_ai_client, ref, :chunk, 4, :websocket_text,
+                Ankole.JSON.encode!(terminal_chunk)},
+               %{
+                 subject_uid: agent.uid,
+                 subject_type: "agent",
+                 active_stream: stateless_active_stream(ref, first_input)
+               }
+             )
+
+    assert Map.has_key?(state.response_history, "resp_socket_cached")
+
+    tool_result = %{
+      "type" => "function_call_output",
+      "call_id" => "call_cached",
+      "output" => "ok"
+    }
+
+    request =
+      Ankole.JSON.encode!(%{
+        "type" => "response.create",
+        "model" => "primary",
+        "store" => false,
+        "previous_response_id" => "resp_socket_cached",
+        "input" => [tool_result]
+      })
+
+    assert {:ok, %{active_stream: active} = state} =
+             AIGatewayResponsesSocket.handle_in({request, [opcode: :text]}, state)
+
+    assert_receive {:native_socket_upstream_request, upstream_request}
+    assert upstream_request["store"] == false
+    refute Map.has_key?(upstream_request, "previous_response_id")
+
+    assert [
+             %{"role" => "user"},
+             %{"type" => "function_call", "call_id" => "call_cached"},
+             %{"type" => "function_call_output", "call_id" => "call_cached"}
+           ] = upstream_request["input"]
+
+    _ = UniversalAIClient.cancel(state.active_stream.stream)
+    assert active.socket_previous_response_id == "resp_socket_cached"
+  end
+
+  test "response.create reports previous_response_not_found for uncached store false continuation" do
+    request =
+      Ankole.JSON.encode!(%{
+        "type" => "response.create",
+        "model" => "primary",
+        "store" => false,
+        "previous_response_id" => "resp_missing",
+        "input" => "continue"
+      })
+
+    assert {:push, {:text, pushed}, _state} =
+             AIGatewayResponsesSocket.handle_in({request, [opcode: :text]}, %{
+               subject_uid: "agent-test",
+               subject_type: "agent"
+             })
+
+    assert %{
+             "type" => "error",
+             "status" => 400,
+             "error" => %{
+               "code" => "previous_response_not_found",
+               "param" => "previous_response_id"
+             }
+           } = Ankole.JSON.decode!(pushed)
+  end
+
+  test "failed store false continuation evicts the referenced connection-local response" do
+    ref = make_ref()
+
+    cached_input = [text_message("user", "remember ember")]
+
+    failed_chunk = %{
+      "type" => "response.failed",
+      "sequence_number" => 6,
+      "response" => %{
+        "id" => "resp_failed_continuation",
+        "object" => "response",
+        "status" => "failed",
+        "error" => %{"code" => "invalid_tool_output", "message" => "tool output mismatch"},
+        "output" => []
+      }
+    }
+
+    state = %{
+      subject_uid: "agent-test",
+      subject_type: "agent",
+      response_history: %{
+        "resp_socket_ember" => %{items: cached_input}
+      },
+      response_history_order: ["resp_socket_ember"],
+      active_stream:
+        stateless_active_stream(ref, [
+          %{
+            "type" => "function_call_output",
+            "call_id" => "call_missing",
+            "output" => "missing"
+          }
+        ])
+        |> Map.put(:socket_previous_response_id, "resp_socket_ember")
+    }
+
+    assert {:push, {:text, pushed}, next_state} =
+             AIGatewayResponsesSocket.handle_info(
+               {:universal_ai_client, ref, :chunk, 6, :websocket_text,
+                Ankole.JSON.encode!(failed_chunk)},
+               state
+             )
+
+    assert %{"type" => "response.failed"} = Ankole.JSON.decode!(pushed)
+    refute Map.has_key?(next_state.response_history, "resp_socket_ember")
+    refute "resp_socket_ember" in next_state.response_history_order
   end
 
   test "stateful non-terminal provider frame grants the next native read and keeps active stream" do
@@ -620,12 +1046,13 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       "item" => completed_item
     }
 
-    assert {:push, {:text, pushed}, _state} =
-             AIGatewayResponsesSocket.handle_info(
-               {:universal_ai_client, ref, :chunk, 5, :websocket_text,
-                Ankole.JSON.encode!(chunk)},
-               %{active_stream: active}
-             )
+    pushed =
+      first_pushed_text(
+        AIGatewayResponsesSocket.handle_info(
+          {:universal_ai_client, ref, :chunk, 5, :websocket_text, Ankole.JSON.encode!(chunk)},
+          %{active_stream: active}
+        )
+      )
 
     assert %{"type" => "response.output_item.done"} = Ankole.JSON.decode!(pushed)
 
@@ -665,12 +1092,13 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       "item" => function_call
     }
 
-    assert {:push, {:text, pushed}, _state} =
-             AIGatewayResponsesSocket.handle_info(
-               {:universal_ai_client, ref, :chunk, 7, :websocket_text,
-                Ankole.JSON.encode!(chunk)},
-               %{active_stream: active}
-             )
+    pushed =
+      first_pushed_text(
+        AIGatewayResponsesSocket.handle_info(
+          {:universal_ai_client, ref, :chunk, 7, :websocket_text, Ankole.JSON.encode!(chunk)},
+          %{active_stream: active}
+        )
+      )
 
     assert %{"type" => "response.output_item.done"} = Ankole.JSON.decode!(pushed)
 
@@ -736,7 +1164,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert is_nil(Repo.get!(ActorEvent, actor_event.id).completed_at)
   end
 
-  test "provider stream done without a terminal frame commits retryable error" do
+  test "provider stream done without a terminal frame sends retryable response.failed" do
     {_agent, _conversation, actor_event, message} =
       stateful_message("socket-done-without-terminal", [
         %{
@@ -757,13 +1185,27 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
 
     active = active_stream(ref, message, actor_event, accumulated_items: [partial_item])
 
-    assert {:ok, state} =
+    assert {:push, {:text, pushed}, state} =
              AIGatewayResponsesSocket.handle_info(
                {:universal_ai_client, ref, :done, %{"reason" => "provider_closed"}},
                %{active_stream: active}
              )
 
     refute Map.has_key?(state, :active_stream)
+    expected_response_id = "resp_#{message.id}"
+
+    assert %{
+             "type" => "response.failed",
+             "response" => %{
+               "id" => ^expected_response_id,
+               "status" => "failed",
+               "error" => %{
+                 "code" => "provider_stream_closed_without_terminal",
+                 "retryable" => true,
+                 "details" => "provider_stream_closed_without_terminal"
+               }
+             }
+           } = Ankole.JSON.decode!(pushed)
 
     stored = Repo.get!(Message, message.id)
     assert stored.status == "error"
@@ -776,7 +1218,9 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
   test "stateful overflow sends structured context_overflow error frame" do
     {agent, conversation, _actor_event, message} =
       stateful_message("socket-overflow", [
-        media_message("https://files.example.test/#{String.duplicate("large", 40)}.png")
+        media_message_with_memory_nudge(
+          "https://files.example.test/#{String.duplicate("large", 40)}.png"
+        )
       ])
 
     with_compaction_config(threshold: 0.50, max_threshold_tokens: 10, tail_rows: 1)
@@ -832,8 +1276,39 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
            } = Ankole.JSON.decode!(pushed)
   end
 
-  test "stateful response.create requires metadata actor_event_id" do
+  test "stateful response.create accepts an explicit conversation without actor_event_id" do
     %{principal: agent} = agent_fixture()
+
+    server =
+      start_supervised!(
+        {Bandit,
+         plug: {NativeResponsesWebSocketUpstreamPlug, test_pid: self()},
+         scheme: :http,
+         ip: {127, 0, 0, 1},
+         port: 0}
+      )
+
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-socket-conversation-without-actor-event",
+               provider_kind: "openai",
+               base_url: "http://127.0.0.1:#{port}/v1",
+               connection_options: %{
+                 "api_key" => "sk-openai",
+                 "upstream_transport" => "websocket"
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-socket-conversation-without-actor-event",
+               model: "gpt-main"
+             })
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "socket-conversation-without-actor-event")
 
     request =
       Ankole.JSON.encode!(%{
@@ -841,23 +1316,24 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
         "model" => "primary",
         "input" => [text_message("user", "hello")],
         "store" => true,
-        "conversation" => "conv_#{Ecto.UUID.generate()}"
+        "conversation" => "conv_#{conversation.id}"
       })
 
-    assert {:push, {:text, pushed}, _state} =
+    assert {:ok, %{active_stream: active} = state} =
              AIGatewayResponsesSocket.handle_in({request, [opcode: :text]}, %{
                subject_uid: agent.uid,
                subject_type: "agent"
              })
 
-    assert %{
-             "type" => "error",
-             "status" => 400,
-             "error" => %{
-               "code" => "missing_actor_event_id",
-               "param" => "metadata.actor_event_id"
-             }
-           } = Ankole.JSON.decode!(pushed)
+    assert_receive {:native_socket_upstream_request, upstream_request}
+    assert upstream_request["store"] == false
+    refute Map.has_key?(upstream_request, "conversation")
+
+    message = Repo.get!(Message, active.stateful.message_id)
+    assert message.conversation_id == conversation.id
+    refute Map.has_key?(message.metadata, "actor_event_id")
+
+    _ = UniversalAIClient.cancel(state.active_stream.stream)
   end
 
   test "response.tool_results.record writes a completed journal row without opening a provider stream" do
@@ -1216,6 +1692,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       stateful: %{message_id: message.id, actor_event_id: actor_event.id},
       accumulated_items: [],
       text_buffer: "",
+      provider_response_id: nil,
       seq: 0,
       terminal_error: nil,
       terminal_committed: false,
@@ -1229,6 +1706,26 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     %UniversalAIClient.Stream{resource: make_ref(), ref: ref, owner: self()}
   end
 
+  defp stateless_active_stream(ref, request_input) do
+    %{
+      ref: ref,
+      stream: fake_stream(ref),
+      stateful: nil,
+      accumulated_items: [],
+      request_input: request_input,
+      text_buffer: "",
+      provider_response_id: nil,
+      terminal_response: nil,
+      seq: 0,
+      terminal_error: nil,
+      terminal_committed: false,
+      terminal_received: false
+    }
+  end
+
+  defp first_pushed_text({:push, {:text, pushed}, _state}), do: pushed
+  defp first_pushed_text({:push, [{:text, pushed} | _rest], _state}), do: pushed
+
   defp text_message(role, text) do
     content_type = if role == "assistant", do: "output_text", else: "input_text"
 
@@ -1239,13 +1736,21 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     }
   end
 
-  defp media_message(image_url) do
+  defp media_message_with_memory_nudge(image_url) do
     %{
       "type" => "message",
       "role" => "user",
-      "content" => [%{"type" => "input_image", "image_url" => image_url}]
+      "content" => [
+        %{"type" => "input_image", "image_url" => image_url},
+        %{
+          "type" => "input_text",
+          "text" => "[#{memory_pre_compaction_nudge_marker()}]"
+        }
+      ]
     }
   end
+
+  defp memory_pre_compaction_nudge_marker, do: "ankole.memory.pre_compaction_nudge.v1"
 
   defp with_compaction_config(config) do
     assert {:ok, _config} = Compaction.put_config(Map.new(config))

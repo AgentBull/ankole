@@ -230,7 +230,7 @@ pub fn runtime_fabric_router_send_mandatory(
         .0
         .send_mandatory(transport_route, envelope)
         .map(|_| "sent_or_queued".to_string())
-        .map_err(|error| error_message(error.to_string()))
+        .map_err(|error| error_message(error.ffi_message()))
 }
 
 /// Sends raw RuntimeFabric worker-file multipart frames to one ROUTER identity.
@@ -247,7 +247,7 @@ pub fn runtime_fabric_router_send_file_frame(
         .0
         .send_file_frame(transport_route, frames)
         .map(|_| "sent_or_queued".to_string())
-        .map_err(|error| error_message(error.to_string()))
+        .map_err(|error| error_message(error.ffi_message()))
 }
 
 /// Stops a ROUTER socket owner thread.
@@ -259,7 +259,7 @@ pub fn runtime_fabric_router_stop(
         .0
         .stop()
         .map(|_| true)
-        .map_err(|error| error_message(error.to_string()))
+        .map_err(|error| error_message(error.ffi_message()))
 }
 
 /// Opens a native UniversalAIClient stream from a prepared request spec.

@@ -16,7 +16,8 @@
 
 import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../../core'
-import type { ComputerToolContext, ContainerComputer } from './context'
+import type { ContainerComputer } from './computer'
+import type { ComputerToolContext } from './context'
 import { unifiedDiff } from './diff'
 import { splitWritePath } from './format'
 import { findClosestLineMatches, findScopedFuzzyMatch, findUniqueFuzzyMatch } from './fuzzy-match'

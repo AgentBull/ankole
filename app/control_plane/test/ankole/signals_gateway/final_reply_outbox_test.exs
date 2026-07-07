@@ -5,9 +5,12 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
   import Ankole.SignalsGatewayFixtures
 
   alias Ankole.AIGateway.StatefulResponses
+  alias Ankole.PluginFixtures.MockSignalProvider.Outbox, as: MockOutbox
   alias Ankole.PluginFixtures.MockSignalProviderPlugin
   alias Ankole.Plugins.Spec
   alias Ankole.Repo
+  alias Ankole.RuntimeEvents
+  alias Ankole.RuntimeEvents.Scheduler
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.Entry
   alias Ankole.SignalsGateway.OutboxEntry
@@ -70,6 +73,37 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
 
       assert ai_message_id == message.id
     end
+
+    test "runtime event scheduler dispatches final reply outbox through the registered adapter" do
+      MockOutbox.put_recipient(self())
+
+      on_exit(fn ->
+        MockOutbox.delete_recipient()
+      end)
+
+      %{message: message} = start_im_visible_response_run()
+
+      assert {:ok, completed} =
+               StatefulResponses.commit_complete(message, assistant_content("scheduled final"))
+
+      outbox = Repo.get_by!(OutboxEntry, outbound_key: "ai-reply:#{message.id}")
+      scheduler = start_runtime_events_scheduler!()
+
+      Scheduler.notify(scheduler, RuntimeEvents.outbox_due_channel(), %{
+        "agent_uid" => outbox.agent_uid,
+        "binding_name" => outbox.binding_name,
+        "outbound_key" => outbox.outbound_key,
+        "due_at" => nil
+      })
+
+      key = outbox.outbound_key
+      assert_receive {:mock_provider_outbox_sent, %OutboxEntry{outbound_key: ^key}}, 1_000
+
+      assert %Entry{ai_message_id: ai_message_id, text: "scheduled final"} =
+               wait_for_entry!(completed.id)
+
+      assert ai_message_id == completed.id
+    end
   end
 
   defp start_im_visible_response_run do
@@ -121,6 +155,34 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
          }}
       end
     }
+  end
+
+  defp start_runtime_events_scheduler! do
+    suffix = System.unique_integer([:positive])
+    task_supervisor = :"runtime_events_final_reply_task_supervisor_#{suffix}"
+    scheduler = :"runtime_events_final_reply_scheduler_#{suffix}"
+
+    start_supervised!({Task.Supervisor, name: task_supervisor})
+    start_supervised!({Scheduler, name: scheduler, task_supervisor: task_supervisor})
+
+    scheduler
+  end
+
+  defp wait_for_entry!(ai_message_id, attempts_left \\ 20)
+
+  defp wait_for_entry!(ai_message_id, attempts_left) when attempts_left > 0 do
+    case Repo.get_by(Entry, ai_message_id: ai_message_id) do
+      %Entry{} = entry ->
+        entry
+
+      nil ->
+        Process.sleep(10)
+        wait_for_entry!(ai_message_id, attempts_left - 1)
+    end
+  end
+
+  defp wait_for_entry!(ai_message_id, 0) do
+    flunk("expected final reply mirror for ai_message_id=#{ai_message_id}")
   end
 
   defp use_mock_signal_provider_plugin(_context) do

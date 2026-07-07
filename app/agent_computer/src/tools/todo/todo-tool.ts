@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { isRecord } from '@pleisto/active-support'
 import type { AgentTool, AgentToolResult } from '../../core'
+import { jsonToolResult } from '../../core/tool-result'
 
 const VALID_STATUSES = ['pending', 'in_progress', 'completed', 'cancelled'] as const
 const VALID_STATUS_SET = new Set<string>(VALID_STATUSES)
@@ -195,10 +196,7 @@ export function createTodoTool(store: TodoStore): AgentTool<typeof TodoParams, T
     async execute(_toolCallId, params): Promise<AgentToolResult<TodoToolDetails>> {
       if (params.todos !== undefined) store.write(params.todos, params.merge ?? false)
       const details = store.snapshot()
-      return {
-        content: [{ type: 'text', text: JSON.stringify(details) }],
-        details
-      }
+      return jsonToolResult(details)
     }
   }
 }

@@ -110,11 +110,14 @@ defmodule Ankole.Plugins.Registry do
          {:ok, disabled_ids} <- Config.disabled_ids(),
          active_specs <- active_specs(specs, disabled_ids),
          :ok <- ensure_unique_adapter_declarations(active_specs),
+         :ok <- ensure_valid_adapter_contract_declarations(active_specs),
          :ok <- register_plugin_config(active_specs) do
       maybe_refresh_ai_gateway_provider_cache(opts, active_specs)
       {:ok, build_state(specs, active_specs, disabled_ids)}
     else
-      {:error, reason} -> {:stop, reason}
+      {:error, reason} ->
+        maybe_log_startup_failure(reason)
+        {:stop, reason}
     end
   end
 
@@ -206,6 +209,53 @@ defmodule Ankole.Plugins.Registry do
     end
   end
 
+  defp ensure_valid_adapter_contract_declarations(specs) do
+    Enum.reduce_while(specs, :ok, fn spec, :ok ->
+      case validate_spec_adapter_contracts(spec) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp validate_spec_adapter_contracts(spec) do
+    Enum.reduce_while(spec.adapter_declarations, :ok, fn declaration, :ok ->
+      case validate_adapter_contract_declaration(spec, declaration) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp validate_adapter_contract_declaration(spec, declaration) do
+    contract_id = adapter_contract_id(declaration)
+
+    result =
+      case contract_id do
+        "signals_gateway.adapter" ->
+          Ankole.SignalsGateway.Bindings.validate_adapter_declaration(declaration)
+
+        "principals.identity_provider" ->
+          Ankole.IdentityProviders.validate_adapter_declaration(declaration)
+
+        "ai_gateway.provider" ->
+          Ankole.AIGateway.Providers.validate_adapter_declaration(declaration)
+
+        _other_contract ->
+          :ok
+      end
+
+    case result do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        {:error,
+         {:invalid_adapter_contract_declaration, contract_id, adapter_id(declaration), spec.id,
+          spec.module, reason}}
+    end
+  end
+
   defp register_plugin_config(specs) do
     with :ok <- register_definitions(specs),
          :ok <- register_patterns(specs) do
@@ -260,4 +310,17 @@ defmodule Ankole.Plugins.Registry do
   defp adapter_id(%{id: id}), do: id
   defp adapter_id(%{"id" => id}), do: id
   defp adapter_id(_declaration), do: nil
+
+  defp maybe_log_startup_failure(
+         {:invalid_adapter_contract_declaration, _contract_id, _adapter_id, _plugin_id, _module,
+          _reason} = reason
+       ) do
+    Ankole.Logging.error(
+      "plugins.registry.startup_failed",
+      "Plugin registry startup failed: #{inspect(reason)}",
+      %{"reason" => inspect(reason)}
+    )
+  end
+
+  defp maybe_log_startup_failure(_reason), do: :ok
 end

@@ -17,59 +17,86 @@ defmodule Ankole.AIGateway.MessageSchemaTest do
         })
 
       refute changeset.valid?
-      assert "must not include a compaction item" in errors_on(changeset).content
+      assert "must not include compaction items or artifact refs" in errors_on(changeset).content
     end
 
-    test "compaction rows require exactly one compaction item and a covered prefix boundary" do
+    test "message rows cannot contain compaction artifact refs" do
+      changeset =
+        Message.changeset(%Message{}, %{
+          agent_uid: "agent-x",
+          conversation_id: Ecto.UUID.generate(),
+          role: "assistant",
+          type: "message",
+          status: "complete",
+          content: [%{"type" => "compaction_artifact", "id" => "cmp_#{Ecto.UUID.generate()}"}],
+          metadata: %{}
+        })
+
+      refute changeset.valid?
+      assert "must not include compaction items or artifact refs" in errors_on(changeset).content
+    end
+
+    test "checkpoint rows require exactly one compaction artifact ref" do
       invalid =
         Message.changeset(%Message{}, %{
           agent_uid: "agent-x",
           conversation_id: Ecto.UUID.generate(),
           role: "assistant",
-          type: "compaction",
+          type: "checkpoint",
           status: "complete",
           content: [%{"type" => "text", "text" => "compressed"}],
           metadata: %{}
         })
 
       refute invalid.valid?
-      assert "must include exactly one compaction item" in errors_on(invalid).content
-      assert "can't be blank" in errors_on(invalid).previous_message_id
-      assert "can't be blank" in errors_on(invalid).covers_until_message_id
+      assert "must include exactly one compaction artifact ref" in errors_on(invalid).content
 
       duplicate =
         Message.changeset(%Message{}, %{
           agent_uid: "agent-x",
           conversation_id: Ecto.UUID.generate(),
           role: "assistant",
-          type: "compaction",
+          type: "checkpoint",
           status: "complete",
           previous_message_id: Ecto.UUID.generate(),
           content: [
-            %{"type" => "compaction", "summary" => "one"},
-            %{"type" => "compaction", "summary" => "two"}
+            %{"type" => "compaction_artifact", "id" => "cmp_#{Ecto.UUID.generate()}"},
+            %{"type" => "compaction_artifact", "id" => "cmp_#{Ecto.UUID.generate()}"}
           ],
-          covers_until_message_id: Ecto.UUID.generate(),
           metadata: %{}
         })
 
       refute duplicate.valid?
-      assert "must include exactly one compaction item" in errors_on(duplicate).content
+      assert "must include exactly one compaction artifact ref" in errors_on(duplicate).content
 
       valid =
         Message.changeset(%Message{}, %{
           agent_uid: "agent-x",
           conversation_id: Ecto.UUID.generate(),
           role: "assistant",
-          type: "compaction",
+          type: "checkpoint",
           status: "complete",
           previous_message_id: Ecto.UUID.generate(),
-          content: [%{"type" => "compaction", "summary" => "compressed"}],
-          covers_until_message_id: Ecto.UUID.generate(),
+          content: [%{"type" => "compaction_artifact", "id" => "cmp_#{Ecto.UUID.generate()}"}],
           metadata: %{}
         })
 
       assert valid.valid?
+    end
+
+    test "compaction row type is invalid" do
+      changeset =
+        Message.changeset(%Message{}, %{
+          agent_uid: "agent-x",
+          conversation_id: Ecto.UUID.generate(),
+          type: "compaction",
+          status: "complete",
+          content: [%{"type" => "compaction", "summary" => "compressed"}],
+          metadata: %{}
+        })
+
+      refute changeset.valid?
+      assert "is invalid" in errors_on(changeset).type
     end
   end
 end

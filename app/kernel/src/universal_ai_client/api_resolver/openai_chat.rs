@@ -1,14 +1,15 @@
+use super::*;
 #[derive(Debug, Clone)]
-struct ToolCall {
-    id: String,
-    call_id: String,
-    name: String,
-    arguments: String,
-    output_index: usize,
+pub(super) struct ToolCall {
+    pub(super) id: String,
+    pub(super) call_id: String,
+    pub(super) name: String,
+    pub(super) arguments: String,
+    pub(super) output_index: usize,
 }
 
 #[derive(Debug)]
-struct ChatState {
+pub(super) struct ChatState {
     sequence: u64,
     response_started: bool,
     response_id: Option<String>,
@@ -28,7 +29,7 @@ struct ChatState {
 }
 
 impl ChatState {
-    fn new(model: String) -> Self {
+    pub(super) fn new(model: String) -> Self {
         Self {
             sequence: 0,
             response_started: false,
@@ -49,7 +50,27 @@ impl ChatState {
         }
     }
 
-    fn ingest_openai_chat(&mut self, context: &ResponseContext, chunk: Value) -> Vec<Value> {
+    pub(super) fn set_usage(&mut self, usage: Value) {
+        self.usage = usage;
+    }
+
+    pub(super) fn next_tool_call_index(&self) -> usize {
+        self.tool_calls.len()
+    }
+
+    pub(super) fn is_terminal(&self) -> bool {
+        self.terminal
+    }
+
+    fn ingest_openai_chat(
+        &mut self,
+        context: &ResponseContext,
+        chunk: Value,
+    ) -> Result<Vec<Value>, StreamError> {
+        if chunk.get("error").is_some_and(|error| !error.is_null()) {
+            return Err(provider_body_error(200, chunk));
+        }
+
         self.put_chat_metadata(&chunk);
         if let Some(usage) = chunk.get("usage").filter(|value| value.is_object()) {
             self.usage = usage.clone();
@@ -67,10 +88,10 @@ impl ChatState {
         let terminal_pending = self.pending_status.is_some();
 
         if !terminal_pending {
-            if let Some(content) = delta.get("content").and_then(Value::as_str) {
-                if !content.is_empty() {
-                    events.extend(self.text_delta(content));
-                }
+            if let Some(content) = delta.get("content").and_then(Value::as_str)
+                && !content.is_empty()
+            {
+                events.extend(self.text_delta(content));
             }
 
             if let Some(tool_calls) = delta.get("tool_calls").and_then(Value::as_array) {
@@ -89,7 +110,7 @@ impl ChatState {
             self.pending_incomplete_reason = reason.map(ToOwned::to_owned);
         }
 
-        events
+        Ok(events)
     }
 
     fn put_chat_metadata(&mut self, chunk: &Value) {
@@ -116,7 +137,7 @@ impl ChatState {
         }
     }
 
-    fn ensure_response_started(&mut self, context: &ResponseContext) -> Vec<Value> {
+    pub(super) fn ensure_response_started(&mut self, context: &ResponseContext) -> Vec<Value> {
         if self.response_started {
             return Vec::new();
         }
@@ -128,7 +149,7 @@ impl ChatState {
         )]
     }
 
-    fn text_delta(&mut self, text: &str) -> Vec<Value> {
+    pub(super) fn text_delta(&mut self, text: &str) -> Vec<Value> {
         let mut events = Vec::new();
         let (item_id, output_index) = self.ensure_message_item(&mut events);
 
@@ -186,7 +207,7 @@ impl ChatState {
         (item_id, output_index)
     }
 
-    fn tool_call_delta(&mut self, delta: &Value) -> Vec<Value> {
+    pub(super) fn tool_call_delta(&mut self, delta: &Value) -> Vec<Value> {
         let mut events = Vec::new();
         let index = delta
             .get("index")
@@ -237,25 +258,25 @@ impl ChatState {
             ));
         }
 
-        if let Some(arguments) = function.get("arguments").and_then(Value::as_str) {
-            if !arguments.is_empty() {
-                call.arguments.push_str(arguments);
-                events.push(self.event(
-                    "response.function_call_arguments.delta",
-                    json!({
-                        "item_id": call.id,
-                        "output_index": output_index,
-                        "delta": arguments
-                    }),
-                ));
-            }
+        if let Some(arguments) = function.get("arguments").and_then(Value::as_str)
+            && !arguments.is_empty()
+        {
+            call.arguments.push_str(arguments);
+            events.push(self.event(
+                "response.function_call_arguments.delta",
+                json!({
+                    "item_id": call.id,
+                    "output_index": output_index,
+                    "delta": arguments
+                }),
+            ));
         }
 
         self.tool_calls.insert(index, call);
         events
     }
 
-    fn finish(
+    pub(super) fn finish(
         &mut self,
         context: &ResponseContext,
         status: &str,
@@ -329,7 +350,7 @@ impl ChatState {
         events
     }
 
-    fn fail(&mut self, context: &ResponseContext, error: &StreamError) -> Vec<Value> {
+    pub(super) fn fail(&mut self, context: &ResponseContext, error: &StreamError) -> Vec<Value> {
         if self.terminal {
             return Vec::new();
         }
@@ -415,7 +436,7 @@ impl ApiProtocol for ChatState {
         context: &ResponseContext,
         event: Value,
     ) -> Result<Vec<Value>, StreamError> {
-        Ok(self.ingest_openai_chat(context, event))
+        self.ingest_openai_chat(context, event)
     }
 
     fn on_upstream_close(&mut self, context: &ResponseContext) -> Result<Vec<Value>, StreamError> {
@@ -536,7 +557,9 @@ fn chat_assistant_content_parts(content: &Value) -> Vec<Value> {
             .filter_map(chat_assistant_content_part)
             .collect(),
         Value::Null => Vec::new(),
-        value => output_text_part(&value_to_string(value)).into_iter().collect(),
+        value => output_text_part(&value_to_string(value))
+            .into_iter()
+            .collect(),
     }
 }
 
@@ -788,20 +811,16 @@ fn chat_function_call_output(map: &Map<String, Value>) -> Value {
 fn chat_role_content_message(role: &str, content: &Value, map: &Map<String, Value>) -> Value {
     let mut message = Map::new();
     message.insert("role".to_string(), json!(role));
-    message.insert(
-        "content".to_string(),
-        chat_message_content(role, content),
-    );
+    message.insert("content".to_string(), chat_message_content(role, content));
 
-    if role == "tool" {
-        if let Some(tool_call_id) = map
+    if role == "tool"
+        && let Some(tool_call_id) = map
             .get("tool_call_id")
             .or_else(|| map.get("call_id"))
             .map(value_to_text)
             .filter(|value| !value.is_empty())
-        {
-            message.insert("tool_call_id".to_string(), json!(tool_call_id));
-        }
+    {
+        message.insert("tool_call_id".to_string(), json!(tool_call_id));
     }
 
     Value::Object(message)
@@ -817,10 +836,10 @@ fn normalize_chat_role(role: &str) -> &str {
 }
 
 fn chat_message_content(role: &str, content: &Value) -> Value {
-    if role == "user" {
-        if let Some(parts) = content.as_array() {
-            return Value::Array(parts.iter().map(chat_user_content_part).collect());
-        }
+    if role == "user"
+        && let Some(parts) = content.as_array()
+    {
+        return Value::Array(parts.iter().map(chat_user_content_part).collect());
     }
 
     json!(chat_text_content(content))
@@ -952,10 +971,10 @@ fn chat_tool_choice(choice: Option<&Value>) -> Option<Value> {
         return Some(value.clone());
     }
 
-    if map.get("type").and_then(Value::as_str) == Some("function") {
-        if let Some(name) = map.get("name").and_then(Value::as_str) {
-            return Some(json!({ "type": "function", "function": { "name": name } }));
-        }
+    if map.get("type").and_then(Value::as_str) == Some("function")
+        && let Some(name) = map.get("name").and_then(Value::as_str)
+    {
+        return Some(json!({ "type": "function", "function": { "name": name } }));
     }
 
     Some(value.clone())

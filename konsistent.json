@@ -16,7 +16,7 @@
         "import": [
           {
             "name": "mountApp",
-            "from": "../common/mount-spa"
+            "from": "../common/mount"
           }
         ]
       }

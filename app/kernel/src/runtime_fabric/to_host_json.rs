@@ -3,6 +3,7 @@ use serde_json::{Map, Value};
 use crate::common::{KernelError, KernelResult};
 
 use super::{
+    body::body_kind,
     enums::{durability_to_json, lane_to_json},
     json::*,
     proto,
@@ -39,53 +40,28 @@ pub(super) fn envelope_to_json(envelope: &proto::Envelope) -> KernelResult<Value
 }
 
 fn body_to_json(body: Option<&proto::envelope::Body>) -> KernelResult<Value> {
-    let (body_type, payload) = match body {
-        Some(proto::envelope::Body::WorkerReady(payload)) => {
-            ("worker_ready", worker_ready_to_json(payload))
-        }
-        Some(proto::envelope::Body::WorkerHeartbeat(payload)) => {
-            ("worker_heartbeat", worker_heartbeat_to_json(payload))
-        }
-        Some(proto::envelope::Body::WorkerCapacity(payload)) => {
-            ("worker_capacity", worker_capacity_to_json(payload))
-        }
-        Some(proto::envelope::Body::TurnStart(payload)) => {
-            ("turn_start", turn_start_to_json(payload))
-        }
-        Some(proto::envelope::Body::MailboxUpdated(payload)) => {
-            ("mailbox_updated", mailbox_updated_to_json(payload))
-        }
-        Some(proto::envelope::Body::TurnAccepted(payload)) => {
-            ("turn_accepted", turn_accepted_to_json(payload))
-        }
-        Some(proto::envelope::Body::TurnControl(payload)) => {
-            ("turn_control", turn_control_to_json(payload))
-        }
-        Some(proto::envelope::Body::WorkerProgress(payload)) => {
-            ("worker_progress", worker_progress_to_json(payload))
-        }
-        Some(proto::envelope::Body::TurnError(payload)) => {
-            ("turn_error", turn_error_to_json(payload))
-        }
-        Some(proto::envelope::Body::TurnNoopCompleted(payload)) => {
-            ("turn_noop_completed", turn_noop_completed_to_json(payload))
-        }
-        Some(proto::envelope::Body::ControlShutdown(payload)) => {
-            ("control_shutdown", control_shutdown_to_json(payload))
-        }
-        Some(proto::envelope::Body::RpcRequest(payload)) => {
-            ("rpc_request", rpc_request_to_json(payload))
-        }
-        Some(proto::envelope::Body::RpcResponse(payload)) => {
-            ("rpc_response", rpc_response_to_json(payload))
-        }
-        Some(proto::envelope::Body::RpcError(payload)) => ("rpc_error", rpc_error_to_json(payload)),
-        None => return Err(KernelError::new("envelope body is required")),
-    };
+    let body = body.ok_or_else(|| KernelError::new("envelope body is required"))?;
+    let body_type = body_kind(body).name();
+    let payload = match body {
+        proto::envelope::Body::WorkerReady(payload) => worker_ready_to_json(payload),
+        proto::envelope::Body::WorkerHeartbeat(payload) => worker_heartbeat_to_json(payload),
+        proto::envelope::Body::WorkerCapacity(payload) => worker_capacity_to_json(payload),
+        proto::envelope::Body::TurnStart(payload) => turn_start_to_json(payload),
+        proto::envelope::Body::MailboxUpdated(payload) => mailbox_updated_to_json(payload),
+        proto::envelope::Body::TurnAccepted(payload) => turn_accepted_to_json(payload),
+        proto::envelope::Body::TurnControl(payload) => turn_control_to_json(payload),
+        proto::envelope::Body::WorkerProgress(payload) => worker_progress_to_json(payload),
+        proto::envelope::Body::TurnError(payload) => turn_error_to_json(payload),
+        proto::envelope::Body::TurnNoopCompleted(payload) => turn_noop_completed_to_json(payload),
+        proto::envelope::Body::ControlShutdown(payload) => control_shutdown_to_json(payload),
+        proto::envelope::Body::RpcRequest(payload) => rpc_request_to_json(payload),
+        proto::envelope::Body::RpcResponse(payload) => rpc_response_to_json(payload),
+        proto::envelope::Body::RpcError(payload) => rpc_error_to_json(payload),
+    }?;
 
     let mut object = Map::new();
     object.insert("type".into(), Value::from(body_type));
-    object.insert(body_type.into(), payload?);
+    object.insert(body_type.into(), payload);
 
     Ok(Value::Object(object))
 }

@@ -9,7 +9,9 @@ defmodule Ankole.AIGateway.Compaction do
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Definition
   alias Ankole.AppConfigure.Schema
+  alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.CompactionPrompt
+  alias Ankole.AIGateway.MapUtils
   alias Ankole.AIGateway.ModelMetadata
   alias Ankole.AIGateway.ProviderConfigs.Provider
   alias Ankole.AIGateway.Providers
@@ -161,6 +163,8 @@ defmodule Ankole.AIGateway.Compaction do
   Adds the one-time Memory pre-compaction nudge to normal model input when due.
   """
   @spec maybe_inject_memory_pre_compaction_nudge([map()], map()) :: [map()]
+  def maybe_inject_memory_pre_compaction_nudge([], _run_metadata), do: []
+
   def maybe_inject_memory_pre_compaction_nudge(current_input, %{
         "memory_pre_compaction_nudge" => %{"status" => "due"}
       })
@@ -187,30 +191,32 @@ defmodule Ankole.AIGateway.Compaction do
     history = StatefulResponses.expand_history(conversation_id)
     total_tokens = history_usage_tokens(history)
 
-    with {:ok, candidate} <- compaction_candidate(history, []),
+    with {:ok, candidate} <- compaction_candidate(agent_uid, history, []),
          {:ok, summary} <- summarize_candidate(agent_uid, candidate, request),
-         {:ok, compaction} <-
-           StatefulResponses.compact_history_prefix(
-             agent_uid,
-             "resp_#{candidate.anchor.id}",
-             "resp_#{candidate.covers_until.id}",
-             %{"type" => "compaction", "summary" => summary.text},
-             compaction_metadata(
-               summary,
-               candidate,
-               total_tokens,
-               request_metadata(request)
-               |> Map.merge(%{
-                 "auto" => false,
-                 "manual" => true
-               })
-             )
-           ) do
-      previous_response_id = "resp_#{compaction.id}"
+         {:ok, artifact} <-
+           create_artifact_for_candidate(agent_uid, conversation_id, candidate, summary),
+         {:ok, checkpoint} <-
+           StatefulResponses.create_compaction_checkpoint(%{
+             agent_uid: agent_uid,
+             previous_response_id: "resp_#{candidate.anchor.id}",
+             artifact: artifact,
+             metadata:
+               compaction_metadata(
+                 summary,
+                 candidate,
+                 total_tokens,
+                 request_metadata(request)
+                 |> Map.merge(%{
+                   "auto" => false,
+                   "manual" => true
+                 })
+               )
+           }) do
+      previous_response_id = "resp_#{checkpoint.id}"
 
       {:ok,
        %{
-         compaction: compaction,
+         compaction: checkpoint,
          previous_response_id: previous_response_id,
          history:
            StatefulResponses.expand_history(conversation_id,
@@ -219,6 +225,32 @@ defmodule Ankole.AIGateway.Compaction do
        }}
     end
   end
+
+  @doc """
+  Creates one OpenResponses compaction resource.
+
+  The artifact is always persisted. `store=true` additionally creates a
+  checkpoint response row so clients may continue with `previous_response_id`.
+  """
+  @spec compact_response(String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def compact_response(agent_uid, request) when is_map(request) do
+    request = MapUtils.normalize_request_keys(request)
+
+    with {:ok, _model} <- standalone_model(request),
+         {:ok, input} <- standalone_input(request),
+         {:ok, resolved_input} <- CompactionArtifacts.resolve_input_handles(agent_uid, input),
+         {:ok, candidate} <- standalone_compaction_candidate(input, resolved_input),
+         {:ok, store_context} <- compact_store_context(agent_uid, request),
+         {:ok, summary} <- summarize_standalone(agent_uid, candidate, request),
+         {:ok, artifact} <-
+           create_standalone_artifact(agent_uid, store_context, candidate, summary),
+         {:ok, ankole_extension} <-
+           maybe_store_compaction_checkpoint(agent_uid, request, store_context, artifact) do
+      {:ok, CompactionArtifacts.response_body(artifact, ankole: ankole_extension)}
+    end
+  end
+
+  def compact_response(_agent_uid, _request), do: {:error, :invalid_request_body}
 
   defp compact_history(
          agent_uid,
@@ -229,17 +261,18 @@ defmodule Ankole.AIGateway.Compaction do
          total_tokens,
          threshold
        ) do
-    with {:ok, candidate} <- compaction_candidate(history, current_input),
+    with {:ok, candidate} <- compaction_candidate(agent_uid, history, current_input),
          {:ok, summary} <- summarize_candidate(agent_uid, candidate, request),
-         {:ok, compaction} <-
-           StatefulResponses.compact_history_prefix(
-             agent_uid,
-             "resp_#{candidate.anchor.id}",
-             "resp_#{candidate.covers_until.id}",
-             %{"type" => "compaction", "summary" => summary.text},
-             compaction_metadata(summary, candidate, total_tokens, %{"auto" => true})
-           ) do
-      previous_response_id = "resp_#{compaction.id}"
+         {:ok, artifact} <-
+           create_artifact_for_candidate(agent_uid, conversation_id, candidate, summary),
+         {:ok, checkpoint} <-
+           StatefulResponses.create_compaction_checkpoint(%{
+             agent_uid: agent_uid,
+             previous_response_id: "resp_#{candidate.anchor.id}",
+             artifact: artifact,
+             metadata: compaction_metadata(summary, candidate, total_tokens, %{"auto" => true})
+           }) do
+      previous_response_id = "resp_#{checkpoint.id}"
 
       {:ok,
        %{
@@ -248,11 +281,10 @@ defmodule Ankole.AIGateway.Compaction do
              previous_response_id: previous_response_id
            ),
          previous_response_id: previous_response_id,
-         compaction: compaction,
+         compaction: checkpoint,
          run_metadata: %{
            "auto_compaction" => %{
              "response_id" => previous_response_id,
-             "covers_until_response_id" => "resp_#{candidate.covers_until.id}",
              "history_usage_tokens_before" => total_tokens,
              "token_threshold" => threshold.tokens,
              "context_length" => threshold.context_length,
@@ -275,6 +307,142 @@ defmodule Ankole.AIGateway.Compaction do
 
       {:error, reason} ->
         overflow_fallback(history, request, total_tokens, reason, threshold)
+    end
+  end
+
+  defp create_artifact_for_candidate(agent_uid, conversation_id, candidate, summary) do
+    retained_items = messages_to_items(candidate.retained_tail)
+
+    CompactionArtifacts.insert_artifact(%{
+      agent_uid: agent_uid,
+      conversation_id: conversation_id,
+      summary_text: summary.text,
+      retained_items: retained_items,
+      retention: %{
+        "strategy" => "tail_rows",
+        "requested" => candidate.tail_rows_requested,
+        "actual" => length(candidate.retained_tail)
+      },
+      usage: summary.usage
+    })
+  end
+
+  defp create_standalone_artifact(agent_uid, store_context, candidate, summary) do
+    CompactionArtifacts.insert_artifact(%{
+      agent_uid: agent_uid,
+      conversation_id: store_context.conversation_id,
+      summary_text: summary.text,
+      retained_items: candidate.retained_tail,
+      retention: %{
+        "strategy" => "tail_rows",
+        "requested" => candidate.tail_rows_requested,
+        "actual" => length(candidate.retained_tail)
+      },
+      usage: summary.usage
+    })
+  end
+
+  defp maybe_store_compaction_checkpoint(
+         agent_uid,
+         _request,
+         %{store?: true} = store_context,
+         artifact
+       ) do
+    with {:ok, checkpoint} <-
+           StatefulResponses.create_compaction_checkpoint(%{
+             agent_uid: agent_uid,
+             conversation_id: store_context.conversation_id,
+             previous_response_id: store_context.previous_response_id,
+             artifact: artifact,
+             metadata: store_context.metadata
+           }) do
+      {:ok,
+       %{
+         "stored" => true,
+         "response_id" => CompactionArtifacts.response_id(checkpoint.id),
+         "conversation" => "conv_#{checkpoint.conversation_id}"
+       }}
+    end
+  end
+
+  defp maybe_store_compaction_checkpoint(_agent_uid, _request, _store_context, _artifact),
+    do: {:ok, nil}
+
+  defp compact_store_context(agent_uid, %{"store" => true} = request) do
+    previous_response_id = Map.get(request, "previous_response_id")
+    conversation_id = Map.get(request, "conversation")
+
+    with :ok <- validate_compact_previous_response_id(previous_response_id),
+         :ok <- validate_compact_conversation_id(conversation_id) do
+      cond do
+        nonempty_binary?(previous_response_id) ->
+          case StatefulResponses.get_message_for_agent(agent_uid, previous_response_id) do
+            {:ok, %Message{status: "complete"} = anchor} ->
+              {:ok,
+               %{
+                 store?: true,
+                 conversation_id: anchor.conversation_id,
+                 previous_response_id: previous_response_id,
+                 metadata: request_metadata(request)
+               }}
+
+            {:ok, %Message{}} ->
+              {:error, :invalid_anchor}
+
+            {:error, :not_found} ->
+              {:error, :invalid_anchor}
+          end
+
+        nonempty_binary?(conversation_id) ->
+          raw_conversation_id = decode_compact_conversation_id(conversation_id)
+
+          with {:ok, conversation} <-
+                 StatefulResponses.get_conversation_for_agent(agent_uid, raw_conversation_id) do
+            {:ok,
+             %{
+               store?: true,
+               conversation_id: conversation.id,
+               previous_response_id: nil,
+               metadata: request_metadata(request)
+             }}
+          end
+
+        true ->
+          with {:ok, conversation} <-
+                 StatefulResponses.create_managed_stateful_responses_conversation(agent_uid) do
+            {:ok,
+             %{
+               store?: true,
+               conversation_id: conversation.id,
+               previous_response_id: nil,
+               metadata: request_metadata(request)
+             }}
+          end
+      end
+    else
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp compact_store_context(_agent_uid, request) do
+    previous_response_id = Map.get(request, "previous_response_id")
+    conversation_id = Map.get(request, "conversation")
+
+    with :ok <- validate_compact_previous_response_id(previous_response_id),
+         :ok <- validate_compact_conversation_id(conversation_id) do
+      case {previous_response_id, conversation_id} do
+        {nil, nil} ->
+          {:ok, %{store?: false, conversation_id: nil, previous_response_id: nil, metadata: %{}}}
+
+        {"", nil} ->
+          {:ok, %{store?: false, conversation_id: nil, previous_response_id: nil, metadata: %{}}}
+
+        {nil, ""} ->
+          {:ok, %{store?: false, conversation_id: nil, previous_response_id: nil, metadata: %{}}}
+
+        _anchor_without_store ->
+          {:error, :compact_store_required}
+      end
     end
   end
 
@@ -545,7 +713,7 @@ defmodule Ankole.AIGateway.Compaction do
     history
     |> Enum.with_index()
     |> Enum.reduce(nil, fn
-      {%Message{type: "compaction"}, index}, _last -> index
+      {%Message{type: "checkpoint"}, index}, _last -> index
       _other, last -> last
     end)
   end
@@ -582,7 +750,7 @@ defmodule Ankole.AIGateway.Compaction do
   defp overflow_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp overflow_reason(reason), do: inspect(reason)
 
-  defp compaction_candidate(history, current_input) do
+  defp compaction_candidate(agent_uid, history, current_input) do
     with %Message{} = anchor <- List.last(history),
          rows_after_compaction = rows_after_last_compaction(history),
          compressible_limit when compressible_limit > 0 <-
@@ -590,13 +758,14 @@ defmodule Ankole.AIGateway.Compaction do
          candidate_region = Enum.take(rows_after_compaction, compressible_limit),
          prefix = Enum.take_while(candidate_region, &text_compactable_message?/1),
          prefix <- snap_prefix_to_tool_boundary(prefix, rows_after_compaction, current_input),
-         %Message{} = covers_until <- List.last(prefix) do
+         %Message{} = _covers_until <- List.last(prefix) do
       {:ok,
        %{
          anchor: anchor,
-         covers_until: covers_until,
          prefix: prefix,
-         previous_chat_history: previous_compaction_summary(history)
+         retained_tail: Enum.drop(rows_after_compaction, length(prefix)),
+         previous_chat_history: previous_compaction_summary(agent_uid, history),
+         tail_rows_requested: tail_rows()
        }}
     else
       _value -> {:error, :no_compaction_candidate}
@@ -656,7 +825,7 @@ defmodule Ankole.AIGateway.Compaction do
   defp rows_after_last_compaction(history) do
     case history
          |> Enum.with_index()
-         |> Enum.filter(fn {row, _index} -> row.type == "compaction" end) do
+         |> Enum.filter(fn {row, _index} -> row.type == "checkpoint" end) do
       [] ->
         history
 
@@ -666,12 +835,15 @@ defmodule Ankole.AIGateway.Compaction do
     end
   end
 
-  defp previous_compaction_summary(history) do
+  defp previous_compaction_summary(agent_uid, history) do
     history
     |> Enum.reverse()
     |> Enum.find_value(fn
-      %Message{type: "compaction", content: [%{"summary" => summary}]} when is_binary(summary) ->
-        summary
+      %Message{type: "checkpoint"} = checkpoint ->
+        case CompactionArtifacts.summary_for_checkpoint(agent_uid, checkpoint) do
+          {:ok, summary} when is_binary(summary) -> summary
+          _missing_or_invalid -> nil
+        end
 
       _row ->
         nil
@@ -688,6 +860,24 @@ defmodule Ankole.AIGateway.Compaction do
     request_model = Map.get(request, "model")
 
     summarizer_selectors(request_model)
+    |> Enum.reduce_while({:error, :summarizer_model_unavailable}, fn selector, _last_error ->
+      case call_summarizer(agent_uid, selector, prompt) do
+        {:ok, summary} -> {:halt, {:ok, summary}}
+        {:error, _reason} = error -> {:cont, error}
+      end
+    end)
+  end
+
+  defp summarize_standalone(agent_uid, candidate, request) do
+    prompt =
+      CompactionPrompt.build_history_user_prompt(%{
+        conversation_text: standalone_conversation_text(candidate.prefix_items),
+        previous_chat_history: candidate.previous_chat_history
+      })
+
+    request
+    |> Map.fetch!("model")
+    |> summarizer_selectors()
     |> Enum.reduce_while({:error, :summarizer_model_unavailable}, fn selector, _last_error ->
       case call_summarizer(agent_uid, selector, prompt) do
         {:ok, summary} -> {:halt, {:ok, summary}}
@@ -723,6 +913,155 @@ defmodule Ankole.AIGateway.Compaction do
     ["light", "primary", request_model]
     |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))
     |> Enum.uniq()
+  end
+
+  defp standalone_model(%{"model" => model}) when is_binary(model) do
+    case String.trim(model) do
+      "" -> {:error, :missing_model}
+      _model -> {:ok, model}
+    end
+  end
+
+  defp standalone_model(_request), do: {:error, :missing_model}
+
+  defp validate_compact_previous_response_id(nil), do: :ok
+  defp validate_compact_previous_response_id(""), do: :ok
+
+  defp validate_compact_previous_response_id("resp_" <> uuid) do
+    case Ecto.UUID.cast(uuid) do
+      {:ok, _uuid} -> :ok
+      :error -> {:error, :invalid_anchor}
+    end
+  end
+
+  defp validate_compact_previous_response_id(_value), do: {:error, :invalid_anchor}
+
+  defp validate_compact_conversation_id(nil), do: :ok
+  defp validate_compact_conversation_id(""), do: :ok
+
+  defp validate_compact_conversation_id("conv_" <> uuid) do
+    case Ecto.UUID.cast(uuid) do
+      {:ok, _uuid} -> :ok
+      :error -> {:error, :invalid_conversation}
+    end
+  end
+
+  defp validate_compact_conversation_id(_value), do: {:error, :invalid_conversation}
+
+  defp decode_compact_conversation_id("conv_" <> uuid), do: uuid
+
+  defp nonempty_binary?(value) when is_binary(value), do: String.trim(value) != ""
+  defp nonempty_binary?(_value), do: false
+
+  defp standalone_input(%{"input" => []}), do: {:error, :missing_input}
+  defp standalone_input(%{"input" => input}) when is_list(input), do: {:ok, input}
+
+  defp standalone_input(%{"input" => input}) when is_binary(input) do
+    {:ok, [%{"type" => "message", "role" => "user", "content" => input}]}
+  end
+
+  defp standalone_input(_request), do: {:error, :missing_input}
+
+  defp standalone_compaction_candidate(original_input, resolved_input) do
+    requested_tail_rows = tail_rows()
+    compactible_count = standalone_compactible_count(resolved_input, requested_tail_rows)
+
+    prefix_items =
+      resolved_input
+      |> Enum.take(compactible_count)
+      |> Enum.take_while(&text_compactable_item?/1)
+      |> snap_item_prefix_to_tool_boundary(resolved_input)
+      |> case do
+        [] -> resolved_input
+        prefix -> prefix
+      end
+
+    {:ok,
+     %{
+       prefix_items: prefix_items,
+       retained_tail: Enum.drop(original_input, length(prefix_items)),
+       previous_chat_history: previous_compaction_content(resolved_input),
+       tail_rows_requested: requested_tail_rows
+     }}
+  end
+
+  defp standalone_compactible_count(input, requested_tail_rows) do
+    input_count = length(input)
+
+    if input_count > requested_tail_rows do
+      input_count - requested_tail_rows
+    else
+      input_count
+    end
+  end
+
+  defp snap_item_prefix_to_tool_boundary([], _items), do: []
+
+  defp snap_item_prefix_to_tool_boundary(prefix, items) do
+    tail_items = Enum.drop(items, length(prefix))
+    split_call_ids = split_item_tool_call_ids(prefix, tail_items)
+
+    if MapSet.size(split_call_ids) == 0 do
+      prefix
+    else
+      prefix
+      |> remove_item_suffix_through_tool_calls(split_call_ids)
+      |> snap_item_prefix_to_tool_boundary(items)
+    end
+  end
+
+  defp split_item_tool_call_ids(prefix_items, tail_items) do
+    prefix_call_ids = item_call_ids(prefix_items, "function_call")
+    tail_output_call_ids = item_call_ids(tail_items, "function_call_output")
+
+    MapSet.intersection(prefix_call_ids, tail_output_call_ids)
+  end
+
+  defp remove_item_suffix_through_tool_calls(items, split_call_ids) do
+    items
+    |> Enum.reverse()
+    |> drop_items_until_split_tool_call(split_call_ids)
+    |> Enum.reverse()
+  end
+
+  defp drop_items_until_split_tool_call([], _split_call_ids), do: []
+
+  defp drop_items_until_split_tool_call([item | rest], split_call_ids) do
+    call_ids = item_call_ids([item], "function_call")
+
+    if MapSet.disjoint?(call_ids, split_call_ids) do
+      drop_items_until_split_tool_call(rest, split_call_ids)
+    else
+      rest
+    end
+  end
+
+  defp standalone_conversation_text(input) do
+    input
+    |> Enum.with_index(1)
+    |> Enum.map(fn {item, index} ->
+      """
+      <item index="#{index}">
+      #{item_text(item)}
+      </item>
+      """
+    end)
+    |> Enum.join("\n")
+  end
+
+  defp previous_compaction_content(input) do
+    input
+    |> Enum.reverse()
+    |> Enum.find_value(fn
+      %{"type" => "compaction", "encrypted_content" => content} when is_binary(content) ->
+        content
+
+      %{"type" => "compaction", "summary" => summary} when is_binary(summary) ->
+        summary
+
+      _item ->
+        nil
+    end)
   end
 
   defp extract_summary_text(%{"output_text" => text}) when is_binary(text) do

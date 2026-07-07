@@ -74,9 +74,32 @@ defmodule Ankole.IdentityProviders do
   @spec list_login_providers() :: {:ok, [map()]} | {:error, term()}
   def list_login_providers do
     with {:ok, providers} <- Config.active_providers() do
-      {:ok, Enum.filter(providers, &(&1["enabled"] != false))}
+      adapter_ids = adapter_id_set()
+
+      {:ok, Enum.filter(providers, &login_provider?(&1, adapter_ids))}
     end
   end
+
+  @doc """
+  Lists enabled configured provider refs for one adapter without loading secrets.
+  """
+  @spec list_active_provider_refs(String.t()) :: {:ok, [map()]} | {:error, term()}
+  def list_active_provider_refs(adapter_id) when is_binary(adapter_id) do
+    with {:ok, _adapter} <- fetch_adapter(adapter_id),
+         {:ok, providers} <- Config.active_providers() do
+      refs =
+        providers
+        |> Enum.filter(&(&1["enabled"] != false and &1["adapter_id"] == adapter_id))
+        |> Enum.map(&provider_ref/1)
+
+      {:ok, refs}
+    else
+      {:error, {:unknown_identity_provider_adapter, ^adapter_id}} -> {:ok, []}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def list_active_provider_refs(_adapter_id), do: {:ok, []}
 
   @doc """
   Persists one provider config and marks it active for login.
@@ -256,6 +279,19 @@ defmodule Ankole.IdentityProviders do
   @spec normalize_provider_id(term()) :: {:ok, String.t()} | {:error, term()}
   def normalize_provider_id(provider_id), do: Config.normalize_provider_id(provider_id)
 
+  @doc false
+  @spec validate_adapter_declaration(map()) :: :ok | {:error, term()}
+  def validate_adapter_declaration(declaration) when is_map(declaration) do
+    with {:ok, module} <- identity_adapter_module(declaration),
+         :ok <- ensure_exported(module, :upsert_user, 2),
+         :ok <- validate_identity_capabilities(module, declaration) do
+      :ok
+    end
+  end
+
+  def validate_adapter_declaration(declaration),
+    do: {:error, {:invalid_identity_provider_declaration, declaration}}
+
   defp disabled_plugin_ids do
     case Plugins.disabled_ids() do
       {:ok, ids} -> MapSet.new(ids)
@@ -294,12 +330,23 @@ defmodule Ankole.IdentityProviders do
   end
 
   defp fetch_adapter(adapter_id) do
-    Plugins.adapter_declarations(@adapter_contract_id)
+    adapter_declarations()
     |> Enum.find(&(value(&1, :id) == adapter_id))
     |> case do
       nil -> {:error, {:unknown_identity_provider_adapter, adapter_id}}
       adapter -> {:ok, adapter}
     end
+  end
+
+  defp adapter_declarations do
+    Plugins.adapter_declarations(@adapter_contract_id)
+  end
+
+  defp adapter_id_set do
+    adapter_declarations()
+    |> Enum.map(&value(&1, :id))
+    |> Enum.reject(&is_nil/1)
+    |> MapSet.new()
   end
 
   defp fetch_active_provider(provider_id) do
@@ -326,6 +373,11 @@ defmodule Ankole.IdentityProviders do
     end
   end
 
+  defp login_provider?(provider, adapter_ids) do
+    provider["enabled"] != false and
+      MapSet.member?(adapter_ids, provider["adapter_id"])
+  end
+
   defp provider_config_key(%{config_key_pattern: pattern}, provider_id) when is_binary(pattern) do
     {:ok, String.replace(pattern, "<id>", provider_id)}
   end
@@ -336,7 +388,7 @@ defmodule Ankole.IdentityProviders do
 
   defp adapter_module(adapter) do
     case value(adapter, :module) do
-      module when is_atom(module) -> {:ok, module}
+      module when is_atom(module) and not is_nil(module) -> {:ok, module}
       value -> {:error, {:invalid_identity_provider_module, value}}
     end
   end
@@ -496,6 +548,10 @@ defmodule Ankole.IdentityProviders do
     AppConfigure.get_by_key(config_key)
   end
 
+  defp provider_ref(provider) do
+    Map.take(provider, ["provider_id", "adapter_id", "plugin_id", "config_key"])
+  end
+
   defp provider_projection(provider) do
     with {:ok, adapter} <- fetch_adapter(provider["adapter_id"]),
          {:ok, config} <- provider_config(provider) do
@@ -596,6 +652,45 @@ defmodule Ankole.IdentityProviders do
   defp sync_reason(value), do: inspect(value)
 
   defp contract?(map, contract_id), do: value(map, :contract_id) == contract_id
+
+  defp identity_adapter_module(declaration) do
+    case value(declaration, :module) do
+      module when is_atom(module) and not is_nil(module) ->
+        case Code.ensure_loaded(module) do
+          {:module, ^module} -> {:ok, module}
+          {:error, reason} -> {:error, {:identity_provider_module_not_loaded, module, reason}}
+        end
+
+      value ->
+        {:error, {:invalid_identity_provider_module, value}}
+    end
+  end
+
+  defp validate_identity_capabilities(module, declaration) do
+    declaration
+    |> adapter_capabilities()
+    |> Enum.reduce_while(:ok, fn capability, :ok ->
+      case validate_identity_capability(module, capability) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp validate_identity_capability(module, "oidc_authorization"),
+    do: ensure_exported(module, :authorization_url, 2)
+
+  defp validate_identity_capability(module, "oidc_code_exchange"),
+    do: ensure_exported(module, :exchange_code, 3)
+
+  defp validate_identity_capability(module, "directory_full_sync"),
+    do: ensure_exported(module, :sync_directory, 3)
+
+  defp validate_identity_capability(module, "directory_realtime_sync"),
+    do: ensure_exported(module, :handle_contact_event, 3)
+
+  defp validate_identity_capability(_module, capability),
+    do: {:error, {:unknown_identity_capability, capability}}
 
   defp value(map, key) when is_map(map) do
     string_key = Atom.to_string(key)

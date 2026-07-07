@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'bun:test'
 import type { JsonObject } from '@pleisto/active-support'
 import { runAgentLoop } from '../../src/core/agent-loop'
-import { callModel, createModel, type ResponseWebSocketLike } from '../../src/core/llm'
+import { callModel, createModel } from '../../src/core/llm'
 import { classifyLlmError, isLocallyRetryableLlmError } from '../../src/core/llm-error-classifier'
 import { statefulTruncationFromActorEventPayload } from '../../src/core/turns/actor_event_text'
-import { FakeResponseSocket, fakeResponseSocket } from '../support/llm'
+import { FakeResponseSocket, fakeResponseSocket, testResponseSocket } from '../support/llm'
 
 describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and overflow', () => {
   it('retries AIGateway WebSocket close before open without sending a duplicate request', async () => {
@@ -25,7 +25,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
               throw new Error('request should not be sent before open')
             })
             queueMicrotask(() => socket.emitClose('gateway restart before open'))
-            return socket as unknown as ResponseWebSocketLike
+            return testResponseSocket(socket)
           }
 
           return fakeResponseSocket(init, data => {

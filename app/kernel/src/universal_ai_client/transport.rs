@@ -282,10 +282,10 @@ fn client_for(upstream: &UpstreamSpec, mode: ClientMode) -> Result<reqwest::Clie
     }
 
     let client = build_client(upstream, mode)?;
-    if clients.len() >= MAX_HTTP_CLIENT_CACHE_ENTRIES {
-        if let Some(old_key) = clients.keys().next().cloned() {
-            clients.remove(&old_key);
-        }
+    if clients.len() >= MAX_HTTP_CLIENT_CACHE_ENTRIES
+        && let Some(old_key) = clients.keys().next().cloned()
+    {
+        clients.remove(&old_key);
     }
     clients.insert(key, client.clone());
 
@@ -394,10 +394,7 @@ fn method_from_spec(method: &str) -> Result<Method, StreamError> {
 }
 
 fn has_compression(transport: &TransportSpec, preference: CompressionPreference) -> bool {
-    transport
-        .compression
-        .iter()
-        .any(|value| *value == preference)
+    transport.compression.contains(&preference)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -424,15 +421,9 @@ struct HttpAttempt {
 }
 
 fn http_attempt_modes(preferences: &[HttpVersionPreference], alt_svc_h3: bool) -> Vec<HttpAttempt> {
-    let has_h1 = preferences
-        .iter()
-        .any(|preference| *preference == HttpVersionPreference::H1);
-    let has_h2 = preferences
-        .iter()
-        .any(|preference| *preference == HttpVersionPreference::H2);
-    let has_h3 = preferences
-        .iter()
-        .any(|preference| *preference == HttpVersionPreference::H3);
+    let has_h1 = preferences.contains(&HttpVersionPreference::H1);
+    let has_h2 = preferences.contains(&HttpVersionPreference::H2);
+    let has_h3 = preferences.contains(&HttpVersionPreference::H3);
     let h3_only = has_h3 && !has_h2 && !has_h1;
     let mut modes = Vec::new();
     let mut added_auto = false;
@@ -549,10 +540,11 @@ fn record_alt_svc(url: &str, headers: &HeaderMap) {
     }
 
     if let Some(max_age) = parse_same_authority_h3_alt_svc(header) {
-        if !cache.contains_key(&origin) && cache.len() >= MAX_ALT_SVC_CACHE_ENTRIES {
-            if let Some(old_origin) = cache.keys().next().cloned() {
-                cache.remove(&old_origin);
-            }
+        if !cache.contains_key(&origin)
+            && cache.len() >= MAX_ALT_SVC_CACHE_ENTRIES
+            && let Some(old_origin) = cache.keys().next().cloned()
+        {
+            cache.remove(&old_origin);
         }
         cache.insert(
             origin,

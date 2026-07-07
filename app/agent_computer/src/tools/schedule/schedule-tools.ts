@@ -5,6 +5,7 @@ import type { JsonObject } from '@pleisto/active-support'
 import { deepString } from '@pleisto/active-support'
 import type { ActorEventEnvelope, TurnStart } from '../../lanes/actor_lane'
 import type { AgentTool, AgentToolResult } from '../../core'
+import { jsonToolResult } from '../../core/tool-result'
 import { rpcMethods, type RpcMethod, type ScheduleRpcRequest } from '../../lanes/rpc_lane'
 
 export type ScheduleRpcRequester = (method: RpcMethod, request: ScheduleRpcRequest) => Promise<JsonObject>
@@ -352,16 +353,6 @@ function replyRouteFromInput(input: ActorEventEnvelope): ReplyRoute {
       nonEmptyDeepString(payload, ['data', 'reply_route', 'source_entry_id']) ??
       nonEmptyDeepString(payload, ['data', 'entry', 'source_entry_id'])
   })
-}
-
-/**
- * Wraps JSON details as a tool result.
- */
-function jsonToolResult(details: JsonObject): AgentToolResult<ScheduleToolDetails> {
-  return {
-    content: [{ type: 'text', text: JSON.stringify(details) }],
-    details
-  }
 }
 
 /**

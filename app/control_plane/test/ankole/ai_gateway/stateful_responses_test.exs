@@ -4,6 +4,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
   import Ankole.PrincipalsFixtures
   import Ecto.Query
 
+  alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.Actors.ActorEvent
   alias Ankole.ActorRuntime.Schemas.ActorEventDelivery
@@ -793,7 +794,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
                )
     end
 
-    test "projects compaction as covered prefix while preserving uncovered tail" do
+    test "projects checkpoint as artifact boundary while artifact preserves retained tail" do
       agent = agent_fixture()
 
       {:ok, conversation} =
@@ -830,38 +831,41 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
 
       {:ok, m5} = StatefulResponses.commit_complete(m5, [%{"text" => "five"}])
 
-      compaction_item = %{"type" => "compaction", "summary" => "one through three"}
-
-      {:ok, compaction} =
-        StatefulResponses.compact_history_prefix(
-          agent.principal.uid,
-          "resp_#{m5.id}",
-          "resp_#{m3.id}",
-          compaction_item
+      {:ok, artifact} =
+        insert_compaction_artifact(
+          agent,
+          conversation,
+          "one through three",
+          m4.content ++ m5.content
         )
+
+      {:ok, checkpoint} =
+        StatefulResponses.create_compaction_checkpoint(%{
+          agent_uid: agent.principal.uid,
+          previous_response_id: "resp_#{m5.id}",
+          artifact: artifact
+        })
 
       history =
         StatefulResponses.expand_history(conversation.id,
-          previous_response_id: "resp_#{compaction.id}"
+          previous_response_id: "resp_#{checkpoint.id}"
         )
 
-      assert Enum.map(history, & &1.id) == [compaction.id, m4.id, m5.id]
-      m4_content = m4.content
-      m5_content = m5.content
+      assert Enum.map(history, & &1.id) == [checkpoint.id]
+      assert checkpoint.content == [CompactionArtifacts.ref_item(artifact.id)]
 
       assert [
-               [
-                 %{
-                   "id" => compaction_item_id,
-                   "type" => "compaction",
-                   "summary" => "one through three"
-                 }
-               ],
-               ^m4_content,
-               ^m5_content
-             ] = Enum.map(history, & &1.content)
+               %{
+                 "id" => compaction_item_id,
+                 "type" => "compaction",
+                 "encrypted_content" => encrypted_content
+               }
+               | retained_tail
+             ] = artifact.content["output"]
 
       assert is_binary(compaction_item_id)
+      assert encrypted_content == "ankole:compact:v1:#{compaction_item_id}"
+      assert retained_tail == m4.content ++ m5.content
     end
 
     test "projects covered function call when compaction tail keeps its tool result" do
@@ -914,29 +918,30 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
 
       {:ok, m4} = StatefulResponses.commit_complete(m4, [%{"text" => "four"}])
 
-      compaction_item = %{"type" => "compaction", "summary" => "one through call"}
-
-      {:ok, compaction} =
-        StatefulResponses.compact_history_prefix(
-          agent.principal.uid,
-          "resp_#{m4.id}",
-          "resp_#{m2.id}",
-          compaction_item
+      {:ok, artifact} =
+        insert_compaction_artifact(
+          agent,
+          conversation,
+          "one through call",
+          function_call ++ tool_result ++ m4.content
         )
+
+      {:ok, checkpoint} =
+        StatefulResponses.create_compaction_checkpoint(%{
+          agent_uid: agent.principal.uid,
+          previous_response_id: "resp_#{m4.id}",
+          artifact: artifact
+        })
 
       history =
         StatefulResponses.expand_history(conversation.id,
-          previous_response_id: "resp_#{compaction.id}"
+          previous_response_id: "resp_#{checkpoint.id}"
         )
 
-      assert Enum.map(history, & &1.id) == [compaction.id, m2.id, m3.id, m4.id]
+      assert Enum.map(history, & &1.id) == [checkpoint.id]
 
-      assert Enum.map(history, & &1.content) == [
-               compaction.content,
-               function_call,
-               tool_result,
-               m4.content
-             ]
+      assert Enum.drop(artifact.content["output"], 1) ==
+               function_call ++ tool_result ++ m4.content
     end
 
     test "projects covered function call when protected current input keeps its tool result" do
@@ -967,15 +972,15 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
 
       {:ok, m2} = StatefulResponses.commit_complete(m2, function_call)
 
-      compaction_item = %{"type" => "compaction", "summary" => "one through call"}
+      {:ok, artifact} =
+        insert_compaction_artifact(agent, conversation, "one through call", function_call)
 
-      {:ok, compaction} =
-        StatefulResponses.compact_history_prefix(
-          agent.principal.uid,
-          "resp_#{m2.id}",
-          "resp_#{m2.id}",
-          compaction_item
-        )
+      {:ok, checkpoint} =
+        StatefulResponses.create_compaction_checkpoint(%{
+          agent_uid: agent.principal.uid,
+          previous_response_id: "resp_#{m2.id}",
+          artifact: artifact
+        })
 
       tool_result = [
         %{
@@ -987,12 +992,12 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
 
       history =
         StatefulResponses.expand_history(conversation.id,
-          previous_response_id: "resp_#{compaction.id}",
+          previous_response_id: "resp_#{checkpoint.id}",
           protected_tail_items: tool_result
         )
 
-      assert Enum.map(history, & &1.id) == [compaction.id, m2.id]
-      assert Enum.map(history, & &1.content) == [compaction.content, function_call]
+      assert Enum.map(history, & &1.id) == [checkpoint.id]
+      assert Enum.drop(artifact.content["output"], 1) == function_call
     end
   end
 
@@ -1084,6 +1089,21 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       end
 
     StatefulResponses.start_response_run(Map.merge(base, attrs))
+  end
+
+  defp insert_compaction_artifact(agent, conversation, summary_text, retained_items) do
+    CompactionArtifacts.insert_artifact(%{
+      agent_uid: agent.principal.uid,
+      conversation_id: conversation.id,
+      summary_text: summary_text,
+      retained_items: retained_items,
+      retention: %{
+        "strategy" => "tail_rows",
+        "requested" => 2,
+        "actual" => length(retained_items)
+      },
+      usage: %{}
+    })
   end
 
   defp actor_event_fixture(agent_uid, session_id, source_event_id, attrs \\ %{}) do

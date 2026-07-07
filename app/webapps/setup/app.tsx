@@ -18,7 +18,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import * as v from 'valibot'
-import { internalApiGet, internalApiPost, internalApiPut } from '../common/Internal-api-client'
+import { internalApiGet, internalApiPost, internalApiPut } from '../common/internal-api-client'
 import {
   ConfigFields,
   defaultConfig,
@@ -386,7 +386,6 @@ function IdentityForm({ adapters }: { adapters: IdentityAdapter[] }) {
             {t('setup.adapter_config')}
           </h2>
           <ConfigFields
-            advancedLabel={t('setup.advanced_config')}
             config={config}
             fields={activeAdapter.fields}
             locale={i18next.language}

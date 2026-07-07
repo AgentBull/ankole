@@ -15,8 +15,6 @@ import type {
   CodexDelegationRejected,
   CodexDelegationResponse,
   CodexDelegationStatusUpdateRequest,
-  InstalledSkillReplaceRequest,
-  InstalledSkillReplaceResponse,
   MemoryRpcRequest,
   RpcMethod,
   SkillOverlayReplaceRequest,
@@ -56,9 +54,6 @@ export type CodexDelegationStatusUpdateRequester = (
 ) => Promise<CodexDelegationResponse | CodexDelegationRejected>
 export type SkillOverlayRequester = (request: SkillOverlayRequest) => Promise<SkillOverlayResponse>
 export type SkillOverlayReplaceRequester = (request: SkillOverlayReplaceRequest) => Promise<SkillOverlayResponse>
-export type InstalledSkillReplaceRequester = (
-  request: InstalledSkillReplaceRequest
-) => Promise<InstalledSkillReplaceResponse>
 export type MemoryRpcRequester = (method: RpcMethod, request: MemoryRpcRequest) => Promise<JsonObject>
 
 export type TurnHandlerResult = { kind: 'aigateway_response' } | { kind: 'noop_completed'; reason: string }
@@ -79,24 +74,8 @@ export type TextTurnLoopOptions = {
   requestMemoryRpc?: MemoryRpcRequester
   requestSkillOverlay?: SkillOverlayRequester
   replaceSkillOverlay?: SkillOverlayReplaceRequester
-  replaceInstalledSkillObservations?: InstalledSkillReplaceRequester
-  installedSkillSyncMemoTtlMs?: number
   agentConversationContext?: AgentConversationContext
   pollSteering?: () => TurnSteerUpdate[]
   abortSignal?: AbortSignal
   extraMessages?: AgentMessage[]
-}
-
-/**
- * Returns the skill source roots when both roots are available.
- */
-export function skillRootsFromOptions(
-  opts: TextTurnLoopOptions
-): { builtinSkillsRoot: string; agentInstalledSkillsRoot: string; internalSkillsRoot?: string } | undefined {
-  if (!opts.builtinSkillsRoot || !opts.agentInstalledSkillsRoot) return undefined
-  return {
-    builtinSkillsRoot: opts.builtinSkillsRoot,
-    agentInstalledSkillsRoot: opts.agentInstalledSkillsRoot,
-    ...(opts.internalSkillsRoot ? { internalSkillsRoot: opts.internalSkillsRoot } : {})
-  }
 }

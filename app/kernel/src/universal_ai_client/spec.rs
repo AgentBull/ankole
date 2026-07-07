@@ -389,6 +389,7 @@ fn normalize_compaction_item(item: &Value) -> Option<Value> {
 
     let summary = map
         .get("summary")
+        .or_else(|| map.get("encrypted_content"))
         .map(value_to_prompt_text)
         .filter(|text| !text.trim().is_empty())
         .unwrap_or_else(|| value_to_prompt_text(item));
@@ -601,7 +602,8 @@ mod tests {
                 "provider_options": {"reasoningEffort": "high"},
                 "previous_response_id": "resp_old",
                 "prompt_cache_key": "cache-a",
-                "service_tier": "agent_computer"
+                "service_tier": "agent_computer",
+                "stream_options": {"include_usage": true}
             }),
             provider_options: json!({"reasoningEffort": "minimal", "textVerbosity": "low"}),
             stream: Some(false),
@@ -617,6 +619,10 @@ mod tests {
         assert_eq!(request.get("model"), Some(&json!("gpt-test")));
         assert_eq!(request.get("prompt_cache_key"), Some(&json!("cache-a")));
         assert_eq!(request.get("service_tier"), Some(&json!("agent_computer")));
+        assert_eq!(
+            request.get("stream_options"),
+            Some(&json!({"include_usage": true}))
+        );
         assert!(!request.contains_key("provider_options"));
         assert!(!request.contains_key("previous_response_id"));
 
@@ -630,6 +636,10 @@ mod tests {
         assert_eq!(
             provider_request.get("prompt_cache_key"),
             Some(&json!("cache-a"))
+        );
+        assert_eq!(
+            provider_request.get("stream_options"),
+            Some(&json!({"include_usage": true}))
         );
         assert!(!provider_request.contains_key("service_tier"));
     }
@@ -702,6 +712,35 @@ mod tests {
         assert_eq!(
             input[0]["content"][0]["text"],
             json!("Conversation summary:\nPrior work was summarized.")
+        );
+        assert_eq!(input[1]["type"], json!("message"));
+    }
+
+    #[test]
+    fn provider_request_projects_openresponses_compaction_items_as_user_text() {
+        let context = ResponseContext {
+            model: "gpt-test".to_string(),
+            request: json!({
+                "input": [
+                    {"type": "compaction", "encrypted_content": "OpenResponses compacted state."},
+                    {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "continue"}]}
+                ]
+            }),
+            provider_options: json!({}),
+            stream: None,
+            include_model: true,
+        };
+
+        let provider_request = context.resolved_provider_request_object();
+        let input = provider_request
+            .get("input")
+            .and_then(Value::as_array)
+            .unwrap();
+
+        assert_eq!(input[0]["type"], json!("message"));
+        assert_eq!(
+            input[0]["content"][0]["text"],
+            json!("Conversation summary:\nOpenResponses compacted state.")
         );
         assert_eq!(input[1]["type"], json!("message"));
     }

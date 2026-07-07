@@ -77,13 +77,66 @@ fn encode_json(value: Value) -> Result<String, StreamError> {
 mod tests {
     use serde_json::{Value, json};
 
-    use super::super::spec::{ApiResolverKind, ResponseContext};
+    use super::super::spec::{
+        ApiResolverKind, DownstreamKind, ResponseContext, StreamLimits, StreamSpec, TimeoutSpec,
+        TransportSpec, UpstreamKind, UpstreamSpec,
+    };
     use super::*;
 
     fn protocol_body(kind: ApiResolverKind, context: ResponseContext) -> Value {
         let resolver = ApiResolver::new(kind, context);
         sonic_rs::from_str(&encode_json(Value::Object(resolver.build_body().unwrap())).unwrap())
             .unwrap()
+    }
+
+    #[test]
+    fn openai_responses_websocket_initial_message_preserves_stream_fields_not_service_tier() {
+        let spec = StreamSpec {
+            api_resolver: ApiResolverKind::OpenaiResponses,
+            upstream: UpstreamSpec {
+                kind: UpstreamKind::WebsocketText,
+                method: "GET".to_string(),
+                url: "wss://example.test/v1/responses".to_string(),
+                headers: Vec::new(),
+                body: None,
+                websocket_initial_messages: Vec::new(),
+                timeout: TimeoutSpec::default(),
+                transport: TransportSpec::default(),
+            },
+            downstream: DownstreamKind::WebsocketText,
+            response_context: ResponseContext {
+                model: "gpt-test".to_string(),
+                request: json!({
+                    "input": "hello",
+                    "stream_options": {"include_usage": true},
+                    "service_tier": "priority",
+                    "generate": false,
+                    "client_metadata": {"traceparent": "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"}
+                }),
+                provider_options: json!({}),
+                stream: Some(true),
+                include_model: true,
+            },
+            limits: StreamLimits::default(),
+        };
+
+        let prepared = prepare_stream_spec(spec).unwrap();
+        assert!(prepared.upstream.body.is_none());
+        assert_eq!(prepared.upstream.websocket_initial_messages.len(), 1);
+
+        let payload: Value =
+            sonic_rs::from_str(&prepared.upstream.websocket_initial_messages[0]).unwrap();
+
+        assert_eq!(payload["type"], "response.create");
+        assert_eq!(payload["model"], "gpt-test");
+        assert_eq!(payload["stream"], true);
+        assert_eq!(payload["stream_options"], json!({"include_usage": true}));
+        assert_eq!(payload["generate"], false);
+        assert_eq!(
+            payload["client_metadata"]["traceparent"],
+            "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"
+        );
+        assert!(payload.get("service_tier").is_none());
     }
 
     #[test]

@@ -503,7 +503,7 @@ async fn wait_for_open_http(
 
 enum WebsocketOpenResult {
     Opened {
-        websocket: transport::UpstreamWebSocket,
+        websocket: Box<transport::UpstreamWebSocket>,
         command_rx: mpsc::Receiver<StreamCommand>,
     },
     Finished,
@@ -522,8 +522,8 @@ async fn wait_for_open_websocket(
         tokio::select! {
             result = &mut open => {
                 return match result {
-                    Ok((websocket, status)) if status == 101 => {
-                        WebsocketOpenResult::Opened { websocket, command_rx }
+                    Ok((websocket, 101)) => {
+                        WebsocketOpenResult::Opened { websocket: Box::new(websocket), command_rx }
                     }
                     Ok((_websocket, status)) => {
                         sink(StreamEvent::Error(StreamError::new(

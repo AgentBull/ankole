@@ -1,6 +1,7 @@
 import { basename, relative, resolve } from 'node:path'
 import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../../core'
+import { jsonToolResult } from '../../core/tool-result'
 import { insideWorkspace, resolveWorkspacePath } from '../../core/workspace-paths'
 import type { ComputerToolContext } from './context'
 
@@ -61,10 +62,7 @@ export function createReplyAttachmentTool(
         attachments: [attachment]
       }
 
-      return {
-        content: [{ type: 'text', text: JSON.stringify(details) }],
-        details
-      }
+      return jsonToolResult(details)
     }
   }
 }

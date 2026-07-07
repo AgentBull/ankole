@@ -23,7 +23,6 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Entry
   alias FeishuOpenAPI.Client
-  alias FeishuOpenAPI.Error
   alias FeishuOpenAPI.Event
   alias FeishuOpenAPI.TokenStore
 
@@ -36,6 +35,38 @@ defmodule Ankole.Plugins.LarkAdapterTest do
     @moduledoc false
 
     def ensure_started(_config, _consumers, _opts), do: {:ok, self()}
+  end
+
+  defmodule OutboxFallbackPlug do
+    @moduledoc false
+
+    import Plug.Conn
+
+    def init(opts), do: opts
+
+    def call(conn, opts) do
+      send(Keyword.fetch!(opts, :test_pid), {:lark_http_request, conn.method, conn.request_path})
+
+      case {conn.method, conn.request_path} do
+        {"POST", "/open-apis/im/v1/messages/om_missing/reply"} ->
+          json(conn, %{"code" => 23_006, "msg" => "message not exist"})
+
+        {"POST", "/open-apis/im/v1/messages"} ->
+          json(conn, %{
+            "code" => 0,
+            "data" => %{"message_id" => "om_fallback", "root_id" => "om_root"}
+          })
+
+        _other ->
+          json(conn, %{"code" => 99_999, "msg" => "unexpected request"}, 404)
+      end
+    end
+
+    defp json(conn, body, status \\ 200) do
+      conn
+      |> put_resp_content_type("application/json")
+      |> send_resp(status, Ankole.JSON.encode!(body))
+    end
   end
 
   setup do
@@ -366,6 +397,39 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                )
 
       assert restarted_pid != first_pid
+    end
+
+    test "connection owner format_status omits client, dispatcher, and secrets" do
+      state = %ConnectionOwner{
+        key: {"feishu", "cli_status"},
+        secret_fingerprint: String.duplicate("a", 64),
+        consumer_fingerprint: String.duplicate("b", 64),
+        consumer_count: 2,
+        consumer_kinds: [:chat, :identity_provider],
+        client: %{app_secret: "secret"},
+        dispatcher: %{secret: "secret"},
+        ws_pid: self(),
+        ws_client_module: FeishuOpenAPI.WS.Client,
+        start_client?: true
+      }
+
+      assert %{state: formatted_state} = ConnectionOwner.format_status(%{state: state})
+
+      assert formatted_state == %{
+               key: {"feishu", "cli_status"},
+               secret_fingerprint: "aaaaaaaa",
+               consumer_count: 2,
+               consumer_kinds: [:chat, :identity_provider],
+               ws_pid: self(),
+               ws_client_module: FeishuOpenAPI.WS.Client,
+               start_client?: true
+             }
+
+      refute Map.has_key?(formatted_state, :client)
+      refute Map.has_key?(formatted_state, :dispatcher)
+      refute inspect(formatted_state) =~ "app_secret"
+      refute inspect(formatted_state) =~ "dispatcher"
+      refute inspect(formatted_state) =~ String.duplicate("a", 64)
     end
   end
 
@@ -999,10 +1063,52 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                "以上历史对话记录已被压缩"
     end
 
-    test "reply fallback recognizes Lark target-gone provider codes" do
-      assert Outbox.target_gone_error?(%Error{code: 23_006, msg: "message not exist"})
-      assert Outbox.target_gone_error?(%Error{code: 23_002, msg: "message withdrawn"})
-      refute Outbox.target_gone_error?(%Error{code: 99_999, msg: "rate limited"})
+    test "send falls back to a new post when a reply target is gone" do
+      %{principal: agent} = agent_fixture()
+
+      server =
+        start_supervised!(
+          {Bandit,
+           plug: {OutboxFallbackPlug, test_pid: self()},
+           scheme: :http,
+           ip: {127, 0, 0, 1},
+           port: 0}
+        )
+
+      {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
+
+      config =
+        chat_config(%{
+          "appId" => "cli_outbox_fallback",
+          "baseUrl" => "http://127.0.0.1:#{port}"
+        })
+
+      put_tenant_token(config, [])
+      on_exit(fn -> delete_tenant_token(config, []) end)
+
+      assert {:ok, _} =
+               AppConfigure.put_global_by_key(Config.chat_config_key("lark-fallback"), config)
+
+      binding_fixture(agent.uid, "lark-fallback", :ignore)
+
+      assert {:ok,
+              %{
+                created_source_entry_id: "om_fallback",
+                provider_thread_id: "om_root"
+              }} =
+               Outbox.send(%OutboxEntry{
+                 agent_uid: agent.uid,
+                 binding_name: "lark-fallback",
+                 operation: :reply,
+                 signal_channel_id: "lark:oc_group",
+                 reply_to_source_entry_id: "om_missing",
+                 fallback_visible_text: "fallback text",
+                 idempotency_key: "reply-fallback-1"
+               })
+
+      assert_received {:lark_http_request, "POST", "/open-apis/im/v1/messages/om_missing/reply"}
+
+      assert_received {:lark_http_request, "POST", "/open-apis/im/v1/messages"}
     end
   end
 

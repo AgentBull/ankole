@@ -45,7 +45,7 @@ export function steeringMessages(turnStart: TurnStart, updates: TurnSteerUpdate[
 /**
  * Filters steering updates to the active turn fence and newer revisions only.
  */
-export function applicableSteeringUpdates(turnStart: TurnStart, updates: TurnSteerUpdate[]): TurnSteerUpdate[] {
+function applicableSteeringUpdates(turnStart: TurnStart, updates: TurnSteerUpdate[]): TurnSteerUpdate[] {
   return updates.filter(update => {
     return (
       update.turn.actor.agent_uid === turnStart.turn.actor.agent_uid &&

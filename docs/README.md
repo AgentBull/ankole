@@ -181,7 +181,7 @@ canonical examples.
 | --- | --- |
 | `app/control_plane/` | Phoenix/OTP control plane. Domain contexts under `lib/ankole/`, web surface under `lib/ankole_web/`, migrations under `priv/repo/migrations/`. |
 | `app/kernel/` | Rust kernel crate. `src/common/` (crypto/ids/jwt/zstd), `src/authz/` (CEL), `src/runtime_fabric/` (protobuf + ZeroMQ), `proto/` (envelope schema), `src/nif_exports.rs` / `src/napi_exports.rs` (binding surfaces). |
-| `app/agent_computer/` | Bun worker. `src/main.ts` daemon, `src/core/` agent loop + turns, `src/tools/`, `src/prompts/`, RuntimeFabric lanes (`actor_lane.ts`, `rpc_lane.ts`, `file_transfer_lane.ts`). Docker-only runtime. |
+| `app/agent_computer/` | Bun worker. `src/main.ts` daemon, `src/core/` agent loop + turns, `src/tools/`, `src/prompts/`, RuntimeFabric lanes (`actor_lane.ts`, `rpc_lane.ts`, `lanes/file/`). Docker-only runtime. |
 | `app/webapps/` | Three Vite + React SPAs (`auth/`, `console/`, `setup/`) built into `app/control_plane/priv/static/assets/`. Generated OpenAPI client. |
 | `app/library/` | Built-in skills (`skills/nano-pdf`, `skills/jupyter-live-kernel`, `skills/powerpoint`) and agent starter templates (`templates/MISSION.md`, `templates/SOUL.md`). |
 | `app/locales/` | TOML message catalogs (`en-US.toml`, `zh-Hans-CN.toml`) consumed by both the Elixir I18n context and the SPAs. |
@@ -265,13 +265,17 @@ completed by AIGateway's terminal commit.
   agents bind model aliases (`primary`, `light`, `heavy`, `embedding`,
   `rerank`) in `agents.options["ai_agent"]["models"]`.
 - **Stateful Responses log.** `stateful_responses.ex` owns the run-row
-  lifecycle. On `start_response_run` it validates the anchor (exactly one of
-  `conversation` / `previous_response_id`), expands history by walking the
-  `previous_message_id` graph (skipping `retracted`, collapsing prefixes
-  covered by compaction rows), and auto-compacts when recorded provider usage
-  is over budget (`compaction.ex`, summarized with the agent's `light` profile).
-  It then writes the row `status = "generating"`, streams provider chunks to
-  PubSub, and commits terminally under an optimistic
+  lifecycle. On `start_response_run` it resolves `conversation` or
+  `previous_response_id`; if a `store=true` request names neither, it creates a
+  managed conversation marked
+  `metadata.managed_by_stateful_responses_api = true`. It expands history by
+  walking the `previous_message_id` graph (skipping `retracted`, stopping at
+  compaction checkpoints whose artifacts carry the summary and retained tail),
+  and auto-compacts when recorded
+  provider usage is over budget (`compaction.ex`, summarized with the agent's
+  `light` profile). It then writes the row `status = "generating"` with
+  optional `metadata.actor_event_id`, streams provider chunks to PubSub, and
+  commits terminally under an optimistic
   `WHERE status = 'generating'` guard. A terminal commit at the chain tail
   also sets `actor_events.completed_at` and clears the delivery. Orphaned
   `generating` rows recover to `error` by `updated_at` staleness (300 s
@@ -280,10 +284,12 @@ completed by AIGateway's terminal commit.
 The wire surface is the OpenAI Responses shape: workers connect to
 `GET /api/v1/ai-gateway/responses` (WebSocket,
 `AnkoleWeb.AIGatewayResponsesSocket`) and send `response.create` frames with
-`store=true`; ids are rewritten to `resp_<message-row-uuid>`; HTTP routes
-exist for stateless calls, retrieval, manual compaction, embeddings, and
-rerank. Owns tables: `ai_gateway_messages`, `ai_gateway_conversations`,
-`ai_gateway_providers`.
+`store=true`; `conversation` and `previous_response_id` are AIGateway state
+anchors, while `metadata.actor_event_id` is ActorRuntime correlation metadata,
+not a generic Responses requirement. Stateful ids are rewritten to
+`resp_<message-row-uuid>`; HTTP routes exist for stateless calls, retrieval,
+manual compaction, embeddings, and rerank. Owns tables:
+`ai_gateway_messages`, `ai_gateway_conversations`, `ai_gateway_providers`.
 
 ### RuntimeFabric — the live ZeroMQ transport
 
@@ -306,7 +312,7 @@ file lane (`ANKOLE_FILE/1`, 2 MiB zstd blocks, credit flow control) moves
 bytes between the control plane and the worker-visible roots `user_files`
 and `agent_installed_skills`
 (`lib/ankole/actor_runtime/file_transfer_lane.ex` <->
-`src/file_transfer_lane.ts`).
+`src/lanes/file/`).
 
 Worker->control-plane RPC methods are registered in
 `lib/ankole/actor_runtime/rpc_lane.ex`:
@@ -483,7 +489,9 @@ answers after one shell command.
    assembles the tool set.
 5. **First model call.** `core/agent-loop.ts` sends `response.create`
    (`store=true`, `conversation`, the user's text as input items, and
-   `metadata.actor_event_id`) over the AIGateway WebSocket.
+   `metadata.actor_event_id`) over the AIGateway WebSocket. The conversation is
+   the Responses state anchor; `actor_event_id` is only ActorRuntime
+   correlation for this main-agent story.
    `AnkoleWeb.AIGatewayResponsesSocket` hands it to
    `StatefulResponses.start_response_run`, which expands history,
    auto-compacts if over budget, and writes the `generating` row. The
@@ -527,8 +535,8 @@ Side chains reuse the same shapes:
   whose arrival is pushed as `mailbox_updated`; the worker injects it between
   model rounds. `/steer` is acknowledged when that nudge is sent or queued for
   the active turn, not when the model proves it consumed the steer.
-- **`/compress`**: an IM command that writes a compaction row through
-  `POST /api/v1/ai-gateway/responses/compact`.
+- **`/compress`**: an IM command that writes a compaction artifact and
+  checkpoint row through the AIGateway compaction path.
 - **Recall**: a recalled provider message tombstones the mirror and, for
   completed work, hard-deletes or retracts the tail of the message chain.
 
@@ -678,9 +686,12 @@ while the workspace moves quickly.
 - **run row**: the `ai_gateway_messages` row written for one
   `response.create` call. Holds request input items and model output items in
   one `content` array.
-- **compaction row**: an `ai_gateway_messages` row (`type = "compaction"`)
-  that summarizes an older history prefix so future runs fit the model
-  context.
+- **compaction artifact**: an `ai_gateway_compaction_artifacts` row containing
+  a summary, canonical `response.compaction.output`, retained tail items, and
+  usage facts.
+- **checkpoint row**: an `ai_gateway_messages` row (`type = "checkpoint"`)
+  whose `content` is one `compaction_artifact` ref. It is a response-chain
+  continuation anchor, not the summary source.
 - **anchor**: the row a new run chains from (`previous_message_id`; rendered
   as `previous_response_id` at the API edge).
 - **visible leaf**: a `complete` row no other row chains from. Implicit

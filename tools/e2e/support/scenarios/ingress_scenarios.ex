@@ -23,6 +23,7 @@ defmodule Ankole.E2E.Scenarios.Ingress do
     ]
 
   alias Ankole.AIGateway.Schemas.Conversation
+  alias Ankole.AIGateway.Schemas.CompactionArtifact
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Actors.ActorEvent
   alias Ankole.E2E.FakeFeishu
@@ -548,7 +549,7 @@ defmodule Ankole.E2E.Scenarios.Ingress do
   end
 
   @doc """
-  Runs `/compress` and asserts the compaction fact plus the operator feedback.
+  Runs `/compress` and asserts the compaction artifact plus the operator feedback.
   """
   def run_compress_command(
         %{fake_feishu: fake_feishu, agent: agent, container: container},
@@ -568,7 +569,7 @@ defmodule Ankole.E2E.Scenarios.Ingress do
 
     input = actor_event_by_source_entry_id!(agent.uid, "om_compress_1")
     conversation_id = active_conversation_id_for_input!(agent.uid, input.session_id)
-    compressed_seed_message_ids = seed_compression_history!(agent.uid, conversation_id)
+    _compressed_seed_message_ids = seed_compression_history!(agent.uid, conversation_id)
 
     assert {:ok, %{status: :command_consumed, feedback: "Conversation compressed."}} =
              process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
@@ -578,15 +579,16 @@ defmodule Ankole.E2E.Scenarios.Ingress do
 
     assert outbox.payload == %{"text" => "Conversation compressed."}
 
-    assert %Message{type: "compaction", covers_until_message_id: covers_until_message_id} =
+    assert %Message{type: "checkpoint", content: [%{"type" => "compaction_artifact"} = ref]} =
              Message
              |> where([message], message.conversation_id == ^conversation_id)
-             |> where([message], message.type == "compaction")
+             |> where([message], message.type == "checkpoint")
              |> order_by([message], desc: message.inserted_at, desc: message.id)
              |> limit(1)
              |> Repo.one()
 
-    assert covers_until_message_id in compressed_seed_message_ids
+    assert "cmp_" <> artifact_id = ref["id"]
+    assert %CompactionArtifact{} = Repo.get!(CompactionArtifact, artifact_id)
     assert_actor_event_completed!(input.id)
 
     dispatch_and_assert_lark_outbox(

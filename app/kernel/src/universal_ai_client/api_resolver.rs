@@ -1,12 +1,35 @@
-include!("api_resolver/core.rs");
-include!("api_resolver/openai_responses.rs");
-include!("api_resolver/openai_chat.rs");
-include!("api_resolver/anthropic.rs");
-include!("api_resolver/google_gemini.rs");
-include!("api_resolver/aws_bedrock_converse.rs");
-include!("api_resolver/embeddings.rs");
-include!("api_resolver/google_embeddings.rs");
-include!("api_resolver/rerank.rs");
-include!("api_resolver/web.rs");
-include!("api_resolver/standard.rs");
-include!("api_resolver/tests.rs");
+use std::collections::{BTreeMap, BTreeSet};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use serde_json::{Map, Number, Value, json};
+use uuid::Uuid;
+
+use super::error::{StreamError, StreamErrorCode};
+use super::spec::{ApiResolverKind, ResponseContext};
+
+mod anthropic;
+mod aws_bedrock_converse;
+mod core;
+mod embeddings;
+mod google_embeddings;
+mod google_gemini;
+mod openai_chat;
+mod openai_responses;
+mod rerank;
+mod standard;
+#[cfg(test)]
+mod tests;
+mod web;
+
+use self::anthropic::*;
+use self::aws_bedrock_converse::*;
+use self::core::ApiProtocol;
+pub use self::core::ApiResolver;
+use self::embeddings::*;
+use self::google_embeddings::*;
+use self::google_gemini::*;
+use self::openai_chat::*;
+use self::openai_responses::*;
+use self::rerank::*;
+use self::standard::*;
+use self::web::*;

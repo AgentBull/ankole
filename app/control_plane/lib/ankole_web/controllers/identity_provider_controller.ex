@@ -7,6 +7,7 @@ defmodule AnkoleWeb.IdentityProviderController do
   use OpenApiSpex.ControllerSpecs
 
   alias Ankole.IdentityProviders
+  alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.ConsoleApi.ErrorEnvelope
   alias AnkoleWeb.Schemas.ConsoleApi.IdentityProviderAdapterListResponse
@@ -202,8 +203,6 @@ defmodule AnkoleWeb.IdentityProviderController do
   end
 
   defp error(conn, status, code, message, details \\ []) do
-    conn
-    |> put_status(status)
-    |> json(%{error: %{code: code, message: message, details: details}})
+    ConsoleErrors.render(conn, status, code, message, details)
   end
 end

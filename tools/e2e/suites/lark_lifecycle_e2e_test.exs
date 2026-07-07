@@ -75,7 +75,7 @@ defmodule Ankole.E2E.LarkLifecycleE2ETest do
 
   @tag timeout: 300_000
   @tag ownership_timeout: 300_000
-  test "/compress summarizes older transcript into a compaction fact" do
+  test "/compress summarizes older transcript into a compaction artifact" do
     ctx = start_worker_e2e_stack!()
 
     direct = run_direct_duplicate_and_llm_retry(ctx)

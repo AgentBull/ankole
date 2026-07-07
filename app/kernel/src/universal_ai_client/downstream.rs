@@ -37,12 +37,7 @@ impl DownstreamEncoder {
         self.encode_event(&json!({
             "type": "error",
             "sequence_number": 0,
-            "error": {
-                "message": error.message,
-                "type": "server_error",
-                "param": null,
-                "code": error.code
-            }
+            "error": error.to_openai_error_json()
         }))
     }
 

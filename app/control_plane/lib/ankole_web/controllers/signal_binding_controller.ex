@@ -8,6 +8,7 @@ defmodule AnkoleWeb.SignalBindingController do
 
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.Binding
+  alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.ConsoleApi.ErrorEnvelope
   alias AnkoleWeb.Schemas.ConsoleApi.SignalAdapterListResponse
@@ -193,8 +194,6 @@ defmodule AnkoleWeb.SignalBindingController do
   end
 
   defp error(conn, status, code, message, details \\ []) do
-    conn
-    |> put_status(status)
-    |> json(%{error: %{code: code, message: message, details: details}})
+    ConsoleErrors.render(conn, status, code, message, details)
   end
 end

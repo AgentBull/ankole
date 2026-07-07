@@ -8,6 +8,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIGateway.ModelProfiles
+  alias Ankole.AIGateway.Schemas.CompactionArtifact
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Repo
   alias AnkoleWeb.AIGatewayTokens
@@ -838,7 +839,9 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       |> post(~p"/api/v1/ai-gateway/responses", %{
         "model" => "primary",
         "input" => "hello",
-        "stream" => true
+        "stream" => true,
+        "stream_options" => %{"include_usage" => true},
+        "service_tier" => "priority"
       })
 
     assert response = response(conn, 200)
@@ -867,7 +870,9 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert_receive {:gateway_request, request}
     assert request.path == "v1/responses"
     assert request.body["stream"] == true
+    assert request.body["stream_options"] == %{"include_usage" => true}
     assert request.body["store"] == false
+    refute Map.has_key?(request.body, "service_tier")
 
     assert %{"type" => "response.completed", "response" => body} = List.last(events)
     assert_openresponses_response_resource(body)
@@ -1295,8 +1300,34 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert Enum.any?(body["output"], &(&1["phase"] == "final_answer"))
   end
 
-  test "compact endpoint rejects stateless compact", %{conn: conn} do
+  test "compact endpoint covers OpenResponses standalone compact compliance", %{conn: conn} do
     %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        {:json, 200, chat_completion_fixture(request.body)}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openrouter-standalone-compact",
+               provider_kind: "openrouter",
+               base_url: base_url,
+               connection_options: %{
+                 "api_key" => "sk-openrouter",
+                 "transport" => %{
+                   "http_versions" => ["h1"],
+                   "compression" => ["zstd", "br", "gzip"]
+                 }
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openrouter-standalone-compact",
+               model: "openai/gpt-5.5"
+             })
+
     assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
 
     conn =
@@ -1305,15 +1336,127 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       |> put_req_header("content-type", "application/json")
       |> post("/api/v1/ai-gateway/responses/compact", %{
         "model" => "primary",
-        "input" => [%{"type" => "message", "role" => "user", "content" => "compact this"}]
+        "prompt_cache_key" => "openresponses-compact-test",
+        "input" => [
+          %{
+            "type" => "message",
+            "role" => "user",
+            "content" => "We agreed to launch on Tuesday and notify support first."
+          },
+          %{
+            "type" => "message",
+            "role" => "assistant",
+            "content" => "Understood. The launch is Tuesday, with support notified beforehand."
+          }
+        ]
       })
 
-    assert %{"error" => %{"code" => "unsupported_stateless_compact"}} = json_response(conn, 400)
+    body = json_response(conn, 200)
+
+    assert %{
+             "id" => "compact_" <> _,
+             "object" => "response.compaction",
+             "created_at" => created_at,
+             "output" => [
+               %{
+                 "id" => "cmp_" <> artifact_id,
+                 "type" => "compaction",
+                 "encrypted_content" => encrypted_content,
+                 "created_by" => "ankole-aigateway"
+               }
+             ],
+             "usage" => %{
+               "input_tokens" => 5,
+               "output_tokens" => 7,
+               "total_tokens" => 12,
+               "input_tokens_details" => %{"cached_tokens" => 0},
+               "output_tokens_details" => %{"reasoning_tokens" => 0}
+             }
+           } = body
+
+    assert is_integer(created_at)
+    assert encrypted_content == "ankole:compact:v1:cmp_#{artifact_id}"
+
+    assert %CompactionArtifact{content: artifact_content} =
+             Repo.get!(CompactionArtifact, artifact_id)
+
+    assert artifact_content["summary"] == %{"text" => "hello from compliance"}
+
+    assert_receive {:gateway_request, upstream_request}
+    assert upstream_request.path == "chat/completions"
+    assert upstream_request.body["model"] == "openai/gpt-5.5"
+    refute Map.has_key?(upstream_request.body, "previous_response_id")
+    refute Map.has_key?(upstream_request.body, "conversation")
+
+    assert Repo.all(Message) == []
+
+    continuation_conn =
+      build_conn()
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> put_req_header("content-type", "application/json")
+      |> post("/api/v1/ai-gateway/responses", %{
+        "model" => "primary",
+        "input" =>
+          body["output"] ++
+            [
+              %{
+                "type" => "message",
+                "role" => "user",
+                "content" => "continue from the compacted state"
+              }
+            ]
+      })
+
+    assert json_response(continuation_conn, 200)
+
+    assert_receive {:gateway_request, continuation_request}
+    assert continuation_request.path == "chat/completions"
+    assert inspect(continuation_request.body) =~ "Conversation summary:\\nhello from compliance"
   end
 
-  test "compact endpoint writes a stateful compaction row", %{conn: conn} do
+  test "compact endpoint rejects standalone compact without model", %{conn: conn} do
     %{principal: agent} = agent_fixture()
     assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+
+    conn =
+      conn
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> put_req_header("content-type", "application/json")
+      |> post("/api/v1/ai-gateway/responses/compact", %{
+        "input" => [
+          %{
+            "type" => "message",
+            "role" => "user",
+            "content" => "compact this"
+          }
+        ]
+      })
+
+    assert %{"error" => %{"code" => "missing_model"}} = json_response(conn, 400)
+  end
+
+  test "compact endpoint stores artifact and checkpoint when store is true", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        {:json, 200, chat_completion_fixture(request.body)}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openrouter-stateful-compact",
+               provider_kind: "openrouter",
+               base_url: base_url,
+               connection_options: %{"api_key" => "sk-openrouter"}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openrouter-stateful-compact",
+               model: "openai/gpt-5.5"
+             })
 
     {:ok, conversation} =
       StatefulResponses.ensure_conversation(agent.uid, "compact-response-controller")
@@ -1356,6 +1499,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       |> put_req_header("authorization", "Bearer #{api_key.api_key}")
       |> put_req_header("content-type", "application/json")
       |> post("/api/v1/ai-gateway/responses/compact", %{
+        "model" => "primary",
         "previous_response_id" => anchor.id,
         "input" => [%{"type" => "compaction", "summary" => "raw id should fail"}]
       })
@@ -1368,36 +1512,45 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       |> put_req_header("authorization", "Bearer #{api_key.api_key}")
       |> put_req_header("content-type", "application/json")
       |> post("/api/v1/ai-gateway/responses/compact", %{
+        "model" => "primary",
+        "store" => true,
         "previous_response_id" => "resp_#{anchor.id}",
         "input" => [
           %{
-            "type" => "compaction",
-            "summary" => "Prior context says the answer was prior answer."
+            "type" => "message",
+            "role" => "user",
+            "content" => "Prior context says the answer was prior answer."
           }
         ],
         "metadata" => %{"visible" => "compact"}
       })
 
     body = json_response(conn, 200)
-    assert_openresponses_response_resource(body)
-    assert body["previous_response_id"] == "resp_#{anchor.id}"
-    assert body["conversation"]["id"] == "conv_#{conversation.id}"
-    assert body["metadata"] == %{"visible" => "compact"}
+    assert body["object"] == "response.compaction"
+    assert body["ankole"]["stored"] == true
+    assert body["ankole"]["conversation"] == "conv_#{conversation.id}"
 
     [compaction_item] = body["output"]
     assert compaction_item["type"] == "compaction"
-    assert compaction_item["id"] == "cmp_#{String.replace_prefix(body["id"], "resp_", "")}"
-    assert compaction_item["summary"] == "Prior context says the answer was prior answer."
+    assert "cmp_" <> artifact_id = compaction_item["id"]
+    assert compaction_item["encrypted_content"] == "ankole:compact:v1:cmp_#{artifact_id}"
+    assert body["ankole"]["response_id"] == "resp_#{artifact_id}"
 
-    row_id = String.replace_prefix(body["id"], "resp_", "")
-    assert %Message{} = row = Repo.get!(Message, row_id)
-    assert row.type == "compaction"
+    assert %CompactionArtifact{} = artifact = Repo.get!(CompactionArtifact, artifact_id)
+    assert artifact.id == artifact_id
+    assert artifact.conversation_id == conversation.id
+    assert artifact.content["summary"] == %{"text" => "hello from compliance"}
+
+    assert %Message{} = row = Repo.get!(Message, artifact_id)
+    assert row.type == "checkpoint"
     assert row.status == "complete"
     assert row.previous_message_id == anchor.id
-    assert row.covers_until_message_id == anchor.id
-    assert row.content == [compaction_item]
+    assert row.content == [%{"id" => "cmp_#{artifact_id}", "type" => "compaction_artifact"}]
+    assert row.metadata == %{"visible" => "compact"}
 
-    assert StatefulResponses.expand_history(conversation.id, previous_response_id: body["id"]) ==
+    assert StatefulResponses.expand_history(conversation.id,
+             previous_response_id: body["ankole"]["response_id"]
+           ) ==
              [
                row
              ]

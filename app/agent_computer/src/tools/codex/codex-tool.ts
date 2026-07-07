@@ -3,6 +3,7 @@ import type { JsonObject } from '@pleisto/active-support'
 import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../../core'
 import type { TurnStart } from '../../lanes/actor_lane'
+import { assertRpcResponse, type CodexDelegationResponse } from '../../lanes/rpc_lane'
 import type { CodexRuntimeRequesters } from './manager'
 import { codexDelegationManager, type CodexDelegationSnapshot } from './manager'
 
@@ -163,7 +164,7 @@ async function statusSnapshot(
     delegation_id: delegationId,
     agent_uid: opts.turnStart.turn.actor.agent_uid
   })
-  if ('code' in response) throw new Error(`Codex status rejected: ${response.code} ${response.message ?? ''}`)
+  assertRpcResponse<CodexDelegationResponse>(response, 'Codex status rejected')
 
   return snapshotFromResponse(response)
 }

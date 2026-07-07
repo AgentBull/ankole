@@ -235,9 +235,8 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
 
   defp maybe_reply_fallback(result, _client, _outbox, _request), do: result
 
-  @doc false
   @spec target_gone_error?(Error.t()) :: boolean()
-  def target_gone_error?(%Error{code: code, msg: msg}) do
+  defp target_gone_error?(%Error{code: code, msg: msg}) do
     code in [23_000, 23_002, 23_006] or
       (is_binary(msg) and
          String.contains?(String.downcase(msg), ["withdraw", "not exist", "not found"]))

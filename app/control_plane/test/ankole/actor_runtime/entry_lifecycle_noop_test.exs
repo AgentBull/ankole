@@ -1,6 +1,7 @@
 defmodule Ankole.ActorRuntime.EntryLifecycleNoopTest do
   use Ankole.ActorRuntimeCase
 
+  alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.StatefulResponses
 
   test "tail entry removal hard deletes current visible actor-event rows" do
@@ -272,14 +273,23 @@ defmodule Ankole.ActorRuntime.EntryLifecycleNoopTest do
         terminal_items: [assistant_item("tail after covered answer")]
       )
 
+    {:ok, artifact} =
+      CompactionArtifacts.insert_artifact(%{
+        agent_uid: agent.uid,
+        conversation_id: conversation.id,
+        summary_text: "covered prefix",
+        retained_items: tail_message.content,
+        retention: %{"strategy" => "tail_rows", "requested" => 1, "actual" => 1},
+        usage: %{}
+      })
+
     {:ok, compaction} =
-      StatefulResponses.compact_history_prefix(
-        agent.uid,
-        "resp_#{tail_message.id}",
-        "resp_#{old_message.id}",
-        %{"type" => "compaction", "summary" => "covered prefix"},
-        %{"test" => "entry_lifecycle"}
-      )
+      StatefulResponses.create_compaction_checkpoint(%{
+        agent_uid: agent.uid,
+        previous_response_id: "resp_#{tail_message.id}",
+        artifact: artifact,
+        metadata: %{"test" => "entry_lifecycle"}
+      })
 
     lifecycle_event = emit_removed_lifecycle!(agent.uid, old_input, "covered-remove-event")
 
@@ -305,8 +315,7 @@ defmodule Ankole.ActorRuntime.EntryLifecycleNoopTest do
     assert StatefulResponses.latest_visible_leaf(conversation.id) == compaction.id
 
     assert Enum.map(StatefulResponses.expand_history(conversation.id), & &1.id) == [
-             compaction.id,
-             tail_message.id
+             compaction.id
            ]
 
     refute_retracted_note("covered-remove-event")

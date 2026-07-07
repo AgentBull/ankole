@@ -1,5 +1,6 @@
+use super::*;
 #[derive(Debug, Default)]
-struct OpenaiResponsesState {
+pub(super) struct OpenaiResponsesState {
     sequence: u64,
     terminal: bool,
     response: Option<Value>,
@@ -100,8 +101,6 @@ impl ApiProtocol for OpenaiResponsesState {
         context: &ResponseContext,
     ) -> Result<Vec<String>, StreamError> {
         let mut event = self.build_body(context)?;
-        event.remove("stream");
-        event.remove("stream_options");
         event.remove("background");
         event.insert("type".to_string(), json!("response.create"));
         Ok(vec![encode_protocol_json(Value::Object(event))?])

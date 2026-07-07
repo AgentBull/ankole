@@ -2,23 +2,12 @@ import { StrictMode } from 'react'
 import type { ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { AppProviders, createQueryClient } from './providers'
-import type { SpaDescriptor } from './placeholder-app'
 import '@ankole/uikit/styles.css'
 import './styles.css'
 
 type AppContainer = HTMLElement & {
   __ankoleQueryClient?: ReturnType<typeof createQueryClient>
   __ankoleRoot?: Root
-}
-
-/** Mounts a placeholder SPA descriptor through the shared provider stack. */
-export async function mountSpa(descriptor: SpaDescriptor) {
-  const [{ RouterProvider }, { createPlaceholderRouter }] = await Promise.all([
-    import('react-router'),
-    import('./placeholder-app')
-  ])
-  const router = createPlaceholderRouter(descriptor)
-  mountApp(<RouterProvider router={router} />)
 }
 
 /** Mounts a React tree into the Phoenix-provided `#ankole-app` container. */

@@ -1,5 +1,6 @@
+use super::*;
 #[derive(Debug)]
-struct AnthropicState {
+pub(super) struct AnthropicState {
     sequence: u64,
     response_id: Option<String>,
     model: Option<String>,
@@ -18,7 +19,7 @@ struct AnthropicState {
 }
 
 impl AnthropicState {
-    fn new(model: String) -> Self {
+    pub(super) fn new(model: String) -> Self {
         Self {
             sequence: 0,
             response_id: None,
@@ -570,10 +571,7 @@ fn build_anthropic_body(context: &ResponseContext) -> Map<String, Value> {
     }
     body.insert(
         "stream".to_string(),
-        request
-            .get("stream")
-            .cloned()
-            .unwrap_or_else(|| json!(false)),
+        request.get("stream").cloned().unwrap_or(Value::Bool(false)),
     );
     body.insert(
         "messages".to_string(),

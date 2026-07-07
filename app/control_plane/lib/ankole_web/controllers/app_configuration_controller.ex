@@ -17,6 +17,7 @@ defmodule AnkoleWeb.AppConfigurationController do
   use OpenApiSpex.ControllerSpecs
 
   alias Ankole.AppConfigure
+  alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.ConsoleApi.AppConfigurationDecryptionResponse
   alias AnkoleWeb.Schemas.ConsoleApi.AppConfigurationListResponse
@@ -217,8 +218,6 @@ defmodule AnkoleWeb.AppConfigurationController do
   end
 
   defp error(conn, status, code, message, details \\ []) do
-    conn
-    |> put_status(status)
-    |> json(%{error: %{code: code, message: message, details: details}})
+    ConsoleErrors.render(conn, status, code, message, details)
   end
 end

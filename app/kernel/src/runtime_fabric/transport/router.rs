@@ -55,8 +55,8 @@ impl RouterHandle {
         transport_route: impl Into<String>,
         envelope_json: serde_json::Value,
     ) -> Result<SendOutcome, TransportError> {
-        let payload =
-            runtime_fabric::encode_envelope(envelope_json).map_err(TransportError::from)?;
+        let payload = runtime_fabric::encode_envelope(envelope_json)
+            .map_err(TransportError::invalid_envelope)?;
         let (reply_tx, reply_rx) = mpsc::channel();
 
         self.commands
@@ -125,7 +125,9 @@ impl Drop for RouterHandle {
 /// ZeroMQ sockets are thread-affine. Commands cross into the socket thread over
 /// channels, while received envelopes return to the host through the sink.
 pub fn start_router(config: RouterConfig, sink: RouterEventSink) -> KernelResult<RouterHandle> {
-    config.validate().map_err(KernelError::from)?;
+    config
+        .validate()
+        .map_err(|error| KernelError::new(error.ffi_message()))?;
 
     let (command_tx, command_rx) = mpsc::channel();
     let (init_tx, init_rx) = mpsc::sync_channel(1);
@@ -141,7 +143,7 @@ pub fn start_router(config: RouterConfig, sink: RouterEventSink) -> KernelResult
     let endpoint = init_rx
         .recv_timeout(command_timeout)
         .map_err(|_| KernelError::new("timed out starting actor lane router"))?
-        .map_err(KernelError::from)?;
+        .map_err(|error| KernelError::new(error.ffi_message()))?;
 
     Ok(RouterHandle {
         endpoint,
@@ -305,10 +307,14 @@ fn emit_router_frames(
 ) {
     match parse_router_frames(frames) {
         Ok(RouterInbound::Envelope { route, payload }) => {
-            match runtime_fabric::decode_envelope(&payload) {
-                Ok(envelope_json) => {
+            match runtime_fabric::decode_envelope_view(&payload) {
+                Ok(envelope) => {
                     let auth = if requires_auth {
-                        match authenticated_envelope_route(auth_routes, &route, &envelope_json) {
+                        match authenticated_envelope_route(
+                            auth_routes,
+                            &route,
+                            envelope.worker_ready_id(),
+                        ) {
                             Some(auth) => Some(auth),
                             None => {
                                 sink(RouterEvent::DecodeFailed {
@@ -320,6 +326,16 @@ fn emit_router_frames(
                         }
                     } else {
                         None
+                    };
+                    let envelope_json = match envelope.host_json() {
+                        Ok(envelope_json) => envelope_json,
+                        Err(error) => {
+                            sink(RouterEvent::DecodeFailed {
+                                transport_route: route,
+                                reason: error.to_string(),
+                            });
+                            return;
+                        }
                     };
 
                     sink(RouterEvent::Received {

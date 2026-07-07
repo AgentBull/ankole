@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { TurnStart } from '../../lanes/actor_lane'
 import type { JsonObject } from '@pleisto/active-support'
 import type { AgentTool, AgentToolResult } from '../../core'
+import { jsonToolResult } from '../../core/tool-result'
 import { rpcMethods, type MemoryRpcRequest, type RpcMethod } from '../../lanes/rpc_lane'
 
 export type MemoryRpcRequester = (method: RpcMethod, request: MemoryRpcRequest) => Promise<JsonObject>
@@ -77,7 +78,7 @@ function createMemoryNoteTool(opts: CreateMemoryToolsOptions): AgentTool<typeof 
       }
 
       const response = await opts.requestMemoryRpc!(method, memoryRequest(opts.turnStart, payload))
-      return jsonToolResult(response)
+      return memoryToolResult(response)
     }
   }
 }
@@ -98,7 +99,7 @@ function createMemorySearchTool(
         rpcMethods.memorySearch,
         memoryRequest(opts.turnStart, compactRecord(params))
       )
-      return jsonToolResult(response)
+      return memoryToolResult(response)
     }
   }
 }
@@ -119,7 +120,7 @@ function createMemoryBrowseTool(
         rpcMethods.memoryBrowse,
         memoryRequest(opts.turnStart, compactRecord(params))
       )
-      return jsonToolResult(response)
+      return memoryToolResult(response)
     }
   }
 }
@@ -142,11 +143,7 @@ function memoryRequest(turnStart: TurnStart, payload: JsonObject): MemoryRpcRequ
   }
 }
 
-function jsonToolResult(details: JsonObject): AgentToolResult<MemoryToolDetails> {
+function memoryToolResult(details: JsonObject): AgentToolResult<MemoryToolDetails> {
   const notice = typeof details.history_notice === 'string' ? `Memory notice: ${details.history_notice}\n` : ''
-
-  return {
-    content: [{ type: 'text', text: `${notice}${JSON.stringify(details)}` }],
-    details
-  }
+  return jsonToolResult(details, { textPrefix: notice })
 }

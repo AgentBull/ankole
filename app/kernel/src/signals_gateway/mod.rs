@@ -4,19 +4,15 @@
 //! CEL against that context; it does not know how to load bindings, provider
 //! state, actor state, or database rows.
 
-use cel::{Context, Program, Value as CelValue};
+use ::cel::{Context, Program};
 use serde_json::Value as JsonValue;
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 
+use crate::authz::cel::{self, BoolEvalError};
+use crate::common::bounded_cache::BoundedCache;
 use crate::common::{KernelError, KernelResult};
 
-struct CachedFilter {
-    source: String,
-    program: Arc<Program>,
-}
-
-static FILTER_CACHE: OnceLock<Mutex<HashMap<String, CachedFilter>>> = OnceLock::new();
+static FILTER_CACHE: OnceLock<BoundedCache<String, Arc<Program>>> = OnceLock::new();
 
 const MAX_FILTER_CACHE_ENTRIES: usize = 1024;
 
@@ -55,36 +51,14 @@ fn cached_filter_program(source: &str) -> KernelResult<Arc<Program>> {
 }
 
 fn lookup_cached_filter_program(source: &str) -> Option<Arc<Program>> {
-    let cache = FILTER_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let guard = cache.try_lock().ok()?;
-    let cached = guard.get(source)?;
-
-    if cached.source == source {
-        Some(Arc::clone(&cached.program))
-    } else {
-        None
-    }
+    let cache = FILTER_CACHE.get_or_init(|| BoundedCache::new(MAX_FILTER_CACHE_ENTRIES));
+    let source = source.to_owned();
+    cache.get_if(&source, |_cached| true, Arc::clone)
 }
 
 fn store_cached_filter_program(source: &str, program: &Arc<Program>) {
-    let cache = FILTER_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut guard = match cache.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    if !guard.contains_key(source) && guard.len() >= MAX_FILTER_CACHE_ENTRIES {
-        if let Some(old_source) = guard.keys().next().cloned() {
-            guard.remove(&old_source);
-        }
-    }
-    guard.insert(
-        source.to_owned(),
-        CachedFilter {
-            source: source.to_owned(),
-            program: Arc::clone(program),
-        },
-    );
+    let cache = FILTER_CACHE.get_or_init(|| BoundedCache::new(MAX_FILTER_CACHE_ENTRIES));
+    cache.insert(source.to_owned(), Arc::clone(program));
 }
 
 fn build_filter_context(context_json: JsonValue) -> KernelResult<Context<'static>> {
@@ -125,13 +99,17 @@ fn required_context_object(
 }
 
 fn execute_bool(program: &Program, context: &Context<'_>) -> KernelResult<bool> {
-    match program.execute(context) {
-        Ok(CelValue::Bool(value)) => Ok(value),
-        Ok(value) => Err(KernelError::new(format!(
-            "signal filter returned {}",
-            value.type_of()
-        ))),
-        Err(reason) => Err(KernelError::new(format!(
+    match cel::execute_bool(program, context) {
+        Ok(value) => Ok(value),
+        Err(BoolEvalError::ResultType(reason)) => {
+            let value_type = reason
+                .strip_prefix("condition returned ")
+                .unwrap_or(reason.as_str());
+            Err(KernelError::new(format!(
+                "signal filter returned {value_type}"
+            )))
+        }
+        Err(BoolEvalError::Execution(reason)) => Err(KernelError::new(format!(
             "signal filter execution failed: {reason}"
         ))),
     }
@@ -254,12 +232,14 @@ mod tests {
     }
 
     fn clear_filter_cache() {
-        let cache = FILTER_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-        cache.lock().expect("filter cache lock").clear();
+        FILTER_CACHE
+            .get_or_init(|| BoundedCache::new(MAX_FILTER_CACHE_ENTRIES))
+            .clear();
     }
 
     fn filter_cache_len() -> usize {
-        let cache = FILTER_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-        cache.lock().expect("filter cache lock").len()
+        FILTER_CACHE
+            .get_or_init(|| BoundedCache::new(MAX_FILTER_CACHE_ENTRIES))
+            .len()
     }
 }

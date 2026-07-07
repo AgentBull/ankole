@@ -65,6 +65,29 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionOwner do
   @spec status(GenServer.server()) :: map()
   def status(server), do: GenServer.call(server, :status)
 
+  @spec format_status(term()) :: term()
+  @impl true
+  def format_status(status) do
+    case status do
+      %{state: %__MODULE__{} = state} ->
+        %{
+          status
+          | state: %{
+              key: state.key,
+              secret_fingerprint: short_fingerprint(state.secret_fingerprint),
+              consumer_count: state.consumer_count,
+              consumer_kinds: state.consumer_kinds,
+              ws_pid: state.ws_pid,
+              ws_client_module: state.ws_client_module,
+              start_client?: state.start_client?
+            }
+        }
+
+      _other ->
+        status
+    end
+  end
+
   @impl true
   def init(opts) do
     Process.flag(:trap_exit, true)
@@ -164,6 +187,11 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionOwner do
     |> Enum.map(&Map.get(&1, :kind))
     |> Enum.sort()
   end
+
+  defp short_fingerprint(value) when is_binary(value) and byte_size(value) >= 8,
+    do: String.slice(value, 0, 8)
+
+  defp short_fingerprint(_value), do: :redacted
 
   defp from_pid_or_self(pid, self_pid) when pid == self_pid, do: self_pid
   defp from_pid_or_self(_pid, self_pid), do: self_pid

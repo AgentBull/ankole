@@ -4,8 +4,26 @@ use serde_json::Value;
 use crate::common::{KernelError, KernelResult};
 
 use super::{
-    decode::envelope_from_json, encode::envelope_to_json, proto, validate::validate_envelope,
+    from_host_json::envelope_from_json, proto, to_host_json::envelope_to_json,
+    validate::validate_envelope,
 };
+
+pub(crate) struct DecodedEnvelope {
+    envelope: proto::Envelope,
+}
+
+impl DecodedEnvelope {
+    pub(crate) fn host_json(&self) -> KernelResult<Value> {
+        envelope_to_json(&self.envelope)
+    }
+
+    pub(crate) fn worker_ready_id(&self) -> Option<&str> {
+        match self.envelope.body.as_ref()? {
+            proto::envelope::Body::WorkerReady(payload) => Some(payload.worker_id.as_str()),
+            _body => None,
+        }
+    }
+}
 
 /// Encodes a JSON-shaped Runtime Fabric envelope as protobuf bytes.
 ///
@@ -30,10 +48,14 @@ pub fn encode_envelope(envelope: Value) -> KernelResult<Vec<u8>> {
 /// generated prost structs. That keeps native bindings thin and avoids leaking
 /// Rust-specific protobuf details into Elixir or Bun code.
 pub fn decode_envelope(bytes: &[u8]) -> KernelResult<Value> {
+    decode_envelope_view(bytes)?.host_json()
+}
+
+pub(crate) fn decode_envelope_view(bytes: &[u8]) -> KernelResult<DecodedEnvelope> {
     let envelope = proto::Envelope::decode(bytes).map_err(|error| {
         KernelError::new(format!("failed to decode runtime fabric envelope: {error}"))
     })?;
     validate_envelope(&envelope)?;
 
-    envelope_to_json(&envelope)
+    Ok(DecodedEnvelope { envelope })
 }

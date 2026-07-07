@@ -53,9 +53,10 @@ defmodule Ankole.ActorRuntime.TurnRefTest do
     wire = wire_turn_ref()
 
     assert {:ok, %TurnRef{}} = TurnRef.from_request(%{"turn_ref" => wire}, :turn_ref)
-    assert {:ok, %TurnRef{}} = TurnRef.from_request(%{"turn" => wire}, :turn_ref)
     assert {:ok, %TurnRef{}} = TurnRef.from_request(%{"turn" => wire}, :turn)
+    assert {:error, :missing_turn_ref} = TurnRef.from_request(%{"turn" => wire}, :turn_ref)
     assert {:error, :missing_turn_ref} = TurnRef.from_request(%{"turn_ref" => wire}, :turn)
+    assert {:error, :missing_turn_ref} = TurnRef.from_request(%{"turn_ref" => wire}, "turn_ref")
   end
 
   test "from_request does not accept legacy llm_turn_id" do
@@ -107,6 +108,7 @@ defmodule Ankole.ActorRuntime.TurnRefTest do
 
     assert activation_ref.agent_uid == "agent-c"
     assert {:ok, ^activation_ref} = activation_ref |> TurnRef.to_wire() |> TurnRef.from_wire()
+    assert {:error, :invalid_turn_ref} = TurnRef.from_wire(activation_ref)
 
     delivery = %ActorEventDelivery{
       agent_uid: " Agent-D ",
@@ -121,6 +123,7 @@ defmodule Ankole.ActorRuntime.TurnRefTest do
 
     assert delivery_ref.agent_uid == "agent-d"
     assert {:ok, ^delivery_ref} = delivery_ref |> TurnRef.to_wire() |> TurnRef.from_wire()
+    assert {:error, :invalid_turn_ref} = TurnRef.from_wire(delivery_ref)
   end
 
   defp wire_turn_ref do

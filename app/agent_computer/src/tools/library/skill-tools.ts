@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { z } from 'zod'
 import type { ActorTurnRef } from '../../lanes/actor_lane'
 import type { AgentTool, AgentToolResult } from '../../core'
+import { jsonToolResult } from '../../core/tool-result'
 import type {
   RuntimeSkillSummary,
   SkillOverlayReplaceRequest,
@@ -129,15 +130,8 @@ function createSkillAppendTool(opts: CreateSkillToolsOptions): AgentTool<typeof 
         overlay_json: { text: appendedContent }
       })
 
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({ name: params.name, changed: true })
-          }
-        ],
-        details: { name: params.name, changed: true }
-      }
+      const details: SkillToolDetails = { name: params.name, changed: true }
+      return jsonToolResult(details)
     }
   }
 }

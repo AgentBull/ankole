@@ -17,6 +17,8 @@ defmodule Ankole.AIGateway.Providers do
 
   @contract_id "ai_gateway.provider"
   @common_connection_settings ~w(base_url headers query_params transport)
+  @plugin_provider_kind_pattern ~r/\A[a-z][a-z0-9_]{0,62}\z/
+  @capability_kinds [:language_model, :embedding_model, :rerank_model, :web_search, :web_fetch]
   @cache_key {__MODULE__, :registry}
 
   @builtins [
@@ -38,9 +40,8 @@ defmodule Ankole.AIGateway.Providers do
 
   @doc """
   Lists built-in and active plugin provider definitions.
-
-  Invalid plugin declarations are skipped instead of crashing the registry so a
-  bad plugin cannot hide every built-in provider from Console or runtime paths.
+  Plugin provider declaration errors are startup configuration errors and are
+  rejected before the provider registry cache is published.
   """
   @spec all() :: [definition()]
   def all do
@@ -67,10 +68,26 @@ defmodule Ankole.AIGateway.Providers do
           by_kind: %{String.t() => definition()}
         }
   def refresh_from_adapter_declarations(declarations) when is_list(declarations) do
-    registry = build_registry(declarations)
-    :persistent_term.put(@cache_key, registry)
-    registry
+    case build_registry(declarations) do
+      {:ok, registry} ->
+        :persistent_term.put(@cache_key, registry)
+        registry
+
+      {:error, reason} ->
+        raise ArgumentError, "invalid AI Gateway provider declaration: #{inspect(reason)}"
+    end
   end
+
+  @doc false
+  @spec validate_adapter_declaration(map()) :: :ok | {:error, term()}
+  def validate_adapter_declaration(declaration) when is_map(declaration) do
+    with {:ok, _definition} <- plugin_provider_definition(declaration) do
+      :ok
+    end
+  end
+
+  def validate_adapter_declaration(declaration),
+    do: {:error, {:invalid_ai_gateway_provider_declaration, declaration}}
 
   @doc false
   def reset_for_test do
@@ -332,30 +349,114 @@ defmodule Ankole.AIGateway.Providers do
   end
 
   defp build_registry(declarations) do
-    definitions =
-      declarations
-      |> plugin_provider_modules()
-      |> then(fn plugin_modules -> @builtins ++ plugin_modules end)
-      |> Enum.map(&definition!/1)
-      |> Enum.uniq_by(& &1.provider_kind)
+    with {:ok, plugin_definitions} <- plugin_provider_definitions(declarations) do
+      definitions =
+        @builtins
+        |> Enum.map(&definition!/1)
+        |> Kernel.++(plugin_definitions)
+        |> Enum.uniq_by(& &1.provider_kind)
 
-    %{
-      definitions: definitions,
-      by_kind: Map.new(definitions, &{&1.provider_kind, &1})
-    }
+      {:ok,
+       %{
+         definitions: definitions,
+         by_kind: Map.new(definitions, &{&1.provider_kind, &1})
+       }}
+    end
   end
 
-  defp plugin_provider_modules(declarations) do
+  defp plugin_provider_definitions(declarations) do
     declarations
     |> Enum.filter(fn declaration ->
       declaration[:contract_id] == @contract_id or declaration["contract_id"] == @contract_id
     end)
-    |> Enum.flat_map(fn declaration ->
-      case declaration_module(declaration) do
-        {:ok, module} -> [module]
-        {:error, _reason} -> []
+    |> Enum.reduce_while({:ok, []}, fn declaration, {:ok, acc} ->
+      case plugin_provider_definition(declaration) do
+        {:ok, definition} -> {:cont, {:ok, [definition | acc]}}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
+    |> case do
+      {:ok, definitions} -> {:ok, Enum.reverse(definitions)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp plugin_provider_definition(declaration) do
+    with {:ok, declaration_id} <- declaration_id(declaration),
+         :ok <- validate_plugin_provider_kind(declaration_id),
+         {:ok, module} <- declaration_module(declaration),
+         :ok <- validate_module_callback(module, :provider_definition, 0),
+         {:ok, definition} <- provider_definition(module),
+         :ok <- validate_plugin_provider_definition(declaration_id, module, definition) do
+      {:ok, definition}
+    end
+  end
+
+  defp validate_plugin_provider_definition(
+         declaration_id,
+         module,
+         %ProviderDefinition{} = definition
+       ) do
+    with :ok <- validate_plugin_provider_kind(definition.provider_kind),
+         :ok <- validate_provider_kind_match(declaration_id, definition.provider_kind),
+         :ok <- validate_provider_module(module, definition.module),
+         :ok <- validate_plugin_capabilities(definition),
+         :ok <- validate_plugin_prepare_callbacks(module, definition) do
+      :ok
+    end
+  end
+
+  defp validate_provider_kind_match(kind, kind), do: :ok
+
+  defp validate_provider_kind_match(declaration_id, provider_kind),
+    do: {:error, {:ai_gateway_provider_id_mismatch, declaration_id, provider_kind}}
+
+  defp validate_provider_module(module, module), do: :ok
+
+  defp validate_provider_module(module, definition_module),
+    do: {:error, {:ai_gateway_provider_module_mismatch, module, definition_module}}
+
+  defp validate_plugin_provider_kind(provider_kind) when is_binary(provider_kind) do
+    case Regex.match?(@plugin_provider_kind_pattern, provider_kind) do
+      true -> :ok
+      false -> {:error, {:invalid_ai_gateway_provider_kind, provider_kind}}
+    end
+  end
+
+  defp validate_plugin_provider_kind(provider_kind),
+    do: {:error, {:invalid_ai_gateway_provider_kind, provider_kind}}
+
+  defp validate_plugin_capabilities(%ProviderDefinition{capabilities: capabilities})
+       when is_list(capabilities) do
+    case Enum.all?(capabilities, &valid_plugin_capability?/1) do
+      true -> :ok
+      false -> {:error, {:invalid_ai_gateway_capabilities, capabilities}}
+    end
+  end
+
+  defp validate_plugin_capabilities(%ProviderDefinition{capabilities: capabilities}),
+    do: {:error, {:invalid_ai_gateway_capabilities, capabilities}}
+
+  defp valid_plugin_capability?(%Capability{kind: kind, prepare: prepare})
+       when kind in @capability_kinds and is_atom(prepare),
+       do: true
+
+  defp valid_plugin_capability?(_capability), do: false
+
+  defp validate_plugin_prepare_callbacks(module, %ProviderDefinition{capabilities: capabilities}) do
+    Enum.reduce_while(capabilities, :ok, fn capability, :ok ->
+      case validate_module_callback(module, capability.prepare, 1) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp provider_definition(module) do
+    case module.provider_definition() do
+      %ProviderDefinition{} = definition -> {:ok, definition}
+      value -> {:error, {:invalid_ai_gateway_provider_definition, value}}
+    end
   end
 
   defp capability_names(%ProviderDefinition{capabilities: capabilities}) do
@@ -364,19 +465,30 @@ defmodule Ankole.AIGateway.Providers do
     |> Enum.uniq()
   end
 
-  # Plugin declarations may come from JSON-like data or Elixir maps. Supporting
-  # both shapes keeps the plugin contract boring without forcing adapters to
-  # agree on atom-vs-string keys.
-  defp declaration_module(%{"module" => module}) when is_atom(module), do: {:ok, module}
-  defp declaration_module(%{module: module}) when is_atom(module), do: {:ok, module}
-  defp declaration_module(%{"module" => module}) when is_binary(module), do: safe_module(module)
-  defp declaration_module(%{module: module}) when is_binary(module), do: safe_module(module)
+  defp declaration_id(%{"id" => id}) when is_binary(id), do: {:ok, id}
+  defp declaration_id(%{id: id}) when is_binary(id), do: {:ok, id}
+  defp declaration_id(_declaration), do: {:error, :missing_provider_id}
+
+  defp declaration_module(%{"module" => module}) when is_atom(module),
+    do: ensure_module_loaded(module)
+
+  defp declaration_module(%{module: module}) when is_atom(module),
+    do: ensure_module_loaded(module)
+
   defp declaration_module(_declaration), do: {:error, :missing_provider_module}
 
-  defp safe_module(module) do
-    {:ok, Module.safe_concat([module])}
-  rescue
-    _error -> {:error, :invalid_provider_module}
+  defp ensure_module_loaded(module) do
+    case Code.ensure_loaded(module) do
+      {:module, ^module} -> {:ok, module}
+      {:error, reason} -> {:error, {:provider_module_not_loaded, module, reason}}
+    end
+  end
+
+  defp validate_module_callback(module, function, arity) do
+    case function_exported?(module, function, arity) do
+      true -> :ok
+      false -> {:error, {:missing_provider_callback, module, function, arity}}
+    end
   end
 
   defp normalize_id(value) when is_binary(value), do: value |> String.trim() |> String.downcase()

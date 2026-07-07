@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path'
 import { xxh3File128Hex, xxh3String128Hex } from '@ankole/kernel'
 import { match, ResultAsync } from '@pleisto/active-support'
 import type { JsonObject } from '@pleisto/active-support'
-import type { InstalledSkillObservation } from '../lanes/rpc_lane'
+import type { InstalledSkillObservation } from './types'
 
 export type InstalledSkillDiagnostic = {
   code: string

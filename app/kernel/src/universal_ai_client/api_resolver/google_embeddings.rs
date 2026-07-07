@@ -1,5 +1,6 @@
+use super::*;
 #[derive(Debug)]
-struct GoogleEmbeddings;
+pub(super) struct GoogleEmbeddings;
 
 impl ApiProtocol for GoogleEmbeddings {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {

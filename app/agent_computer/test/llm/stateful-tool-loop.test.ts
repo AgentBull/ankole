@@ -2,8 +2,14 @@ import { describe, expect, it } from 'bun:test'
 import type { JsonObject } from '@pleisto/active-support'
 import { z } from 'zod'
 import { runAgentLoop } from '../../src/core/agent-loop'
-import { createModel, type ResponseWebSocketLike } from '../../src/core/llm'
-import { FakeResponseSocket, fakeResponseSocket, fallbackModelForTest, toolResultsRecordedFrame } from '../support/llm'
+import { createModel } from '../../src/core/llm'
+import {
+  FakeResponseSocket,
+  fakeResponseSocket,
+  fallbackModelForTest,
+  testResponseSocket,
+  toolResultsRecordedFrame
+} from '../support/llm'
 
 describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations', () => {
   it('anchors stateful tool-loop continuations without replaying local transcript', async () => {
@@ -66,7 +72,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
           })
           sockets.push(socket)
           queueMicrotask(() => socket.emitOpen())
-          return socket as unknown as ResponseWebSocketLike
+          return testResponseSocket(socket)
         }
       }
     })

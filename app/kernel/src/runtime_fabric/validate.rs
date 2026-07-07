@@ -2,8 +2,9 @@ use crate::common::{KernelError, KernelResult};
 
 use super::{
     PROTOCOL_VERSION,
+    body::body_spec,
     enums::{durability_name, lane_name},
-    json::normalized_name,
+    json::{empty_json_payload_bytes, normalized_name},
     proto,
 };
 
@@ -84,14 +85,6 @@ fn validate_correlation_id(
     Ok(())
 }
 
-#[derive(Clone, Copy)]
-struct BodySpec {
-    name: &'static str,
-    lane: proto::Lane,
-    durability: proto::DurabilityClass,
-    requires_correlation_id: bool,
-}
-
 // Keeps lane and durability tied to the body type. This prevents callers from
 // accidentally making a retryable turn-start look like an ephemeral control
 // message, or making worker progress durable when it is only observational.
@@ -119,97 +112,6 @@ fn validate_body_semantics(
     }
 
     Ok(())
-}
-
-fn body_spec(body: &proto::envelope::Body) -> BodySpec {
-    // Exhaustive on purpose: a new body variant must force a lane, durability,
-    // and correlation decision instead of inheriting defaults.
-    match body {
-        proto::envelope::Body::WorkerReady(_) => BodySpec {
-            name: "worker_ready",
-            lane: proto::Lane::Control,
-            durability: proto::DurabilityClass::ControlEphemeral,
-            requires_correlation_id: false,
-        },
-        proto::envelope::Body::WorkerHeartbeat(_) => BodySpec {
-            name: "worker_heartbeat",
-            lane: proto::Lane::Control,
-            durability: proto::DurabilityClass::ControlEphemeral,
-            requires_correlation_id: false,
-        },
-        proto::envelope::Body::WorkerCapacity(_) => BodySpec {
-            name: "worker_capacity",
-            lane: proto::Lane::Control,
-            durability: proto::DurabilityClass::ControlEphemeral,
-            requires_correlation_id: false,
-        },
-        proto::envelope::Body::TurnStart(_) => BodySpec {
-            name: "turn_start",
-            lane: proto::Lane::Turn,
-            durability: proto::DurabilityClass::ControlReplayable,
-            requires_correlation_id: true,
-        },
-        proto::envelope::Body::MailboxUpdated(_) => BodySpec {
-            name: "mailbox_updated",
-            lane: proto::Lane::Turn,
-            durability: proto::DurabilityClass::ControlEphemeral,
-            requires_correlation_id: true,
-        },
-        proto::envelope::Body::TurnAccepted(_) => BodySpec {
-            name: "turn_accepted",
-            lane: proto::Lane::Turn,
-            durability: proto::DurabilityClass::ControlReplayable,
-            requires_correlation_id: true,
-        },
-        proto::envelope::Body::TurnControl(_) => BodySpec {
-            name: "turn_control",
-            lane: proto::Lane::Control,
-            durability: proto::DurabilityClass::ControlDurable,
-            requires_correlation_id: true,
-        },
-        proto::envelope::Body::WorkerProgress(_) => BodySpec {
-            name: "worker_progress",
-            lane: proto::Lane::Progress,
-            durability: proto::DurabilityClass::ControlEphemeral,
-            requires_correlation_id: true,
-        },
-        proto::envelope::Body::TurnError(_) => BodySpec {
-            name: "turn_error",
-            lane: proto::Lane::Turn,
-            durability: proto::DurabilityClass::ControlReplayable,
-            requires_correlation_id: true,
-        },
-        proto::envelope::Body::TurnNoopCompleted(_) => BodySpec {
-            name: "turn_noop_completed",
-            lane: proto::Lane::Turn,
-            durability: proto::DurabilityClass::ControlReplayable,
-            requires_correlation_id: true,
-        },
-        proto::envelope::Body::ControlShutdown(_) => BodySpec {
-            name: "control_shutdown",
-            lane: proto::Lane::Control,
-            durability: proto::DurabilityClass::ControlEphemeral,
-            requires_correlation_id: false,
-        },
-        proto::envelope::Body::RpcRequest(_) => BodySpec {
-            name: "rpc_request",
-            lane: proto::Lane::Rpc,
-            durability: proto::DurabilityClass::ControlEphemeral,
-            requires_correlation_id: true,
-        },
-        proto::envelope::Body::RpcResponse(_) => BodySpec {
-            name: "rpc_response",
-            lane: proto::Lane::Rpc,
-            durability: proto::DurabilityClass::ControlEphemeral,
-            requires_correlation_id: true,
-        },
-        proto::envelope::Body::RpcError(_) => BodySpec {
-            name: "rpc_error",
-            lane: proto::Lane::Rpc,
-            durability: proto::DurabilityClass::ControlEphemeral,
-            requires_correlation_id: true,
-        },
-    }
 }
 
 fn validate_body_required_fields(body: &proto::envelope::Body) -> KernelResult<()> {
@@ -342,7 +244,7 @@ fn require_positive_u64(value: u64, field: &str) -> KernelResult<()> {
 // turn-control payload. That preserves the user-visible event stream as the
 // replay source.
 fn validate_turn_control(control: &proto::TurnControl) -> KernelResult<()> {
-    if control.command == "steer" && !empty_json_payload(&control.payload_json) {
+    if control.command == "steer" && !empty_json_payload_bytes(&control.payload_json) {
         return Err(KernelError::new(
             "turn_control steer payload must be empty and journaled as actor event",
         ));
@@ -375,8 +277,4 @@ fn validate_rpc_correlation(correlation_id: &str, request_id: &str) -> KernelRes
     }
 
     Ok(())
-}
-
-fn empty_json_payload(bytes: &[u8]) -> bool {
-    bytes.is_empty() || bytes == b"{}" || bytes == b"null"
 }

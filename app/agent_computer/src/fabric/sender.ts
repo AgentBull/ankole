@@ -1,8 +1,13 @@
 import type { RuntimeFabricEnvelope } from './fabric'
+import type { Buffer } from 'node:buffer'
 
 export type EnvelopeTransport = (envelope: RuntimeFabricEnvelope) => void
 
 export type ReliableEnvelopeSender = (envelope: RuntimeFabricEnvelope) => Promise<void>
+
+export type FileFrameTransport = (frames: Buffer[]) => void
+
+export type ReliableFileFrameSender = (frames: Buffer[]) => Promise<void>
 
 type RetryOptions = {
   maxAttempts?: number
@@ -26,16 +31,30 @@ export function reliableEnvelopeSender(
   transport: EnvelopeTransport,
   options: RetryOptions = {}
 ): ReliableEnvelopeSender {
+  return reliableRuntimeFabricSender(transport, options)
+}
+
+export function reliableFileFrameSender(
+  transport: FileFrameTransport,
+  options: RetryOptions = {}
+): ReliableFileFrameSender {
+  return reliableRuntimeFabricSender(transport, options)
+}
+
+function reliableRuntimeFabricSender<T>(
+  transport: (payload: T) => void,
+  options: RetryOptions = {}
+): (payload: T) => Promise<void> {
   const maxAttempts = options.maxAttempts ?? defaultMaxAttempts
   const initialDelayMs = options.initialDelayMs ?? defaultInitialDelayMs
   const maxDelayMs = options.maxDelayMs ?? defaultMaxDelayMs
 
-  return async envelope => {
+  return async payload => {
     let delayMs = initialDelayMs
 
     for (let attempt = 1; ; attempt += 1) {
       try {
-        transport(envelope)
+        transport(payload)
         return
       } catch (error) {
         if (!isRuntimeFabricBackpressure(error) || attempt >= maxAttempts) {

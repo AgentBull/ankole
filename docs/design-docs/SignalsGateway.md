@@ -1216,13 +1216,13 @@ keeping the recent tail verbatim. A visible entry may be `/compress` or
 `/compress <focus>`, and command admission turns it into
 `ActorEvent(type = command.compress)`. The control plane executes it: AIGateway
 summarizes with the agent's `light` model profile (falling back to `primary`)
-and writes one `type = "compaction"` row into `ai_gateway_messages`; the user
-then gets fixed command feedback through the outbox. No worker turn runs and no
+and writes a compaction artifact plus `type = "checkpoint"` row; the user then
+gets fixed command feedback through the outbox. No worker turn runs and no
 worker RPC is involved. The summary is previous chat history, not an
-environment fact and not a system prompt rule. Later runs render the latest
-compaction item and skip rows covered by the compaction row's ancestor-chain
-`covers_until_message_id`; recent tail rows after that boundary continue to
-render as normal history (see `docs/design-docs/AIGateway.md`, Compaction).
+environment fact and not a system prompt rule. Later runs stop provider-visible
+history traversal at the checkpoint, load the artifact output, and replay the
+artifact's copied retained tail (see `docs/design-docs/AIGateway.md`,
+Compaction).
 
 `/steer` is a typed command event like `/new`, `/compress`, `/retry`, and
 `/stop`. The command remains `ActorEvent(type = command.steer)` even when its

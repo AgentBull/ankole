@@ -68,6 +68,10 @@ Title must be **≥ 2× body size** (36pt over 20pt works; 28pt over 20pt looks 
 
 **Less is more — every element earns its place.** The visual rule above guards against bullet-walls; it is not licence to clutter. Don't pad with decorative stats, icons, or filler sections that don't inform ("data slop"). If a slide feels empty, fix it with layout and whitespace, not invented content — cut scope rather than bulk it up, and flag a larger addition instead of making it unprompted.
 
+**Explicit canvas and text colors.** New decks and new slides must set a slide `background` explicitly; never rely on the blank/theme default. Some target viewers can render unspecified Office theme backgrounds as dark. Every text-bearing shape must also set `color` explicitly.
+
+**Avoid slide placeholder shorthand for deliverables.** Do not use slide-level `--prop title=...` / `--prop text=...` shorthand for delivered decks. That shorthand creates PowerPoint placeholder shapes (`<p:ph>`), and target viewers such as Keynote can import them as layout placeholders instead of visible slide text. For visible content, use `layout=blank` plus ordinary `shape` or `textbox` elements with explicit `x`, `y`, `width`, `height`, `font`, `size`, and `color`.
+
 **Speaker notes on every content slide.** `--type notes --prop text="..."`. The speaker needs a script; the audience shouldn't read the slide verbatim.
 
 **Copy reads human, not AI.** Titles orient on content, not punchline. No "It's not X. It's Y.", no manufactured tension, no faux-insight ("The magic moment"), no one-word drama ("Momentum."). Cut hype adjectives (seamless, robust, game-changing) — let the number carry it.

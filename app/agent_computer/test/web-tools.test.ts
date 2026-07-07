@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import type { JsonObject } from '@pleisto/active-support'
-import type { AIGatewayHttpClient } from '../src/core/turns/model_runtime'
+import type { AIGatewayHttpClient } from '../src/core/aigateway_transport'
 import { createWebTools } from '../src/tools/web/web-tools'
 
 function textOf(result: { content: Array<{ type: string; text?: string }> }): string {

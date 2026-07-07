@@ -3,28 +3,82 @@ import type { JsonObject } from '@pleisto/active-support'
 import { tmpdir } from 'node:os'
 import { z } from 'zod'
 import { runAgentLoop } from '../../src/core/agent-loop'
-import { zodToJSONSchema, type ContentPart, type ResponseWebSocketLike } from '../../src/core/llm'
+import { zodToJSONSchema, type ContentPart } from '../../src/core/llm'
 import { actorEventUserContent } from '../../src/core/turns/actor_event_content'
 import {
   actorEventEnvironmentInfoLines,
   prependEnvironmentInfoLinesToUserMessage
 } from '../../src/core/turns/message_context'
-import { runtimeModelFromAIGatewayApiKey } from '../../src/core/turns/model_runtime'
+import { modelConfigFromAIGatewayApiKey } from '../../src/core/aigateway_transport'
+import { acquireTurnAIGatewayAccess } from '../../src/core/turns/turn_aigateway_access'
 import { textTurnResultFromAssistantReply } from '../../src/core/turns/text_turn'
 import { steeringMessages } from '../../src/core/turns/turn_control'
+import type { AIGatewayApiKeyResponse } from '../../src/lanes/rpc_lane'
 import {
   FakeResponseSocket,
   fakeResponseSocket,
   fallbackModelForTest,
   imageActorEventPayload,
   modelRefForTest,
+  testResponseSocket,
   turnStartForTest,
   withImageWorkspace
 } from '../support/llm'
 
-describe('@ankole/agent-computer llm helpers: runtime and actor content', () => {
-  it('builds the AIGateway runtime model from the control-plane key response', async () => {
-    const model = runtimeModelFromAIGatewayApiKey(
+describe('@ankole/agent-computer llm helpers: transport and actor content', () => {
+  it('acquires one AIGateway access handle for a turn and validates the initial key', async () => {
+    const access = await acquireTurnAIGatewayAccess(turnStartForTest(), {
+      requestAIGatewayApiKey: async request => aiGatewayKeyForTest(request.agent_uid, 'agent-key')
+    })
+
+    expect(access.model.selector).toBe('openrouter/z-ai/glm-5.2')
+    expect(access.aiGateway.baseURL).toBe('https://control.test/api/v1/ai-gateway')
+    await expect(access.model.responseWebSocket?.authorization()).resolves.toBe('Bearer agent-key')
+  })
+
+  it('rejects AIGateway access acquisition when the key response is rejected', async () => {
+    await expect(
+      acquireTurnAIGatewayAccess(turnStartForTest(), {
+        requestAIGatewayApiKey: async request => ({
+          request_id: request.request_id,
+          agent_uid: request.agent_uid,
+          code: 'missing_agent_uid',
+          message: 'agent uid is required'
+        })
+      })
+    ).rejects.toThrow('AIGateway API key rejected: missing_agent_uid agent uid is required')
+  })
+
+  it('rejects refreshed AIGateway keys that no longer match the turn agent', async () => {
+    const originalFetch = globalThis.fetch
+    const refreshOptions: Array<{ forceRefresh?: boolean } | undefined> = []
+    let keyRequests = 0
+
+    globalThis.fetch = (async () => new Response('revoked', { status: 401 })) as unknown as typeof fetch
+
+    try {
+      const access = await acquireTurnAIGatewayAccess(turnStartForTest(), {
+        requestAIGatewayApiKey: async (request, options) => {
+          refreshOptions.push(options)
+          keyRequests += 1
+
+          return keyRequests === 1
+            ? aiGatewayKeyForTest(request.agent_uid, 'old-key')
+            : aiGatewayKeyForTest('other-agent', 'wrong-key')
+        }
+      })
+
+      await expect(access.aiGateway.fetch('https://control.test/api/v1/ai-gateway/web_tools')).rejects.toThrow(
+        'AIGateway API key response does not match turn agent or auth contract'
+      )
+      expect(refreshOptions).toEqual([undefined, { forceRefresh: true }])
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('builds the AIGateway model config from the control-plane key response', async () => {
+    const model = modelConfigFromAIGatewayApiKey(
       {
         profile: 'primary',
         provider_id: 'openrouter',
@@ -84,7 +138,7 @@ describe('@ankole/agent-computer llm helpers: runtime and actor content', () => 
     }) as typeof fetch
 
     try {
-      const model = runtimeModelFromAIGatewayApiKey(
+      const model = modelConfigFromAIGatewayApiKey(
         {
           profile: 'primary',
           provider_id: 'ai_gateway',
@@ -134,7 +188,7 @@ describe('@ankole/agent-computer llm helpers: runtime and actor content', () => 
     const sentPayloads: JsonObject[] = []
     let attempts = 0
 
-    const model = runtimeModelFromAIGatewayApiKey(
+    const model = modelConfigFromAIGatewayApiKey(
       {
         profile: 'primary',
         provider_id: 'ai_gateway',
@@ -167,14 +221,14 @@ describe('@ankole/agent-computer llm helpers: runtime and actor content', () => 
 
     model.responseWebSocket!.createWebSocket = (_url, init) => {
       attempts += 1
-      seenAuthorization.push(init.headers.authorization)
+      seenAuthorization.push(init.headers.authorization ?? init.headers.Authorization ?? '')
 
       if (attempts === 1) {
         const socket = new FakeResponseSocket(init, () => {
           throw new Error('request should not be sent before open')
         })
         queueMicrotask(() => socket.emitClose('revoked key'))
-        return socket as unknown as ResponseWebSocketLike
+        return testResponseSocket(socket)
       }
 
       return fakeResponseSocket(init, data => {
@@ -279,6 +333,128 @@ describe('@ankole/agent-computer llm helpers: runtime and actor content', () => 
     expect(content).toContain('mailbox update arrived')
     expect(content).not.toContain('The user sent /steer')
     expect(turnStart.turn.revision).toBe(1)
+  })
+
+  it('ignores mailbox updates that do not match the active turn fence', () => {
+    const turnStart = turnStartForTest()
+
+    const messages = steeringMessages(turnStart, [
+      {
+        turn: {
+          ...turnStart.turn,
+          actor: { ...turnStart.turn.actor, agent_uid: 'other-agent' },
+          revision: 1
+        },
+        actorEvent: {
+          actor_event_id: '00000000-0000-0000-0000-000000000101',
+          queue_sequence: 2,
+          type: 'command.steer',
+          source_event_id: 'evt-steer-other-agent',
+          payload_json: { data: { command: { argsText: 'wrong agent' } } }
+        }
+      },
+      {
+        turn: {
+          ...turnStart.turn,
+          actor: { ...turnStart.turn.actor, session_id: 'other-session' },
+          revision: 2
+        },
+        actorEvent: {
+          actor_event_id: '00000000-0000-0000-0000-000000000102',
+          queue_sequence: 3,
+          type: 'command.steer',
+          source_event_id: 'evt-steer-other-session',
+          payload_json: { data: { command: { argsText: 'wrong session' } } }
+        }
+      },
+      {
+        turn: {
+          ...turnStart.turn,
+          activation_uid: 'other-activation',
+          revision: 3
+        },
+        actorEvent: {
+          actor_event_id: '00000000-0000-0000-0000-000000000103',
+          queue_sequence: 4,
+          type: 'command.steer',
+          source_event_id: 'evt-steer-other-activation',
+          payload_json: { data: { command: { argsText: 'wrong activation' } } }
+        }
+      },
+      {
+        turn: {
+          ...turnStart.turn,
+          actor_epoch: turnStart.turn.actor_epoch + 1,
+          revision: 4
+        },
+        actorEvent: {
+          actor_event_id: '00000000-0000-0000-0000-000000000104',
+          queue_sequence: 5,
+          type: 'command.steer',
+          source_event_id: 'evt-steer-other-epoch',
+          payload_json: { data: { command: { argsText: 'wrong epoch' } } }
+        }
+      },
+      {
+        turn: {
+          ...turnStart.turn,
+          actor_event_id: '00000000-0000-0000-0000-000000000999',
+          revision: 5
+        },
+        actorEvent: {
+          actor_event_id: '00000000-0000-0000-0000-000000000105',
+          queue_sequence: 6,
+          type: 'command.steer',
+          source_event_id: 'evt-steer-other-event',
+          payload_json: { data: { command: { argsText: 'wrong actor event' } } }
+        }
+      }
+    ])
+
+    expect(messages).toEqual([])
+    expect(turnStart.turn.revision).toBe(0)
+  })
+
+  it('ignores stale mailbox updates for the active turn', () => {
+    const turnStart = {
+      ...turnStartForTest(),
+      turn: {
+        ...turnStartForTest().turn,
+        revision: 2
+      }
+    }
+
+    const messages = steeringMessages(turnStart, [
+      {
+        turn: {
+          ...turnStart.turn,
+          revision: 2
+        },
+        actorEvent: {
+          actor_event_id: '00000000-0000-0000-0000-000000000201',
+          queue_sequence: 7,
+          type: 'command.steer',
+          source_event_id: 'evt-steer-stale-equal',
+          payload_json: { data: { command: { argsText: 'equal revision' } } }
+        }
+      },
+      {
+        turn: {
+          ...turnStart.turn,
+          revision: 1
+        },
+        actorEvent: {
+          actor_event_id: '00000000-0000-0000-0000-000000000202',
+          queue_sequence: 8,
+          type: 'command.steer',
+          source_event_id: 'evt-steer-stale-lower',
+          payload_json: { data: { command: { argsText: 'lower revision' } } }
+        }
+      }
+    ])
+
+    expect(messages).toEqual([])
+    expect(turnStart.turn.revision).toBe(2)
   })
 
   it('maps schedule silent-success replies to noop completion only when allowed', () => {
@@ -434,3 +610,16 @@ describe('@ankole/agent-computer llm helpers: runtime and actor content', () => 
     expect(jsonSchema).toMatchObject({ additionalProperties: false })
   })
 })
+
+function aiGatewayKeyForTest(agentUid: string, apiKey: string): AIGatewayApiKeyResponse {
+  return {
+    request_id: `key-${apiKey}`,
+    agent_uid: agentUid,
+    api_key: apiKey,
+    token_type: 'Bearer',
+    expires_at: Math.floor(Date.now() / 1000) + 3_600,
+    expires_in: 3_600,
+    scope: 'ai_gateway',
+    base_url: 'https://control.test/api/v1/ai-gateway/'
+  }
+}

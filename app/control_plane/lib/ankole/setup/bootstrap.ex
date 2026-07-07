@@ -7,6 +7,7 @@ defmodule Ankole.Setup.Bootstrap do
 
   alias Ankole.AuthZ
   alias Ankole.Logging
+  alias Ankole.Setup.BootstrapActivationCodeText
   alias Ankole.Setup.Config
 
   @alphabet ~c"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -56,7 +57,7 @@ defmodule Ankole.Setup.Bootstrap do
          {:ok, code} <- Config.bootstrap_activation_code() do
       log_activation_code(
         "setup.bootstrap.activation_code_printed",
-        "SETUP ACTIVATION CODE: #{code}",
+        BootstrapActivationCodeText.line(code),
         code
       )
     else
@@ -75,7 +76,7 @@ defmodule Ankole.Setup.Bootstrap do
         {:ok, %{completed: false, activation_code: code}} ->
           log_activation_code(
             "setup.bootstrap.activation_code_reset",
-            "SETUP ACTIVATION CODE: #{code}",
+            BootstrapActivationCodeText.line(code),
             code
           )
 
