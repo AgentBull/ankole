@@ -44,7 +44,7 @@ export async function runGenerate(args: string[]): Promise<void> {
 }
 
 function showUsage(): void {
-  process.stdout.write(`bun run kit generate [collection-name:]<schematic-name> [options]
+  process.stdout.write(`bun kit generate [collection-name:]<schematic-name> [options]
 
 Common Options:
   --debug           Debug mode. Use --no-debug to disable it.
@@ -60,7 +60,7 @@ Available schematics in ${defaultCollection} collection:\n`)
   void runSchematics([`${collectionPath}:`, '--list-schematics'])
   process.stdout.write(`
 By default, if the collection name is not specified, use the internal collection provided by ${defaultCollection}.
-e.g. "${chalk.bold('bun run kit g code-workspace')}" equals "${chalk.bold(`bun run kit g ${defaultCollection}:code-workspace`)}".
+e.g. "${chalk.bold('bun kit g code-workspace')}" equals "${chalk.bold(`bun kit g ${defaultCollection}:code-workspace`)}".
 `)
 }
 

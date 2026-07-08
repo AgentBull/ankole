@@ -133,7 +133,7 @@ Kernel 从同一个 crate 编译两次：一次作为 Elixir 的 Rustler NIF（�
 | `plugins/` | 公开的第一方 Elixir plugin：`lark_adapter`（飞书聊天 + identity provider）、`china_market_ai_providers`（AIGateway provider）。 |
 | `internals/` | 私有的第一方资料：`plugins/`、`skills/`（例如金融数据 CLI）、`helm-chart/`、额外的 worker Dockerfile、内部测试笔记。 |
 | `libs/` | `feishu_openapi`（Elixir Lark client：token、WS 长连接、crypto）和 `uikit`（共享 React 组件、Tailwind 4）。 |
-| `tools/devkit/` | 工作区 CLI：`bun run kit ...`（通过 Docker Compose 管理外部服务、codegen、分析）。 |
+| `tools/devkit/` | 工作区 CLI：`bun kit ...`（通过 Docker Compose 管理外部服务、codegen、分析）。 |
 | `tools/e2e/` | E2E harness 和测试套件（fake Feishu、fake OpenAI、真实 Docker worker），由 `mix e2e.*` alias 驱动。 |
 | `docs/` | 本文、`TradeoffsAndKnownLimits.md`、`design-docs/`。 |
 
@@ -314,7 +314,7 @@ mix ankole.actor_runtime.worker_bootstrap \
 | 混乱/性能 | `mix e2e.chaos`、`mix e2e.perf` | 同上 |
 | 真实 provider | `mix e2e.real_llm`（`ANKOLE_REAL_LLM_E2E=1`）、`mix e2e.ai_gateway_real_provider` | 真实凭证 |
 
-E2E harness（`tools/e2e/`）跑一个 fake 飞书平台，它用真实 WS 协议对接真实的 `lark_adapter`，再加 fake OpenAI endpoint 和一个通过 RuntimeFabric 连接的真实 Agent Computer container。因此，“主链能用”是一个可运行的 claim，而不是静态审查的 claim。`bun run kit` 暴露 devkit helper（`external-services`、`analyze`、codegen）；包过滤器（`bun run --filter @ankole/... test`）让验证在工作区快速变动时仍然保持在包级别。
+E2E harness（`tools/e2e/`）跑一个 fake 飞书平台，它用真实 WS 协议对接真实的 `lark_adapter`，再加 fake OpenAI endpoint 和一个通过 RuntimeFabric 连接的真实 Agent Computer container。因此，“主链能用”是一个可运行的 claim，而不是静态审查的 claim。`bun kit` 暴露 devkit helper（`external-services`、`analyze`、codegen）；包过滤器（`bun run --filter @ankole/... test`）让验证在工作区快速变动时仍然保持在包级别。
 
 ## 术语表
 

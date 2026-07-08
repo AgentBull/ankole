@@ -225,7 +225,7 @@ VM, the configured formatter still emits structured JSON for those records.
 Kubernetes, Docker deployments, and worker runtime code emit structured JSON
 log lines. Pretty logs are only for local development and must not be treated
 as the ingestion format. The root `dev` script pipes the devkit process through
-`bun run kit logs pretty`, which applies the local display formatting outside
+`bun kit logs pretty`, which applies the local display formatting outside
 the worker runtime boundary.
 
 ## Event Naming
@@ -285,7 +285,7 @@ The logging contract is protected by focused tests:
 - `app/agent_computer/test/logging.test.ts` checks the Bun worker facade,
   severity mapping, error serialization, labels, and structured output.
 - `tools/devkit/src/commands/logs.test.ts` checks the local pretty-display
-  options used by `bun run kit logs pretty`.
+  options used by `bun kit logs pretty`.
 - `app/control_plane/test/ankole/logging/json_formatter_test.exs`
   checks the control-plane formatter, top-level structured fields, labels, `http_request`,
   and reserved-field protection.

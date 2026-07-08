@@ -3,6 +3,7 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-red.svg?logo=apache&label=License)](LICENSE)
 ![Status](https://img.shields.io/badge/status-early_engineering_distribution-yellow)
 ![Runtime](https://img.shields.io/badge/runtime-Bun%20%2B%20Phoenix%2FOTP%20%2B%20Rust-blue)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/AgentBull/ankole)
 
 [English](./README.md) | [日本語](./README.ja.md)
 
@@ -124,23 +125,23 @@ Ankole 默认使用 Bun 运行 workspace scripts，使用 Elixir/Phoenix 承载 
 bun install
 
 # 本地依赖服务和 workspace helper
-bun run kit --help
-bun run services:start
-bun run services:status
+bun kit --help
+bun services:start
+bun services:status
 
 # Control plane
-bun run control-plane:setup
-bun run control-plane:dev
-bun run control-plane:test
+bun control-plane:setup
+bun control-plane:dev
+bun control-plane:test
 
 # Agent Computer container image 和测试
 docker build -f app/agent_computer/Dockerfile -t ankole-agent-computer:0.1.0 .
-bun run agent-computer:test
-bun run agent-computer:type-check
+bun agent-computer:test
+bun agent-computer:type-check
 
 # 其它 Bun packages
-bun run webapps:build
-bun run feishu-openapi:test
+bun webapps:build
+bun feishu-openapi:test
 ```
 
 Agent Computer 是 Linux container runtime。强 bubblewrap command isolation

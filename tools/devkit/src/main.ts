@@ -20,7 +20,7 @@ if (rawArgv[0] === 'generate' || rawArgv[0] === 'g') {
   process.exit(0)
 }
 
-let app = new Crust('bun run kit')
+let app = new Crust('bun kit')
   .meta({ description: 'Ankole Agent repository development toolkit.' })
   .use(didYouMeanPlugin({ mode: 'help' }))
   .use(helpPlugin())

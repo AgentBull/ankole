@@ -1,5 +1,5 @@
 // Knip configuration for the Ankole bun-workspaces monorepo.
-// Consumed by `bun run kit analyze unused` (devkit tools/devkit/src/commands/analyze).
+// Consumed by `bun kit analyze unused` (devkit tools/devkit/src/commands/analyze).
 //
 // Entry points declared here are treated as USED, so the unused-files gate only
 // flags genuinely unreferenced files. Tolerated-unused residue (with owner/reason)

@@ -3,6 +3,7 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-red.svg?logo=apache&label=License)](LICENSE)
 ![Status](https://img.shields.io/badge/status-early_engineering_distribution-yellow)
 ![Runtime](https://img.shields.io/badge/runtime-Bun%20%2B%20Phoenix%2FOTP%20%2B%20Rust-blue)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/AgentBull/ankole)
 
 [English](./README.md) | [简体中文](./README.zh-Hans.md)
 
@@ -124,14 +125,14 @@ Ankole は workspace scripts に Bun を使い、control plane に Elixir/Phoeni
 bun install
 
 # Local support services and workspace helpers
-bun run kit --help
-bun run services:start
-bun run services:status
+bun kit --help
+bun services:start
+bun services:status
 
 # Control plane
-bun run control-plane:setup
-bun run control-plane:dev
-bun run control-plane:test
+bun control-plane:setup
+bun control-plane:dev
+bun control-plane:test
 
 # Agent Computer container image and tests
 docker build -f app/agent_computer/Dockerfile -t ankole-agent-computer:0.1.0 .

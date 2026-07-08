@@ -22,7 +22,7 @@ bash tools/devkit/scripts/env-setup.sh
 After Bun is available, the same installer is exposed through the devkit:
 
 ```sh
-bun run kit env-setup
+bun kit env-setup
 ```
 
 Windows hosts are not supported by this installer yet; use WSL2 or GitHub Codespaces.
@@ -83,13 +83,13 @@ tools/e2e/run --all                 # everything above, real suites only when ke
 
 ### Repository toolkit (`kit`)
 
-Most repo chores go through the devkit, exposed as `bun run kit`:
+Most repo chores go through the devkit, exposed as `bun kit`:
 
 ```sh
-bun run kit --help          # list all commands
-bun run services:status     # local services state
-bun run workspace:update    # regenerate the VS Code workspace file
-bun run analyze              # static analysis across the workspaces
+bun kit --help          # list all commands
+bun services:status     # local services state
+bun workspace:update    # regenerate the VS Code workspace file
+bun analyze              # static analysis across the workspaces
 ```
 
 The Compose file lives at `tools/devkit/external-services.docker-compose.yml`.

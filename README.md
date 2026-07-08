@@ -3,6 +3,7 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-red.svg?logo=apache&label=License)](LICENSE)
 ![Status](https://img.shields.io/badge/status-early_engineering_distribution-yellow)
 ![Runtime](https://img.shields.io/badge/runtime-Bun%20%2B%20Phoenix%2FOTP%20%2B%20Rust-blue)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/AgentBull/ankole)
 
 [简体中文](./README.zh-Hans.md) | [日本語](./README.ja.md)
 
@@ -124,23 +125,23 @@ Ankole defaults to Bun for workspace scripts and Elixir/Phoenix for the control 
 bun install
 
 # Local support services and workspace helpers
-bun run kit --help
-bun run services:start
-bun run services:status
+bun kit --help
+bun services:start
+bun services:status
 
 # Control plane
-bun run control-plane:setup
-bun run control-plane:dev
-bun run control-plane:test
+bun control-plane:setup
+bun control-plane:dev
+bun control-plane:test
 
 # Agent Computer container image and tests
 docker build -f app/agent_computer/Dockerfile -t ankole-agent-computer:0.1.0 .
-bun run agent-computer:test
-bun run agent-computer:type-check
+bun agent-computer:test
+bun agent-computer:type-check
 
 # Other Bun packages
-bun run webapps:build
-bun run feishu-openapi:test
+bun webapps:build
+bun feishu-openapi:test
 ```
 
 Agent Computer is designed to run as a Linux container runtime. For strong

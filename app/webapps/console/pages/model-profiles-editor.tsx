@@ -8,7 +8,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Textarea
+  toast
 } from '@ankole/uikit'
 import { RiSave3Line } from '@remixicon/react'
 import { useMutation } from '@tanstack/react-query'
@@ -19,7 +19,8 @@ import {
   ankoleWebAiGatewayProviderControllerPutModelProfileMutation
 } from '../api/generated/@tanstack/react-query.gen'
 import type { AgentItem, AiGatewayProviderItem } from '../api/generated/types.gen'
-import { ErrorBlock, Field, formatJson, parseObjectDraft } from '../console-primitives'
+import { ErrorBlock, formatJson, parseObjectDraft } from '../console-primitives'
+import { JsonField, LabeledField } from '../console-shell'
 
 const PROFILE_NAMES = ['primary', 'light', 'heavy', 'embedding', 'rerank'] as const
 const REQUIRED_PROFILES = new Set<string>(['primary', 'light', 'heavy'])
@@ -51,11 +52,17 @@ export function ModelProfilesEditor({
   const [drafts, setDrafts] = useState<Record<string, ProfileDraft>>({})
   const saveProfile = useMutation({
     ...ankoleWebAiGatewayProviderControllerPutModelProfileMutation(),
-    onSuccess: onChanged
+    onSuccess: (_data, variables) => {
+      toast.success(t('console.models.saved', { profile: variables.path.profile }))
+      onChanged()
+    }
   })
   const clearProfile = useMutation({
     ...ankoleWebAiGatewayProviderControllerDeleteModelProfileMutation(),
-    onSuccess: onChanged
+    onSuccess: (_data, variables) => {
+      toast.success(t('console.models.cleared', { profile: variables.path.profile }))
+      onChanged()
+    }
   })
 
   useEffect(() => {
@@ -90,42 +97,49 @@ export function ModelProfilesEditor({
   }
 
   return (
-    <section className="grid gap-3">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold tracking-normal">{t('console.models.title')}</h3>
-        {loading ? <span className="text-xs text-muted-foreground">{t('common.loading')}</span> : null}
+    <section className="grid gap-4">
+      <div className="grid gap-1">
+        <h3 className="text-lg font-semibold tracking-normal">{t('console.models.title')}</h3>
+        <p className="text-sm leading-6 text-muted-foreground">{t('console.models.description')}</p>
       </div>
       <ErrorBlock error={error ?? saveProfile.error ?? clearProfile.error} />
-      <div className="grid gap-3">
+      {loading ? <span className="text-xs text-muted-foreground">{t('common.loading')}</span> : null}
+      <div className="grid gap-4">
         {PROFILE_NAMES.map(profile => {
           const draft = drafts[profile] ?? emptyProfileDraft()
+          const configured = Boolean(draft.providerId && draft.model)
           return (
-            <div key={profile} className="grid gap-3 border border-border p-3">
+            <div key={profile} className="grid gap-4 border border-border bg-card p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <Badge variant={REQUIRED_PROFILES.has(profile) ? 'default' : 'outline'}>{profile}</Badge>
+                <div className="flex items-center gap-2">
+                  <Badge variant={REQUIRED_PROFILES.has(profile) ? 'default' : 'outline'}>{profile}</Badge>
+                  {REQUIRED_PROFILES.has(profile) ? (
+                    <span className="text-xs text-muted-foreground">{t('console.models.required')}</span>
+                  ) : null}
+                </div>
                 <div className="flex gap-2">
                   <Button disabled={saveProfile.isPending} size="xs" type="button" onClick={() => submit(profile)}>
                     <RiSave3Line data-icon="inline-start" />
                     {t('common.save')}
                   </Button>
                   <Button
-                    disabled={REQUIRED_PROFILES.has(profile) || clearProfile.isPending}
+                    disabled={REQUIRED_PROFILES.has(profile) || !configured || clearProfile.isPending}
                     size="xs"
                     type="button"
-                    variant="outline"
+                    variant="ghost"
                     onClick={() => clearProfile.mutate({ path: { agent_uid: agent.uid, profile } })}>
                     {t('console.models.clear')}
                   </Button>
                 </div>
               </div>
-              <ErrorBlock error={draft.error} />
-              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_120px]">
-                <Field label={t('console.models.provider')}>
+              {draft.error ? <ErrorBlock error={draft.error} /> : null}
+              <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_128px]">
+                <LabeledField label={t('console.models.provider')}>
                   <Select
                     value={draft.providerId}
                     onValueChange={value => updateDraft(profile, { providerId: String(value) })}>
                     <SelectTrigger className="w-full">
-                      <SelectValue />
+                      <SelectValue placeholder={t('console.models.provider_placeholder')} />
                     </SelectTrigger>
                     <SelectContent>
                       {providers.map(provider => (
@@ -135,26 +149,28 @@ export function ModelProfilesEditor({
                       ))}
                     </SelectContent>
                   </Select>
-                </Field>
-                <Field label={t('console.models.model')}>
-                  <Input value={draft.model} onChange={event => updateDraft(profile, { model: event.target.value })} />
-                </Field>
-                <Field label={t('console.models.context')}>
+                </LabeledField>
+                <LabeledField label={t('console.models.model')}>
+                  <Input
+                    placeholder="gpt-5"
+                    value={draft.model}
+                    onChange={event => updateDraft(profile, { model: event.target.value })}
+                  />
+                </LabeledField>
+                <LabeledField label={t('console.models.context')}>
                   <Input
                     inputMode="numeric"
                     value={draft.contextLength}
                     onChange={event => updateDraft(profile, { contextLength: event.target.value })}
                   />
-                </Field>
+                </LabeledField>
               </div>
-              <Field label={t('console.models.provider_options')}>
-                <Textarea
-                  className="min-h-24 font-mono text-xs"
-                  spellCheck={false}
-                  value={draft.providerOptions}
-                  onChange={event => updateDraft(profile, { providerOptions: event.target.value })}
-                />
-              </Field>
+              <JsonField
+                label={t('console.models.provider_options')}
+                minRows={3}
+                value={draft.providerOptions}
+                onChange={value => updateDraft(profile, { providerOptions: value })}
+              />
             </div>
           )
         })}

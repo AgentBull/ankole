@@ -188,7 +188,7 @@ canonical examples.
 | `plugins/` | Public first-party Elixir plugins: `lark_adapter` (Feishu chat + identity provider), `china_market_ai_providers` (AIGateway providers). |
 | `internals/` | Private first-party material: `plugins/`, `skills/` (e.g. financial-data CLI), `helm-chart/`, extra worker Dockerfiles, internal test notes. |
 | `libs/` | `feishu_openapi` (Elixir Lark client: tokens, WS long connection, crypto) and `uikit` (shared React components, Tailwind 4). |
-| `tools/devkit/` | Workspace CLI: `bun run kit ...` (external services via Docker Compose, codegen, analysis). |
+| `tools/devkit/` | Workspace CLI: `bun kit ...` (external services via Docker Compose, codegen, analysis). |
 | `tools/e2e/` | E2E harness and suites (fake Feishu, fake OpenAI, real Docker worker), driven by `mix e2e.*` aliases. |
 | `docs/` | This page, `TradeoffsAndKnownLimits.md`, `design-docs/`. |
 
@@ -660,9 +660,9 @@ right tier (see `docs/TradeoffsAndKnownLimits.md` § Worker E2E):
 
 | Tier | Command | Needs |
 | --- | --- | --- |
-| Control-plane unit/integration | `bun run control-plane:test` (= `mix test`) | PostgreSQL only |
-| Worker tools | `bun run agent-computer:test` | Docker + worker image (bubblewrap is container-only) |
-| Type/lint/format | `bun run type-check`, `bun run lint`, `bun run fmt` | — |
+| Control-plane unit/integration | `bun control-plane:test` (= `mix test`) | PostgreSQL only |
+| Worker tools | `bun agent-computer:test` | Docker + worker image (bubblewrap is container-only) |
+| Type/lint/format | `bun type-check`, `bun lint`, `bun fmt` | — |
 | Main-chain e2e | `cd app/control_plane && mix e2e.gate` | Docker worker image; fake Feishu + fake OpenAI |
 | Chaos / perf | `mix e2e.chaos`, `mix e2e.perf` | same as above |
 | Real providers | `mix e2e.real_llm` (`ANKOLE_REAL_LLM_E2E=1`), `mix e2e.ai_gateway_real_provider` | real credentials |
@@ -670,7 +670,7 @@ right tier (see `docs/TradeoffsAndKnownLimits.md` § Worker E2E):
 The e2e harness (`tools/e2e/`) runs a fake Feishu platform that speaks the
 real WS protocol against the real `lark_adapter`, a fake OpenAI endpoint,
 and a real Agent Computer container wired through RuntimeFabric. So "the main
-chain works" is a runnable claim, not a static-review claim. `bun run kit`
+chain works" is a runnable claim, not a static-review claim. `bun kit`
 exposes devkit helpers (`external-services`, `analyze`, codegen), and package
 filters (`bun run --filter @ankole/... test`) keep validation package-local
 while the workspace moves quickly.
