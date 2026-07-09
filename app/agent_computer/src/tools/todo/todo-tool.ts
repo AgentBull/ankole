@@ -204,7 +204,7 @@ export function createTodoTool(store: TodoStore): AgentTool<typeof TodoParams, T
 /**
  * Counts todo items by status for the tool's structured details.
  */
-export function summarizeTodos(todos: TodoItem[]): TodoSummary {
+function summarizeTodos(todos: TodoItem[]): TodoSummary {
   return {
     total: todos.length,
     pending: todos.filter(item => item.status === 'pending').length,

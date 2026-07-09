@@ -23,11 +23,8 @@ export function retryAfterMsFromError(error: unknown): number | undefined {
  * read in both of its RFC forms: a delay in seconds, or an absolute HTTP-date.
  * All results are clamped to be non-negative so a stale clock or a past date
  * can never produce a negative sleep.
- *
- * @param now - Injectable clock used to convert an HTTP-date into a relative
- *   delay; defaults to the current time and exists mainly for deterministic tests.
  */
-export function parseRetryAfterHeaders(headers: unknown, now = Date.now()): number | undefined {
+function parseRetryAfterHeaders(headers: unknown): number | undefined {
   const retryAfterMs = headerValue(headers, 'retry-after-ms')
   if (retryAfterMs) {
     // Accept only a bare integer/decimal; the regex rejects junk like `30s` so a
@@ -47,7 +44,7 @@ export function parseRetryAfterHeaders(headers: unknown, now = Date.now()): numb
   // the past clamps to 0 rather than asking the caller to retry in the past.
   const retryAt = Date.parse(retryAfter)
   if (Number.isNaN(retryAt)) return undefined
-  return Math.max(0, retryAt - now)
+  return Math.max(0, retryAt - Date.now())
 }
 
 /**

@@ -301,7 +301,10 @@ defmodule Ankole.Repo.Migrations.CreatePrincipalsAndAuth do
              check: "jsonb_typeof(metadata) = 'object'"
            )
 
-    comment_table(:principal_groups, "Principal groups that collect principals for grants, directories, or IM rooms.")
+    comment_table(
+      :principal_groups,
+      "Principal groups that collect principals for grants, directories, or IM rooms."
+    )
 
     comment_columns(:principal_groups, %{
       name: "Stable lowercase group name used by policy code and operators.",

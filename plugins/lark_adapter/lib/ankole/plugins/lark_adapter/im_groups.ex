@@ -237,10 +237,14 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   @doc false
   @spec handle_im_event(String.t(), Event.t(), [map()]) :: {:ok, list()} | {:error, term()}
   def handle_im_event(event_type, %Event{} = event, consumers) when is_binary(event_type) do
-    consumers
-    |> Enum.filter(&match?(%{kind: :chat}, &1))
-    |> Enum.map(&handle_im_event_for_consumer(&1, event_type, event))
-    |> collect_results()
+    result =
+      consumers
+      |> Enum.filter(&match?(%{kind: :chat}, &1))
+      |> Enum.map(&handle_im_event_for_consumer(&1, event_type, event))
+      |> collect_results()
+
+    maybe_log_missing_platform_subject(event_type, event, result)
+    result
   end
 
   defp handle_im_event_for_consumer(
@@ -295,8 +299,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
         end
 
       {:error, _reason} ->
-        enqueue_chat_refresh(context, config, chat_id, reason: "member_added_missing_user_id")
-        |> enqueue_result(:refresh_enqueued)
+        ignored_missing_platform_subject()
     end
   end
 
@@ -306,14 +309,46 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
         remove_member_from_group(context, config, chat_id, user_id)
 
       {:error, _reason} ->
-        enqueue_chat_refresh(context, config, chat_id, reason: "member_removed_missing_user_id")
-        |> enqueue_result(:refresh_enqueued)
+        ignored_missing_platform_subject()
     end
   end
 
   defp dispatch_im_event(_consumer, _context, _config, event_type, _event, _content, _chat_id) do
     {:ok, %{status: :ignored_unknown_im_event, event_type: event_type}}
   end
+
+  defp ignored_missing_platform_subject do
+    {:ok, %{status: :ignored_missing_platform_subject, reason: :missing_platform_subject}}
+  end
+
+  defp maybe_log_missing_platform_subject(event_type, %Event{} = event, {:ok, results}) do
+    if Enum.any?(results, &(Map.get(&1, :reason) == :missing_platform_subject)) do
+      content = event.content || %{}
+      member = fetch_map(content, "member", content)
+      member_ids = fetch_map(member, "member_id", member)
+
+      Logging.warning(
+        "lark_adapter.im_groups.missing_platform_subject",
+        "lark adapter ignored IM group member event without user_id",
+        %{
+          event_id: event.id,
+          event_type: event_type,
+          chat_id: chat_id(content) |> chat_id_for_log(),
+          member_type: member_type(member),
+          open_id: optional_text(member_ids, "open_id"),
+          union_id: optional_text(member_ids, "union_id"),
+          tenant_key: event.tenant_key
+        }
+      )
+    end
+
+    :ok
+  end
+
+  defp maybe_log_missing_platform_subject(_event_type, _event, _result), do: :ok
+
+  defp chat_id_for_log({:ok, chat_id}), do: chat_id
+  defp chat_id_for_log({:error, _reason}), do: nil
 
   defp sync_joined_chats(context, config, chats, opts) do
     chats

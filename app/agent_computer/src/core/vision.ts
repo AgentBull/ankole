@@ -102,7 +102,7 @@ export function sniffImageMimeType(bytes: Uint8Array): string | undefined {
  * Uses a vision-capable fallback model to describe images for a text-only main
  * model.
  */
-export async function describeImagesWithFallback(
+async function describeImagesWithFallback(
   fallbackModel: ModelConfig,
   images: ImageContent[],
   opts: { abortSignal?: AbortSignal } = {}

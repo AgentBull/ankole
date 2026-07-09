@@ -461,7 +461,7 @@ export async function handleWorkerRpcRequest(sendEnvelope: ReliableEnvelopeSende
  * There are currently no worker-owned durable RPC methods. Unknown requests are
  * answered explicitly so caller bugs are visible instead of timing out.
  */
-export function dispatchWorkerRpcRequest(request: RpcRequest): RpcResponse | RpcError {
+function dispatchWorkerRpcRequest(request: RpcRequest): RpcResponse | RpcError {
   return {
     request_id: request.request_id,
     code: 'unknown_rpc_method',

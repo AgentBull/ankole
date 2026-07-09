@@ -8,6 +8,8 @@ defmodule Ankole.RuntimeEvents.Scheduler do
   alias Ankole.RuntimeEvents.Event
   alias Ankole.RuntimeEvents.Handlers
 
+  @default_sweep_interval_ms :timer.minutes(1)
+
   @type timer_key :: term()
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -27,27 +29,34 @@ defmodule Ankole.RuntimeEvents.Scheduler do
 
   @impl true
   def init(opts) do
-    {:ok,
-     %{
-       task_supervisor: Keyword.get(opts, :task_supervisor, Ankole.RuntimeEvents.TaskSupervisor),
-       timers: %{}
-     }}
+    with {:ok, sweep_interval_ms} <- sweep_interval_ms(opts) do
+      Process.send_after(self(), :sweep, sweep_interval_ms)
+
+      {:ok,
+       %{
+         task_supervisor:
+           Keyword.get(opts, :task_supervisor, Ankole.RuntimeEvents.TaskSupervisor),
+         timers: %{},
+         sweep_interval_ms: sweep_interval_ms
+       }}
+    end
   end
 
   @impl true
   def handle_cast(:hydrate, state) do
-    state =
-      Handlers.snapshot_events()
-      |> Enum.reduce(state, fn {channel, payload}, acc ->
-        schedule_or_run(acc, channel, payload)
-      end)
-
-    {:noreply, state}
+    {:noreply, hydrate_state(state)}
   end
 
   @impl true
   def handle_cast({:notify, channel, payload}, state) do
     {:noreply, schedule_or_run(state, channel, payload)}
+  end
+
+  @impl true
+  def handle_info(:sweep, state) do
+    state = hydrate_state_for_sweep(state)
+    Process.send_after(self(), :sweep, state.sweep_interval_ms)
+    {:noreply, state}
   end
 
   @impl true
@@ -60,6 +69,33 @@ defmodule Ankole.RuntimeEvents.Scheduler do
 
       _stale_timer ->
         {:noreply, state}
+    end
+  end
+
+  defp hydrate_state(state) do
+    snapshot_events(state)
+    |> Enum.reduce(state, fn {channel, payload}, acc ->
+      schedule_or_run(acc, channel, payload)
+    end)
+  end
+
+  defp snapshot_events(state) do
+    snapshot_events = Map.get(state, :snapshot_events, &Handlers.snapshot_events/0)
+    snapshot_events.()
+  end
+
+  defp hydrate_state_for_sweep(state) do
+    # Steady-state sweep failures must not kill already scheduled deadline timers.
+    try do
+      hydrate_state(state)
+    rescue
+      exception ->
+        log_sweep_failed(:error, exception, __STACKTRACE__)
+        state
+    catch
+      kind, reason ->
+        log_sweep_failed(kind, reason, __STACKTRACE__)
+        state
     end
   end
 
@@ -127,5 +163,27 @@ defmodule Ankole.RuntimeEvents.Scheduler do
           }
         )
     end
+  end
+
+  defp sweep_interval_ms(opts) do
+    value = Keyword.get(opts, :sweep_interval_ms, @default_sweep_interval_ms)
+
+    case value do
+      interval_ms when is_integer(interval_ms) and interval_ms > 0 ->
+        {:ok, interval_ms}
+
+      invalid ->
+        {:stop, {:invalid_sweep_interval_ms, invalid}}
+    end
+  end
+
+  defp log_sweep_failed(kind, reason, stacktrace) do
+    Logging.warning(
+      "runtime_events.scheduler.sweep_failed",
+      "runtime event scheduler sweep failed",
+      %{
+        reason: Exception.format(kind, reason, stacktrace)
+      }
+    )
   end
 end

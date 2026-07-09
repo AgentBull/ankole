@@ -63,7 +63,7 @@ export function startTurnProgress(sendEnvelope: ReliableEnvelopeSender, active: 
  * Backpressure is expected under load, so progress failure is recorded as
  * telemetry instead of turning a healthy in-flight turn into a durable failure.
  */
-export async function sendTurnProgress(
+async function sendTurnProgress(
   sendEnvelope: ReliableEnvelopeSender,
   active: ActiveTurn,
   summary: string

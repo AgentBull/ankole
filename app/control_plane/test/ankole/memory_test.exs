@@ -705,7 +705,13 @@ defmodule Ankole.MemoryTest do
     }
   end
 
-  defp observed_event_fixture(agent_uid, %Channel{} = channel, source_event_id, available_at, attrs \\ []) do
+  defp observed_event_fixture(
+         agent_uid,
+         %Channel{} = channel,
+         source_event_id,
+         available_at,
+         attrs \\ []
+       ) do
     %ActorEvent{}
     |> ActorEvent.changeset(%{
       agent_uid: agent_uid,

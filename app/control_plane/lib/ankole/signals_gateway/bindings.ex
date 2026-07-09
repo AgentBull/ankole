@@ -267,7 +267,8 @@ defmodule Ankole.SignalsGateway.Bindings do
     end
   end
 
-  defp maybe_handle_binding_saved(declaration, %Binding{} = binding, config) when is_map(config) do
+  defp maybe_handle_binding_saved(declaration, %Binding{} = binding, config)
+       when is_map(config) do
     case declaration_module(declaration, :binding_saved_module) do
       {:ok, module} ->
         case module.handle_binding_saved(binding, config) do

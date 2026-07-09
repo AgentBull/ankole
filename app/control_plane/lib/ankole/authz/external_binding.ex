@@ -17,6 +17,7 @@ defmodule Ankole.AuthZ.ExternalBinding do
 
   schema "principal_group_external_bindings" do
     field :provider, :string, primary_key: true
+
     field :external_kind, Ecto.Enum,
       values: [:directory_department, :im_group],
       primary_key: true

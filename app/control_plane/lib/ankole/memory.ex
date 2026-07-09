@@ -199,7 +199,13 @@ defmodule Ankole.Memory do
          agent_uid = turn_ref.agent_uid,
          {:ok, current_channel_id} <- current_channel_id(actor_event, turn_ref),
          {:ok, allowed_channels} <-
-           allowed_channels(agent_uid, current_channel_id, "permitted_context", actor_event, turn_ref),
+           allowed_channels(
+             agent_uid,
+             current_channel_id,
+             "permitted_context",
+             actor_event,
+             turn_ref
+           ),
          {:ok, signal_channel_id} <- browse_channel(attrs, current_channel_id, allowed_channels),
          {:ok, limit} <- browse_limit(attrs),
          {:ok, time_range} <- time_range(attrs),
@@ -1422,12 +1428,20 @@ defmodule Ankole.Memory do
 
   defp recall_degraded_reasons(_config, vector_degraded), do: Enum.uniq(vector_degraded)
 
-  defp allowed_channels(_agent_uid, nil, "current_channel", _actor_event, _turn_ref), do: {:ok, []}
+  defp allowed_channels(_agent_uid, nil, "current_channel", _actor_event, _turn_ref),
+    do: {:ok, []}
 
-  defp allowed_channels(_agent_uid, current_channel_id, "current_channel", _actor_event, _turn_ref),
-    do: {:ok, [current_channel_id]}
+  defp allowed_channels(
+         _agent_uid,
+         current_channel_id,
+         "current_channel",
+         _actor_event,
+         _turn_ref
+       ),
+       do: {:ok, [current_channel_id]}
 
-  defp allowed_channels(_agent_uid, nil, "permitted_context", _actor_event, _turn_ref), do: {:ok, []}
+  defp allowed_channels(_agent_uid, nil, "permitted_context", _actor_event, _turn_ref),
+    do: {:ok, []}
 
   defp allowed_channels(agent_uid, current_channel_id, "permitted_context", actor_event, turn_ref) do
     case Repo.get(Channel, current_channel_id) do
@@ -1484,7 +1498,8 @@ defmodule Ankole.Memory do
 
     case {binding_name, principal_uid} do
       {binding_name, principal_uid} when is_binary(binding_name) and is_binary(principal_uid) ->
-        {:ok, %{"binding_name" => binding_name, "principal_uid" => String.downcase(principal_uid)}}
+        {:ok,
+         %{"binding_name" => binding_name, "principal_uid" => String.downcase(principal_uid)}}
 
       _value ->
         {:error, :missing_memory_principal_context}
@@ -1592,7 +1607,9 @@ defmodule Ankole.Memory do
   end
 
   defp browse_channel(_attrs, nil, _allowed_channels), do: {:error, :missing_current_channel}
-  defp browse_channel(_attrs, current_channel_id, _allowed_channels), do: {:ok, current_channel_id}
+
+  defp browse_channel(_attrs, current_channel_id, _allowed_channels),
+    do: {:ok, current_channel_id}
 
   defp browse_entries(signal_channel_id, limit, {from, to}, cursor) do
     Entry

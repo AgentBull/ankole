@@ -23,6 +23,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   alias Ankole.Plugins.LarkAdapter.Jobs.RefreshIMGroup
   alias Ankole.Plugins.LarkAdapter.Outbox
   alias Ankole.Principals
+  alias Ankole.Principals.Principal
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.AdapterContext
@@ -34,6 +35,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   alias FeishuOpenAPI.TokenStore
 
   import Ankole.PrincipalsFixtures
+  import ExUnit.CaptureLog
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
   @base_ms DateTime.to_unix(@base_time, :millisecond)
@@ -783,7 +785,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
              ] = entry.attachments
     end
 
-    test "user senders without provider-scoped user_id fail closed" do
+    test "user senders without provider-scoped user_id are ignored with warning" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "lark", :ignore)
       consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
@@ -794,8 +796,18 @@ defmodule Ankole.Plugins.LarkAdapterTest do
           put_in(sender, ["sender_id"], Map.delete(sender["sender_id"], "user_id"))
         end)
 
-      assert {:error, :missing_platform_subject} =
-               Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
+      log =
+        capture_log([level: :warning], fn ->
+          assert {:ok,
+                  [
+                    %{
+                      status: :ignored_missing_platform_subject,
+                      reason: :missing_platform_subject
+                    }
+                  ]} = Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
+        end)
+
+      assert log =~ "lark adapter ignored message sender without user_id"
 
       assert Repo.aggregate(ActorEvent, :count) == 0
       assert Repo.aggregate(Entry, :count) == 0
@@ -1269,6 +1281,54 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       refute Repo.get_by(Membership, group_id: group.id, principal_uid: member.uid)
     end
 
+    test "member added without user_id is ignored without principal or refresh" do
+      %{principal: agent} = agent_fixture(%{uid: unique_uid("lark-add-missing-subject-agent")})
+
+      assert {:ok, group} =
+               IMGroups.ensure_lark_im_group(
+                 "lark-main",
+                 "oc_add_missing_subject",
+                 im_chat_attrs("oc_add_missing_subject", "Add Missing Subject Room", "cli_add"),
+                 im_participant(agent.uid, "lark", "cli_add", "joined")
+               )
+
+      principal_count = Repo.aggregate(Principal, :count)
+
+      log =
+        capture_log([level: :warning], fn ->
+          assert {:ok,
+                  [
+                    %{
+                      status: :ignored_missing_platform_subject,
+                      reason: :missing_platform_subject
+                    }
+                  ]} =
+                   IMGroups.handle_im_event(
+                     "im.chat.member.user.added_v1",
+                     im_member_event_without_user_id(
+                       "oc_add_missing_subject",
+                       "im.chat.member.user.added_v1",
+                       "ou_add_missing_subject"
+                     ),
+                     [im_consumer(agent.uid, "lark", "cli_add")]
+                   )
+        end)
+
+      assert log =~ "lark adapter ignored IM group member event without user_id"
+      assert Repo.aggregate(Principal, :count) == principal_count
+      assert Repo.aggregate(from(m in Membership, where: m.group_id == ^group.id), :count) == 0
+
+      refute_enqueued(
+        worker: RefreshIMGroup,
+        args: %{
+          "agent_uid" => agent.uid,
+          "binding_name" => "lark",
+          "chat_id" => "oc_add_missing_subject",
+          "reason" => "member_added_missing_user_id"
+        }
+      )
+    end
+
     test "member removed resolves platform subject identity instead of guessing principal uid" do
       %{principal: agent} = agent_fixture(%{uid: unique_uid("lark-remove-agent")})
 
@@ -1309,6 +1369,66 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert principal_uid == observed.principal.uid
       assert group_id == group.id
       refute Repo.get_by(Membership, group_id: group.id, principal_uid: observed.principal.uid)
+    end
+
+    test "member removed without user_id is ignored without open_id fallback or refresh" do
+      %{principal: agent} =
+        agent_fixture(%{uid: unique_uid("lark-remove-missing-subject-agent")})
+
+      assert {:ok, observed} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "lark-main",
+                 external_id: "ou_remove_missing_subject",
+                 uid: unique_uid("lark-remove-missing-subject-principal"),
+                 display_name: "External Remove"
+               })
+
+      assert {:ok, group} =
+               IMGroups.ensure_lark_im_group(
+                 "lark-main",
+                 "oc_remove_missing_subject",
+                 im_chat_attrs(
+                   "oc_remove_missing_subject",
+                   "Remove Missing Subject Room",
+                   "cli_remove"
+                 ),
+                 im_participant(agent.uid, "lark", "cli_remove", "joined")
+               )
+
+      assert {:ok, _membership} = AuthZ.add_principal_to_group(observed.principal.uid, group.id)
+
+      log =
+        capture_log([level: :warning], fn ->
+          assert {:ok,
+                  [
+                    %{
+                      status: :ignored_missing_platform_subject,
+                      reason: :missing_platform_subject
+                    }
+                  ]} =
+                   IMGroups.handle_im_event(
+                     "im.chat.member.user.deleted_v1",
+                     im_member_event_without_user_id(
+                       "oc_remove_missing_subject",
+                       "im.chat.member.user.deleted_v1",
+                       "ou_remove_missing_subject"
+                     ),
+                     [im_consumer(agent.uid, "lark", "cli_remove")]
+                   )
+        end)
+
+      assert log =~ "lark adapter ignored IM group member event without user_id"
+      assert Repo.get_by(Membership, group_id: group.id, principal_uid: observed.principal.uid)
+
+      refute_enqueued(
+        worker: RefreshIMGroup,
+        args: %{
+          "agent_uid" => agent.uid,
+          "binding_name" => "lark",
+          "chat_id" => "oc_remove_missing_subject",
+          "reason" => "member_removed_missing_user_id"
+        }
+      )
     end
 
     test "member removed with unknown platform subject enqueues refresh" do
@@ -1866,6 +1986,27 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       content: %{
         "chat" => %{"chat_id" => chat_id},
         "member" => %{"member_id" => %{"user_id" => user_id}}
+      },
+      raw: %{}
+    }
+  end
+
+  defp im_member_event_without_user_id(chat_id, event_type, open_id) do
+    event_id_type = String.replace(event_type, ".", "_")
+
+    %Event{
+      id: "evt_im_member_missing_user_id_#{chat_id}_#{event_id_type}",
+      type: event_type,
+      tenant_key: "tenant-a",
+      app_id: "cli_test",
+      created_at: @base_time,
+      content: %{
+        "chat" => %{"chat_id" => chat_id},
+        "member" => %{
+          "member_type" => "user",
+          "member_id" => %{"open_id" => open_id, "union_id" => "on_#{open_id}"},
+          "name" => "External Member"
+        }
       },
       raw: %{}
     }

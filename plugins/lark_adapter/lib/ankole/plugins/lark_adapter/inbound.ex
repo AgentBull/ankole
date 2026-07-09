@@ -54,7 +54,9 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   """
   @spec handle_message_receive(String.t(), Event.t(), [map()]) :: {:ok, list()} | {:error, term()}
   def handle_message_receive(_event_type, %Event{} = event, consumers) do
-    dispatch_chat(consumers, &emit_message_receive(&1, event))
+    result = dispatch_chat(consumers, &emit_message_receive(&1, event))
+    maybe_log_missing_platform_subject(event, result)
+    result
   end
 
   @doc """
@@ -184,6 +186,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
           with :ok <- observe_author(consumer, input) do
             context = consumer.context
             result = Ingress.emit_entry(context.agent_uid, context.binding_name, input)
+
             if match?({:ok, _}, result) do
               IMGroups.maybe_enqueue_missing_channel_refresh(consumer, input)
             end
@@ -383,9 +386,37 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
          }}
 
       true ->
-        {:error, :missing_platform_subject}
+        {:ignore, :missing_platform_subject}
     end
   end
+
+  defp maybe_log_missing_platform_subject(%Event{} = event, {:ok, results}) do
+    if Enum.any?(results, &(Map.get(&1, :reason) == :missing_platform_subject)) do
+      content = event.content || %{}
+      message = fetch_map(content, "message", content)
+      sender = fetch_map(content, "sender", %{})
+      sender_ids = fetch_map(sender, "sender_id", sender)
+
+      Logging.warning(
+        "lark_adapter.inbound.missing_platform_subject",
+        "lark adapter ignored message sender without user_id",
+        %{
+          event_id: event.id,
+          event_type: event.type,
+          chat_id: optional_text(message, "chat_id"),
+          message_id: optional_text(message, "message_id"),
+          sender_type: sender_type(sender, event),
+          open_id: optional_text(sender_ids, "open_id"),
+          union_id: optional_text(sender_ids, "union_id"),
+          tenant_key: event.tenant_key
+        }
+      )
+    end
+
+    :ok
+  end
+
+  defp maybe_log_missing_platform_subject(_event, _result), do: :ok
 
   defp message_text(message) do
     message_type = optional_text(message, "message_type")
@@ -831,7 +862,6 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     end
   end
 
-  defp mention_targets_current_binding?(mention, _consumer) when is_map(mention), do: true
   defp mention_targets_current_binding?(_mention, _consumer), do: false
 
   defp bot_identity_configured?(config) when is_map(config),

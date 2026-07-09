@@ -414,6 +414,20 @@ Skill storage follows the shared-file/PG split:
 - `skill_view` reads the base skill file and merges the database overlay;
 - `skill_append` replaces the database overlay for that skill.
 
+## RuntimeEvents Scheduler Scope
+
+`Ankole.RuntimeEvents.Scheduler` is intentionally one supervised GenServer per
+control-plane node, with a process-local `timers` map keyed by exact runtime
+event identity. The durable source of truth is still PostgreSQL; the scheduler
+only materializes pending deadlines and starts handlers through its
+`Task.Supervisor`, so handler work does not block timer bookkeeping.
+
+That shape is proportional for the current event families and one-installation
+scale: active session deadlines, pending outbox rows, inbound batch deadlines,
+worker deadlines, activation deadlines, and AI-message deadlines. Do not shard
+or replace this process preemptively. Revisit it only after concrete evidence
+shows the timers map or one scheduler mailbox is the bottleneck.
+
 ## SignalsGateway Scope
 
 SignalsGateway is the provider ingress and provider-visible outbox boundary. It
