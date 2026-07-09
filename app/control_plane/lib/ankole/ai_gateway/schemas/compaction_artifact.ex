@@ -55,8 +55,8 @@ defmodule Ankole.AIGateway.Schemas.CompactionArtifact do
       not is_map(content) ->
         add_error(changeset, :content, "must be a JSON object")
 
-      Map.get(content, "version") != 1 ->
-        add_error(changeset, :content, "must use version 1")
+      Map.get(content, "version") not in [1, 2] ->
+        add_error(changeset, :content, "must use version 1 or 2")
 
       not is_map(Map.get(content, "summary")) ->
         add_error(changeset, :content, "must include a summary object")

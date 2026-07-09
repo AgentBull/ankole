@@ -9,6 +9,12 @@ defmodule Ankole.AIGateway.CompactionPrompt do
 
   @compaction_focus_instructions """
   First, in an <analysis> block, walk the conversation chronologically and note each step's intent, decisions, and any errors and their fixes (this block is scratch work and will be discarded). Then write the summary. Preserve verbatim — never paraphrase — file paths, function and identifier names, error messages, command lines, and IDs/UUIDs; when the latest task is unfinished, quote its exact instruction so work resumes without drift.
+
+  User messages from the summarized span are preserved verbatim alongside this summary; reference them briefly instead of quoting them at length. Do not restate instruction or environment scaffolding blocks (for example content wrapped in tags such as <environment_context> or <INSTRUCTIONS>); clients re-inject those separately.
+  """
+
+  @recent_context_instruction """
+  Messages inside <recent_context_verbatim> remain in the context verbatim after compaction. Do not restate their contents in the summary; use them only to decide what is currently in progress, completed, cancelled, or superseded.
   """
 
   @summarization_system_prompt """
@@ -134,6 +140,7 @@ defmodule Ankole.AIGateway.CompactionPrompt do
   def build_history_user_prompt(input) when is_map(input) do
     conversation_text = map_get(input, :conversation_text) || ""
     previous_chat_history = map_get(input, :previous_chat_history)
+    recent_context_verbatim = map_get(input, :recent_context_verbatim)
 
     base_prompt =
       if present?(previous_chat_history) do
@@ -151,6 +158,21 @@ defmodule Ankole.AIGateway.CompactionPrompt do
           ["<previous_chat_history>\n#{previous_chat_history}\n</previous_chat_history>"]
       else
         sections
+      end
+
+    sections =
+      if present?(recent_context_verbatim) do
+        sections ++
+          ["<recent_context_verbatim>\n#{recent_context_verbatim}\n</recent_context_verbatim>"]
+      else
+        sections
+      end
+
+    base_prompt =
+      if present?(recent_context_verbatim) do
+        "#{base_prompt}\n\n#{clean(@recent_context_instruction)}"
+      else
+        base_prompt
       end
 
     Enum.join(sections ++ [base_prompt], "\n\n")

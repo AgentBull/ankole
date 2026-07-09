@@ -332,6 +332,11 @@ defmodule AnkoleWeb.AIGatewayController do
   defp error_tuple(:invalid_compaction_handle),
     do: {400, "invalid_compaction_handle", "compaction encrypted_content handle is invalid"}
 
+  defp error_tuple(:no_compaction_candidate),
+    do:
+      {400, "no_compaction_candidate",
+       "input has no compactable items after the last compaction item"}
+
   defp error_tuple(:compact_store_required),
     do:
       {400, "compact_store_required",

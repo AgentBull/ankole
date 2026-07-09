@@ -1305,7 +1305,11 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
     base_url =
       start_recording_upstream(self(), fn request ->
-        {:json, 200, chat_completion_fixture(request.body)}
+        if request.path == "models" do
+          {:json, 200, openrouter_models_fixture()}
+        else
+          {:json, 200, compact_chat_completion_fixture(request.body)}
+        end
       end)
 
     assert {:ok, _provider} =
@@ -1325,7 +1329,8 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert {:ok, _profile} =
              ModelProfiles.put_model_profile(agent.uid, "primary", %{
                provider_id: "openrouter-standalone-compact",
-               model: "openai/gpt-5.5"
+               model: "openai/gpt-5.5",
+               context_length: 131_072
              })
 
     assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
@@ -1359,6 +1364,11 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
              "created_at" => created_at,
              "output" => [
                %{
+                 "type" => "message",
+                 "role" => "user",
+                 "content" => "We agreed to launch on Tuesday and notify support first."
+               },
+               %{
                  "id" => "cmp_" <> artifact_id,
                  "type" => "compaction",
                  "encrypted_content" => encrypted_content,
@@ -1380,7 +1390,10 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert %CompactionArtifact{content: artifact_content} =
              Repo.get!(CompactionArtifact, artifact_id)
 
-    assert artifact_content["summary"] == %{"text" => "hello from compliance"}
+    assert artifact_content["summary"] == %{"text" => "## Active Task\nhello from compliance"}
+
+    assert_receive {:gateway_request, metadata_request}
+    assert metadata_request.path == "models"
 
     assert_receive {:gateway_request, upstream_request}
     assert upstream_request.path == "chat/completions"
@@ -1411,7 +1424,8 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
     assert_receive {:gateway_request, continuation_request}
     assert continuation_request.path == "chat/completions"
-    assert inspect(continuation_request.body) =~ "Conversation summary:\\nhello from compliance"
+    assert inspect(continuation_request.body) =~ "Context checkpoint:"
+    assert inspect(continuation_request.body) =~ "## Active Task\\nhello from compliance"
   end
 
   test "compact endpoint rejects standalone compact without model", %{conn: conn} do
@@ -1441,7 +1455,11 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
     base_url =
       start_recording_upstream(self(), fn request ->
-        {:json, 200, chat_completion_fixture(request.body)}
+        if request.path == "models" do
+          {:json, 200, openrouter_models_fixture()}
+        else
+          {:json, 200, compact_chat_completion_fixture(request.body)}
+        end
       end)
 
     assert {:ok, _provider} =
@@ -1455,7 +1473,8 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert {:ok, _profile} =
              ModelProfiles.put_model_profile(agent.uid, "primary", %{
                provider_id: "openrouter-stateful-compact",
-               model: "openai/gpt-5.5"
+               model: "openai/gpt-5.5",
+               context_length: 131_072
              })
 
     {:ok, conversation} =
@@ -1501,7 +1520,9 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       |> post("/api/v1/ai-gateway/responses/compact", %{
         "model" => "primary",
         "previous_response_id" => anchor.id,
-        "input" => [%{"type" => "compaction", "summary" => "raw id should fail"}]
+        "input" => [
+          %{"type" => "message", "role" => "user", "content" => "raw id should fail"}
+        ]
       })
 
     assert %{"error" => %{"code" => "invalid_previous_response_id"}} =
@@ -1530,7 +1551,8 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert body["ankole"]["stored"] == true
     assert body["ankole"]["conversation"] == "conv_#{conversation.id}"
 
-    [compaction_item] = body["output"]
+    [user_original, compaction_item] = body["output"]
+    assert user_original["role"] == "user"
     assert compaction_item["type"] == "compaction"
     assert "cmp_" <> artifact_id = compaction_item["id"]
     assert compaction_item["encrypted_content"] == "ankole:compact:v1:cmp_#{artifact_id}"
@@ -1539,7 +1561,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert %CompactionArtifact{} = artifact = Repo.get!(CompactionArtifact, artifact_id)
     assert artifact.id == artifact_id
     assert artifact.conversation_id == conversation.id
-    assert artifact.content["summary"] == %{"text" => "hello from compliance"}
+    assert artifact.content["summary"] == %{"text" => "## Active Task\nhello from compliance"}
 
     assert %Message{} = row = Repo.get!(Message, artifact_id)
     assert row.type == "checkpoint"

@@ -169,6 +169,27 @@ defmodule AnkoleWeb.AIGatewayControllerTestHelpers do
     }
   end
 
+  def compact_chat_completion_fixture(body) do
+    body
+    |> chat_completion_fixture()
+    |> put_in(
+      ["choices", Access.at(0), "message", "content"],
+      "## Active Task\nhello from compliance"
+    )
+  end
+
+  def openrouter_models_fixture do
+    %{
+      "data" => [
+        %{
+          "id" => "openai/gpt-5.5",
+          "context_length" => 131_072,
+          "top_provider" => %{"context_length" => 131_072}
+        }
+      ]
+    }
+  end
+
   @doc """
   Returns a complete OpenResponses SSE event sequence for controller tests.
 

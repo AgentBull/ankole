@@ -11,6 +11,8 @@ defmodule Ankole.AIGateway.Compaction do
   alias Ankole.AppConfigure.Schema
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.CompactionPrompt
+  alias Ankole.AIGateway.CompactionRender
+  alias Ankole.AIGateway.CompactionRetention
   alias Ankole.AIGateway.MapUtils
   alias Ankole.AIGateway.ModelMetadata
   alias Ankole.AIGateway.ProviderConfigs.Provider
@@ -27,7 +29,7 @@ defmodule Ankole.AIGateway.Compaction do
   @minimum_context_length 64_000
   @small_context_trigger_ratio 0.85
   @default_tail_rows 2
-  @summarizer_max_output_tokens 2_048
+  @summarizer_max_output_tokens 4_096
   @memory_pre_compaction_nudge_marker "ankole.memory.pre_compaction_nudge.v1"
   @opaque_ref_keys ~w(agent_computer_path blob_ref content_type file_id file_url filename id image_url media_type mime_type name path provider_file_id provider_ref provider_uri storage_ref uri url)
   @max_ref_chars 512
@@ -42,7 +44,8 @@ defmodule Ankole.AIGateway.Compaction do
   @default_config %{
     "threshold" => @default_threshold_percent,
     "max_threshold_tokens" => @default_max_threshold_tokens,
-    "tail_rows" => @default_tail_rows
+    "tail_rows" => @default_tail_rows,
+    "user_message_budget_tokens" => 20_000
   }
 
   @type threshold_spec :: %{
@@ -318,10 +321,13 @@ defmodule Ankole.AIGateway.Compaction do
       conversation_id: conversation_id,
       summary_text: summary.text,
       retained_items: retained_items,
+      retained_user_originals: candidate.retained_user_originals,
       retention: %{
         "strategy" => "tail_rows",
         "requested" => candidate.tail_rows_requested,
-        "actual" => length(candidate.retained_tail)
+        "actual" => length(candidate.retained_tail),
+        "user_budget_tokens" => user_message_budget_tokens(),
+        "user_message_count" => length(candidate.retained_user_originals)
       },
       usage: summary.usage
     })
@@ -333,11 +339,19 @@ defmodule Ankole.AIGateway.Compaction do
       conversation_id: store_context.conversation_id,
       summary_text: summary.text,
       retained_items: candidate.retained_tail,
-      retention: %{
-        "strategy" => "tail_rows",
-        "requested" => candidate.tail_rows_requested,
-        "actual" => length(candidate.retained_tail)
-      },
+      retained_user_originals: candidate.retained_user_originals,
+      retention:
+        %{
+          "strategy" => "standalone_user_messages",
+          "requested" => candidate.tail_rows_requested,
+          "actual" => length(candidate.retained_tail),
+          "user_budget_tokens" => user_message_budget_tokens(),
+          "user_message_count" => length(candidate.retained_user_originals)
+        }
+        |> maybe_put(
+          "previous_summary_discarded",
+          if(candidate.previous_summary_discarded, do: true, else: nil)
+        ),
       usage: summary.usage
     })
   end
@@ -759,11 +773,21 @@ defmodule Ankole.AIGateway.Compaction do
          prefix = Enum.take_while(candidate_region, &text_compactable_message?/1),
          prefix <- snap_prefix_to_tool_boundary(prefix, rows_after_compaction, current_input),
          %Message{} = _covers_until <- List.last(prefix) do
+      retained_tail = Enum.drop(rows_after_compaction, length(prefix))
+
+      {retained_user_originals, _used_tokens} =
+        CompactionRetention.collect_user_originals(
+          messages_to_items(prefix),
+          user_message_budget_tokens()
+        )
+
       {:ok,
        %{
          anchor: anchor,
          prefix: prefix,
-         retained_tail: Enum.drop(rows_after_compaction, length(prefix)),
+         retained_tail: retained_tail,
+         retained_user_originals: retained_user_originals,
+         recent_items: messages_to_items(retained_tail) ++ input_items(current_input),
          previous_chat_history: previous_compaction_summary(agent_uid, history),
          tail_rows_requested: tail_rows()
        }}
@@ -851,42 +875,125 @@ defmodule Ankole.AIGateway.Compaction do
   end
 
   defp summarize_candidate(agent_uid, candidate, request) do
-    prompt =
-      CompactionPrompt.build_history_user_prompt(%{
-        conversation_text: conversation_text(candidate.prefix),
-        previous_chat_history: candidate.previous_chat_history
-      })
-
     request_model = Map.get(request, "model")
+    items = messages_to_items(candidate.prefix)
+    recent_items = Map.get(candidate, :recent_items, [])
 
-    summarizer_selectors(request_model)
+    summarizer_selectors(request_model, request)
     |> Enum.reduce_while({:error, :summarizer_model_unavailable}, fn selector, _last_error ->
-      case call_summarizer(agent_uid, selector, prompt) do
-        {:ok, summary} -> {:halt, {:ok, summary}}
+      with {:ok, runtime} <- resolve_summarizer_runtime(agent_uid, selector),
+           {:ok, summary} <-
+             summarize_rendered(
+               agent_uid,
+               runtime,
+               selector,
+               items,
+               candidate.previous_chat_history, recent_items: recent_items) do
+        {:halt, {:ok, summary}}
+      else
         {:error, _reason} = error -> {:cont, error}
       end
     end)
   end
 
   defp summarize_standalone(agent_uid, candidate, request) do
-    prompt =
-      CompactionPrompt.build_history_user_prompt(%{
-        conversation_text: standalone_conversation_text(candidate.prefix_items),
-        previous_chat_history: candidate.previous_chat_history
-      })
-
     request
     |> Map.fetch!("model")
-    |> summarizer_selectors()
+    |> summarizer_selectors(request)
     |> Enum.reduce_while({:error, :summarizer_model_unavailable}, fn selector, _last_error ->
-      case call_summarizer(agent_uid, selector, prompt) do
-        {:ok, summary} -> {:halt, {:ok, summary}}
+      with {:ok, runtime} <- resolve_summarizer_runtime(agent_uid, selector),
+           {:ok, summary} <-
+             summarize_rendered(
+               agent_uid,
+               runtime,
+               selector,
+               candidate.prefix_items,
+               candidate.previous_chat_history,
+               recent_items: []
+             ) do
+        {:halt, {:ok, summary}}
+      else
         {:error, _reason} = error -> {:cont, error}
       end
     end)
   end
 
-  defp call_summarizer(agent_uid, selector, prompt) do
+  defp summarize_rendered(agent_uid, runtime, selector, items, previous_chat_history, opts) do
+    recent_context_verbatim = render_recent_context(Keyword.get(opts, :recent_items, []))
+    budget = render_budget(runtime, previous_chat_history, recent_context_verbatim)
+    caps = CompactionRender.default_caps()
+
+    prompt =
+      build_summarizer_prompt(items, previous_chat_history, recent_context_verbatim, budget, caps)
+
+    case call_summarizer(agent_uid, runtime, selector, prompt) do
+      {:ok, summary} ->
+        {:ok, summary}
+
+      {:error, reason} = error ->
+        if context_length_error?(reason) do
+          tight_budget = max(floor(budget * 0.6), CompactionRender.min_render_budget_tokens())
+          tight_caps = CompactionRender.scaled_caps(caps, 0.5)
+
+          tight_prompt =
+            build_summarizer_prompt(
+              items,
+              previous_chat_history,
+              recent_context_verbatim,
+              tight_budget,
+              tight_caps
+            )
+
+          call_summarizer(agent_uid, runtime, selector, tight_prompt)
+        else
+          error
+        end
+    end
+  end
+
+  defp build_summarizer_prompt(
+         items,
+         previous_chat_history,
+         recent_context_verbatim,
+         budget,
+         caps
+       ) do
+    CompactionPrompt.build_history_user_prompt(%{
+      conversation_text: CompactionRender.render_items(items, budget_tokens: budget, caps: caps),
+      previous_chat_history: previous_chat_history,
+      recent_context_verbatim: recent_context_verbatim
+    })
+  end
+
+  defp render_recent_context([]), do: nil
+
+  defp render_recent_context(items) when is_list(items) do
+    text = CompactionRender.render_items(items, budget_tokens: 8_000)
+    if String.trim(text) == "", do: nil, else: text
+  end
+
+  defp render_budget(runtime, previous_chat_history, recent_context_verbatim) do
+    scaffold =
+      CompactionRender.approx_tokens(
+        CompactionPrompt.system_prompt() <>
+          CompactionPrompt.build_history_user_prompt(%{conversation_text: ""})
+      ) + 512
+
+    budget =
+      floor(0.8 * summarizer_context_length(runtime)) -
+        scaffold -
+        CompactionRender.approx_tokens(previous_chat_history || "") -
+        CompactionRender.approx_tokens(recent_context_verbatim || "") -
+        @summarizer_max_output_tokens
+
+    max(budget, CompactionRender.min_render_budget_tokens())
+  end
+
+  defp resolve_summarizer_runtime(agent_uid, selector) do
+    Resolver.resolve_request_model(agent_uid, "llm", %{"model" => selector})
+  end
+
+  defp call_summarizer(_agent_uid, runtime, selector, prompt) do
     request = %{
       "model" => selector,
       "instructions" => CompactionPrompt.system_prompt(),
@@ -894,8 +1001,7 @@ defmodule Ankole.AIGateway.Compaction do
       "max_output_tokens" => @summarizer_max_output_tokens
     }
 
-    with {:ok, runtime} <- Resolver.resolve_request_model(agent_uid, "llm", request),
-         {:ok, prepared_request} <-
+    with {:ok, prepared_request} <-
            Providers.build_response_request(runtime, request, stream?: false),
          {:ok, %{body: body}} <- UniversalAIRequest.request(prepared_request),
          {:ok, text} <- extract_summary_text(body) do
@@ -909,8 +1015,15 @@ defmodule Ankole.AIGateway.Compaction do
     end
   end
 
-  defp summarizer_selectors(request_model) do
-    ["light", "primary", request_model]
+  defp summarizer_selectors(request_model, request) do
+    selectors =
+      if get_in(request, ["reasoning", "effort"]) in ["high", "xhigh"] do
+        ["primary", request_model]
+      else
+        ["light", "primary", request_model]
+      end
+
+    selectors
     |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))
     |> Enum.uniq()
   end
@@ -963,106 +1076,57 @@ defmodule Ankole.AIGateway.Compaction do
   defp standalone_input(_request), do: {:error, :missing_input}
 
   defp standalone_compaction_candidate(original_input, resolved_input) do
-    requested_tail_rows = tail_rows()
-    compactible_count = standalone_compactible_count(resolved_input, requested_tail_rows)
+    {region_start_index, previous_compaction_item} = items_after_last_compaction(resolved_input)
+    prefix_items = Enum.drop(resolved_input, region_start_index)
+    original_region = Enum.drop(original_input, region_start_index)
 
-    prefix_items =
-      resolved_input
-      |> Enum.take(compactible_count)
-      |> Enum.take_while(&text_compactable_item?/1)
-      |> snap_item_prefix_to_tool_boundary(resolved_input)
-      |> case do
-        [] -> resolved_input
-        prefix -> prefix
-      end
-
-    {:ok,
-     %{
-       prefix_items: prefix_items,
-       retained_tail: Enum.drop(original_input, length(prefix_items)),
-       previous_chat_history: previous_compaction_content(resolved_input),
-       tail_rows_requested: requested_tail_rows
-     }}
-  end
-
-  defp standalone_compactible_count(input, requested_tail_rows) do
-    input_count = length(input)
-
-    if input_count > requested_tail_rows do
-      input_count - requested_tail_rows
+    if prefix_items == [] do
+      {:error, :no_compaction_candidate}
     else
-      input_count
+      {previous_chat_history, previous_summary_discarded} =
+        previous_compaction_content(previous_compaction_item)
+
+      {retained_user_originals, _used_tokens} =
+        CompactionRetention.collect_user_originals(original_region, user_message_budget_tokens())
+
+      {:ok,
+       %{
+         prefix_items: prefix_items,
+         retained_tail: [],
+         retained_user_originals: retained_user_originals,
+         previous_chat_history: previous_chat_history,
+         previous_summary_discarded: previous_summary_discarded,
+         tail_rows_requested: 0
+       }}
     end
   end
 
-  defp snap_item_prefix_to_tool_boundary([], _items), do: []
-
-  defp snap_item_prefix_to_tool_boundary(prefix, items) do
-    tail_items = Enum.drop(items, length(prefix))
-    split_call_ids = split_item_tool_call_ids(prefix, tail_items)
-
-    if MapSet.size(split_call_ids) == 0 do
-      prefix
-    else
-      prefix
-      |> remove_item_suffix_through_tool_calls(split_call_ids)
-      |> snap_item_prefix_to_tool_boundary(items)
-    end
-  end
-
-  defp split_item_tool_call_ids(prefix_items, tail_items) do
-    prefix_call_ids = item_call_ids(prefix_items, "function_call")
-    tail_output_call_ids = item_call_ids(tail_items, "function_call_output")
-
-    MapSet.intersection(prefix_call_ids, tail_output_call_ids)
-  end
-
-  defp remove_item_suffix_through_tool_calls(items, split_call_ids) do
+  defp items_after_last_compaction(items) do
     items
-    |> Enum.reverse()
-    |> drop_items_until_split_tool_call(split_call_ids)
-    |> Enum.reverse()
+    |> Enum.with_index()
+    |> Enum.reduce({0, nil}, fn
+      {%{"type" => "compaction"} = item, index}, _last -> {index + 1, item}
+      _other, last -> last
+    end)
   end
 
-  defp drop_items_until_split_tool_call([], _split_call_ids), do: []
+  defp previous_compaction_content(nil), do: {nil, false}
 
-  defp drop_items_until_split_tool_call([item | rest], split_call_ids) do
-    call_ids = item_call_ids([item], "function_call")
+  defp previous_compaction_content(%{} = item) do
+    content = Map.get(item, "encrypted_content") || Map.get(item, "summary")
 
-    if MapSet.disjoint?(call_ids, split_call_ids) do
-      drop_items_until_split_tool_call(rest, split_call_ids)
+    if usable_previous_summary?(content) do
+      {content, false}
     else
-      rest
+      {nil, true}
     end
   end
 
-  defp standalone_conversation_text(input) do
-    input
-    |> Enum.with_index(1)
-    |> Enum.map(fn {item, index} ->
-      """
-      <item index="#{index}">
-      #{item_text(item)}
-      </item>
-      """
-    end)
-    |> Enum.join("\n")
+  defp usable_previous_summary?(content) when is_binary(content) do
+    String.valid?(content) and byte_size(content) <= 32_768 and content =~ ~r/\s/
   end
 
-  defp previous_compaction_content(input) do
-    input
-    |> Enum.reverse()
-    |> Enum.find_value(fn
-      %{"type" => "compaction", "encrypted_content" => content} when is_binary(content) ->
-        content
-
-      %{"type" => "compaction", "summary" => summary} when is_binary(summary) ->
-        summary
-
-      _item ->
-        nil
-    end)
-  end
+  defp usable_previous_summary?(_content), do: false
 
   defp extract_summary_text(%{"output_text" => text}) when is_binary(text) do
     summary_text(text)
@@ -1102,10 +1166,28 @@ defmodule Ankole.AIGateway.Compaction do
   defp output_item_texts(_item), do: []
 
   defp summary_text(text) when is_binary(text) do
-    case String.trim(text) do
-      "" -> {:error, :empty_compaction_summary}
-      summary -> {:ok, summary}
+    stripped = Regex.replace(~r/<analysis>.*?<\/analysis>/s, text, "")
+
+    cond do
+      String.contains?(stripped, "<analysis>") ->
+        {:error, :invalid_summary_shape}
+
+      String.trim(stripped) == "" ->
+        {:error, :empty_compaction_summary}
+
+      not has_summary_heading?(stripped) ->
+        {:error, :invalid_summary_shape}
+
+      true ->
+        {:ok, String.trim(stripped)}
     end
+  end
+
+  defp has_summary_heading?(text) do
+    text
+    |> String.trim()
+    |> String.split("\n")
+    |> Enum.any?(&String.starts_with?(&1, "## "))
   end
 
   defp compaction_metadata(summary, candidate, total_tokens, flags) do
@@ -1161,70 +1243,12 @@ defmodule Ankole.AIGateway.Compaction do
   defp request_metadata(%{"metadata" => metadata}) when is_map(metadata), do: metadata
   defp request_metadata(_request), do: %{}
 
-  defp conversation_text(messages) do
-    messages
-    |> Enum.with_index(1)
-    |> Enum.map(fn {message, index} ->
-      """
-      <response index="#{index}" id="resp_#{message.id}">
-      #{message_content_text(message)}
-      </response>
-      """
-    end)
-    |> Enum.join("\n")
-  end
-
   defp message_content_text(%Message{content: content}) when is_list(content) do
     content
-    |> Enum.map(&item_text/1)
+    |> Enum.map(&CompactionRender.item_text/1)
     |> Enum.reject(&(&1 == ""))
     |> Enum.join("\n")
   end
-
-  defp item_text(%{"type" => "message", "role" => role, "content" => content}) do
-    "#{role}: #{content_text(content)}"
-  end
-
-  defp item_text(%{"type" => "message", "content" => content}) do
-    content_text(content)
-  end
-
-  defp item_text(%{"role" => role, "content" => content}) when is_binary(role) do
-    "#{role}: #{content_text(content)}"
-  end
-
-  defp item_text(%{"type" => "function_call", "name" => name, "call_id" => call_id} = item) do
-    args = Map.get(item, "arguments") || Map.get(item, "input") || ""
-
-    "function_call #{name || "(unknown)"} call_id=#{call_id || "(none)"} arguments=#{stringify(args)}"
-  end
-
-  defp item_text(%{"type" => "function_call_output", "call_id" => call_id} = item) do
-    "function_call_output call_id=#{call_id || "(none)"} output=#{stringify(Map.get(item, "output"))}"
-  end
-
-  defp item_text(%{"type" => "reasoning"} = item), do: "reasoning: #{stringify(item)}"
-  defp item_text(item) when is_map(item), do: stringify(item)
-  defp item_text(_item), do: ""
-
-  defp content_text(content) when is_binary(content), do: content
-
-  defp content_text(content) when is_list(content) do
-    content
-    |> Enum.map(&content_part_text/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.join("\n")
-  end
-
-  defp content_text(content), do: stringify(content)
-
-  defp content_part_text(%{"type" => type, "text" => text})
-       when type in ["input_text", "output_text", "text"] and is_binary(text),
-       do: text
-
-  defp content_part_text(%{"text" => text}) when is_binary(text), do: text
-  defp content_part_text(part) when is_map(part), do: stringify(part)
-  defp content_part_text(_part), do: ""
 
   defp text_compactable_message?(%Message{type: "message", status: "complete", content: content})
        when is_list(content),
@@ -1303,13 +1327,14 @@ defmodule Ankole.AIGateway.Compaction do
     end
   end
 
-  defp stringify(value) when is_binary(value), do: value
-  defp stringify(nil), do: ""
-  defp stringify(value), do: Ankole.JSON.encode!(value)
-
   defp tail_rows do
     config()
     |> Map.get("tail_rows", @default_tail_rows)
+  end
+
+  defp user_message_budget_tokens do
+    config()
+    |> Map.get("user_message_budget_tokens", 20_000)
   end
 
   defp config do
@@ -1327,12 +1352,14 @@ defmodule Ankole.AIGateway.Compaction do
            :ok <- reject_unknown_config_keys(value),
            {:ok, threshold} <- optional_threshold(value),
            {:ok, max_threshold_tokens} <- optional_max_threshold_tokens(value),
-           {:ok, tail_rows} <- optional_tail_rows(value) do
+           {:ok, tail_rows} <- optional_tail_rows(value),
+           {:ok, user_message_budget_tokens} <- optional_user_message_budget_tokens(value) do
         {:ok,
          %{
            "threshold" => threshold,
            "max_threshold_tokens" => max_threshold_tokens,
-           "tail_rows" => tail_rows
+           "tail_rows" => tail_rows,
+           "user_message_budget_tokens" => user_message_budget_tokens
          }}
       end
     end)
@@ -1349,7 +1376,8 @@ defmodule Ankole.AIGateway.Compaction do
   defp normalize_config(_value), do: {:error, :not_compaction_config}
 
   defp reject_unknown_config_keys(value) do
-    allowed = MapSet.new(["threshold", "max_threshold_tokens", "tail_rows"])
+    allowed =
+      MapSet.new(["threshold", "max_threshold_tokens", "tail_rows", "user_message_budget_tokens"])
 
     value
     |> Map.keys()
@@ -1384,6 +1412,13 @@ defmodule Ankole.AIGateway.Compaction do
     end
   end
 
+  defp optional_user_message_budget_tokens(value) do
+    case Map.get(value, "user_message_budget_tokens", 20_000) do
+      tokens when is_integer(tokens) and tokens > 0 -> {:ok, tokens}
+      _value -> {:error, :invalid_compaction_user_message_budget_tokens}
+    end
+  end
+
   defp context_length(runtime) when is_map(runtime) do
     first_positive_integer([
       Map.get(runtime, "context_length"),
@@ -1394,6 +1429,18 @@ defmodule Ankole.AIGateway.Compaction do
   end
 
   defp context_length(_runtime), do: @default_context_length
+
+  defp summarizer_context_length(runtime) when is_map(runtime) do
+    first_positive_integer([
+      Map.get(runtime, "context_length"),
+      get_in(runtime, ["model_metadata", "context_length"]),
+      get_in(runtime, ["model_metadata", "top_provider", "context_length"]),
+      provider_model_context_length(runtime)
+    ]) || CompactionRender.fallback_summarizer_context_tokens()
+  end
+
+  defp summarizer_context_length(_runtime),
+    do: CompactionRender.fallback_summarizer_context_tokens()
 
   defp provider_model_context_length(
          %{"provider" => %Provider{} = provider, "model" => model} = runtime
@@ -1475,4 +1522,10 @@ defmodule Ankole.AIGateway.Compaction do
 
   defp positive_number_or(value, _fallback) when is_number(value) and value > 0, do: value
   defp positive_number_or(_value, fallback), do: fallback
+
+  defp context_length_error?(reason) do
+    reason
+    |> inspect()
+    |> String.match?(~r/context|too long|too large|maximum.*(length|tokens)/i)
+  end
 end

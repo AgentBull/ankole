@@ -23,6 +23,7 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
           optional(:conversation_id) => Ecto.UUID.t() | nil,
           required(:summary_text) => String.t(),
           optional(:retained_items) => [map()],
+          optional(:retained_user_originals) => [map()],
           optional(:retention) => map(),
           optional(:usage) => map()
         }
@@ -217,6 +218,7 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
   defp artifact_content(id, attrs) do
     summary_text = Map.fetch!(attrs, :summary_text)
     retained_items = Map.get(attrs, :retained_items, [])
+    retained_user_originals = Map.get(attrs, :retained_user_originals, [])
 
     cond do
       not is_binary(summary_text) or String.trim(summary_text) == "" ->
@@ -225,19 +227,22 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
       not is_list(retained_items) ->
         {:error, :invalid_compaction_artifact}
 
+      not is_list(retained_user_originals) ->
+        {:error, :invalid_compaction_artifact}
+
       true ->
         {:ok,
          %{
-           "version" => 1,
+           "version" => 2,
            "summary" => %{"text" => String.trim(summary_text)},
-           "output" => [compaction_item(id) | retained_items],
-           "retention" => artifact_retention(attrs, retained_items),
+           "output" => retained_user_originals ++ [compaction_item(id)] ++ retained_items,
+           "retention" => artifact_retention(attrs, retained_items, retained_user_originals),
            "usage" => response_usage(Map.get(attrs, :usage, %{}))
          }}
     end
   end
 
-  defp artifact_retention(attrs, retained_items) do
+  defp artifact_retention(attrs, retained_items, retained_user_originals) do
     attrs
     |> Map.get(:retention, %{})
     |> case do
@@ -245,13 +250,30 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
         %{
           "strategy" => Map.get(retention, "strategy", "tail_rows"),
           "requested" => Map.get(retention, "requested"),
-          "actual" => Map.get(retention, "actual", length(retained_items))
+          "actual" => Map.get(retention, "actual", length(retained_items)),
+          "user_budget_tokens" => Map.get(retention, "user_budget_tokens"),
+          "user_message_count" =>
+            Map.get(retention, "user_message_count", length(retained_user_originals))
         }
+        |> maybe_put(
+          "previous_summary_discarded",
+          Map.get(retention, "previous_summary_discarded")
+        )
 
       _other ->
-        %{"strategy" => "tail_rows", "requested" => nil, "actual" => length(retained_items)}
+        %{
+          "strategy" => "tail_rows",
+          "requested" => nil,
+          "actual" => length(retained_items),
+          "user_budget_tokens" => nil,
+          "user_message_count" => length(retained_user_originals)
+        }
     end
   end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, _key, false), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp artifact_uuid(@handle_prefix <> public_id), do: artifact_uuid(public_id)
   defp artifact_uuid("cmp_" <> uuid), do: UUIDv7.cast(uuid)

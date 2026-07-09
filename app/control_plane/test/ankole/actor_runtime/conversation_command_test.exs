@@ -49,7 +49,10 @@ defmodule Ankole.ActorRuntime.ConversationCommandTest do
                  "type" => "message",
                  "role" => "assistant",
                  "content" => [
-                   %{"type" => "output_text", "text" => "Manual compressed history."}
+                   %{
+                     "type" => "output_text",
+                     "text" => "## Active Task\nManual compressed history."
+                   }
                  ]
                }
              ],
@@ -139,7 +142,9 @@ defmodule Ankole.ActorRuntime.ConversationCommandTest do
       assert compaction.content == [CompactionArtifacts.ref_item(compaction.id)]
 
       assert %CompactionArtifact{} = artifact = Repo.get!(CompactionArtifact, compaction.id)
-      assert get_in(artifact.content, ["summary", "text"]) == "Manual compressed history."
+
+      assert get_in(artifact.content, ["summary", "text"]) ==
+               "## Active Task\nManual compressed history."
 
       assert %DateTime{} = Repo.get!(ActorEvent, compress_event.id).completed_at
 
@@ -171,7 +176,10 @@ defmodule Ankole.ActorRuntime.ConversationCommandTest do
                  "type" => "message",
                  "role" => "assistant",
                  "content" => [
-                   %{"type" => "output_text", "text" => "Real role/content history compressed."}
+                   %{
+                     "type" => "output_text",
+                     "text" => "## Active Task\nReal role/content history compressed."
+                   }
                  ]
                }
              ],
@@ -281,7 +289,7 @@ defmodule Ankole.ActorRuntime.ConversationCommandTest do
       assert %CompactionArtifact{} = artifact = Repo.get!(CompactionArtifact, compaction.id)
 
       assert get_in(artifact.content, ["summary", "text"]) ==
-               "Real role/content history compressed."
+               "## Active Task\nReal role/content history compressed."
 
       assert %DateTime{} = Repo.get!(ActorEvent, compress_event.id).completed_at
     end
@@ -311,7 +319,10 @@ defmodule Ankole.ActorRuntime.ConversationCommandTest do
                  "type" => "message",
                  "role" => "assistant",
                  "content" => [
-                   %{"type" => "output_text", "text" => "Deferred compressed history."}
+                   %{
+                     "type" => "output_text",
+                     "text" => "## Active Task\nDeferred compressed history."
+                   }
                  ]
                }
              ],
@@ -448,7 +459,9 @@ defmodule Ankole.ActorRuntime.ConversationCommandTest do
       assert compaction.content == [CompactionArtifacts.ref_item(compaction.id)]
 
       assert %CompactionArtifact{} = artifact = Repo.get!(CompactionArtifact, compaction.id)
-      assert get_in(artifact.content, ["summary", "text"]) == "Deferred compressed history."
+
+      assert get_in(artifact.content, ["summary", "text"]) ==
+               "## Active Task\nDeferred compressed history."
 
       assert %DateTime{} = Repo.get!(ActorEvent, compress_event.id).completed_at
     end

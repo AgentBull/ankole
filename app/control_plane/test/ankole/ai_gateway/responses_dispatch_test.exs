@@ -964,19 +964,29 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert summarizer_request.body["model"] == "gpt-compact-light"
     assert summarizer_request.body["store"] == false
     assert summarizer_request.body["instructions"] =~ "context summarization assistant"
-    assert summarizer_request.body["max_output_tokens"] == 2_048
+    assert summarizer_request.body["max_output_tokens"] == 4_096
     assert summarizer_input =~ "first user message with enough detail"
     assert summarizer_input =~ "first assistant answer"
     assert summarizer_input =~ "second user message with enough detail"
     assert summarizer_input =~ "second assistant answer"
-    refute summarizer_input =~ "third user message kept as tail"
-    refute summarizer_input =~ "third assistant answer kept as tail"
-    refute summarizer_input =~ "new current request"
+    assert summarizer_input =~ "<recent_context_verbatim>"
+    assert summarizer_input =~ "third user message kept as tail"
+    assert summarizer_input =~ "third assistant answer kept as tail"
+    assert summarizer_input =~ "new current request"
+
+    [_, conversation_section] =
+      Regex.run(~r/<conversation>\n(.*?)\n<\/conversation>/s, summarizer_input)
+
+    refute conversation_section =~ "third user message kept as tail"
+    refute conversation_section =~ "third assistant answer kept as tail"
+    refute conversation_section =~ "new current request"
 
     provider_request = request.response_context.request
-    [compaction_item | rest] = provider_request["input"]
+    [user_orig_1, user_orig_2, compaction_item | rest] = provider_request["input"]
 
     assert provider_request["store"] == false
+    assert user_orig_1 == hd(m1.content)
+    assert user_orig_2 == hd(m2.content)
     assert compaction_item["type"] == "compaction"
 
     assert compaction_item["encrypted_content"] ==
@@ -997,7 +1007,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert get_in(artifact.content, ["summary", "text"]) ==
              "## Active Task\nPrior two turns were compressed."
 
-    assert Enum.drop(artifact.content["output"], 1) == m3.content
+    assert Enum.drop(artifact.content["output"], 3) == m3.content
   end
 
   test "websocket stateful auto-compaction keeps function calls with protected tool results" do
@@ -1022,7 +1032,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "content" => [
                  %{
                    "type" => "output_text",
-                   "text" => "Only the first row was compressed.",
+                   "text" => "## Active Task\nOnly the first row was compressed.",
                    "annotations" => []
                  }
                ]
@@ -1112,14 +1122,22 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     summarizer_input = summarizer_request.body["input"]
 
     assert summarizer_input =~ "first user message that can be summarized"
-    refute summarizer_input =~ "call_keep_with_tail"
-    refute summarizer_input =~ "search result"
+
+    [_, conversation_section] =
+      Regex.run(~r/<conversation>\n(.*?)\n<\/conversation>/s, summarizer_input)
+
+    refute conversation_section =~ "call_keep_with_tail"
+    refute conversation_section =~ "search result"
 
     provider_request = request.response_context.request
-    [compaction_item | rest] = provider_request["input"]
+    [user_orig_1, compaction_item | rest] = provider_request["input"]
 
+    assert user_orig_1 == hd(m1.content)
     assert compaction_item["type"] == "compaction"
-    assert compaction_item["encrypted_content"] == "Only the first row was compressed."
+
+    assert compaction_item["encrypted_content"] ==
+             "## Active Task\nOnly the first row was compressed."
+
     assert rest == function_call ++ tool_result ++ m4.content ++ current_input
 
     [compaction] =
@@ -1130,8 +1148,205 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert compaction.metadata["auto"] == true
 
     assert %CompactionArtifact{} = artifact = Repo.get!(CompactionArtifact, compaction.id)
-    assert get_in(artifact.content, ["summary", "text"]) == "Only the first row was compressed."
-    assert Enum.drop(artifact.content["output"], 1) == function_call ++ tool_result ++ m4.content
+
+    assert get_in(artifact.content, ["summary", "text"]) ==
+             "## Active Task\nOnly the first row was compressed."
+
+    assert Enum.drop(artifact.content["output"], 2) == function_call ++ tool_result ++ m4.content
+  end
+
+  test "websocket stateful auto-compaction strips analysis blocks from summaries" do
+    %{principal: agent} = agent_fixture()
+
+    with_compaction_config(threshold: 0.50, max_threshold_tokens: 10, tail_rows: 1)
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:json, 200, response_summary("<analysis>scratch</analysis>\n## Active Task\nX")}
+      end)
+
+    create_openai_compaction_provider!(agent, "openai-compaction-strip-analysis", base_url)
+    {conversation, _tail} = compactable_conversation!(agent, "dispatch-strip-analysis")
+
+    assert {:ok, _request} =
+             AIGateway.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => [text_message("user", "new current request")],
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "metadata" => %{"actor_event_id" => "strip-analysis-event"}
+             })
+
+    assert_receive {:gateway_request, _summarizer_request}
+
+    [compaction] = Repo.all(Message) |> Enum.filter(&(&1.type == "checkpoint"))
+    artifact = Repo.get!(CompactionArtifact, compaction.id)
+    assert get_in(artifact.content, ["summary", "text"]) == "## Active Task\nX"
+  end
+
+  test "websocket stateful auto-compaction retries malformed analysis shape on next selector" do
+    %{principal: agent} = agent_fixture()
+
+    with_compaction_config(threshold: 0.50, max_threshold_tokens: 10, tail_rows: 1)
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        case request.body["model"] do
+          "gpt-compact-light" -> {:json, 200, response_summary("<analysis>truncated...")}
+          "gpt-main" -> {:json, 200, response_summary("## Active Task\nPrimary summary")}
+        end
+      end)
+
+    create_openai_compaction_provider!(agent, "openai-compaction-shape-retry", base_url)
+    {conversation, _tail} = compactable_conversation!(agent, "dispatch-shape-retry")
+
+    assert {:ok, _request} =
+             AIGateway.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => [text_message("user", "new current request")],
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "metadata" => %{"actor_event_id" => "shape-retry-event"}
+             })
+
+    assert_receive {:gateway_request, light_request}
+    assert_receive {:gateway_request, primary_request}
+    assert light_request.body["model"] == "gpt-compact-light"
+    assert primary_request.body["model"] == "gpt-main"
+
+    [compaction] = Repo.all(Message) |> Enum.filter(&(&1.type == "checkpoint"))
+    assert get_in(compaction.metadata, ["summarizer", "selector"]) == "primary"
+  end
+
+  test "websocket stateful auto-compaction renders reasoning summaries without encrypted content" do
+    %{principal: agent} = agent_fixture()
+
+    with_compaction_config(threshold: 0.50, max_threshold_tokens: 10, tail_rows: 1)
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:json, 200, response_summary("## Active Task\nReasoning summary")}
+      end)
+
+    create_openai_compaction_provider!(agent, "openai-compaction-reasoning-redaction", base_url)
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "dispatch-reasoning-redaction")
+
+    {:ok, m1} =
+      start_stateful_message(
+        agent.uid,
+        conversation,
+        "reasoning-redaction-a",
+        [
+          text_message("user", "reasoning carrier"),
+          %{
+            "type" => "reasoning",
+            "encrypted_content" => "SECRETBLOB",
+            "summary" => [%{"type" => "summary_text", "text" => "thought about x"}]
+          }
+        ]
+      )
+
+    {:ok, m1} = StatefulResponses.commit_complete(m1, [], camel_usage(260_000))
+
+    {:ok, m2} =
+      start_linked_stateful_message(agent.uid, conversation, m1, "reasoning-redaction-tail", [
+        text_message("user", "tail")
+      ])
+
+    {:ok, _m2} = StatefulResponses.commit_complete(m2, [], camel_usage(4))
+
+    assert {:ok, _request} =
+             AIGateway.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => [text_message("user", "new current request")],
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "metadata" => %{"actor_event_id" => "reasoning-redaction-event"}
+             })
+
+    assert_receive {:gateway_request, summarizer_request}
+    summarizer_input = summarizer_request.body["input"]
+    refute summarizer_input =~ "SECRETBLOB"
+    assert summarizer_input =~ "thought about x"
+  end
+
+  test "websocket stateful auto-compaction retries once with tighter render budget on context errors" do
+    %{principal: agent} = agent_fixture()
+
+    with_compaction_config(threshold: 0.50, max_threshold_tokens: 10, tail_rows: 1)
+    {:ok, attempts} = Agent.start_link(fn -> 0 end)
+
+    base_url =
+      start_recording_upstream(self(), fn
+        _request ->
+          attempt = Agent.get_and_update(attempts, fn value -> {value + 1, value + 1} end)
+
+          case attempt do
+            1 ->
+              {:json, 400, %{"error" => %{"message" => "maximum context length exceeded"}}}
+
+            _attempt ->
+              {:json, 200, response_summary("## Active Task\nRetried summary")}
+          end
+      end)
+
+    create_openai_compaction_provider!(agent, "openai-compaction-context-retry", base_url,
+      profiles: [{"primary", "gpt-main", 20_000}, {"light", "gpt-compact-light", 20_000}]
+    )
+
+    {conversation, _tail} =
+      compactable_conversation!(
+        agent,
+        "dispatch-context-retry",
+        String.duplicate("wide context ", 70_000)
+      )
+
+    assert {:ok, _request} =
+             AIGateway.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => [text_message("user", "new current request")],
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "metadata" => %{"actor_event_id" => "context-retry-event"}
+             })
+
+    assert_receive {:gateway_request, first_request}
+    assert_receive {:gateway_request, second_request}
+    assert byte_size(second_request.body["input"]) < byte_size(first_request.body["input"])
+  end
+
+  test "websocket stateful auto-compaction skips light selector for high reasoning requests" do
+    %{principal: agent} = agent_fixture()
+
+    with_compaction_config(threshold: 0.50, max_threshold_tokens: 10, tail_rows: 1)
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        assert request.body["model"] == "gpt-main"
+        {:json, 200, response_summary("## Active Task\nPrimary high reasoning summary")}
+      end)
+
+    create_openai_compaction_provider!(agent, "openai-compaction-high-reasoning", base_url,
+      profiles: [{"primary", "gpt-main"}]
+    )
+
+    {conversation, _tail} = compactable_conversation!(agent, "dispatch-high-reasoning")
+
+    assert {:ok, _request} =
+             AIGateway.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "reasoning" => %{"effort" => "high"},
+               "input" => [text_message("user", "new current request")],
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "metadata" => %{"actor_event_id" => "high-reasoning-event"}
+             })
+
+    assert_receive {:gateway_request, primary_request}
+    assert primary_request.body["model"] == "gpt-main"
+    refute_receive {:gateway_request, _request}, 100
   end
 
   test "websocket stateful overflow returns an explicit error when truncation is disabled" do
@@ -2515,6 +2730,92 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     end)
   end
 
+  defp response_summary(text) do
+    %{
+      "id" => "resp_summary_#{System.unique_integer([:positive])}",
+      "object" => "response",
+      "status" => "completed",
+      "output" => [
+        %{
+          "type" => "message",
+          "role" => "assistant",
+          "content" => [
+            %{"type" => "output_text", "text" => text, "annotations" => []}
+          ]
+        }
+      ],
+      "usage" => %{"input_tokens" => 11, "output_tokens" => 7, "total_tokens" => 18}
+    }
+  end
+
+  defp create_openai_compaction_provider!(agent, provider_id, base_url, opts \\ []) do
+    profiles =
+      Keyword.get(opts, :profiles, [{"primary", "gpt-main"}, {"light", "gpt-compact-light"}])
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: provider_id,
+               provider_kind: "openai",
+               base_url: "#{base_url}/v1",
+               connection_options: %{
+                 "api_key" => "sk-openai",
+                 "upstream_transport" => "websocket",
+                 "transport" => %{"http_versions" => ["h1"], "compression" => ["gzip"]}
+               }
+             })
+
+    for profile_entry <- profiles do
+      {profile, model, context_length} =
+        case profile_entry do
+          {profile, model} -> {profile, model, nil}
+          {profile, model, context_length} -> {profile, model, context_length}
+        end
+
+      assert {:ok, _profile} =
+               ModelProfiles.put_model_profile(
+                 agent.uid,
+                 profile,
+                 %{
+                   provider_id: provider_id,
+                   model: model
+                 }
+                 |> maybe_put("context_length", context_length)
+               )
+    end
+  end
+
+  defp compactable_conversation!(agent, conversation_key, extra_text \\ "") do
+    {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, conversation_key)
+
+    {:ok, m1} =
+      start_stateful_message(agent.uid, conversation, "#{conversation_key}-a", [
+        text_message(
+          "user",
+          "first user message with enough detail " <> String.duplicate("wide ", 80)
+        ),
+        text_message("assistant", "first assistant answer " <> extra_text)
+      ])
+
+    {:ok, m1} = StatefulResponses.commit_complete(m1, [], camel_usage(160_000))
+
+    {:ok, m2} =
+      start_linked_stateful_message(agent.uid, conversation, m1, "#{conversation_key}-b", [
+        text_message("user", "second user message with enough detail"),
+        text_message("assistant", "second assistant answer " <> extra_text)
+      ])
+
+    {:ok, m2} = StatefulResponses.commit_complete(m2, [], camel_usage(160_000))
+
+    {:ok, m3} =
+      start_linked_stateful_message(agent.uid, conversation, m2, "#{conversation_key}-tail", [
+        text_message("user", "tail user says stop doing X")
+      ])
+
+    {:ok, m3} = StatefulResponses.commit_complete(m3, [], camel_usage(4))
+
+    {conversation, m3}
+  end
+
   defp start_stateful_message(agent_uid, conversation, source_event_id, request_items) do
     actor_event = actor_event_fixture(agent_uid, conversation.conversation_key, source_event_id)
 
@@ -2793,4 +3094,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     assert Enum.map(events, & &1["sequence_number"]) == Enum.to_list(0..7)
   end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end
