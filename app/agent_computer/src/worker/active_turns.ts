@@ -1,7 +1,7 @@
 import { classifyLlmError } from '../core/llm-error-classifier'
 import { workerProgressEnvelope } from '../fabric/envelopes'
 import type { JsonObject } from '@pleisto/active-support'
-import { isRuntimeFabricBackpressure, type ReliableEnvelopeSender } from '../fabric/sender'
+import { isRuntimeFabricTransportError, type EnvelopeSender } from '../fabric/fabric'
 import type { ActorTurnRef, TurnStart, TurnSteerUpdate } from '../lanes/actor_lane'
 import type { WorkerConfig } from './config'
 import { workerLogger } from './logging'
@@ -40,7 +40,7 @@ export type TurnProgressReporter = {
 }
 
 export function startTurnProgress(
-  sendEnvelope: ReliableEnvelopeSender,
+  sendEnvelope: EnvelopeSender,
   active: ActiveTurn,
   opts: { requireActivity?: boolean; intervalMs?: number } = {}
 ): TurnProgressReporter {
@@ -84,17 +84,13 @@ export function startTurnProgress(
  * Backpressure is expected under load, so progress failure is recorded as
  * telemetry instead of turning a healthy in-flight turn into a durable failure.
  */
-async function sendTurnProgress(
-  sendEnvelope: ReliableEnvelopeSender,
-  active: ActiveTurn,
-  summary: string
-): Promise<void> {
+async function sendTurnProgress(sendEnvelope: EnvelopeSender, active: ActiveTurn, summary: string): Promise<void> {
   try {
     await sendEnvelope(workerProgressEnvelope(active.turnStart.turn, 'checkpoint', summary, active.correlationId))
   } catch (error) {
     workerLogger.warning('worker.turn_progress_skipped', 'worker turn progress skipped', {
       actor_event_id: active.turnStart.turn.actor_event_id,
-      reason: isRuntimeFabricBackpressure(error) ? 'backpressure' : 'send_error',
+      reason: isRuntimeFabricTransportError(error, 'backpressure') ? 'backpressure' : 'send_error',
       error: error instanceof Error ? error : new Error(String(error))
     })
   }

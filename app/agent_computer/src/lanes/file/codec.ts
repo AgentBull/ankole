@@ -1,14 +1,13 @@
 import { Buffer } from 'node:buffer'
 import type { FingerprintMode, ListEntry } from './types'
-import type { ReliableFileFrameSender } from '../../fabric/sender'
+import { runtimeFabricFileProtocol, type FileFrameSender } from '../../fabric/fabric'
 
-export const fileTransferProtocol = Buffer.from('ANKOLE_FILE/1')
 export const chunkSize = 2 * 1024 * 1024
 export const creditWindow = 4 * 1024 * 1024
 export const zstdLevel = 3
 
 export function isFileTransferFrame(frames: Buffer[]): boolean {
-  return frames.length > 0 && frames[0].equals(fileTransferProtocol)
+  return frames.length > 0 && frames[0].equals(runtimeFabricFileProtocol)
 }
 
 export function readU64Frame(frame: Buffer | undefined, label: string): number {
@@ -68,7 +67,7 @@ export function encodeEntries(entries: ListEntry[]): Buffer {
 }
 
 export async function sendError(
-  sender: ReliableFileFrameSender,
+  sender: FileFrameSender,
   transferId: string,
   code: string,
   message: string
@@ -76,8 +75,8 @@ export async function sendError(
   await sendFrame(sender, ['ERROR', transferId, code, message])
 }
 
-export async function sendFrame(sender: ReliableFileFrameSender, parts: Array<string | Buffer>): Promise<void> {
-  await sender([fileTransferProtocol, ...parts.map(part => (typeof part === 'string' ? Buffer.from(part) : part))])
+export async function sendFrame(sender: FileFrameSender, parts: Array<string | Buffer>): Promise<void> {
+  await sender([runtimeFabricFileProtocol, ...parts.map(part => (typeof part === 'string' ? Buffer.from(part) : part))])
 }
 
 function encodeEntry(entry: ListEntry): Buffer[] {

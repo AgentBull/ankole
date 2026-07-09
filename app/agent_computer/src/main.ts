@@ -1,4 +1,3 @@
-import * as kernel from '../../kernel'
 import { match, type JsonObject } from '@pleisto/active-support'
 import { mailboxUpdatedFromEnvelope, turnControlFromEnvelope, turnStartFromEnvelope } from './lanes/actor_lane'
 import { runTurnHandlers } from './core'
@@ -7,13 +6,12 @@ import type { RpcError, RpcRequest, RpcResponse } from './lanes/rpc_lane'
 import { RuntimeRpcClient, handleWorkerRpcRequest } from './lanes/rpc_lane'
 import { parseWorkerEnv, workerCapacityEnvelope, workerHeartbeatEnvelope, workerReadyEnvelope } from './worker/config'
 import type { WorkerConfig } from './worker/config'
-import { decodeEnvelope, type RuntimeFabricEnvelope } from './fabric/fabric'
 import {
-  isRuntimeFabricBackpressure,
-  reliableEnvelopeSender,
-  reliableFileFrameSender,
-  type ReliableEnvelopeSender
-} from './fabric/sender'
+  connectRuntimeFabric,
+  isRuntimeFabricTransportError,
+  type EnvelopeSender,
+  type RuntimeFabricEnvelope
+} from './fabric/fabric'
 import { prepareTurnWorkspace, verifyWorkerFilesystem } from './worker/workspace'
 import { createFileTransferLane } from './lanes/file'
 import { resolveBubblewrapSupport } from './tools/computer/bubblewrap'
@@ -66,9 +64,9 @@ async function runWorker(): Promise<void> {
   verifyWorkerFilesystem(config)
   logBubblewrapSupport(config.workspaceRoot)
 
-  const dealer = new kernel.RuntimeFabricDealer(config.endpoint, config.workerId, config.workerId, config.workerAuthKey)
-  const sendEnvelope = reliableEnvelopeSender(envelope => dealer.sendEnvelope(envelope))
-  const sendFileFrame = reliableFileFrameSender(frames => dealer.sendFileFrame(frames))
+  const fabric = connectRuntimeFabric(config)
+  const sendEnvelope = fabric.sendEnvelope
+  const sendFileFrame = fabric.sendFileFrame
   const rpcClient = new RuntimeRpcClient(sendEnvelope)
   const activeTurns = new Map<string, ActiveTurn>()
   const fileLane = createFileTransferLane(config, sendFileFrame)
@@ -99,16 +97,15 @@ async function runWorker(): Promise<void> {
         nextHeartbeatAt = Date.now() + heartbeatIntervalMs
       }
 
-      const frames = await dealer.recvRawAsync(500)
-      if (!frames) continue
+      const received = await fabric.receive(500)
+      if (received.kind === 'timeout') continue
 
-      if (fileLane.accepts(frames)) {
-        await fileLane.handle(frames)
+      if (received.kind === 'worker_file') {
+        await fileLane.handle(received.frames)
         continue
       }
 
-      if (!frames[0]) continue
-      const envelope = decodeEnvelope(frames[0])
+      const envelope = received.envelope
       workerLogger.debug('worker.envelope_received', 'runtime fabric envelope received', {
         envelope_type: envelope.body.type,
         message_id: envelope.message_id
@@ -116,7 +113,7 @@ async function runWorker(): Promise<void> {
       await handleEnvelope(config, sendEnvelope, rpcClient, activeTurns, envelope)
     }
   } finally {
-    dealer.stop()
+    fabric.stop()
   }
 }
 
@@ -152,11 +149,11 @@ function logBubblewrapSupport(workspaceRoot: string): void {
  * worse failure mode than letting the control plane expire the lease if the pipe
  * is actually broken.
  */
-async function sendHeartbeat(sendEnvelope: ReliableEnvelopeSender, heartbeat: RuntimeFabricEnvelope): Promise<void> {
+async function sendHeartbeat(sendEnvelope: EnvelopeSender, heartbeat: RuntimeFabricEnvelope): Promise<void> {
   try {
     await sendEnvelope(heartbeat)
   } catch (error) {
-    if (!isRuntimeFabricBackpressure(error)) {
+    if (!isRuntimeFabricTransportError(error, 'backpressure')) {
       throw error
     }
 
@@ -173,7 +170,7 @@ async function sendHeartbeat(sendEnvelope: ReliableEnvelopeSender, heartbeat: Ru
  */
 async function handleEnvelope(
   config: WorkerConfig,
-  sendEnvelope: ReliableEnvelopeSender,
+  sendEnvelope: EnvelopeSender,
   rpcClient: RuntimeRpcClient,
   activeTurns: Map<string, ActiveTurn>,
   envelope: RuntimeFabricEnvelope
@@ -201,7 +198,7 @@ async function handleEnvelope(
  */
 async function startTurn(
   config: WorkerConfig,
-  sendEnvelope: ReliableEnvelopeSender,
+  sendEnvelope: EnvelopeSender,
   rpcClient: RuntimeRpcClient,
   activeTurns: Map<string, ActiveTurn>,
   envelope: RuntimeFabricEnvelope
@@ -267,7 +264,7 @@ async function startTurn(
  */
 async function runActiveTurnTask(
   config: WorkerConfig,
-  sendEnvelope: ReliableEnvelopeSender,
+  sendEnvelope: EnvelopeSender,
   rpcClient: RuntimeRpcClient,
   active: ActiveTurn,
   activeTurns: Map<string, ActiveTurn>
@@ -330,7 +327,7 @@ async function runActiveTurnTask(
  */
 async function runActiveTurn(
   config: WorkerConfig,
-  sendEnvelope: ReliableEnvelopeSender,
+  sendEnvelope: EnvelopeSender,
   rpcClient: RuntimeRpcClient,
   active: ActiveTurn,
   onTurnActivity: (description?: string) => void
@@ -399,7 +396,7 @@ function turnOperation(actorEventId: string, flags: { first?: boolean; last?: bo
  * journaled actor event; the worker must not synthesize steer text locally.
  */
 async function handleMailboxUpdated(
-  sendEnvelope: ReliableEnvelopeSender,
+  sendEnvelope: EnvelopeSender,
   activeTurns: Map<string, ActiveTurn>,
   envelope: RuntimeFabricEnvelope
 ): Promise<void> {

@@ -3,12 +3,10 @@
 /** Bun/Node DEALER-side RuntimeFabric client. */
 export declare class RuntimeFabricDealer {
   constructor(endpoint: string, identity: string, username: string, password: string)
-  sendEnvelope(envelope: any): string
-  sendFileFrame(frames: Buffer[]): string
-  recv(timeoutMs: number): Buffer | null
-  recvRaw(timeoutMs: number): Buffer[] | null
+  sendEnvelope(envelope: any): void
+  sendFileFrame(frames: Buffer[]): void
   recvRawAsync(timeoutMs: number): Promise<Buffer[] | null>
-  stop(): boolean
+  stop(): void
 }
 export type JsRuntimeFabricDealer = RuntimeFabricDealer
 

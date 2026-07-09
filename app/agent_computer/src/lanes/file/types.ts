@@ -1,4 +1,4 @@
-import type { ReliableFileFrameSender } from '../../fabric/sender'
+import type { FileFrameSender } from '../../fabric/fabric'
 import type { WorkerConfig } from '../../worker/config'
 
 export type FileRoot = 'user_files' | 'agent_installed_skills' | 'workspace_sessions'
@@ -54,7 +54,7 @@ export type FileTransferState = {
 
 export type FileTransferContext = {
   config: WorkerConfig
-  sender: ReliableFileFrameSender
+  sender: FileFrameSender
   state: FileTransferState
 }
 

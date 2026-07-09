@@ -56,10 +56,24 @@ describe('@ankole/kernel', () => {
     await expect(kernel.zstdDecompressBlock(compressed, 8)).rejects.toThrow(/decompressed block exceeds max_out/)
   })
 
-  it('declares RuntimeFabric raw file-transfer methods', () => {
+  it('keeps the RuntimeFabric dealer surface async and physical', () => {
     expect(kernel.RuntimeFabricDealer.prototype.sendFileFrame).toBeFunction()
-    expect(kernel.RuntimeFabricDealer.prototype.recvRaw).toBeFunction()
     expect(kernel.RuntimeFabricDealer.prototype.recvRawAsync).toBeFunction()
+    expect(kernel.RuntimeFabricDealer.prototype.recv).toBeUndefined()
+    expect(kernel.RuntimeFabricDealer.prototype.recvRaw).toBeUndefined()
+  })
+
+  it('surfaces RuntimeFabric decode failures and void dealer stop through the native binding', () => {
+    expect(() => kernel.runtimeFabricDecodeEnvelope(Buffer.from('not-protobuf'))).toThrow()
+
+    const dealer = new kernel.RuntimeFabricDealer(
+      'tcp://127.0.0.1:1',
+      'worker-binding-test',
+      'worker-binding-test',
+      'test-secret'
+    )
+
+    expect(dealer.stop()).toBeUndefined()
   })
 
   it('evaluates SignalsGateway CEL filters through the Bun bridge', () => {

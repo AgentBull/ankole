@@ -134,50 +134,21 @@ impl JsRuntimeFabricDealer {
     }
 
     #[napi(ts_args_type = "envelope: any")]
-    pub fn send_envelope(&self, envelope: JsonValue) -> Result<String> {
+    pub fn send_envelope(&self, envelope: JsonValue) -> Result<()> {
         self.handle
             .send_envelope(envelope)
-            .map(|_| "sent_or_queued".to_string())
+            .map(|_| ())
             .map_err(runtime_fabric_error)
     }
 
     #[napi(ts_args_type = "frames: Buffer[]")]
-    pub fn send_file_frame(&self, frames: Vec<Buffer>) -> Result<String> {
+    pub fn send_file_frame(&self, frames: Vec<Buffer>) -> Result<()> {
         let frames = frames.into_iter().map(|frame| frame.to_vec()).collect();
 
         self.handle
             .send_file_frame(frames)
-            .map(|_| "sent_or_queued".to_string())
+            .map(|_| ())
             .map_err(runtime_fabric_error)
-    }
-
-    #[napi]
-    pub fn recv(&self, timeout_ms: u32) -> Result<Option<Buffer>> {
-        match self
-            .handle
-            .recv_envelope(Duration::from_millis(u64::from(timeout_ms)))
-            .map_err(runtime_fabric_error)?
-        {
-            Some(DealerEvent::Received(payload)) => Ok(Some(Buffer::from(payload))),
-            Some(DealerEvent::FileFrame(_frames)) => Err(Error::new(
-                Status::GenericFailure,
-                "received worker file lane frame; use recvRaw",
-            )),
-            Some(DealerEvent::DecodeFailed(reason)) | Some(DealerEvent::SocketError(reason)) => {
-                Err(Error::new(Status::GenericFailure, reason))
-            }
-            None => Ok(None),
-        }
-    }
-
-    #[napi(ts_return_type = "Buffer[] | null")]
-    pub fn recv_raw(&self, timeout_ms: u32) -> Result<Option<Vec<Buffer>>> {
-        recv_raw_output(
-            self.handle
-                .recv(Duration::from_millis(u64::from(timeout_ms)))
-                .map_err(runtime_fabric_error)?,
-        )
-        .map_err(|error| Error::new(Status::GenericFailure, error))
     }
 
     #[napi(ts_return_type = "Promise<Buffer[] | null>")]
@@ -189,11 +160,8 @@ impl JsRuntimeFabricDealer {
     }
 
     #[napi]
-    pub fn stop(&self) -> Result<bool> {
-        self.handle
-            .stop()
-            .map(|_| true)
-            .map_err(runtime_fabric_error)
+    pub fn stop(&self) -> Result<()> {
+        self.handle.stop().map_err(runtime_fabric_error)
     }
 }
 
@@ -223,10 +191,6 @@ impl Task for RecvRawTask {
 pub enum RawDealerFrames {
     Envelope(Vec<u8>),
     FileFrame(Vec<Vec<u8>>),
-}
-
-fn recv_raw_output(event: Option<DealerEvent>) -> std::result::Result<Option<Vec<Buffer>>, String> {
-    Ok(raw_dealer_frames(event)?.map(raw_frames_to_buffers))
 }
 
 fn raw_dealer_frames(

@@ -1,6 +1,6 @@
 import type { ActorEventEnvelope, ActorTurnRef } from './actor_lane'
 import type { RuntimeFabricEnvelope } from '../fabric/fabric'
-import type { ReliableEnvelopeSender } from '../fabric/sender'
+import type { EnvelopeSender } from '../fabric/fabric'
 import type { JsonObject } from '@pleisto/active-support'
 import type { InstalledSkillObservation } from '../skills/types'
 
@@ -436,7 +436,7 @@ export function rpcErrorEnvelopeBody(error: RpcError): {
 export class RuntimeRpcClient {
   private waiters = new Map<string, RpcWaiter>()
 
-  constructor(private readonly sendEnvelope: ReliableEnvelopeSender) {}
+  constructor(private readonly sendEnvelope: EnvelopeSender) {}
 
   /**
    * Sends one typed RPC request and waits for its reply.
@@ -497,7 +497,7 @@ export class RuntimeRpcClient {
 /**
  * Handles a control-plane-originated RPC request by sending an RPC reply.
  */
-export async function handleWorkerRpcRequest(sendEnvelope: ReliableEnvelopeSender, request: RpcRequest): Promise<void> {
+export async function handleWorkerRpcRequest(sendEnvelope: EnvelopeSender, request: RpcRequest): Promise<void> {
   await sendEnvelope(workerRpcReplyEnvelope(dispatchWorkerRpcRequest(request), request.request_id))
 }
 

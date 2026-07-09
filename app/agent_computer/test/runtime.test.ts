@@ -1,12 +1,11 @@
 import { describe, expect, it } from 'bun:test'
 import type { JsonObject } from '@pleisto/active-support'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { zstdCompressBlock, zstdDecompressBlock } from '@ankole/kernel'
+import { runtimeFabricEncodeEnvelope, zstdCompressBlock, zstdDecompressBlock } from '@ankole/kernel'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createFileTransferLane } from '../src/lanes/file'
-import { fileTransferProtocol } from '../src/lanes/file/codec'
-import { encodeEnvelope } from '../src/fabric/fabric'
+import { runtimeFabricFileProtocol } from '../src/fabric/fabric'
 import {
   parseRuntimeFabricUrl,
   workerCapacityEnvelope,
@@ -14,7 +13,6 @@ import {
   workerReadyEnvelope
 } from '../src/worker/config'
 import { handleWorkerRpcRequest, type RpcRequest } from '../src/lanes/rpc_lane'
-import { isRuntimeFabricBackpressure, reliableEnvelopeSender, reliableFileFrameSender } from '../src/fabric/sender'
 import { workerProgressEnvelope } from '../src/fabric/envelopes'
 import type { WorkerConfig } from '../src/worker/config'
 import { prepareTurnWorkspace } from '../src/worker/workspace'
@@ -53,9 +51,9 @@ describe('@ankole/agent-computer runtime', () => {
     expect(capacity.body.worker_capacity as { available_turn_slots: number }).toMatchObject({
       available_turn_slots: 9
     })
-    expect(encodeEnvelope(ready)).toBeInstanceOf(Buffer)
-    expect(encodeEnvelope(heartbeat)).toBeInstanceOf(Buffer)
-    expect(encodeEnvelope(capacity)).toBeInstanceOf(Buffer)
+    expect(runtimeFabricEncodeEnvelope(ready)).toBeInstanceOf(Buffer)
+    expect(runtimeFabricEncodeEnvelope(heartbeat)).toBeInstanceOf(Buffer)
+    expect(runtimeFabricEncodeEnvelope(capacity)).toBeInstanceOf(Buffer)
   })
 
   it('reports available capacity from configured concurrent turn slots', () => {
@@ -90,7 +88,7 @@ describe('@ankole/agent-computer runtime', () => {
       summary: 'turn in progress',
       refs_json: { stage: 'llm' }
     })
-    expect(encodeEnvelope(envelope)).toBeInstanceOf(Buffer)
+    expect(runtimeFabricEncodeEnvelope(envelope)).toBeInstanceOf(Buffer)
   })
 
   it('renews subagent progress only after observed runtime activity', async () => {
@@ -203,51 +201,6 @@ describe('@ankole/agent-computer runtime', () => {
     ).toThrow(/turn_start\.turn is required/)
   })
 
-  it('retries transient RuntimeFabric backpressure without hiding permanent send errors', async () => {
-    const envelope = workerReadyEnvelope(workerConfig())
-    let attempts = 0
-
-    const sender = reliableEnvelopeSender(
-      () => {
-        attempts += 1
-        if (attempts < 3) {
-          throw new Error('backpressure')
-        }
-      },
-      { initialDelayMs: 1, maxDelayMs: 1, maxAttempts: 4 }
-    )
-
-    await sender(envelope)
-    expect(attempts).toBe(3)
-    expect(isRuntimeFabricBackpressure(new Error('backpressure'))).toBe(true)
-
-    let nonRetryAttempts = 0
-    const nonRetryingSender = reliableEnvelopeSender(
-      () => {
-        nonRetryAttempts += 1
-        throw new Error('socket_closed')
-      },
-      { initialDelayMs: 1, maxDelayMs: 1, maxAttempts: 4 }
-    )
-
-    await expect(nonRetryingSender(envelope)).rejects.toThrow('socket_closed')
-    expect(nonRetryAttempts).toBe(1)
-
-    let fileFrameAttempts = 0
-    const fileFrameSender = reliableFileFrameSender(
-      () => {
-        fileFrameAttempts += 1
-        if (fileFrameAttempts < 3) {
-          throw new Error('backpressure')
-        }
-      },
-      { initialDelayMs: 1, maxDelayMs: 1, maxAttempts: 4 }
-    )
-
-    await fileFrameSender([fileTransferProtocol, Buffer.from('STAT'), Buffer.from('retry-1')])
-    expect(fileFrameAttempts).toBe(3)
-  })
-
   it('rejects unknown control-plane-initiated worker RPC requests', async () => {
     const sent: ReturnType<typeof workerReadyEnvelope>[] = []
     const request: RpcRequest = {
@@ -269,7 +222,7 @@ describe('@ankole/agent-computer runtime', () => {
       code: 'unknown_rpc_method',
       details_json: { method: 'test.probe' }
     })
-    expect(encodeEnvelope(sent[0]!)).toBeInstanceOf(Buffer)
+    expect(runtimeFabricEncodeEnvelope(sent[0]!)).toBeInstanceOf(Buffer)
   })
 
   it('returns RPC errors for unknown worker methods', async () => {
@@ -293,7 +246,7 @@ describe('@ankole/agent-computer runtime', () => {
       code: 'unknown_rpc_method',
       details_json: { method: 'worker.unknown' }
     })
-    expect(encodeEnvelope(sent[0]!)).toBeInstanceOf(Buffer)
+    expect(runtimeFabricEncodeEnvelope(sent[0]!)).toBeInstanceOf(Buffer)
   })
 
   it('handles worker file lane WRITE and READ through zstd DATA credit', async () => {
@@ -320,9 +273,8 @@ describe('@ankole/agent-computer runtime', () => {
       const compressed = await zstdCompressBlock(Buffer.from(plainText), 3)
 
       const transferId = 'transfer-1'
-      expect(lane.accepts([fileTransferProtocol, Buffer.from('WRITE_OPEN')])).toBe(true)
       await lane.handle([
-        fileTransferProtocol,
+        runtimeFabricFileProtocol,
         Buffer.from('WRITE_OPEN'),
         Buffer.from(transferId),
         Buffer.from('/user_files/inbox/lark/message-1/hello.txt'),
@@ -331,7 +283,7 @@ describe('@ankole/agent-computer runtime', () => {
       expect(frameFor(sentFrames, transferId, 'WRITE_READY')[3]).toEqual(u64Frame(creditWindow))
 
       await lane.handle([
-        fileTransferProtocol,
+        runtimeFabricFileProtocol,
         Buffer.from('DATA'),
         Buffer.from(transferId),
         u64Frame(0),
@@ -341,7 +293,7 @@ describe('@ankole/agent-computer runtime', () => {
       ])
       expect(frameFor(sentFrames, transferId, 'CREDIT')[3]).toEqual(u64Frame(compressed.byteLength))
 
-      await lane.handle([fileTransferProtocol, Buffer.from('WRITE_COMMIT'), Buffer.from(transferId)])
+      await lane.handle([runtimeFabricFileProtocol, Buffer.from('WRITE_COMMIT'), Buffer.from(transferId)])
 
       expect(readFileSync(join(config.userFilesRoot, 'inbox/lark/message-1/hello.txt'), 'utf8')).toBe(plainText)
       const committed = frameFor(sentFrames, transferId, 'WRITE_COMMITTED')
@@ -351,7 +303,7 @@ describe('@ankole/agent-computer runtime', () => {
 
       const getTransferId = 'transfer-2'
       await lane.handle([
-        fileTransferProtocol,
+        runtimeFabricFileProtocol,
         Buffer.from('READ_OPEN'),
         Buffer.from(getTransferId),
         Buffer.from('/user_files/inbox/lark/message-1/hello.txt'),
@@ -364,7 +316,7 @@ describe('@ankole/agent-computer runtime', () => {
       expect(dataChunks(sentFrames, getTransferId)).toHaveLength(0)
 
       await lane.handle([
-        fileTransferProtocol,
+        runtimeFabricFileProtocol,
         Buffer.from('CREDIT'),
         Buffer.from(getTransferId),
         u64Frame(creditWindow)
@@ -381,7 +333,7 @@ describe('@ankole/agent-computer runtime', () => {
 
       const abortTransferId = 'transfer-read-abort'
       await lane.handle([
-        fileTransferProtocol,
+        runtimeFabricFileProtocol,
         Buffer.from('READ_OPEN'),
         Buffer.from(abortTransferId),
         Buffer.from('/user_files/inbox/lark/message-1/hello.txt'),
@@ -390,8 +342,8 @@ describe('@ankole/agent-computer runtime', () => {
       expect(frameFor(sentFrames, abortTransferId, 'READ_READY')[3]?.toString('utf8')).toBe(
         '/user_files/inbox/lark/message-1/hello.txt'
       )
-      await lane.handle([fileTransferProtocol, Buffer.from('READ_ABORT'), Buffer.from(abortTransferId)])
-      await lane.handle([fileTransferProtocol, Buffer.from('CREDIT'), Buffer.from(abortTransferId), u64Frame(1)])
+      await lane.handle([runtimeFabricFileProtocol, Buffer.from('READ_ABORT'), Buffer.from(abortTransferId)])
+      await lane.handle([runtimeFabricFileProtocol, Buffer.from('CREDIT'), Buffer.from(abortTransferId), u64Frame(1)])
       expect(frameFor(sentFrames, abortTransferId, 'ERROR')[3]?.toString('utf8')).toBe('operation_failed')
       expect(JSON.stringify(sentFrames)).not.toContain('object_key')
       expect(JSON.stringify(sentFrames)).not.toContain('sha256')
@@ -416,7 +368,7 @@ describe('@ankole/agent-computer runtime', () => {
 
       const lane = createFileTransferLane(config, sender.sendFileFrame)
       await lane.handle([
-        fileTransferProtocol,
+        runtimeFabricFileProtocol,
         Buffer.from('LIST'),
         Buffer.from('list-1'),
         Buffer.from('/user_files/inbox'),
@@ -434,7 +386,7 @@ describe('@ankole/agent-computer runtime', () => {
       )
 
       await lane.handle([
-        fileTransferProtocol,
+        runtimeFabricFileProtocol,
         Buffer.from('STAT'),
         Buffer.from('stat-1'),
         Buffer.from('/user_files/inbox/lark/message-1/hello.txt'),
@@ -443,7 +395,7 @@ describe('@ankole/agent-computer runtime', () => {
       expect(frameFor(sentFrames, 'stat-1', 'STAT_OK')[7]?.toString('utf8')).toMatch(/^[a-f0-9]{32}$/)
 
       await lane.handle([
-        fileTransferProtocol,
+        runtimeFabricFileProtocol,
         Buffer.from('MOVE'),
         Buffer.from('move-1'),
         Buffer.from('/user_files/inbox/lark/message-1/hello.txt'),
@@ -454,7 +406,7 @@ describe('@ankole/agent-computer runtime', () => {
       expect(readFileSync(join(config.userFilesRoot, 'inbox/lark/message-1/renamed.txt'), 'utf8')).toBe('hello world')
 
       await lane.handle([
-        fileTransferProtocol,
+        runtimeFabricFileProtocol,
         Buffer.from('DELETE'),
         Buffer.from('delete-1'),
         Buffer.from('/user_files/inbox/lark/message-1/renamed.txt'),
@@ -480,7 +432,7 @@ describe('@ankole/agent-computer runtime', () => {
       mkdirSync(config.agentInstalledSkillsRoot, { recursive: true })
 
       await lane.handle([
-        fileTransferProtocol,
+        runtimeFabricFileProtocol,
         Buffer.from('LIST'),
         Buffer.from('list-root'),
         Buffer.from('/user_files'),
@@ -490,7 +442,7 @@ describe('@ankole/agent-computer runtime', () => {
       expect(frameFor(sentFrames, 'list-root', 'LIST_OK')[3]?.toString('utf8')).toBe('/user_files')
 
       await lane.handle([
-        fileTransferProtocol,
+        runtimeFabricFileProtocol,
         Buffer.from('STAT'),
         Buffer.from('absolute-path'),
         Buffer.from('/user_files//tmp/escape.txt'),
@@ -499,7 +451,7 @@ describe('@ankole/agent-computer runtime', () => {
       expect(errorMessageFor(sentFrames, 'absolute-path')).toMatch(/relative_path must not be absolute/)
 
       await lane.handle([
-        fileTransferProtocol,
+        runtimeFabricFileProtocol,
         Buffer.from('STAT'),
         Buffer.from('parent-path'),
         Buffer.from('/user_files/../escape.txt'),
@@ -508,7 +460,7 @@ describe('@ankole/agent-computer runtime', () => {
       expect(errorMessageFor(sentFrames, 'parent-path')).toMatch(/invalid relative_path/)
 
       await lane.handle([
-        fileTransferProtocol,
+        runtimeFabricFileProtocol,
         Buffer.from('STAT'),
         Buffer.from('bad-root'),
         Buffer.from('/unsupported/file.txt'),
@@ -517,7 +469,7 @@ describe('@ankole/agent-computer runtime', () => {
       expect(errorMessageFor(sentFrames, 'bad-root')).toMatch(/unsupported file root/)
 
       await lane.handle([
-        fileTransferProtocol,
+        runtimeFabricFileProtocol,
         Buffer.from('WRITE_OPEN'),
         Buffer.from('../bad-transfer'),
         Buffer.from('/user_files/safe.txt'),
@@ -542,7 +494,7 @@ describe('@ankole/agent-computer runtime', () => {
       writeFileSync(join(config.workspaceSessionsRoot, 'agent-1/session-1/log.txt'), 'logs')
 
       await lane.handle([
-        fileTransferProtocol,
+        runtimeFabricFileProtocol,
         Buffer.from('LIST'),
         Buffer.from('list-sessions'),
         Buffer.from('/workspace_sessions/agent-1'),
@@ -561,7 +513,7 @@ describe('@ankole/agent-computer runtime', () => {
       )
 
       await lane.handle([
-        fileTransferProtocol,
+        runtimeFabricFileProtocol,
         Buffer.from('STAT'),
         Buffer.from('stat-sessions'),
         Buffer.from('/workspace_sessions/agent-1/session-1/log.txt'),
@@ -572,7 +524,7 @@ describe('@ankole/agent-computer runtime', () => {
       expect(readU64Frame(statFrame[5])).toBe(4)
 
       await lane.handle([
-        fileTransferProtocol,
+        runtimeFabricFileProtocol,
         Buffer.from('STAT'),
         Buffer.from('unknown-root'),
         Buffer.from('/shared_files/a.txt'),

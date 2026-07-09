@@ -205,6 +205,32 @@ fn router_dealer_round_trip_with_plain_auth_and_mandatory_route() {
     router.stop().expect("router stops");
 }
 
+#[test]
+fn disconnected_dealer_reports_backpressure_at_its_send_bound() {
+    let mut config = dealer_config("tcp://127.0.0.1:1");
+    config.socket.sndhwm = Some(1);
+    config.socket.sndtimeo_ms = Some(1);
+    let dealer = start_dealer(config).expect("dealer starts before its peer is available");
+
+    let mut backpressured = false;
+    for _attempt in 0..8 {
+        match dealer.send_envelope(worker_ready_envelope()) {
+            Ok(SendOutcome::SentOrQueued) => {}
+            Err(TransportError::Backpressure) => {
+                backpressured = true;
+                break;
+            }
+            Err(error) => panic!("unexpected disconnected dealer error: {error}"),
+        }
+    }
+
+    assert!(
+        backpressured,
+        "bounded dealer queue should surface backpressure"
+    );
+    dealer.stop().expect("dealer stops after backpressure");
+}
+
 fn router_config() -> RouterConfig {
     RouterConfig {
         endpoint: "tcp://127.0.0.1:*".to_string(),

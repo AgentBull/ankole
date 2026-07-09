@@ -118,9 +118,19 @@ binding:
 
 - Elixir uses `Ankole.Kernel.RuntimeFabric` and
   `Ankole.ActorRuntime.Transport.Broker`;
-- Bun uses `RuntimeFabricDealer`, `sendEnvelope`, `sendFileFrame`, and
-  `recvRaw`;
+- Bun uses one RuntimeFabric host adapter over the native
+  `RuntimeFabricDealer`; the adapter owns bounded send retry, native-error
+  translation, protobuf decode, raw envelope-versus-worker-file
+  classification, and explicit dealer stop;
 - envelope encoding and decoding always pass through the Rust protobuf codec.
+
+The Bun adapter returns typed receive outcomes (`timeout`, `envelope`, or
+`worker_file`) and typed transport errors. The Rust N-API binding deliberately
+stays physical: create the socket, send an envelope or multipart frame set,
+receive raw frames asynchronously, and stop. Actor/RPC dispatch, worker
+ready/capacity/heartbeat policy, and turn lifecycle remain above the adapter in
+the Agent Computer worker; moving those policies into the adapter would mix
+transport translation with worker semantics and make both modules shallower.
 
 Current socket defaults favor bounded behavior over hidden buffering:
 

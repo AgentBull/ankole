@@ -19,15 +19,14 @@ import {
 } from './transfer-write'
 import { deletePath, listPath, movePath, statPath } from './vfs'
 import type { FileTransferContext, FileTransferState } from './types'
-import type { ReliableFileFrameSender } from '../../fabric/sender'
+import type { FileFrameSender } from '../../fabric/fabric'
 import type { WorkerConfig } from '../../worker/config'
 
 export type FileTransferLane = {
-  accepts(frames: Buffer[]): boolean
   handle(frames: Buffer[]): Promise<void>
 }
 
-export function createFileTransferLane(config: WorkerConfig, sender: ReliableFileFrameSender): FileTransferLane {
+export function createFileTransferLane(config: WorkerConfig, sender: FileFrameSender): FileTransferLane {
   const context: FileTransferContext = {
     config,
     sender,
@@ -35,7 +34,6 @@ export function createFileTransferLane(config: WorkerConfig, sender: ReliableFil
   }
 
   return {
-    accepts: isFileTransferFrame,
     handle: frames => dispatchFrame(context, frames)
   }
 }
