@@ -1428,6 +1428,203 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert inspect(continuation_request.body) =~ "## Active Task\\nhello from compliance"
   end
 
+  test "compact endpoint compacts only items after the previous compaction item", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        cond do
+          request.path == "models" ->
+            {:json, 200, openrouter_models_fixture()}
+
+          inspect(request.body) =~ "second round follow-up" ->
+            {:json, 200,
+             request.body
+             |> chat_completion_fixture()
+             |> put_in(
+               ["choices", Access.at(0), "message", "content"],
+               "## Active Task\nsecond summary"
+             )}
+
+          true ->
+            {:json, 200,
+             request.body
+             |> chat_completion_fixture()
+             |> put_in(
+               ["choices", Access.at(0), "message", "content"],
+               "## Active Task\nfirst summary"
+             )}
+        end
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openrouter-compact-boundary",
+               provider_kind: "openrouter",
+               base_url: base_url,
+               connection_options: %{"api_key" => "sk-openrouter"}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openrouter-compact-boundary",
+               model: "openai/gpt-5.5",
+               context_length: 131_072
+             })
+
+    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+
+    first_conn =
+      conn
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> put_req_header("content-type", "application/json")
+      |> post("/api/v1/ai-gateway/responses/compact", %{
+        "model" => "primary",
+        "input" => [
+          %{"type" => "message", "role" => "user", "content" => "original kickoff request"},
+          %{
+            "type" => "message",
+            "role" => "assistant",
+            "content" => "original assistant answer"
+          }
+        ]
+      })
+
+    first_body = json_response(first_conn, 200)
+    first_summarizer = receive_summarizer_request()
+    assert summarizer_user_prompt(first_summarizer.body) =~ "original kickoff request"
+
+    second_conn =
+      build_conn()
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> put_req_header("content-type", "application/json")
+      |> post("/api/v1/ai-gateway/responses/compact", %{
+        "model" => "primary",
+        "input" =>
+          first_body["output"] ++
+            [
+              %{"type" => "message", "role" => "user", "content" => "second round follow-up"},
+              %{
+                "type" => "message",
+                "role" => "assistant",
+                "content" => "second round assistant answer"
+              },
+              %{"type" => "message", "role" => "user", "content" => "latest user question"}
+            ]
+      })
+
+    second_body = json_response(second_conn, 200)
+    second_summarizer = receive_summarizer_request()
+    second_prompt = summarizer_user_prompt(second_summarizer.body)
+
+    assert second_prompt =~ "second round follow-up"
+    assert second_prompt =~ "second round assistant answer"
+    assert second_prompt =~ "latest user question"
+    refute second_prompt =~ "original kickoff request"
+    refute second_prompt =~ "ankole:compact:v1:"
+
+    assert second_prompt =~
+             "<previous_chat_history>\n## Active Task\nfirst summary\n</previous_chat_history>"
+
+    assert [
+             %{"type" => "message", "role" => "user", "content" => "second round follow-up"},
+             %{"type" => "message", "role" => "user", "content" => "latest user question"},
+             %{"type" => "compaction", "id" => "cmp_" <> second_artifact_id}
+           ] = second_body["output"]
+
+    assert Repo.get!(CompactionArtifact, second_artifact_id).content["summary"] ==
+             %{"text" => "## Active Task\nsecond summary"}
+  end
+
+  test "compact endpoint discards unreadable foreign compaction state", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        if request.path == "models" do
+          {:json, 200, openrouter_models_fixture()}
+        else
+          {:json, 200, compact_chat_completion_fixture(request.body)}
+        end
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openrouter-compact-foreign-state",
+               provider_kind: "openrouter",
+               base_url: base_url,
+               connection_options: %{"api_key" => "sk-openrouter"}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openrouter-compact-foreign-state",
+               model: "openai/gpt-5.5",
+               context_length: 131_072
+             })
+
+    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+
+    foreign_state = String.duplicate("A", 40_000)
+
+    conn =
+      conn
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> put_req_header("content-type", "application/json")
+      |> post("/api/v1/ai-gateway/responses/compact", %{
+        "model" => "primary",
+        "input" => [
+          %{"type" => "compaction", "encrypted_content" => foreign_state},
+          %{"type" => "message", "role" => "user", "content" => "message after foreign state"},
+          %{
+            "type" => "message",
+            "role" => "assistant",
+            "content" => "answer after foreign state"
+          }
+        ]
+      })
+
+    body = json_response(conn, 200)
+
+    assert [
+             %{
+               "type" => "message",
+               "role" => "user",
+               "content" => "message after foreign state"
+             },
+             %{"type" => "compaction", "id" => "cmp_" <> artifact_id}
+           ] = body["output"]
+
+    summarizer = receive_summarizer_request()
+    prompt = summarizer_user_prompt(summarizer.body)
+
+    assert prompt =~ "message after foreign state"
+    refute prompt =~ "AAAA"
+    refute prompt =~ "<previous_chat_history>"
+
+    retention = Repo.get!(CompactionArtifact, artifact_id).content["retention"]
+    assert retention["previous_summary_discarded"] == true
+    assert retention["strategy"] == "standalone_user_messages"
+  end
+
+  test "compact endpoint rejects input with no items after the last compaction item", %{
+    conn: conn
+  } do
+    %{principal: agent} = agent_fixture()
+    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+
+    conn =
+      conn
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> put_req_header("content-type", "application/json")
+      |> post("/api/v1/ai-gateway/responses/compact", %{
+        "model" => "primary",
+        "input" => [%{"type" => "compaction", "encrypted_content" => "opaque prior state"}]
+      })
+
+    assert %{"error" => %{"code" => "no_compaction_candidate"}} = json_response(conn, 400)
+  end
+
   test "compact endpoint rejects standalone compact without model", %{conn: conn} do
     %{principal: agent} = agent_fixture()
     assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
@@ -1582,6 +1779,37 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     start_upstream_server(fn request ->
       send(test_pid, {:gateway_request, request})
       response_fun.(request)
+    end)
+  end
+
+  defp receive_summarizer_request do
+    assert_receive {:gateway_request, request}
+
+    if request.path == "models" do
+      receive_summarizer_request()
+    else
+      request
+    end
+  end
+
+  defp summarizer_user_prompt(body) do
+    body
+    |> Map.get("messages")
+    |> List.wrap()
+    |> Enum.find_value(fn
+      %{"role" => "user", "content" => content} when is_binary(content) ->
+        content
+
+      %{"role" => "user", "content" => parts} when is_list(parts) ->
+        parts
+        |> Enum.map(fn
+          %{"text" => text} when is_binary(text) -> text
+          _part -> ""
+        end)
+        |> Enum.join("\n")
+
+      _message ->
+        nil
     end)
   end
 end

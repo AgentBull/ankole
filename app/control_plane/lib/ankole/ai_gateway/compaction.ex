@@ -888,7 +888,9 @@ defmodule Ankole.AIGateway.Compaction do
                runtime,
                selector,
                items,
-               candidate.previous_chat_history, recent_items: recent_items) do
+               candidate.previous_chat_history,
+               recent_items: recent_items
+             ) do
         {:halt, {:ok, summary}}
       else
         {:error, _reason} = error -> {:cont, error}
