@@ -26,8 +26,16 @@ describe('@ankole/kernel', () => {
     }
   })
 
-  it('generates TypeScript declarations during build', async () => {
-    expect(await Bun.file(new URL('../index.d.ts', import.meta.url)).exists()).toBe(true)
+  it('generates the narrowed RuntimeFabric TypeScript declarations during build', async () => {
+    const declarations = Bun.file(new URL('../index.d.ts', import.meta.url))
+    expect(await declarations.exists()).toBe(true)
+
+    const source = await declarations.text()
+    expect(source).toContain('sendEnvelope(envelope: any): void')
+    expect(source).toContain('sendFileFrame(frames: Buffer[]): void')
+    expect(source).toContain('recvRawAsync(timeoutMs: number): Promise<Buffer[] | null>')
+    expect(source).toContain('stop(): void')
+    expect(source).not.toContain('recvRaw(timeoutMs')
   })
 
   it('computes string XXH3 fingerprints through the Bun bridge', () => {
@@ -73,6 +81,29 @@ describe('@ankole/kernel', () => {
       'test-secret'
     )
 
+    expect(dealer.stop()).toBeUndefined()
+  })
+
+  it('surfaces real native dealer backpressure with a stable error code', () => {
+    const dealer = new kernel.RuntimeFabricDealer(
+      'tcp://127.0.0.1:1',
+      'worker-binding-backpressure',
+      'worker-binding-backpressure',
+      'test-secret'
+    )
+
+    let sendError: unknown
+    for (let attempt = 0; attempt < 2_048; attempt += 1) {
+      try {
+        dealer.sendEnvelope(workerReadyEnvelope(`worker-binding-backpressure-${attempt}`))
+      } catch (error) {
+        sendError = error
+        break
+      }
+    }
+
+    expect(sendError).toBeInstanceOf(Error)
+    expect((sendError as Error).message).toBe('backpressure')
     expect(dealer.stop()).toBeUndefined()
   })
 
@@ -388,5 +419,23 @@ function actorEventEnvelope() {
     signal_channel_id: 'lark:chat:group-a',
     provider_thread_id: 'thread-1',
     payload_json: { text: 'PING' }
+  }
+}
+
+function workerReadyEnvelope(workerId: string) {
+  return {
+    protocol_version: 1,
+    message_id: `worker-ready-${workerId}`,
+    lane: 'LANE_CONTROL',
+    durability: 'CONTROL_EPHEMERAL',
+    body: {
+      type: 'worker_ready',
+      worker_ready: {
+        worker_id: workerId,
+        runtime: 'bun',
+        version: 'test',
+        capacity_json: { available_turn_slots: 1 }
+      }
+    }
   }
 }

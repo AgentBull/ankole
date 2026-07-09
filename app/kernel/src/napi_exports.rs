@@ -171,45 +171,26 @@ pub struct RecvRawTask {
 }
 
 impl Task for RecvRawTask {
-    type Output = Option<RawDealerFrames>;
+    type Output = Option<Vec<Vec<u8>>>;
     type JsValue = Option<Vec<Buffer>>;
 
     fn compute(&mut self) -> Result<Self::Output> {
         self.handle
             .recv(Duration::from_millis(u64::from(self.timeout_ms)))
             .map_err(runtime_fabric_error)
-            .and_then(|event| {
-                raw_dealer_frames(event).map_err(|error| Error::new(Status::GenericFailure, error))
-            })
+            .and_then(raw_dealer_frames)
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output.map(raw_frames_to_buffers))
+        Ok(output.map(|frames| frames.into_iter().map(Buffer::from).collect()))
     }
 }
 
-pub enum RawDealerFrames {
-    Envelope(Vec<u8>),
-    FileFrame(Vec<Vec<u8>>),
-}
-
-fn raw_dealer_frames(
-    event: Option<DealerEvent>,
-) -> std::result::Result<Option<RawDealerFrames>, String> {
+fn raw_dealer_frames(event: Option<DealerEvent>) -> Result<Option<Vec<Vec<u8>>>> {
     match event {
-        Some(DealerEvent::Received(payload)) => Ok(Some(RawDealerFrames::Envelope(payload))),
-        Some(DealerEvent::FileFrame(frames)) => Ok(Some(RawDealerFrames::FileFrame(frames))),
-        Some(DealerEvent::DecodeFailed(reason)) | Some(DealerEvent::SocketError(reason)) => {
-            Err(reason)
-        }
+        Some(DealerEvent::RawFrames(frames)) => Ok(Some(frames)),
+        Some(DealerEvent::SocketError(reason)) => Err(Error::new(Status::GenericFailure, reason)),
         None => Ok(None),
-    }
-}
-
-fn raw_frames_to_buffers(frames: RawDealerFrames) -> Vec<Buffer> {
-    match frames {
-        RawDealerFrames::Envelope(payload) => vec![Buffer::from(payload)],
-        RawDealerFrames::FileFrame(frames) => frames.into_iter().map(Buffer::from).collect(),
     }
 }
 

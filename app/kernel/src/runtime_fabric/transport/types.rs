@@ -23,9 +23,7 @@ pub enum RouterEvent {
 
 #[derive(Debug)]
 pub enum DealerEvent {
-    Received(Vec<u8>),
-    FileFrame(Vec<Vec<u8>>),
-    DecodeFailed(String),
+    RawFrames(Vec<Vec<u8>>),
     SocketError(String),
 }
 

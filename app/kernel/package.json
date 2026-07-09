@@ -21,7 +21,8 @@
     "fmt:check": "cargo fmt --manifest-path Cargo.toml --check && mix format --check-formatted",
     "lint": "cargo fmt --manifest-path Cargo.toml --check && cargo clippy --manifest-path Cargo.toml --no-default-features --all-targets -- -D warnings && cargo clippy --manifest-path Cargo.toml --no-default-features --features napi --all-targets -- -D warnings && cargo clippy --manifest-path Cargo.toml --no-default-features --features nif --all-targets -- -D warnings && mix format --check-formatted",
     "test": "bun run test:rust && bun run test:bun && bun run test:elixir",
-    "test:bun": "bun run build:bun && bun test",
+    "test:bun": "bun run build:bun && bun test --path-ignore-patterns=test/integration/**",
+    "test:bun:integration": "bun run build:bun && bun test ./test/integration",
     "test:elixir": "mix deps.get && mix test",
     "test:rust": "cargo test --manifest-path Cargo.toml --no-default-features && cargo test --manifest-path Cargo.toml --no-default-features --features napi && cargo test --manifest-path Cargo.toml --no-default-features --features nif",
     "type-check": "bun run build:bun"

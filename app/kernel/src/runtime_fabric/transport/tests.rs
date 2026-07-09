@@ -6,7 +6,7 @@ use serde_json::json;
 
 use crate::runtime_fabric;
 
-use super::dealer::DealerInbox;
+use super::dealer::{DealerInbox, emit_dealer_frames};
 use super::framing::FILE_TRANSFER_PROTOCOL;
 use super::router::RouterEventSink;
 use super::*;
@@ -56,8 +56,8 @@ fn validates_transport_config_bounds() {
 #[test]
 fn dealer_inbox_overflow_reports_error_and_closes() {
     let inbox = DealerInbox::new(1, 1024);
-    inbox.push(DealerEvent::Received(vec![1, 2, 3]));
-    inbox.push(DealerEvent::Received(vec![4, 5, 6]));
+    inbox.push(DealerEvent::RawFrames(vec![vec![1, 2, 3]]));
+    inbox.push(DealerEvent::RawFrames(vec![vec![4, 5, 6]]));
 
     match inbox
         .recv(Duration::from_millis(1))
@@ -76,22 +76,13 @@ fn dealer_inbox_overflow_reports_error_and_closes() {
 }
 
 #[test]
-fn recv_envelope_does_not_consume_file_frames() {
+fn dealer_preserves_raw_non_marker_multipart_for_host_classification() {
     let inbox = DealerInbox::new(8, 1024);
-    inbox.push(DealerEvent::FileFrame(vec![
-        FILE_TRANSFER_PROTOCOL.to_vec(),
-        b"READ_OPEN".to_vec(),
-    ]));
-
-    assert!(matches!(
-        inbox.recv_envelope(Duration::from_millis(1)),
-        Err(TransportError::InvalidFrame(reason)) if reason.contains("recvRaw")
-    ));
+    emit_dealer_frames(&inbox, vec![b"envelope".to_vec(), b"unexpected".to_vec()]);
 
     match inbox.recv(Duration::from_millis(1)).expect("raw recv") {
-        Some(DealerEvent::FileFrame(frames)) => {
-            assert_eq!(frames[0], FILE_TRANSFER_PROTOCOL);
-            assert_eq!(frames[1], b"READ_OPEN");
+        Some(DealerEvent::RawFrames(frames)) => {
+            assert_eq!(frames, vec![b"envelope".to_vec(), b"unexpected".to_vec()]);
         }
         other => panic!("unexpected dealer event: {other:?}"),
     }
@@ -270,7 +261,7 @@ fn wait_for_router_event(
 
 fn wait_for_dealer_payload(dealer: &DealerHandle) -> Option<Vec<u8>> {
     match dealer.recv(Duration::from_secs(2)).expect("dealer recv") {
-        Some(DealerEvent::Received(payload)) => Some(payload),
+        Some(DealerEvent::RawFrames(mut frames)) if frames.len() == 1 => frames.pop(),
         Some(event) => panic!("unexpected dealer event: {event:?}"),
         None => None,
     }
@@ -278,7 +269,7 @@ fn wait_for_dealer_payload(dealer: &DealerHandle) -> Option<Vec<u8>> {
 
 fn wait_for_dealer_file_frame(dealer: &DealerHandle) -> Option<Vec<Vec<u8>>> {
     match dealer.recv(Duration::from_secs(2)).expect("dealer recv") {
-        Some(DealerEvent::FileFrame(frames)) => Some(frames),
+        Some(DealerEvent::RawFrames(frames)) => Some(frames),
         Some(event) => panic!("unexpected dealer event: {event:?}"),
         None => None,
     }

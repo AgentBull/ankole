@@ -9,6 +9,10 @@ description = "Shared native kernel helpers for Ankole"
 crate-type = ["cdylib", "rlib"]
 path = "src/lib.rs"
 
+[[example]]
+name = "runtime_fabric_napi_peer"
+required-features = ["napi"]
+
 [features]
 default = []
 napi = ["dep:napi", "dep:napi-derive"]

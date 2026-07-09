@@ -8,12 +8,6 @@ pub(super) enum RouterInbound {
     FileFrame { route: String, frames: Vec<Vec<u8>> },
 }
 
-#[derive(Debug)]
-pub(super) enum DealerInbound {
-    Envelope(Vec<u8>),
-    FileFrame(Vec<Vec<u8>>),
-}
-
 // Parses ROUTER frames from DEALER workers. A leading empty delimiter is
 // tolerated so tests and proxies can use common multipart conventions.
 pub(super) fn parse_router_frames(
@@ -44,29 +38,6 @@ pub(super) fn parse_router_frames(
         let payload = frames.remove(0);
         Ok(RouterInbound::Envelope { route, payload })
     }
-}
-
-// Parses worker-side frames. ROUTER sends usually arrive as one payload frame,
-// but delimiter and extra identity frames are tolerated for interoperability.
-pub(super) fn parse_dealer_frames(
-    mut frames: Vec<Vec<u8>>,
-) -> Result<DealerInbound, TransportError> {
-    if frames.is_empty() {
-        return Err(TransportError::InvalidFrame(
-            "dealer message must include a payload".into(),
-        ));
-    }
-
-    if frames.len() >= 2 && (frames[0].is_empty() || frames[1].as_slice() == FILE_TRANSFER_PROTOCOL)
-    {
-        frames.remove(0);
-    }
-
-    if frames[0].as_slice() == FILE_TRANSFER_PROTOCOL {
-        return Ok(DealerInbound::FileFrame(frames));
-    }
-
-    Ok(DealerInbound::Envelope(frames.remove(0)))
 }
 
 pub(super) fn validate_file_transfer_frames(frames: &[Vec<u8>]) -> Result<(), TransportError> {

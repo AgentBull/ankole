@@ -12,7 +12,7 @@ use super::config::{
     configure_common_socket,
 };
 use super::error::{TransportError, map_send_error, transport_error};
-use super::framing::{DealerInbound, parse_dealer_frames, validate_file_transfer_frames};
+use super::framing::validate_file_transfer_frames;
 use super::types::{DealerEvent, SendOutcome};
 
 enum DealerCommand {
@@ -107,21 +107,6 @@ impl DealerInbox {
     }
 
     pub(super) fn recv(&self, timeout: Duration) -> Result<Option<DealerEvent>, TransportError> {
-        self.recv_with_mode(timeout, DealerRecvMode::Any)
-    }
-
-    pub(super) fn recv_envelope(
-        &self,
-        timeout: Duration,
-    ) -> Result<Option<DealerEvent>, TransportError> {
-        self.recv_with_mode(timeout, DealerRecvMode::EnvelopeOnly)
-    }
-
-    fn recv_with_mode(
-        &self,
-        timeout: Duration,
-        mode: DealerRecvMode,
-    ) -> Result<Option<DealerEvent>, TransportError> {
         let mut state = self
             .state
             .lock()
@@ -129,11 +114,6 @@ impl DealerInbox {
 
         loop {
             match state.queue.front() {
-                Some(DealerEvent::FileFrame(_)) if mode == DealerRecvMode::EnvelopeOnly => {
-                    return Err(TransportError::InvalidFrame(
-                        "received worker file lane frame; use recvRaw".into(),
-                    ));
-                }
                 Some(_event) => return Ok(state.pop_front()),
                 None => {}
             }
@@ -164,17 +144,10 @@ impl DealerInboxState {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum DealerRecvMode {
-    Any,
-    EnvelopeOnly,
-}
-
 fn dealer_event_size(event: &DealerEvent) -> usize {
     match event {
-        DealerEvent::Received(payload) => payload.len(),
-        DealerEvent::FileFrame(frames) => frames.iter().map(Vec::len).sum(),
-        DealerEvent::DecodeFailed(reason) | DealerEvent::SocketError(reason) => reason.len(),
+        DealerEvent::RawFrames(frames) => frames.iter().map(Vec::len).sum(),
+        DealerEvent::SocketError(reason) => reason.len(),
     }
 }
 
@@ -230,15 +203,6 @@ impl DealerHandle {
     /// and observe shutdown signals.
     pub fn recv(&self, timeout: Duration) -> Result<Option<DealerEvent>, TransportError> {
         self.inner.inbox.recv(timeout)
-    }
-
-    /// Receives the next protobuf envelope without consuming worker-file frames.
-    ///
-    /// JS callers using `recv()` should not lose file-transfer data by accident;
-    /// if a file frame is at the head of the queue this returns an error and
-    /// leaves the frame available for `recvRaw`.
-    pub fn recv_envelope(&self, timeout: Duration) -> Result<Option<DealerEvent>, TransportError> {
-        self.inner.inbox.recv_envelope(timeout)
     }
 
     /// Stops the dealer thread and closes the worker transport.
@@ -361,7 +325,16 @@ fn run_dealer(
 
         match socket.recv_multipart(zmq::DONTWAIT) {
             Ok(frames) => emit_dealer_frames(&inbox, frames),
-            Err(zmq::Error::EAGAIN) => thread::sleep(poll_interval),
+            Err(zmq::Error::EAGAIN) => match commands.recv_timeout(poll_interval) {
+                Ok(command) => {
+                    if !handle_dealer_command(&socket, command) {
+                        stop.store(true, Ordering::SeqCst);
+                        break;
+                    }
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            },
             Err(zmq::Error::ETERM) => break,
             Err(error) => {
                 inbox.push(DealerEvent::SocketError(error.to_string()));
@@ -373,46 +346,49 @@ fn run_dealer(
 
 fn drain_dealer_commands(socket: &zmq::Socket, commands: &mpsc::Receiver<DealerCommand>) -> bool {
     while let Ok(command) = commands.try_recv() {
-        match command {
-            DealerCommand::Send { payload, reply } => {
-                let outcome = send_dealer_frames(socket, vec![payload]);
-                let _ = reply.send(outcome);
-            }
-            DealerCommand::SendFileFrame { frames, reply } => {
-                let outcome = send_dealer_frames(socket, frames);
-                let _ = reply.send(outcome);
-            }
-            DealerCommand::Stop { reply } => {
-                let _ = reply.send(Ok(()));
-                return false;
-            }
+        if !handle_dealer_command(socket, command) {
+            return false;
         }
     }
 
     true
 }
 
-// Worker-to-control sends are allowed to wait for the socket's bounded
-// `sndtimeo`. A freshly connected DEALER can otherwise report EAGAIN before the
-// ROUTER pipe is writable, which makes worker startup depend on a race. ROUTER
-// mandatory sends below stay non-blocking because actor delivery needs immediate
-// unknown-route/backpressure feedback.
+fn handle_dealer_command(socket: &zmq::Socket, command: DealerCommand) -> bool {
+    match command {
+        DealerCommand::Send { payload, reply } => {
+            let outcome = send_dealer_frames(socket, vec![payload]);
+            let _ = reply.send(outcome);
+            true
+        }
+        DealerCommand::SendFileFrame { frames, reply } => {
+            let outcome = send_dealer_frames(socket, frames);
+            let _ = reply.send(outcome);
+            true
+        }
+        DealerCommand::Stop { reply } => {
+            let _ = reply.send(Ok(()));
+            false
+        }
+    }
+}
+
+// Worker-to-control sends stay non-blocking so the Bun host adapter can own the
+// bounded retry policy. A freshly connected or saturated DEALER therefore
+// reports backpressure immediately instead of hiding it behind a native wait;
+// the native command timeout remains a lifecycle guard, not retry policy.
 fn send_dealer_frames(
     socket: &zmq::Socket,
     frames: Vec<Vec<u8>>,
 ) -> Result<SendOutcome, TransportError> {
     socket
-        .send_multipart(frames, 0)
+        .send_multipart(frames, zmq::DONTWAIT)
         .map(|_| SendOutcome::SentOrQueued)
         .map_err(map_send_error)
 }
 
-// Stores inbound control-plane frames for the worker loop. Decode errors stay
-// visible so the worker can log them or fail tests deterministically.
-fn emit_dealer_frames(inbox: &DealerInbox, frames: Vec<Vec<u8>>) {
-    match parse_dealer_frames(frames) {
-        Ok(DealerInbound::Envelope(payload)) => inbox.push(DealerEvent::Received(payload)),
-        Ok(DealerInbound::FileFrame(frames)) => inbox.push(DealerEvent::FileFrame(frames)),
-        Err(error) => inbox.push(DealerEvent::DecodeFailed(error.to_string())),
-    }
+// Stores inbound control-plane frames without classifying them. The Bun host
+// adapter owns envelope-vs-worker-file classification and protobuf decoding.
+pub(super) fn emit_dealer_frames(inbox: &DealerInbox, frames: Vec<Vec<u8>>) {
+    inbox.push(DealerEvent::RawFrames(frames));
 }
