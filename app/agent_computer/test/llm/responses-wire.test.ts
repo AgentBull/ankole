@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import type { JsonObject } from '@pleisto/active-support'
+import { runAgentLoop } from '../../src/core/agent-loop'
 import { callModel, createModel } from '../../src/core/llm'
 import { classifyLlmError, isLocallyRetryableLlmError } from '../../src/core/llm-error-classifier'
 
@@ -316,6 +317,21 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
     expect(isLocallyRetryableLlmError(afterSend)).toBe(false)
   })
 
+  it('classifies incomplete terminal reason fallbacks without retrying blindly', () => {
+    expect(classifyLlmError(new Error('AIGateway response incomplete reason=content_filter'))).toMatchObject({
+      kind: 'content_filter',
+      retryable: false,
+      shouldCompress: false,
+      shouldFallbackProvider: false
+    })
+    expect(classifyLlmError(new Error('max_output_tokens'))).toMatchObject({
+      kind: 'overflow',
+      retryable: false,
+      shouldCompress: true,
+      shouldFallbackProvider: false
+    })
+  })
+
   it('sends stateful response.create over AIGateway WebSocket', async () => {
     const sentPayloads: JsonObject[] = []
     const model = createModel({
@@ -544,7 +560,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
     expect(result.message.stopReason).toBe('stop')
   })
 
-  it('maps response.incomplete WebSocket terminals to an error assistant message', async () => {
+  it('maps max_output_tokens response.incomplete terminals to length while preserving output', async () => {
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
@@ -584,7 +600,95 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
 
     expect(result.responseId).toBe('resp_incomplete')
     expect(result.message.content).toEqual([{ type: 'text', text: 'partial answer' }])
+    expect(result.message.stopReason).toBe('length')
+    expect(result.message.errorMessage).toBeUndefined()
+  })
+
+  it('maps content_filter response.incomplete terminals to an error assistant message', async () => {
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, () => [
+            {
+              type: 'response.incomplete',
+              response: {
+                id: 'resp_content_filter',
+                status: 'incomplete',
+                incomplete_details: { reason: 'content_filter' },
+                output: [
+                  {
+                    type: 'message',
+                    role: 'assistant',
+                    content: [{ type: 'output_text', text: 'filtered partial answer' }]
+                  }
+                ]
+              }
+            }
+          ])
+      }
+    })
+
+    const result = await callModel(model, {
+      messages: [{ role: 'user', content: 'hi' }],
+      stateful: {
+        actorEventId: '00000000-0000-0000-0000-000000000016',
+        conversationId: '16161616-1616-1616-1616-161616161616'
+      }
+    })
+
+    expect(result.responseId).toBe('resp_content_filter')
+    expect(result.message.content).toEqual([{ type: 'text', text: 'filtered partial answer' }])
     expect(result.message.stopReason).toBe('error')
-    expect(result.message.errorMessage).toBe('max_output_tokens')
+    expect(result.message.errorMessage).toBe('AIGateway response incomplete reason=content_filter')
+  })
+
+  it('lets the agent loop return max_output_tokens incomplete output as a bounded partial answer', async () => {
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, () => [
+            {
+              type: 'response.incomplete',
+              response: {
+                id: 'resp_loop_incomplete',
+                status: 'incomplete',
+                incomplete_details: { reason: 'max_output_tokens' },
+                output: [
+                  {
+                    type: 'message',
+                    role: 'assistant',
+                    content: [{ type: 'output_text', text: 'partial loop answer' }]
+                  }
+                ]
+              }
+            }
+          ])
+      }
+    })
+
+    const final = await runAgentLoop({
+      model,
+      messages: [{ role: 'user', content: 'write a long answer' }],
+      stateful: {
+        actorEventId: '00000000-0000-0000-0000-000000000017',
+        conversationId: '17171717-1717-1717-1717-171717171717'
+      }
+    })
+
+    expect(final.content).toEqual([{ type: 'text', text: 'partial loop answer' }])
+    expect(final.stopReason).toBe('length')
+    expect(final.errorMessage).toBeUndefined()
   })
 })

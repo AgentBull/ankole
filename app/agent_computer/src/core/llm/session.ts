@@ -1,5 +1,5 @@
 import OpenAI from 'openai'
-import { recordValue } from '@pleisto/active-support'
+import { recordValue, type JsonObject } from '@pleisto/active-support'
 import { ResponsesWS } from 'openai/resources/responses/ws'
 import { ResponsesWSBase } from 'openai/resources/responses/ws-base'
 import type {
@@ -16,6 +16,7 @@ import type {
   ModelTurnOptions,
   ResponseWebSocketTransport,
   StatefulResponseContext,
+  StopReason,
   ToolResultsRecordResult
 } from './types'
 import {
@@ -223,15 +224,14 @@ class AIGatewayResponsesTurn implements ModelTurn {
               const responseStatus = typeof response?.status === 'string' ? response.status : undefined
               responseId = typeof response?.id === 'string' ? response.id : responseId
               const usage = usageFromResponse(recordValue(response?.usage))
-              const terminalStatus =
-                frame.type === 'response.completed' && responseStatus !== 'failed' ? undefined : 'error'
+              const terminal = terminalProjection(frame.type, responseStatus, response, frame)
               const result = parseOutputItems(
                 terminalItems,
                 this.model.name,
                 usage,
-                terminalStatus,
+                terminal.status,
                 textBuffer,
-                terminalErrorMessage(response, frame),
+                terminal.errorMessage,
                 [...functionCallsById.values()]
               )
               result.responseId = responseId
@@ -384,6 +384,34 @@ function httpBaseUrlFromWebSocketUrl(webSocketUrl: string): string {
 
 function responseSocketReadyState(ws: ResponsesSocket): number | undefined {
   return (ws as unknown as { socket?: { readyState?: number } }).socket?.readyState
+}
+
+function terminalProjection(
+  frameType: string | undefined,
+  responseStatus: string | undefined,
+  response: JsonObject | undefined,
+  frame: JsonObject
+): { status?: StopReason; errorMessage?: string } {
+  if (frameType === 'response.completed' && responseStatus !== 'failed') return {}
+
+  if (frameType === 'response.incomplete') {
+    const reason = incompleteReason(response)
+    if (reason === 'max_output_tokens') return { status: 'length' }
+
+    return {
+      status: 'error',
+      errorMessage: `AIGateway response incomplete reason=${reason || 'unknown'}`
+    }
+  }
+
+  return {
+    status: 'error',
+    errorMessage: terminalErrorMessage(response, frame)
+  }
+}
+
+function incompleteReason(response: JsonObject | undefined): string | undefined {
+  return stringValue(recordValue(response?.incomplete_details)?.reason)
 }
 
 function aigatewayErrorFromStreamError(error: { message: string; error?: unknown }): Error {

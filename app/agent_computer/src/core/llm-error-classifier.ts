@@ -12,7 +12,7 @@ import { isRecord } from '@pleisto/active-support'
 import type { JsonObject } from '@pleisto/active-support'
 
 /** Backend-independent failure class derived from a raw LLM error. */
-export type LlmErrorKind = 'auth' | 'overflow' | 'rate_limit' | 'server' | 'timeout' | 'unknown'
+export type LlmErrorKind = 'auth' | 'content_filter' | 'overflow' | 'rate_limit' | 'server' | 'timeout' | 'unknown'
 
 export interface LlmErrorClassification {
   kind: LlmErrorKind
@@ -23,8 +23,8 @@ export interface LlmErrorClassification {
    */
   shouldCompress: boolean
   /**
-   * Advisory hint that switching to a fallback provider could help. True for every class except
-   * `overflow` (a context that overflows one model will overflow its peer).
+   * Advisory hint that switching to a fallback provider could help. False for classes whose fix
+   * is not a different provider, such as `overflow` and `content_filter`.
    */
   shouldFallbackProvider: boolean
 }
@@ -131,17 +131,33 @@ export function classifyLlmError(error: unknown): LlmErrorClassification {
     return classified('server', true, false, true)
   }
 
+  // Safety truncation: the provider stopped the response for content policy reasons. Not retryable,
+  // not compressible, and not a fallback-provider candidate because the response must not be surfaced
+  // as a normal assistant reply.
+  if (
+    includesAny(code, ['content_filter', 'content-filter']) ||
+    includesAny(message, ['content_filter', 'content-filter', 'content filter'])
+  ) {
+    return classified('content_filter', false, false, false)
+  }
+
   // Prompt exceeds the model's context window. Matched on message text only: providers usually return
   // this as a 400 (OpenAI `context_length_exceeded`, Anthropic "prompt is too long"), and 400 is too
   // generic to key on, so the wording is the signal. Not retryable and not a fallback candidate — the
-  // only fix is to send less, hence `shouldCompress`. Reached after the status-based classes above so
-  // a 413/429 that also mentions tokens is treated as throttling, not overflow.
+  // only fix is to send less, hence `shouldCompress`. Legacy terminal-error paths can also surface
+  // max_output_tokens as a bare error string; the WebSocket terminal mapper should handle that as
+  // `length` first, but the classifier keeps this fallback for durable error details already in flight.
+  // Reached after the status-based classes above so a 413/429 that also mentions tokens is treated as
+  // throttling, not overflow.
   if (
     includesAny(message, [
       'context window',
       'context length',
       'maximum context',
       'too many tokens',
+      'max_output_tokens',
+      'max output tokens',
+      'maximum output tokens',
       'prompt is too long',
       'context_window_exceeded',
       'model_context_window_exceeded',
