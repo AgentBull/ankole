@@ -28,9 +28,24 @@ export async function runChild(command: string, args: string[], options: SpawnOp
         return
       }
 
-      reject(new Error(`${command} ${args.join(' ')} exited with code ${code ?? 'unknown'}`))
+      reject(new ChildProcessExitError(command, args, code ?? 1))
     })
   })
+}
+
+export class ChildProcessExitError extends Error {
+  constructor(
+    command: string,
+    args: string[],
+    readonly exitCode: number
+  ) {
+    super(`${command} ${args.join(' ')} exited with code ${exitCode}`)
+    this.name = 'ChildProcessExitError'
+  }
+}
+
+export function exitCodeForError(error: unknown): number {
+  return error instanceof ChildProcessExitError ? error.exitCode : 1
 }
 
 export function mixCommand(args: string[]): { command: string; args: string[] } {

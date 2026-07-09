@@ -1,93 +1,83 @@
 defmodule Ankole.ActorRuntime.WorkerBootstrap do
   @moduledoc """
-  Renders external agent computer worker bootstrap data.
+  Builds the canonical Docker launch contract for Agent Computer workers.
+
+  The contract owns the shared container security settings and, for real
+  workers, the RuntimeFabric auth, host connectivity, and workspace layout.
+  Launch adapters translate the contract and add only their local lifecycle,
+  source-mount, and command differences.
   """
 
   alias Ankole.ActorRuntime.WorkerAuthKey
+  alias Ankole.ActorRuntime.WorkerBootstrap.Spec
 
   @default_image "ghcr.io/agentbull/ankole-agent-computer-worker:main-latest"
 
-  @type docker_mount :: %{
-          source: String.t(),
-          target: String.t(),
-          readonly: boolean()
-        }
-
-  @type docker_run_spec :: %{
-          worker_id: String.t(),
-          runtime_fabric_url: String.t(),
-          image: String.t(),
-          env: %{String.t() => String.t()},
-          docker_runtime_args: [String.t()],
-          workspace_root: String.t(),
-          workspace_setup_dirs: [String.t()],
-          workspace_mounts: [docker_mount()]
-        }
-
   @doc """
-  Builds the structured v1 Docker worker bootstrap spec.
+  Builds the shared Agent Computer container contract without worker identity.
 
-  This is the machine-readable form of `docker_run_command/1`. It keeps the
-  control plane as the owner of worker auth resolution while letting local
-  tooling launch Docker with argv instead of parsing shell text.
+  Package tests use this contract because they run inside the worker image but
+  do not connect a worker process to RuntimeFabric.
   """
-  @spec docker_run_spec(keyword()) :: {:ok, docker_run_spec()} | {:error, term()}
-  def docker_run_spec(opts) do
-    with {:ok, endpoint} <- fetch_required(opts, :endpoint),
-         {:ok, worker_id} <- fetch_required(opts, :worker_id),
-         {:ok, runtime_fabric_url} <- WorkerAuthKey.runtime_fabric_url(endpoint) do
-      image = Keyword.get(opts, :image, @default_image)
-      workspace_root = Keyword.get(opts, :workspace_root, "$PWD/.ankole-worker")
-
+  @spec container_spec(keyword()) :: {:ok, Spec.t()} | {:error, term()}
+  def container_spec(opts \\ []) do
+    with {:ok, image} <- non_empty(Keyword.get(opts, :image, @default_image), :image) do
       {:ok,
-       %{
-         worker_id: worker_id,
-         runtime_fabric_url: runtime_fabric_url,
+       %Spec{
+         contract_version: 2,
+         kind: :container,
          image: image,
-         env: %{
-           "WORKER_ID" => worker_id,
-           "RUNTIME_FABRIC_URL" => runtime_fabric_url
+         docker: %{
+           cap_add: ["SYS_ADMIN"],
+           security_opts: ["seccomp=unconfined", "systempaths=unconfined"],
+           extra_hosts: []
          },
-         docker_runtime_args: docker_runtime_args(),
-         workspace_root: workspace_root,
-         workspace_setup_dirs: workspace_setup_dirs(workspace_root),
-         workspace_mounts: workspace_mounts(workspace_root)
+         env: %{},
+         host_setup_dirs: [],
+         mounts: []
        }}
     end
   end
 
   @doc """
-  Builds the v1 Docker command text without starting Docker.
+  Builds the complete Agent Computer worker launch contract.
 
-  Bootstrap remains a rendered command because operator setup owns process
-  launch. The control plane provides the RuntimeFabric URL, worker identity,
-  and shared filesystem mount contract.
+  By default the global worker auth key is resolved through AppConfigure. E2E
+  routers may pass `:auth_key` explicitly so the same contract constructs both
+  successful and rejected worker credentials.
   """
-  @spec docker_run_command(keyword()) :: {:ok, String.t()} | {:error, term()}
-  def docker_run_command(opts) do
-    with {:ok, spec} <- docker_run_spec(opts) do
+  @spec worker_spec(keyword()) :: {:ok, Spec.t()} | {:error, term()}
+  def worker_spec(opts) do
+    with {:ok, spec} <- container_spec(opts),
+         {:ok, endpoint} <- fetch_required(opts, :endpoint),
+         {:ok, worker_id} <- fetch_required(opts, :worker_id),
+         {:ok, workspace_root} <- fetch_required(opts, :workspace_root),
+         {:ok, runtime_fabric_url} <- runtime_fabric_url(endpoint, opts) do
       {:ok,
-       Enum.join(
-         [
-           workspace_setup_command(spec.workspace_setup_dirs),
-           "&&",
-           "docker run --rm",
-           Enum.join(spec.docker_runtime_args, " "),
-           "-e WORKER_ID=#{shell_escape(spec.worker_id)}",
-           "-e RUNTIME_FABRIC_URL=#{shell_escape(spec.runtime_fabric_url)}",
-           workspace_mount_args(spec.workspace_mounts),
-           spec.image
-         ],
-         " "
-       )}
+       %{
+         spec
+         | kind: :worker,
+           docker: %{
+             spec.docker
+             | extra_hosts: [
+                 %{host: "host.docker.internal", address: "host-gateway"}
+               ]
+           },
+           env: %{
+             "WORKER_ID" => worker_id,
+             "RUNTIME_FABRIC_URL" => runtime_fabric_url
+           },
+           host_setup_dirs: workspace_setup_dirs(workspace_root),
+           mounts: workspace_mounts(workspace_root)
+       }}
     end
   end
 
-  # Pre-creates the host directories the worker bind-mounts below. Docker
-  # would create missing mount sources as root-owned dirs; making them up front
-  # (and `&&`-chaining before `docker run`) keeps them owned by the operator.
-  defp workspace_setup_command(dirs) do
-    Enum.join(["mkdir -p" | dirs], " ")
+  defp runtime_fabric_url(endpoint, opts) do
+    case Keyword.fetch(opts, :auth_key) do
+      :error -> WorkerAuthKey.runtime_fabric_url(endpoint)
+      {:ok, auth_key} -> WorkerAuthKey.runtime_fabric_url(endpoint, auth_key)
+    end
   end
 
   defp workspace_setup_dirs(workspace_root) do
@@ -105,45 +95,16 @@ defmodule Ankole.ActorRuntime.WorkerBootstrap do
     ]
   end
 
-  # Shared NFS is mounted once under /workspace/shared. The worker creates the
-  # per-session logical /workspace view from that shared root.
-  defp workspace_mount_args(mounts) do
-    mounts
-    |> Enum.map(fn mount ->
-      suffix = if mount.readonly, do: ":ro", else: ""
-      "-v #{mount.source}:#{mount.target}#{suffix}"
-    end)
-    |> Enum.join(" ")
-  end
-
-  # The worker command tool always enters bubblewrap. These Docker settings let
-  # the nested bwrap probe use a fresh procfs instead of failing startup or
-  # downgrading to the weaker container-procfs mode.
-  defp docker_runtime_args do
-    [
-      "--cap-add",
-      "SYS_ADMIN",
-      "--security-opt",
-      "seccomp=unconfined",
-      "--security-opt",
-      "systempaths=unconfined",
-      "--add-host",
-      "host.docker.internal=host-gateway"
-    ]
-  end
-
   defp fetch_required(opts, key) do
-    case Keyword.get(opts, key) do
-      value when is_binary(value) and value != "" -> {:ok, value}
-      _value -> {:error, {:missing, key}}
-    end
+    opts
+    |> Keyword.get(key)
+    |> non_empty(key, {:missing, key})
   end
 
-  # Single-quotes the value for safe inclusion in the rendered shell command
-  # (endpoint, secret, ids may contain shell metacharacters). The `'\"'\"'`
-  # sequence is the standard POSIX idiom for embedding a literal single quote
-  # inside a single-quoted string: close-quote, escaped-quote, reopen-quote.
-  defp shell_escape(value) do
-    "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
-  end
+  defp non_empty(value, key, error \\ nil)
+
+  defp non_empty(value, _key, _error) when is_binary(value) and value != "", do: {:ok, value}
+
+  defp non_empty(_value, key, nil), do: {:error, {:invalid, key}}
+  defp non_empty(_value, _key, error), do: {:error, error}
 end

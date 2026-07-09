@@ -1,43 +1,41 @@
 defmodule Ankole.E2E.DockerWorker do
   @moduledoc """
-  Docker process helpers for the real Agent Computer worker e2e tests.
+  Docker process adapter for the real Agent Computer worker e2e tests.
 
-  The e2e test module owns RuntimeFabric, database assertions, and signal input
-  setup. This module owns only the container process boundary so the test body
-  stays focused on worker behavior instead of Docker argument assembly.
+  `Ankole.ActorRuntime.WorkerBootstrap` owns worker auth, security, connectivity,
+  and workspace guarantees. This adapter adds only test container lifecycle,
+  optional mounted source, and the development command override.
   """
 
   import ExUnit.Assertions
+
+  alias Ankole.ActorRuntime.WorkerBootstrap
+  alias Ankole.ActorRuntime.WorkerBootstrap.Docker
 
   @docker_image "ankole-agent-computer:0.1.0"
 
   @doc "Starts a long-running Agent Computer Docker worker process for e2e tests."
   def start_docker_worker!(opts) do
     name = "ankole-worker-e2e-#{System.unique_integer([:positive])}"
-    worker_id = Keyword.fetch!(opts, :worker_id)
+    {workspace_root, persist_workspace?} = workspace_root(name)
 
-    runtime_fabric_url =
-      runtime_fabric_url!(
-        Keyword.fetch!(opts, :endpoint),
-        Keyword.fetch!(opts, :worker_auth_key)
+    {:ok, spec} =
+      WorkerBootstrap.worker_spec(
+        endpoint: Keyword.fetch!(opts, :endpoint),
+        worker_id: Keyword.fetch!(opts, :worker_id),
+        auth_key: Keyword.fetch!(opts, :worker_auth_key),
+        image: @docker_image,
+        workspace_root: workspace_root
       )
 
+    Enum.each(spec.host_setup_dirs, &File.mkdir_p!/1)
+
     args =
-      [
-        "run",
-        "--rm",
-        "--name",
-        name
-      ] ++
-        docker_agent_computer_runtime_args() ++
-        docker_dev_agent_computer_mount_args() ++
-        docker_dev_workspace_mount_args() ++
-        docker_env_args(
-          [
-            {"WORKER_ID", worker_id},
-            {"RUNTIME_FABRIC_URL", runtime_fabric_url}
-          ] ++ docker_worker_passthrough_env()
-        ) ++ docker_image_and_dev_command_args()
+      Docker.argv(spec,
+        name: name,
+        additional_mounts: docker_dev_agent_computer_mounts(),
+        command: docker_dev_agent_computer_command()
+      )
 
     port =
       Port.open({:spawn_executable, docker_path()}, [
@@ -47,28 +45,45 @@ defmodule Ankole.E2E.DockerWorker do
         {:args, args}
       ])
 
-    %{kind: :docker, name: name, port: port, output: []}
+    %{
+      kind: :docker,
+      name: name,
+      port: port,
+      output: [],
+      workspace_root: workspace_root,
+      persist_workspace?: persist_workspace?
+    }
   end
 
   @doc "Runs the worker image once with custom env and returns command output."
   def docker_run_worker_once(env) do
+    {:ok, spec} = WorkerBootstrap.container_spec(image: @docker_image)
+
     args =
-      [
-        "run",
-        "--rm"
-      ] ++
-        docker_agent_computer_runtime_args() ++
-        docker_dev_agent_computer_mount_args() ++
-        docker_dev_workspace_mount_args() ++
-        docker_env_args(env) ++ docker_image_and_dev_command_args()
+      Docker.argv(spec,
+        additional_env: Map.new(env),
+        additional_mounts: docker_dev_agent_computer_mounts(),
+        command: docker_dev_agent_computer_command()
+      )
 
     System.cmd(docker_path(), args, stderr_to_stdout: true)
   end
 
-  @doc "Force-removes a Docker worker container and closes the watched port."
-  def cleanup_docker_worker(%{name: name, port: port}) do
+  @doc "Force-removes a Docker worker container, its temporary workspace, and its watched port."
+  def cleanup_docker_worker(%{
+        name: name,
+        port: port,
+        workspace_root: workspace_root,
+        persist_workspace?: persist_workspace?
+      }) do
     System.cmd(docker_path(), ["rm", "-f", name], stderr_to_stdout: true)
     close_port(port)
+
+    unless persist_workspace? do
+      File.rm_rf(workspace_root)
+    end
+
+    :ok
   end
 
   @doc "Hard-kills a running worker container mid-turn (chaos scenarios)."
@@ -100,60 +115,48 @@ defmodule Ankole.E2E.DockerWorker do
     end
   end
 
-  defp runtime_fabric_url!("tcp://" <> rest, worker_auth_key) do
-    "tcp://:#{URI.encode_www_form(worker_auth_key)}@#{rest}"
+  @doc "Asserts a running e2e worker received the canonical bootstrap contract."
+  def assert_launch_contract!(%{name: name, workspace_root: workspace_root}) do
+    {output, 0} = System.cmd(docker_path(), ["inspect", name], stderr_to_stdout: true)
+    [inspection] = Ankole.JSON.decode!(output)
+
+    host_config = inspection["HostConfig"]
+    env = inspection["Config"]["Env"]
+    mounts = Map.new(inspection["Mounts"], &{&1["Destination"], &1})
+
+    assert "CAP_SYS_ADMIN" in host_config["CapAdd"]
+    assert "seccomp=unconfined" in host_config["SecurityOpt"]
+    assert host_config["MaskedPaths"] == []
+    assert host_config["ReadonlyPaths"] == []
+
+    assert "host.docker.internal:host-gateway" in host_config["ExtraHosts"]
+
+    assert Enum.any?(env, &String.starts_with?(&1, "WORKER_ID="))
+    assert Enum.any?(env, &String.starts_with?(&1, "RUNTIME_FABRIC_URL="))
+    assert mounts["/workspace/shared"]["Source"] == Path.join(workspace_root, "shared")
+    assert mounts["/workspace/shared"]["RW"]
+    assert mounts["/workspace/.sessions"]["Source"] == Path.join(workspace_root, "sessions")
+    assert mounts["/workspace/.sessions"]["RW"]
+
+    :ok
   end
 
-  defp docker_env_args(env) do
-    Enum.flat_map(env, fn {key, value} -> ["-e", "#{key}=#{value}"] end)
-  end
-
-  # Agent Computer is a Linux-container runtime. The command tool always enters
-  # bubblewrap; Docker must grant the kernel surface needed for strong bwrap
-  # instead of falling back to host execution. If these flags are unavailable, the
-  # worker startup probe may downgrade to weak bwrap and logs that explicitly.
-  defp docker_agent_computer_runtime_args do
-    [
-      "--cap-add",
-      "SYS_ADMIN",
-      "--security-opt",
-      "seccomp=unconfined",
-      "--security-opt",
-      "systempaths=unconfined",
-      "--add-host",
-      "host.docker.internal=host-gateway"
-    ]
-  end
-
-  defp docker_worker_passthrough_env, do: []
-
-  # The mounted-source fast path intentionally reuses the current container
-  # userspace while replacing Agent Computer scripts and TS sources. Override
-  # the image CMD in that mode so a stale local e2e image cannot route back to a
-  # deleted wrapper script.
-  defp docker_image_and_dev_command_args do
-    [@docker_image] ++ docker_dev_agent_computer_command_args()
-  end
-
-  defp docker_dev_agent_computer_command_args do
+  defp docker_dev_agent_computer_command do
     case mount_agent_computer_src?() do
       true -> ["/bin/sh", "-lc", "cd /repo/app/agent_computer && exec bun src/main.ts"]
       false -> []
     end
   end
 
-  # Development-only fast path for the real worker e2e. The worker process,
-  # Linux userspace packages, native binaries, node_modules, and tool sandboxing
-  # still come from the Agent Computer container; these mounts replace the
-  # Agent Computer scripts and TS source tree to shorten edit/run feedback.
-  defp docker_dev_agent_computer_mount_args do
+  defp docker_dev_agent_computer_mounts do
     case mount_agent_computer_src?() do
       true ->
-        src = Path.join([repo_root(), "app", "agent_computer", "src"])
-
         [
-          "-v",
-          "#{src}:/repo/app/agent_computer/src:ro"
+          %{
+            source: Path.join([repo_root(), "app", "agent_computer", "src"]),
+            target: "/repo/app/agent_computer/src",
+            readonly: true
+          }
         ]
 
       false ->
@@ -161,25 +164,16 @@ defmodule Ankole.E2E.DockerWorker do
     end
   end
 
-  defp mount_agent_computer_src?, do: System.get_env("ANKOLE_E2E_MOUNT_AGENT_COMPUTER_SRC") == "1"
+  defp mount_agent_computer_src?,
+    do: System.get_env("ANKOLE_E2E_MOUNT_AGENT_COMPUTER_SRC") == "1"
 
-  # E2E artifact mount. The worker, commands, and bubblewrap sandbox still run
-  # in the Linux container; this only makes /workspace contents inspectable from
-  # the host after a failed real-provider run.
-  defp docker_dev_workspace_mount_args do
+  defp workspace_root(name) do
     case System.get_env("ANKOLE_E2E_HOST_WORKSPACE_ROOT") do
-      nil ->
-        []
+      value when is_binary(value) and value != "" ->
+        {Path.join(Path.expand(value), name), true}
 
-      "" ->
-        []
-
-      host_root ->
-        File.mkdir_p!(host_root)
-        File.mkdir_p!(Path.join(host_root, "shared/user-files"))
-        File.mkdir_p!(Path.join(host_root, "shared/skills/agents"))
-        File.mkdir_p!(Path.join(host_root, ".sessions"))
-        ["-v", "#{Path.expand(host_root)}:/workspace"]
+      _value ->
+        {Path.join(System.tmp_dir!(), name), false}
     end
   end
 

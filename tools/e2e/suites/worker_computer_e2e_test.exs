@@ -30,6 +30,7 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
   alias Ankole.Repo
 
   @tag timeout: 45_000
+  @tag :worker_bootstrap_contract
   test "Docker image worker connects to RuntimeFabric and is admitted" do
     assert_docker_image!()
 
@@ -55,6 +56,8 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
 
     assert {:ok, %AgentComputerWorker{worker_id: ^worker_id}} =
              wait_for_worker_projection(worker_id, container, deadline(30_000))
+
+    assert :ok = assert_launch_contract!(container)
   end
 
   @tag timeout: 30_000

@@ -1,6 +1,7 @@
 import { Crust } from '@crustjs/core'
 import { didYouMeanPlugin, helpPlugin } from '@crustjs/plugins'
 import { analyzeCommand } from './commands/analyze'
+import { agentComputerTestCommand } from './commands/agent-computer-test'
 import { appDbCommand } from './commands/app-db'
 import { devCommand } from './commands/dev'
 import { envSetupCommand } from './commands/env-setup'
@@ -10,7 +11,7 @@ import { isCICommand } from './commands/is-ci'
 import { isDevCommand } from './commands/is-dev'
 import { logsCommand } from './commands/logs'
 import { showCommand } from './commands/show'
-import { styledError } from './utils'
+import { exitCodeForError, styledError } from './utils'
 
 const rawArgv = process.argv.slice(2)
 if (rawArgv[0] === 'generate' || rawArgv[0] === 'g') {
@@ -31,6 +32,7 @@ let app = new Crust('bun kit')
 app = app.command(externalServicesCommand())
 app = app.command(envSetupCommand())
 app = app.command(appDbCommand())
+app = app.command(agentComputerTestCommand())
 app = app.command(devCommand())
 app = app.command(logsCommand())
 app = app.command(showCommand())
@@ -41,5 +43,5 @@ try {
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error)
   console.error(styledError(message))
-  process.exit(1)
+  process.exit(exitCodeForError(error))
 }

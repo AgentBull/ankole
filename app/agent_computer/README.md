@@ -279,21 +279,10 @@ mix ankole.actor_runtime.worker_bootstrap \
   --worker-id worker-a
 ```
 
-The rendered command creates the host workspace directories and runs a command
-equivalent to:
-
-```shell
-docker run --rm \
-  --cap-add SYS_ADMIN \
-  --security-opt seccomp=unconfined \
-  --security-opt systempaths=unconfined \
-  --add-host host.docker.internal=host-gateway \
-  -e WORKER_ID=worker-a \
-  -e RUNTIME_FABRIC_URL='tcp://:worker_auth_key@host.docker.internal:6010' \
-  -v "$PWD/.ankole-worker/shared:/workspace/shared" \
-  -v "$PWD/.ankole-worker/sessions:/workspace/.sessions" \
-  ankole-agent-computer:0.1.0
-```
+The task resolves the current worker auth key and renders the versioned
+`WorkerBootstrap` contract as a safe Docker command. The same contract supplies
+the security settings, RuntimeFabric environment, and canonical shared/session
+mounts used by local development and real worker E2E.
 
 ## Development
 
@@ -311,8 +300,9 @@ bun run --filter @ankole/agent-computer fmt:check
 bun run --filter @ankole/agent-computer lint
 ```
 
-Package tests run inside the Docker image and mount the local `src/` and `test/`
-directories into the container. Build the image once before running them:
+Package tests ask Devkit for the control-plane `container` bootstrap contract,
+then add only the local `src/`/`test/` mounts and Bun test command. Build the
+image once before running them:
 
 ```shell
 docker build -f app/agent_computer/Dockerfile -t ankole-agent-computer:0.1.0 .
@@ -354,8 +344,9 @@ ANKOLE_E2E_HOST_WORKSPACE_ROOT=/tmp/ankole-worker-workspace
 ```
 
 The first mounts local `src/` into the worker image for faster edit/run
-feedback. The second mounts `/workspace` so artifacts remain inspectable after
-failures.
+feedback. The second retains each worker's isolated canonical workspace under
+`<root>/<container-name>/`: artifacts are in `shared/user-files/`, installed
+skills are in `shared/skills/agents/`, and session state is in `sessions/`.
 
 ## Logs And Failure Signals
 

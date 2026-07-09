@@ -5,37 +5,30 @@ import {
   buildManagedWorkerPsArgs,
   buildManagedWorkerRmArgs,
   buildWorkerDockerArgs,
-  parseDockerContainerIds,
-  parseWorkerBootstrapSpec,
-  type WorkerBootstrapSpec
+  parseDockerContainerIds
 } from './dev'
+import type { WorkerBootstrapSpec } from '../worker-bootstrap'
 import { mixCommand } from '../utils'
 
 const spec: WorkerBootstrapSpec = {
-  worker_id: 'local-dev-worker',
-  runtime_fabric_url: 'tcp://:secret@host.docker.internal:6010',
+  contract_version: 2,
+  kind: 'worker',
   image: 'ankole-agent-computer:0.1.0',
+  docker: {
+    cap_add: ['SYS_ADMIN'],
+    security_opts: ['seccomp=unconfined', 'systempaths=unconfined'],
+    extra_hosts: [{ host: 'host.docker.internal', address: 'host-gateway' }]
+  },
   env: {
     WORKER_ID: 'local-dev-worker',
     RUNTIME_FABRIC_URL: 'tcp://:secret@host.docker.internal:6010'
   },
-  docker_runtime_args: [
-    '--cap-add',
-    'SYS_ADMIN',
-    '--security-opt',
-    'seccomp=unconfined',
-    '--security-opt',
-    'systempaths=unconfined',
-    '--add-host',
-    'host.docker.internal=host-gateway'
-  ],
-  workspace_root: '/repo/var/ankole-dev/worker',
-  workspace_setup_dirs: [
+  host_setup_dirs: [
     '/repo/var/ankole-dev/worker/shared/user-files',
     '/repo/var/ankole-dev/worker/shared/skills/agents',
     '/repo/var/ankole-dev/worker/sessions'
   ],
-  workspace_mounts: [
+  mounts: [
     {
       source: '/repo/var/ankole-dev/worker/shared',
       target: '/workspace/shared',
@@ -128,14 +121,5 @@ describe('buildWorkerDockerArgs', () => {
       '-lc',
       'cd /repo/app/agent_computer && exec bun --watch src/main.ts'
     ])
-  })
-})
-
-describe('parseWorkerBootstrapSpec', () => {
-  test('uses the last JSON object from Mix output', () => {
-    expect(parseWorkerBootstrapSpec(`Compiling...\n${JSON.stringify(spec)}\n`)).toMatchObject({
-      worker_id: 'local-dev-worker',
-      image: 'ankole-agent-computer:0.1.0'
-    })
   })
 })

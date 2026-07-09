@@ -82,10 +82,21 @@ defmodule Ankole.ActorRuntime.WorkerAuthKey do
   @spec runtime_fabric_url(String.t()) :: {:ok, String.t()} | {:error, term()}
   def runtime_fabric_url("tcp://" <> rest) do
     case ensure() do
-      {:ok, key} -> {:ok, "tcp://:#{URI.encode_www_form(key)}@#{rest}"}
+      {:ok, key} -> runtime_fabric_url("tcp://" <> rest, key)
       {:error, _reason} = error -> error
     end
   end
 
   def runtime_fabric_url(_endpoint), do: {:error, :invalid_runtime_fabric_endpoint}
+
+  @doc """
+  Builds the worker-facing RuntimeFabric URL from an explicit auth key.
+  """
+  @spec runtime_fabric_url(String.t(), String.t()) :: {:ok, String.t()} | {:error, term()}
+  def runtime_fabric_url("tcp://" <> rest, key) when is_binary(key) and key != "" do
+    {:ok, "tcp://:#{URI.encode_www_form(key)}@#{rest}"}
+  end
+
+  def runtime_fabric_url("tcp://" <> _rest, _key), do: {:error, {:invalid, :auth_key}}
+  def runtime_fabric_url(_endpoint, _key), do: {:error, :invalid_runtime_fabric_endpoint}
 end
