@@ -97,13 +97,14 @@ export function codexConfigCliOverrides(): string[] {
 function aigatewayConfigToml(baseUrl: string): string {
   return [
     'model = "coding"',
-    'model_provider = "ankole_aigateway"',
+    'model_provider = "openai"',
     'model_reasoning_effort = "xhigh"',
     'approval_policy = "never"',
     'sandbox_mode = "danger-full-access"',
     'cli_auth_credentials_store = "file"',
+    'features.remote_compaction_v2 = false',
     '',
-    '[model_providers.ankole_aigateway]',
+    '[model_providers.openai]',
     'name = "Ankole AIGateway"',
     `base_url = ${tomlString(baseUrl.replace(/\/+$/, ''))}`,
     'env_key = "ANKOLE_AIGATEWAY_API_KEY"',
