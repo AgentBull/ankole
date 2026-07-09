@@ -18,6 +18,7 @@ defmodule Ankole.ActorRuntime.AgentConversationContextBroker do
   alias Ankole.Principals.Principal
   alias Ankole.Repo
   alias Ankole.SystemConfig
+  alias Ankole.SubagentDelegations.Schemas.Delegation
 
   @spec handle_request(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
   def handle_request(%TurnRef{} = turn_ref, request, _route) when is_map(request) do
@@ -26,36 +27,30 @@ defmodule Ankole.ActorRuntime.AgentConversationContextBroker do
         "agent-conversation-context-#{Ecto.UUID.generate()}"
 
     with {:ok, actor_event} <- actor_event(request),
-         %Conversation{} = conversation <- active_conversation(turn_ref),
+         {:ok, context} <- conversation_context(turn_ref, actor_event),
          {:ok, agent} <- agent_profile(turn_ref.agent_uid),
          {:ok, soul} <- Library.get_soul(turn_ref.agent_uid),
          {:ok, mission} <- Library.get_mission(turn_ref.agent_uid),
          {:ok, skills} <- Library.skills_for_system_prompt(turn_ref.agent_uid) do
       timezone = installation_timezone()
-      memory_notes = Memory.notes_for_context(turn_ref.agent_uid, current_channel_id(actor_event))
+      memory_notes = Memory.notes_for_context(turn_ref.agent_uid, context.channel_id)
 
       {:ok,
        %{
          "request_id" => request_id,
-         "agent_uid" => conversation.agent_uid,
-         "session_id" => conversation.conversation_key,
+         "agent_uid" => turn_ref.agent_uid,
+         "session_id" => turn_ref.session_id,
          "turn" => TurnRef.to_wire(turn_ref),
          "agent" => agent,
-         "conversation" => %{
-           "id" => conversation.id,
-           "key" => conversation.conversation_key,
-           "started_at" => datetime(conversation.inserted_at),
-           "timezone" => timezone
-         },
+         "conversation" => conversation_payload(context, timezone),
          "soul" => soul,
          "mission" => mission,
          "skills" => skills,
          "memory_notes" => memory_notes,
          "cache_key" =>
-           cache_key(conversation, agent, soul, mission, skills, memory_notes, timezone)
+           cache_key(context.cache_anchor, agent, soul, mission, skills, memory_notes, timezone)
        }}
     else
-      nil -> error(request_id, :conversation_not_found)
       {:error, reason} -> error(request_id, reason)
     end
   end
@@ -70,6 +65,49 @@ defmodule Ankole.ActorRuntime.AgentConversationContextBroker do
     |> where([conversation], is_nil(conversation.ended_at))
     |> Repo.one()
   end
+
+  defp conversation_context(%TurnRef{session_id: "subagent:" <> delegation_id} = turn_ref, _event) do
+    case Repo.get_by(Delegation, id: delegation_id, agent_uid: turn_ref.agent_uid) do
+      %Delegation{} = delegation ->
+        {:ok,
+         %{
+           channel_id: Map.get(delegation.reply_route || %{}, "signal_channel_id"),
+           conversation: nil,
+           cache_anchor: {:subagent, delegation.id, delegation.session_id, delegation.reply_route}
+         }}
+
+      nil ->
+        {:error, :delegation_not_found}
+    end
+  end
+
+  defp conversation_context(%TurnRef{} = turn_ref, actor_event) do
+    case active_conversation(turn_ref) do
+      %Conversation{} = conversation ->
+        {:ok,
+         %{
+           channel_id: current_channel_id(actor_event),
+           conversation: conversation,
+           cache_anchor:
+             {:conversation, conversation.agent_uid, conversation.conversation_key,
+              conversation.inserted_at}
+         }}
+
+      nil ->
+        {:error, :conversation_not_found}
+    end
+  end
+
+  defp conversation_payload(%{conversation: %Conversation{} = conversation}, timezone) do
+    %{
+      "id" => conversation.id,
+      "key" => conversation.conversation_key,
+      "started_at" => datetime(conversation.inserted_at),
+      "timezone" => timezone
+    }
+  end
+
+  defp conversation_payload(%{conversation: nil}, _timezone), do: %{}
 
   defp agent_profile(agent_uid) do
     case Repo.get(Principal, agent_uid) do
@@ -97,20 +135,9 @@ defmodule Ankole.ActorRuntime.AgentConversationContextBroker do
     end
   end
 
-  defp cache_key(
-         %Conversation{} = conversation,
-         agent,
-         soul,
-         mission,
-         skills,
-         memory_notes,
-         timezone
-       ) do
+  defp cache_key(anchor, agent, soul, mission, skills, memory_notes, timezone) do
     content =
-      :erlang.term_to_binary(
-        {conversation.agent_uid, conversation.conversation_key, conversation.inserted_at, agent,
-         soul, mission, skills, memory_notes, timezone}
-      )
+      :erlang.term_to_binary({anchor, agent, soul, mission, skills, memory_notes, timezone})
 
     "agent-conversation-context:" <> Base.encode16(:crypto.hash(:sha256, content), case: :lower)
   end

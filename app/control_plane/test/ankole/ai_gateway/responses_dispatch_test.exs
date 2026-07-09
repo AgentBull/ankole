@@ -98,6 +98,64 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert model_ref["provider_id"] == "openai-responses-main"
   end
 
+  test "stateless responses preserve the Codex encrypted reasoning round trip" do
+    %{principal: agent} = agent_fixture()
+
+    encrypted_reasoning = %{
+      "id" => "rs_codex_encrypted",
+      "type" => "reasoning",
+      "encrypted_content" => "ENCRYPTED_CODEX_STATE",
+      "summary" => []
+    }
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:json, 200,
+         %{
+           "id" => "resp_codex_encrypted",
+           "object" => "response",
+           "status" => "completed",
+           "output" => [encrypted_reasoning],
+           "usage" => %{}
+         }}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-codex-encrypted",
+               provider_kind: "openai",
+               base_url: "#{base_url}/v1",
+               connection_options: %{
+                 "api_key" => "sk-openai",
+                 "transport" => %{"http_versions" => ["h1"]}
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-codex-encrypted",
+               model: "gpt-5.4"
+             })
+
+    assert {:ok, %{body: body}} =
+             AIGateway.create_response(agent.uid, %{
+               "model" => "primary",
+               "input" => [
+                 encrypted_reasoning,
+                 %{"type" => "message", "role" => "user", "content" => "continue"}
+               ],
+               "include" => ["reasoning.encrypted_content"],
+               "prompt_cache_key" => "codex-thread-1",
+               "store" => false
+             })
+
+    assert_receive {:gateway_request, request}
+    assert request.body["include"] == ["reasoning.encrypted_content"]
+    assert request.body["prompt_cache_key"] == "codex-thread-1"
+    assert List.first(request.body["input"])["encrypted_content"] == "ENCRYPTED_CODEX_STATE"
+    assert List.first(body["output"])["encrypted_content"] == "ENCRYPTED_CODEX_STATE"
+  end
+
   test "websocket responses require store true before continuation fields" do
     %{principal: agent} = agent_fixture()
     previous_response_id = "resp_#{Ecto.UUID.generate()}"

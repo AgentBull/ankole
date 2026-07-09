@@ -13,6 +13,7 @@ describe('@ankole/kernel', () => {
       'authzMatchResourcePattern',
       'authzValidateCondition',
       'authzValidateResourcePattern',
+      'estimateO200kBaseTokens',
       'signalsGatewayFilterMatch',
       'signalsGatewayValidateFilter',
       'unifiedTextDiff',
@@ -31,6 +32,11 @@ describe('@ankole/kernel', () => {
 
   it('computes string XXH3 fingerprints through the Bun bridge', () => {
     expect(kernel.xxh3String128Hex('TestCase')).toBe('7b16fe7c3e492b87d9615265f0856cec')
+  })
+
+  it('estimates model context with the shared o200k_base tokenizer', () => {
+    expect(kernel.estimateO200kBaseTokens('Hello world')).toBe(2)
+    expect(kernel.estimateO200kBaseTokens('记忆系统')).toBeGreaterThan(0)
   })
 
   it('computes unified text diff hunks through the Bun bridge', async () => {

@@ -1,3 +1,5 @@
+const utf8Encoder = new TextEncoder()
+
 /**
  * Strips characters that make tool/command output unsafe to store and re-display,
  * while leaving ordinary text intact.
@@ -52,4 +54,32 @@ export function truncateUtf16Safe(text: string, maxChars: number): string {
   // pair: step back one so the split character is excluded entirely.
   if (previous >= 0xd800 && previous <= 0xdbff && next >= 0xdc00 && next <= 0xdfff) end--
   return text.slice(0, end)
+}
+
+/** Returns the UTF-8 byte length used by JSON-RPC and durable text payloads. */
+export function utf8ByteLength(text: string): number {
+  return utf8Encoder.encode(text).byteLength
+}
+
+/** Truncates to the largest UTF-16-safe prefix whose UTF-8 encoding fits. */
+export function truncateUtf8Safe(text: string, maxBytes: number): string {
+  if (maxBytes <= 0) return ''
+  if (utf8ByteLength(text) <= maxBytes) return text
+
+  let low = 0
+  let high = text.length
+  let best = ''
+
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2)
+    const candidate = truncateUtf16Safe(text, middle)
+    if (utf8ByteLength(candidate) <= maxBytes) {
+      best = candidate
+      low = middle + 1
+    } else {
+      high = middle - 1
+    }
+  }
+
+  return best
 }

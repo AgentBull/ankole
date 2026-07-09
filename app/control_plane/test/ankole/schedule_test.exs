@@ -1039,6 +1039,8 @@ defmodule Ankole.ScheduleTest do
                }
              })
 
+    :ok = Ankole.ActorRuntimeCase.cache_actor_runtime_models(provider_id)
+
     assert {:ok, _profile} =
              ModelProfiles.put_model_profile(agent.uid, "primary", %{
                provider_id: provider_id,

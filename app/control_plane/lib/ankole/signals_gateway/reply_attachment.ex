@@ -3,8 +3,8 @@ defmodule Ankole.SignalsGateway.ReplyAttachment do
   Shared contract for `reply_attachment` tool outputs and outbound outbox payloads.
   """
 
-  alias Ankole.JSON
   alias Ankole.Ecto.JsonPayload
+  alias Ankole.SignalsGateway.ToolOutput
 
   @tool_name "reply_attachment"
   @user_files_prefix "/workspace/user-files/"
@@ -89,49 +89,8 @@ defmodule Ankole.SignalsGateway.ReplyAttachment do
   defp attachments_from_reply_attachment_output(item) do
     item
     |> Map.get("output")
-    |> decode_tool_output()
+    |> ToolOutput.decode()
     |> attachments_from_tool_output(item["call_id"])
-  end
-
-  defp decode_tool_output(output) when is_binary(output) do
-    output
-    |> String.trim()
-    |> decode_json_or_wrapped_tool_output()
-  end
-
-  defp decode_tool_output(output) when is_map(output), do: output
-  defp decode_tool_output(_output), do: nil
-
-  defp decode_json_or_wrapped_tool_output(output) do
-    case JSON.decode(output) do
-      {:ok, decoded} ->
-        decoded
-
-      {:error, _reason} ->
-        case unwrap_untrusted_tool_output(output) do
-          {:ok, unwrapped} ->
-            unwrapped
-            |> String.trim()
-            |> decode_json_or_wrapped_tool_output()
-
-          :error ->
-            nil
-        end
-    end
-  end
-
-  defp unwrap_untrusted_tool_output(output) do
-    prefix = ~s(<ankole_untrusted_tool_output nonce=")
-
-    with true <- String.starts_with?(output, prefix),
-         rest <- String.replace_prefix(output, prefix, ""),
-         [nonce, body_with_suffix] <- String.split(rest, ~s(">\n), parts: 2),
-         suffix <- ~s(\n</ankole_untrusted_tool_output nonce="#{nonce}">),
-         true <- String.ends_with?(body_with_suffix, suffix) do
-      {:ok, String.replace_suffix(body_with_suffix, suffix, "")}
-    else
-      _not_wrapped -> :error
-    end
   end
 
   defp attachments_from_tool_output(

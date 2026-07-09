@@ -11,6 +11,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
   import Ankole.E2E.WaitHelpers,
     only: [
       deadline: 1,
+      wait_until: 2,
       wait_for_completed_actor_event_message: 3,
       wait_for_completed_final_reply: 3,
       ai_messages_for_actor_event: 1
@@ -19,9 +20,10 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
   alias Ankole.AIAgent.Library.Schemas.AgentSkillOverlay
   alias Ankole.AIGateway.AgentConfig
   alias Ankole.AIGateway.ModelProfiles
+  alias Ankole.Actors.ActorEvent
   alias Ankole.AppConfigure
-  alias Ankole.CodexDelegations.Schemas.Delegation, as: CodexDelegation
-  alias Ankole.CodexDelegations.Schemas.Event, as: CodexDelegationEvent
+  alias Ankole.SubagentDelegations.Schemas.Delegation, as: SubagentDelegation
+  alias Ankole.SubagentDelegations.Schemas.Event, as: SubagentDelegationEvent
   alias Ankole.E2E.FakeFeishu
   alias Ankole.Repo
   alias Ankole.SignalsGateway.Entry
@@ -344,14 +346,15 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                message_id: "om_real_codex_todolist_1",
                chat_id: "oc_real_llm_codex_todolist",
                text: """
-               @_user_1 Please delegate this implementation to a Codex subagent, then reply from the delegation result. Use the real OpenRouter model z-ai/glm-5.2.
+               @_user_1 Delegate this implementation to the Codex subagent in the background. Use the real OpenRouter model z-ai/glm-5.2.
 
                Task:
-               1. Call codex_delegate exactly once with action="run" and workdir="/workspace/temp/ankole-codex-todolist-real".
-               2. The delegated Codex prompt must ask Codex to create the smallest possible Vite + React TypeScript in-memory todolist demo in that workdir. Keep the source tiny and write only package.json plus index.html, src/App.tsx, and src/index.scss.
+               1. Call subagent exactly once with action="start", title="Build the real todolist demo", and workdir="/workspace/user-files/subagent/ankole-codex-todolist-real".
+               2. The delegated brief must ask Codex to create the smallest possible Vite + React TypeScript in-memory todolist demo in that workdir. Keep the source tiny and write only package.json plus index.html, src/App.tsx, and src/index.scss.
                3. The app only needs React useState, add/toggle/delete todo behavior, and a visible remaining count. No polish, no extra files, no tests.
-               4. The delegated Codex prompt must require Codex to run bun install and bun run build, and its final answer must include ANKOLE_CODEX_TODOLIST_DELEGATE_DONE.
-               5. After codex_delegate returns, do not use command or read_file for parent-side verification. If the delegation result contains ANKOLE_CODEX_TODOLIST_DELEGATE_DONE, reply exactly:
+               4. The delegated brief must require Codex to run bun install and bun run build, and its final answer must include ANKOLE_CODEX_TODOLIST_DELEGATE_DONE.
+               5. Immediately after subagent(start) returns, reply exactly ANKOLE_CODEX_TODOLIST_STARTED.
+               6. When the delegation completion notification later wakes this conversation, call subagent(status), verify the result marker, then reply exactly:
                   ANKOLE_CODEX_TODOLIST_REAL_OK build=passed verified=delegation
 
                This is a delegation run-through task; no web research is needed.
@@ -366,72 +369,106 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     assert {:ok, %{send_outcome: "sent_or_queued"}} =
              process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
 
-    assert {:ok, message} =
-             wait_for_completed_actor_event_message(container, input.id, deadline(1_500_000))
+    assert {:ok, start_message} =
+             wait_for_completed_actor_event_message(container, input.id, deadline(300_000))
 
     messages = ai_messages_for_actor_event(input.id)
 
-    reply =
+    start_reply =
       case wait_for_completed_final_reply(container, input.id, deadline(60_000)) do
-        {:ok, %Entry{} = reply, %{id: message_id}} when message_id == message.id ->
+        {:ok, %Entry{} = reply, %{id: message_id}} when message_id == start_message.id ->
           reply
 
         {:ok, %Entry{} = _reply, other_message} ->
           flunk("""
-          real Codex todolist turn mirrored a different final message.
-          expected_message_id=#{message.id}
+          real subagent start turn mirrored a different final message.
+          expected_message_id=#{start_message.id}
           actual_message_id=#{other_message.id}
-          final_message_text=#{inspect(message_text(message), printable_limit: 4_000)}
+          final_message_text=#{inspect(message_text(start_message), printable_limit: 4_000)}
           tool_results=#{inspect(tool_results(messages), limit: :infinity, printable_limit: 4_000)}
-          codex_delegations=#{inspect(codex_delegation_debug(input.id), limit: :infinity, printable_limit: 4_000)}
+          subagent_delegations=#{inspect(subagent_delegation_debug(input.id), limit: :infinity, printable_limit: 4_000)}
           """)
       end
 
+    assert start_reply.text =~ "ANKOLE_CODEX_TODOLIST_STARTED"
+    assert tool_result_succeeded?(messages, "subagent")
+
+    called_tools = messages |> function_call_items() |> Enum.map(& &1["name"])
+    assert "subagent" in called_tools
+
     delegation =
       Repo.one!(
-        from delegation in CodexDelegation,
+        from delegation in SubagentDelegation,
           where: delegation.agent_uid == ^agent.uid,
           where: delegation.actor_event_id == ^input.id
       )
 
-    assert reply.text =~ "ANKOLE_CODEX_TODOLIST_REAL_OK",
-           """
-           real Codex todolist turn did not emit the success marker.
-           reply_text=#{inspect(reply.text, printable_limit: 8_000)}
-           codex_delegations=#{inspect(codex_delegation_debug(input.id), limit: :infinity, printable_limit: 8_000)}
-           tool_results=#{inspect(tool_results(messages), limit: :infinity, printable_limit: 8_000)}
-           final_message_text=#{inspect(message_text(message), printable_limit: 4_000)}
-           """
+    dispatch_event =
+      Repo.one!(
+        from event in ActorEvent,
+          where: event.agent_uid == ^agent.uid,
+          where: event.session_id == ^"subagent:#{delegation.id}",
+          where: event.type == "subagent.delegation.dispatch"
+      )
 
+    assert {:ok, _result} =
+             process_ready_event_for_actor!(
+               dispatch_event,
+               DateTime.add(dispatch_event.available_at, 1, :second)
+             )
+
+    assert {:ok, %SubagentDelegation{} = delegation} =
+             wait_until(deadline(1_500_000), fn ->
+               case Repo.get(SubagentDelegation, delegation.id) do
+                 %SubagentDelegation{status: "succeeded"} = completed ->
+                   completed
+
+                 %SubagentDelegation{status: status} = failed
+                 when status in ["failed", "stopped"] ->
+                   flunk("""
+                   real subagent todolist delegation ended as #{status}.
+                   subagent_delegations=#{inspect(subagent_delegation_debug(input.id), limit: :infinity, printable_limit: 8_000)}
+                   failure=#{inspect(failed.error, printable_limit: 4_000)}
+                   """)
+
+                 _pending ->
+                   nil
+               end
+             end)
+
+    wakeup_event =
+      Repo.one!(
+        from event in ActorEvent,
+          where: event.agent_uid == ^agent.uid,
+          where: event.session_id == ^input.session_id,
+          where: event.type == "subagent.delegation.completed",
+          where: event.source_event_id == ^"subagent_delegation:#{delegation.id}:succeeded"
+      )
+
+    if is_nil(wakeup_event.completed_at) do
+      assert {:ok, _result} =
+               process_ready_event_for_actor!(
+                 wakeup_event,
+                 DateTime.add(wakeup_event.available_at, 1, :second)
+               )
+    end
+
+    assert {:ok, reply, message} =
+             wait_for_completed_final_reply(container, wakeup_event.id, deadline(300_000))
+
+    assert reply.text =~ "ANKOLE_CODEX_TODOLIST_REAL_OK"
     assert reply.text =~ "build=passed"
     assert reply.text =~ "verified=delegation"
-
-    assert tool_result_succeeded?(messages, "codex_delegate")
-
-    called_tools =
-      messages
-      |> function_call_items()
-      |> Enum.map(& &1["name"])
-
-    assert "codex_delegate" in called_tools
-
-    assert delegation.status == "succeeded",
-           """
-           real Codex todolist delegation did not succeed.
-           codex_delegations=#{inspect(codex_delegation_debug(input.id), limit: :infinity, printable_limit: 8_000)}
-           tool_results=#{inspect(tool_results(messages), limit: :infinity, printable_limit: 8_000)}
-           final_message_text=#{inspect(message_text(message), printable_limit: 4_000)}
-           """
 
     assert get_in(delegation.result, ["output_text"]) =~ "ANKOLE_CODEX_TODOLIST_DELEGATE_DONE",
            """
            real Codex todolist delegation succeeded without the expected marker.
-           codex_delegations=#{inspect(codex_delegation_debug(input.id), limit: :infinity, printable_limit: 8_000)}
+           subagent_delegations=#{inspect(subagent_delegation_debug(input.id), limit: :infinity, printable_limit: 8_000)}
            """
 
     events =
       Repo.all(
-        from event in CodexDelegationEvent,
+        from event in SubagentDelegationEvent,
           where: event.delegation_id == ^delegation.id,
           order_by: [asc: event.seq]
       )
@@ -452,6 +489,8 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
            end)
 
     assert_actor_event_completed!(input.id)
+    assert_actor_event_completed!(dispatch_event.id)
+    assert_actor_event_completed!(wakeup_event.id)
     %{input: input, reply: reply, message: message, delegation: delegation}
   end
 
@@ -605,23 +644,23 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
              )
   end
 
-  defp codex_delegation_debug(actor_event_id) do
-    CodexDelegation
+  defp subagent_delegation_debug(actor_event_id) do
+    SubagentDelegation
     |> where([delegation], delegation.actor_event_id == ^actor_event_id)
     |> Repo.all()
     |> Enum.map(fn delegation ->
       events =
-        CodexDelegationEvent
+        SubagentDelegationEvent
         |> where([event], event.delegation_id == ^delegation.id)
         |> order_by([event], asc: event.seq)
         |> limit(40)
         |> Repo.all()
-        |> Enum.map(&codex_event_debug/1)
+        |> Enum.map(&subagent_event_debug/1)
 
       %{
         id: delegation.id,
         status: delegation.status,
-        codex_thread_id: delegation.codex_thread_id,
+        runtime_thread_id: delegation.runtime_thread_id,
         result: delegation.result,
         error: delegation.error,
         metadata: delegation.metadata,
@@ -630,7 +669,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     end)
   end
 
-  defp codex_event_debug(%CodexDelegationEvent{} = event) do
+  defp subagent_event_debug(%SubagentDelegationEvent{} = event) do
     message = event.payload["message"] || %{}
     params = message["params"] || %{}
     turn = params["turn"] || %{}
@@ -643,11 +682,11 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
       has_result: Map.has_key?(message, "result"),
       rpc_error: message["error"],
       turn_status: turn["status"],
-      payload: codex_debug_payload(event.payload)
+      payload: subagent_debug_payload(event.payload)
     }
   end
 
-  defp codex_debug_payload(payload) when is_map(payload) do
+  defp subagent_debug_payload(payload) when is_map(payload) do
     payload
     |> Map.take(~w(error message mode codex_turn_status output_text text max_running_per_agent))
     |> truncate_debug_strings()

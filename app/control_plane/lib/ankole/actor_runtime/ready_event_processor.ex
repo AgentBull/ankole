@@ -9,6 +9,7 @@ defmodule Ankole.ActorRuntime.ReadyEventProcessor do
   alias Ankole.ActorRuntime.RuntimeCommand
   alias Ankole.ActorRuntime.ScheduledTurn
   alias Ankole.ActorRuntime.SessionReset
+  alias Ankole.ActorRuntime.SubagentDispatch
   alias Ankole.ActorRuntime.TurnLifecycle
   alias Ankole.Repo
 
@@ -36,6 +37,15 @@ defmodule Ankole.ActorRuntime.ReadyEventProcessor do
 
       %ActorEvent{type: "signal.entry.removed"} = event ->
         EntryLifecycle.process(event, opts)
+
+      %ActorEvent{type: "subagent.delegation.dispatch"} = event ->
+        SubagentDispatch.process(actor_key, event, opts)
+
+      %ActorEvent{type: "command.steer", session_id: "subagent:" <> _delegation_id} = event ->
+        SubagentDispatch.process_steer(actor_key, event, opts)
+
+      %ActorEvent{type: "command.stop", session_id: "subagent:" <> _delegation_id} = event ->
+        RuntimeCommand.process_subagent_stop(actor_key, event, opts)
 
       %ActorEvent{type: type} = event
       when type in ["command.stop", "command.retry", "command.compress"] ->

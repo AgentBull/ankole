@@ -17,6 +17,7 @@ defmodule Ankole.ActorRuntime.WorkerPool do
 
   alias Ankole.ActorRuntime.Schemas.ActorSessionWorkerAssignment
   alias Ankole.ActorRuntime.Schemas.AgentComputerWorker
+  alias Ankole.ActorRuntime.WorkerSubagentConfig
   alias Ankole.Repo
 
   @ready_worker_status "ready"
@@ -34,8 +35,9 @@ defmodule Ankole.ActorRuntime.WorkerPool do
   def assign_worker(actor_key) do
     actor_key = normalize_actor_key(actor_key)
     now = DateTime.utc_now(:microsecond)
+    delegation_limit = delegation_limit(actor_key)
 
-    Repo.transact(fn repo -> assign_worker_in_tx(repo, actor_key, now) end)
+    Repo.transact(fn repo -> assign_worker_in_tx(repo, actor_key, now, delegation_limit) end)
   end
 
   @doc """
@@ -60,9 +62,10 @@ defmodule Ankole.ActorRuntime.WorkerPool do
   @doc """
   Resolves the live route for one specific worker.
 
-  Each worker carries its own per-worker PVC, so console file management must
-  target the exact worker that owns the filesystem rather than any ready worker.
-  Unlike `file_worker_route/0`, this never falls back to another worker.
+  Workers mount the installation's shared RWX workspace, but this operator API
+  deliberately targets one worker so mount reachability and failures remain
+  attributable to the selected runtime. Unlike `file_worker_route/0`, it never
+  falls back to another worker.
   """
   @spec worker_file_route(String.t()) ::
           {:ok, String.t()} | {:error, :worker_not_found | :worker_not_ready}
@@ -98,19 +101,30 @@ defmodule Ankole.ActorRuntime.WorkerPool do
     |> repo.update_all(set: [status: "released", updated_at: DateTime.utc_now(:microsecond)])
   end
 
+  @doc false
+  def release_assignment_for_actor_in_tx(repo, actor_key) do
+    ActorSessionWorkerAssignment
+    |> where([assignment], assignment.agent_uid == ^actor_key.agent_uid)
+    |> where([assignment], assignment.session_id == ^actor_key.session_id)
+    |> where([assignment], assignment.status in ["assigned", "draining"])
+    |> repo.update_all(set: [status: "released", updated_at: DateTime.utc_now(:microsecond)])
+
+    :ok
+  end
+
   # Keeps actor-to-worker affinity while the assigned worker is still usable.
   # This lowers churn without making the worker part of the durable user story:
   # stale workers release the assignment and the actor event can be retried.
-  defp assign_worker_in_tx(repo, actor_key, now) do
+  defp assign_worker_in_tx(repo, actor_key, now, delegation_limit) do
     case live_assignment(repo, actor_key) do
       %ActorSessionWorkerAssignment{} = assignment ->
-        case assignment_worker_available(repo, assignment) do
+        case assignment_worker_available(repo, assignment, delegation_limit) do
           {:ok, %AgentComputerWorker{} = worker} ->
             touch_assignment(repo, assignment, worker, now)
 
           nil ->
             with {:ok, _assignment} <- release_assignment(repo, assignment),
-                 {:ok, assignment} <- assign_new_worker(repo, actor_key, now) do
+                 {:ok, assignment} <- assign_new_worker(repo, actor_key, now, delegation_limit) do
               {:ok, assignment}
             end
 
@@ -119,7 +133,7 @@ defmodule Ankole.ActorRuntime.WorkerPool do
         end
 
       nil ->
-        assign_new_worker(repo, actor_key, now)
+        assign_new_worker(repo, actor_key, now, delegation_limit)
     end
   end
 
@@ -136,8 +150,8 @@ defmodule Ankole.ActorRuntime.WorkerPool do
 
   # Picks the first currently ready worker with capacity. The policy is simple
   # on purpose: fairness can improve later without changing turn semantics.
-  defp assign_new_worker(repo, actor_key, now) do
-    with %AgentComputerWorker{} = worker <- choose_worker(repo),
+  defp assign_new_worker(repo, actor_key, now, delegation_limit) do
+    with %AgentComputerWorker{} = worker <- choose_worker(repo, delegation_limit),
          {:ok, worker} <- reserve_worker_slot(repo, worker),
          {:ok, assignment} <- insert_assignment(repo, actor_key, worker, now) do
       {:ok, assignment}
@@ -149,7 +163,7 @@ defmodule Ankole.ActorRuntime.WorkerPool do
 
   # Revalidates the worker projection behind an existing assignment. Assignment
   # rows are hints; the worker table remains the liveness source.
-  defp assignment_worker_available(repo, assignment) do
+  defp assignment_worker_available(repo, assignment, delegation_limit) do
     AgentComputerWorker
     |> where([worker], worker.worker_id == ^assignment.worker_id)
     |> where([worker], worker.status == ^@ready_worker_status)
@@ -157,7 +171,8 @@ defmodule Ankole.ActorRuntime.WorkerPool do
     |> repo.one()
     |> case do
       %AgentComputerWorker{} = worker ->
-        case worker_has_capacity?(worker) do
+        case worker_has_capacity?(worker) and
+               worker_has_delegation_capacity?(repo, worker, delegation_limit) do
           true -> reserve_worker_slot(repo, worker)
           false -> nil
         end
@@ -185,13 +200,16 @@ defmodule Ankole.ActorRuntime.WorkerPool do
   # Chooses from ready workers after reading their current capacity projection.
   # Missing capacity is not assumed usable: every current worker reports turn
   # slots in its ready/capacity envelopes.
-  defp choose_worker(repo) do
+  defp choose_worker(repo, delegation_limit) do
     AgentComputerWorker
     |> where([worker], worker.status == ^@ready_worker_status)
     |> order_by([worker], asc: worker.inserted_at)
     |> lock("FOR UPDATE SKIP LOCKED")
     |> repo.all()
-    |> Enum.find(&worker_has_capacity?/1)
+    |> Enum.find(fn worker ->
+      worker_has_capacity?(worker) and
+        worker_has_delegation_capacity?(repo, worker, delegation_limit)
+    end)
   end
 
   defp reserve_worker_slot(repo, %AgentComputerWorker{} = worker) do
@@ -248,6 +266,22 @@ defmodule Ankole.ActorRuntime.WorkerPool do
     end
   end
 
+  defp worker_has_delegation_capacity?(_repo, _worker, nil), do: true
+
+  defp worker_has_delegation_capacity?(repo, worker, limit) when is_integer(limit) do
+    count =
+      repo.aggregate(
+        from(assignment in ActorSessionWorkerAssignment,
+          where: assignment.worker_id == ^worker.worker_id,
+          where: assignment.status in ["assigned", "draining"],
+          where: like(assignment.session_id, "subagent:%")
+        ),
+        :count
+      )
+
+    count < limit
+  end
+
   # Captures the route chosen for this actor session. Delivery and turn replies
   # re-check the route so assignment remains a placement hint, not durable truth.
   defp insert_assignment(repo, actor_key, worker, now) do
@@ -278,6 +312,11 @@ defmodule Ankole.ActorRuntime.WorkerPool do
   end
 
   defp normalize_uid(value) when is_binary(value), do: String.downcase(value)
+
+  defp delegation_limit(%{session_id: "subagent:" <> _delegation_id}),
+    do: WorkerSubagentConfig.max_delegation_turns_per_worker()
+
+  defp delegation_limit(_actor_key), do: nil
 
   defp integer_from_map(map, key) when is_map(map) do
     case Map.get(map, key) || Map.get(map, String.to_atom(key)) do

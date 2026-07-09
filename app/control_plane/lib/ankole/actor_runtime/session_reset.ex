@@ -130,6 +130,7 @@ defmodule Ankole.ActorRuntime.SessionReset do
 
     Conversation
     |> where([conversation], is_nil(conversation.ended_at))
+    |> where([conversation], not like(conversation.conversation_key, "subagent:%"))
     |> where([conversation], conversation.inserted_at < ^boundary_at)
     |> order_by([conversation], asc: conversation.agent_uid, asc: conversation.conversation_key)
     |> limit(^limit)

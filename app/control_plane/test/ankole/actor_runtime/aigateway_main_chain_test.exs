@@ -366,6 +366,119 @@ defmodule Ankole.ActorRuntime.AIGatewayMainChainTest do
     assert mirror.text == "SALES_CHART_ATTACHED"
   end
 
+  test "clarify tool output replaces the plain final reply with one durable interactive outbox" do
+    %{principal: agent} = agent_fixture()
+
+    Ankole.SignalsGatewayFixtures.binding_fixture(agent.uid, "mock", :ignore,
+      adapter: "mock-provider"
+    )
+
+    %{actor_event: actor_event} =
+      Ankole.SignalsGatewayFixtures.emit_addressed_actor_event(
+        agent.uid,
+        "mock",
+        Ankole.SignalsGatewayFixtures.group_entry(%{
+          source_event_id: "clarify-main-chain-event",
+          signal_channel_id: "mock:chat:clarify",
+          source_entry_id: "human-clarify-1",
+          provider_thread_id: "mock-thread-clarify",
+          explicit: true,
+          text: "Prepare the brief."
+        })
+      )
+
+    {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, actor_event.session_id)
+
+    {:ok, first_round} =
+      StatefulResponses.start_response_run(%{
+        agent_uid: agent.uid,
+        conversation_id: conversation.id,
+        actor_event_id: actor_event.id,
+        request_items: [
+          %{
+            "type" => "message",
+            "role" => "user",
+            "content" => "Prepare the brief."
+          }
+        ]
+      })
+
+    assert {:ok, first_committed} =
+             StatefulResponses.commit_complete(first_round, [
+               %{
+                 "type" => "function_call",
+                 "call_id" => "call_clarify_audience",
+                 "name" => "clarify",
+                 "arguments" =>
+                   ~s({"question":"Who should this brief target?","choices":[{"label":"Operators"},{"label":"Executives"}]})
+               }
+             ])
+
+    {:ok, final_round} =
+      StatefulResponses.start_response_run(%{
+        agent_uid: agent.uid,
+        actor_event_id: actor_event.id,
+        previous_response_id: "resp_#{first_committed.id}",
+        request_items: [
+          %{
+            "type" => "function_call_output",
+            "call_id" => "call_clarify_audience",
+            "output" =>
+              untrusted_tool_output(
+                Ankole.JSON.encode!(%{
+                  "tool" => "clarify",
+                  "ok" => true,
+                  "question" => "Who should this brief target?",
+                  "choices" => [
+                    %{"label" => "Operators"},
+                    %{"label" => "Executives"}
+                  ]
+                })
+              )
+          }
+        ]
+      })
+
+    assert {:ok, final_committed} =
+             StatefulResponses.commit_complete(final_round, [
+               %{
+                 "type" => "message",
+                 "role" => "assistant",
+                 "content" => [
+                   %{"type" => "output_text", "text" => "I need one decision first."}
+                 ]
+               }
+             ])
+
+    outbox =
+      Repo.get_by!(OutboxEntry,
+        agent_uid: agent.uid,
+        binding_name: "mock",
+        outbound_key: "ai-reply:#{final_committed.id}"
+      )
+
+    assert outbox.status == :created
+    assert outbox.operation == :reply
+    assert outbox.source_actor_event_id == actor_event.id
+    assert outbox.ai_message_id == final_committed.id
+    assert outbox.reply_to_source_entry_id == "human-clarify-1"
+    assert outbox.payload["metadata"]["source"] == "ai_gateway_clarify"
+    assert outbox.payload["text"] =~ "I need one decision first."
+    assert outbox.payload["text"] =~ "Who should this brief target?"
+
+    assert Enum.map(outbox.payload["interactive_output"]["choices"], & &1["label"]) ==
+             ["Operators", "Executives", "Other / free input"]
+
+    assert Repo.aggregate(
+             from(entry in OutboxEntry,
+               where:
+                 entry.ai_message_id == ^final_committed.id and
+                   entry.outbound_key == ^outbox.outbound_key
+             ),
+             :count
+           ) == 1
+  end
+
   defp use_mock_signal_provider_plugin(_context) do
     original_state = :sys.get_state(Ankole.Plugins.Registry)
     {:ok, spec} = Spec.from_module(MockSignalProviderPlugin)

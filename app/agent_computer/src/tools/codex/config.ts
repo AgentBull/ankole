@@ -1,5 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { isRecord, type JsonObject } from '@pleisto/active-support'
 import { sanitizePathSegment } from '../../core/workspace-paths'
@@ -23,7 +22,6 @@ export type CodexConfigOverride =
 
 export type MaterializedCodexConfig = {
   codexHome: string
-  cleanupRoot?: string
   env: Record<string, string>
 }
 
@@ -48,11 +46,7 @@ export function materializeCodexConfig(input: {
   aiGatewayKey?: AIGatewayApiKeyResponse
 }): MaterializedCodexConfig {
   const safeDelegationId = sanitizePathSegment(input.delegationId, { replacement: '_' })
-  const cleanupRoot =
-    input.override?.mode === 'official_subscription'
-      ? join(tmpdir(), 'ankole-codex-official', safeDelegationId)
-      : join(input.workspaceRoot, 'temp', 'codex', safeDelegationId)
-  const codexHome = join(cleanupRoot, 'home')
+  const codexHome = join(input.workspaceRoot, '.ankole', 'subagent', safeDelegationId, 'home')
   mkdirSync(codexHome, { recursive: true })
 
   const env: Record<string, string> = {
@@ -65,22 +59,23 @@ export function materializeCodexConfig(input: {
 
   if (input.override?.mode === 'official_subscription') {
     writeConfigToml(codexHome, input.override.config_toml || officialSubscriptionDefaultConfig())
-    writeAuthJson(codexHome, input.override.auth_json)
+    syncAuthJson(codexHome, input.override.auth_json)
     Object.assign(env, input.override.env ?? {})
-    return { codexHome, cleanupRoot, env }
+    return { codexHome, env }
   }
 
   if (input.override?.mode === 'aigateway' && input.override.config_toml) {
     writeConfigToml(codexHome, input.override.config_toml)
-    writeAuthJson(codexHome, input.override.auth_json)
+    syncAuthJson(codexHome, input.override.auth_json)
     Object.assign(env, input.override.env ?? {})
   } else {
     if (!input.aiGatewayKey) throw new Error('AIGateway Codex config requires an AIGateway API key')
     writeConfigToml(codexHome, aigatewayConfigToml(input.aiGatewayKey.base_url))
+    syncAuthJson(codexHome, undefined)
   }
 
   if (input.aiGatewayKey) env.ANKOLE_AIGATEWAY_API_KEY = input.aiGatewayKey.api_key
-  return { codexHome, cleanupRoot, env }
+  return { codexHome, env }
 }
 
 export function codexConfigCliOverrides(): string[] {
@@ -102,6 +97,7 @@ model_reasoning_effort = "xhigh"
 approval_policy = "never"
 sandbox_mode = "danger-full-access"
 cli_auth_credentials_store = "file"
+web_search = "disabled"
 features.remote_compaction_v2 = false
 
 # Codex enables remote /responses/compact only for its built-in provider ids.
@@ -119,17 +115,22 @@ function officialSubscriptionDefaultConfig(): string {
   return `approval_policy = "never"
 sandbox_mode = "danger-full-access"
 cli_auth_credentials_store = "file"
+web_search = "disabled"
 `
 }
 
 function writeConfigToml(codexHome: string, configToml: string): void {
-  writeFile(join(codexHome, 'config.toml'), configToml.endsWith('\n') ? configToml : `${configToml}\n`)
+  writeFile(join(codexHome, 'config.toml'), configToml)
 }
 
-function writeAuthJson(codexHome: string, authJson: JsonObject | string | undefined): void {
-  if (authJson === undefined) return
-  const content = typeof authJson === 'string' ? authJson : JSON.stringify(authJson, null, 2)
-  writeFile(join(codexHome, 'auth.json'), content.endsWith('\n') ? content : `${content}\n`)
+function syncAuthJson(codexHome: string, authJson: JsonObject | string | undefined): void {
+  const path = join(codexHome, 'auth.json')
+  if (authJson === undefined) {
+    rmSync(path, { force: true })
+    return
+  }
+  const content = typeof authJson === 'string' ? authJson : `${JSON.stringify(authJson, null, 2)}\n`
+  writeFile(path, content)
 }
 
 function writeFile(path: string, content: string): void {

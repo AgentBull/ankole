@@ -28,9 +28,10 @@ import {
 import { workerLogger } from './worker/logging'
 import {
   replaceSkillOverlay,
-  appendCodexDelegationEvent,
-  createCodexDelegation,
-  getCodexDelegation,
+  appendSubagentDelegationEvents,
+  createSubagentDelegation,
+  getSubagentDelegation,
+  listSubagentDelegations,
   requestAgentConversationContext,
   requestAIGatewayApiKey,
   requestAppConfigure,
@@ -39,7 +40,9 @@ import {
   requestSkillOverlay,
   replaceInstalledSkillObservations,
   stringFromDetails,
-  updateCodexDelegationStatus
+  steerSubagentDelegation,
+  stopSubagentDelegation,
+  updateSubagentDelegationStatus
 } from './worker/rpc_requests'
 
 const heartbeatIntervalMs = 15_000
@@ -270,10 +273,12 @@ async function runActiveTurnTask(
   activeTurns: Map<string, ActiveTurn>
 ): Promise<void> {
   const turnStart = active.turnStart
-  const stopProgress = startTurnProgress(sendEnvelope, active)
+  const progress = startTurnProgress(sendEnvelope, active, {
+    requireActivity: turnStart.turn.actor.session_id.startsWith('subagent:')
+  })
 
   try {
-    await runActiveTurn(config, sendEnvelope, rpcClient, active)
+    await runActiveTurn(config, sendEnvelope, rpcClient, active, progress.touch)
     if (active.controlledStopRequested) {
       workerLogger.info('worker.turn_controlled_stop', 'worker turn controlled stop', {
         actor_event_id: turnStart.turn.actor_event_id,
@@ -311,7 +316,7 @@ async function runActiveTurnTask(
       operation: turnOperation(turnStart.turn.actor_event_id, { last: true })
     })
   } finally {
-    stopProgress()
+    progress.stop()
     activeTurns.delete(turnKey(turnStart.turn))
     await sendEnvelope(workerCapacityEnvelope(config, availableTurnSlots(config, activeTurns), activeTurns.size))
   }
@@ -327,7 +332,8 @@ async function runActiveTurn(
   config: WorkerConfig,
   sendEnvelope: ReliableEnvelopeSender,
   rpcClient: RuntimeRpcClient,
-  active: ActiveTurn
+  active: ActiveTurn,
+  onTurnActivity: (description?: string) => void
 ): Promise<void> {
   const turnStart = active.turnStart
   const workspaceRoot = prepareTurnWorkspace(config, turnStart)
@@ -343,21 +349,27 @@ async function runActiveTurn(
 
   const result = await runTurnHandlers(turnStart, {
     workspaceRoot,
+    workspaceSessionsRoot: config.workspaceSessionsRoot,
+    userFilesRoot: config.userFilesRoot,
     builtinSkillsRoot: config.builtinSkillsRoot,
     agentInstalledSkillsRoot: config.agentInstalledSkillsRoot,
     internalSkillsRoot: config.internalSkillsRoot,
     requestAIGatewayApiKey: (request, options) => requestAIGatewayApiKey(rpcClient, request, options),
     requestAppConfigure: request => requestAppConfigure(rpcClient, request),
-    createCodexDelegation: request => createCodexDelegation(rpcClient, request),
-    getCodexDelegationStatus: request => getCodexDelegation(rpcClient, request),
-    appendCodexDelegationEvent: request => appendCodexDelegationEvent(rpcClient, request),
-    updateCodexDelegationStatus: request => updateCodexDelegationStatus(rpcClient, request),
+    createSubagentDelegation: request => createSubagentDelegation(rpcClient, request),
+    getSubagentDelegation: request => getSubagentDelegation(rpcClient, request),
+    listSubagentDelegations: request => listSubagentDelegations(rpcClient, request),
+    steerSubagentDelegation: request => steerSubagentDelegation(rpcClient, request),
+    stopSubagentDelegation: request => stopSubagentDelegation(rpcClient, request),
+    appendSubagentDelegationEvents: request => appendSubagentDelegationEvents(rpcClient, request),
+    updateSubagentDelegationStatus: request => updateSubagentDelegationStatus(rpcClient, request),
     requestAgentConversationContext: request => requestAgentConversationContext(rpcClient, request),
     requestScheduleRpc: (method, request) => requestScheduleRpc(rpcClient, method, request),
     requestMemoryRpc: (method, request) => requestMemoryRpc(rpcClient, method, request),
     requestSkillOverlay: request => requestSkillOverlay(rpcClient, request),
     replaceSkillOverlay: request => replaceSkillOverlay(rpcClient, request),
     pollSteering: () => active.steeringUpdates.splice(0),
+    onTurnActivity,
     abortSignal: active.abortController.signal
   })
 

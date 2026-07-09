@@ -42,10 +42,17 @@ export function verifyWorkerFilesystem(config: WorkerConfig): void {
  * copying durable user data.
  */
 export function prepareTurnWorkspace(config: WorkerConfig, turnStart: TurnStart): string {
+  return prepareActorWorkspace(config, turnStart.turn.actor)
+}
+
+export function prepareActorWorkspace(
+  config: Pick<WorkerConfig, 'workspaceSessionsRoot' | 'userFilesRoot'>,
+  actor: { agent_uid: string; session_id: string }
+): string {
   const sessionRoot = join(
     config.workspaceSessionsRoot,
-    encodePathSegment(turnStart.turn.actor.agent_uid),
-    encodePathSegment(turnStart.turn.actor.session_id)
+    encodePathSegment(actor.agent_uid),
+    encodePathSegment(actor.session_id)
   )
 
   mkdirSync(sessionRoot, { recursive: true })

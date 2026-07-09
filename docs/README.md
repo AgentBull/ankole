@@ -98,15 +98,19 @@ Seven pieces, one sentence each:
 - **Agent Computer** (Bun worker) executes tools: shell, files, browser, and
   worker-local state for the current turn. It drives the model loop over
   WebSocket but keeps no conversation state.
-- **PostgreSQL** holds every durable fact. If it matters after a crash, it is
-  a row here, and Elixir owns the write.
+- **PostgreSQL** holds every durable semantic fact and the references that own
+  durable files. User artifacts and resumable runtime files live on the shared
+  worker workspace; their lifecycle and authoritative status remain PostgreSQL
+  rows written by Elixir.
 
 Schedule (`design-docs/Schedule.md`) turns time into actor events. Principal
 and AuthZ (`design-docs/Principal.md`, `design-docs/AuthZ.md`) own identity
 and permissions. AppConfiguration (`design-docs/AppConfiguration.md`) splits
 boot env vars from operator-managed runtime settings. Plugins
 (`design-docs/Plugins.md`) are trusted first-party Elixir extensions, such as
-the Feishu adapter (`design-docs/plugins/FeishuAdapter.md`).
+the Feishu adapter (`design-docs/plugins/FeishuAdapter.md`). Subagent
+Delegation (`design-docs/SubagentDelegation.md`) turns long-running Codex work
+into durable background work items that wake the parent session for delivery.
 
 ## Runtime Topology
 
@@ -341,7 +345,8 @@ The model-visible tool surface is deliberately narrow (see
 `docs/TradeoffsAndKnownLimits.md` before widening it): `todo`
 (`src/tools/todo/todo-tool.ts`); the computer tools `command`,
 `interactive_terminal`, `read_file`, `patch`, and `reply_attachment`
-(`src/tools/computer/`); `codex_delegate` (`src/tools/codex/`); the browser
+(`src/tools/computer/`); the asynchronous `subagent` delegation tool
+(`src/tools/subagent/`); the turn-ending `clarify` tool (`src/tools/clarify/`); the browser
 tools `browser_navigate`, `browser_snapshot`, `browser_find`, `browser_click`,
 `browser_open`, `browser_run`, and `browser_extract` (`src/tools/browser/`); the schedule
 tools `check_back_later` and `cron` (`src/tools/schedule/schedule-tools.ts`); and the
@@ -357,14 +362,20 @@ Tool runtime bounds are tool-owned, not one global worker timeout. The
 `command` tool defaults foreground runs to `180s`; background runs return a
 `backgroundId` and have no default command timeout unless the caller passes
 `timeout`. Running background commands stay tracked until exit, `kill`, or
-worker shutdown. `codex_delegate` uses Codex app-server request-class budgets:
-`15s` for `initialize`, `30s` for `thread/start`, and `60s` for generic
-app-server requests. See `docs/TradeoffsAndKnownLimits.md` for the accepted
-tradeoff.
+worker shutdown. `subagent(start)` creates a PostgreSQL-owned work item and
+returns immediately; a separate delegation turn runs Codex and wakes the parent
+session on completion, failure, or a user-input request. Delegations have no
+wall-clock timeout and resume after worker loss, while individual Codex
+app-server requests keep `15s` (`initialize`), `30s` (`thread/start`), and `60s`
+(generic request) protocol budgets. See `docs/TradeoffsAndKnownLimits.md` for
+the accepted tradeoff.
 
-The worker is stateless by contract: it holds the WebSocket, tool-local
-state, and the current turn; everything durable is a PostgreSQL row reached
-via RPC or the AIGateway API. Kill a worker and the turn retries elsewhere.
+The worker process is stateless by contract: it holds the WebSocket,
+tool-local state, and the current turn. Durable semantic state and file
+ownership references are PostgreSQL rows reached through RPC or AIGateway;
+artifacts and resumable runtime files live on the installation's shared RWX
+workspace. Kill a worker and the turn retries elsewhere against the same
+semantic ledger and shared files.
 
 #### User-visible context limits
 
@@ -749,8 +760,9 @@ doc first, then the code.
 4. `design-docs/memory/Basic.md` — if you work on channel memory, historical
    recall, BM25/vector retrieval, or memory tools. Use
    `internals/docs/Memory.zh.md` for the detailed v1 design.
-5. `design-docs/RuntimeFabric.md` and `design-docs/Schedule.md` — transport
-   and time, when you touch them.
+5. `design-docs/RuntimeFabric.md`, `design-docs/Schedule.md`, and
+   `design-docs/SubagentDelegation.md` — transport, time, and durable background
+   work, when you touch them.
 6. `design-docs/Principal.md`, `design-docs/AuthZ.md`,
    `design-docs/AppConfiguration.md`, `design-docs/Plugins.md`,
    `design-docs/I18n.md`, `design-docs/Logger.md` — reference as needed.
@@ -769,6 +781,7 @@ doc first, then the code.
 | `design-docs/memory/Basic.md` | Channel notes, historical recall, BM25/vector search |
 | `design-docs/RuntimeFabric.md` | Envelopes, lanes, sockets, file transfer |
 | `design-docs/Schedule.md` | Checkbacks, cron, Oban wake edge |
+| `design-docs/SubagentDelegation.md` | Durable background work, Codex resume, steering, wakeups |
 | `design-docs/Principal.md`, `design-docs/AuthZ.md` | Identity, groups, grants, CEL |
 | `design-docs/AppConfiguration.md` | Config keys, scopes, encryption |
 | `design-docs/Plugins.md`, `design-docs/plugins/FeishuAdapter.md` | Plugin contracts, the Lark adapter |

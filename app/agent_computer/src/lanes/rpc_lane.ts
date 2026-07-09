@@ -8,10 +8,13 @@ export const rpcMethods = {
   aiGatewayApiKeyForCreateOrFindByAgent: 'ai_gateway.api_key_for.create_or_find_by_agent',
   agentConversationContextResolve: 'agent_conversation.context.resolve',
   appConfigureResolve: 'app_configure.resolve',
-  codexDelegationCreate: 'codex.delegation.create',
-  codexDelegationGet: 'codex.delegation.get',
-  codexDelegationEventAppend: 'codex.delegation.event.append',
-  codexDelegationStatusUpdate: 'codex.delegation.status.update',
+  subagentDelegationCreate: 'subagent.delegation.create',
+  subagentDelegationGet: 'subagent.delegation.get',
+  subagentDelegationList: 'subagent.delegation.list',
+  subagentDelegationSteer: 'subagent.delegation.steer',
+  subagentDelegationStop: 'subagent.delegation.stop',
+  subagentDelegationEventAppend: 'subagent.delegation.event.append',
+  subagentDelegationStatusUpdate: 'subagent.delegation.status.update',
   memoryNoteSave: 'memory_note.save',
   memoryNoteUpdate: 'memory_note.update',
   memoryNoteForget: 'memory_note.forget',
@@ -144,6 +147,11 @@ export type MemoryRpcRequest = JsonObject & {
   request_id: string
   turn_ref: ActorTurnRef
   actor_event: ActorEventEnvelope
+  delegation_id?: string
+  delegation_scope?: {
+    session_id: string
+    signal_channel_id?: string
+  }
 }
 
 export type SkillOverlayRequest = {
@@ -231,30 +239,53 @@ export type AppConfigureResolveRejected = {
   message?: string
 }
 
-export type CodexDelegationCreateRequest = {
+export type SubagentDelegationStatus = 'queued' | 'running' | 'waiting_on_user' | 'succeeded' | 'failed' | 'stopped'
+
+export type SubagentDelegationCreateRequest = {
   request_id: string
+  turn: ActorTurnRef
+  tool_call_id: string
+  title: string
+  prompt: string
+  workdir?: string
+  output_schema?: JsonObject
+  metadata?: JsonObject
+}
+
+export type SubagentDelegationGetRequest = {
+  request_id: string
+  turn: ActorTurnRef
+  delegation_id: string
+}
+
+export type SubagentDelegationListRequest = {
+  request_id: string
+  turn: ActorTurnRef
+}
+
+export type SubagentDelegationSteerRequest = SubagentDelegationGetRequest & {
+  text?: string
+  answers?: Record<string, string | string[]>
+}
+
+export type SubagentDelegationStopRequest = SubagentDelegationGetRequest & {
+  reason?: string
+}
+
+export type SubagentDelegationResponse = {
+  request_id: string
+  delegation_id: string
   agent_uid: string
   session_id: string
   actor_event_id?: string
   tool_call_id?: string
-  workdir?: string
-  status?: string
-  metadata?: JsonObject
-}
-
-export type CodexDelegationGetRequest = {
-  request_id: string
-  delegation_id: string
-  agent_uid: string
-}
-
-export type CodexDelegationResponse = {
-  request_id: string
-  delegation_id: string
-  agent_uid: string
-  session_id: string
-  status: string
-  codex_thread_id?: string
+  status: SubagentDelegationStatus
+  runtime_thread_id?: string
+  runtime: 'codex'
+  title: string
+  prompt?: string
+  reply_route: JsonObject
+  attempts: number
   workdir?: string
   queued_at?: string
   started_at?: string
@@ -266,10 +297,17 @@ export type CodexDelegationResponse = {
   result_ref?: JsonObject
 }
 
-export type CodexDelegationEventAppendRequest = {
+export type SubagentDelegationSummary = Pick<
+  SubagentDelegationResponse,
+  'delegation_id' | 'title' | 'status' | 'runtime' | 'attempts' | 'queued_at' | 'started_at' | 'completed_at'
+>
+
+export type SubagentDelegationListResponse = {
   request_id: string
-  delegation_id: string
-  agent_uid: string
+  delegations: SubagentDelegationSummary[]
+}
+
+export type SubagentDelegationAuditEvent = {
   seq: number
   direction: string
   event_type: string
@@ -278,28 +316,33 @@ export type CodexDelegationEventAppendRequest = {
   occurred_at?: string
 }
 
-export type CodexDelegationEventResponse = {
+export type SubagentDelegationEventAppendRequest = {
   request_id: string
+  turn: ActorTurnRef
   delegation_id: string
-  agent_uid: string
-  seq: number
-  event_id: string
+  events: SubagentDelegationAuditEvent[]
 }
 
-export type CodexDelegationStatusUpdateRequest = {
+export type SubagentDelegationEventResponse = {
   request_id: string
   delegation_id: string
-  agent_uid: string
-  status: string
-  codex_thread_id?: string
+  events: Array<{ seq: number; event_id: string }>
+  last_event_seq?: number
+}
+
+export type SubagentDelegationStatusUpdateRequest = {
+  request_id: string
+  turn: ActorTurnRef
+  delegation_id: string
+  status: SubagentDelegationStatus
+  runtime_thread_id?: string
   result?: JsonObject
   error?: JsonObject
   metadata?: JsonObject
 }
 
-export type CodexDelegationRejected = {
+export type SubagentDelegationRejected = {
   request_id: string
-  agent_uid: string
   code: string
   message?: string
 }
@@ -308,10 +351,13 @@ export type RpcPayloadByMethod = {
   [rpcMethods.aiGatewayApiKeyForCreateOrFindByAgent]: AIGatewayApiKeyRequest
   [rpcMethods.agentConversationContextResolve]: AgentConversationContextRequest
   [rpcMethods.appConfigureResolve]: AppConfigureResolveRequest
-  [rpcMethods.codexDelegationCreate]: CodexDelegationCreateRequest
-  [rpcMethods.codexDelegationGet]: CodexDelegationGetRequest
-  [rpcMethods.codexDelegationEventAppend]: CodexDelegationEventAppendRequest
-  [rpcMethods.codexDelegationStatusUpdate]: CodexDelegationStatusUpdateRequest
+  [rpcMethods.subagentDelegationCreate]: SubagentDelegationCreateRequest
+  [rpcMethods.subagentDelegationGet]: SubagentDelegationGetRequest
+  [rpcMethods.subagentDelegationList]: SubagentDelegationListRequest
+  [rpcMethods.subagentDelegationSteer]: SubagentDelegationSteerRequest
+  [rpcMethods.subagentDelegationStop]: SubagentDelegationStopRequest
+  [rpcMethods.subagentDelegationEventAppend]: SubagentDelegationEventAppendRequest
+  [rpcMethods.subagentDelegationStatusUpdate]: SubagentDelegationStatusUpdateRequest
   [rpcMethods.memoryNoteSave]: MemoryRpcRequest
   [rpcMethods.memoryNoteUpdate]: MemoryRpcRequest
   [rpcMethods.memoryNoteForget]: MemoryRpcRequest

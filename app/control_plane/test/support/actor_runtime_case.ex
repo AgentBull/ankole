@@ -7,6 +7,7 @@ defmodule Ankole.ActorRuntimeCase do
   import Ecto.Query, warn: false
 
   alias Ankole.AIGateway.ProviderConfigs
+  alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway.Schemas.Conversation
@@ -97,6 +98,8 @@ defmodule Ankole.ActorRuntimeCase do
                }
              })
 
+    :ok = cache_actor_runtime_models(provider_id)
+
     assert {:ok, _profile} =
              ModelProfiles.put_model_profile(agent.uid, "primary", %{
                provider_id: provider_id,
@@ -110,6 +113,30 @@ defmodule Ankole.ActorRuntimeCase do
              })
 
     fixture
+  end
+
+  @doc false
+  def cache_actor_runtime_models(provider_id) do
+    models =
+      Enum.map(
+        [
+          {"google/gemini-3.5-flash", 65_536},
+          {"openai/gpt-5.4-nano", 32_768}
+        ],
+        fn {id, max_completion_tokens} ->
+          %{
+            "id" => id,
+            "architecture" => %{"input_modalities" => ["text"]},
+            "top_provider" => %{"max_completion_tokens" => max_completion_tokens}
+          }
+        end
+      )
+
+    ModelMetadataCache.put(
+      {:model_metadata_source, provider_id, :openrouter, "models?output_modalities=all"},
+      models,
+      :timer.hours(1)
+    )
   end
 
   def binding_fixture(agent_uid, name, policy, opts \\ []) do

@@ -32,10 +32,10 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
   @doc """
   Starts one worker-backed run for a ready actor event.
 
-  This is the control-plane side of the local actor loop. It ensures the
-  AIGateway conversation exists, binds the live activation to the actor event,
-  and creates delivery projections that fence the worker by actor epoch,
-  activation, actor event, and revision.
+  This is the control-plane side of the local actor loop. Normal text turns
+  ensure an AIGateway conversation exists. Non-conversation work such as a
+  subagent delegation passes `conversation: :none` and still receives the same
+  activation, lease, delivery, and revision fences.
   """
   @spec start_worker_turn(actor_key(), ActorEvent.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
@@ -44,13 +44,11 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     with {:ok, assignment} <- WorkerPool.assign_worker(actor_key),
-         {:ok, conversation} <-
-           Conversations.ensure_conversation(actor_key.agent_uid, actor_key.session_id),
-         {:ok, turn_start_spec} <- Conversations.build_turn_start_spec(conversation, opts) do
+         {:ok, %{conversation: conversation, turn_start_spec: turn_start_spec}} <-
+           prepare_turn_start(actor_key, opts) do
       Repo.transact(fn repo ->
         with {:ok, activation} <- ensure_activation(repo, actor_key, assignment, now, opts),
-             %Conversation{} = conversation <-
-               Conversations.lock_conversation(repo, conversation.id),
+             {:ok, conversation} <- lock_turn_conversation(repo, conversation),
              {:ok, activation} <-
                bind_activation_turn(repo, activation, actor_event.id, now),
              {:ok, deliveries} <-
@@ -82,11 +80,49 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
              envelope: envelope
            }}
         else
-          nil -> {:error, :conversation_not_found}
           {:error, _reason} = error -> error
         end
       end)
       |> send_turn_start()
+    end
+  end
+
+  defp prepare_turn_start(actor_key, opts) do
+    case Keyword.get(opts, :conversation, :required) do
+      :none ->
+        request_context =
+          %{
+            "actor_key" => %{
+              "agent_uid" => actor_key.agent_uid,
+              "session_id" => actor_key.session_id
+            }
+          }
+          |> Map.merge(Keyword.get(opts, :request_context, %{}))
+
+        {:ok,
+         %{
+           conversation: nil,
+           turn_start_spec: %{model_ref: %{}, request_context: request_context}
+         }}
+
+      :required ->
+        with {:ok, conversation} <-
+               Conversations.ensure_conversation(actor_key.agent_uid, actor_key.session_id),
+             {:ok, turn_start_spec} <- Conversations.build_turn_start_spec(conversation, opts) do
+          {:ok, %{conversation: conversation, turn_start_spec: turn_start_spec}}
+        end
+
+      mode ->
+        {:error, {:invalid_turn_conversation_mode, mode}}
+    end
+  end
+
+  defp lock_turn_conversation(_repo, nil), do: {:ok, nil}
+
+  defp lock_turn_conversation(repo, %Conversation{} = conversation) do
+    case Conversations.lock_conversation(repo, conversation.id) do
+      %Conversation{} = conversation -> {:ok, conversation}
+      nil -> {:error, :conversation_not_found}
     end
   end
 

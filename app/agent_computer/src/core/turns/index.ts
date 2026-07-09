@@ -1,6 +1,7 @@
 import type { TurnStart } from '../../lanes/actor_lane'
 import { runAmbientMayInterveneHandler } from './ambient_turn'
 import { runTextTurnLoop } from './text_turn'
+import { runSubagentTurn } from './subagent_turn'
 import type { TextTurnLoopOptions, TurnHandlerResult } from './turn_options'
 
 /**
@@ -10,6 +11,10 @@ import type { TextTurnLoopOptions, TurnHandlerResult } from './turn_options'
  * may-intervene events.
  */
 export async function runTurnHandlers(turnStart: TurnStart, opts: TextTurnLoopOptions): Promise<TurnHandlerResult> {
+  if (turnStart.turn.actor.session_id.startsWith('subagent:')) {
+    return runSubagentTurn(turnStart, opts)
+  }
+
   if (isAmbientMayInterveneTurn(turnStart)) {
     return runAmbientMayInterveneHandler(turnStart, opts)
   }

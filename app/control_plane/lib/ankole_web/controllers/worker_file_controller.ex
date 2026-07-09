@@ -3,8 +3,9 @@ defmodule AnkoleWeb.WorkerFileController do
   Console REST API for S3-style file management on one agent computer worker.
 
   File paths carry slashes, so the relative path is always a query or body
-  parameter, never a path segment. Operations target one worker because each
-  worker owns its own per-worker PVC.
+  parameter, never a path segment. The workspace is installation-shared RWX
+  storage; operations still target one worker so Console exposes the selected
+  runtime's actual mount reachability instead of silently falling back.
   """
 
   use AnkoleWeb, :controller

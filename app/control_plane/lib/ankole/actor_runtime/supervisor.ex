@@ -13,6 +13,7 @@ defmodule Ankole.ActorRuntime.Supervisor do
   alias Ankole.ActorRuntime.WorkerAuthKey
   alias Ankole.ActorRuntime.WorkerBrowserConfig
   alias Ankole.ActorRuntime.WorkerCodexConfig
+  alias Ankole.ActorRuntime.WorkerSubagentConfig
   alias Ankole.AIGateway.AgentConfig
 
   @doc """
@@ -30,6 +31,7 @@ defmodule Ankole.ActorRuntime.Supervisor do
     :ok = AgentConfig.ensure_registered()
     :ok = WorkerBrowserConfig.ensure_registered()
     :ok = WorkerCodexConfig.ensure_registered()
+    :ok = WorkerSubagentConfig.ensure_registered()
     :ok = Ankole.Memory.ensure_registered()
     :ok = Ankole.IdentityProviders.Config.ensure_registered()
 

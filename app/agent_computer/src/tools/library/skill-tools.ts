@@ -1,5 +1,5 @@
 import { join, normalize, resolve } from 'node:path'
-import { readFile } from 'node:fs/promises'
+import { readFile, realpath } from 'node:fs/promises'
 import { z } from 'zod'
 import type { ActorTurnRef } from '../../lanes/actor_lane'
 import type { AgentTool, AgentToolResult } from '../../core'
@@ -30,6 +30,15 @@ interface SkillToolDetails {
   path?: string
   changed?: boolean
 }
+
+export const LONG_RUNNING_SKILL_ADDITION = [
+  '---',
+  'Ankole long-running skill discipline:',
+  'After clarifying the request, do not run the execution phase inline. Tell the user the work is moving to the background, including the intended artifact and report path.',
+  "Put durable artifacts under /workspace/user-files using this skill's own project layout. Start exactly one subagent delegation with a self-contained brief containing the specification, project path, this skill file location, quality gates, and completion criteria.",
+  'Completion, failure, and questions wake the parent automatically; do not poll. Use check_back_later only for an intentional mid-task inspection of unusually long work.',
+  'When awakened, personally verify the artifacts and checks, then deliver files with reply_attachment. The delegation id can always be recovered with subagent(list).'
+].join('\n')
 
 export type SkillOverlayRequester = (request: SkillOverlayRequest) => Promise<SkillOverlayResponse>
 export type SkillOverlayReplaceRequester = (request: SkillOverlayReplaceRequest) => Promise<SkillOverlayResponse>
@@ -85,7 +94,7 @@ function createSkillViewTool(opts: CreateSkillToolsOptions): AgentTool<typeof Sk
         throw new Error('skill overlays are DB-backed semantic data, not AGENT_APPEND.md files')
       }
       const skillRoot = skillFilesystemRoot(skill, opts)
-      const absolute = safeSkillPath(skillRoot, filePath)
+      const absolute = await safeSkillPath(skillRoot, filePath)
       const content = await readFile(absolute, 'utf8')
       const rendered =
         filePath === 'SKILL.md'
@@ -150,9 +159,12 @@ async function renderEffectiveSkill(
 ): Promise<string> {
   const baseContent = stripSkillFrontmatter(content)
   const overlayContent = await overlayText(name, opts)
-  const effectiveContent = overlayContent
+  const withOverlay = overlayContent
     ? `${baseContent}\n\n---\nAgent-specific additions:\n\n${overlayContent}`
     : baseContent
+  const skill = enabledSkill(name, opts)
+  const effectiveContent =
+    skill.metadata?.long_running === true ? `${withOverlay}\n\n${LONG_RUNNING_SKILL_ADDITION}` : withOverlay
   return wrapSkillContent(name, skillLocation(name, 'SKILL.md'), directory, effectiveContent)
 }
 
@@ -160,14 +172,19 @@ async function renderEffectiveSkill(
  * Resolves a skill-relative path to an absolute one and confines the file path
  * to the selected skill source directory.
  */
-function safeSkillPath(skillRoot: string, filePath: string): string {
+async function safeSkillPath(skillRoot: string, filePath: string): Promise<string> {
   const normalizedFilePath = normalizeSkillFilePath(filePath)
   const root = resolve(skillRoot)
   const resolved = resolve(root, normalizedFilePath)
   if (resolved !== root && !resolved.startsWith(`${root}/`)) {
     throw new Error('skill path escapes skill root')
   }
-  return resolved
+
+  const [realRoot, realResolved] = await Promise.all([realpath(root), realpath(resolved)])
+  if (realResolved !== realRoot && !realResolved.startsWith(`${realRoot}/`)) {
+    throw new Error('skill path escapes skill root through a symbolic link')
+  }
+  return realResolved
 }
 
 /**

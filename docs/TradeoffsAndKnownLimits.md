@@ -369,7 +369,8 @@ The current tool surface is intentionally narrow:
 - `read_file`;
 - `interactive_terminal`;
 - `command`;
-- `codex_delegate`;
+- `subagent`;
+- `clarify`;
 - `reply_attachment`;
 - `skill_view`;
 - `skill_append`;
@@ -391,12 +392,13 @@ it exceeds its capacity; running background commands are not evicted or killed
 by that capacity rule. A caller can still pass `timeout` to opt into an
 explicit command budget.
 
-Codex delegation is a separate managed tool path. `codex_delegate` starts a
-Codex app-server subprocess and uses request-class timeouts rather than one
-global delegation timeout: `initialize` is `15s`, `thread/start` is `30s`, and
-generic app-server requests are `60s`. These are deliberately a little wider
-than Hermes' app-server request classes because Ankole's typical delegated
-tasks are longer and more likely to cold-start.
+Codex delegation is a separate durable work path. `subagent(start)` commits a
+PostgreSQL work item and returns immediately; a delegation actor session owns
+dispatch, retry, cancellation, and parent-session wakeup. There is no global
+delegation timeout: active work is protected by the ordinary turn lease and can
+resume on another worker. The Codex app-server protocol still uses bounded
+request classes: `initialize` is `15s`, `thread/start` is `30s`, and generic
+requests are `60s`. These are protocol-stall bounds, not a task-duration cap.
 
 The current skill surface is also explicit:
 

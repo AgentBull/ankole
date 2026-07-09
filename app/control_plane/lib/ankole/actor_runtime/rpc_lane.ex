@@ -9,10 +9,10 @@ defmodule Ankole.ActorRuntime.RPCLane do
   alias Ankole.ActorRuntime.AgentConversationContextBroker
   alias Ankole.ActorRuntime.AIGatewayApiKeyBroker
   alias Ankole.ActorRuntime.AppConfigureBroker
-  alias Ankole.ActorRuntime.CodexDelegationBroker
   alias Ankole.ActorRuntime.RPCWire
   alias Ankole.ActorRuntime.SkillRegistryBroker
   alias Ankole.ActorRuntime.SkillOverlayBroker
+  alias Ankole.ActorRuntime.SubagentDelegationBroker
   alias Ankole.ActorRuntime.TurnRef
   alias Ankole.ActorRuntime.WorkerRouteAuth
   alias Ankole.Memory.RPCBroker, as: MemoryRPCBroker
@@ -39,29 +39,61 @@ defmodule Ankole.ActorRuntime.RPCLane do
       function: :handle_request,
       leading_args: []
     },
-    "codex.delegation.create" => %{
-      kind: :worker_agent,
-      module: CodexDelegationBroker,
+    "subagent.delegation.create" => %{
+      kind: :turn,
+      module: SubagentDelegationBroker,
       function: :handle_create,
-      leading_args: []
+      leading_args: [],
+      turn_key: :turn,
+      effect: :write
     },
-    "codex.delegation.get" => %{
-      kind: :worker_agent,
-      module: CodexDelegationBroker,
+    "subagent.delegation.get" => %{
+      kind: :turn,
+      module: SubagentDelegationBroker,
       function: :handle_get,
-      leading_args: []
+      leading_args: [],
+      turn_key: :turn,
+      effect: :read
     },
-    "codex.delegation.event.append" => %{
-      kind: :worker_agent,
-      module: CodexDelegationBroker,
-      function: :handle_append_event,
-      leading_args: []
+    "subagent.delegation.list" => %{
+      kind: :turn,
+      module: SubagentDelegationBroker,
+      function: :handle_list,
+      leading_args: [],
+      turn_key: :turn,
+      effect: :read
     },
-    "codex.delegation.status.update" => %{
-      kind: :worker_agent,
-      module: CodexDelegationBroker,
+    "subagent.delegation.event.append" => %{
+      kind: :turn,
+      module: SubagentDelegationBroker,
+      function: :handle_append_events,
+      leading_args: [],
+      turn_key: :turn,
+      effect: :write
+    },
+    "subagent.delegation.status.update" => %{
+      kind: :turn,
+      module: SubagentDelegationBroker,
       function: :handle_update_status,
-      leading_args: []
+      leading_args: [],
+      turn_key: :turn,
+      effect: :write
+    },
+    "subagent.delegation.steer" => %{
+      kind: :turn,
+      module: SubagentDelegationBroker,
+      function: :handle_steer,
+      leading_args: [],
+      turn_key: :turn,
+      effect: :write
+    },
+    "subagent.delegation.stop" => %{
+      kind: :turn,
+      module: SubagentDelegationBroker,
+      function: :handle_stop,
+      leading_args: [],
+      turn_key: :turn,
+      effect: :write
     },
     "memory_note.save" => %{
       kind: :turn,

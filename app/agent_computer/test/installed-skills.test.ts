@@ -19,7 +19,7 @@ describe('@ankole/agent-computer installed skill scanner', () => {
       writeSkill(skillDir, {
         name: 'agent-notes',
         description: 'Agent installed notes.',
-        extra: ['tags:', '  - notes', '  - custom', 'category: custom']
+        extra: ['tags:', '  - notes', '  - custom', 'category: custom', 'long_running: true']
       })
 
       try {
@@ -39,7 +39,8 @@ describe('@ankole/agent-computer installed skill scanner', () => {
       })
       expect(scan.observations[0]!.metadata).toMatchObject({
         category: 'custom',
-        tags: ['notes', 'custom']
+        tags: ['notes', 'custom'],
+        long_running: true
       })
       expect(scan.observations[0]!.xxh3_128).toMatch(/^[a-f0-9]{32}$/)
 

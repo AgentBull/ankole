@@ -12,13 +12,17 @@ import {
   type AppConfigureResolveRejected,
   type AppConfigureResolveRequest,
   type AppConfigureResolveResponse,
-  type CodexDelegationCreateRequest,
-  type CodexDelegationEventAppendRequest,
-  type CodexDelegationEventResponse,
-  type CodexDelegationGetRequest,
-  type CodexDelegationRejected,
-  type CodexDelegationResponse,
-  type CodexDelegationStatusUpdateRequest,
+  type SubagentDelegationCreateRequest,
+  type SubagentDelegationEventAppendRequest,
+  type SubagentDelegationEventResponse,
+  type SubagentDelegationGetRequest,
+  type SubagentDelegationListRequest,
+  type SubagentDelegationListResponse,
+  type SubagentDelegationRejected,
+  type SubagentDelegationResponse,
+  type SubagentDelegationStatusUpdateRequest,
+  type SubagentDelegationSteerRequest,
+  type SubagentDelegationStopRequest,
   type InstalledSkillReplaceRequest,
   type InstalledSkillReplaceResponse,
   type MemoryRpcRequest,
@@ -95,40 +99,81 @@ export async function requestAppConfigure(
   return response.payload_json as AppConfigureResolveResponse
 }
 
-export async function createCodexDelegation(
+export async function createSubagentDelegation(
   rpcClient: RuntimeRpcClient,
-  request: CodexDelegationCreateRequest
-): Promise<CodexDelegationResponse | CodexDelegationRejected> {
-  const response = await rpcClient.request(rpcMethods.codexDelegationCreate, request, request.request_id)
-  if (isRpcError(response)) return codexRejected(response, request)
-  return response.payload_json as CodexDelegationResponse
+  request: SubagentDelegationCreateRequest
+): Promise<SubagentDelegationResponse | SubagentDelegationRejected> {
+  return requestSubagent<SubagentDelegationCreateRequest, SubagentDelegationResponse>(
+    rpcClient,
+    rpcMethods.subagentDelegationCreate,
+    request
+  )
 }
 
-export async function getCodexDelegation(
+export async function getSubagentDelegation(
   rpcClient: RuntimeRpcClient,
-  request: CodexDelegationGetRequest
-): Promise<CodexDelegationResponse | CodexDelegationRejected> {
-  const response = await rpcClient.request(rpcMethods.codexDelegationGet, request, request.request_id)
-  if (isRpcError(response)) return codexRejected(response, request)
-  return response.payload_json as CodexDelegationResponse
+  request: SubagentDelegationGetRequest
+): Promise<SubagentDelegationResponse | SubagentDelegationRejected> {
+  return requestSubagent<SubagentDelegationGetRequest, SubagentDelegationResponse>(
+    rpcClient,
+    rpcMethods.subagentDelegationGet,
+    request
+  )
 }
 
-export async function appendCodexDelegationEvent(
+export async function listSubagentDelegations(
   rpcClient: RuntimeRpcClient,
-  request: CodexDelegationEventAppendRequest
-): Promise<CodexDelegationEventResponse | CodexDelegationRejected> {
-  const response = await rpcClient.request(rpcMethods.codexDelegationEventAppend, request, request.request_id)
-  if (isRpcError(response)) return codexRejected(response, request)
-  return response.payload_json as CodexDelegationEventResponse
+  request: SubagentDelegationListRequest
+): Promise<SubagentDelegationListResponse | SubagentDelegationRejected> {
+  return requestSubagent<SubagentDelegationListRequest, SubagentDelegationListResponse>(
+    rpcClient,
+    rpcMethods.subagentDelegationList,
+    request
+  )
 }
 
-export async function updateCodexDelegationStatus(
+export async function steerSubagentDelegation(
   rpcClient: RuntimeRpcClient,
-  request: CodexDelegationStatusUpdateRequest
-): Promise<CodexDelegationResponse | CodexDelegationRejected> {
-  const response = await rpcClient.request(rpcMethods.codexDelegationStatusUpdate, request, request.request_id)
-  if (isRpcError(response)) return codexRejected(response, request)
-  return response.payload_json as CodexDelegationResponse
+  request: SubagentDelegationSteerRequest
+): Promise<SubagentDelegationResponse | SubagentDelegationRejected> {
+  return requestSubagent<SubagentDelegationSteerRequest, SubagentDelegationResponse>(
+    rpcClient,
+    rpcMethods.subagentDelegationSteer,
+    request
+  )
+}
+
+export async function stopSubagentDelegation(
+  rpcClient: RuntimeRpcClient,
+  request: SubagentDelegationStopRequest
+): Promise<SubagentDelegationResponse | SubagentDelegationRejected> {
+  return requestSubagent<SubagentDelegationStopRequest, SubagentDelegationResponse>(
+    rpcClient,
+    rpcMethods.subagentDelegationStop,
+    request
+  )
+}
+
+export async function appendSubagentDelegationEvents(
+  rpcClient: RuntimeRpcClient,
+  request: SubagentDelegationEventAppendRequest
+): Promise<SubagentDelegationEventResponse | SubagentDelegationRejected> {
+  return requestSubagent<SubagentDelegationEventAppendRequest, SubagentDelegationEventResponse>(
+    rpcClient,
+    rpcMethods.subagentDelegationEventAppend,
+    request
+  )
+}
+
+export async function updateSubagentDelegationStatus(
+  rpcClient: RuntimeRpcClient,
+  request: SubagentDelegationStatusUpdateRequest
+): Promise<SubagentDelegationResponse | SubagentDelegationRejected> {
+  return requestSubagent<SubagentDelegationStatusUpdateRequest, SubagentDelegationResponse>(
+    rpcClient,
+    rpcMethods.subagentDelegationStatusUpdate,
+    request
+  )
 }
 
 /**
@@ -226,13 +271,19 @@ export function stringFromDetails(source: RpcError | JsonObject | undefined, key
   return typeof value === 'string' ? value : undefined
 }
 
-function codexRejected(
-  response: RpcError,
-  request: { request_id: string; agent_uid: string }
-): CodexDelegationRejected {
+async function requestSubagent<TRequest extends { request_id: string }, TResponse>(
+  rpcClient: RuntimeRpcClient,
+  method: RpcMethod,
+  request: TRequest
+): Promise<TResponse | SubagentDelegationRejected> {
+  const response = await rpcClient.request(method, request as never, request.request_id)
+  if (isRpcError(response)) return subagentRejected(response, request)
+  return response.payload_json as TResponse
+}
+
+function subagentRejected(response: RpcError, request: { request_id: string }): SubagentDelegationRejected {
   return {
     request_id: request.request_id,
-    agent_uid: stringFromDetails(response, 'agent_uid') || request.agent_uid,
     code: response.code,
     message: response.message
   }

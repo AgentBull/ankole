@@ -17,6 +17,7 @@
     "packages/native-addons/index.js",
     "packages/native-addons/main.js",
     "**/*.toml",
+    "app/agent_computer/src/tools/subagent/generated/protocol/**",
     "**/*.md",
     "**/*.mdx",
     "**/*.yaml",

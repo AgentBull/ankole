@@ -19,6 +19,8 @@ import { workerProgressEnvelope } from '../src/fabric/envelopes'
 import type { WorkerConfig } from '../src/worker/config'
 import { prepareTurnWorkspace } from '../src/worker/workspace'
 import { mailboxUpdatedFromEnvelope, turnStartFromEnvelope } from '../src/lanes/actor_lane'
+import type { TurnStart } from '../src/lanes/actor_lane'
+import { startTurnProgress, type ActiveTurn } from '../src/worker/active_turns'
 
 describe('@ankole/agent-computer runtime', () => {
   it('parses RuntimeFabric URL auth without embedding worker identity', () => {
@@ -89,6 +91,35 @@ describe('@ankole/agent-computer runtime', () => {
       refs_json: { stage: 'llm' }
     })
     expect(encodeEnvelope(envelope)).toBeInstanceOf(Buffer)
+  })
+
+  it('renews subagent progress only after observed runtime activity', async () => {
+    const sent: unknown[] = []
+    const active = {
+      turnStart: { turn: actorTurnRef() } as TurnStart,
+      correlationId: 'turn-start-1',
+      steeringUpdates: [],
+      abortController: new AbortController(),
+      controlledStopRequested: false
+    } satisfies ActiveTurn
+    const reporter = startTurnProgress(
+      async envelope => {
+        sent.push(envelope)
+      },
+      active,
+      { requireActivity: true, intervalMs: 5 }
+    )
+
+    await Bun.sleep(14)
+    expect(sent).toHaveLength(1)
+
+    reporter.touch('codex:agent_delta')
+    await Bun.sleep(8)
+    expect(sent).toHaveLength(2)
+
+    await Bun.sleep(14)
+    expect(sent).toHaveLength(2)
+    reporter.stop()
   })
 
   it('prepares session workspace without projecting enabled skills', () => {

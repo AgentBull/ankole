@@ -49,6 +49,27 @@ defmodule Ankole.ActorRuntime.SessionResetTest do
              ) == 1
     end
 
+    test "daily reset never enumerates subagent execution sessions" do
+      %{principal: agent} = agent_fixture()
+
+      assert {:ok, conversation} =
+               Ankole.AIGateway.Conversations.ensure_conversation(
+                 agent.uid,
+                 "subagent:#{Ecto.UUID.generate()}"
+               )
+
+      Repo.update_all(
+        from(stored in Conversation, where: stored.id == ^conversation.id),
+        set: [
+          inserted_at: ~U[2026-06-25 20:00:00.000000Z],
+          updated_at: ~U[2026-06-25 20:00:00.000000Z]
+        ]
+      )
+
+      assert {:ok, %{due_sessions: 0, actor_events: []}} =
+               ActorRuntime.enqueue_daily_session_resets(now: ~U[2026-06-25 20:30:30.000000Z])
+    end
+
     test "EnqueueDailySessionResets Oban job appends due reset actor events" do
       %{principal: agent} = agent_fixture()
       session_id = "manual-session:daily-reset-job"

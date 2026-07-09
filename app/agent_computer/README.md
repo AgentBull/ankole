@@ -32,7 +32,7 @@ payloads.
   shaping, tool loops, and ambient recognizer turns.
 - Worker-local tools: `todo`, browser tools, `command`,
   `interactive_terminal`, `read_file`, `patch`, `reply_attachment`,
-  `codex_delegate`, `skill_view`, `skill_append`, `check_back_later`, and
+  `subagent`, `clarify`, `skill_view`, `skill_append`, `check_back_later`, and
   `cron`.
 - Workspace behavior: per-session roots under `/workspace/.sessions`, shared
   user files, agent-installed skill files, temporary files, tmux state, and
@@ -116,10 +116,12 @@ registry entries when the worker has too many tracked commands. Running
 background commands continue until they exit, are killed, or the worker process
 itself goes away.
 
-The `codex_delegate` tool launches a managed Codex app-server subprocess for a
-delegation. Its JSON-RPC request classes are intentionally the same classes as
-Hermes but slightly wider for Ankole workloads: `initialize` waits `15s`,
-`thread/start` waits `30s`, and other app-server requests wait `60s`.
+The `subagent` tool is a five-action asynchronous control surface:
+`start`/`list`/`status`/`steer`/`stop`. `start` commits a durable control-plane
+work item and returns immediately. A dedicated subagent turn launches Codex,
+uses a durable `CODEX_HOME`, and commits completion before the parent session is
+woken. Delegations have no wall-clock timeout; individual JSON-RPC requests use
+`15s` for `initialize`, `30s` for `thread/start`, and `60s` for other requests.
 
 Optional capacity tuning:
 

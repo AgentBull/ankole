@@ -43,7 +43,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   # Handler idle lifetime cap (5 minutes). Live response activity resets this
   # timer; durable terminal delivery is owned by outbox.
   @max_lifetime_ms 5 * 60 * 1_000
-  @im_visible_event_types ~w(im.message.addressed im.message.may_intervene command.new command.steer check_back_later.wakeup cron.fire)
+  @im_visible_event_types ~w(im.message.addressed im.message.may_intervene command.new command.steer check_back_later.wakeup cron.fire subagent.delegation.completed subagent.delegation.failed subagent.delegation.waiting)
 
   # ─────────────────────────────────────────────────────────────────
   # Public API

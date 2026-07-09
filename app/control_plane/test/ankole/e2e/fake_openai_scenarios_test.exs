@@ -3,6 +3,64 @@ defmodule Ankole.E2E.FakeOpenAIScenariosTest do
 
   alias Ankole.E2E.FakeOpenAIScenarios
 
+  describe "compaction scenario classification" do
+    test "returns a structurally valid summary for the dedicated summarizer prompt" do
+      request = %{
+        "messages" => [
+          %{
+            "role" => "system",
+            "content" =>
+              "You are a context summarization assistant. ONLY output the structured summary."
+          },
+          %{
+            "role" => "user",
+            "content" => "Use this EXACT format:\n\n## Active Task\n[task]"
+          }
+        ]
+      }
+
+      assert FakeOpenAIScenarios.classify(request) == :compaction_summary
+
+      assert {:completion, "## Active Task\n(none)", []} =
+               FakeOpenAIScenarios.action_for(:compaction_summary, 1, request)
+    end
+  end
+
+  describe "ambient scenario classification" do
+    test "uses the latest ambient marker when observed history contains an older ignore marker" do
+      request = %{
+        "response_format" => %{"type" => "json_schema"},
+        "messages" => [
+          %{
+            "role" => "user",
+            "content" =>
+              "Earlier observation: CHAOS_AMBIENT_IGNORE\nLatest observation: CHAOS_AMBIENT_OK"
+          }
+        ]
+      }
+
+      assert FakeOpenAIScenarios.classify(request) == :ambient_decision
+
+      assert {:completion,
+              ~s({"should_proactively_speak":true,"reason":"fake Feishu chaos handoff needs a visible reply"}),
+              []} = FakeOpenAIScenarios.action_for(:ambient_decision, 1, request)
+    end
+
+    test "keeps the latest ignore-only ambient observation silent" do
+      request = %{
+        "response_format" => %{"type" => "json_schema"},
+        "messages" => [%{"role" => "user", "content" => "CHAOS_AMBIENT_IGNORE"}]
+      }
+
+      assert FakeOpenAIScenarios.classify(request) == :ambient_noop_decision
+
+      assert {:completion,
+              ~s({"should_proactively_speak":false,"reason":"fake Feishu chaos says the agent should stay silent"}),
+              [split_text?: false]} =
+               FakeOpenAIScenarios.action_for(:ambient_noop_decision, 1, request)
+    end
+  end
+
   describe "background lifecycle tool routing" do
     test "extracts backgroundId from structured tool output JSON" do
       request = %{

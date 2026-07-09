@@ -5,7 +5,10 @@ defmodule Ankole.Memory.RPCBroker do
 
   alias Ankole.ActorRuntime.RPCWire
   alias Ankole.ActorRuntime.TurnRef
+  alias Ankole.Actors.ActorEvent
   alias Ankole.Memory
+  alias Ankole.Repo
+  alias Ankole.SubagentDelegations.Schemas.Delegation
 
   @type action :: String.t()
 
@@ -15,10 +18,10 @@ defmodule Ankole.Memory.RPCBroker do
       when is_binary(action) and is_map(request) do
     request_id = RPCWire.text(request, "request_id") || "memory-rpc-#{Ecto.UUID.generate()}"
 
-    request
-    |> dispatch(action, turn_ref)
-    |> case do
-      {:ok, payload} -> {:ok, Map.put_new(payload, "request_id", request_id)}
+    with {:ok, request} <- apply_delegation_scope(action, turn_ref, request),
+         {:ok, payload} <- dispatch(request, action, turn_ref) do
+      {:ok, Map.put_new(payload, "request_id", request_id)}
+    else
       {:error, reason} -> {:error, error_payload(request_id, reason)}
     end
   end
@@ -74,18 +77,69 @@ defmodule Ankole.Memory.RPCBroker do
 
   defp dispatch(request, "memory_search", %TurnRef{} = turn_ref) do
     request
-    |> Map.put("turn_ref", turn_ref)
+    |> Map.put("turn_ref", TurnRef.to_wire(turn_ref))
     |> Memory.search()
   end
 
   defp dispatch(request, "memory_browse", %TurnRef{} = turn_ref) do
     request
-    |> Map.put("turn_ref", turn_ref)
+    |> Map.put("turn_ref", TurnRef.to_wire(turn_ref))
     |> Memory.browse()
   end
 
   defp dispatch(_request, action, _turn_ref),
     do: {:error, {:unknown_memory_action, action}}
+
+  defp apply_delegation_scope(
+         action,
+         %TurnRef{session_id: "subagent:" <> delegation_id} = turn_ref,
+         request
+       )
+       when action in ["memory_search", "memory_browse"] do
+    requested_id = RPCWire.text(request, "delegation_id")
+    scope = RPCWire.map_value(request, "delegation_scope", %{}) |> RPCWire.stringify_keys()
+
+    with ^delegation_id <- requested_id,
+         %Delegation{} = delegation <-
+           Repo.get_by(Delegation, id: delegation_id, agent_uid: turn_ref.agent_uid),
+         expected_session = delegation.session_id,
+         ^expected_session <- RPCWire.text(scope, "session_id"),
+         :ok <- validate_scope_channel(scope, delegation),
+         %ActorEvent{} = parent_event <- Repo.get(ActorEvent, delegation.actor_event_id),
+         true <-
+           parent_event.agent_uid == turn_ref.agent_uid and
+             parent_event.session_id == delegation.session_id do
+      {:ok, Map.put(request, "actor_event", actor_event_scope(parent_event))}
+    else
+      _value -> {:error, :subagent_memory_scope_mismatch}
+    end
+  end
+
+  defp apply_delegation_scope(_action, %TurnRef{session_id: "subagent:" <> _id}, _request),
+    do: {:error, :subagent_memory_action_not_allowed}
+
+  defp apply_delegation_scope(_action, %TurnRef{}, request), do: {:ok, request}
+
+  defp validate_scope_channel(scope, delegation) do
+    expected = Map.get(delegation.reply_route || %{}, "signal_channel_id")
+
+    case {RPCWire.text(scope, "signal_channel_id"), expected} do
+      {nil, nil} -> :ok
+      {channel_id, channel_id} when is_binary(channel_id) -> :ok
+      _value -> {:error, :subagent_memory_scope_mismatch}
+    end
+  end
+
+  defp actor_event_scope(%ActorEvent{} = event) do
+    %{
+      "actor_event_id" => event.id,
+      "binding_name" => event.binding_name,
+      "signal_channel_id" => event.signal_channel_id,
+      "provider_thread_id" => event.provider_thread_id,
+      "source_entry_id" => event.source_entry_id,
+      "payload_json" => event.payload || %{}
+    }
+  end
 
   defp actor_event(request) do
     case Map.get(request, "actor_event") || Map.get(request, :actor_event) do

@@ -77,6 +77,10 @@ defmodule AnkoleWeb.ApiSpec do
         %Tag{
           name: "Workers",
           description: "Agent computer worker registry and worker filesystem management"
+        },
+        %Tag{
+          name: "Subagent Delegations",
+          description: "Durable background work delegated to the Codex subagent runtime"
         }
       ]
     }

@@ -146,6 +146,15 @@ import type {
   AnkoleWebSignalBindingControllerPutBindingData,
   AnkoleWebSignalBindingControllerPutBindingErrors,
   AnkoleWebSignalBindingControllerPutBindingResponses,
+  AnkoleWebSubagentDelegationControllerCancelData,
+  AnkoleWebSubagentDelegationControllerCancelErrors,
+  AnkoleWebSubagentDelegationControllerCancelResponses,
+  AnkoleWebSubagentDelegationControllerIndexData,
+  AnkoleWebSubagentDelegationControllerIndexErrors,
+  AnkoleWebSubagentDelegationControllerIndexResponses,
+  AnkoleWebSubagentDelegationControllerShowData,
+  AnkoleWebSubagentDelegationControllerShowErrors,
+  AnkoleWebSubagentDelegationControllerShowResponses,
   AnkoleWebWorkerFileControllerDeleteData,
   AnkoleWebWorkerFileControllerDeleteErrors,
   AnkoleWebWorkerFileControllerDeleteResponses,
@@ -331,6 +340,32 @@ export const ankoleWebScheduleControllerCreateCron = <ThrowOnError extends boole
       'Content-Type': 'application/json',
       ...options.headers
     }
+  })
+
+/**
+ * Read one subagent delegation and its event timeline
+ */
+export const ankoleWebSubagentDelegationControllerShow = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebSubagentDelegationControllerShowData, ThrowOnError>
+): RequestResult<
+  AnkoleWebSubagentDelegationControllerShowResponses,
+  AnkoleWebSubagentDelegationControllerShowErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebSubagentDelegationControllerShowResponses,
+    AnkoleWebSubagentDelegationControllerShowErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/delegations/{delegation_id}',
+    ...options
   })
 
 /**
@@ -1455,6 +1490,58 @@ export const ankoleWebAgentComputerWorkerControllerIndex = <ThrowOnError extends
       }
     ],
     url: '/api/v1/agent-computer-workers',
+    ...options
+  })
+
+/**
+ * List subagent delegations
+ */
+export const ankoleWebSubagentDelegationControllerIndex = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebSubagentDelegationControllerIndexData, ThrowOnError>
+): RequestResult<
+  AnkoleWebSubagentDelegationControllerIndexResponses,
+  AnkoleWebSubagentDelegationControllerIndexErrors,
+  ThrowOnError
+> =>
+  (options?.client ?? client).get<
+    AnkoleWebSubagentDelegationControllerIndexResponses,
+    AnkoleWebSubagentDelegationControllerIndexErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/delegations',
+    ...options
+  })
+
+/**
+ * Cancel one queued or active subagent delegation
+ */
+export const ankoleWebSubagentDelegationControllerCancel = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebSubagentDelegationControllerCancelData, ThrowOnError>
+): RequestResult<
+  AnkoleWebSubagentDelegationControllerCancelResponses,
+  AnkoleWebSubagentDelegationControllerCancelErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebSubagentDelegationControllerCancelResponses,
+    AnkoleWebSubagentDelegationControllerCancelErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/delegations/{delegation_id}/cancel',
     ...options
   })
 

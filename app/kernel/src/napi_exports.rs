@@ -20,6 +20,11 @@ fn napi_error(error: common::KernelError) -> Error {
     Error::new(Status::GenericFailure, error.to_string())
 }
 
+#[napi(js_name = "estimateO200kBaseTokens")]
+pub fn estimate_o200k_base_tokens(text: String) -> u32 {
+    common::estimate_o200k_base_tokens(&text).min(u32::MAX.into()) as u32
+}
+
 fn runtime_fabric_error(error: TransportError) -> Error {
     Error::new(Status::GenericFailure, error.ffi_message())
 }

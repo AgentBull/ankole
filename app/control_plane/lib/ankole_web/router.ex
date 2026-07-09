@@ -115,6 +115,10 @@ defmodule AnkoleWeb.Router do
 
     get "/agent-computer-workers", AgentComputerWorkerController, :index
 
+    get "/delegations", SubagentDelegationController, :index
+    get "/delegations/:delegation_id", SubagentDelegationController, :show
+    post "/delegations/:delegation_id/cancel", SubagentDelegationController, :cancel
+
     get "/agent-computer-workers/:worker_id/files", WorkerFileController, :index
 
     get "/agent-computer-workers/:worker_id/files/content",

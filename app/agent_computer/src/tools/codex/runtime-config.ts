@@ -1,6 +1,11 @@
 import { assertRpcResponse, type AIGatewayApiKeyResponse, type AppConfigureResolveResponse } from '../../lanes/rpc_lane'
 import { CodexConfigOverrideKey, parseCodexConfigOverride, type CodexConfigOverride } from './config'
-import type { CodexRuntimeRequesters } from './types'
+import type { AIGatewayApiKeyRequester, AppConfigureRequester } from '../../core/turns/turn_options'
+
+type CodexRuntimeRequesters = {
+  requestAIGatewayApiKey: AIGatewayApiKeyRequester
+  requestAppConfigure?: AppConfigureRequester
+}
 
 export type CodexRuntimeConfig = {
   override: CodexConfigOverride | null

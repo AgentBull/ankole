@@ -9,7 +9,8 @@ import { createMemoryTools } from '../../tools/memory/memory-tools'
 import { createScheduleTools } from '../../tools/schedule/schedule-tools'
 import { createTodoTool, TodoStore } from '../../tools/todo/todo-tool'
 import { createWebTools } from '../../tools/web/web-tools'
-import { createCodexDelegateTool } from '../../tools/codex/codex-tool'
+import { createSubagentTool } from '../../tools/subagent/subagent-tool'
+import { createClarifyTool } from '../../tools/clarify/clarify-tool'
 import { assistantText, userMessage } from '../llm'
 import { currentChannelFromTurnStart, statefulTruncationFromActorEventPayload } from './actor_event_text'
 import { actorEventUserContent } from './actor_event_content'
@@ -114,15 +115,14 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
         requestMemoryRpc: opts.requestMemoryRpc
       }),
       ...webTools,
-      createCodexDelegateTool({
+      createClarifyTool(),
+      createSubagentTool({
         turnStart,
-        workspaceRoot: opts.workspaceRoot,
-        requestAIGatewayApiKey: opts.requestAIGatewayApiKey,
-        requestAppConfigure: opts.requestAppConfigure,
-        createCodexDelegation: opts.createCodexDelegation,
-        getCodexDelegationStatus: opts.getCodexDelegationStatus,
-        appendCodexDelegationEvent: opts.appendCodexDelegationEvent,
-        updateCodexDelegationStatus: opts.updateCodexDelegationStatus
+        createSubagentDelegation: opts.createSubagentDelegation,
+        getSubagentDelegation: opts.getSubagentDelegation,
+        listSubagentDelegations: opts.listSubagentDelegations,
+        steerSubagentDelegation: opts.steerSubagentDelegation,
+        stopSubagentDelegation: opts.stopSubagentDelegation
       }),
       ...createSkillTools(opts.workspaceRoot, {
         turn: turnStart.turn,

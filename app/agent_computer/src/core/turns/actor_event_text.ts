@@ -27,6 +27,9 @@ export function actorEventText(payload: JsonObject | undefined, fallbackType: st
   if (fallbackType === 'cron.fire') {
     return cronFireInputText(payload)
   }
+  if (fallbackType.startsWith('subagent.delegation.')) {
+    return subagentWakeupInputText(payload, fallbackType)
+  }
 
   const text = fallbackType.startsWith('command.')
     ? deepString(payload, ['data', 'command', 'argsText']) ||
@@ -39,6 +42,49 @@ export function actorEventText(payload: JsonObject | undefined, fallbackType: st
   const attachments = attachmentText(payload)
   const base = text || `Handle actor event of type ${fallbackType}.`
   return attachments ? `${base}\n\nAttachments:\n${attachments}` : base
+}
+
+function subagentWakeupInputText(payload: JsonObject | undefined, type: string): string {
+  const data = objectPath(payload, ['data'])
+  const title = stringArg(data, 'title')
+  const summary = stringArg(data, 'result_summary')
+  const workdir = stringArg(data, 'workdir')
+  const attempts = firstNumber(data, ['attempts'])
+
+  if (type === 'subagent.delegation.completed') {
+    return [
+      'A background subagent delegation completed.',
+      title ? `Title: ${title}` : undefined,
+      summary ? `Reported result: ${summary}` : undefined,
+      workdir ? `Workdir: ${workdir}` : undefined,
+      'Verify the deliverables yourself by reading files and running relevant checks before reporting. Use subagent(status) for full details. Deliver files with reply_attachment, then report the outcome to the user.'
+    ]
+      .filter((line): line is string => Boolean(line))
+      .join('\n')
+  }
+
+  if (type === 'subagent.delegation.failed') {
+    return [
+      'A background subagent delegation failed.',
+      title ? `Title: ${title}` : undefined,
+      summary ? `Failure: ${summary}` : undefined,
+      attempts !== undefined ? `Attempts: ${attempts}` : undefined,
+      workdir ? `Workdir: ${workdir}` : undefined,
+      'Use subagent(status) for full details. Decide whether to retry with a better brief, fix inputs first, or report the failure honestly to the user.'
+    ]
+      .filter((line): line is string => Boolean(line))
+      .join('\n')
+  }
+
+  const pending = objectPath(data, ['pending_user_input'])
+  return [
+    'A background subagent delegation is waiting for user input.',
+    title ? `Title: ${title}` : undefined,
+    Object.keys(pending).length > 0 ? `Questions: ${JSON.stringify(pending)}` : undefined,
+    'Relay each question to the user with the clarify tool, one question per turn. After collecting the answers, call subagent(steer, answers).'
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n')
 }
 
 /**

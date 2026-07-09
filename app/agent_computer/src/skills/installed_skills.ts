@@ -167,6 +167,7 @@ function validateSkillMetadata(
     optionalBooleanScalar(frontmatter, 'disable-model-invocation') ??
     optionalBooleanScalar(frontmatter, 'disable_model_invocation') ??
     false
+  const longRunning = optionalBooleanScalar(frontmatter, 'long_running') ?? false
 
   const metadata: JsonObject = {
     name: rawName,
@@ -174,7 +175,8 @@ function validateSkillMetadata(
     default_enabled: defaultEnabled,
     relative_path: directoryName,
     tags,
-    disable_model_invocation: disableModelInvocation
+    disable_model_invocation: disableModelInvocation,
+    long_running: longRunning
   }
   if (category) metadata.category = category
 

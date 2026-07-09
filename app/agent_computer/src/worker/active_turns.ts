@@ -34,9 +34,20 @@ export function availableTurnSlots(config: WorkerConfig, activeTurns: Map<string
  * Progress is intentionally best-effort and non-overlapping. A stuck progress
  * send should not pile up timers or block the model/tool loop it is describing.
  */
-export function startTurnProgress(sendEnvelope: ReliableEnvelopeSender, active: ActiveTurn): () => void {
+export type TurnProgressReporter = {
+  touch: (summary?: string) => void
+  stop: () => void
+}
+
+export function startTurnProgress(
+  sendEnvelope: ReliableEnvelopeSender,
+  active: ActiveTurn,
+  opts: { requireActivity?: boolean; intervalMs?: number } = {}
+): TurnProgressReporter {
   let stopped = false
   let progressInFlight = false
+  let activitySinceLastCheckpoint = false
+  let activitySummary = 'turn in progress'
 
   const sendProgress = (summary: string): void => {
     if (stopped || progressInFlight) return
@@ -48,12 +59,22 @@ export function startTurnProgress(sendEnvelope: ReliableEnvelopeSender, active: 
   }
 
   sendProgress('turn started')
-  const timer = setInterval(() => sendProgress('turn in progress'), turnProgressIntervalMs)
+  const timer = setInterval(() => {
+    if (opts.requireActivity && !activitySinceLastCheckpoint) return
+    activitySinceLastCheckpoint = false
+    sendProgress(activitySummary)
+  }, opts.intervalMs ?? turnProgressIntervalMs)
   timer.unref?.()
 
-  return () => {
-    stopped = true
-    clearInterval(timer)
+  return {
+    touch: summary => {
+      activitySinceLastCheckpoint = true
+      if (summary) activitySummary = summary
+    },
+    stop: () => {
+      stopped = true
+      clearInterval(timer)
+    }
   }
 }
 

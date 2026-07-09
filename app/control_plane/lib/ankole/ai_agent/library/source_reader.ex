@@ -299,7 +299,8 @@ defmodule Ankole.AIAgent.Library.SourceReader do
              "relative_path" => normalized_relative_path,
              "skill_root" => root_label,
              "tags" => metadata.tags,
-             "disable_model_invocation" => metadata.disable_model_invocation
+             "disable_model_invocation" => metadata.disable_model_invocation,
+             "long_running" => metadata.long_running
            }
            |> maybe_put("category", metadata.category),
          source_hash: source_hash,
@@ -341,7 +342,10 @@ defmodule Ankole.AIAgent.Library.SourceReader do
            name == directory_name ||
              {:error, {:skill_name_directory_mismatch, name, directory_name}},
          {:ok, description} <- skill_description(frontmatter),
-         {:ok, default_enabled} <- yaml_boolean(frontmatter, "default_enabled", true) do
+         {:ok, default_enabled} <- yaml_boolean(frontmatter, "default_enabled", true),
+         {:ok, disable_model_invocation} <-
+           yaml_boolean(frontmatter, "disable-model-invocation", false),
+         {:ok, long_running} <- yaml_boolean(frontmatter, "long_running", false) do
       {:ok,
        %{
          name: name,
@@ -349,8 +353,8 @@ defmodule Ankole.AIAgent.Library.SourceReader do
          default_enabled: default_enabled,
          tags: yaml_tags(frontmatter),
          category: yaml_scalar(frontmatter, "category"),
-         disable_model_invocation:
-           yaml_boolean(frontmatter, "disable-model-invocation", false) |> elem(1)
+         disable_model_invocation: disable_model_invocation,
+         long_running: long_running
        }}
     else
       {:error, _reason} = error -> error

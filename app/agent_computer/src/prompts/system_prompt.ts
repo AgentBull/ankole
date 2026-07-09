@@ -260,8 +260,11 @@ function toolsSection(opts: BuildAgentSystemPromptOptions): string {
     toolAvailable(opts, 'interactive_terminal')
       ? 'Use `interactive_terminal` for TTY/TUI programs, REPLs, and long-running interactive processes.'
       : '',
-    toolAvailable(opts, 'codex_delegate')
-      ? 'Use `codex_delegate` to spawn a managed Codex subagent for an independent task, especially reasoning-heavy subtasks, self-contained software deliverables, work that would flood your context with intermediate data, or independent workstreams. Each subagent gets its own Codex app-server thread, terminal/tool context, and workdir, and returns a delegation snapshot as its task report.'
+    toolAvailable(opts, 'subagent')
+      ? 'Use `subagent(start)` only for self-contained background work expected to take at least 10 minutes. Do faster work directly. The call returns immediately; tell the user work has begun, then wait for the durable completed, failed, or waiting wakeup. Never promise to continue later only in prose: before ending the turn, background work must have a subagent delegation, a check_back_later wakeup, or a terminal outcome.'
+      : '',
+    toolAvailable(opts, 'clarify')
+      ? 'Use `clarify` only when one user decision materially changes the result. It ends the turn: after calling it, do not repeat the question or choices and do not continue tool work; the answer arrives as the next user message.'
       : '',
     browserToolsAvailable(opts)
       ? 'Use `browser_*` for rendered browser work inside the same computer. Browser sessions are persistent per execution scope through the configured CDP backend: local Chromium by default, or an operator-configured remote CDP service. Observe pages with `browser_snapshot`, use `browser_find` to search long rendered pages, then act on the latest element refs with tools such as `browser_click` and `browser_type`.'
@@ -335,7 +338,7 @@ function skillsForSystemPrompt(opts: BuildAgentSystemPromptOptions): SkillPrompt
 /**
  * Drops skills that do not have enough metadata to appear in the prompt index.
  */
-function skillPromptEntryFromRuntime(skill: RuntimeSkillSummary): SkillPromptEntry | null {
+export function skillPromptEntryFromRuntime(skill: RuntimeSkillSummary): SkillPromptEntry | null {
   if (!skill.skill_name || !skill.description) return null
   const metadata = skill.metadata ?? {}
   const disableModelInvocation =

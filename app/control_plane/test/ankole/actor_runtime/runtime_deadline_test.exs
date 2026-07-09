@@ -1,7 +1,8 @@
 defmodule Ankole.ActorRuntime.RuntimeDeadlineTest do
   use Ankole.ActorRuntimeCase
 
-  alias Ankole.CodexDelegations
+  alias Ankole.ActorRuntime.ReadyEventProcessor
+  alias Ankole.SubagentDelegations
 
   describe "exact runtime deadlines" do
     test "stale worker deadline supersedes one worker's turn and retries through another worker" do
@@ -91,67 +92,82 @@ defmodule Ankole.ActorRuntime.RuntimeDeadlineTest do
       assert current_actor_event_id == input.id
     end
 
-    test "stale worker transition fails Codex delegations for that route" do
+    test "stale worker releases a subagent turn for durable resume on another worker" do
       %{principal: agent} = agent_fixture()
       stale_route = unique_route()
+      live_route = unique_route()
 
       :ok = Broker.register_local_worker(stale_route, self())
       on_exit(fn -> Broker.unregister_local_worker(stale_route) end)
 
       assert {:ok, stale_worker} = admit_worker(stale_route)
 
+      assert {:ok, %{delegation: delegation}} =
+               SubagentDelegations.create_with_dispatch(%{
+                 "agent_uid" => agent.uid,
+                 "session_id" => "parent-session-subagent-stale",
+                 "tool_call_id" => "tool-subagent-stale",
+                 "title" => "Resume after worker loss",
+                 "prompt" => "Finish the durable delegated task.",
+                 "reply_route" => %{
+                   "binding_name" => "bot",
+                   "signal_channel_id" => "chat-subagent-stale"
+                 }
+               })
+
+      actor_key = %{agent_uid: agent.uid, session_id: "subagent:#{delegation.id}"}
+      first_now = DateTime.add(delegation.queued_at, 1, :second)
+
       Repo.update_all(
         from(worker in AgentComputerWorker, where: worker.worker_id == ^stale_worker.worker_id),
-        set: [last_worker_heartbeat_at: @base_time]
+        set: [last_worker_heartbeat_at: DateTime.add(first_now, -120, :second)]
       )
 
-      assert {:ok, create_envelope} =
-               RPCLane.handle_request(
-                 %{
-                   "request_id" => "codex-stale-create",
-                   "method" => "codex.delegation.create",
-                   "payload_json" => %{
-                     "agent_uid" => agent.uid,
-                     "session_id" => "session-codex-stale",
-                     "tool_call_id" => "tool-codex-stale"
-                   }
-                 },
-                 stale_route
+      assert {:ok, %{send_outcome: "sent_or_queued"}} =
+               ReadyEventProcessor.process_ready_event_for_actor(actor_key,
+                 now: first_now,
+                 lease_seconds: @long_lease_seconds
                )
 
-      delegation_id = rpc_payload(create_envelope)["delegation_id"]
+      assert_receive {:actor_lane, first_envelope}
+      assert first_envelope["body"]["turn_start"]["request_context"]["attempts"] == 1
 
-      assert {:ok, running_envelope} =
-               RPCLane.handle_request(
-                 %{
-                   "request_id" => "codex-stale-running",
-                   "method" => "codex.delegation.status.update",
-                   "payload_json" => %{
-                     "delegation_id" => delegation_id,
-                     "agent_uid" => agent.uid,
-                     "status" => "running"
-                   }
-                 },
-                 stale_route
-               )
+      assert {:ok, %{delegation: running}} =
+               SubagentDelegations.commit_status_with_wakeup(delegation.id, agent.uid, %{
+                 "status" => "running",
+                 "runtime_thread_id" => "thread-durable-resume"
+               })
 
-      assert rpc_payload(running_envelope)["status"] == "running"
-
-      assert CodexDelegations.get_delegation_for_agent(delegation_id, agent.uid).metadata[
-               "worker_route"
-             ] == stale_route
+      assert running.status == "running"
 
       assert {:ok, %AgentComputerWorker{status: "stale"}} =
                ActorRuntime.mark_worker_stale_if_due(stale_worker.worker_id,
-                 now: DateTime.add(@base_time, 120, :second),
+                 now: first_now,
                  stale_after_seconds: 60
                )
 
-      delegation = CodexDelegations.get_delegation_for_agent(delegation_id, agent.uid)
-      assert delegation.status == "failed"
-      assert delegation.error["code"] == "owner_worker_stale"
-      assert delegation.error["worker_route"] == stale_route
-      assert delegation.completed_at
+      persisted = SubagentDelegations.get_delegation_for_agent(delegation.id, agent.uid)
+      assert persisted.status == "running"
+      assert persisted.runtime_thread_id == "thread-durable-resume"
+      refute persisted.completed_at
+
+      :ok = Broker.register_local_worker(live_route, self())
+      on_exit(fn -> Broker.unregister_local_worker(live_route) end)
+      assert {:ok, _live_worker} = admit_worker(live_route)
+
+      assert {:ok, %{send_outcome: "sent_or_queued"}} =
+               ReadyEventProcessor.process_ready_event_for_actor(actor_key,
+                 now: DateTime.add(first_now, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_lane, second_envelope}
+      assert second_envelope["body"]["turn_start"]["request_context"]["attempts"] == 2
+
+      retried = SubagentDelegations.get_delegation_for_agent(delegation.id, agent.uid)
+      assert retried.status == "running"
+      assert retried.attempts == 2
+      assert retried.runtime_thread_id == "thread-durable-resume"
     end
 
     test "stale worker delete deadline deletes only that worker" do
@@ -245,10 +261,5 @@ defmodule Ankole.ActorRuntime.RuntimeDeadlineTest do
       assert_receive {:actor_lane, second_envelope}
       assert second_envelope["body"]["turn_start"]["turn"]["actor_event_id"] == input.id
     end
-  end
-
-  defp rpc_payload(envelope) do
-    assert get_in(envelope, ["body", "type"]) == "rpc_response"
-    get_in(envelope, ["body", "rpc_response", "payload_json"])
   end
 end

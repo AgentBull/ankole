@@ -198,6 +198,7 @@ defmodule Ankole.AIAgent.LibraryTest do
     name: shadowed
     description: Internal description changed.
     default_enabled: true
+    long_running: true
     category: test
     ---
 
@@ -206,6 +207,10 @@ defmodule Ankole.AIAgent.LibraryTest do
 
     assert {:ok, sources_after_skill_change} = SourceReader.read_builtin_skill_sources()
     assert SourceReader.catalog_hash(sources_after_skill_change) != catalog_hash
+
+    assert Enum.find(sources_after_skill_change, &(&1.name == "shadowed")).metadata[
+             "long_running"
+           ] == true
 
     %{principal: agent} = agent_fixture()
     assert {:ok, prompt_skills} = Library.skills_for_system_prompt(agent.uid)

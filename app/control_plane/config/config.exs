@@ -59,7 +59,8 @@ config :ankole, Oban,
        {"0 * * * *", Ankole.IdentityProviders.Jobs.EnqueueDirectorySyncs},
        {"*/5 * * * *", Ankole.Memory.Jobs.EnqueueEpisodeSummaries},
        {"*/5 * * * *", Ankole.Memory.Jobs.EmbedPendingEpisodes},
-       {"*/15 * * * *", Ankole.SignalsGateway.Jobs.CleanupExpiredState}
+       {"*/15 * * * *", Ankole.SignalsGateway.Jobs.CleanupExpiredState},
+       {"30 2 * * *", Ankole.ActorRuntime.Jobs.CleanupSubagentHomes}
      ]}
   ]
 

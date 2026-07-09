@@ -1,13 +1,20 @@
 import { jsonObject, match } from '@pleisto/active-support'
 import type { JsonObject } from '@pleisto/active-support'
 import type { JsonRpcMessage } from './app-server-client'
-import type { CodexDelegationStatus } from './types'
+import type { SubagentDelegationStatus } from '../../lanes/rpc_lane'
 
 export type CodexNotificationProjection =
   | { type: 'stderr'; params: JsonObject }
   | { type: 'turn_started'; turnId?: string }
   | { type: 'agent_delta'; delta: string }
-  | { type: 'turn_completed'; codexTurnStatus: string; terminalStatus: CodexDelegationStatus }
+  | { type: 'token_usage'; usage: JsonObject }
+  | { type: 'turn_diff'; diff: string }
+  | {
+      type: 'turn_completed'
+      codexTurnStatus: string
+      terminalStatus: SubagentDelegationStatus
+      error: JsonObject
+    }
   | { type: 'ignored' }
 
 export function projectCodexNotification(message: JsonRpcMessage): CodexNotificationProjection {
@@ -25,13 +32,22 @@ export function projectCodexNotification(message: JsonRpcMessage): CodexNotifica
     return { type: 'agent_delta', delta: params.delta }
   }
 
+  if (method === 'thread/tokenUsage/updated') {
+    return { type: 'token_usage', usage: jsonObject(params.tokenUsage) }
+  }
+
+  if (method === 'turn/diff/updated' && typeof params.diff === 'string') {
+    return { type: 'turn_diff', diff: params.diff }
+  }
+
   if (method === 'turn/completed') {
     const turn = jsonObject(params.turn)
     const codexTurnStatus = stringValue(turn.status) ?? 'unknown'
     return {
       type: 'turn_completed',
       codexTurnStatus,
-      terminalStatus: terminalStatusFromCodexTurn(codexTurnStatus)
+      terminalStatus: terminalStatusFromCodexTurn(codexTurnStatus),
+      error: jsonObject(turn.error)
     }
   }
 
@@ -82,7 +98,7 @@ export function userInputResponse(
   return { answers }
 }
 
-function terminalStatusFromCodexTurn(status: string): CodexDelegationStatus {
+function terminalStatusFromCodexTurn(status: string): SubagentDelegationStatus {
   return match(status)
     .with('completed', () => 'succeeded' as const)
     .with('interrupted', () => 'stopped' as const)

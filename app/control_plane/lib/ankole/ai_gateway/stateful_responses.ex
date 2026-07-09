@@ -38,6 +38,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
   alias Ankole.RuntimeEvents
   alias Ankole.SignalsGateway.AIReplyPreview
   alias Ankole.SignalsGateway.AIReplyText
+  alias Ankole.SignalsGateway.ClarifyPrompt
   alias Ankole.SignalsGateway.Outbox
   alias Ankole.SignalsGateway.ReplyAttachment
 
@@ -571,8 +572,15 @@ defmodule Ankole.AIGateway.StatefulResponses do
                {count, [updated]} when count > 0 ->
                  with {:ok, _attachment_outboxes} <-
                         commit_reply_attachment_outboxes_in_tx(repo, updated, final_content),
+                      {:ok, clarify_outbox} <-
+                        commit_clarify_outbox_in_tx(repo, updated, final_content),
                       {:ok, _final_reply_outbox} <-
-                        commit_final_reply_outbox_in_tx(repo, updated, final_content),
+                        commit_final_reply_outbox_in_tx(
+                          repo,
+                          updated,
+                          final_content,
+                          is_nil(clarify_outbox)
+                        ),
                       {:ok, _actor_event_result} <-
                         maybe_complete_actor_event_in_tx(repo, updated, final_content, now) do
                    {:ok, updated}
@@ -1262,7 +1270,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
   defp commit_reply_attachment_outboxes_in_tx(repo, %Message{} = message, final_content) do
     source_items =
       repo
-      |> reply_attachment_source_items(message, final_content)
+      |> tool_output_source_items(message, final_content)
       |> dedupe_function_call_outputs_by_call_id()
 
     with {:ok, attachments} <- ReplyAttachment.attachments_from_response_items(source_items) do
@@ -1290,10 +1298,49 @@ defmodule Ankole.AIGateway.StatefulResponses do
     end
   end
 
-  defp commit_final_reply_outbox_in_tx(repo, %Message{} = message, final_content) do
+  defp commit_clarify_outbox_in_tx(repo, %Message{} = message, final_content) do
+    source_items =
+      repo
+      |> tool_output_source_items(message, final_content)
+      |> dedupe_function_call_outputs_by_call_id()
+
+    with {:ok, prompt} <- ClarifyPrompt.from_response_items(source_items) do
+      case prompt do
+        nil ->
+          {:ok, nil}
+
+        %{"fallback_visible_text" => fallback, "interactive_output" => interactive_output} ->
+          with actor_event_id when is_binary(actor_event_id) <- message.metadata["actor_event_id"],
+               %ActorEvent{} = event <- lock_actor_event(repo, message.agent_uid, actor_event_id),
+               true <- AIReplyPreview.im_visible_event?(event) do
+            final_text = final_assistant_text(final_content)
+            visible_text = join_clarify_text(final_text, fallback)
+
+            Outbox.commit_clarify_reply_outbox_in_tx(
+              repo,
+              event,
+              message,
+              visible_text,
+              interactive_output
+            )
+          else
+            nil -> {:error, :clarify_actor_event_not_found}
+            false -> {:ok, nil}
+          end
+      end
+    end
+  end
+
+  defp join_clarify_text("", fallback), do: fallback
+  defp join_clarify_text(text, fallback), do: text <> "\n\n" <> fallback
+
+  defp commit_final_reply_outbox_in_tx(repo, %Message{} = message, final_content, enabled?) do
     text = AIReplyText.visible_text(final_content)
 
     cond do
+      not enabled? ->
+        {:ok, nil}
+
       contains_function_call?(final_content) ->
         {:ok, nil}
 
@@ -1313,7 +1360,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
     end
   end
 
-  defp reply_attachment_source_items(repo, %Message{} = message, final_content) do
+  defp tool_output_source_items(repo, %Message{} = message, final_content) do
     case message.metadata["actor_event_id"] do
       actor_event_id when is_binary(actor_event_id) ->
         ancestor_items =

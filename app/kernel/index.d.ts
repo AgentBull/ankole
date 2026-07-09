@@ -27,6 +27,8 @@ export declare function authzValidateCondition(condition: string): boolean
 /** Returns whether a resource pattern is valid. */
 export declare function authzValidateResourcePattern(pattern: string): boolean
 
+export declare function estimateO200kBaseTokens(text: string): number
+
 /** Decodes RuntimeFabric v1 protobuf bytes into a JSON-shaped envelope. */
 export declare function runtimeFabricDecodeEnvelope(bytes: Buffer): any
 

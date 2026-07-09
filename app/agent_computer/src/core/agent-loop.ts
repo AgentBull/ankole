@@ -66,6 +66,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AssistantMe
   let toolRounds = 0
   let sawToolResults = false
   let nudgedEmptyAfterTools = false
+  let clarifyExecuted = false
   const repeatedFailureState: RepeatedToolFailureState = { count: 0 }
   const maxModelIterations = config.maxModelIterations ?? DEFAULT_MAX_MODEL_ITERATIONS
   const maxToolRounds = config.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS
@@ -138,7 +139,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AssistantMe
 
       // If no tool calls, the loop is done.
       if (!result.hasToolCalls || !latestAssistant.toolCalls?.length) {
-        if (shouldNudgeEmptyAfterTools(latestAssistant, sawToolResults, nudgedEmptyAfterTools)) {
+        if (shouldNudgeEmptyAfterTools(latestAssistant, sawToolResults, nudgedEmptyAfterTools, clarifyExecuted)) {
           nudgedEmptyAfterTools = true
           pendingMessages = [{ role: 'user', content: EMPTY_AFTER_TOOL_NUDGE_TEXT }]
           continue
@@ -163,6 +164,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AssistantMe
       const executedToolCalls = config.withActivitySuspended
         ? await config.withActivitySuspended('tool_execution', () => executeToolCalls(toolCalls, toolByName, config))
         : await executeToolCalls(toolCalls, toolByName, config)
+      clarifyExecuted ||= executedToolCalls.some(result => result.toolName === 'clarify' && !result.failure)
       const toolResults = executedToolCalls.map(result => result.resultMsg)
       const toolFollowUpMessages = [
         ...executedToolCalls.flatMap(result => result.followUpMessages),
@@ -234,12 +236,19 @@ function agentToolMap(tools: AgentTool[]): Map<string, AgentTool> {
  * This keeps a flaky provider response from silently swallowing useful tool
  * work, while avoiding an infinite "please continue" loop.
  */
-function shouldNudgeEmptyAfterTools(
+export function shouldNudgeEmptyAfterTools(
   message: AssistantMessage,
   sawToolResults: boolean,
-  alreadyNudged: boolean
+  alreadyNudged: boolean,
+  clarifyExecuted: boolean
 ): boolean {
-  return sawToolResults && !alreadyNudged && message.stopReason === 'stop' && assistantText(message).trim().length === 0
+  return (
+    sawToolResults &&
+    !alreadyNudged &&
+    !clarifyExecuted &&
+    message.stopReason === 'stop' &&
+    assistantText(message).trim().length === 0
+  )
 }
 
 /**

@@ -1453,4 +1453,126 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
       struct?: false
     )
   end
+
+  defmodule SubagentDelegationEventItem do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "SubagentDelegationEventItem",
+        type: :object,
+        properties: %{
+          id: %Schema{type: :string},
+          seq: %Schema{type: :integer},
+          direction: %Schema{type: :string},
+          event_type: %Schema{type: :string},
+          payload: %Schema{type: :object, additionalProperties: true},
+          redaction: %Schema{type: :object, additionalProperties: true},
+          occurred_at: %Schema{type: :string}
+        },
+        required: [:id, :seq, :direction, :event_type, :payload, :redaction, :occurred_at],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule SubagentDelegationItem do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    @statuses Ankole.SubagentDelegations.Schemas.Delegation.statuses()
+
+    OpenApiSpex.schema(
+      %{
+        title: "SubagentDelegationItem",
+        type: :object,
+        properties: %{
+          id: %Schema{type: :string},
+          agent_uid: %Schema{type: :string},
+          session_id: %Schema{type: :string},
+          runtime: %Schema{type: :string, enum: ["codex"]},
+          runtime_thread_id: %Schema{type: :string, nullable: true},
+          title: %Schema{type: :string, nullable: true},
+          prompt: %Schema{type: :string, nullable: true},
+          status: %Schema{
+            type: :string,
+            enum: @statuses
+          },
+          attempts: %Schema{type: :integer},
+          workdir: %Schema{type: :string, nullable: true},
+          reply_route: %Schema{type: :object, additionalProperties: true},
+          result: %Schema{type: :object, additionalProperties: true},
+          error: %Schema{type: :object, additionalProperties: true},
+          metadata: %Schema{type: :object, additionalProperties: true},
+          duration_seconds: %Schema{type: :integer},
+          queued_at: %Schema{type: :string, nullable: true},
+          started_at: %Schema{type: :string, nullable: true},
+          completed_at: %Schema{type: :string, nullable: true},
+          inserted_at: %Schema{type: :string},
+          updated_at: %Schema{type: :string},
+          events: %Schema{type: :array, items: SubagentDelegationEventItem}
+        },
+        required: [
+          :id,
+          :agent_uid,
+          :session_id,
+          :runtime,
+          :status,
+          :attempts,
+          :reply_route,
+          :result,
+          :error,
+          :metadata,
+          :duration_seconds,
+          :inserted_at,
+          :updated_at
+        ],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule SubagentDelegationListResponse do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "SubagentDelegationListResponse",
+        type: :object,
+        properties: %{
+          data: %Schema{type: :array, items: SubagentDelegationItem},
+          next_cursor: %Schema{type: :string, nullable: true}
+        },
+        required: [:data, :next_cursor],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule SubagentDelegationResponse do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "SubagentDelegationResponse",
+        type: :object,
+        properties: %{
+          data: SubagentDelegationItem
+        },
+        required: [:data],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
 end

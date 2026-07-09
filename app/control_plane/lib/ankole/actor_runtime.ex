@@ -67,7 +67,7 @@ defmodule Ankole.ActorRuntime do
   defdelegate assign_worker(actor_key), to: WorkerPool
 
   @doc """
-  Writes bytes into a worker-owned filesystem root through RuntimeFabric.
+  Writes bytes into a shared worker filesystem root through RuntimeFabric.
   """
   @spec put_worker_file(String.t(), String.t(), iodata(), keyword()) ::
           FileTransferLane.operation_result()
@@ -79,7 +79,7 @@ defmodule Ankole.ActorRuntime do
   end
 
   @doc """
-  Reads bytes from a worker-owned filesystem root through RuntimeFabric.
+  Reads bytes from a shared worker filesystem root through RuntimeFabric.
   """
   @spec get_worker_file(String.t(), String.t(), keyword()) :: FileTransferLane.get_result()
   def get_worker_file(root, relative_path, opts \\ [])
@@ -92,7 +92,8 @@ defmodule Ankole.ActorRuntime do
   @doc """
   Lists a directory inside a specific worker's filesystem root.
 
-  Targets the exact worker because each worker owns its own per-worker PVC.
+  Targets the exact worker so the caller observes that runtime's real shared
+  workspace mount reachability without an implicit fallback.
   """
   @spec list_files_on_worker(String.t(), String.t(), String.t(), keyword()) ::
           FileTransferLane.operation_result()

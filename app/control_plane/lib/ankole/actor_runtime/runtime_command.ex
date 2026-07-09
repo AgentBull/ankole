@@ -82,6 +82,32 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
     |> dispatch_stop_controls()
   end
 
+  @doc false
+  def process_subagent_stop(actor_key, %ActorEvent{type: "command.stop"} = input, opts) do
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+
+    Repo.transact(fn repo ->
+      with %ActorEvent{} = input <- TurnLifecycle.lock_actor_event(repo, input.id),
+           {:ok, %{stop_controls: stop_controls, cancelled_turn: cancelled_turn}} <-
+             cancel_live_turn(repo, actor_key, now, "command.stop"),
+           {:ok, completed_event} <- consume_command_without_feedback(repo, input, now) do
+        {:ok,
+         %{
+           status: :command_consumed,
+           command: input.type,
+           actor_event: completed_event,
+           stop_controls: stop_controls,
+           cancelled_turn: cancelled_turn
+         }}
+      else
+        nil -> {:ok, %{status: :idle}}
+        {:error, _reason} = error -> error
+      end
+    end)
+    |> publish_cancelled_turn_event()
+    |> dispatch_stop_controls()
+  end
+
   defp process_compress_command(actor_key, %ActorEvent{} = input, opts) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
@@ -564,9 +590,10 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
   end
 
   defp cancel_live_turn(repo, actor_key, now, reason) do
-    case TurnLifecycle.active_conversation_for_update(repo, actor_key) do
-      %Conversation{} ->
-        live_deliveries = live_deliveries_for_activation(repo, actor_key)
+    live_deliveries = live_deliveries_for_activation(repo, actor_key)
+
+    case live_deliveries do
+      [_delivery | _rest] ->
         actor_event_id = current_actor_event_id(live_deliveries)
 
         stop_controls =
@@ -584,7 +611,7 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
           {:ok, %{stop_controls: stop_controls, cancelled_turn: cancelled_turn}}
         end
 
-      nil ->
+      [] ->
         {:ok, %{stop_controls: [], cancelled_turn: nil}}
     end
   end

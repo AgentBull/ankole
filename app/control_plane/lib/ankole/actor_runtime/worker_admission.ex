@@ -17,7 +17,6 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
   alias Ankole.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.ActorRuntime.TurnLifecycle
   alias Ankole.ActorRuntime.WorkerPool
-  alias Ankole.CodexDelegations
   alias Ankole.Repo
   alias Ankole.RuntimeEvents
 
@@ -358,13 +357,6 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
          {_delivery_count, _rows} <-
            supersede_live_deliveries_for_worker(repo, worker, now, reason),
          {_assignment_count, _rows} <- WorkerPool.release_assignments_for_worker(repo, worker),
-         {:ok, _failed_delegations} <-
-           CodexDelegations.fail_worker_route_delegations(
-             repo,
-             worker.transport_route,
-             now,
-             "stale"
-           ),
          :ok <- notify_worker_delete_deadline(repo, worker),
          :ok <- notify_actor_keys(repo, actor_keys, now) do
       {:ok, worker}

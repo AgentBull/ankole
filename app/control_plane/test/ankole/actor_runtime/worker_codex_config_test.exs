@@ -55,7 +55,8 @@ defmodule Ankole.ActorRuntime.WorkerCodexConfigTest do
   } do
     config = %{
       "mode" => "official_subscription",
-      "auth_json" => %{"tokens" => %{"access_token" => "codex-access-token"}},
+      "config_toml" => "model = \"gpt-5.5\"\n",
+      "auth_json" => ~s({"tokens":{"access_token":"codex-access-token"}}),
       "env" => %{"OPENAI_API_KEY" => "sk-subscription"}
     }
 

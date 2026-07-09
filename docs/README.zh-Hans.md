@@ -65,9 +65,9 @@ Ankole 里的 agent 不是简单的 chat completion 封装，而是一个持久�
 - **AIGateway**（Elixir）是 AI 边界：管 provider 凭证和路由，外加有状态的 Responses 日志，包括 model 历史、tool-loop 状态、compaction 和 terminal commit。它拥有 `ai_gateway_messages` 和 `ai_gateway_conversations`。见 `design-docs/AIGateway.md`。
 - **RuntimeFabric**（Rust + ZeroMQ）是 control plane 和 worker 之间的实时传输：turn envelope、RPC、文件字节。它永远不是持久事实来源。见 `design-docs/RuntimeFabric.md`。
 - **Agent Computer**（Bun worker）执行工具：shell、文件、浏览器，以及当前 turn 的 worker 本地状态。它通过 WebSocket 驱动 model loop，但不保存会话状态。
-- **PostgreSQL** 保存所有持久事实。如果某个事实在崩溃之后仍然重要，它就是这里的一行，而且写入由 Elixir 负责。
+- **PostgreSQL** 保存所有持久语义事实及持久文件的所有权引用。用户产物和可恢复运行时文件位于 worker 共享工作区；它们的生命周期与权威状态仍是由 Elixir 写入的 PostgreSQL 行。
 
-Schedule（`design-docs/Schedule.md`）把时间变成 actor event。Principal 和 AuthZ（`design-docs/Principal.md`、`design-docs/AuthZ.md`）负责身份和权限。AppConfiguration（`design-docs/AppConfiguration.md`）区分启动用的 env var 和 operator 管理的 runtime setting。Plugins（`design-docs/Plugins.md`）是可信的第一方 Elixir 扩展，例如飞书 adapter（`design-docs/plugins/FeishuAdapter.md`）。
+Schedule（`design-docs/Schedule.md`）把时间变成 actor event。Principal 和 AuthZ（`design-docs/Principal.md`、`design-docs/AuthZ.md`）负责身份和权限。AppConfiguration（`design-docs/AppConfiguration.md`）区分启动用的 env var 和 operator 管理的 runtime setting。Plugins（`design-docs/Plugins.md`）是可信的第一方 Elixir 扩展，例如飞书 adapter（`design-docs/plugins/FeishuAdapter.md`）。Subagent Delegation（`design-docs/SubagentDelegation.md`）把长时间 Codex 执行变成会在完成后唤醒父会话的持久后台工作项。
 
 ## 运行时拓扑
 
@@ -184,11 +184,11 @@ Worker->control-plane 的 RPC 方法注册在 `lib/ankole/actor_runtime/rpc_lane
 
 `app/agent_computer/src/`。`main.ts` 解析 env（`WORKER_ID`、形如 `tcp://:worker_auth_key@host:port` 的 `RUNTIME_FABRIC_URL`），启动 DEALER，宣告 `worker_ready`，每 15 秒发一次心跳，并分发 envelope。一个 `turn_start` 会跑 `core/turns/` 里的 turn pipeline（文本 turn 是 `text_turn.ts`）：通过 RPC 拿会话上下文和 AIGateway API key，构造 system prompt（`src/prompts/`），组装 tool，然后驱动 `core/agent-loop.ts`：通过官方 `openai` SDK 加自定义 WebSocket 传输，发起有状态路径的 `response.create`（`core/llm.ts`），在本地执行返回的 tool call，再用 `previous_response_id` 把 `function_call_output` item 链回去；没有 tool call 时停止。Steering 通过 `mailbox_updated` 到达，并在轮次之间注入；`turn_control` 会中止。
 
-Model 可见的 tool 接口有意保持很窄（扩大前先看 `docs/TradeoffsAndKnownLimits.md`）：`todo`（`src/tools/todo/todo-tool.ts`）；computer tool `command`、`interactive_terminal`、`read_file`、`patch`、`reply_attachment`（`src/tools/computer/`）；`codex_delegate`（`src/tools/codex/`）；browser tool `browser_navigate`、`browser_snapshot`、`browser_find`、`browser_click`、`browser_open`、`browser_run`、`browser_extract`（`src/tools/browser/`）；schedule tool `check_back_later`、`cron`（`src/tools/schedule/schedule-tools.ts`）；memory tool `memory_note`、`memory_search`、`memory_browse`（`src/tools/memory/`）；skill tool `skill_view`、`skill_append`（`src/tools/library/`）。Shell 命令在 bubblewrap 里运行（优先 strong mode，启动时若为 weak mode 给警告，绝不无沙箱：`src/tools/computer/bubblewrap.ts`）。当前代码树没有 MCP 支持；如果以后加入，它应该作为另一个本地 tool 源，放在这个 worker 边界里。
+Model 可见的 tool 接口有意保持很窄（扩大前先看 `docs/TradeoffsAndKnownLimits.md`）：`todo`（`src/tools/todo/todo-tool.ts`）；computer tool `command`、`interactive_terminal`、`read_file`、`patch`、`reply_attachment`（`src/tools/computer/`）；异步委托工具 `subagent`（`src/tools/subagent/`）；结束当前 turn 的提问工具 `clarify`（`src/tools/clarify/`）；browser tool `browser_navigate`、`browser_snapshot`、`browser_find`、`browser_click`、`browser_open`、`browser_run`、`browser_extract`（`src/tools/browser/`）；schedule tool `check_back_later`、`cron`（`src/tools/schedule/schedule-tools.ts`）；memory tool `memory_note`、`memory_search`、`memory_browse`（`src/tools/memory/`）；skill tool `skill_view`、`skill_append`（`src/tools/library/`）。Shell 命令在 bubblewrap 里运行（优先 strong mode，启动时若为 weak mode 给警告，绝不无沙箱：`src/tools/computer/bubblewrap.ts`）。当前代码树没有 MCP 支持；如果以后加入，它应该作为另一个本地 tool 源，放在这个 worker 边界里。
 
-Tool 运行边界由各 tool 自己负责，不存在一个 worker 全局 wall-clock timeout。`command` tool 的 foreground 默认是 `180s`；background run 立即返回 `backgroundId`，默认不设置 command timeout，除非调用方显式传 `timeout`。运行中的后台命令会一直被跟踪，直到进程退出、被 `kill`，或 worker 自身结束。`codex_delegate` 使用 Codex app-server 的请求类别预算：`initialize` 为 `15s`，`thread/start` 为 `30s`，普通 app-server request 为 `60s`。这个取舍写在 `docs/TradeoffsAndKnownLimits.md`。
+Tool 运行边界由各 tool 自己负责，不存在一个 worker 全局 wall-clock timeout。`command` tool 的 foreground 默认是 `180s`；background run 立即返回 `backgroundId`，默认不设置 command timeout，除非调用方显式传 `timeout`。运行中的后台命令会一直被跟踪，直到进程退出、被 `kill`，或 worker 自身结束。`subagent(start)` 会创建由 PostgreSQL 持有的工作项并立即返回；独立 delegation turn 运行 Codex，在完成、失败或需要用户输入时唤醒父会话。委托本身没有 wall-clock timeout，worker 失活后可恢复；单次 Codex app-server 请求仍使用类别预算：`initialize` 为 `15s`，`thread/start` 为 `30s`，普通请求为 `60s`。这个取舍写在 `docs/TradeoffsAndKnownLimits.md`。
 
-按契约，worker 是无状态的：它持有 WebSocket、tool 本地状态和当前 turn；所有持久内容都是通过 RPC 或 AIGateway API 落到 PostgreSQL 的行。杀掉一个 worker，turn 会在别处重试。
+按契约，worker 进程是无状态的：它持有 WebSocket、tool 本地状态和当前 turn。持久语义状态与文件所有权引用是通过 RPC 或 AIGateway 落到 PostgreSQL 的行；产物和可恢复运行时文件位于 installation 的共享 RWX 工作区。杀掉一个 worker，turn 会在别处基于同一语义账本与共享文件重试。
 
 #### 用户可见的上下文边界
 
@@ -354,7 +354,7 @@ E2E harness（`tools/e2e/`）跑一个 fake 飞书平台，它用真实 WS 协�
 2. `design-docs/AIGateway.md`：如果你改 AI 侧，包括 provider、有状态消息日志、tool loop、compaction。
 3. `design-docs/SignalsGateway.md`：如果你改 IM/provider 侧，包括入口、batch、命令、流式送达、恢复。
 4. `design-docs/memory/Basic.md`：如果你改 channel 记忆、历史召回、BM25/vector 检索或 memory tools；详细 v1 设计见 `internals/docs/Memory.zh.md`。
-5. `design-docs/RuntimeFabric.md` 和 `design-docs/Schedule.md`：当你改传输或时间。
+5. `design-docs/RuntimeFabric.md`、`design-docs/Schedule.md` 和 `design-docs/SubagentDelegation.md`：当你改传输、时间或持久后台工作。
 6. `design-docs/Principal.md`、`design-docs/AuthZ.md`、`design-docs/AppConfiguration.md`、`design-docs/Plugins.md`、`design-docs/I18n.md`、`design-docs/Logger.md`：按需查阅。
 
 ## Design Doc Index
@@ -367,6 +367,7 @@ E2E harness（`tools/e2e/`）跑一个 fake 飞书平台，它用真实 WS 协�
 | `design-docs/memory/Basic.md` | Channel note、历史召回、BM25/vector search |
 | `design-docs/RuntimeFabric.md` | Envelope、lane、socket、文件传输 |
 | `design-docs/Schedule.md` | Checkback、cron、Oban 唤醒边 |
+| `design-docs/SubagentDelegation.md` | 持久后台工作、Codex resume、steer、唤醒 |
 | `design-docs/Principal.md`、`design-docs/AuthZ.md` | 身份、group、grant、CEL |
 | `design-docs/AppConfiguration.md` | 配置 key、scope、加密 |
 | `design-docs/Plugins.md`、`design-docs/plugins/FeishuAdapter.md` | Plugin contract、Lark adapter |

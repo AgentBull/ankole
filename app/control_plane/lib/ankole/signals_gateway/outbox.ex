@@ -158,6 +158,49 @@ defmodule Ankole.SignalsGateway.Outbox do
     end
   end
 
+  @doc false
+  def commit_clarify_reply_outbox_in_tx(
+        repo,
+        %ActorEvent{} = actor_event,
+        %Message{} = message,
+        text,
+        interactive_output
+      )
+      when is_binary(text) and is_map(interactive_output) do
+    with {:ok, operation, operation_attrs} <-
+           final_reply_operation(repo, actor_event, message) do
+      outbound_key = "ai-reply:#{message.id}"
+
+      commit_outbox_in_tx(
+        repo,
+        Map.merge(
+          %{
+            agent_uid: actor_event.agent_uid,
+            binding_name: actor_event.binding_name,
+            outbound_key: outbound_key,
+            operation: operation,
+            signal_channel_id: actor_event.signal_channel_id,
+            provider_thread_id: actor_event.provider_thread_id,
+            source_actor_event_id: actor_event.id,
+            ai_message_id: message.id,
+            payload: %{
+              "text" => text,
+              "interactive_output" => interactive_output,
+              "metadata" => %{
+                "ai_message_id" => message.id,
+                "actor_event_id" => actor_event.id,
+                "source" => "ai_gateway_clarify"
+              }
+            },
+            fallback_visible_text: text,
+            idempotency_key: outbound_key
+          },
+          operation_attrs
+        )
+      )
+    end
+  end
+
   @doc """
   Chooses the provider-visible reply operation for an actor event.
 

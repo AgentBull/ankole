@@ -96,22 +96,24 @@ export class CodexAppServerClient {
     )
   }
 
-  async initialize(): Promise<void> {
-    await this.request(
-      'initialize',
-      {
-        clientInfo: {
-          name: 'ankole_agent_computer',
-          title: 'Ankole Agent Computer',
-          version: '0.1.0'
+  async initialize(): Promise<JsonObject> {
+    const response =
+      (await this.request(
+        'initialize',
+        {
+          clientInfo: {
+            name: 'ankole_agent_computer',
+            title: 'Ankole Agent Computer',
+            version: '0.1.0'
+          },
+          capabilities: {
+            experimentalApi: true
+          }
         },
-        capabilities: {
-          experimentalApi: true
-        }
-      },
-      INITIALIZE_REQUEST_TIMEOUT_MS
-    )
+        INITIALIZE_REQUEST_TIMEOUT_MS
+      )) ?? {}
     await this.notify('initialized', {})
+    return isRecord(response) ? (response as JsonObject) : {}
   }
 
   async request(method: string, params: unknown, timeoutMs = defaultRequestTimeoutMs(method)): Promise<unknown> {

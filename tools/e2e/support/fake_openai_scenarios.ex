@@ -32,7 +32,10 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
     prompt_trigger = latest_request_trigger_text(prompt)
 
     cond do
-      structured_output_request?(request) and String.contains?(prompt, "CHAOS_AMBIENT_IGNORE") ->
+      compaction_request?(request_text) ->
+        :compaction_summary
+
+      structured_output_request?(request) and prompt_trigger == "CHAOS_AMBIENT_IGNORE" ->
         :ambient_noop_decision
 
       structured_output_request?(request) ->
@@ -255,6 +258,11 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
 
   defp structured_output_request?(_request), do: false
 
+  defp compaction_request?(request_text) when is_binary(request_text) do
+    String.contains?(request_text, "You are a context summarization assistant") and
+      String.contains?(request_text, "Use this EXACT format")
+  end
+
   defp latest_request_trigger_text(request_text) when is_binary(request_text) do
     [
       {"CHAOS_MALFORMED_STREAM", "CHAOS_MALFORMED_STREAM"},
@@ -421,10 +429,12 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
   defp marker_text?(_text), do: false
 
   defp reply_for(:ambient_decision),
-    do: ~s({"intervene":true,"reason":"fake Feishu chaos handoff needs a visible reply"})
+    do:
+      ~s({"should_proactively_speak":true,"reason":"fake Feishu chaos handoff needs a visible reply"})
 
   defp reply_for(:ambient_noop_decision),
-    do: ~s({"intervene":false,"reason":"fake Feishu chaos says the agent should stay silent"})
+    do:
+      ~s({"should_proactively_speak":false,"reason":"fake Feishu chaos says the agent should stay silent"})
 
   defp reply_for(:after_new_recall), do: "CHAOS_AFTER_NEW_RECALL_OK"
   defp reply_for(:ambient_reply), do: "CHAOS_AMBIENT_OK"
@@ -435,6 +445,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
   defp reply_for(:browser_run_tool), do: "CHAOS_BROWSER_RUN_OK"
   defp reply_for(:checkback_tool), do: "CHAOS_CHECKBACK_OK"
   defp reply_for(:checkback_wakeup), do: "CHAOS_CHECKBACK_WAKE_OK"
+  defp reply_for(:compaction_summary), do: "## Active Task\n(none)"
   defp reply_for(:cron_tool), do: "CHAOS_CRON_OK"
   defp reply_for(:cron_wakeup), do: "CHAOS_CRON_WAKE_OK"
   defp reply_for(:direct), do: "CHAOS_DIRECT_OK"

@@ -74,11 +74,18 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
   && rustc --version \
   && cargo --version
 
-RUN bun add -g @openai/codex@0.142.5 \
-  && rm -f /usr/local/bin/codex \
-  && printf '%s\n' '#!/usr/bin/env sh' 'exec /usr/local/bin/bun /root/.bun/install/global/node_modules/@openai/codex/bin/codex.js "$@"' > /usr/local/bin/codex \
-  && chmod +x /usr/local/bin/codex \
-  && codex --version
+RUN set -eux; \
+  installed=0; \
+  for attempt in 1 2 3; do \
+    if bun add -g @openai/codex@0.144.0; then installed=1; break; fi; \
+    rm -rf /root/.bun/install/cache/* /tmp/bun-*; \
+    sleep $((attempt * 5)); \
+  done; \
+  test "$installed" = 1; \
+  rm -f /usr/local/bin/codex; \
+  printf '%s\n' '#!/usr/bin/env sh' 'exec /usr/local/bin/bun /root/.bun/install/global/node_modules/@openai/codex/bin/codex.js "$@"' > /usr/local/bin/codex; \
+  chmod +x /usr/local/bin/codex; \
+  codex --version
 
 RUN apt-get -o Acquire::Retries=5 update \
   && apt-get -o Acquire::Retries=5 install -y --no-install-recommends libicu-dev \

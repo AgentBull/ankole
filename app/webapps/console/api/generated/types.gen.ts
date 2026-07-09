@@ -5,6 +5,14 @@ export type ClientOptions = {
 }
 
 /**
+ * SubagentDelegationListResponse
+ */
+export type SubagentDelegationListResponse = {
+  data: Array<SubagentDelegationItem>
+  next_cursor: string | null
+}
+
+/**
  * AIGatewayProviderListResponse
  */
 export type AiGatewayProviderListResponse = {
@@ -41,6 +49,13 @@ export type LocalizedText = {
  */
 export type AuthSessionDeleteResponse = {
   ok: boolean
+}
+
+/**
+ * SubagentDelegationResponse
+ */
+export type SubagentDelegationResponse = {
+  data: SubagentDelegationItem
 }
 
 /**
@@ -339,6 +354,58 @@ export type AgentItem = {
  */
 export type SignalBindingListResponse = {
   data: Array<SignalBindingItem>
+}
+
+/**
+ * SubagentDelegationEventItem
+ */
+export type SubagentDelegationEventItem = {
+  direction: string
+  event_type: string
+  id: string
+  occurred_at: string
+  payload: {
+    [key: string]: unknown
+  }
+  redaction: {
+    [key: string]: unknown
+  }
+  seq: number
+}
+
+/**
+ * SubagentDelegationItem
+ */
+export type SubagentDelegationItem = {
+  agent_uid: string
+  attempts: number
+  completed_at?: string | null
+  duration_seconds: number
+  error: {
+    [key: string]: unknown
+  }
+  events?: Array<SubagentDelegationEventItem>
+  id: string
+  inserted_at: string
+  metadata: {
+    [key: string]: unknown
+  }
+  prompt?: string | null
+  queued_at?: string | null
+  reply_route: {
+    [key: string]: unknown
+  }
+  result: {
+    [key: string]: unknown
+  }
+  runtime: 'codex'
+  runtime_thread_id?: string | null
+  session_id: string
+  started_at?: string | null
+  status: 'queued' | 'running' | 'waiting_on_user' | 'succeeded' | 'failed' | 'stopped'
+  title?: string | null
+  updated_at: string
+  workdir?: string | null
 }
 
 /**
@@ -835,6 +902,43 @@ export type AnkoleWebScheduleControllerCreateCronResponses = {
 
 export type AnkoleWebScheduleControllerCreateCronResponse =
   AnkoleWebScheduleControllerCreateCronResponses[keyof AnkoleWebScheduleControllerCreateCronResponses]
+
+export type AnkoleWebSubagentDelegationControllerShowData = {
+  body?: never
+  path: {
+    delegation_id: string
+  }
+  query?: never
+  url: '/api/v1/delegations/{delegation_id}'
+}
+
+export type AnkoleWebSubagentDelegationControllerShowErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebSubagentDelegationControllerShowError =
+  AnkoleWebSubagentDelegationControllerShowErrors[keyof AnkoleWebSubagentDelegationControllerShowErrors]
+
+export type AnkoleWebSubagentDelegationControllerShowResponses = {
+  /**
+   * Delegation
+   */
+  200: SubagentDelegationResponse
+}
+
+export type AnkoleWebSubagentDelegationControllerShowResponse =
+  AnkoleWebSubagentDelegationControllerShowResponses[keyof AnkoleWebSubagentDelegationControllerShowResponses]
 
 export type AnkoleWebWorkerFileControllerDeleteData = {
   body?: never
@@ -2437,6 +2541,83 @@ export type AnkoleWebAgentComputerWorkerControllerIndexResponses = {
 
 export type AnkoleWebAgentComputerWorkerControllerIndexResponse =
   AnkoleWebAgentComputerWorkerControllerIndexResponses[keyof AnkoleWebAgentComputerWorkerControllerIndexResponses]
+
+export type AnkoleWebSubagentDelegationControllerIndexData = {
+  body?: never
+  path?: never
+  query?: {
+    status?: 'queued' | 'running' | 'waiting_on_user' | 'succeeded' | 'failed' | 'stopped'
+    agent?: string
+    cursor?: string
+    limit?: number
+  }
+  url: '/api/v1/delegations'
+}
+
+export type AnkoleWebSubagentDelegationControllerIndexErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Invalid filters
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebSubagentDelegationControllerIndexError =
+  AnkoleWebSubagentDelegationControllerIndexErrors[keyof AnkoleWebSubagentDelegationControllerIndexErrors]
+
+export type AnkoleWebSubagentDelegationControllerIndexResponses = {
+  /**
+   * Delegations
+   */
+  200: SubagentDelegationListResponse
+}
+
+export type AnkoleWebSubagentDelegationControllerIndexResponse =
+  AnkoleWebSubagentDelegationControllerIndexResponses[keyof AnkoleWebSubagentDelegationControllerIndexResponses]
+
+export type AnkoleWebSubagentDelegationControllerCancelData = {
+  body?: never
+  path: {
+    delegation_id: string
+  }
+  query?: never
+  url: '/api/v1/delegations/{delegation_id}/cancel'
+}
+
+export type AnkoleWebSubagentDelegationControllerCancelErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebSubagentDelegationControllerCancelError =
+  AnkoleWebSubagentDelegationControllerCancelErrors[keyof AnkoleWebSubagentDelegationControllerCancelErrors]
+
+export type AnkoleWebSubagentDelegationControllerCancelResponses = {
+  /**
+   * Delegation
+   */
+  200: SubagentDelegationResponse
+}
+
+export type AnkoleWebSubagentDelegationControllerCancelResponse =
+  AnkoleWebSubagentDelegationControllerCancelResponses[keyof AnkoleWebSubagentDelegationControllerCancelResponses]
 
 export type AnkoleWebAppConfigurationControllerDeleteData = {
   body?: never
