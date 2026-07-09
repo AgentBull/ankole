@@ -26,21 +26,6 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
   @max_text_message_chars 4_000
 
   @impl true
-  def capabilities do
-    [
-      :post_entry,
-      :reply_entry,
-      :edit_entry,
-      :delete_entry,
-      :add_reaction,
-      :remove_reaction,
-      :divider,
-      :card,
-      :outbound_reconciliation
-    ]
-  end
-
-  @impl true
   def send(%OutboxEntry{} = outbox) do
     with {:ok, config} <- config_for_outbox(outbox),
          client <- Config.client(config),
@@ -78,31 +63,13 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     end
   end
 
-  @doc """
-  Builds the provider REST request for an outbox row without sending it.
-  """
-  @spec request_for_outbox(OutboxEntry.t()) :: {:ok, map()} | {:error, term()}
-  def request_for_outbox(%OutboxEntry{} = outbox) do
-    with {:ok, [request | _]} <- requests_for_outbox(outbox) do
-      {:ok, request}
-    end
-  end
-
-  @doc """
-  Builds one or more provider REST requests for an outbox row without sending them.
-
-  Lark text posts/replies have a practical per-message size limit. Large text is
-  split into deterministic follow-up posts, while non-text operations stay as a
-  single request.
-  """
-  @spec requests_for_outbox(OutboxEntry.t()) :: {:ok, [map()]} | {:error, term()}
-  def requests_for_outbox(%OutboxEntry{operation: :post} = outbox) do
+  defp requests_for_outbox(%OutboxEntry{operation: :post} = outbox) do
     with {:ok, body} <- message_body(outbox) do
       {:ok, message_requests(:post, "im/v1/messages", outbox, body)}
     end
   end
 
-  def requests_for_outbox(%OutboxEntry{operation: :reply} = outbox) do
+  defp requests_for_outbox(%OutboxEntry{operation: :reply} = outbox) do
     with {:ok, body} <- message_body(outbox) do
       {:ok,
        message_requests(:post, "im/v1/messages", outbox, body,
@@ -111,11 +78,11 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     end
   end
 
-  def requests_for_outbox(%OutboxEntry{operation: :edit} = outbox) do
+  defp requests_for_outbox(%OutboxEntry{operation: :edit} = outbox) do
     {:ok, edit_message_requests(outbox)}
   end
 
-  def requests_for_outbox(%OutboxEntry{operation: :delete} = outbox) do
+  defp requests_for_outbox(%OutboxEntry{operation: :delete} = outbox) do
     {:ok,
      [
        %{
@@ -126,8 +93,8 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
      ]}
   end
 
-  def requests_for_outbox(%OutboxEntry{operation: operation} = outbox)
-      when operation in [:reaction_add, :reaction_remove] do
+  defp requests_for_outbox(%OutboxEntry{operation: operation} = outbox)
+       when operation in [:reaction_add, :reaction_remove] do
     reaction_key =
       outbox.payload
       |> fetch_value("reaction_key")
@@ -157,7 +124,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     {:ok, [request]}
   end
 
-  def requests_for_outbox(%OutboxEntry{operation: :divider} = outbox) do
+  defp requests_for_outbox(%OutboxEntry{operation: :divider} = outbox) do
     text =
       outbox.fallback_visible_text
       |> to_string()
@@ -172,7 +139,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     {:ok, [message_request(:post, "im/v1/messages", outbox, body)]}
   end
 
-  def requests_for_outbox(%OutboxEntry{operation: :card} = outbox) do
+  defp requests_for_outbox(%OutboxEntry{operation: :card} = outbox) do
     with {:ok, card} <- Card.render(outbox.payload) do
       {:ok,
        card
@@ -182,7 +149,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     end
   end
 
-  def requests_for_outbox(_outbox), do: {:error, :unsupported_outbox_operation}
+  defp requests_for_outbox(_outbox), do: {:error, :unsupported_outbox_operation}
 
   defp perform_requests([request], client, outbox) do
     request
