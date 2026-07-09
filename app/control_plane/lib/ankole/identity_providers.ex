@@ -6,10 +6,12 @@ defmodule Ankole.IdentityProviders do
   alias Ankole.AppConfigure
   alias Ankole.IdentityProviders.Config
   alias Ankole.IdentityProviders.Jobs.SyncProvider
+  alias Ankole.Logging
   alias Ankole.Plugins
 
   @adapter_contract_id "principals.identity_provider"
   @directory_full_sync_capability "directory_full_sync"
+  @directory_realtime_sync_capability "directory_realtime_sync"
   @secret_mask "********"
 
   @type adapter :: %{
@@ -18,7 +20,8 @@ defmodule Ankole.IdentityProviders do
           display_name: %{String.t() => String.t()},
           capabilities: [String.t()],
           fields: [map()],
-          default_provider_id: String.t()
+          default_provider_id: String.t(),
+          connection_reconciler: module() | nil
         }
 
   @doc """
@@ -128,7 +131,9 @@ defmodule Ankole.IdentityProviders do
              persisted_config,
              enabled,
              Keyword.get(opts, :source, "setup")
-           ) do
+           ),
+         {:ok, _reconcile} <-
+           maybe_reconcile_saved_provider(adapter, persisted_config, enabled, opts) do
       {:ok,
        %{
          "provider_id" => provider_id,
@@ -284,7 +289,8 @@ defmodule Ankole.IdentityProviders do
   def validate_adapter_declaration(declaration) when is_map(declaration) do
     with {:ok, module} <- identity_adapter_module(declaration),
          :ok <- ensure_exported(module, :upsert_user, 2),
-         :ok <- validate_identity_capabilities(module, declaration) do
+         :ok <- validate_identity_capabilities(module, declaration),
+         :ok <- validate_connection_reconciler(declaration) do
       :ok
     end
   end
@@ -316,7 +322,8 @@ defmodule Ankole.IdentityProviders do
       fields: value(declaration, :fields) || [],
       config_key_pattern: value(declaration, :config_key_pattern),
       default_provider_id: "#{adapter_id}-main",
-      module: value(declaration, :module)
+      module: value(declaration, :module),
+      connection_reconciler: value(declaration, :connection_reconciler)
     }
   end
 
@@ -416,6 +423,79 @@ defmodule Ankole.IdentityProviders do
     end
   end
 
+  defp maybe_reconcile_saved_provider(_adapter, _config, false, _opts), do: {:ok, :disabled}
+
+  defp maybe_reconcile_saved_provider(adapter, config, true, opts) do
+    cond do
+      not realtime_reconcile_on_save?(opts) ->
+        {:ok, :disabled}
+
+      not directory_realtime_sync_supported?(adapter) ->
+        {:ok, :sync_unsupported}
+
+      not sync_config_enabled?(config) ->
+        {:ok, :sync_disabled}
+
+      not websocket_sync_config_enabled?(config) ->
+        {:ok, :websocket_disabled}
+
+      true ->
+        reconcile_realtime_directory(adapter)
+    end
+  end
+
+  defp realtime_reconcile_on_save?(opts) do
+    case Keyword.fetch(opts, :reconcile_realtime?) do
+      {:ok, value} when is_boolean(value) ->
+        value
+
+      _other ->
+        :ankole
+        |> Application.get_env(:identity_provider_realtime_reconcile, [])
+        |> Keyword.get(:on_save, true)
+    end
+  end
+
+  defp reconcile_realtime_directory(adapter) do
+    case value(adapter, :connection_reconciler) do
+      module when is_atom(module) and not is_nil(module) ->
+        safe_reconcile_realtime_directory(module)
+
+      nil ->
+        {:ok, :reconcile_unavailable}
+
+      value ->
+        {:error, {:invalid_identity_provider_connection_reconciler, value}}
+    end
+  end
+
+  defp safe_reconcile_realtime_directory(module) do
+    result = module.reconcile()
+    maybe_log_reconcile_errors(module, result)
+    {:ok, result}
+  catch
+    kind, reason ->
+      Logging.warning(
+        "identity_providers.realtime_reconcile.failed",
+        "identity provider realtime reconcile failed",
+        %{module: inspect(module), reason: inspect({kind, reason})}
+      )
+
+      {:ok, {:error, {kind, reason}}}
+  end
+
+  defp maybe_log_reconcile_errors(_module, %{errors: []}), do: :ok
+
+  defp maybe_log_reconcile_errors(module, %{errors: errors}) when is_list(errors) do
+    Logging.warning(
+      "identity_providers.realtime_reconcile.completed_with_errors",
+      "identity provider realtime reconcile completed with errors",
+      %{module: inspect(module), errors: errors}
+    )
+  end
+
+  defp maybe_log_reconcile_errors(_module, _result), do: :ok
+
   defp maybe_sync_directory(adapter, module, provider_id, config, opts) do
     case directory_full_sync_supported?(adapter) and sync_config_enabled?(config) do
       true ->
@@ -430,6 +510,10 @@ defmodule Ankole.IdentityProviders do
 
   defp sync_config_enabled?(config) when is_map(config) do
     get_in(config, ["sync", "contacts"]) != false
+  end
+
+  defp websocket_sync_config_enabled?(config) when is_map(config) do
+    get_in(config, ["sync", "websocket"]) != false
   end
 
   defp maybe_enqueue_directory_sync(
@@ -477,19 +561,33 @@ defmodule Ankole.IdentityProviders do
     reason = sync_reason(Keyword.get(opts, :reason, "manual"))
     source = sync_reason(Keyword.get(opts, :source, "manual"))
 
-    case periodic_sync?(reason, source) do
-      true ->
+    cond do
+      periodic_sync?(reason, source) ->
         with {:ok, unique_opts} <- periodic_sync_unique_opts(opts) do
           {:ok, [unique: unique_opts]}
         end
 
-      false ->
+      event_triggered_sync?(source) ->
+        {:ok, [unique: event_triggered_sync_unique_opts()]}
+
+      true ->
         {:ok, []}
     end
   end
 
   defp periodic_sync?("periodic", "cron"), do: true
   defp periodic_sync?(_reason, _source), do: false
+
+  defp event_triggered_sync?("lark_contact_event"), do: true
+  defp event_triggered_sync?(_source), do: false
+
+  defp event_triggered_sync_unique_opts do
+    [
+      fields: [:worker, :args],
+      keys: [:provider_id, :source],
+      period: 300
+    ]
+  end
 
   defp periodic_sync_unique_opts(opts) do
     with {:ok, period} <- periodic_sync_unique_period(opts) do
@@ -525,6 +623,10 @@ defmodule Ankole.IdentityProviders do
 
   defp directory_full_sync_supported?(adapter) do
     @directory_full_sync_capability in adapter_capabilities(adapter)
+  end
+
+  defp directory_realtime_sync_supported?(adapter) do
+    @directory_realtime_sync_capability in adapter_capabilities(adapter)
   end
 
   defp adapter_capabilities(adapter) do
@@ -691,6 +793,19 @@ defmodule Ankole.IdentityProviders do
 
   defp validate_identity_capability(_module, capability),
     do: {:error, {:unknown_identity_capability, capability}}
+
+  defp validate_connection_reconciler(declaration) do
+    case value(declaration, :connection_reconciler) do
+      nil ->
+        :ok
+
+      module when is_atom(module) ->
+        ensure_exported(module, :reconcile, 0)
+
+      value ->
+        {:error, {:invalid_identity_provider_connection_reconciler, value}}
+    end
+  end
 
   defp value(map, key) when is_map(map) do
     string_key = Atom.to_string(key)

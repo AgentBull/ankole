@@ -391,6 +391,10 @@ Directory group membership should materialize into static group membership
 rows. Computed groups remain local CEL rules and should not be used as the
 target of external binding sync.
 
+When a provider's external group binding records a parent department id,
+membership sync expands a user's direct department ids through the known parent
+chain and materializes those ancestor department groups too.
+
 ## Failure Semantics
 
 Authorization returns allow or a domain denial/error. Typical denial reasons

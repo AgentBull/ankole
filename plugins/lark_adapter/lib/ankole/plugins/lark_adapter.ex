@@ -9,6 +9,7 @@ defmodule Ankole.Plugins.LarkAdapter do
   alias Ankole.Plugins.LarkAdapter.ConnectionReconciler
   alias Ankole.Plugins.LarkAdapter.ConnectionSupervisor
   alias Ankole.Plugins.LarkAdapter.IdentityProvider
+  alias Ankole.Plugins.LarkAdapter.IMGroups
   alias Ankole.Plugins.LarkAdapter.Inbound
   alias Ankole.Plugins.LarkAdapter.Outbox
 
@@ -54,6 +55,7 @@ defmodule Ankole.Plugins.LarkAdapter do
         ingress_module: Inbound,
         outbox_module: Outbox,
         connection_supervisor: ConnectionSupervisor,
+        binding_saved_module: IMGroups,
         inbound_capabilities: [
           "entry_receive",
           "entry_removed",
@@ -81,6 +83,7 @@ defmodule Ankole.Plugins.LarkAdapter do
         config_key_pattern: "principals.identity_providers.lark.<id>",
         fields: identity_fields(),
         module: IdentityProvider,
+        connection_reconciler: ConnectionReconciler,
         capabilities: [
           "oidc_authorization",
           "oidc_code_exchange",
@@ -99,7 +102,8 @@ defmodule Ankole.Plugins.LarkAdapter do
       {Registry, keys: :unique, name: Ankole.Plugins.LarkAdapter.ConnectionRegistry},
       {DynamicSupervisor,
        name: Ankole.Plugins.LarkAdapter.ConnectionDynamicSupervisor, strategy: :one_for_one},
-      ConnectionReconciler
+      ConnectionReconciler,
+      IMGroups.StartupSync
     ]
   end
 
@@ -167,26 +171,6 @@ defmodule Ankole.Plugins.LarkAdapter do
         },
         :string,
         default: "Lark / Feishu"
-      ),
-      field(
-        "botOpenId",
-        %{"default" => "Bot open_id", "zh-Hans-CN" => "机器人 open_id"},
-        %{
-          "default" => "Bot open_id used to recognize messages addressed to this bot.",
-          "zh-Hans-CN" => "用于识别发给当前机器人的消息。"
-        },
-        :string,
-        []
-      ),
-      field(
-        "botUserId",
-        %{"default" => "Bot user_id", "zh-Hans-CN" => "机器人 user_id"},
-        %{
-          "default" => "Bot user_id used to resolve the runtime bot open_id.",
-          "zh-Hans-CN" => "用于运行时解析机器人 open_id。"
-        },
-        :string,
-        []
       )
     ]
   end
@@ -244,8 +228,9 @@ defmodule Ankole.Plugins.LarkAdapter do
         "sync.contacts",
         %{"default" => "Sync directory", "zh-Hans-CN" => "同步通讯录"},
         %{
-          "default" => "Imports provider contacts into Principals and directory access checks.",
-          "zh-Hans-CN" => "将 provider 通讯录导入 Principals 和目录权限检查。"
+          "default" =>
+            "Imports provider contacts into Principals, department groups, and memberships.",
+          "zh-Hans-CN" => "将 provider 通讯录导入 Principals、部门组和成员关系。"
         },
         :boolean,
         default: true

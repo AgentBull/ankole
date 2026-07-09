@@ -1670,15 +1670,18 @@ The common config switch is `sync.contacts`. It means "sync the provider
 directory" as one unit; Ankole does not expose separate `sync.users` and
 `sync.departments` switches. For Lark, the full sync entry point is
 `sync_directory/3`: it pages contact users and departments with `sync.pageSize`,
-upserts users into Principal platform-subject identity, and checks department
-access/count without making departments a separate operator-controlled feature.
+upserts users into Principal platform-subject identity, upserts provider-owned
+department groups and external bindings, and refreshes users' department group
+memberships.
 
 Full directory sync always runs in Oban through
-`Ankole.IdentityProviders.Jobs.SyncProvider`. It is enqueued by three edges:
+`Ankole.IdentityProviders.Jobs.SyncProvider`. It is enqueued by these edges:
 
-- saving an enabled identity provider whose `sync.contacts` is true;
+- saving an enabled identity provider whose `sync.contacts` is true, including
+  first setup, later console edits, and re-saving credentials;
 - the console manual "run full sync" action for a saved provider whose adapter
   declares `directory_full_sync`;
+- control-plane startup, via a one-shot boot edge that scans enabled providers;
 - `Ankole.IdentityProviders.Jobs.EnqueueDirectorySyncs`, a periodic wake edge
   that scans enabled providers and enqueues due full-sync jobs.
 
@@ -1694,6 +1697,10 @@ the same `domain + app_id` long-connection owner as chat ingress, because the
 provider's long-connection delivery is cluster-mode. The Lark identity consumer
 starts only when `sync.contacts == true` and `sync.websocket == true`; the
 validator normalizes `sync.websocket` to false when contacts sync is disabled.
+The Lark plugin reconciles connections once on control-plane boot and
+identity-provider save also requests an immediate realtime reconciliation, so a
+provider added during first setup can start listening for incremental contact
+events without a control-plane restart.
 Contact user events can upsert platform-subject facts directly. Events that
 cannot safely be merged incrementally, such as missing identity information or
 `contact.scope.updated_v3`, enqueue a full directory sync instead of guessing.

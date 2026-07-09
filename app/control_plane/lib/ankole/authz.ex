@@ -105,29 +105,59 @@ defmodule Ankole.AuthZ do
   end
 
   @doc """
-  Returns group ids bound to a provider-scoped external subject.
+  Returns group ids bound to a provider-scoped external group of a specific kind.
   """
-  @spec external_group_ids(String.t(), String.t()) :: [String.t()]
-  def external_group_ids(provider, external_id) do
-    Store.external_group_ids(Repo, provider, external_id)
+  @spec external_group_ids(String.t(), atom() | String.t(), String.t()) :: [String.t()]
+  def external_group_ids(provider, external_kind, external_id) do
+    Store.external_group_ids(Repo, provider, external_kind, external_id)
   end
 
   @doc """
   Reconciles one Principal's identity-provider-owned department group memberships.
 
-  The provider binding table maps external department ids to Principal groups.
-  Only operator-created static groups explicitly marked with
-  `metadata["external_directory"]["provider"] == provider` and
-  `metadata["external_directory"]["kind"] == "department"` are changed; manual
-  groups and unmarked bindings are left untouched.
+  The provider binding table maps external department ids to directory-domain
+  Principal groups. Manual operator groups and mismatched external bindings are
+  left untouched.
   """
-  @spec sync_external_directory_group_memberships(String.t(), String.t(), [String.t()]) ::
+  @spec sync_external_directory_group_memberships(String.t(), String.t(), [String.t()], keyword()) ::
           {:ok, %{synced_group_ids: [String.t()], removed_memberships: non_neg_integer()}}
           | {:error, term()}
-  def sync_external_directory_group_memberships(provider, principal_uid, external_ids)
+  def sync_external_directory_group_memberships(provider, principal_uid, external_ids, opts \\ [])
       when is_binary(provider) and is_list(external_ids) do
     Repo.transact(fn repo ->
-      Store.sync_external_directory_group_memberships(repo, provider, principal_uid, external_ids)
+      Store.sync_external_directory_group_memberships(
+        repo,
+        provider,
+        principal_uid,
+        external_ids,
+        opts
+      )
+    end)
+  end
+
+  @doc false
+  @spec external_directory_group_index(String.t()) :: {:ok, map()} | {:error, term()}
+  def external_directory_group_index(provider) when is_binary(provider) do
+    Store.external_directory_group_index(Repo, provider)
+  end
+
+  @doc false
+  @spec replace_static_group_members(String.t(), :directory | :im_group, [String.t()]) ::
+          {:ok, %{synced_principal_uids: [String.t()], removed_memberships: non_neg_integer()}}
+          | {:error, term()}
+  def replace_static_group_members(group_id, expected_domain, principal_uids)
+      when is_binary(group_id) and is_list(principal_uids) do
+    Repo.transact(fn repo ->
+      Store.replace_static_group_members(repo, group_id, expected_domain, principal_uids)
+    end)
+  end
+
+  @doc false
+  @spec clear_static_group_members(String.t(), :directory | :im_group) ::
+          {:ok, %{removed_memberships: non_neg_integer()}} | {:error, term()}
+  def clear_static_group_members(group_id, expected_domain) when is_binary(group_id) do
+    Repo.transact(fn repo ->
+      Store.clear_static_group_members(repo, group_id, expected_domain)
     end)
   end
 

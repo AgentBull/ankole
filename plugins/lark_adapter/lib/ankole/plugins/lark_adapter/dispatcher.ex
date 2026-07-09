@@ -4,6 +4,7 @@ defmodule Ankole.Plugins.LarkAdapter.Dispatcher do
   """
 
   alias Ankole.Plugins.LarkAdapter.IdentityProvider
+  alias Ankole.Plugins.LarkAdapter.IMGroups
   alias Ankole.Plugins.LarkAdapter.Inbound
   alias FeishuOpenAPI.Event
   alias FeishuOpenAPI.Event.Dispatcher, as: FeishuDispatcher
@@ -36,6 +37,7 @@ defmodule Ankole.Plugins.LarkAdapter.Dispatcher do
       @reaction_deleted,
       @card_action | @contact_events
     ]
+    |> Kernel.++(IMGroups.event_types())
   end
 
   @doc """
@@ -67,6 +69,7 @@ defmodule Ankole.Plugins.LarkAdapter.Dispatcher do
       handler(consumers, &Inbound.handle_card_action/3)
     )
     |> register_contact_handlers(consumers)
+    |> register_im_group_handlers(consumers)
   end
 
   defp register_contact_handlers(dispatcher, consumers) do
@@ -75,6 +78,16 @@ defmodule Ankole.Plugins.LarkAdapter.Dispatcher do
         acc,
         event_type,
         handler(consumers, &IdentityProvider.handle_contact_event/3)
+      )
+    end)
+  end
+
+  defp register_im_group_handlers(dispatcher, consumers) do
+    Enum.reduce(IMGroups.event_types(), dispatcher, fn event_type, acc ->
+      FeishuDispatcher.on(
+        acc,
+        event_type,
+        handler(consumers, &IMGroups.handle_im_event/3)
       )
     end)
   end

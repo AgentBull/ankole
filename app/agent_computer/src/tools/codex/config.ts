@@ -116,12 +116,10 @@ supports_websockets = true
 }
 
 function officialSubscriptionDefaultConfig(): string {
-  return [
-    'approval_policy = "never"',
-    'sandbox_mode = "danger-full-access"',
-    'cli_auth_credentials_store = "file"',
-    ''
-  ].join('\n')
+  return `approval_policy = "never"
+sandbox_mode = "danger-full-access"
+cli_auth_credentials_store = "file"
+`
 }
 
 function writeConfigToml(codexHome: string, configToml: string): void {

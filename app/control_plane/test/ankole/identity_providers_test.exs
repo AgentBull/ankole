@@ -8,9 +8,19 @@ defmodule Ankole.IdentityProvidersTest do
   alias Ankole.IdentityProviders.Config, as: IdentityProviderConfig
   alias Ankole.IdentityProviders.Jobs.EnqueueDirectorySyncs
   alias Ankole.IdentityProviders.Jobs.SyncProvider
+  alias Ankole.IdentityProviders.StartupSync
   alias Ankole.PluginFixtures.MissingIdentityCallbackPlugin
   alias Ankole.PluginFixtures.UnknownIdentityCapabilityPlugin
   alias Ankole.Plugins.LarkAdapter
+
+  defmodule TestRealtimeReconciler do
+    @moduledoc false
+
+    def reconcile do
+      send(:persistent_term.get({__MODULE__, :test_pid}), {:identity_realtime_reconciled, self()})
+      %{started: 1, errors: []}
+    end
+  end
 
   setup do
     AppConfigureRegistry.clear_for_test()
@@ -56,6 +66,51 @@ defmodule Ankole.IdentityProvidersTest do
         "source" => "setup"
       }
     )
+  end
+
+  test "control-plane startup enqueues full sync for active contacts-enabled providers" do
+    assert {:ok, _provider} =
+             IdentityProviders.save_provider(
+               "lark-main",
+               "lark",
+               %{"appId" => "cli_identity", "appSecret" => "secret"},
+               true
+             )
+
+    assert {:ok, %{enqueued: [_job], skipped: []}} =
+             StartupSync.enqueue(reason: "control_plane_started", source: "startup")
+
+    assert_enqueued(
+      worker: SyncProvider,
+      args: %{
+        "provider_id" => "lark-main",
+        "reason" => "control_plane_started",
+        "source" => "startup"
+      }
+    )
+  end
+
+  test "saving a websocket-enabled provider reconciles realtime directory listeners immediately" do
+    put_test_reconciler_pid()
+
+    update_lark_identity_declaration(fn declaration ->
+      Map.put(declaration, :connection_reconciler, TestRealtimeReconciler)
+    end)
+
+    assert {:ok, _provider} =
+             IdentityProviders.save_provider(
+               "lark-main",
+               "lark",
+               %{
+                 "appId" => "cli_identity",
+                 "appSecret" => "secret",
+                 "sync" => %{"contacts" => true, "websocket" => true}
+               },
+               true,
+               reconcile_realtime?: true
+             )
+
+    assert_received {:identity_realtime_reconciled, _pid}
   end
 
   test "invalid identity provider adapter declarations return contract errors" do
@@ -278,17 +333,20 @@ defmodule Ankole.IdentityProvidersTest do
   end
 
   defp without_lark_directory_full_sync_capability do
+    update_lark_identity_declaration(fn declaration ->
+      Map.update!(declaration, :capabilities, &List.delete(&1, "directory_full_sync"))
+    end)
+  end
+
+  defp update_lark_identity_declaration(fun) when is_function(fun, 1) do
     original_state = :sys.get_state(Ankole.Plugins.Registry)
 
     :sys.replace_state(Ankole.Plugins.Registry, fn state ->
       update_in(state.active["lark-adapter"].adapter_declarations, fn declarations ->
         Enum.map(declarations, fn declaration ->
           case Map.get(declaration, :contract_id) do
-            "principals.identity_provider" ->
-              Map.update!(declaration, :capabilities, &List.delete(&1, "directory_full_sync"))
-
-            _other ->
-              declaration
+            "principals.identity_provider" -> fun.(declaration)
+            _other -> declaration
           end
         end)
       end)
@@ -296,6 +354,14 @@ defmodule Ankole.IdentityProvidersTest do
 
     on_exit(fn ->
       :sys.replace_state(Ankole.Plugins.Registry, fn _state -> original_state end)
+    end)
+  end
+
+  defp put_test_reconciler_pid do
+    :persistent_term.put({TestRealtimeReconciler, :test_pid}, self())
+
+    on_exit(fn ->
+      :persistent_term.erase({TestRealtimeReconciler, :test_pid})
     end)
   end
 end

@@ -50,6 +50,13 @@ defmodule Ankole.SignalsGateway.Bindings do
              :config_module,
              :validate_binding_config,
              1
+           ),
+         :ok <-
+           validate_optional_adapter_module(
+             declaration,
+             :binding_saved_module,
+             :handle_binding_saved,
+             2
            ) do
       :ok
     end
@@ -80,7 +87,8 @@ defmodule Ankole.SignalsGateway.Bindings do
              filters: %{},
              unaddressed_group_message_policy: policy,
              enabled: true
-           }) do
+           }),
+         :ok <- maybe_handle_binding_saved(declaration, binding, normalized_config) do
       {:ok, %{binding: binding, config_key: config_key}}
     else
       {:error, :not_found} -> {:error, :agent_not_found}
@@ -256,6 +264,24 @@ defmodule Ankole.SignalsGateway.Bindings do
     case function_exported?(module, function, arity) do
       true -> :ok
       false -> {:error, {:missing_adapter_callback, module, function, arity}}
+    end
+  end
+
+  defp maybe_handle_binding_saved(declaration, %Binding{} = binding, config) when is_map(config) do
+    case declaration_module(declaration, :binding_saved_module) do
+      {:ok, module} ->
+        case module.handle_binding_saved(binding, config) do
+          :ok -> :ok
+          {:ok, _result} -> :ok
+          {:error, _reason} = error -> error
+          other -> {:error, {:invalid_binding_saved_result, other}}
+        end
+
+      {:error, {:missing_adapter_module, :binding_saved_module}} ->
+        :ok
+
+      {:error, _reason} = error ->
+        error
     end
   end
 

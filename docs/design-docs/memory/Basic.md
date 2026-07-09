@@ -190,11 +190,12 @@ messages because the original rows remain in `signal_gateway_entries`.
 The model-facing tools are intentionally narrow:
 
 - `memory_note` manages current-channel Layer A notes;
-- `memory_search` searches historical memory, defaulting to current channel,
-  with `scope = current_channel | all_channels`, optional time range, default
-  limit 5, and max limit 10;
+- `memory_search` searches historical memory, defaulting to `permitted_context`,
+  with `scope = current_channel | permitted_context`, optional time range,
+  default limit 5, and max limit 10;
 - `memory_browse` browses original transcript rows by channel/time/cursor,
-  defaulting to current channel.
+  defaulting to current channel; explicit `channel_id` must be inside the same
+  permitted context.
 
 The system prompt includes a Memory Recall section. Before answering questions
 about prior work, decisions, dates, people, preferences, or channel history,

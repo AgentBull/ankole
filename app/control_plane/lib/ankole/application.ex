@@ -9,6 +9,9 @@ defmodule Ankole.Application do
   def start(_type, _args) do
     runtime_events_opts = Application.get_env(:ankole, :runtime_events, [])
 
+    identity_provider_startup_sync_opts =
+      Application.get_env(:ankole, :identity_provider_startup_sync, [])
+
     # Child order is load-bearing, not cosmetic. `:one_for_one` restarts a single
     # failed child in place, but the initial boot still proceeds top to bottom, so
     # anything later may assume earlier children are already up.
@@ -19,6 +22,8 @@ defmodule Ankole.Application do
     #   - Plugins.Registry before Plugins.Supervisor: the registry discovers and
     #     activates plugins, then the supervisor reads that active set to know
     #     which plugin-contributed children to start (snapshot taken once at boot).
+    #   - IdentityProviders.StartupSync after Oban + Plugins: full-sync enqueue
+    #     needs the queue, active provider config, and adapter declarations.
     #   - PubSub + SignalsGateway preview children before ActorRuntime:
     #     finalized actor events can start preview handlers.
     #   - RuntimeEvents after ActorRuntime: LISTEN is followed by a snapshot of
@@ -45,6 +50,13 @@ defmodule Ankole.Application do
         [
           Ankole.ActorRuntime.Supervisor
         ]
+
+    children =
+      children
+      |> maybe_add_child(
+        {Ankole.IdentityProviders.StartupSync, child_opts(identity_provider_startup_sync_opts)},
+        enabled?(identity_provider_startup_sync_opts, true)
+      )
 
     children =
       children

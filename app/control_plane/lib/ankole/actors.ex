@@ -23,7 +23,7 @@ defmodule Ankole.Actors do
   alias Ankole.RuntimeEvents
   alias Ankole.SignalsGateway.ActorEventTypes
   alias Ankole.SignalsGateway.InputTombstone
-  alias Ankole.SignalsGateway.OutboxEntry
+  alias Ankole.SignalsGateway.Outbox
 
   @type append_result ::
           {:ok, ActorEvent.t()}
@@ -545,42 +545,11 @@ defmodule Ankole.Actors do
       # Source table: source_actor_event_id stores the actor_events.id whose
       # completion is committing these provider outbox intents.
       |> Map.put_new(:source_actor_event_id, actor_event.id)
-      |> Map.put_new(:status, :created)
-      |> Map.put_new(:payload, %{})
-      |> Map.put_new(:attempt_count, 0)
-      |> Map.put_new(:max_attempts, 10)
-      |> Map.put_new(:last_error, %{})
-      |> Map.put_new(:recovery_state, %{})
 
-    %OutboxEntry{}
-    |> OutboxEntry.changeset(attrs)
-    |> repo.insert(
-      on_conflict: :nothing,
-      conflict_target: [:agent_uid, :binding_name, :outbound_key],
-      returning: true
-    )
-    |> outbox_insert_result(repo, attrs)
+    Outbox.commit_outbox_in_tx(repo, attrs)
   end
 
   defp insert_outbox_intent(_repo, _actor_event, _attrs), do: {:error, :invalid_outbox_intent}
-
-  # A duplicate outbox intent is a successful idempotent commit, but Ecto returns
-  # an empty struct when `on_conflict: :nothing` skipped the insert. Re-read the
-  # row so the consume transaction never treats a conflict placeholder as a real
-  # outbox entry.
-  defp outbox_insert_result({:ok, %OutboxEntry{agent_uid: nil}}, repo, attrs) do
-    case repo.get_by(OutboxEntry,
-           agent_uid: attrs.agent_uid,
-           binding_name: attrs.binding_name,
-           outbound_key: attrs.outbound_key
-         ) do
-      %OutboxEntry{} = entry -> {:ok, entry}
-      nil -> {:error, :outbox_entry_not_found}
-    end
-  end
-
-  defp outbox_insert_result({:ok, %OutboxEntry{} = entry}, _repo, _attrs), do: {:ok, entry}
-  defp outbox_insert_result({:error, _changeset} = error, _repo, _attrs), do: error
 
   defp collect_results(results) do
     Enum.reduce_while(results, {:ok, []}, fn

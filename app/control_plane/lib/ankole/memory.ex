@@ -9,6 +9,8 @@ defmodule Ankole.Memory do
   alias Ankole.AIGateway.ModelProfiles
   alias Ankole.Actors.ActorEvent
   alias Ankole.ActorRuntime.TurnRef
+  alias Ankole.AuthZ.Group
+  alias Ankole.AuthZ.Membership
   alias Ankole.Ecto.UUIDv7
   alias Ankole.Memory.ChannelCursor
   alias Ankole.Memory.Config
@@ -152,7 +154,8 @@ defmodule Ankole.Memory do
          {:ok, time_range} <- time_range(attrs),
          agent_uid = turn_ref.agent_uid,
          {:ok, current_channel_id} <- current_channel_id(actor_event, turn_ref),
-         {:ok, allowed_channels} <- allowed_channels(agent_uid, current_channel_id, scope) do
+         {:ok, allowed_channels} <-
+           allowed_channels(agent_uid, current_channel_id, scope, actor_event, turn_ref) do
       {bm25_results, bm25_degraded} =
         case bm25_search(
                query,
@@ -195,7 +198,9 @@ defmodule Ankole.Memory do
          {:ok, actor_event} <- optional_map(attrs, "actor_event"),
          agent_uid = turn_ref.agent_uid,
          {:ok, current_channel_id} <- current_channel_id(actor_event, turn_ref),
-         {:ok, signal_channel_id} <- browse_channel(attrs, agent_uid, current_channel_id),
+         {:ok, allowed_channels} <-
+           allowed_channels(agent_uid, current_channel_id, "permitted_context", actor_event, turn_ref),
+         {:ok, signal_channel_id} <- browse_channel(attrs, current_channel_id, allowed_channels),
          {:ok, limit} <- browse_limit(attrs),
          {:ok, time_range} <- time_range(attrs),
          {:ok, cursor} <- browse_cursor(attrs) do
@@ -1417,51 +1422,126 @@ defmodule Ankole.Memory do
 
   defp recall_degraded_reasons(_config, vector_degraded), do: Enum.uniq(vector_degraded)
 
-  defp allowed_channels(_agent_uid, nil, "current_channel"), do: {:ok, []}
+  defp allowed_channels(_agent_uid, nil, "current_channel", _actor_event, _turn_ref), do: {:ok, []}
 
-  defp allowed_channels(_agent_uid, current_channel_id, "current_channel"),
+  defp allowed_channels(_agent_uid, current_channel_id, "current_channel", _actor_event, _turn_ref),
     do: {:ok, [current_channel_id]}
 
-  defp allowed_channels(agent_uid, current_channel_id, "all_channels") do
-    current_kind = channel_kind(current_channel_id)
+  defp allowed_channels(_agent_uid, nil, "permitted_context", _actor_event, _turn_ref), do: {:ok, []}
 
-    query =
-      ActorEvent
-      |> where([event], event.agent_uid == ^String.downcase(agent_uid))
-      |> where([event], not is_nil(event.signal_channel_id))
-      |> distinct(true)
-      |> select([event], event.signal_channel_id)
+  defp allowed_channels(agent_uid, current_channel_id, "permitted_context", actor_event, turn_ref) do
+    case Repo.get(Channel, current_channel_id) do
+      %Channel{kind: :im_dm} = channel ->
+        dm_permitted_channels(agent_uid, channel, actor_event, turn_ref)
 
-    channels =
-      query
-      |> Repo.all()
-      |> maybe_exclude_dm(current_kind)
+      %Channel{kind: :im_group} ->
+        {:ok, [current_channel_id]}
 
-    {:ok, channels}
-  end
+      %Channel{} ->
+        {:ok, [current_channel_id]}
 
-  defp maybe_exclude_dm(channel_ids, :im_dm), do: channel_ids
-
-  defp maybe_exclude_dm(channel_ids, _current_kind) do
-    dm_ids =
-      Channel
-      |> where([channel], channel.kind == :im_dm)
-      |> where([channel], channel.id in ^channel_ids)
-      |> select([channel], channel.id)
-      |> Repo.all()
-      |> MapSet.new()
-
-    Enum.reject(channel_ids, &MapSet.member?(dm_ids, &1))
-  end
-
-  defp channel_kind(nil), do: nil
-
-  defp channel_kind(signal_channel_id) do
-    case Repo.get(Channel, signal_channel_id) do
-      %Channel{kind: kind} -> kind
-      nil -> nil
+      nil ->
+        {:ok, []}
     end
   end
+
+  defp dm_permitted_channels(agent_uid, %Channel{id: current_channel_id}, actor_event, turn_ref) do
+    with {:ok, %{"binding_name" => binding_name, "principal_uid" => principal_uid}}
+         when is_binary(binding_name) and is_binary(principal_uid) <-
+           current_dm_context(actor_event, turn_ref) do
+      participant_key = "#{String.downcase(agent_uid)}|#{binding_name}"
+
+      group_channels =
+        Channel
+        |> join(:inner, [channel], group in Group, on: group.id == channel.principal_group_id)
+        |> join(:inner, [_channel, group], membership in Membership,
+          on: membership.group_id == group.id
+        )
+        |> where([channel, group, membership], channel.kind == :im_group)
+        |> where([_channel, group, _membership], group.domain == :im_group)
+        |> where([_channel, _group, membership], membership.principal_uid == ^principal_uid)
+        |> where(
+          [_channel, group, _membership],
+          fragment(
+            "?->'lark_im'->'sync_participants'->?->>'state' = 'joined'",
+            group.metadata,
+            ^participant_key
+          )
+        )
+        |> select([channel, _group, _membership], channel.id)
+        |> Repo.all()
+
+      {:ok, Enum.uniq([current_channel_id | group_channels])}
+    else
+      _reason -> {:ok, [current_channel_id]}
+    end
+  end
+
+  defp current_dm_context(actor_event, turn_ref) do
+    event = actor_event_record(actor_event, turn_ref)
+    binding_name = actor_event_binding_name(actor_event, event)
+    principal_uid = actor_event_author_principal_uid(actor_event, event)
+
+    case {binding_name, principal_uid} do
+      {binding_name, principal_uid} when is_binary(binding_name) and is_binary(principal_uid) ->
+        {:ok, %{"binding_name" => binding_name, "principal_uid" => String.downcase(principal_uid)}}
+
+      _value ->
+        {:error, :missing_memory_principal_context}
+    end
+  end
+
+  defp actor_event_record(%{"actor_event_id" => actor_event_id}, _turn_ref)
+       when is_binary(actor_event_id) do
+    Repo.get(ActorEvent, actor_event_id)
+  end
+
+  defp actor_event_record(_actor_event, %TurnRef{actor_event_id: actor_event_id})
+       when is_binary(actor_event_id) do
+    Repo.get(ActorEvent, actor_event_id)
+  end
+
+  defp actor_event_record(_actor_event, _turn_ref), do: nil
+
+  defp actor_event_binding_name(actor_event, event) do
+    text(actor_event, "binding_name") || actor_event_payload_binding_name(actor_event) ||
+      case event do
+        %ActorEvent{binding_name: binding_name} -> binding_name
+        _value -> nil
+      end
+  end
+
+  defp actor_event_payload_binding_name(actor_event) do
+    actor_event
+    |> actor_event_payload()
+    |> get_in(["data", "session", "binding_name"])
+  end
+
+  defp actor_event_author_principal_uid(actor_event, event) do
+    principal_uid_from_payload(actor_event_payload(actor_event)) ||
+      case event do
+        %ActorEvent{payload: payload} -> principal_uid_from_payload(payload)
+        _value -> nil
+      end
+  end
+
+  defp actor_event_payload(actor_event) when is_map(actor_event) do
+    case Map.get(actor_event, "payload_json") || Map.get(actor_event, "payload") do
+      payload when is_map(payload) -> payload
+      _value -> %{}
+    end
+  end
+
+  defp actor_event_payload(_actor_event), do: %{}
+
+  defp principal_uid_from_payload(payload) when is_map(payload) do
+    case get_in(payload, ["data", "entry", "author", "principal_uid"]) do
+      principal_uid when is_binary(principal_uid) and principal_uid != "" -> principal_uid
+      _value -> nil
+    end
+  end
+
+  defp principal_uid_from_payload(_payload), do: nil
 
   defp hot_context_exclusion(signal_channel_id, actor_event) do
     {:ok, recall_config} = Config.recall()
@@ -1503,29 +1583,16 @@ defmodule Ankole.Memory do
 
   defp current_event_time(_actor_event), do: DateTime.utc_now(:microsecond)
 
-  defp browse_channel(%{"channel_id" => channel_id}, agent_uid, _current_channel_id)
+  defp browse_channel(%{"channel_id" => channel_id}, _current_channel_id, allowed_channels)
        when is_binary(channel_id) do
-    with :ok <- channel_observed_by_agent(agent_uid, channel_id) do
-      {:ok, channel_id}
+    case channel_id in allowed_channels do
+      true -> {:ok, channel_id}
+      false -> {:error, :memory_channel_not_permitted}
     end
   end
 
-  defp browse_channel(_attrs, _agent_uid, nil), do: {:error, :missing_current_channel}
-  defp browse_channel(_attrs, _agent_uid, current_channel_id), do: {:ok, current_channel_id}
-
-  defp channel_observed_by_agent(agent_uid, channel_id) do
-    observed? =
-      ActorEvent
-      |> where([event], event.agent_uid == ^String.downcase(agent_uid))
-      |> where([event], event.signal_channel_id == ^channel_id)
-      |> limit(1)
-      |> Repo.exists?()
-
-    case observed? do
-      true -> :ok
-      false -> {:error, :channel_not_observed_by_agent}
-    end
-  end
+  defp browse_channel(_attrs, nil, _allowed_channels), do: {:error, :missing_current_channel}
+  defp browse_channel(_attrs, current_channel_id, _allowed_channels), do: {:ok, current_channel_id}
 
   defp browse_entries(signal_channel_id, limit, {from, to}, cursor) do
     Entry
@@ -1694,8 +1761,8 @@ defmodule Ankole.Memory do
   end
 
   defp search_scope(attrs) do
-    case text(attrs, "scope") || "current_channel" do
-      scope when scope in ["current_channel", "all_channels"] -> {:ok, scope}
+    case text(attrs, "scope") || "permitted_context" do
+      scope when scope in ["current_channel", "permitted_context"] -> {:ok, scope}
       _scope -> {:error, :invalid_memory_search_scope}
     end
   end

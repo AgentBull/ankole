@@ -40,9 +40,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
           "appSecret" => "secret-lark-main",
           "domain" => "feishu",
           "platformSubjectNamespace" => "lark-main",
-          "userName" => "Research Bot",
-          "botOpenId" => "ou_bot_main",
-          "botUserId" => "bot_user_main"
+          "userName" => "Research Bot"
         }
       })
 
@@ -68,7 +66,9 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     assert {:ok, config} = LarkConfig.load_chat_config_ref(binding.config_ref)
     assert config["appId"] == "cli_lark_main"
     assert config["appSecret"] == "secret-lark-main"
-    assert config["botOpenId"] == "ou_bot_main"
+    # The bot identity is resolved automatically at connection time, so the
+    # stored binding carries no hand-entered bot open_id.
+    assert config["botOpenId"] == nil
     refute Map.has_key?(config, "group_message_mode")
 
     conn =
@@ -90,30 +90,6 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     assert {:error, :binding_disabled} = SignalsGateway.get_binding(agent.uid, "lark-main")
   end
 
-  test "admin cannot create a Lark binding without bot identity", %{conn: conn} do
-    %{principal: agent} = agent_fixture()
-
-    conn =
-      conn
-      |> bearer_conn()
-      |> put(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
-        "group_message_mode" => "observe_all",
-        "config" => %{
-          "appId" => "cli_lark_main",
-          "appSecret" => "secret-lark-main"
-        }
-      })
-
-    assert %{
-             "error" => %{
-               "code" => "validation_failed",
-               "message" => "botOpenId or botUserId is required"
-             }
-           } = json_response(conn, 422)
-
-    assert {:error, :binding_not_found} = SignalsGateway.get_binding(agent.uid, "lark-main")
-  end
-
   test "admin lists signal adapter catalog with provider fields and common group mode field", %{
     conn: conn
   } do
@@ -132,9 +108,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
              "domain",
              "baseUrl",
              "platformSubjectNamespace",
-             "userName",
-             "botOpenId",
-             "botUserId"
+             "userName"
            ]
 
     assert Enum.all?(adapter["fields"], &(&1["advanced"] == false))

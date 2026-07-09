@@ -138,8 +138,14 @@ The chat adapter config uses this shape:
 - `domain`: `feishu` or `lark`, default `feishu`;
 - `group_message_mode`: setup value, default `observe_all`;
 - `platformSubjectNamespace`: default `lark-main`;
-- `userName`: display name for adapter-authored output, not an identity key;
-- `botOpenId` / `botUserId`: optional self-sender ids for loop suppression.
+- `userName`: display name for adapter-authored output, not an identity key.
+
+The setup UI does not ask for a bot identity. The bot's own `open_id` is
+resolved automatically from `bot/v3/info` at connection time (using the app
+credentials) and kept only in the process-local consumer config as
+`runtimeBotOpenId`, where it routes group `@`-mentions to this binding. An
+explicit `botOpenId` / `botUserId` override is still accepted in the stored
+config for advanced cases, but operators are not expected to supply one.
 
 The setup UI may present these group-message labels:
 
@@ -159,10 +165,13 @@ The identity-provider adapter config is separate:
 - `domain`;
 - `oidc.enabled`, default `true`;
 - `oidc.scopes`, default `["contact:user.employee_id:readonly"]`;
-- `sync.users`, default `true`;
-- `sync.departments`, default `true`;
+- `sync.contacts`, default `true`;
 - `sync.websocket`, default `true`;
 - `sync.pageSize`, default `50`, valid range `1..50`.
+
+`sync.contacts` is the single directory-sync switch. It covers both users and
+departments; Ankole does not expose separate `sync.users` or
+`sync.departments` flags.
 
 Production OIDC needs a public base URL so Feishu/Lark can redirect back to the
 installation. If OIDC is disabled, login callbacks for that provider fail
@@ -313,6 +322,13 @@ prefers `enterprise_email` over `email`, normalizes phone only when the provider
 already supplies a valid external phone format, records department ids, and
 keeps `open_id`, `union_id`, `tenant_key`, employee number, and job title in
 metadata.
+
+Full directory sync first materializes provider departments as static Principal
+groups named `<provider_id>:department:<department_id>` and writes
+`principal_group_external_bindings` for those departments. User sync then
+refreshes provider-owned department memberships from each contact user's
+department ids. When a department binding records a parent department id, AuthZ
+also materializes the known ancestor department groups for that user.
 
 Contact full sync must not treat a provider permission gap as an authoritative
 empty directory. Empty pages, missing scope, forbidden responses, or known Lark
@@ -734,12 +750,20 @@ The identity-provider adapter supports:
 - OIDC authorization URL construction;
 - OIDC code exchange;
 - user-info hydration through contact user lookup when possible;
-- department full sync;
-- user full sync;
+- full directory sync for users, department groups, external bindings, and
+  department memberships;
 - realtime contact change handling on the shared long connection when enabled.
 
 When `sync.websocket` is false, the identity-provider adapter should not open or
 attach to the shared long connection.
+
+Saving an enabled provider with `sync.contacts == true` enqueues a full
+directory sync, whether the save happens during first setup or later console
+editing. Control-plane startup also enqueues a full sync for enabled
+contacts-sync providers. When `sync.websocket == true`, the Lark adapter's
+connection reconciler is invoked immediately after save and once at boot, so
+the incremental contact-event listener does not require a manual server restart
+after setup.
 
 OIDC and contact sync are Principal/AuthZ concerns. They do not create
 SignalsGateway bindings and do not decide message admission.

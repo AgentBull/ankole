@@ -11,6 +11,8 @@ defmodule Ankole.AuthZ.Store do
   alias Ankole.Principals
   alias Ankole.Principals.Principal
 
+  @max_external_directory_ancestor_depth 100
+
   def delete_operator_group(repo, id_or_name) do
     with {:ok, group} <- fetch_group_for_update(repo, id_or_name),
          :ok <- ensure_operator_group(group),
@@ -41,21 +43,24 @@ defmodule Ankole.AuthZ.Store do
       %ExternalBinding{}
       |> ExternalBinding.changeset(attrs)
       |> repo.insert(
-        conflict_target: [:provider, :external_id],
+        conflict_target: [:provider, :external_kind, :external_id],
         on_conflict: {:replace, [:group_id, :metadata, :updated_at]},
         returning: true
       )
     end
   end
 
-  def external_group_ids(repo, provider, external_id) do
+  def external_group_ids(repo, provider, external_kind, external_id) do
     with {:ok, provider} <- Input.normalize_provider(provider),
+         {:ok, external_kind} <- normalize_external_kind(external_kind),
+         expected_domain <- external_kind_domain(external_kind),
          {:ok, external_id} <- Input.normalize_required_text(external_id) do
       ExternalBinding
       |> join(:inner, [binding], group in Group, on: group.id == binding.group_id)
       |> where(
         [binding, group],
-        binding.provider == ^provider and binding.external_id == ^external_id and
+        binding.provider == ^provider and binding.external_kind == ^external_kind and
+          binding.external_id == ^external_id and group.domain == ^expected_domain and
           group.kind == :static
       )
       |> select([binding, _group], binding.group_id)
@@ -65,19 +70,70 @@ defmodule Ankole.AuthZ.Store do
     end
   end
 
-  def sync_external_directory_group_memberships(repo, provider, principal_uid, external_ids)
-      when is_list(external_ids) do
+  def replace_static_group_members(repo, group_id, expected_domain, principal_uids)
+      when expected_domain in [:directory, :im_group] and is_list(principal_uids) do
+    with {:ok, group} <- lock_group(repo, group_id),
+         :ok <- ensure_static_group(group),
+         :ok <- ensure_group_domain(group, expected_domain),
+         {:ok, principal_uids} <- normalize_principal_uids(principal_uids) do
+      existing_uids =
+        Membership
+        |> where([membership], membership.group_id == ^group.id)
+        |> select([membership], membership.principal_uid)
+        |> repo.all()
+
+      stale_uids = existing_uids -- principal_uids
+
+      with :ok <- insert_group_memberships(repo, group.id, principal_uids) do
+        removed_memberships = delete_group_memberships(repo, group.id, stale_uids)
+
+        {:ok,
+         %{
+           synced_principal_uids: principal_uids,
+           removed_memberships: removed_memberships
+         }}
+      end
+    end
+  end
+
+  def clear_static_group_members(repo, group_id, expected_domain)
+      when expected_domain in [:directory, :im_group] do
+    with {:ok, group} <- lock_group(repo, group_id),
+         :ok <- ensure_static_group(group),
+         :ok <- ensure_group_domain(group, expected_domain) do
+      {removed_memberships, _rows} =
+        repo.delete_all(from membership in Membership, where: membership.group_id == ^group.id)
+
+      {:ok, %{removed_memberships: removed_memberships}}
+    end
+  end
+
+  def external_directory_group_index(repo, provider) do
+    with {:ok, provider} <- Input.normalize_provider(provider) do
+      {:ok, build_external_directory_group_index(repo, provider, "department")}
+    end
+  end
+
+  def sync_external_directory_group_memberships(
+        repo,
+        provider,
+        principal_uid,
+        external_ids,
+        opts \\ []
+      )
+      when is_list(external_ids) and is_list(opts) do
     with {:ok, provider} <- Input.normalize_provider(provider),
          {:ok, external_ids} <- normalize_external_ids(external_ids),
-         {:ok, principal} <- fetch_principal_for_update(repo, principal_uid) do
-      managed_group_ids = managed_external_directory_group_ids(repo, provider, "department")
+         {:ok, principal} <- fetch_principal_for_update(repo, principal_uid),
+         {:ok, directory_index} <- directory_group_index(repo, provider, "department", opts) do
+      managed_group_ids = directory_index.managed_group_ids
 
       desired_group_ids =
-        desired_external_directory_group_ids(repo, provider, external_ids, "department")
+        desired_external_directory_group_ids(external_ids, directory_index)
 
       stale_group_ids = managed_group_ids -- desired_group_ids
 
-      with :ok <- insert_memberships(repo, desired_group_ids, principal.uid) do
+      with :ok <- insert_principal_memberships(repo, desired_group_ids, principal.uid) do
         removed_memberships = delete_memberships(repo, principal.uid, stale_group_ids)
 
         {:ok,
@@ -222,13 +278,39 @@ defmodule Ankole.AuthZ.Store do
     case Input.fetch_attr(attrs, :group_id) do
       {:ok, group_id} ->
         with {:ok, group} <- fetch_group(repo, group_id) do
-          ensure_static_group(group)
+          with :ok <- ensure_static_group(group) do
+            ensure_binding_group_domain(group, attrs)
+          end
         end
 
       :error ->
         :ok
     end
   end
+
+  defp ensure_binding_group_domain(group, attrs) do
+    case Input.fetch_attr(attrs, :external_kind) do
+      {:ok, :directory_department} -> ensure_group_domain(group, :directory)
+      {:ok, "directory_department"} -> ensure_group_domain(group, :directory)
+      {:ok, :im_group} -> ensure_group_domain(group, :im_group)
+      {:ok, "im_group"} -> ensure_group_domain(group, :im_group)
+      {:ok, _kind} -> {:error, :invalid_external_kind}
+      :error -> {:error, :missing_external_kind}
+    end
+  end
+
+  defp ensure_group_domain(%Group{domain: domain}, domain), do: :ok
+  defp ensure_group_domain(%Group{}, _domain), do: {:error, :group_domain_mismatch}
+
+  defp normalize_external_kind(kind) when kind in [:directory_department, :im_group],
+    do: {:ok, kind}
+
+  defp normalize_external_kind("directory_department"), do: {:ok, :directory_department}
+  defp normalize_external_kind("im_group"), do: {:ok, :im_group}
+  defp normalize_external_kind(_kind), do: {:error, :invalid_external_kind}
+
+  defp external_kind_domain(:directory_department), do: :directory
+  defp external_kind_domain(:im_group), do: :im_group
 
   defp normalize_external_ids(external_ids) do
     external_ids
@@ -247,43 +329,82 @@ defmodule Ankole.AuthZ.Store do
     end
   end
 
-  defp managed_external_directory_group_ids(repo, provider, kind) do
-    Group
-    |> external_directory_group_scope(provider, kind)
-    |> select([group], group.id)
-    |> order_by([group], asc: group.id)
-    |> repo.all()
+  defp directory_group_index(repo, provider, kind, opts) do
+    case Keyword.get(opts, :directory_group_index) do
+      %{provider: ^provider, kind: ^kind} = index -> {:ok, index}
+      nil -> {:ok, build_external_directory_group_index(repo, provider, kind)}
+      _index -> {:error, :invalid_directory_group_index}
+    end
   end
 
-  defp desired_external_directory_group_ids(_repo, _provider, [], _kind), do: []
+  defp build_external_directory_group_index(repo, provider, kind) do
+    bindings_by_external_id =
+      directory_group_bindings(repo, provider, kind)
+      |> Map.new(fn binding -> {binding.external_id, binding} end)
 
-  defp desired_external_directory_group_ids(repo, provider, external_ids, kind) do
+    %{
+      provider: provider,
+      kind: kind,
+      managed_group_ids:
+        bindings_by_external_id
+        |> Map.values()
+        |> Enum.map(& &1.group_id)
+        |> Enum.uniq()
+        |> Enum.sort(),
+      bindings_by_external_id: bindings_by_external_id
+    }
+  end
+
+  defp directory_group_bindings(repo, provider, kind) do
     ExternalBinding
     |> join(:inner, [binding], group in Group, on: group.id == binding.group_id)
-    |> where(
-      [binding, group],
-      binding.provider == ^provider and binding.external_id in ^external_ids and
-        group.kind == :static and group.built_in == false and
-        fragment("?->'external_directory'->>'provider' = ?", group.metadata, ^provider) and
-        fragment("?->'external_directory'->>'kind' = ?", group.metadata, ^kind)
-    )
-    |> distinct(true)
-    |> select([_binding, group], group.id)
-    |> order_by([_binding, group], asc: group.id)
+    |> external_directory_group_scope(provider, kind)
+    |> select([binding, group], %{
+      external_id: binding.external_id,
+      group_id: group.id,
+      metadata: binding.metadata
+    })
+    |> order_by([binding, _group], asc: binding.external_id)
     |> repo.all()
   end
 
-  defp external_directory_group_scope(queryable, provider, kind) do
+  defp desired_external_directory_group_ids([], _directory_index), do: []
+
+  defp desired_external_directory_group_ids(external_ids, %{
+         bindings_by_external_id: bindings_by_external_id
+       }) do
+    external_ids
+    |> Enum.flat_map(&expand_external_directory_ids(&1, bindings_by_external_id))
+    |> Enum.map(fn external_id ->
+      case Map.get(bindings_by_external_id, external_id) do
+        %{group_id: group_id} -> group_id
+        nil -> nil
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp external_directory_group_scope(queryable, provider, "department") do
     queryable
     |> where(
-      [group],
-      group.kind == :static and group.built_in == false and
-        fragment("?->'external_directory'->>'provider' = ?", group.metadata, ^provider) and
-        fragment("?->'external_directory'->>'kind' = ?", group.metadata, ^kind)
+      [binding, group],
+      binding.provider == ^provider and binding.external_kind == :directory_department and
+        group.domain == :directory and group.kind == :static and group.built_in == false
     )
   end
 
-  defp insert_memberships(repo, group_ids, principal_uid) do
+  defp insert_group_memberships(repo, group_id, principal_uids) when is_binary(group_id) do
+    Enum.reduce_while(principal_uids, :ok, fn principal_uid, :ok ->
+      case insert_membership(repo, group_id, principal_uid) do
+        {:ok, _membership} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp insert_principal_memberships(repo, group_ids, principal_uid) do
     Enum.reduce_while(group_ids, :ok, fn group_id, :ok ->
       case insert_membership(repo, group_id, principal_uid) do
         {:ok, _membership} -> {:cont, :ok}
@@ -291,6 +412,87 @@ defmodule Ankole.AuthZ.Store do
       end
     end)
   end
+
+  defp normalize_principal_uids(principal_uids) do
+    principal_uids
+    |> Enum.reduce_while({:ok, []}, fn principal_uid, {:ok, acc} ->
+      case Principals.normalize_uid(principal_uid) do
+        {:ok, uid} -> {:cont, {:ok, [uid | acc]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, uids} -> {:ok, uids |> Enum.reverse() |> Enum.uniq() |> Enum.sort()}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp delete_group_memberships(_repo, _group_id, []), do: 0
+
+  defp delete_group_memberships(repo, group_id, principal_uids) do
+    {count, _rows} =
+      repo.delete_all(
+        from membership in Membership,
+          where: membership.group_id == ^group_id and membership.principal_uid in ^principal_uids
+      )
+
+    count
+  end
+
+  defp expand_external_directory_ids(external_id, bindings_by_external_id) do
+    do_expand_external_directory_ids(
+      external_id,
+      bindings_by_external_id,
+      MapSet.new(),
+      [],
+      @max_external_directory_ancestor_depth
+    )
+  end
+
+  defp do_expand_external_directory_ids(nil, _bindings_by_external_id, _visited, acc, _depth),
+    do: acc
+
+  defp do_expand_external_directory_ids(_external_id, _bindings_by_external_id, _visited, acc, 0),
+    do: acc
+
+  defp do_expand_external_directory_ids(external_id, bindings_by_external_id, visited, acc, depth) do
+    case MapSet.member?(visited, external_id) do
+      true ->
+        acc
+
+      false ->
+        binding = Map.get(bindings_by_external_id, external_id)
+        visited = MapSet.put(visited, external_id)
+
+        do_expand_external_directory_ids(
+          parent_external_id(binding),
+          bindings_by_external_id,
+          visited,
+          [external_id | acc],
+          depth - 1
+        )
+    end
+  end
+
+  defp parent_external_id(%{metadata: metadata}) when is_map(metadata) do
+    value =
+      Map.get(metadata, "parentExternalId") ||
+        get_in(metadata, ["external_directory", "parentExternalId"]) ||
+        get_in(metadata, ["external_directory", "parent_external_id"])
+
+    normalize_parent_external_id(value)
+  end
+
+  defp parent_external_id(_binding), do: nil
+
+  defp normalize_parent_external_id(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize_parent_external_id(_value), do: nil
 
   defp delete_memberships(_repo, _principal_uid, []), do: 0
 

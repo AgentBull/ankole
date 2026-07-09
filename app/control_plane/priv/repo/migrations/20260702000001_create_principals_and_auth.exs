@@ -45,6 +45,21 @@ defmodule Ankole.Repo.Migrations.CreatePrincipalsAndAuth do
       "DROP TYPE principal_group_kind"
     )
 
+    execute(
+      "CREATE TYPE principal_group_domain AS ENUM ('operator', 'directory', 'im_group')",
+      "DROP TYPE principal_group_domain"
+    )
+
+    execute(
+      """
+      CREATE TYPE principal_group_external_kind AS ENUM (
+        'directory_department',
+        'im_group'
+      )
+      """,
+      "DROP TYPE principal_group_external_kind"
+    )
+
     # principals is the shared accountable-subject table for humans and agents.
     create table(:principals, primary_key: false) do
       add :uid, :text, primary_key: true
@@ -238,6 +253,7 @@ defmodule Ankole.Repo.Migrations.CreatePrincipalsAndAuth do
       add :id, :uuid, primary_key: true
       add :name, :text, null: false
       add :display_name, :text, null: false
+      add :domain, :principal_group_domain, null: false, default: "operator"
       add :kind, :principal_group_kind, null: false, default: "static"
       add :built_in, :boolean, null: false, default: false
       add :computed_condition, :text
@@ -277,15 +293,20 @@ defmodule Ankole.Repo.Migrations.CreatePrincipalsAndAuth do
              """
            )
 
+    create constraint(:principal_groups, :principal_groups_computed_domain,
+             check: "kind <> 'computed' OR domain = 'operator'"
+           )
+
     create constraint(:principal_groups, :principal_groups_metadata_object,
              check: "jsonb_typeof(metadata) = 'object'"
            )
 
-    comment_table(:principal_groups, "Authorization groups that collect principals for grants.")
+    comment_table(:principal_groups, "Principal groups that collect principals for grants, directories, or IM rooms.")
 
     comment_columns(:principal_groups, %{
       name: "Stable lowercase group name used by policy code and operators.",
       display_name: "Human-readable group name for console and audit views.",
+      domain: "Product domain that owns the group membership semantics.",
       kind: "Whether membership is explicitly stored or computed from a condition.",
       built_in: "Marks groups created by Ankole rather than by an operator.",
       computed_condition: "Condition expression that defines computed membership.",
@@ -318,6 +339,7 @@ defmodule Ankole.Repo.Migrations.CreatePrincipalsAndAuth do
     # External group bindings map provider group ids into Ankole authorization groups.
     create table(:principal_group_external_bindings, primary_key: false) do
       add :provider, :text, primary_key: true
+      add :external_kind, :principal_group_external_kind, primary_key: true
       add :external_id, :text, primary_key: true
 
       add :group_id,
@@ -362,6 +384,7 @@ defmodule Ankole.Repo.Migrations.CreatePrincipalsAndAuth do
 
     comment_columns(:principal_group_external_bindings, %{
       provider: "External provider namespace for the group binding.",
+      external_kind: "External group identity kind within the provider namespace.",
       external_id: "Provider supplied group identifier.",
       group_id: "Ankole authorization group represented by the external group.",
       metadata: "Provider-specific binding facts kept outside the stable contract."

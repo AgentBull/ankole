@@ -34,7 +34,7 @@ const MemoryNoteParams = z.object({
 
 const MemorySearchParams = z.object({
   query: z.string().min(1).max(1000),
-  scope: z.enum(['current_channel', 'all_channels']).default('current_channel'),
+  scope: z.enum(['current_channel', 'permitted_context']).default('permitted_context'),
   from: z.string().optional(),
   to: z.string().optional(),
   limit: z.number().int().positive().max(10).optional()
@@ -89,7 +89,7 @@ function createMemorySearchTool(
   return {
     name: 'memory_search',
     description:
-      'Search durable memory before answering about prior work, decisions, dates, people, preferences, or channel history. Defaults to current channel; all_channels respects observed-channel and DM leak policy.',
+      'Search durable memory before answering about prior work, decisions, dates, people, preferences, or channel history. Defaults to permitted_context, which uses the largest channel set safe for the current reply audience.',
     schema: MemorySearchParams,
     executionMode: 'sequential',
     isReadOnly: true,

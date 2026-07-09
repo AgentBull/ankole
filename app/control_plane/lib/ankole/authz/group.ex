@@ -20,6 +20,7 @@ defmodule Ankole.AuthZ.Group do
   schema "principal_groups" do
     field :name, :string
     field :display_name, :string
+    field :domain, Ecto.Enum, values: [:operator, :directory, :im_group], default: :operator
     field :kind, Ecto.Enum, values: [:static, :computed], default: :static
     field :built_in, :boolean, default: false
     field :computed_condition, :string
@@ -42,6 +43,7 @@ defmodule Ankole.AuthZ.Group do
     |> cast(attrs, [
       :name,
       :display_name,
+      :domain,
       :kind,
       :built_in,
       :computed_condition,
@@ -50,7 +52,7 @@ defmodule Ankole.AuthZ.Group do
     ])
     |> normalize_blank([:name, :display_name, :computed_condition, :description])
     |> normalize_name()
-    |> validate_required([:name, :display_name, :kind, :built_in, :metadata])
+    |> validate_required([:name, :display_name, :domain, :kind, :built_in, :metadata])
     |> JsonPayload.validate_map(:metadata)
     |> validate_kind_shape()
     |> unique_constraint(:name, name: :principal_groups_name_index)
@@ -58,6 +60,7 @@ defmodule Ankole.AuthZ.Group do
     |> check_constraint(:name, name: :principal_groups_name_lowercase)
     |> check_constraint(:display_name, name: :principal_groups_display_name_present)
     |> check_constraint(:computed_condition, name: :principal_groups_computed_condition_by_kind)
+    |> check_constraint(:domain, name: :principal_groups_computed_domain)
     |> check_constraint(:metadata, name: :principal_groups_metadata_object)
   end
 
@@ -70,9 +73,17 @@ defmodule Ankole.AuthZ.Group do
         changeset
         |> validate_required([:computed_condition])
         |> validate_condition(:computed_condition)
+        |> validate_operator_domain()
 
       _kind ->
         changeset
+    end
+  end
+
+  defp validate_operator_domain(changeset) do
+    case get_field(changeset, :domain) do
+      :operator -> changeset
+      _domain -> add_error(changeset, :domain, "must be operator for computed groups")
     end
   end
 

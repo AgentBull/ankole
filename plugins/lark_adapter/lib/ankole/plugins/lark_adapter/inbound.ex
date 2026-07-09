@@ -8,6 +8,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   alias Ankole.Logging
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.Emoji
+  alias Ankole.Plugins.LarkAdapter.IMGroups
   alias Ankole.Plugins.LarkAdapter.MapHelpers
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.AdapterContext
@@ -182,7 +183,12 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
         {:ok, input} ->
           with :ok <- observe_author(consumer, input) do
             context = consumer.context
-            Ingress.emit_entry(context.agent_uid, context.binding_name, input)
+            result = Ingress.emit_entry(context.agent_uid, context.binding_name, input)
+            if match?({:ok, _}, result) do
+              IMGroups.maybe_enqueue_missing_channel_refresh(consumer, input)
+            end
+
+            result
           end
 
         {:ignore, reason} ->
@@ -874,7 +880,9 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
       source_entry_id
   end
 
-  defp signal_channel_id(chat_id), do: "lark:#{encode_id(chat_id)}"
+  @doc false
+  @spec signal_channel_id(String.t()) :: String.t()
+  def signal_channel_id(chat_id), do: "lark:#{encode_id(chat_id)}"
 
   defp provider_thread_id(chat_id, root_id),
     do: "lark:#{encode_id(chat_id)}:#{encode_id(root_id)}"

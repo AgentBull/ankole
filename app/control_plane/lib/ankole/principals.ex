@@ -216,6 +216,24 @@ defmodule Ankole.Principals do
   end
 
   @doc """
+  Resolves a provider-scoped platform subject to its Principal uid.
+
+  This does not require the Principal to be active; it is used for cleanup paths
+  that need to remove stale external memberships even after a user is disabled.
+  """
+  @spec resolve_platform_subject_uid(String.t(), String.t()) ::
+          {:ok, String.t()} | {:error, term()}
+  def resolve_platform_subject_uid(provider, external_id) do
+    with {:ok, provider} <- normalize_provider(provider),
+         {:ok, external_id} <- normalize_required_text(external_id) do
+      case fetch_platform_subject(Repo, provider, external_id) do
+        %ExternalIdentity{principal_uid: principal_uid} -> {:ok, principal_uid}
+        nil -> {:error, :not_found}
+      end
+    end
+  end
+
+  @doc """
   Resolves a verified channel actor to an active human Principal.
   """
   @spec resolve_channel_actor(String.t(), String.t(), String.t()) :: principal_result()

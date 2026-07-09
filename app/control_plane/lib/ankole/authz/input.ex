@@ -5,8 +5,8 @@ defmodule Ankole.AuthZ.Input do
   @max_json_integer 9_223_372_036_854_775_807
   @min_json_integer -9_223_372_036_854_775_808
 
-  @group_fields [:name, :display_name, :kind, :computed_condition, :description, :metadata]
-  @binding_fields [:provider, :external_id, :group_id, :metadata]
+  @group_fields [:name, :display_name, :domain, :kind, :computed_condition, :description, :metadata]
+  @binding_fields [:provider, :external_kind, :external_id, :group_id, :metadata]
   @grant_fields [
     :principal_uid,
     :group_id,

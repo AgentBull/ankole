@@ -23,6 +23,7 @@ defmodule Ankole.SignalsGateway.Projection do
       reply_mode: fact.reply_mode,
       name: fact.channel_name,
       visibility: fact.channel_visibility,
+      principal_group_id: Map.get(fact, :principal_group_id),
       metadata: fact.channel_metadata,
       raw_payload: fact.channel_raw_payload,
       first_seen_at: now,
@@ -76,6 +77,7 @@ defmodule Ankole.SignalsGateway.Projection do
         reply_mode: preserve_enum(attrs.reply_mode, :none, channel.reply_mode),
         name: attrs.name || channel.name,
         visibility: attrs.visibility || channel.visibility,
+        principal_group_id: attrs.principal_group_id || channel.principal_group_id,
         metadata: preserve_empty_map(attrs.metadata, channel.metadata),
         raw_payload: preserve_empty_map(attrs.raw_payload, channel.raw_payload),
         first_seen_at: channel.first_seen_at

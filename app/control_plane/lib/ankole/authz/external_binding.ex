@@ -17,6 +17,10 @@ defmodule Ankole.AuthZ.ExternalBinding do
 
   schema "principal_group_external_bindings" do
     field :provider, :string, primary_key: true
+    field :external_kind, Ecto.Enum,
+      values: [:directory_department, :im_group],
+      primary_key: true
+
     field :external_id, :string, primary_key: true
 
     belongs_to :group, Group, type: :binary_id
@@ -32,10 +36,10 @@ defmodule Ankole.AuthZ.ExternalBinding do
   @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(binding, attrs) do
     binding
-    |> cast(attrs, [:provider, :external_id, :group_id, :metadata])
+    |> cast(attrs, [:provider, :external_kind, :external_id, :group_id, :metadata])
     |> normalize_blank([:provider, :external_id])
     |> normalize_provider()
-    |> validate_required([:provider, :external_id, :group_id, :metadata])
+    |> validate_required([:provider, :external_kind, :external_id, :group_id, :metadata])
     |> validate_format(:provider, @provider_format)
     |> JsonPayload.validate_map(:metadata)
     |> foreign_key_constraint(:group_id)

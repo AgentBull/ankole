@@ -132,6 +132,9 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
       add :reply_mode, :signal_reply_mode, null: false, default: "none"
       add :name, :text
       add :visibility, :text
+      add :principal_group_id,
+          references(:principal_groups, type: :uuid, on_delete: :nilify_all)
+
       add :metadata, :map, null: false, default: %{}
       add :raw_payload, :map, null: false, default: %{}
       add :first_seen_at, :utc_datetime_usec, null: false
@@ -152,6 +155,14 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
              check: "jsonb_typeof(raw_payload) = 'object'"
            )
 
+    create constraint(:signal_gateway_channels, :signal_gateway_channels_principal_group_kind,
+             check: "principal_group_id IS NULL OR kind = 'im_group'"
+           )
+
+    create index(:signal_gateway_channels, [:principal_group_id],
+             where: "principal_group_id IS NOT NULL"
+           )
+
     comment_table(:signal_gateway_channels, "Provider channels observed by SignalsGateway.")
 
     comment_columns(:signal_gateway_channels, %{
@@ -160,6 +171,7 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
       reply_mode: "Whether replies target the whole channel or a specific entry.",
       name: "Provider or operator supplied channel name.",
       visibility: "Provider visibility hint such as private, public, or shared.",
+      principal_group_id: "Principal group that represents IM group membership when this channel is an IM group.",
       metadata: "Normalized provider channel facts outside the stable contract.",
       raw_payload: "Last provider payload kept for recovery and adapter diagnostics.",
       first_seen_at: "Time this channel was first observed by the gateway.",

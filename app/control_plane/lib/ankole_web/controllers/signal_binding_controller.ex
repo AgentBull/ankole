@@ -179,10 +179,6 @@ defmodule AnkoleWeb.SignalBindingController do
   defp error(conn, :missing_config),
     do: error(conn, 422, "validation_failed", "config is required")
 
-  defp error(conn, :missing_lark_bot_identity) do
-    error(conn, 422, "validation_failed", "botOpenId or botUserId is required")
-  end
-
   defp error(conn, {:missing_param, param}) do
     error(conn, 422, "validation_failed", "#{param} is required")
   end

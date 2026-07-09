@@ -84,14 +84,13 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
 
   @doc """
   Validates chat config when it is used as a SignalsGateway binding.
+
+  A binding needs no extra input beyond the chat config: the bot's own
+  `open_id` is resolved from `bot/v3/info` at connection time, so operators are
+  never asked to supply a bot identity by hand.
   """
   @spec validate_binding_config(term()) :: {:ok, chat_config()} | {:error, term()}
-  def validate_binding_config(value) do
-    with {:ok, config} <- validate_chat_config(value),
-         :ok <- require_bot_identity(config) do
-      {:ok, config}
-    end
-  end
+  def validate_binding_config(value), do: validate_chat_config(value)
 
   @doc """
   Normalizes and validates identity-provider configuration loaded from AppConfigure.
@@ -192,41 +191,38 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   end
 
   @doc """
-  Adds provider-derived bot identity to a chat config without persisting it.
+  Adds the provider-derived bot `open_id` to a chat config without persisting it.
 
-  Operators can keep `botUserId` as the configured identity. Lark message
-  mention events often carry only the mentioned bot's `open_id`, so the adapter
-  resolves that value from `bot/v3/info` while building the live connection and
-  keeps it only in the process-local consumer config.
+  The console never asks operators for a bot identity. Group mention events
+  carry the mentioned bot's `open_id`, so the adapter resolves its own
+  `open_id` from `bot/v3/info` (using the app credentials alone) while building
+  the live connection and keeps it only in the process-local consumer config as
+  `runtimeBotOpenId`. A config that already carries an explicit `botOpenId`
+  override is left untouched.
   """
   @spec resolve_runtime_bot_identity(chat_config(), keyword()) :: chat_config()
   def resolve_runtime_bot_identity(config, opts \\ []) when is_map(config) do
-    cond do
-      present_string?(Map.get(config, "botOpenId")) ->
-        config
+    if present_string?(Map.get(config, "botOpenId")) do
+      config
+    else
+      fetcher = Keyword.get(opts, :bot_info_fetcher, &fetch_runtime_bot_open_id/1)
 
-      not present_string?(Map.get(config, "botUserId")) ->
-        config
+      case fetcher.(config) do
+        {:ok, open_id} when is_binary(open_id) ->
+          Map.put(config, "runtimeBotOpenId", String.trim(open_id))
 
-      true ->
-        fetcher = Keyword.get(opts, :bot_info_fetcher, &fetch_runtime_bot_open_id/1)
+        {:error, reason} ->
+          Logging.warning(
+            "lark_adapter.config.runtime_bot_open_id_failed",
+            "lark adapter could not resolve runtime bot open_id",
+            %{
+              app_id: Map.get(config, "appId"),
+              reason: inspect(reason)
+            }
+          )
 
-        case fetcher.(config) do
-          {:ok, open_id} when is_binary(open_id) ->
-            Map.put(config, "runtimeBotOpenId", String.trim(open_id))
-
-          {:error, reason} ->
-            Logging.warning(
-              "lark_adapter.config.runtime_bot_open_id_failed",
-              "lark adapter could not resolve runtime bot open_id",
-              %{
-                app_id: Map.get(config, "appId"),
-                reason: inspect(reason)
-              }
-            )
-
-            config
-        end
+          config
+      end
     end
   end
 
@@ -266,15 +262,6 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
 
   defp present_string?(value) when is_binary(value), do: String.trim(value) != ""
   defp present_string?(_value), do: false
-
-  defp require_bot_identity(config) when is_map(config) do
-    if present_string?(Map.get(config, "botOpenId")) or
-         present_string?(Map.get(config, "botUserId")) do
-      :ok
-    else
-      {:error, :missing_lark_bot_identity}
-    end
-  end
 
   defp required_string(map, key) do
     case MapHelpers.fetch_value(map, key) do

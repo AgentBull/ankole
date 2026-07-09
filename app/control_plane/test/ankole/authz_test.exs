@@ -303,17 +303,19 @@ defmodule Ankole.AuthZTest do
       assert {:ok, group} =
                AuthZ.create_principal_group(%{
                  name: "static_external_#{System.unique_integer([:positive])}",
-                 display_name: "Static External"
+                 display_name: "Static External",
+                 domain: :directory
                })
 
       assert {:ok, _binding} =
                AuthZ.upsert_external_binding(%{
                  provider: "lark",
+                 external_kind: :directory_department,
                  external_id: external_id,
                  group_id: group.id
                })
 
-      assert AuthZ.external_group_ids("lark", external_id) == [group.id]
+      assert AuthZ.external_group_ids("lark", :directory_department, external_id) == [group.id]
 
       assert {:ok, computed_group} =
                AuthZ.create_principal_group(%{
@@ -327,24 +329,42 @@ defmodule Ankole.AuthZTest do
 
       Repo.insert!(%ExternalBinding{
         provider: "lark",
+        external_kind: :directory_department,
         external_id: dirty_external_id,
         group_id: computed_group.id,
         metadata: %{}
       })
 
-      assert AuthZ.external_group_ids("lark", dirty_external_id) == []
+      assert AuthZ.external_group_ids("lark", :directory_department, dirty_external_id) == []
+
+      assert {:ok, operator_group} =
+               AuthZ.create_principal_group(%{
+                 name: "dirty_operator_external_#{System.unique_integer([:positive])}",
+                 display_name: "Dirty Operator External"
+               })
+
+      dirty_operator_external_id = "dirty-operator-dept-#{System.unique_integer([:positive])}"
+
+      Repo.insert!(%ExternalBinding{
+        provider: "lark",
+        external_kind: :directory_department,
+        external_id: dirty_operator_external_id,
+        group_id: operator_group.id,
+        metadata: %{}
+      })
+
+      assert AuthZ.external_group_ids("lark", :directory_department, dirty_operator_external_id) ==
+               []
     end
 
-    test "external directory membership sync only touches marked operator groups" do
+    test "external directory membership sync only touches directory-domain groups" do
       %{principal: principal} = human_fixture(%{uid: unique_uid("directory-member")})
 
       assert {:ok, managed_group} =
                AuthZ.create_principal_group(%{
                  name: "lark_managed_#{System.unique_integer([:positive])}",
                  display_name: "Lark Managed",
-                 metadata: %{
-                   "external_directory" => %{"provider" => "lark-main", "kind" => "department"}
-                 }
+                 domain: :directory
                })
 
       assert {:ok, unmarked_group} =
@@ -356,16 +376,18 @@ defmodule Ankole.AuthZTest do
       assert {:ok, _binding} =
                AuthZ.upsert_external_binding(%{
                  provider: "lark-main",
+                 external_kind: :directory_department,
                  external_id: "od_managed",
                  group_id: managed_group.id
                })
 
-      assert {:ok, _binding} =
-               AuthZ.upsert_external_binding(%{
-                 provider: "lark-main",
-                 external_id: "od_unmarked",
-                 group_id: unmarked_group.id
-               })
+      Repo.insert!(%ExternalBinding{
+        provider: "lark-main",
+        external_kind: :directory_department,
+        external_id: "od_unmarked",
+        group_id: unmarked_group.id,
+        metadata: %{}
+      })
 
       assert {:ok, %{synced_group_ids: [managed_group_id]}} =
                AuthZ.sync_external_directory_group_memberships(
@@ -387,6 +409,107 @@ defmodule Ankole.AuthZTest do
       assert Repo.get_by(Membership, principal_uid: principal.uid, group_id: unmarked_group.id)
     end
 
+    test "external directory membership sync expands department ancestors from binding metadata" do
+      %{principal: principal} = human_fixture(%{uid: unique_uid("directory-child-member")})
+
+      assert {:ok, parent_group} =
+               AuthZ.create_principal_group(%{
+                 name: "lark_parent_#{System.unique_integer([:positive])}",
+                 display_name: "Lark Parent",
+                 domain: :directory
+               })
+
+      assert {:ok, child_group} =
+               AuthZ.create_principal_group(%{
+                 name: "lark_child_#{System.unique_integer([:positive])}",
+                 display_name: "Lark Child",
+                 domain: :directory
+               })
+
+      assert {:ok, _binding} =
+               AuthZ.upsert_external_binding(%{
+                 provider: "lark-main",
+                 external_kind: :directory_department,
+                 external_id: "od_parent",
+                 group_id: parent_group.id,
+                 metadata: %{"parentExternalId" => "0"}
+               })
+
+      assert {:ok, _binding} =
+               AuthZ.upsert_external_binding(%{
+                 provider: "lark-main",
+                 external_kind: :directory_department,
+                 external_id: "od_child",
+                 group_id: child_group.id,
+                 metadata: %{"parentExternalId" => "od_parent"}
+               })
+
+      assert {:ok, directory_group_index} = AuthZ.external_directory_group_index("lark-main")
+
+      assert {:ok, %{synced_group_ids: synced_group_ids}} =
+               AuthZ.sync_external_directory_group_memberships(
+                 "lark-main",
+                 principal.uid,
+                 ["od_child"],
+                 directory_group_index: directory_group_index
+               )
+
+      assert Enum.sort(synced_group_ids) == Enum.sort([parent_group.id, child_group.id])
+      assert Repo.get_by(Membership, principal_uid: principal.uid, group_id: parent_group.id)
+      assert Repo.get_by(Membership, principal_uid: principal.uid, group_id: child_group.id)
+
+      assert {:ok, %{synced_group_ids: [], removed_memberships: 2}} =
+               AuthZ.sync_external_directory_group_memberships("lark-main", principal.uid, [])
+
+      refute Repo.get_by(Membership, principal_uid: principal.uid, group_id: parent_group.id)
+      refute Repo.get_by(Membership, principal_uid: principal.uid, group_id: child_group.id)
+    end
+
+    test "external directory ancestor expansion is cycle safe" do
+      %{principal: principal} = human_fixture(%{uid: unique_uid("directory-cycle-member")})
+
+      assert {:ok, first_group} =
+               AuthZ.create_principal_group(%{
+                 name: "lark_cycle_first_#{System.unique_integer([:positive])}",
+                 display_name: "Lark Cycle First",
+                 domain: :directory
+               })
+
+      assert {:ok, second_group} =
+               AuthZ.create_principal_group(%{
+                 name: "lark_cycle_second_#{System.unique_integer([:positive])}",
+                 display_name: "Lark Cycle Second",
+                 domain: :directory
+               })
+
+      assert {:ok, _binding} =
+               AuthZ.upsert_external_binding(%{
+                 provider: "lark-main",
+                 external_kind: :directory_department,
+                 external_id: "od_cycle_first",
+                 group_id: first_group.id,
+                 metadata: %{"parentExternalId" => "od_cycle_second"}
+               })
+
+      assert {:ok, _binding} =
+               AuthZ.upsert_external_binding(%{
+                 provider: "lark-main",
+                 external_kind: :directory_department,
+                 external_id: "od_cycle_second",
+                 group_id: second_group.id,
+                 metadata: %{"parentExternalId" => "od_cycle_first"}
+               })
+
+      assert {:ok, %{synced_group_ids: synced_group_ids}} =
+               AuthZ.sync_external_directory_group_memberships(
+                 "lark-main",
+                 principal.uid,
+                 ["od_cycle_first"]
+               )
+
+      assert Enum.sort(synced_group_ids) == Enum.sort([first_group.id, second_group.id])
+    end
+
     test "external subjects can bind only to static groups" do
       assert {:ok, group} =
                AuthZ.create_principal_group(%{
@@ -399,8 +522,25 @@ defmodule Ankole.AuthZTest do
       assert {:error, :computed_group} =
                AuthZ.upsert_external_binding(%{
                  provider: "lark",
+                 external_kind: :directory_department,
                  external_id: "dept-#{System.unique_integer([:positive])}",
                  group_id: group.id
+               })
+    end
+
+    test "external binding rejects mismatched external kind and group domain" do
+      assert {:ok, operator_group} =
+               AuthZ.create_principal_group(%{
+                 name: "operator_external_#{System.unique_integer([:positive])}",
+                 display_name: "Operator External"
+               })
+
+      assert {:error, :group_domain_mismatch} =
+               AuthZ.upsert_external_binding(%{
+                 provider: "lark",
+                 external_kind: :directory_department,
+                 external_id: "dept-#{System.unique_integer([:positive])}",
+                 group_id: operator_group.id
                })
     end
   end

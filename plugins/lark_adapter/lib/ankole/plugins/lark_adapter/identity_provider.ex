@@ -71,10 +71,11 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
   @doc """
   Merges one Lark contact user into the Principal platform-subject model.
   """
-  @spec upsert_user(String.t(), map()) :: {:ok, map()} | {:error, term()}
-  def upsert_user(provider_id, user) when is_binary(provider_id) and is_map(user) do
+  @spec upsert_user(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def upsert_user(provider_id, user, opts \\ []) when is_binary(provider_id) and is_map(user) do
     with {:ok, user_id} <- user_id(user) do
       department_ids = fetch_list(user, "department_ids")
+      directory_sync_opts = Keyword.take(opts, [:directory_group_index])
 
       with {:ok, observed} <-
              Principals.upsert_platform_subject_human(%{
@@ -99,7 +100,8 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
              AuthZ.sync_external_directory_group_memberships(
                provider_id,
                observed.principal.uid,
-               department_ids
+               department_ids,
+               directory_sync_opts
              ) do
         {:ok, observed}
       end
@@ -113,54 +115,130 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
           {:ok, %{users: non_neg_integer(), departments: non_neg_integer()}} | {:error, term()}
   def sync_directory(provider_id, config, opts \\ [])
       when is_binary(provider_id) and is_map(config) do
-    with {:ok, %{users: users}} <- sync_directory_users(provider_id, config, opts),
-         {:ok, %{departments: departments}} <- sync_directory_departments(config, opts) do
+    with {:ok, %{departments: departments, department_ids: department_ids}} <-
+           sync_directory_departments(provider_id, config, opts),
+         {:ok, %{users: users}} <- sync_directory_users(provider_id, config, opts, department_ids) do
       {:ok, %{users: users, departments: departments}}
     end
   end
 
-  defp sync_directory_users(provider_id, config, opts) do
+  defp sync_directory_users(provider_id, config, opts, department_ids) do
+    client = Config.client(config, Keyword.get(opts, :client_opts, []))
+    page_size = get_in(config, ["sync", "pageSize"]) || 50
+
+    with {:ok, users} <- collect_directory_users(client, department_ids, page_size),
+         {:ok, directory_group_index} <- AuthZ.external_directory_group_index(provider_id) do
+      users
+      |> Map.values()
+      |> Enum.reduce_while({:ok, 0}, fn user, {:ok, count} ->
+        case upsert_user(provider_id, user, directory_group_index: directory_group_index) do
+          {:ok, _} -> {:cont, {:ok, count + 1}}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
+      |> case do
+        {:ok, count} -> {:ok, %{users: count}}
+        {:error, _reason} = error -> error
+      end
+    end
+  end
+
+  defp sync_directory_departments(provider_id, config, opts) do
     client = Config.client(config, Keyword.get(opts, :client_opts, []))
     page_size = get_in(config, ["sync", "pageSize"]) || 50
 
     client
-    |> Pagination.stream("contact/v3/users",
-      query: [page_size: page_size],
+    |> Pagination.stream("contact/v3/departments/:department_id/children",
+      path_params: %{department_id: "0"},
+      query: [
+        department_id_type: "department_id",
+        fetch_child: true,
+        page_size: page_size,
+        user_id_type: "user_id"
+      ],
       items: ["data", "items"]
     )
-    |> Enum.reduce_while({:ok, 0}, fn
-      {:ok, user}, {:ok, count} ->
-        case upsert_user(provider_id, user) do
-          {:ok, _} -> {:cont, {:ok, count + 1}}
-          {:error, reason} -> {:halt, {:error, reason}}
+    |> Enum.reduce_while({:ok, %{count: 0, department_ids: []}}, fn
+      {:ok, department}, {:ok, acc} ->
+        case ensure_department_group(provider_id, department) do
+          :ok ->
+            department_ids =
+              case department_id(department) do
+                {:ok, id} -> [id | acc.department_ids]
+                {:error, _reason} -> acc.department_ids
+              end
+
+            {:cont, {:ok, %{count: acc.count + 1, department_ids: department_ids}}}
+
+          {:error, reason} ->
+            {:halt, {:error, reason}}
         end
 
       {:error, reason}, _acc ->
         {:halt, {:error, reason}}
     end)
     |> case do
-      {:ok, count} -> {:ok, %{users: count}}
-      {:error, _reason} = error -> error
+      {:ok, result} ->
+        {:ok, %{departments: result.count, department_ids: Enum.reverse(result.department_ids)}}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
-  defp sync_directory_departments(config, opts) do
-    client = Config.client(config, Keyword.get(opts, :client_opts, []))
-    page_size = get_in(config, ["sync", "pageSize"]) || 50
+  defp collect_directory_users(client, department_ids, page_size) do
+    department_ids
+    |> root_department_first()
+    |> Enum.reduce_while({:ok, %{}}, fn department_id, {:ok, users} ->
+      case collect_department_users(client, department_id, page_size, users) do
+        {:ok, users} -> {:cont, {:ok, users}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
 
+  defp root_department_first(department_ids) do
+    ["0" | department_ids]
+    |> Enum.uniq()
+  end
+
+  defp collect_department_users(client, department_id, page_size, users) do
     client
-    |> Pagination.stream("contact/v3/departments",
-      query: [page_size: page_size],
+    |> Pagination.stream("contact/v3/users",
+      query: [
+        department_id: department_id,
+        department_id_type: "department_id",
+        page_size: page_size,
+        user_id_type: "user_id"
+      ],
       items: ["data", "items"]
     )
-    |> Enum.reduce_while({:ok, 0}, fn
-      {:ok, _department}, {:ok, count} -> {:cont, {:ok, count + 1}}
-      {:error, reason}, _acc -> {:halt, {:error, reason}}
+    |> Enum.reduce_while({:ok, users}, fn
+      {:ok, user}, {:ok, acc} ->
+        case user_id(user) do
+          {:ok, user_id} -> {:cont, {:ok, Map.update(acc, user_id, user, &merge_user(&1, user))}}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+
+      {:error, reason}, _acc ->
+        {:halt, {:error, reason}}
     end)
-    |> case do
-      {:ok, count} -> {:ok, %{departments: count}}
-      {:error, _reason} = error -> error
-    end
+  end
+
+  defp merge_user(existing, next) do
+    Map.merge(existing, next, fn
+      "department_ids", left, right -> merge_lists(left, right)
+      _key, _left, right -> right
+    end)
+  end
+
+  defp merge_lists(left, right) do
+    [left, right]
+    |> Enum.flat_map(fn
+      values when is_list(values) -> values
+      _value -> []
+    end)
+    |> Enum.uniq()
   end
 
   @doc """
@@ -194,7 +272,7 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
         end
 
       String.starts_with?(event_type, "contact.department.") ->
-        {:ok, %{status: :observed_department_event, event_type: event_type}}
+        enqueue_full_sync(provider_id, :contact_department_changed)
 
       event_type == "contact.scope.updated_v3" ->
         enqueue_full_sync(provider_id, :contact_scope_updated)
@@ -206,6 +284,105 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
 
   defp user_info(client, access_token) do
     FeishuOpenAPI.get(client, "/open-apis/authen/v1/user_info", user_access_token: access_token)
+  end
+
+  defp ensure_department_group(provider_id, department) when is_map(department) do
+    with {:ok, department_id} <- department_id(department) do
+      case AuthZ.external_group_ids(provider_id, :directory_department, department_id) do
+        [] ->
+          create_department_group(provider_id, department_id, department)
+
+        [group_id | _rest] ->
+          upsert_department_binding(provider_id, department_id, department, group_id)
+      end
+    end
+  end
+
+  defp create_department_group(provider_id, department_id, department) do
+    attrs = department_group_attrs(provider_id, department_id, department)
+
+    with {:ok, group} <- fetch_or_create_department_group(attrs),
+         :ok <- upsert_department_binding(provider_id, department_id, department, group.id) do
+      :ok
+    end
+  end
+
+  defp upsert_department_binding(provider_id, department_id, department, group_id) do
+    case AuthZ.upsert_external_binding(%{
+           provider: provider_id,
+           external_kind: :directory_department,
+           external_id: department_id,
+           group_id: group_id,
+           metadata: binding_metadata(provider_id, department_id, department)
+         }) do
+      {:ok, _binding} -> :ok
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp fetch_or_create_department_group(attrs) do
+    case AuthZ.get_principal_group(attrs.name) do
+      {:ok, group} -> {:ok, group}
+      {:error, :not_found} -> AuthZ.create_principal_group(attrs)
+    end
+  end
+
+  defp department_group_attrs(provider_id, department_id, department) do
+    parent_id = department_parent_id(department)
+
+    %{
+      name: department_group_name(provider_id, department_id),
+      display_name: department_display_name(department, department_id),
+      domain: :directory,
+      metadata: %{
+        "external_directory" =>
+          external_directory_metadata(provider_id, department_id, parent_id),
+        "lark" =>
+          compact_metadata_map(%{
+            "department_id" => department_id,
+            "open_department_id" => optional_text(department, "open_department_id"),
+            "parent_department_id" => optional_text(department, "parent_department_id"),
+            "member_count" => MapHelpers.fetch_value(department, "member_count"),
+            "primary_member_count" => MapHelpers.fetch_value(department, "primary_member_count")
+          })
+      }
+    }
+  end
+
+  defp binding_metadata(provider_id, department_id, department) do
+    parent_id = department_parent_id(department)
+
+    compact_metadata_map(%{
+      "provider" => provider_id,
+      "externalId" => department_id,
+      "name" => department_display_name(department, department_id),
+      "parentExternalId" => parent_id,
+      "status" => "active",
+      "syncedAt" => DateTime.utc_now() |> DateTime.to_iso8601(),
+      "external_directory" => external_directory_metadata(provider_id, department_id, parent_id)
+    })
+  end
+
+  defp external_directory_metadata(provider_id, department_id, parent_id) do
+    compact_metadata_map(%{
+      "provider" => provider_id,
+      "kind" => "department",
+      "external_id" => department_id,
+      "parentExternalId" => parent_id
+    })
+  end
+
+  defp department_group_name(provider_id, department_id) do
+    "#{provider_id}:department:#{department_id}"
+    |> String.downcase()
+  end
+
+  defp department_display_name(department, department_id) do
+    optional_text(department, "name") || "Lark Department #{department_id}"
+  end
+
+  defp department_parent_id(department) do
+    optional_text(department, "parent_department_id") || optional_text(department, "parent_id")
   end
 
   defp enqueue_full_sync(provider_id, reason) do
@@ -266,6 +443,13 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
     case optional_text(user, "user_id") || optional_text(user, "id") do
       value when is_binary(value) -> {:ok, value}
       nil -> {:error, :missing_user_id}
+    end
+  end
+
+  defp department_id(department) do
+    case optional_text(department, "department_id") || optional_text(department, "id") do
+      value when is_binary(value) -> {:ok, value}
+      nil -> {:error, :missing_department_id}
     end
   end
 

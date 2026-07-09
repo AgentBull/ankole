@@ -17,6 +17,7 @@ defmodule Ankole.SignalsGateway.Channel do
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
 
   alias Ankole.Ecto.JsonPayload
+  alias Ankole.AuthZ.Group
   alias Ankole.SignalsGateway.Entry
 
   @primary_key {:id, :string, []}
@@ -31,6 +32,7 @@ defmodule Ankole.SignalsGateway.Channel do
     field :reply_mode, Ecto.Enum, values: [:none, :channel, :entry], default: :none
     field :name, :string
     field :visibility, :string
+    belongs_to :principal_group, Group, type: :binary_id
     field :metadata, :map, default: %{}
     field :raw_payload, :map, default: %{}
     field :first_seen_at, :utc_datetime_usec
@@ -53,6 +55,7 @@ defmodule Ankole.SignalsGateway.Channel do
       :reply_mode,
       :name,
       :visibility,
+      :principal_group_id,
       :metadata,
       :raw_payload,
       :first_seen_at,
@@ -70,8 +73,12 @@ defmodule Ankole.SignalsGateway.Channel do
     ])
     |> JsonPayload.validate_map(:metadata, allow_datetime: true)
     |> JsonPayload.validate_map(:raw_payload, allow_datetime: true)
+    |> foreign_key_constraint(:principal_group_id)
     |> unique_constraint(:id, name: :signal_gateway_channels_pkey)
     |> check_constraint(:id, name: :signal_gateway_channels_id_present)
+    |> check_constraint(:principal_group_id,
+      name: :signal_gateway_channels_principal_group_kind
+    )
     |> check_constraint(:metadata, name: :signal_gateway_channels_metadata_object)
     |> check_constraint(:raw_payload, name: :signal_gateway_channels_raw_payload_object)
   end

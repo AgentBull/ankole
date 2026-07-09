@@ -5,6 +5,9 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
   alias Ankole.AuthZ
+  alias Ankole.AuthZ.ExternalBinding
+  alias Ankole.AuthZ.Grant
+  alias Ankole.AuthZ.Group
   alias Ankole.AuthZ.Membership
   alias Ankole.Actors.ActorEvent
   alias Ankole.Plugins.LarkAdapter
@@ -15,11 +18,15 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   alias Ankole.Plugins.LarkAdapter.ConnectionReconciler
   alias Ankole.Plugins.LarkAdapter.ConnectionSupervisor
   alias Ankole.Plugins.LarkAdapter.IdentityProvider
+  alias Ankole.Plugins.LarkAdapter.IMGroups
   alias Ankole.Plugins.LarkAdapter.Inbound
+  alias Ankole.Plugins.LarkAdapter.Jobs.RefreshIMGroup
   alias Ankole.Plugins.LarkAdapter.Outbox
+  alias Ankole.Principals
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.AdapterContext
+  alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Entry
   alias FeishuOpenAPI.Client
@@ -120,9 +127,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                "domain",
                "baseUrl",
                "platformSubjectNamespace",
-               "userName",
-               "botOpenId",
-               "botUserId"
+               "userName"
              ]
 
       assert Enum.map(identity_fields, & &1.path) == [
@@ -174,7 +179,9 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert chat["botOpenId"] == nil
       assert chat["botUserId"] == nil
 
-      assert {:error, :missing_lark_bot_identity} =
+      # A binding no longer requires a hand-entered bot identity: the bot's own
+      # open_id is resolved from bot/v3/info at connection time.
+      assert {:ok, %{"botOpenId" => nil, "botUserId" => nil}} =
                Config.validate_binding_config(%{
                  "appId" => "cli_x",
                  "appSecret" => "secret"
@@ -194,18 +201,26 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  "baseUrl" => "ftp://bad"
                })
 
+      # With no botOpenId configured, the adapter resolves the bot's own open_id
+      # from bot/v3/info using the app credentials alone.
       resolved =
         Config.resolve_runtime_bot_identity(
-          %{chat | "botUserId" => "cli_x"},
+          chat,
           bot_info_fetcher: fn config ->
-            send(self(), {:bot_info_config, Map.take(config, ["appId", "botUserId"])})
+            send(self(), {:bot_info_config, Map.take(config, ["appId", "botOpenId"])})
             {:ok, "ou_runtime_bot"}
           end
         )
 
-      assert_received {:bot_info_config, %{"appId" => "cli_x", "botUserId" => "cli_x"}}
+      assert_received {:bot_info_config, %{"appId" => "cli_x", "botOpenId" => nil}}
       assert resolved["botOpenId"] == nil
       assert resolved["runtimeBotOpenId"] == "ou_runtime_bot"
+
+      # An explicit botOpenId override skips the provider lookup entirely.
+      assert Config.resolve_runtime_bot_identity(
+               %{chat | "botOpenId" => "ou_explicit"},
+               bot_info_fetcher: fn _config -> {:error, :should_not_be_called} end
+             ) == %{chat | "botOpenId" => "ou_explicit"}
 
       assert {:ok, identity} =
                Config.validate_identity_config(%{
@@ -278,7 +293,8 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                ConnectionReconciler.reconcile_once(
                  registry: registry,
                  supervisor: supervisor,
-                 start_client?: false
+                 start_client?: false,
+                 bot_info_fetcher: fn _config -> {:ok, "ou_runtime_bot"} end
                )
 
       assert [{"feishu", "cli_reconciler"}] =
@@ -1112,6 +1128,304 @@ defmodule Ankole.Plugins.LarkAdapterTest do
     end
   end
 
+  describe "IM group sync" do
+    test "ensure merges participant map for multiple bindings in the same chat" do
+      %{principal: first_agent} = agent_fixture(%{uid: unique_uid("lark-im-agent-a")})
+      %{principal: second_agent} = agent_fixture(%{uid: unique_uid("lark-im-agent-b")})
+
+      assert {:ok, first_group} =
+               IMGroups.ensure_lark_im_group(
+                 "lark-main",
+                 "oc_merge",
+                 im_chat_attrs("oc_merge", "Ops Room", "cli_a"),
+                 im_participant(first_agent.uid, "lark-a", "cli_a", "joined")
+               )
+
+      assert {:ok, second_group} =
+               IMGroups.ensure_lark_im_group(
+                 "lark-main",
+                 "oc_merge",
+                 im_chat_attrs("oc_merge", "Ops Room Renamed", "cli_b"),
+                 im_participant(second_agent.uid, "lark-b", "cli_b", "joined")
+               )
+
+      assert second_group.id == first_group.id
+
+      group = Repo.get!(Group, first_group.id)
+      participants = get_in(group.metadata, ["lark_im", "sync_participants"])
+
+      assert participants["#{first_agent.uid}|lark-a"]["state"] == "joined"
+      assert participants["#{second_agent.uid}|lark-b"]["state"] == "joined"
+      assert group.display_name == "Ops Room Renamed"
+      group_id = group.id
+
+      assert %Channel{principal_group_id: ^group_id, name: "Ops Room Renamed"} =
+               Repo.get(Channel, Inbound.signal_channel_id("oc_merge"))
+    end
+
+    test "all-left cleanup clears memberships but keeps group binding channel and grants" do
+      %{principal: first_agent} = agent_fixture(%{uid: unique_uid("lark-left-agent-a")})
+      %{principal: second_agent} = agent_fixture(%{uid: unique_uid("lark-left-agent-b")})
+      %{principal: member} = human_fixture(%{uid: unique_uid("lark-left-member")})
+
+      assert {:ok, first_group} =
+               IMGroups.ensure_lark_im_group(
+                 "lark-main",
+                 "oc_left",
+                 im_chat_attrs("oc_left", "Left Room", "cli_a"),
+                 im_participant(first_agent.uid, "lark-a", "cli_a", "joined")
+               )
+
+      assert {:ok, group} =
+               IMGroups.ensure_lark_im_group(
+                 "lark-main",
+                 "oc_left",
+                 im_chat_attrs("oc_left", "Left Room", "cli_b"),
+                 im_participant(second_agent.uid, "lark-b", "cli_b", "joined")
+               )
+
+      assert group.id == first_group.id
+
+      assert {:ok, _membership} = AuthZ.add_principal_to_group(member.uid, group.id)
+
+      assert {:ok, grant} =
+               AuthZ.upsert_permission_grant(%{
+                 group_id: group.id,
+                 resource_pattern: "workspace:**",
+                 action: "read"
+               })
+
+      assert {:ok, [%{status: :participant_marked_left}]} =
+               IMGroups.handle_im_event(
+                 "im.chat.member.bot.deleted_v1",
+                 im_chat_event("oc_left"),
+                 [
+                   im_consumer(first_agent.uid, "lark-a", "cli_a")
+                 ]
+               )
+
+      assert Repo.get_by(Membership, group_id: group.id, principal_uid: member.uid)
+
+      assert {:ok, [%{status: :all_left_members_cleared, group_id: group_id}]} =
+               IMGroups.handle_im_event(
+                 "im.chat.member.bot.deleted_v1",
+                 im_chat_event("oc_left"),
+                 [
+                   im_consumer(second_agent.uid, "lark-b", "cli_b")
+                 ]
+               )
+
+      assert group_id == group.id
+      assert Repo.get(Group, group.id)
+      assert Repo.get(Grant, grant.id)
+
+      assert Repo.get_by(ExternalBinding,
+               provider: "lark-main",
+               external_kind: :im_group,
+               external_id: "oc_left"
+             )
+
+      assert %Channel{principal_group_id: ^group_id} =
+               Repo.get(Channel, Inbound.signal_channel_id("oc_left"))
+
+      refute Repo.get_by(Membership, group_id: group.id, principal_uid: member.uid)
+    end
+
+    test "chat disband marks all known participants left and clears memberships" do
+      %{principal: first_agent} = agent_fixture(%{uid: unique_uid("lark-disband-agent-a")})
+      %{principal: second_agent} = agent_fixture(%{uid: unique_uid("lark-disband-agent-b")})
+      %{principal: member} = human_fixture(%{uid: unique_uid("lark-disband-member")})
+
+      assert {:ok, first_group} =
+               IMGroups.ensure_lark_im_group(
+                 "lark-main",
+                 "oc_disband",
+                 im_chat_attrs("oc_disband", "Disband Room", "cli_a"),
+                 im_participant(first_agent.uid, "lark-a", "cli_a", "joined")
+               )
+
+      assert {:ok, group} =
+               IMGroups.ensure_lark_im_group(
+                 "lark-main",
+                 "oc_disband",
+                 im_chat_attrs("oc_disband", "Disband Room", "cli_b"),
+                 im_participant(second_agent.uid, "lark-b", "cli_b", "joined")
+               )
+
+      assert group.id == first_group.id
+
+      assert {:ok, _membership} = AuthZ.add_principal_to_group(member.uid, group.id)
+
+      assert {:ok, [%{status: :all_left_members_cleared}]} =
+               IMGroups.handle_im_event("im.chat.disbanded_v1", im_chat_event("oc_disband"), [
+                 im_consumer(first_agent.uid, "lark-a", "cli_a")
+               ])
+
+      group = Repo.get!(Group, group.id)
+      participants = get_in(group.metadata, ["lark_im", "sync_participants"])
+
+      assert participants["#{first_agent.uid}|lark-a"]["state"] == "left"
+      assert participants["#{second_agent.uid}|lark-b"]["state"] == "left"
+      refute Repo.get_by(Membership, group_id: group.id, principal_uid: member.uid)
+    end
+
+    test "member removed resolves platform subject identity instead of guessing principal uid" do
+      %{principal: agent} = agent_fixture(%{uid: unique_uid("lark-remove-agent")})
+
+      assert {:ok, observed} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "lark-main",
+                 external_id: "ou_remove_external",
+                 uid: unique_uid("lark-remove-principal"),
+                 display_name: "Remove Me"
+               })
+
+      assert observed.principal.uid != "ou_remove_external"
+
+      assert {:ok, group} =
+               IMGroups.ensure_lark_im_group(
+                 "lark-main",
+                 "oc_remove",
+                 im_chat_attrs("oc_remove", "Remove Room", "cli_remove"),
+                 im_participant(agent.uid, "lark", "cli_remove", "joined")
+               )
+
+      assert {:ok, _membership} = AuthZ.add_principal_to_group(observed.principal.uid, group.id)
+
+      assert {:ok,
+              [
+                %{
+                  status: :member_removed,
+                  principal_uid: principal_uid,
+                  group_id: group_id
+                }
+              ]} =
+               IMGroups.handle_im_event(
+                 "im.chat.member.user.deleted_v1",
+                 im_member_event("oc_remove", "ou_remove_external"),
+                 [im_consumer(agent.uid, "lark", "cli_remove")]
+               )
+
+      assert principal_uid == observed.principal.uid
+      assert group_id == group.id
+      refute Repo.get_by(Membership, group_id: group.id, principal_uid: observed.principal.uid)
+    end
+
+    test "member removed with unknown platform subject enqueues refresh" do
+      %{principal: agent} = agent_fixture(%{uid: unique_uid("lark-remove-missing-agent")})
+
+      assert {:ok, _group} =
+               IMGroups.ensure_lark_im_group(
+                 "lark-main",
+                 "oc_remove_missing",
+                 im_chat_attrs("oc_remove_missing", "Remove Missing Room", "cli_remove"),
+                 im_participant(agent.uid, "lark", "cli_remove", "joined")
+               )
+
+      assert {:ok, [%{status: :refresh_enqueued}]} =
+               IMGroups.handle_im_event(
+                 "im.chat.member.user.deleted_v1",
+                 im_member_event("oc_remove_missing", "ou_missing_remove"),
+                 [im_consumer(agent.uid, "lark", "cli_remove")]
+               )
+
+      assert_enqueued(
+        worker: RefreshIMGroup,
+        args: %{
+          "agent_uid" => agent.uid,
+          "binding_name" => "lark",
+          "chat_id" => "oc_remove_missing",
+          "reason" => "member_removed_missing_identity"
+        }
+      )
+    end
+
+    test "namespace conflict does not flip existing channel group foreign key" do
+      %{principal: first_agent} = agent_fixture(%{uid: unique_uid("lark-ns-agent-a")})
+      %{principal: second_agent} = agent_fixture(%{uid: unique_uid("lark-ns-agent-b")})
+
+      assert {:ok, first_group} =
+               IMGroups.ensure_lark_im_group(
+                 "lark-main",
+                 "oc_namespace",
+                 im_chat_attrs("oc_namespace", "Namespace Room", "cli_a"),
+                 im_participant(first_agent.uid, "lark-a", "cli_a", "joined")
+               )
+
+      assert {:ok, second_group} =
+               IMGroups.ensure_lark_im_group(
+                 "other-lark",
+                 "oc_namespace",
+                 im_chat_attrs("oc_namespace", "Namespace Room", "cli_b"),
+                 im_participant(second_agent.uid, "lark-b", "cli_b", "joined")
+               )
+
+      assert second_group.id != first_group.id
+
+      assert %Channel{principal_group_id: group_id} =
+               Repo.get(Channel, Inbound.signal_channel_id("oc_namespace"))
+
+      assert group_id == first_group.id
+    end
+
+    test "message ingress with missing group FK only enqueues chat refresh" do
+      %{principal: agent} = agent_fixture(%{uid: unique_uid("lark-ingress-refresh-agent")})
+      channel_id = Inbound.signal_channel_id("oc_missing_fk")
+
+      %Channel{}
+      |> Channel.changeset(%{
+        id: channel_id,
+        kind: :im_group,
+        reply_mode: :entry,
+        name: "Missing FK",
+        metadata: %{"chat_id" => "oc_missing_fk"},
+        raw_payload: %{},
+        first_seen_at: @base_time,
+        last_seen_at: @base_time
+      })
+      |> Repo.insert!()
+
+      assert :ok =
+               IMGroups.maybe_enqueue_missing_channel_refresh(
+                 im_consumer(agent.uid, "lark", "cli_ingress"),
+                 %{channel: %{kind: :im_group}, signal_channel_id: channel_id}
+               )
+
+      assert_enqueued(
+        worker: RefreshIMGroup,
+        args: %{
+          "agent_uid" => agent.uid,
+          "binding_name" => "lark",
+          "chat_id" => "oc_missing_fk",
+          "reason" => "missing_channel_principal_group"
+        }
+      )
+
+      assert Repo.all(Group |> where([group], group.domain == :im_group)) == []
+    end
+
+    test "full sync skips disabled bindings without retryable error" do
+      %{principal: agent} = agent_fixture(%{uid: unique_uid("lark-disabled-sync-agent")})
+
+      assert {:ok, _} =
+               AppConfigure.put_global_by_key(
+                 Config.chat_config_key("lark-disabled-sync"),
+                 chat_config(%{"appId" => "cli_disabled_sync"})
+               )
+
+      binding_fixture(agent.uid, "lark-disabled-sync", :ignore)
+      assert {:ok, _binding} = SignalsGateway.disable_binding(agent.uid, "lark-disabled-sync")
+
+      assert {:ok,
+              %{
+                status: :skipped_binding_disabled,
+                binding: %{agent_uid: agent_uid, binding_name: "lark-disabled-sync"}
+              }} = IMGroups.sync_binding(agent.uid, "lark-disabled-sync")
+
+      assert agent_uid == agent.uid
+    end
+  end
+
   describe "identity provider" do
     test "authorization URL and directory upsert converge on platform subject" do
       config = identity_config()
@@ -1148,9 +1462,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                AuthZ.create_principal_group(%{
                  name: "lark_directory_#{System.unique_integer([:positive])}",
                  display_name: "Lark Directory",
-                 metadata: %{
-                   "external_directory" => %{"provider" => "lark-main", "kind" => "department"}
-                 }
+                 domain: :directory
                })
 
       assert {:ok, unmarked_group} =
@@ -1162,16 +1474,18 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert {:ok, _binding} =
                AuthZ.upsert_external_binding(%{
                  provider: "lark-main",
+                 external_kind: :directory_department,
                  external_id: "od_directory",
                  group_id: managed_group.id
                })
 
-      assert {:ok, _binding} =
-               AuthZ.upsert_external_binding(%{
-                 provider: "lark-main",
-                 external_id: "od_manual",
-                 group_id: unmarked_group.id
-               })
+      Repo.insert!(%Ankole.AuthZ.ExternalBinding{
+        provider: "lark-main",
+        external_kind: :directory_department,
+        external_id: "od_manual",
+        group_id: unmarked_group.id,
+        metadata: %{}
+      })
 
       assert {:ok, observed} =
                IdentityProvider.upsert_user("lark-main", %{
@@ -1226,26 +1540,60 @@ defmodule Ankole.Plugins.LarkAdapterTest do
         )
 
         case conn.request_path do
-          "/open-apis/contact/v3/users" ->
+          "/open-apis/contact/v3/departments/0/children" ->
             Req.Test.json(conn, %{
               "code" => 0,
               "data" => %{
                 "items" => [
-                  %{"user_id" => "ou_full_sync_1", "name" => "Full Sync One"},
-                  %{"user_id" => "ou_full_sync_2", "name" => "Full Sync Two"}
+                  %{
+                    "department_id" => "od_full_sync",
+                    "parent_department_id" => "0",
+                    "name" => "Full Sync Department"
+                  }
                 ],
                 "has_more" => false
               }
             })
 
-          "/open-apis/contact/v3/departments" ->
-            Req.Test.json(conn, %{
-              "code" => 0,
-              "data" => %{
-                "items" => [%{"department_id" => "od_full_sync"}],
-                "has_more" => false
-              }
-            })
+          "/open-apis/contact/v3/users" ->
+            case URI.decode_query(conn.query_string) do
+              %{"department_id" => "0"} ->
+                Req.Test.json(conn, %{
+                  "code" => 0,
+                  "data" => %{
+                    "items" => [
+                      %{
+                        "user_id" => "ou_full_sync_1",
+                        "name" => "Full Sync One",
+                        "department_ids" => []
+                      },
+                      %{"user_id" => "ou_full_sync_2", "name" => "Full Sync Two"}
+                    ],
+                    "has_more" => false
+                  }
+                })
+
+              %{"department_id" => "od_full_sync"} ->
+                Req.Test.json(conn, %{
+                  "code" => 0,
+                  "data" => %{
+                    "items" => [
+                      %{
+                        "user_id" => "ou_full_sync_1",
+                        "name" => "Full Sync One",
+                        "department_ids" => ["od_full_sync"]
+                      }
+                    ],
+                    "has_more" => false
+                  }
+                })
+
+              _query ->
+                Req.Test.json(conn, %{
+                  "code" => 0,
+                  "data" => %{"has_more" => false}
+                })
+            end
         end
       end)
 
@@ -1257,9 +1605,46 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
       assert observed.uid == "ou_full_sync_1"
 
+      assert [department_group_id] =
+               AuthZ.external_group_ids("lark-main", :directory_department, "od_full_sync")
+
+      assert department_group = Repo.get(Group, department_group_id)
+      assert department_group.name == "lark-main:department:od_full_sync"
+      assert department_group.display_name == "Full Sync Department"
+      assert department_group.domain == :directory
+
+      assert get_in(department_group.metadata, [
+               "external_directory",
+               "parentExternalId"
+             ]) == "0"
+
+      assert Repo.get_by(Membership,
+               principal_uid: observed.uid,
+               group_id: department_group.id
+             )
+
       assert Agent.get(requests, & &1) == [
-               {"/open-apis/contact/v3/users", %{"page_size" => "17"}},
-               {"/open-apis/contact/v3/departments", %{"page_size" => "17"}}
+               {"/open-apis/contact/v3/departments/0/children",
+                %{
+                  "department_id_type" => "department_id",
+                  "fetch_child" => "true",
+                  "page_size" => "17",
+                  "user_id_type" => "user_id"
+                }},
+               {"/open-apis/contact/v3/users",
+                %{
+                  "department_id" => "0",
+                  "department_id_type" => "department_id",
+                  "page_size" => "17",
+                  "user_id_type" => "user_id"
+                }},
+               {"/open-apis/contact/v3/users",
+                %{
+                  "department_id" => "od_full_sync",
+                  "department_id_type" => "department_id",
+                  "page_size" => "17",
+                  "user_id_type" => "user_id"
+                }}
              ]
     end
 
@@ -1423,6 +1808,67 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       adapter: "lark",
       user_name: "Lark Bot"
     )
+  end
+
+  defp im_consumer(agent_uid, binding_name, app_id) do
+    %{
+      kind: :chat,
+      context:
+        AdapterContext.new(
+          agent_uid: agent_uid,
+          binding_name: binding_name,
+          adapter: "lark",
+          user_name: "Lark Bot"
+        ),
+      config: chat_config(%{"appId" => app_id})
+    }
+  end
+
+  defp im_chat_attrs(chat_id, name, app_id) do
+    %{
+      "name" => name,
+      "app_id" => app_id,
+      "domain" => "feishu",
+      "raw_payload" => %{"chat_id" => chat_id, "name" => name}
+    }
+  end
+
+  defp im_participant(agent_uid, binding_name, app_id, state) do
+    %{
+      "agent_uid" => agent_uid,
+      "binding_name" => binding_name,
+      "app_id" => app_id,
+      "domain" => "feishu",
+      "state" => state,
+      "last_seen_at" => DateTime.to_iso8601(@base_time)
+    }
+  end
+
+  defp im_chat_event(chat_id) do
+    %Event{
+      id: "evt_im_#{chat_id}",
+      type: "im.chat.member.bot.deleted_v1",
+      tenant_key: "tenant-a",
+      app_id: "cli_test",
+      created_at: @base_time,
+      content: %{"chat" => %{"chat_id" => chat_id}},
+      raw: %{}
+    }
+  end
+
+  defp im_member_event(chat_id, user_id) do
+    %Event{
+      id: "evt_im_member_#{chat_id}_#{user_id}",
+      type: "im.chat.member.user.deleted_v1",
+      tenant_key: "tenant-a",
+      app_id: "cli_test",
+      created_at: @base_time,
+      content: %{
+        "chat" => %{"chat_id" => chat_id},
+        "member" => %{"member_id" => %{"user_id" => user_id}}
+      },
+      raw: %{}
+    }
   end
 
   defp chat_config(overrides \\ %{}) do

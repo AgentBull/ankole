@@ -34,4 +34,7 @@ config :phoenix,
 
 config :ankole, Oban, testing: :manual, plugins: false, queues: false
 
+config :ankole, :identity_provider_startup_sync, enabled: false
+config :ankole, :identity_provider_realtime_reconcile, on_save: false
+
 config :ankole, :runtime_events, enabled: false

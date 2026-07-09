@@ -8,6 +8,8 @@ defmodule Ankole.MemoryTest do
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.Actors.ActorEvent
   alias Ankole.AppConfigure
+  alias Ankole.AuthZ.Group
+  alias Ankole.AuthZ.Membership
   alias Ankole.Memory
   alias Ankole.Memory.ChannelCursor
   alias Ankole.Memory.Config
@@ -252,8 +254,10 @@ defmodule Ankole.MemoryTest do
 
   test "search normalizes parser-hostile BM25 query and returns original message window" do
     %{principal: agent} = agent_fixture()
+    %{principal: user} = human_fixture(%{uid: unique_uid("memory-search-user")})
     target = channel_fixture("memory:search-target")
-    current = channel_fixture("memory:search-current")
+    link_im_group_channel!(target, agent.uid, user.uid)
+    current = channel_fixture("memory:search-current-dm", %{kind: :im_dm})
 
     old = DateTime.add(@base_time, -4, :hour)
     entry_fixture(target, "before", "setup context", DateTime.add(old, -2, :second))
@@ -262,13 +266,15 @@ defmodule Ankole.MemoryTest do
     entry_fixture(target, "outside", "refund v2 later", DateTime.add(@base_time, 4, :hour))
     entry_fixture(current, "current-hot", "refund v2 current hot", old)
 
-    observed_event_fixture(agent.uid, target, "observed-target", old)
-    current_event = observed_event_fixture(agent.uid, current, "current-event", @base_time)
+    current_event =
+      observed_event_fixture(agent.uid, current, "current-event", @base_time,
+        payload: memory_actor_payload(user.uid)
+      )
 
     assert {:ok, result} =
              Memory.search(%{
                "query" => ~s/refund:("v2"),/,
-               "scope" => "all_channels",
+               "scope" => "permitted_context",
                "from" => DateTime.add(old, -60, :second) |> DateTime.to_iso8601(),
                "to" => DateTime.add(old, 60, :second) |> DateTime.to_iso8601(),
                "turn_ref" => turn_ref(agent.uid, current_event),
@@ -330,8 +336,10 @@ defmodule Ankole.MemoryTest do
 
   test "search fuses BM25 and vector routes while skipping mismatched embedding dimensions" do
     %{principal: model_agent} = agent_fixture()
+    %{principal: user} = human_fixture(%{uid: unique_uid("memory-fusion-user")})
     target = channel_fixture("memory:fusion-target")
-    current = channel_fixture("memory:fusion-current")
+    link_im_group_channel!(target, model_agent.uid, user.uid)
+    current = channel_fixture("memory:fusion-current-dm", %{kind: :im_dm})
     old = DateTime.add(@base_time, -4, :hour)
 
     configure_memory_model!(model_agent, fn
@@ -390,13 +398,15 @@ defmodule Ankole.MemoryTest do
       episode_fixture(target, "Mismatched route", "Mismatched summary", ["mismatch-anchor"])
       |> sync_episode_embedding!("[1.0,0.0,0.0]", 3)
 
-    observed_event_fixture(model_agent.uid, target, "observed-fusion-target", old)
-    current_event = observed_event_fixture(model_agent.uid, current, "current-fusion", @base_time)
+    current_event =
+      observed_event_fixture(model_agent.uid, current, "current-fusion", @base_time,
+        payload: memory_actor_payload(user.uid)
+      )
 
     assert {:ok, result} =
              Memory.search(%{
                "query" => "bm25only",
-               "scope" => "all_channels",
+               "scope" => "permitted_context",
                "turn_ref" => turn_ref(model_agent.uid, current_event),
                "actor_event" => %{
                  "actor_event_id" => current_event.id,
@@ -424,32 +434,121 @@ defmodule Ankole.MemoryTest do
     refute Enum.any?(result["results"], &(&1["episode_id"] == mismatched_episode.id))
   end
 
-  test "all-channel search excludes DM channels from non-DM current channels" do
+  test "permitted-context DM search includes current DM and shared bot-user groups only" do
     %{principal: agent} = agent_fixture()
-    target = channel_fixture("memory:dm-safe-target")
-    dm = channel_fixture("memory:dm-secret", %{kind: :im_dm})
-    current = channel_fixture("memory:dm-current")
+    %{principal: user} = human_fixture(%{uid: unique_uid("memory-dm-user")})
+    %{principal: other_user} = human_fixture(%{uid: unique_uid("memory-other-dm-user")})
+    target = channel_fixture("memory:dm-shared-group")
+    link_im_group_channel!(target, agent.uid, user.uid)
+    other_group = channel_fixture("memory:dm-other-group")
+    link_im_group_channel!(other_group, agent.uid, other_user.uid)
+    dm = channel_fixture("memory:dm-current", %{kind: :im_dm})
+    other_dm = channel_fixture("memory:dm-secret", %{kind: :im_dm})
     old = DateTime.add(@base_time, -4, :hour)
 
     entry_fixture(target, "target-hit", "private budget alpha", old)
     entry_fixture(dm, "dm-hit", "private budget alpha", old)
+    entry_fixture(other_group, "other-group-hit", "private budget alpha", old)
+    entry_fixture(other_dm, "other-dm-hit", "private budget alpha", old)
 
-    observed_event_fixture(agent.uid, target, "observed-target-dm-safe", old)
-    observed_event_fixture(agent.uid, dm, "observed-dm-secret", old)
-    current_event = observed_event_fixture(agent.uid, current, "current-dm-safe", @base_time)
+    for index <- 1..81 do
+      entry_fixture(
+        dm,
+        "dm-filler-#{index}",
+        "non matching dm filler #{index}",
+        DateTime.add(old, index, :second)
+      )
+    end
+
+    current_event =
+      observed_event_fixture(agent.uid, dm, "current-dm-safe", @base_time,
+        payload: memory_actor_payload(user.uid)
+      )
 
     assert {:ok, result} =
              Memory.search(%{
                "query" => "private budget alpha",
-               "scope" => "all_channels",
+               "scope" => "permitted_context",
                "turn_ref" => turn_ref(agent.uid, current_event),
                "actor_event" => %{
                  "actor_event_id" => current_event.id,
-                 "signal_channel_id" => current.id
+                 "signal_channel_id" => dm.id
+               }
+             })
+
+    assert result["results"]
+           |> Enum.map(& &1["channel_id"])
+           |> MapSet.new() == MapSet.new([target.id, dm.id])
+  end
+
+  test "permitted-context group search stays in the current group" do
+    %{principal: agent} = agent_fixture()
+    target = channel_fixture("memory:group-current")
+    other_group = channel_fixture("memory:group-other")
+    old = DateTime.add(@base_time, -4, :hour)
+
+    entry_fixture(target, "target-hit", "launch codename gamma", old)
+    entry_fixture(other_group, "other-hit", "launch codename gamma", old)
+
+    for index <- 1..81 do
+      entry_fixture(
+        target,
+        "group-filler-#{index}",
+        "non matching group filler #{index}",
+        DateTime.add(old, index, :second)
+      )
+    end
+
+    current_event = observed_event_fixture(agent.uid, target, "current-group-safe", @base_time)
+
+    assert {:ok, result} =
+             Memory.search(%{
+               "query" => "launch codename gamma",
+               "scope" => "permitted_context",
+               "turn_ref" => turn_ref(agent.uid, current_event),
+               "actor_event" => %{
+                 "actor_event_id" => current_event.id,
+                 "signal_channel_id" => target.id
                }
              })
 
     assert Enum.map(result["results"], & &1["channel_id"]) == [target.id]
+  end
+
+  test "permitted-context DM search fails closed when actor author lacks principal uid" do
+    %{principal: agent} = agent_fixture()
+    %{principal: user} = human_fixture(%{uid: unique_uid("memory-naked-sender-user")})
+    target = channel_fixture("memory:naked-shared-group")
+    link_im_group_channel!(target, agent.uid, user.uid)
+    dm = channel_fixture("memory:naked-current-dm", %{kind: :im_dm})
+    old = DateTime.add(@base_time, -4, :hour)
+
+    entry_fixture(target, "target-hit", "naked sender private alpha", old)
+    entry_fixture(dm, "dm-hit", "private budget alpha", old)
+
+    current_event =
+      observed_event_fixture(agent.uid, dm, "current-naked-sender", @base_time,
+        sender_key: user.uid,
+        payload: %{
+          "data" => %{
+            "entry" => %{"author" => %{"id" => user.uid}},
+            "session" => %{"binding_name" => "memory-test"}
+          }
+        }
+      )
+
+    assert {:ok, result} =
+             Memory.search(%{
+               "query" => "naked sender private alpha",
+               "scope" => "permitted_context",
+               "turn_ref" => turn_ref(agent.uid, current_event),
+               "actor_event" => %{
+                 "actor_event_id" => current_event.id,
+                 "signal_channel_id" => dm.id
+               }
+             })
+
+    assert result["results"] == []
   end
 
   test "browse paginates current-channel entries" do
@@ -483,6 +582,37 @@ defmodule Ankole.MemoryTest do
 
     assert Enum.map(second_page["entries"], & &1["source_entry_id"]) == ["oldest"]
     assert is_nil(second_page["next_cursor"])
+  end
+
+  test "browse rejects explicit channel outside permitted context" do
+    %{principal: agent} = agent_fixture()
+    %{principal: user} = human_fixture(%{uid: unique_uid("memory-browse-user")})
+    allowed_group = channel_fixture("memory:browse-allowed-group")
+    link_im_group_channel!(allowed_group, agent.uid, user.uid)
+    denied_group = channel_fixture("memory:browse-denied-group")
+    dm = channel_fixture("memory:browse-current-dm", %{kind: :im_dm})
+
+    entry_fixture(allowed_group, "allowed", "allowed entry", DateTime.add(@base_time, -4, :hour))
+    entry_fixture(denied_group, "denied", "denied entry", DateTime.add(@base_time, -4, :hour))
+
+    current_event =
+      observed_event_fixture(agent.uid, dm, "current-browse-permission", @base_time,
+        payload: memory_actor_payload(user.uid)
+      )
+
+    attrs = %{
+      "turn_ref" => turn_ref(agent.uid, current_event),
+      "actor_event" => %{
+        "actor_event_id" => current_event.id,
+        "signal_channel_id" => dm.id
+      }
+    }
+
+    assert {:ok, page} = attrs |> Map.put("channel_id", allowed_group.id) |> Memory.browse()
+    assert [%{"source_entry_id" => "allowed"}] = page["entries"]
+
+    assert {:error, :memory_channel_not_permitted} =
+             attrs |> Map.put("channel_id", denied_group.id) |> Memory.browse()
   end
 
   defp channel_fixture(id, attrs \\ %{}) do
@@ -534,11 +664,52 @@ defmodule Ankole.MemoryTest do
     |> Repo.insert!()
   end
 
-  defp observed_event_fixture(agent_uid, %Channel{} = channel, source_event_id, available_at) do
+  defp link_im_group_channel!(%Channel{} = channel, agent_uid, member_uid) do
+    group =
+      %Group{}
+      |> Group.changeset(%{
+        name: "#{channel.id}:group",
+        display_name: channel.name,
+        domain: :im_group,
+        metadata: %{
+          "lark_im" => %{
+            "sync_participants" => %{
+              "#{String.downcase(agent_uid)}|memory-test" => %{
+                "agent_uid" => String.downcase(agent_uid),
+                "binding_name" => "memory-test",
+                "state" => "joined"
+              }
+            }
+          }
+        }
+      })
+      |> Repo.insert!()
+
+    %Membership{}
+    |> Membership.changeset(%{group_id: group.id, principal_uid: member_uid})
+    |> Repo.insert!()
+
+    channel
+    |> Channel.changeset(%{principal_group_id: group.id})
+    |> Repo.update!()
+
+    group
+  end
+
+  defp memory_actor_payload(principal_uid) do
+    %{
+      "data" => %{
+        "entry" => %{"author" => %{"principal_uid" => principal_uid}},
+        "session" => %{"binding_name" => "memory-test"}
+      }
+    }
+  end
+
+  defp observed_event_fixture(agent_uid, %Channel{} = channel, source_event_id, available_at, attrs \\ []) do
     %ActorEvent{}
     |> ActorEvent.changeset(%{
       agent_uid: agent_uid,
-      binding_name: "memory-test",
+      binding_name: Keyword.get(attrs, :binding_name, "memory-test"),
       session_id: "memory-session",
       source_event_id: source_event_id,
       signal_channel_id: channel.id,
@@ -547,7 +718,8 @@ defmodule Ankole.MemoryTest do
       available_at: available_at,
       queue_sequence: System.unique_integer([:positive]),
       input_state: "open",
-      payload: %{}
+      sender_key: Keyword.get(attrs, :sender_key),
+      payload: Keyword.get(attrs, :payload, %{})
     })
     |> Repo.insert!()
   end
