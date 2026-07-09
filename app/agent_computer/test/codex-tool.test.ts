@@ -40,6 +40,7 @@ describe('@ankole/agent-computer Codex delegation', () => {
       expect(defaultToml).toContain('approval_policy = "never"')
       expect(defaultToml).toContain('sandbox_mode = "danger-full-access"')
       expect(defaultToml).toContain('features.remote_compaction_v2 = false')
+      expect(defaultToml).toContain('# Codex enables remote /responses/compact only for its built-in provider ids.')
       expect(defaultToml).toContain('[model_providers.openai]')
       expect(defaultToml).toContain('base_url = "http://aigateway.test/v1"')
       expect(defaultToml).toContain('supports_websockets = true')

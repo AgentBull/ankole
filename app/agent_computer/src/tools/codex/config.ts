@@ -95,23 +95,24 @@ export function codexConfigCliOverrides(): string[] {
 }
 
 function aigatewayConfigToml(baseUrl: string): string {
-  return [
-    'model = "coding"',
-    'model_provider = "openai"',
-    'model_reasoning_effort = "xhigh"',
-    'approval_policy = "never"',
-    'sandbox_mode = "danger-full-access"',
-    'cli_auth_credentials_store = "file"',
-    'features.remote_compaction_v2 = false',
-    '',
-    '[model_providers.openai]',
-    'name = "Ankole AIGateway"',
-    `base_url = ${tomlString(baseUrl.replace(/\/+$/, ''))}`,
-    'env_key = "ANKOLE_AIGATEWAY_API_KEY"',
-    'wire_api = "responses"',
-    'supports_websockets = true',
-    ''
-  ].join('\n')
+  const normalizedBaseUrl = baseUrl.replace(/\/+$/, '')
+  return `model = "coding"
+model_provider = "openai"
+model_reasoning_effort = "xhigh"
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+cli_auth_credentials_store = "file"
+features.remote_compaction_v2 = false
+
+# Codex enables remote /responses/compact only for its built-in provider ids.
+# Override the openai provider slot so Ankole receives v1 compaction requests.
+[model_providers.openai]
+name = "Ankole AIGateway"
+base_url = ${tomlString(normalizedBaseUrl)}
+env_key = "ANKOLE_AIGATEWAY_API_KEY"
+wire_api = "responses"
+supports_websockets = true
+`
 }
 
 function officialSubscriptionDefaultConfig(): string {
