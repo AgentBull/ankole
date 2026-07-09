@@ -7,7 +7,6 @@ defmodule Ankole.SignalsGatewayOutboxCommitTest do
   alias Ankole.SignalsGateway.Ingress
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Entry
-  alias Ankole.SignalsGatewayFixtures.ModuleOutboxAdapter
 
   import Ankole.ActorRuntimeCase, only: [complete_actor_event: 4]
   import Ankole.PrincipalsFixtures
@@ -40,7 +39,7 @@ defmodule Ankole.SignalsGatewayOutboxCommitTest do
 
       binding_fixture(agent_uid, "bad-adapter", :ignore, adapter: "missing-adapter")
 
-      assert {:error, {:outbox_adapter_not_found, "missing-adapter"}} =
+      assert {:error, {:signal_adapter_not_found, "missing-adapter"}} =
                SignalsGateway.outbox_operation_for_actor_event(%{
                  input
                  | binding_name: "bad-adapter"
@@ -170,7 +169,10 @@ defmodule Ankole.SignalsGatewayOutboxCommitTest do
                  agent.uid,
                  "webhook",
                  "reply-1",
-                 %{capabilities: [:reply_entry]},
+                 %{
+                   capabilities: [:reply_entry],
+                   send: fn _outbox -> flunk("unsupported webhook outbox must not be sent") end
+                 },
                  now: @base_time
                )
 
@@ -224,7 +226,7 @@ defmodule Ankole.SignalsGatewayOutboxCommitTest do
       assert outbox.platform_send_started_at == nil
     end
 
-    test "module outbox adapters use the same normalized adapter contract" do
+    test "test adapters without executable callbacks fail before the outbox row enters sending" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
@@ -237,27 +239,61 @@ defmodule Ankole.SignalsGatewayOutboxCommitTest do
                SignalsGateway.commit_outbox(%{
                  agent_uid: agent.uid,
                  binding_name: "bot",
-                 outbound_key: "module-adapter",
+                 outbound_key: "missing-test-callback",
                  operation: :post,
                  signal_channel_id: "lark:chat:group-a",
-                 fallback_visible_text: "from module"
+                 fallback_visible_text: "visible"
                })
 
-      assert {:ok, succeeded} =
+      assert {:error, :invalid_outbox_adapter} =
                SignalsGateway.dispatch_outbox(
                  agent.uid,
                  "bot",
-                 "module-adapter",
-                 ModuleOutboxAdapter,
+                 "missing-test-callback",
+                 %{capabilities: [:post_entry]},
                  now: @base_time
                )
 
-      assert succeeded.status == :succeeded
+      outbox =
+        Repo.get_by!(OutboxEntry,
+          agent_uid: agent.uid,
+          binding_name: "bot",
+          outbound_key: "missing-test-callback"
+        )
 
-      assert Repo.get_by!(Entry,
-               signal_channel_id: "lark:chat:group-a",
-               source_entry_id: "module-adapter-msg"
-             ).text == "from module"
+      assert outbox.status == :created
+      assert outbox.platform_send_started_at == nil
+    end
+
+    test "registered adapter resolution fails before the outbox row enters sending" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "missing", :ignore, adapter: "missing-adapter")
+
+      assert {:ok, _outbox} =
+               SignalsGateway.commit_outbox(%{
+                 agent_uid: agent.uid,
+                 binding_name: "missing",
+                 outbound_key: "missing-registered-adapter",
+                 operation: :post,
+                 fallback_visible_text: "must remain pending"
+               })
+
+      assert {:error, {:signal_adapter_not_found, "missing-adapter"}} =
+               SignalsGateway.dispatch_outbox_by_key(
+                 agent.uid,
+                 "missing",
+                 "missing-registered-adapter"
+               )
+
+      outbox =
+        Repo.get_by!(OutboxEntry,
+          agent_uid: agent.uid,
+          binding_name: "missing",
+          outbound_key: "missing-registered-adapter"
+        )
+
+      assert outbox.status == :created
+      assert outbox.platform_send_started_at == nil
     end
 
     test "invalid adapter result is normalized, redacted, and recorded as send failure" do

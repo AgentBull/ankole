@@ -10,16 +10,6 @@ defmodule Ankole.SignalsGatewayFixtures do
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
 
-  defmodule ModuleOutboxAdapter do
-    @moduledoc false
-
-    @behaviour Ankole.SignalsGateway.OutboxAdapter
-
-    def capabilities, do: [:post_entry]
-
-    def send(_outbox), do: {:ok, %{created_source_entry_id: "module-adapter-msg"}}
-  end
-
   def base_time, do: @base_time
 
   def actor_commit_opts(opts) do

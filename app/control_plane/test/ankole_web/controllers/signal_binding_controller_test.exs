@@ -90,6 +90,20 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     assert {:error, :binding_disabled} = SignalsGateway.get_binding(agent.uid, "lark-main")
   end
 
+  test "unknown signal adapter remains a 404", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+
+    conn =
+      conn
+      |> bearer_conn()
+      |> put(~p"/api/v1/agents/#{agent.uid}/signal-bindings/missing/default", %{
+        "config" => %{}
+      })
+
+    assert %{"error" => %{"code" => "not_found", "message" => "signal adapter was not found"}} =
+             json_response(conn, 404)
+  end
+
   test "admin lists signal adapter catalog with provider fields and common group mode field", %{
     conn: conn
   } do
@@ -124,6 +138,43 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
            ]
   end
 
+  test "signal adapter catalog returns 503 while the plugin registry is unavailable", %{
+    conn: conn
+  } do
+    conn = bearer_conn(conn)
+
+    conn =
+      without_plugin_registry(fn ->
+        get(conn, ~p"/api/v1/signal-adapters")
+      end)
+
+    assert %{
+             "error" => %{
+               "code" => "service_unavailable",
+               "message" => "signal adapter registry is unavailable"
+             }
+           } = json_response(conn, 503)
+  end
+
+  test "signal binding save returns 503 while the plugin registry is unavailable", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+    conn = bearer_conn(conn)
+
+    conn =
+      without_plugin_registry(fn ->
+        put(conn, ~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark/unavailable", %{
+          "config" => %{}
+        })
+      end)
+
+    assert %{
+             "error" => %{
+               "code" => "service_unavailable",
+               "message" => "signal adapter registry is unavailable"
+             }
+           } = json_response(conn, 503)
+  end
+
   test "OpenAPI JSON includes signal binding configuration endpoint", %{conn: conn} do
     conn = get(conn, ~p"/api/v1/openapi.json")
     paths = json_response(conn, 200)["paths"]
@@ -137,6 +188,26 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
            )
 
     assert Map.has_key?(paths, "/api/v1/agents/{agent_uid}/signal-bindings/{binding_name}")
+
+    assert get_in(paths, ["/api/v1/signal-adapters", "get", "responses", "503"])
+
+    assert get_in(paths, [
+             "/api/v1/agents/{agent_uid}/signal-bindings/{adapter_id}/{binding_name}",
+             "put",
+             "responses",
+             "503"
+           ])
+  end
+
+  defp without_plugin_registry(fun) do
+    registry = Process.whereis(Ankole.Plugins.Registry)
+    true = Process.unregister(Ankole.Plugins.Registry)
+
+    try do
+      fun.()
+    after
+      true = Process.register(registry, Ankole.Plugins.Registry)
+    end
   end
 
   defp bearer_conn(conn) do

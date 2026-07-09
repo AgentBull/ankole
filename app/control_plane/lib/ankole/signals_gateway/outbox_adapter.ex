@@ -2,15 +2,17 @@ defmodule Ankole.SignalsGateway.OutboxAdapter do
   @moduledoc """
   Normalized provider outbox adapter contract.
 
-  The adapter can be a map used by tests or a module/runtime object. Capability
-  parsing is deliberately whitelist-based so provider input cannot create atoms.
+  The adapter can be a normalized module contract or a map used by tests.
+  Capability parsing is deliberately whitelist-based so provider input cannot
+  create atoms.
 
   Real provider modules should declare `@behaviour #{inspect(__MODULE__)}` and
-  implement `capabilities/0` and `send/1`. `reconcile/1` is optional and is only
-  used for recovery of a durable `sending` outbox row.
+  implement `send/1`. `reconcile/1` is optional and is only used for recovery of
+  a durable `sending` outbox row. Capabilities come from the plugin declaration.
   """
 
   alias Ankole.SignalsGateway.Sanitizer
+  alias Ankole.SignalsGateway.Utils
 
   # The closed universe of capabilities an adapter may advertise. The gateway
   # checks an operation against these before dispatching (e.g. `:reply` needs
@@ -46,35 +48,53 @@ defmodule Ankole.SignalsGateway.OutboxAdapter do
           reconcile_fun: nil | (term() -> term())
         }
 
-  @callback capabilities() :: [atom() | String.t()] | MapSet.t(atom() | String.t())
   @callback send(term()) :: adapter_result() | term()
   @callback reconcile(term()) :: adapter_result() | term()
 
   @optional_callbacks reconcile: 1
 
   @doc """
-  Normalizes an adapter map or module into the outbox adapter contract.
+  Constructs an executable adapter from its module and declared capabilities.
+
+  Plugin declarations are the capability source of truth. The module contributes
+  only the callbacks that execute the contract.
   """
-  @spec normalize(map() | module()) :: {:ok, t()} | {:error, term()}
-  def normalize(adapter) when is_map(adapter) do
-    with {:ok, capabilities} <- normalize_capabilities(fetch(adapter, :capabilities, [])) do
+  @spec from_module(module(), [atom() | String.t()] | MapSet.t(atom() | String.t())) ::
+          {:ok, t()} | {:error, term()}
+  def from_module(module, capabilities) when is_atom(module) do
+    with true <- Code.ensure_loaded?(module) || {:error, :invalid_outbox_adapter},
+         {:ok, capabilities} <- normalize_capabilities(capabilities),
+         :ok <- Utils.validate_module_callback(module, :send, 1),
+         :ok <- validate_reconcile_callback(module, capabilities) do
       {:ok,
        %__MODULE__{
          capabilities: capabilities,
-         send_fun: fetch_fun(adapter, :send),
-         reconcile_fun: fetch_fun(adapter, :reconcile)
+         send_fun: module_fun(module, :send, 1),
+         reconcile_fun: module_fun(module, :reconcile, 1)
        }}
     end
   end
 
-  def normalize(adapter) when is_atom(adapter) do
-    with true <- Code.ensure_loaded?(adapter) || {:error, :invalid_outbox_adapter},
-         {:ok, capabilities} <- module_capabilities(adapter) do
+  def from_module(_module, _capabilities), do: {:error, :invalid_outbox_adapter}
+
+  @doc """
+  Normalizes an adapter contract or test map.
+  """
+  @spec normalize(t() | map()) :: {:ok, t()} | {:error, term()}
+  def normalize(%__MODULE__{} = adapter), do: {:ok, adapter}
+
+  def normalize(adapter) when is_map(adapter) do
+    send_fun = fetch_fun(adapter, :send)
+    reconcile_fun = fetch_fun(adapter, :reconcile)
+
+    with {:ok, capabilities} <- normalize_capabilities(fetch(adapter, :capabilities, [])),
+         :ok <- validate_test_callback(send_fun),
+         :ok <- validate_test_reconcile_callback(reconcile_fun, capabilities) do
       {:ok,
        %__MODULE__{
          capabilities: capabilities,
-         send_fun: module_fun(adapter, :send, 1),
-         reconcile_fun: module_fun(adapter, :reconcile, 1)
+         send_fun: send_fun,
+         reconcile_fun: reconcile_fun
        }}
     end
   end
@@ -120,24 +140,35 @@ defmodule Ankole.SignalsGateway.OutboxAdapter do
     {:error, {:invalid_adapter_result, Sanitizer.transport(result)}}
   end
 
-  defp module_capabilities(adapter) do
-    case function_exported?(adapter, :capabilities, 0) do
-      true -> normalize_capabilities(adapter.capabilities())
-      false -> {:ok, MapSet.new()}
+  defp module_fun(adapter, function, arity) do
+    case function_exported?(adapter, function, arity) do
+      true -> Function.capture(adapter, function, arity)
+      false -> nil
     end
   end
 
-  defp module_fun(adapter, function, arity) do
-    case function_exported?(adapter, function, arity) do
-      true -> &apply(adapter, function, [&1])
-      false -> nil
+  defp validate_reconcile_callback(module, capabilities) do
+    case MapSet.member?(capabilities, :outbound_reconciliation) do
+      true -> Utils.validate_module_callback(module, :reconcile, 1)
+      false -> :ok
+    end
+  end
+
+  defp validate_test_callback(send_fun) when is_function(send_fun, 1), do: :ok
+  defp validate_test_callback(_send_fun), do: {:error, :invalid_outbox_adapter}
+
+  defp validate_test_reconcile_callback(reconcile_fun, capabilities) do
+    case MapSet.member?(capabilities, :outbound_reconciliation) do
+      true when is_function(reconcile_fun, 1) -> :ok
+      true -> {:error, :invalid_outbox_adapter}
+      false -> :ok
     end
   end
 
   defp normalize_capabilities(capabilities) when is_list(capabilities) do
     capabilities
     |> Enum.map(&normalize_capability/1)
-    |> collect_results()
+    |> Utils.collect_results()
     |> case do
       {:ok, values} -> {:ok, MapSet.new(values)}
       {:error, _reason} = error -> error
@@ -180,17 +211,6 @@ defmodule Ankole.SignalsGateway.OutboxAdapter do
     case fetch(map, key, nil) do
       fun when is_function(fun, 1) -> fun
       _value -> nil
-    end
-  end
-
-  defp collect_results(results) do
-    Enum.reduce_while(results, {:ok, []}, fn
-      {:ok, value}, {:ok, acc} -> {:cont, {:ok, [value | acc]}}
-      {:error, _reason} = error, _acc -> {:halt, error}
-    end)
-    |> case do
-      {:ok, values} -> {:ok, Enum.reverse(values)}
-      {:error, _reason} = error -> error
     end
   end
 end

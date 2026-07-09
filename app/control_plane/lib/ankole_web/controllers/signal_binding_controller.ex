@@ -27,7 +27,8 @@ defmodule AnkoleWeb.SignalBindingController do
     responses: [
       ok: {"Signal adapters", "application/json", SignalAdapterListResponse},
       unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope}
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
+      service_unavailable: {"Adapter registry unavailable", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -58,7 +59,8 @@ defmodule AnkoleWeb.SignalBindingController do
       unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
       forbidden: {"Forbidden", "application/json", ErrorEnvelope},
       not_found: {"Not found", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid value", "application/json", ErrorEnvelope}
+      unprocessable_entity: {"Invalid value", "application/json", ErrorEnvelope},
+      service_unavailable: {"Adapter registry unavailable", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -77,8 +79,9 @@ defmodule AnkoleWeb.SignalBindingController do
   )
 
   def adapters(conn, _params) do
-    with :ok <- ConsolePolicy.authorize(conn, "signal_gateway_adapters", "read") do
-      json(conn, %{data: SignalsGateway.list_adapters()})
+    with :ok <- ConsolePolicy.authorize(conn, "signal_gateway_adapters", "read"),
+         {:ok, adapters} <- SignalsGateway.list_adapters() do
+      json(conn, %{data: adapters})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -173,8 +176,17 @@ defmodule AnkoleWeb.SignalBindingController do
   defp error(conn, :agent_not_found), do: error(conn, 404, "not_found", "agent was not found")
   defp error(conn, :binding_not_found), do: error(conn, 404, "not_found", "binding was not found")
 
-  defp error(conn, {:unknown_signal_adapter, _adapter_id}),
+  defp error(conn, {:signal_adapter_not_found, _adapter_id}),
     do: error(conn, 404, "not_found", "signal adapter was not found")
+
+  defp error(conn, :signal_adapter_registry_unavailable),
+    do:
+      error(
+        conn,
+        503,
+        "service_unavailable",
+        "signal adapter registry is unavailable"
+      )
 
   defp error(conn, :missing_config),
     do: error(conn, 422, "validation_failed", "config is required")

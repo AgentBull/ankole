@@ -26,7 +26,11 @@ defmodule Ankole.PluginFixtures.MockSignalProviderPlugin do
         ingress_module: Inbound,
         outbox_module: Outbox,
         inbound_capabilities: ["entry_receive"],
-        outbound_capabilities: ["reply_entry"]
+        outbound_capabilities: [
+          "post_entry",
+          "reply_entry",
+          "outbound_reconciliation"
+        ]
       }
     ]
   end
@@ -135,15 +139,19 @@ defmodule Ankole.PluginFixtures.MockSignalProvider.Outbox do
   @behaviour Ankole.SignalsGateway.OutboxAdapter
 
   @recipient_key {__MODULE__, :recipient}
-
-  @impl true
-  def capabilities, do: [:reply_entry]
+  @reconcile_result_key {__MODULE__, :reconcile_result}
 
   @doc false
   def put_recipient(pid) when is_pid(pid), do: :persistent_term.put(@recipient_key, pid)
 
   @doc false
   def delete_recipient, do: :persistent_term.erase(@recipient_key)
+
+  @doc false
+  def put_reconcile_result(result), do: :persistent_term.put(@reconcile_result_key, result)
+
+  @doc false
+  def delete_reconcile_result, do: :persistent_term.erase(@reconcile_result_key)
 
   @impl true
   def send(outbox) do
@@ -158,4 +166,7 @@ defmodule Ankole.PluginFixtures.MockSignalProvider.Outbox do
        raw_payload: %{"provider" => "mock-signal-provider"}
      }}
   end
+
+  @impl true
+  def reconcile(_outbox), do: :persistent_term.get(@reconcile_result_key, :unknown)
 end

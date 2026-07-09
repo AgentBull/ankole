@@ -233,7 +233,7 @@ defmodule Ankole.Plugins.Registry do
     result =
       case contract_id do
         "signals_gateway.adapter" ->
-          Ankole.SignalsGateway.Bindings.validate_adapter_declaration(declaration)
+          Ankole.SignalsGateway.Adapters.validate_declaration(declaration)
 
         "principals.identity_provider" ->
           Ankole.IdentityProviders.validate_adapter_declaration(declaration)

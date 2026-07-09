@@ -173,6 +173,82 @@ defmodule Ankole.PluginFixtures.UnknownSignalsInboundCapabilityPlugin do
   def handle_message_receive(_event_type, _event, _consumers), do: {:ok, []}
 end
 
+defmodule Ankole.PluginFixtures.UnknownSignalsOutboundCapabilityPlugin do
+  @moduledoc false
+
+  @behaviour Ankole.Plugins.Plugin
+
+  @impl true
+  def plugin_id, do: "unknown-signals-outbound-capability"
+
+  @impl true
+  def api_version, do: 1
+
+  @impl true
+  def adapter_declarations do
+    [
+      %{
+        contract_id: "signals_gateway.adapter",
+        id: "unknown-signals-outbound-capability",
+        outbox_module: __MODULE__,
+        outbound_capabilities: ["post_entry", "made_up"]
+      }
+    ]
+  end
+
+  def send(_outbox), do: {:ok, %{}}
+end
+
+defmodule Ankole.PluginFixtures.MissingSignalsOutboxSendPlugin do
+  @moduledoc false
+
+  @behaviour Ankole.Plugins.Plugin
+
+  @impl true
+  def plugin_id, do: "missing-signals-outbox-send"
+
+  @impl true
+  def api_version, do: 1
+
+  @impl true
+  def adapter_declarations do
+    [
+      %{
+        contract_id: "signals_gateway.adapter",
+        id: "missing-signals-outbox-send",
+        outbox_module: __MODULE__,
+        outbound_capabilities: ["post_entry"]
+      }
+    ]
+  end
+end
+
+defmodule Ankole.PluginFixtures.MissingSignalsOutboxReconcilePlugin do
+  @moduledoc false
+
+  @behaviour Ankole.Plugins.Plugin
+
+  @impl true
+  def plugin_id, do: "missing-signals-outbox-reconcile"
+
+  @impl true
+  def api_version, do: 1
+
+  @impl true
+  def adapter_declarations do
+    [
+      %{
+        contract_id: "signals_gateway.adapter",
+        id: "missing-signals-outbox-reconcile",
+        outbox_module: __MODULE__,
+        outbound_capabilities: ["post_entry", "outbound_reconciliation"]
+      }
+    ]
+  end
+
+  def send(_outbox), do: {:ok, %{}}
+end
+
 defmodule Ankole.PluginFixtures.UnknownIdentityCapabilityPlugin do
   @moduledoc false
 

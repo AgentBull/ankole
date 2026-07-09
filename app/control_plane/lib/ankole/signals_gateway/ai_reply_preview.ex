@@ -32,6 +32,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   alias Ankole.Actors.ActorEvent
   alias Ankole.Logging
   alias Ankole.Repo
+  alias Ankole.SignalsGateway.Adapters
   alias Ankole.SignalsGateway.AIReplyText
   alias Ankole.SignalsGateway.Outbox
   alias Ankole.SignalsGateway.OutboxAdapter
@@ -559,33 +560,13 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   end
 
   defp adapter_for_event(%ActorEvent{} = event) do
-    with {:ok, binding} <- binding_for_event(event),
-         {:ok, adapter_module} <- outbox_module_for_adapter(binding.adapter) do
-      OutboxAdapter.normalize(adapter_module)
+    with {:ok, binding} <- binding_for_event(event) do
+      Adapters.fetch_outbox(binding.adapter)
     end
   end
 
   defp binding_for_event(%ActorEvent{} = event) do
     Ankole.SignalsGateway.get_binding(event.agent_uid, event.binding_name)
-  end
-
-  defp outbox_module_for_adapter(adapter_id) do
-    case Process.whereis(Ankole.Plugins.Registry) do
-      nil ->
-        {:error, :plugin_registry_not_started}
-
-      _pid ->
-        "signals_gateway.adapter"
-        |> Ankole.Plugins.adapter_declarations()
-        |> Enum.find(fn declaration ->
-          declaration[:id] == adapter_id or declaration["id"] == adapter_id
-        end)
-        |> case do
-          %{outbox_module: module} when is_atom(module) -> {:ok, module}
-          %{"outbox_module" => module} when is_atom(module) -> {:ok, module}
-          _declaration -> {:error, {:outbox_adapter_not_found, adapter_id}}
-        end
-    end
   end
 
   defp created_source_entry_id(result) when is_map(result) do

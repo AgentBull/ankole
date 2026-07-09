@@ -1492,10 +1492,14 @@ Outbox is an external sink boundary:
 | Adapter send attempt | At-least-once attempt unless idempotency/reconciliation exists |
 | Provider mirror update | Only after confirmed provider success |
 
-The dispatcher first normalizes the adapter into a small contract: declared
-capabilities, a send callback, and an optional reconciliation callback.
-Capabilities are parsed from a fixed allowlist. Unknown capability names are
-adapter errors and must not move the row to `sending`.
+`SignalsGateway.Adapters` is the only interpreter of raw
+`signals_gateway.adapter` plugin declarations. It resolves atom/string keys,
+projects the declaration's `outbound_capabilities` through the fixed allowlist,
+and constructs the small executable `OutboxAdapter` contract: normalized
+capabilities, a send callback, and an optional reconciliation callback. The
+declaration is the capability source of truth; provider modules do not repeat a
+second capability list. Unknown capability names are adapter errors and must not
+move the row to `sending`.
 
 Supported outbox behavior:
 

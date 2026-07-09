@@ -28,7 +28,7 @@ defmodule Ankole.SignalsGateway do
   @doc """
   Lists signal adapters available for operator-managed bindings.
   """
-  @spec list_adapters() :: [map()]
+  @spec list_adapters() :: {:ok, [map()]} | {:error, term()}
   defdelegate list_adapters(), to: Bindings
 
   @spec put_binding(String.t(), String.t(), String.t(), map()) ::
@@ -97,7 +97,13 @@ defmodule Ankole.SignalsGateway do
   @doc """
   Dispatches one outbox row through a concrete adapter runtime.
   """
-  @spec dispatch_outbox(String.t(), String.t(), String.t(), map(), keyword()) ::
+  @spec dispatch_outbox(
+          String.t(),
+          String.t(),
+          String.t(),
+          Ankole.SignalsGateway.OutboxAdapter.t() | map(),
+          keyword()
+        ) ::
           {:ok, OutboxEntry.t()} | {:error, term()}
   defdelegate dispatch_outbox(agent_uid, binding_name, outbound_key, adapter, options \\ []),
     to: Outbox

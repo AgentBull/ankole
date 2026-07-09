@@ -56,6 +56,13 @@ defmodule Ankole.SignalsGateway.Utils do
     end
   end
 
+  def validate_module_callback(module, function, arity) do
+    case function_exported?(module, function, arity) do
+      true -> :ok
+      false -> {:error, {:missing_adapter_callback, module, function, arity}}
+    end
+  end
+
   def normalize_provider_lifecycle_kind(nil), do: nil
 
   def normalize_provider_lifecycle_kind(kind) when is_atom(kind) do

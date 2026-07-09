@@ -9,6 +9,7 @@ defmodule Ankole.SignalsGateway.Outbox do
   alias Ankole.Repo
   alias Ankole.RuntimeEvents
   alias Ankole.Ecto.JsonPayload
+  alias Ankole.SignalsGateway.Adapters
   alias Ankole.SignalsGateway.OutboxAdapter
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Projection
@@ -215,7 +216,8 @@ defmodule Ankole.SignalsGateway.Outbox do
   def outbox_operation_for_actor_event(%ActorEvent{} = actor_event, repo \\ Repo) do
     with {:ok, channel} <- outbox_route_channel(repo, actor_event),
          {:ok, binding} <- outbox_route_binding(repo, actor_event),
-         {:ok, capabilities} <- adapter_outbound_capabilities(binding.adapter),
+         {:ok, adapter} <- Adapters.fetch_outbox(binding.adapter),
+         capabilities <- OutboxAdapter.capabilities(adapter),
          {:ok, operation} <-
            choose_outbox_operation(
              channel,
@@ -237,7 +239,13 @@ defmodule Ankole.SignalsGateway.Outbox do
   to `:sending`) from the adapter call avoids holding a DB lock across a network
   round-trip.
   """
-  @spec dispatch_outbox(String.t(), String.t(), String.t(), map(), keyword()) ::
+  @spec dispatch_outbox(
+          String.t(),
+          String.t(),
+          String.t(),
+          OutboxAdapter.t() | map(),
+          keyword()
+        ) ::
           {:ok, OutboxEntry.t()} | {:error, term()}
   def dispatch_outbox(agent_uid, binding_name, outbound_key, adapter, options \\ []) do
     now = Keyword.get(options, :now, DateTime.utc_now(:microsecond))
@@ -421,8 +429,7 @@ defmodule Ankole.SignalsGateway.Outbox do
 
   # Channel wants threaded replies and we have an entry to thread under: reply if
   # the adapter supports threaded replies, otherwise degrade to a top-level post
-  # so the message still gets out. The capability key is the string form because
-  # it comes from plugin declarations.
+  # so the message still gets out.
   defp choose_outbox_operation(
          %Channel{reply_mode: :entry},
          capabilities,
@@ -430,7 +437,7 @@ defmodule Ankole.SignalsGateway.Outbox do
        )
        when is_binary(source_entry_id) do
     {:ok,
-     case MapSet.member?(capabilities, "reply_entry") do
+     case MapSet.member?(capabilities, :reply_entry) do
        true -> :reply
        false -> post_or_fallback(capabilities, :reply)
      end}
@@ -448,7 +455,7 @@ defmodule Ankole.SignalsGateway.Outbox do
     do: {:error, :outbox_reply_mode_unknown}
 
   defp post_or_fallback(capabilities, fallback) do
-    case MapSet.member?(capabilities, "post_entry") do
+    case MapSet.member?(capabilities, :post_entry) do
       true -> :post
       false -> fallback
     end
@@ -477,33 +484,6 @@ defmodule Ankole.SignalsGateway.Outbox do
     end
   end
 
-  defp adapter_outbound_capabilities(adapter_id) when is_binary(adapter_id) do
-    case Process.whereis(Ankole.Plugins.Registry) do
-      nil ->
-        {:error, :plugins_registry_unavailable}
-
-      _pid ->
-        "signals_gateway.adapter"
-        |> Ankole.Plugins.adapter_declarations()
-        |> Enum.find(fn declaration ->
-          declaration[:id] == adapter_id or declaration["id"] == adapter_id
-        end)
-        |> case do
-          nil ->
-            {:error, {:outbox_adapter_not_found, adapter_id}}
-
-          declaration ->
-            {:ok,
-             MapSet.new(
-               declaration[:outbound_capabilities] || declaration["outbound_capabilities"] || []
-             )}
-        end
-    end
-  end
-
-  defp adapter_outbound_capabilities(adapter_id),
-    do: {:error, {:outbox_adapter_not_found, adapter_id}}
-
   defp fetch_outbox_for_update(repo, agent_uid, binding_name, outbound_key) do
     OutboxEntry
     |> where([entry], entry.agent_uid == ^normalize_uid(agent_uid))
@@ -515,28 +495,8 @@ defmodule Ankole.SignalsGateway.Outbox do
 
   defp resolve_registered_adapter(%OutboxEntry{} = outbox) do
     with {:ok, binding} <-
-           Ankole.SignalsGateway.get_binding(outbox.agent_uid, outbox.binding_name),
-         {:ok, module} <- outbox_module_for_adapter(binding.adapter) do
-      {:ok, module}
-    end
-  end
-
-  defp outbox_module_for_adapter(adapter_id) do
-    case Process.whereis(Ankole.Plugins.Registry) do
-      nil ->
-        {:error, :plugin_registry_not_started}
-
-      _pid ->
-        "signals_gateway.adapter"
-        |> Ankole.Plugins.adapter_declarations()
-        |> Enum.find(fn declaration ->
-          declaration[:id] == adapter_id or declaration["id"] == adapter_id
-        end)
-        |> case do
-          %{outbox_module: module} when is_atom(module) -> {:ok, module}
-          %{"outbox_module" => module} when is_atom(module) -> {:ok, module}
-          _declaration -> {:error, {:outbox_adapter_not_found, adapter_id}}
-        end
+           Ankole.SignalsGateway.get_binding(outbox.agent_uid, outbox.binding_name) do
+      Adapters.fetch_outbox(binding.adapter)
     end
   end
 

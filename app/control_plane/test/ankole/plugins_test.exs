@@ -11,6 +11,8 @@ defmodule Ankole.PluginsTest do
   alias Ankole.PluginFixtures.InvalidAdapterModulePlugin
   alias Ankole.PluginFixtures.KebabAIGatewayProviderKindPlugin
   alias Ankole.PluginFixtures.MissingRemovedCallbackPlugin
+  alias Ankole.PluginFixtures.MissingSignalsOutboxReconcilePlugin
+  alias Ankole.PluginFixtures.MissingSignalsOutboxSendPlugin
   alias Ankole.PluginFixtures.MissingDefaultLocalizedTextPlugin
   alias Ankole.PluginFixtures.MissingIdentityCallbackPlugin
   alias Ankole.PluginFixtures.MissingAIGatewayEmbeddingPreparePlugin
@@ -19,6 +21,7 @@ defmodule Ankole.PluginsTest do
   alias Ankole.PluginFixtures.StringLocalizedTextPlugin
   alias Ankole.PluginFixtures.UnknownIdentityCapabilityPlugin
   alias Ankole.PluginFixtures.UnknownSignalsInboundCapabilityPlugin
+  alias Ankole.PluginFixtures.UnknownSignalsOutboundCapabilityPlugin
   alias Ankole.Plugins
   alias Ankole.Plugins.Config
   alias Ankole.Plugins.Discovery
@@ -135,7 +138,10 @@ defmodule Ankole.PluginsTest do
     for module <- [
           MissingIdentityCallbackPlugin,
           MissingRemovedCallbackPlugin,
+          MissingSignalsOutboxReconcilePlugin,
+          MissingSignalsOutboxSendPlugin,
           UnknownSignalsInboundCapabilityPlugin,
+          UnknownSignalsOutboundCapabilityPlugin,
           UnknownIdentityCapabilityPlugin,
           MissingAIGatewayProviderDefinitionPlugin,
           MissingAIGatewayEmbeddingPreparePlugin,
@@ -151,6 +157,27 @@ defmodule Ankole.PluginsTest do
       "signals_gateway.adapter",
       "missing-removed-callback",
       {:missing_adapter_callback, MissingRemovedCallbackPlugin, :handle_message_removed, 3}
+    )
+
+    assert_contract_startup_failure(
+      UnknownSignalsOutboundCapabilityPlugin,
+      "signals_gateway.adapter",
+      "unknown-signals-outbound-capability",
+      {:unknown_outbox_capability, "made_up"}
+    )
+
+    assert_contract_startup_failure(
+      MissingSignalsOutboxSendPlugin,
+      "signals_gateway.adapter",
+      "missing-signals-outbox-send",
+      {:missing_adapter_callback, MissingSignalsOutboxSendPlugin, :send, 1}
+    )
+
+    assert_contract_startup_failure(
+      MissingSignalsOutboxReconcilePlugin,
+      "signals_gateway.adapter",
+      "missing-signals-outbox-reconcile",
+      {:missing_adapter_callback, MissingSignalsOutboxReconcilePlugin, :reconcile, 1}
     )
 
     assert_contract_startup_failure(

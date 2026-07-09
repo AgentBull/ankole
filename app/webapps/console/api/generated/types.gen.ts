@@ -2038,6 +2038,10 @@ export type AnkoleWebSignalBindingControllerAdaptersErrors = {
    * Forbidden
    */
   403: ConsoleApiErrorEnvelope
+  /**
+   * Adapter registry unavailable
+   */
+  503: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebSignalBindingControllerAdaptersError =
@@ -2366,6 +2370,10 @@ export type AnkoleWebSignalBindingControllerPutBindingErrors = {
    * Invalid value
    */
   422: ConsoleApiErrorEnvelope
+  /**
+   * Adapter registry unavailable
+   */
+  503: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebSignalBindingControllerPutBindingError =

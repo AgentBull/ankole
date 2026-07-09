@@ -41,6 +41,8 @@ The plugin declaration should expose:
 
 - plugin id `lark-adapter`;
 - a SignalsGateway adapter declaration with id `lark`;
+- the SignalsGateway adapter's complete `outbound_capabilities` list, which is
+  the sole capability source used to construct its outbound contract;
 - a Principals identity-provider adapter declaration with id `lark`;
 - setup field metadata for chat binding config and identity-provider config;
 - schema and field metadata for encrypted config values; the persistence key is
@@ -563,9 +565,11 @@ commit an explicit outbox delete, but the adapter and gateway must not infer it.
 
 The Feishu/Lark module adapter should implement
 `Ankole.SignalsGateway.OutboxAdapter` for provider-visible output. Real modules
-implement `capabilities/0` and `send/1`; `reconcile/1` is optional and is used
-only for recovery of a durable `sending` outbox row. Test map adapters do not
-need to implement the behaviour.
+implement `send/1`; `reconcile/1` is optional and is used only for recovery of a
+durable `sending` outbox row. The plugin declaration supplies capabilities, and
+`SignalsGateway.Adapters` combines that declaration with the module callbacks.
+Test map adapters remain self-contained and do not need to implement the
+behaviour.
 
 The SignalsGateway outbox capability allowlist for this adapter is:
 

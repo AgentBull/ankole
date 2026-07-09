@@ -1,6 +1,9 @@
 defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
   use Ankole.DataCase, async: false
 
+  alias Ankole.PluginFixtures.MockSignalProvider.Outbox, as: MockOutbox
+  alias Ankole.PluginFixtures.MockSignalProviderPlugin
+  alias Ankole.Plugins.Spec
   alias Ankole.Repo
   alias Ankole.RuntimeEvents
   alias Ankole.SignalsGateway
@@ -48,7 +51,10 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  agent.uid,
                  "bot",
                  "started-unknown",
-                 %{capabilities: [:post_entry]},
+                 %{
+                   capabilities: [:post_entry],
+                   send: fn _outbox -> flunk("in-flight outbox must not be sent again") end
+                 },
                  now: DateTime.add(@base_time, 1, :second)
                )
 
@@ -59,7 +65,12 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  agent.uid,
                  "bot",
                  "started-unknown",
-                 %{capabilities: [:post_entry]},
+                 %{
+                   capabilities: [:post_entry],
+                   send: fn _outbox ->
+                     flunk("unknown in-flight outbox must not be sent again")
+                   end
+                 },
                  now: DateTime.add(@base_time, 61, :second)
                )
 
@@ -96,6 +107,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  "started-reconcile",
                  %{
                    capabilities: [:post_entry, :outbound_reconciliation],
+                   send: fn _outbox -> flunk("reconciled outbox must not be sent again") end,
                    reconcile: fn _outbox ->
                      {:ok, %{created_source_entry_id: "confirmed-provider-id"}}
                    end
@@ -147,6 +159,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  "started-invalid-reconcile",
                  %{
                    capabilities: [:post_entry, :outbound_reconciliation],
+                   send: fn _outbox -> flunk("reconciled outbox must not be sent again") end,
                    reconcile: fn _outbox -> :ok end
                  },
                  now: DateTime.add(@base_time, 61, :second)
@@ -158,8 +171,13 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
     end
 
     test "outbox runtime event dispatch picks up stale in-flight sends for reconciliation" do
+      use_mock_signal_provider_plugin()
+      MockOutbox.put_reconcile_result({:ok, %{created_source_entry_id: "stale-provider-id"}})
+
+      on_exit(fn -> MockOutbox.delete_reconcile_result() end)
+
       %{principal: agent} = agent_fixture()
-      binding_fixture(agent.uid, "bot", :ignore)
+      binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
 
       assert {:ok, %{status: :accepted}} =
                Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
@@ -209,16 +227,10 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
       assert [%{"outbound_key" => "stale-sending"}] = due_outbox_events(due_now)
 
       assert {:ok, %OutboxEntry{status: :succeeded}} =
-               SignalsGateway.dispatch_outbox(
+               SignalsGateway.dispatch_outbox_by_key(
                  agent.uid,
                  "bot",
                  "stale-sending",
-                 %{
-                   capabilities: [:post_entry, :outbound_reconciliation],
-                   reconcile: fn _outbox ->
-                     {:ok, %{created_source_entry_id: "stale-provider-id"}}
-                   end
-                 },
                  now: due_now
                )
 
@@ -308,6 +320,23 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
 
       assert counts.tombstones == 1
       assert Repo.aggregate(InputTombstone, :count) == 0
+    end
+
+    defp use_mock_signal_provider_plugin do
+      original_state = :sys.get_state(Ankole.Plugins.Registry)
+      {:ok, spec} = Spec.from_module(MockSignalProviderPlugin)
+
+      :sys.replace_state(Ankole.Plugins.Registry, fn _state ->
+        %{
+          discovered: %{spec.id => spec},
+          active: %{spec.id => spec},
+          disabled_ids: MapSet.new()
+        }
+      end)
+
+      on_exit(fn ->
+        :sys.replace_state(Ankole.Plugins.Registry, fn _state -> original_state end)
+      end)
     end
   end
 

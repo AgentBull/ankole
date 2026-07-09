@@ -1995,6 +1995,10 @@
           "403": {
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
             "description": "Forbidden"
+          },
+          "503": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Adapter registry unavailable"
           }
         },
         "security": [{ "consoleBearer": [] }],
@@ -2308,6 +2312,10 @@
           "422": {
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
             "description": "Invalid value"
+          },
+          "503": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Adapter registry unavailable"
           }
         },
         "security": [{ "consoleBearer": [] }],
