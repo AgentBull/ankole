@@ -58,6 +58,31 @@ defmodule Ankole.ActorRuntime.WorkerPool do
   end
 
   @doc """
+  Resolves the live route for one specific worker.
+
+  Each worker carries its own per-worker PVC, so console file management must
+  target the exact worker that owns the filesystem rather than any ready worker.
+  Unlike `file_worker_route/0`, this never falls back to another worker.
+  """
+  @spec worker_file_route(String.t()) ::
+          {:ok, String.t()} | {:error, :worker_not_found | :worker_not_ready}
+  def worker_file_route(worker_id) when is_binary(worker_id) do
+    case Repo.get_by(AgentComputerWorker, worker_id: worker_id) do
+      nil ->
+        {:error, :worker_not_found}
+
+      %AgentComputerWorker{status: @ready_worker_status} = worker ->
+        case worker_route(worker) do
+          route when is_binary(route) and route != "" -> {:ok, route}
+          _missing -> {:error, :worker_not_ready}
+        end
+
+      %AgentComputerWorker{} ->
+        {:error, :worker_not_ready}
+    end
+  end
+
+  @doc """
   Releases live assignments for a worker that is no longer usable.
 
   Called inside the worker-staleness transition (see `WorkerAdmission`) so that

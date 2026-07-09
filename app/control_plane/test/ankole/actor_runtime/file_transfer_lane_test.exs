@@ -247,6 +247,45 @@ defmodule Ankole.ActorRuntime.FileTransferLaneTest do
              )
   end
 
+  test "workspace_sessions root resolves and round-trips list and stat", %{
+    route: route,
+    route_auth: route_auth
+  } do
+    :ok =
+      Broker.register_local_worker(route, fn {:file_transfer_lane, frames} ->
+        respond_to_filesystem_command(route_auth, frames)
+      end)
+
+    assert {:ok,
+            %{
+              "command" => "STAT",
+              "root" => "workspace_sessions",
+              "relative_path" => "inbox/message-1/hello.txt",
+              "kind" => "file"
+            }} =
+             FileTransferLane.stat(route, "workspace_sessions", "inbox/message-1/hello.txt")
+
+    assert {:ok,
+            %{
+              "command" => "LIST",
+              "root" => "workspace_sessions",
+              "recursive" => true,
+              "truncated" => false,
+              "entries" => [
+                %{
+                  "relative_path" => "inbox/message-1/hello.txt",
+                  "kind" => "file",
+                  "size" => 4,
+                  "modified_unix_ms" => 1_772_000_000_000
+                }
+              ]
+            }} =
+             FileTransferLane.list(route, "workspace_sessions", "inbox", recursive: true)
+
+    assert {:error, {:unsupported_file_root, "shared_files"}} =
+             FileTransferLane.stat(route, "shared_files", "a.txt")
+  end
+
   defp respond_to_filesystem_command(route_auth, [protocol, command, transfer_id | rest]) do
     case {command, rest} do
       {"STAT", [path, _fingerprint]} ->

@@ -4,6 +4,7 @@ import { type DefaultError, queryOptions, type UseMutationOptions } from '@tanst
 
 import { client } from '../client.gen'
 import {
+  ankoleWebAgentComputerWorkerControllerIndex,
   ankoleWebAgentControllerCreate,
   ankoleWebAgentControllerDelete,
   ankoleWebAgentControllerIndex,
@@ -51,9 +52,17 @@ import {
   ankoleWebSignalBindingControllerDelete,
   ankoleWebSignalBindingControllerIndex,
   ankoleWebSignalBindingControllerPutBinding,
+  ankoleWebWorkerFileControllerDelete,
+  ankoleWebWorkerFileControllerDownload,
+  ankoleWebWorkerFileControllerIndex,
+  ankoleWebWorkerFileControllerMove,
+  ankoleWebWorkerFileControllerUpload,
   type Options
 } from '../sdk.gen'
 import type {
+  AnkoleWebAgentComputerWorkerControllerIndexData,
+  AnkoleWebAgentComputerWorkerControllerIndexError,
+  AnkoleWebAgentComputerWorkerControllerIndexResponse,
   AnkoleWebAgentControllerCreateData,
   AnkoleWebAgentControllerCreateError,
   AnkoleWebAgentControllerCreateResponse,
@@ -186,7 +195,22 @@ import type {
   AnkoleWebSignalBindingControllerIndexResponse,
   AnkoleWebSignalBindingControllerPutBindingData,
   AnkoleWebSignalBindingControllerPutBindingError,
-  AnkoleWebSignalBindingControllerPutBindingResponse
+  AnkoleWebSignalBindingControllerPutBindingResponse,
+  AnkoleWebWorkerFileControllerDeleteData,
+  AnkoleWebWorkerFileControllerDeleteError,
+  AnkoleWebWorkerFileControllerDeleteResponse,
+  AnkoleWebWorkerFileControllerDownloadData,
+  AnkoleWebWorkerFileControllerDownloadError,
+  AnkoleWebWorkerFileControllerDownloadResponse,
+  AnkoleWebWorkerFileControllerIndexData,
+  AnkoleWebWorkerFileControllerIndexError,
+  AnkoleWebWorkerFileControllerIndexResponse,
+  AnkoleWebWorkerFileControllerMoveData,
+  AnkoleWebWorkerFileControllerMoveError,
+  AnkoleWebWorkerFileControllerMoveResponse,
+  AnkoleWebWorkerFileControllerUploadData,
+  AnkoleWebWorkerFileControllerUploadError,
+  AnkoleWebWorkerFileControllerUploadResponse
 } from '../types.gen'
 
 export type QueryKey<TOptions extends Options> = [
@@ -227,6 +251,34 @@ const createQueryKey = <TOptions extends Options>(
   }
   return [params]
 }
+
+export const ankoleWebWorkerFileControllerDownloadQueryKey = (
+  options: Options<AnkoleWebWorkerFileControllerDownloadData>
+) => createQueryKey('ankoleWebWorkerFileControllerDownload', options)
+
+/**
+ * Download one file from a worker filesystem root
+ */
+export const ankoleWebWorkerFileControllerDownloadOptions = (
+  options: Options<AnkoleWebWorkerFileControllerDownloadData>
+) =>
+  queryOptions<
+    AnkoleWebWorkerFileControllerDownloadResponse,
+    AnkoleWebWorkerFileControllerDownloadError,
+    AnkoleWebWorkerFileControllerDownloadResponse,
+    ReturnType<typeof ankoleWebWorkerFileControllerDownloadQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebWorkerFileControllerDownload({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebWorkerFileControllerDownloadQueryKey(options)
+  })
 
 export const ankoleWebIdentityProviderControllerIndexQueryKey = (
   options?: Options<AnkoleWebIdentityProviderControllerIndexData>
@@ -356,6 +408,85 @@ export const ankoleWebScheduleControllerCreateCronMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebScheduleControllerCreateCron({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Delete one file or directory from a worker filesystem root
+ */
+export const ankoleWebWorkerFileControllerDeleteMutation = (
+  options?: Partial<Options<AnkoleWebWorkerFileControllerDeleteData>>
+): UseMutationOptions<
+  AnkoleWebWorkerFileControllerDeleteResponse,
+  AnkoleWebWorkerFileControllerDeleteError,
+  Options<AnkoleWebWorkerFileControllerDeleteData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebWorkerFileControllerDeleteResponse,
+    AnkoleWebWorkerFileControllerDeleteError,
+    Options<AnkoleWebWorkerFileControllerDeleteData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebWorkerFileControllerDelete({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const ankoleWebWorkerFileControllerIndexQueryKey = (options: Options<AnkoleWebWorkerFileControllerIndexData>) =>
+  createQueryKey('ankoleWebWorkerFileControllerIndex', options)
+
+/**
+ * List files in one worker filesystem root
+ */
+export const ankoleWebWorkerFileControllerIndexOptions = (options: Options<AnkoleWebWorkerFileControllerIndexData>) =>
+  queryOptions<
+    AnkoleWebWorkerFileControllerIndexResponse,
+    AnkoleWebWorkerFileControllerIndexError,
+    AnkoleWebWorkerFileControllerIndexResponse,
+    ReturnType<typeof ankoleWebWorkerFileControllerIndexQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebWorkerFileControllerIndex({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebWorkerFileControllerIndexQueryKey(options)
+  })
+
+/**
+ * Upload one file into a worker filesystem root
+ */
+export const ankoleWebWorkerFileControllerUploadMutation = (
+  options?: Partial<Options<AnkoleWebWorkerFileControllerUploadData>>
+): UseMutationOptions<
+  AnkoleWebWorkerFileControllerUploadResponse,
+  AnkoleWebWorkerFileControllerUploadError,
+  Options<AnkoleWebWorkerFileControllerUploadData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebWorkerFileControllerUploadResponse,
+    AnkoleWebWorkerFileControllerUploadError,
+    Options<AnkoleWebWorkerFileControllerUploadData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebWorkerFileControllerUpload({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -653,6 +784,33 @@ export const ankoleWebAiGatewayProviderControllerPutModelProfileMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebAiGatewayProviderControllerPutModelProfile({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Rename or move a path in a worker filesystem root
+ */
+export const ankoleWebWorkerFileControllerMoveMutation = (
+  options?: Partial<Options<AnkoleWebWorkerFileControllerMoveData>>
+): UseMutationOptions<
+  AnkoleWebWorkerFileControllerMoveResponse,
+  AnkoleWebWorkerFileControllerMoveError,
+  Options<AnkoleWebWorkerFileControllerMoveData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebWorkerFileControllerMoveResponse,
+    AnkoleWebWorkerFileControllerMoveError,
+    Options<AnkoleWebWorkerFileControllerMoveData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebWorkerFileControllerMove({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -1392,6 +1550,34 @@ export const ankoleWebAiGatewayControllerEmbeddingsMutation = (
   }
   return mutationOptions
 }
+
+export const ankoleWebAgentComputerWorkerControllerIndexQueryKey = (
+  options?: Options<AnkoleWebAgentComputerWorkerControllerIndexData>
+) => createQueryKey('ankoleWebAgentComputerWorkerControllerIndex', options)
+
+/**
+ * List agent computer workers
+ */
+export const ankoleWebAgentComputerWorkerControllerIndexOptions = (
+  options?: Options<AnkoleWebAgentComputerWorkerControllerIndexData>
+) =>
+  queryOptions<
+    AnkoleWebAgentComputerWorkerControllerIndexResponse,
+    AnkoleWebAgentComputerWorkerControllerIndexError,
+    AnkoleWebAgentComputerWorkerControllerIndexResponse,
+    ReturnType<typeof ankoleWebAgentComputerWorkerControllerIndexQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebAgentComputerWorkerControllerIndex({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebAgentComputerWorkerControllerIndexQueryKey(options)
+  })
 
 /**
  * Reset one global AppConfigure value

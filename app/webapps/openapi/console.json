@@ -14,8 +14,53 @@
             "x-validate": null
           }
         },
-        "required": ["data"],
+        "required": [
+          "data"
+        ],
         "title": "AIGatewayProviderListResponse",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "WorkerFileListData": {
+        "additionalProperties": false,
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/WorkerFileEntry"
+            },
+            "type": "array",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "path": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "root": {
+            "enum": [
+              "workspace_sessions",
+              "user_files",
+              "agent_installed_skills"
+            ],
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "truncated": {
+            "type": "boolean",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": [
+          "root",
+          "path",
+          "entries",
+          "truncated"
+        ],
+        "title": "WorkerFileListData",
         "type": "object",
         "x-struct": null,
         "x-validate": null
@@ -27,7 +72,9 @@
             "$ref": "#/components/schemas/AppConfigurationItem"
           }
         },
-        "required": ["data"],
+        "required": [
+          "data"
+        ],
         "title": "AppConfigurationResponse",
         "type": "object",
         "x-struct": null,
@@ -46,7 +93,9 @@
             "x-validate": null
           }
         },
-        "required": ["default"],
+        "required": [
+          "default"
+        ],
         "title": "LocalizedText",
         "type": "object",
         "x-struct": null,
@@ -61,7 +110,9 @@
             "x-validate": null
           }
         },
-        "required": ["ok"],
+        "required": [
+          "ok"
+        ],
         "title": "AuthSessionDeleteResponse",
         "type": "object",
         "x-struct": null,
@@ -99,6 +150,46 @@
         "x-struct": null,
         "x-validate": null
       },
+      "WorkerFileEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "file",
+              "directory",
+              "other"
+            ],
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "modified_unix_ms": {
+            "type": "integer",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "relative_path": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "size": {
+            "type": "integer",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": [
+          "relative_path",
+          "kind",
+          "size",
+          "modified_unix_ms"
+        ],
+        "title": "WorkerFileEntry",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
       "ConsoleApiErrorEnvelope": {
         "additionalProperties": false,
         "properties": {
@@ -106,8 +197,55 @@
             "$ref": "#/components/schemas/ConsoleApiError"
           }
         },
-        "required": ["error"],
+        "required": [
+          "error"
+        ],
         "title": "ConsoleApiErrorEnvelope",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "WorkerFileDeleteResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "additionalProperties": false,
+            "properties": {
+              "deleted": {
+                "type": "boolean",
+                "x-struct": null,
+                "x-validate": null
+              },
+              "relative_path": {
+                "type": "string",
+                "x-struct": null,
+                "x-validate": null
+              },
+              "root": {
+                "enum": [
+                  "workspace_sessions",
+                  "user_files",
+                  "agent_installed_skills"
+                ],
+                "type": "string",
+                "x-struct": null,
+                "x-validate": null
+              }
+            },
+            "required": [
+              "root",
+              "relative_path",
+              "deleted"
+            ],
+            "type": "object",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "WorkerFileDeleteResponse",
         "type": "object",
         "x-struct": null,
         "x-validate": null
@@ -127,13 +265,18 @@
             "x-validate": null
           },
           "status": {
-            "enum": ["enqueued"],
+            "enum": [
+              "enqueued"
+            ],
             "type": "string",
             "x-struct": null,
             "x-validate": null
           }
         },
-        "required": ["provider_id", "status"],
+        "required": [
+          "provider_id",
+          "status"
+        ],
         "title": "IdentityProviderSyncRunItem",
         "type": "object",
         "x-struct": null,
@@ -149,7 +292,9 @@
             "x-validate": null
           }
         },
-        "required": ["data"],
+        "required": [
+          "data"
+        ],
         "title": "ModelProfileResponse",
         "type": "object",
         "x-struct": null,
@@ -174,7 +319,9 @@
             "x-validate": null
           }
         },
-        "required": ["data"],
+        "required": [
+          "data"
+        ],
         "title": "IdentityProviderListResponse",
         "type": "object",
         "x-struct": null,
@@ -246,7 +393,9 @@
             "$ref": "#/components/schemas/JsonValue"
           }
         },
-        "required": ["data"],
+        "required": [
+          "data"
+        ],
         "title": "ScheduleCronScheduleResponse",
         "type": "object",
         "x-struct": null,
@@ -259,7 +408,9 @@
             "$ref": "#/components/schemas/AgentItem"
           }
         },
-        "required": ["data"],
+        "required": [
+          "data"
+        ],
         "title": "AgentResponse",
         "type": "object",
         "x-struct": null,
@@ -297,7 +448,14 @@
             "x-validate": null
           }
         },
-        "required": ["provider_id", "adapter_id", "plugin_id", "config_key", "enabled", "config"],
+        "required": [
+          "provider_id",
+          "adapter_id",
+          "plugin_id",
+          "config_key",
+          "enabled",
+          "config"
+        ],
         "title": "IdentityProviderItem",
         "type": "object",
         "x-struct": null,
@@ -318,7 +476,9 @@
             "x-validate": null
           }
         },
-        "required": ["present"],
+        "required": [
+          "present"
+        ],
         "title": "AIGatewayProviderEncryptedOptionProjection",
         "type": "object",
         "x-struct": null,
@@ -331,7 +491,9 @@
             "$ref": "#/components/schemas/IdentityProviderItem"
           }
         },
-        "required": ["data"],
+        "required": [
+          "data"
+        ],
         "title": "IdentityProviderResponse",
         "type": "object",
         "x-struct": null,
@@ -373,7 +535,11 @@
             "x-validate": null
           },
           "kind": {
-            "enum": ["exact", "pattern", "pattern_concrete"],
+            "enum": [
+              "exact",
+              "pattern",
+              "pattern_concrete"
+            ],
             "type": "string",
             "x-struct": null,
             "x-validate": null
@@ -401,13 +567,22 @@
             "x-validate": null
           },
           "scope": {
-            "enum": ["scoped", "global"],
+            "enum": [
+              "scoped",
+              "global"
+            ],
             "type": "string",
             "x-struct": null,
             "x-validate": null
           },
           "source": {
-            "enum": ["default", "global", "missing", "pattern", "error"],
+            "enum": [
+              "default",
+              "global",
+              "missing",
+              "pattern",
+              "error"
+            ],
             "type": "string",
             "x-struct": null,
             "x-validate": null
@@ -444,7 +619,9 @@
             "x-validate": null
           }
         },
-        "required": ["data"],
+        "required": [
+          "data"
+        ],
         "title": "SignalAdapterListResponse",
         "type": "object",
         "x-struct": null,
@@ -457,7 +634,9 @@
             "$ref": "#/components/schemas/SignalBindingItem"
           }
         },
-        "required": ["data"],
+        "required": [
+          "data"
+        ],
         "title": "SignalBindingResponse",
         "type": "object",
         "x-struct": null,
@@ -506,7 +685,9 @@
             "x-validate": null
           }
         },
-        "required": ["data"],
+        "required": [
+          "data"
+        ],
         "title": "ModelProfilesResponse",
         "type": "object",
         "x-struct": null,
@@ -541,7 +722,11 @@
             "x-validate": null
           }
         },
-        "required": ["adapter_id", "fields", "group_message_mode_field"],
+        "required": [
+          "adapter_id",
+          "fields",
+          "group_message_mode_field"
+        ],
         "title": "SignalAdapterItem",
         "type": "object",
         "x-struct": null,
@@ -608,7 +793,10 @@
             "x-validate": null
           }
         },
-        "required": ["path", "type"],
+        "required": [
+          "path",
+          "type"
+        ],
         "title": "SignalAdapterField",
         "type": "object",
         "x-struct": null,
@@ -628,7 +816,9 @@
             "x-validate": null
           }
         },
-        "required": ["grant_type"],
+        "required": [
+          "grant_type"
+        ],
         "title": "ConsoleTokenRequest",
         "type": "object",
         "x-struct": null,
@@ -646,7 +836,9 @@
             "x-validate": null
           }
         },
-        "required": ["data"],
+        "required": [
+          "data"
+        ],
         "title": "ScheduleEventListResponse",
         "type": "object",
         "x-struct": null,
@@ -667,8 +859,146 @@
             "x-validate": null
           }
         },
-        "required": ["value"],
+        "required": [
+          "value"
+        ],
         "title": "SignalAdapterFieldOption",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "WorkerFileUploadResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "additionalProperties": false,
+            "properties": {
+              "relative_path": {
+                "type": "string",
+                "x-struct": null,
+                "x-validate": null
+              },
+              "root": {
+                "enum": [
+                  "workspace_sessions",
+                  "user_files",
+                  "agent_installed_skills"
+                ],
+                "type": "string",
+                "x-struct": null,
+                "x-validate": null
+              },
+              "size": {
+                "type": "integer",
+                "x-struct": null,
+                "x-validate": null
+              },
+              "xxh3_128": {
+                "nullable": true,
+                "type": "string",
+                "x-struct": null,
+                "x-validate": null
+              }
+            },
+            "required": [
+              "root",
+              "relative_path",
+              "size"
+            ],
+            "type": "object",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "WorkerFileUploadResponse",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "AgentComputerWorkerItem": {
+        "additionalProperties": false,
+        "properties": {
+          "capacity": {
+            "additionalProperties": true,
+            "type": "object",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "inserted_at": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "last_worker_heartbeat_at": {
+            "nullable": true,
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "load": {
+            "additionalProperties": true,
+            "type": "object",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "started_at": {
+            "nullable": true,
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "status": {
+            "enum": [
+              "ready",
+              "stale",
+              "draining",
+              "stopped"
+            ],
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "stop_reason": {
+            "nullable": true,
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "stopped_at": {
+            "nullable": true,
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "updated_at": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "version": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "worker_id": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": [
+          "worker_id",
+          "status",
+          "version",
+          "capacity",
+          "load",
+          "inserted_at",
+          "updated_at"
+        ],
+        "title": "AgentComputerWorkerItem",
         "type": "object",
         "x-struct": null,
         "x-validate": null
@@ -711,13 +1041,18 @@
             "x-validate": null
           },
           "status": {
-            "enum": ["active", "disabled"],
+            "enum": [
+              "active",
+              "disabled"
+            ],
             "type": "string",
             "x-struct": null,
             "x-validate": null
           },
           "type": {
-            "enum": ["ai_colleague"],
+            "enum": [
+              "ai_colleague"
+            ],
             "type": "string",
             "x-struct": null,
             "x-validate": null
@@ -733,7 +1068,15 @@
             "x-validate": null
           }
         },
-        "required": ["uid", "status", "type", "role", "options", "inserted_at", "updated_at"],
+        "required": [
+          "uid",
+          "status",
+          "type",
+          "role",
+          "options",
+          "inserted_at",
+          "updated_at"
+        ],
         "title": "AgentItem",
         "type": "object",
         "x-struct": null,
@@ -751,7 +1094,9 @@
             "x-validate": null
           }
         },
-        "required": ["data"],
+        "required": [
+          "data"
+        ],
         "title": "SignalBindingListResponse",
         "type": "object",
         "x-struct": null,
@@ -764,15 +1109,75 @@
             "$ref": "#/components/schemas/JsonValue"
           },
           "group_message_mode": {
-            "enum": ["addressed_only", "observe_all", "may_intervene"],
+            "enum": [
+              "addressed_only",
+              "observe_all",
+              "may_intervene"
+            ],
             "nullable": true,
             "type": "string",
             "x-struct": null,
             "x-validate": null
           }
         },
-        "required": ["config"],
+        "required": [
+          "config"
+        ],
         "title": "SignalBindingWriteRequest",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "WorkerFileListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/WorkerFileListData"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "WorkerFileListResponse",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "WorkerFileMoveRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "from_path": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "overwrite": {
+            "type": "boolean",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "root": {
+            "enum": [
+              "workspace_sessions",
+              "user_files",
+              "agent_installed_skills"
+            ],
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "to_path": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": [
+          "root",
+          "from_path",
+          "to_path"
+        ],
+        "title": "WorkerFileMoveRequest",
         "type": "object",
         "x-struct": null,
         "x-validate": null
@@ -800,7 +1205,10 @@
             "x-validate": null
           }
         },
-        "required": ["code", "message"],
+        "required": [
+          "code",
+          "message"
+        ],
         "title": "ConsoleApiError",
         "type": "object",
         "x-struct": null,
@@ -818,7 +1226,9 @@
             "x-validate": null
           }
         },
-        "required": ["data"],
+        "required": [
+          "data"
+        ],
         "title": "ScheduleCronScheduleListResponse",
         "type": "object",
         "x-struct": null,
@@ -850,7 +1260,10 @@
             "x-validate": null
           }
         },
-        "required": ["provider_id", "model"],
+        "required": [
+          "provider_id",
+          "model"
+        ],
         "title": "ModelProfileWriteRequest",
         "type": "object",
         "x-struct": null,
@@ -888,7 +1301,10 @@
             "$ref": "#/components/schemas/JsonValue"
           },
           "status": {
-            "enum": ["active", "paused"],
+            "enum": [
+              "active",
+              "paused"
+            ],
             "nullable": true,
             "type": "string",
             "x-struct": null,
@@ -901,8 +1317,33 @@
             "x-validate": null
           }
         },
-        "required": ["binding_name", "schedule", "delivery", "idempotency_key"],
+        "required": [
+          "binding_name",
+          "schedule",
+          "delivery",
+          "idempotency_key"
+        ],
         "title": "ScheduleCronWriteRequest",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "AgentComputerWorkerListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/AgentComputerWorkerItem"
+            },
+            "type": "array",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "AgentComputerWorkerListResponse",
         "type": "object",
         "x-struct": null,
         "x-validate": null
@@ -921,7 +1362,10 @@
             "x-validate": null
           }
         },
-        "required": ["error", "error_description"],
+        "required": [
+          "error",
+          "error_description"
+        ],
         "title": "OAuthErrorResponse",
         "type": "object",
         "x-struct": null,
@@ -934,7 +1378,9 @@
             "$ref": "#/components/schemas/JsonValue"
           }
         },
-        "required": ["value"],
+        "required": [
+          "value"
+        ],
         "title": "AppConfigurationUpdateRequest",
         "type": "object",
         "x-struct": null,
@@ -1039,7 +1485,9 @@
             "$ref": "#/components/schemas/JsonValue"
           }
         },
-        "required": ["data"],
+        "required": [
+          "data"
+        ],
         "title": "ScheduleEventResponse",
         "type": "object",
         "x-struct": null,
@@ -1052,7 +1500,9 @@
             "$ref": "#/components/schemas/IdentityProviderSyncRunItem"
           }
         },
-        "required": ["data"],
+        "required": [
+          "data"
+        ],
         "title": "IdentityProviderSyncRunResponse",
         "type": "object",
         "x-struct": null,
@@ -1070,7 +1520,9 @@
             "x-validate": null
           }
         },
-        "required": ["data"],
+        "required": [
+          "data"
+        ],
         "title": "AgentListResponse",
         "type": "object",
         "x-struct": null,
@@ -1088,7 +1540,9 @@
             "x-validate": null
           }
         },
-        "required": ["data"],
+        "required": [
+          "data"
+        ],
         "title": "IdentityProviderAdapterListResponse",
         "type": "object",
         "x-struct": null,
@@ -1126,7 +1580,10 @@
             "x-validate": null
           }
         },
-        "required": ["uid", "role"],
+        "required": [
+          "uid",
+          "role"
+        ],
         "title": "AgentCreateRequest",
         "type": "object",
         "x-struct": null,
@@ -1144,7 +1601,9 @@
             "x-validate": null
           }
         },
-        "required": ["data"],
+        "required": [
+          "data"
+        ],
         "title": "AppConfigurationListResponse",
         "type": "object",
         "x-struct": null,
@@ -1162,8 +1621,61 @@
             "x-validate": null
           }
         },
-        "required": ["data"],
+        "required": [
+          "data"
+        ],
         "title": "AIGatewayProviderKindListResponse",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "WorkerFileMoveResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "additionalProperties": false,
+            "properties": {
+              "from_relative_path": {
+                "type": "string",
+                "x-struct": null,
+                "x-validate": null
+              },
+              "moved": {
+                "type": "boolean",
+                "x-struct": null,
+                "x-validate": null
+              },
+              "root": {
+                "enum": [
+                  "workspace_sessions",
+                  "user_files",
+                  "agent_installed_skills"
+                ],
+                "type": "string",
+                "x-struct": null,
+                "x-validate": null
+              },
+              "to_relative_path": {
+                "type": "string",
+                "x-struct": null,
+                "x-validate": null
+              }
+            },
+            "required": [
+              "root",
+              "from_relative_path",
+              "to_relative_path",
+              "moved"
+            ],
+            "type": "object",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "WorkerFileMoveResponse",
         "type": "object",
         "x-struct": null,
         "x-validate": null
@@ -1175,7 +1687,9 @@
             "$ref": "#/components/schemas/AIGatewayProviderItem"
           }
         },
-        "required": ["data"],
+        "required": [
+          "data"
+        ],
         "title": "AIGatewayProviderResponse",
         "type": "object",
         "x-struct": null,
@@ -1222,7 +1736,12 @@
             "x-validate": null
           }
         },
-        "required": ["adapter_id", "capabilities", "fields", "default_provider_id"],
+        "required": [
+          "adapter_id",
+          "capabilities",
+          "fields",
+          "default_provider_id"
+        ],
         "title": "IdentityProviderAdapterItem",
         "type": "object",
         "x-struct": null,
@@ -1243,8 +1762,45 @@
             "x-validate": null
           }
         },
-        "required": ["message"],
+        "required": [
+          "message"
+        ],
         "title": "ConsoleApiErrorDetail",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "WorkerFileUploadRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "file": {
+            "format": "binary",
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "path": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "root": {
+            "enum": [
+              "workspace_sessions",
+              "user_files",
+              "agent_installed_skills"
+            ],
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": [
+          "root",
+          "path",
+          "file"
+        ],
+        "title": "WorkerFileUploadRequest",
         "type": "object",
         "x-struct": null,
         "x-validate": null
@@ -1309,13 +1865,22 @@
             "x-validate": null
           },
           "token_type": {
-            "enum": ["Bearer"],
+            "enum": [
+              "Bearer"
+            ],
             "type": "string",
             "x-struct": null,
             "x-validate": null
           }
         },
-        "required": ["access_token", "expires_in", "refresh_token", "refresh_token_expires_in", "scope", "token_type"],
+        "required": [
+          "access_token",
+          "expires_in",
+          "refresh_token",
+          "refresh_token_expires_in",
+          "scope",
+          "token_type"
+        ],
         "title": "ConsoleTokenResponse",
         "type": "object",
         "x-struct": null,
@@ -1355,7 +1920,11 @@
             "x-validate": null
           },
           "unaddressed_group_message_policy": {
-            "enum": ["ignore", "record_only", "may_intervene"],
+            "enum": [
+              "ignore",
+              "record_only",
+              "may_intervene"
+            ],
             "type": "string",
             "x-struct": null,
             "x-validate": null
@@ -1388,7 +1957,9 @@
             "$ref": "#/components/schemas/AppConfigurationDecryptionValue"
           }
         },
-        "required": ["data"],
+        "required": [
+          "data"
+        ],
         "title": "AppConfigurationDecryptionResponse",
         "type": "object",
         "x-struct": null,
@@ -1411,7 +1982,10 @@
             "x-validate": null
           }
         },
-        "required": ["adapter_id", "config"],
+        "required": [
+          "adapter_id",
+          "config"
+        ],
         "title": "IdentityProviderWriteRequest",
         "type": "object",
         "x-struct": null,
@@ -1429,7 +2003,10 @@
             "$ref": "#/components/schemas/JsonValue"
           }
         },
-        "required": ["key", "value"],
+        "required": [
+          "key",
+          "value"
+        ],
         "title": "AppConfigurationDecryptionValue",
         "type": "object",
         "x-struct": null,
@@ -1460,10 +2037,130 @@
   },
   "info": {
     "title": "Ankole API",
-    "version": "2026-06-24"
+    "version": "2026-07-09"
   },
   "openapi": "3.0.0",
   "paths": {
+    "/api/v1/agent-computer-workers/{worker_id}/files/content": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.WorkerFileController.download",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "worker_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "Worker filesystem root",
+            "in": "query",
+            "name": "root",
+            "required": true,
+            "schema": {
+              "enum": [
+                "workspace_sessions",
+                "user_files",
+                "agent_installed_skills"
+              ],
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "File path relative to the root",
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string",
+                  "x-struct": null,
+                  "x-validate": null
+                }
+              }
+            },
+            "description": "File content"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Worker not ready"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Download one file from a worker filesystem root",
+        "tags": [
+          "Workers"
+        ]
+      }
+    },
     "/api/v1/identity-providers": {
       "get": {
         "callbacks": {},
@@ -1507,7 +2204,9 @@
           }
         ],
         "summary": "List configured identity providers",
-        "tags": ["Identity Providers"]
+        "tags": [
+          "Identity Providers"
+        ]
       }
     },
     "/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/pause": {
@@ -1567,7 +2266,9 @@
           }
         ],
         "summary": "Pause one recurring schedule",
-        "tags": ["Schedule"]
+        "tags": [
+          "Schedule"
+        ]
       }
     },
     "/api/v1/app-configurations": {
@@ -1613,7 +2314,9 @@
           }
         ],
         "summary": "List console-visible AppConfigure entries",
-        "tags": ["AppConfigure"]
+        "tags": [
+          "AppConfigure"
+        ]
       }
     },
     "/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules": {
@@ -1682,7 +2385,9 @@
           }
         ],
         "summary": "List recurring schedules for one agent session",
-        "tags": ["Schedule"]
+        "tags": [
+          "Schedule"
+        ]
       },
       "post": {
         "callbacks": {},
@@ -1770,7 +2475,351 @@
           }
         ],
         "summary": "Create one recurring schedule",
-        "tags": ["Schedule"]
+        "tags": [
+          "Schedule"
+        ]
+      }
+    },
+    "/api/v1/agent-computer-workers/{worker_id}/files": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.WorkerFileController.delete",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "worker_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "Worker filesystem root",
+            "in": "query",
+            "name": "root",
+            "required": true,
+            "schema": {
+              "enum": [
+                "workspace_sessions",
+                "user_files",
+                "agent_installed_skills"
+              ],
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "Path relative to the root",
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "Required for directories",
+            "in": "query",
+            "name": "recursive",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerFileDeleteResponse"
+                }
+              }
+            },
+            "description": "Deleted file"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Worker not ready"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Delete one file or directory from a worker filesystem root",
+        "tags": [
+          "Workers"
+        ]
+      },
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.WorkerFileController.index",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "worker_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "Worker filesystem root",
+            "in": "query",
+            "name": "root",
+            "required": true,
+            "schema": {
+              "enum": [
+                "workspace_sessions",
+                "user_files",
+                "agent_installed_skills"
+              ],
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "Directory path relative to the root",
+            "in": "query",
+            "name": "path",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerFileListResponse"
+                }
+              }
+            },
+            "description": "Files"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Worker not ready"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "List files in one worker filesystem root",
+        "tags": [
+          "Workers"
+        ]
+      },
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.WorkerFileController.upload",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "worker_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkerFileUploadRequest"
+              }
+            }
+          },
+          "description": "multipart form",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerFileUploadResponse"
+                }
+              }
+            },
+            "description": "Uploaded file"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Worker not ready"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Upload one file into a worker filesystem root",
+        "tags": [
+          "Workers"
+        ]
       }
     },
     "/api/v1/ai-gateway/responses": {
@@ -1829,7 +2878,9 @@
           }
         ],
         "summary": "Create a stateless OpenResponses response",
-        "tags": ["AIGateway"]
+        "tags": [
+          "AIGateway"
+        ]
       }
     },
     "/api/v1/ai-gateway/provider-kinds": {
@@ -1875,7 +2926,9 @@
           }
         ],
         "summary": "List AIGateway provider kinds",
-        "tags": ["AIGateway"]
+        "tags": [
+          "AIGateway"
+        ]
       }
     },
     "/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/resume": {
@@ -1935,7 +2988,9 @@
           }
         ],
         "summary": "Resume one recurring schedule",
-        "tags": ["Schedule"]
+        "tags": [
+          "Schedule"
+        ]
       }
     },
     "/api/v1/ai-gateway/providers/{provider_id}": {
@@ -2013,7 +3068,9 @@
           }
         ],
         "summary": "Disable one AIGateway provider",
-        "tags": ["AIGateway"]
+        "tags": [
+          "AIGateway"
+        ]
       },
       "put": {
         "callbacks": {},
@@ -2090,7 +3147,9 @@
           }
         ],
         "summary": "Create or update one AIGateway provider",
-        "tags": ["AIGateway"]
+        "tags": [
+          "AIGateway"
+        ]
       }
     },
     "/api/v1/ai-gateway/models": {
@@ -2224,7 +3283,9 @@
           }
         ],
         "summary": "List AIGateway model selectors",
-        "tags": ["AIGateway"]
+        "tags": [
+          "AIGateway"
+        ]
       }
     },
     "/api/v1/ai-gateway/web_fetch": {
@@ -2296,7 +3357,9 @@
           }
         ],
         "summary": "Fetch web pages through AIGateway",
-        "tags": ["AIGateway"]
+        "tags": [
+          "AIGateway"
+        ]
       }
     },
     "/api/v1/identity-providers/{provider_id}": {
@@ -2385,7 +3448,9 @@
           }
         ],
         "summary": "Create or update one identity provider",
-        "tags": ["Identity Providers"]
+        "tags": [
+          "Identity Providers"
+        ]
       }
     },
     "/api/v1/agents/{agent_uid}/signal-bindings": {
@@ -2453,7 +3518,9 @@
           }
         ],
         "summary": "List signal bindings for one agent",
-        "tags": ["Signal Bindings"]
+        "tags": [
+          "Signal Bindings"
+        ]
       }
     },
     "/api/v1/agents/{agent_uid}/model-profiles/{profile}": {
@@ -2542,7 +3609,9 @@
           }
         ],
         "summary": "Clear one optional model profile for an agent",
-        "tags": ["AIGateway"]
+        "tags": [
+          "AIGateway"
+        ]
       },
       "put": {
         "callbacks": {},
@@ -2640,7 +3709,110 @@
           }
         ],
         "summary": "Create or update one model profile for an agent",
-        "tags": ["AIGateway"]
+        "tags": [
+          "AIGateway"
+        ]
+      }
+    },
+    "/api/v1/agent-computer-workers/{worker_id}/file-moves": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.WorkerFileController.move",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "worker_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkerFileMoveRequest"
+              }
+            }
+          },
+          "description": "Move",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerFileMoveResponse"
+                }
+              }
+            },
+            "description": "Moved file"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Worker not ready"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Rename or move a path in a worker filesystem root",
+        "tags": [
+          "Workers"
+        ]
       }
     },
     "/api/v1/identity-provider-adapters": {
@@ -2686,7 +3858,9 @@
           }
         ],
         "summary": "List identity-provider adapters",
-        "tags": ["Identity Providers"]
+        "tags": [
+          "Identity Providers"
+        ]
       }
     },
     "/api/v1/ai-gateway/responses/{response_id}": {
@@ -2756,7 +3930,9 @@
           }
         ],
         "summary": "Retrieve a stored stateful OpenResponses response",
-        "tags": ["AIGateway"]
+        "tags": [
+          "AIGateway"
+        ]
       }
     },
     "/api/v1/agents/{agent_uid}": {
@@ -2824,7 +4000,9 @@
           }
         ],
         "summary": "Disable one agent",
-        "tags": ["Agents"]
+        "tags": [
+          "Agents"
+        ]
       },
       "get": {
         "callbacks": {},
@@ -2890,7 +4068,9 @@
           }
         ],
         "summary": "Read one agent",
-        "tags": ["Agents"]
+        "tags": [
+          "Agents"
+        ]
       },
       "patch": {
         "callbacks": {},
@@ -2977,7 +4157,9 @@
           }
         ],
         "summary": "Update one agent",
-        "tags": ["Agents"]
+        "tags": [
+          "Agents"
+        ]
       }
     },
     "/api/v1/ai-gateway/responses/compact": {
@@ -3049,7 +4231,9 @@
           }
         ],
         "summary": "Create a stateful compaction response",
-        "tags": ["AIGateway"]
+        "tags": [
+          "AIGateway"
+        ]
       }
     },
     "/api/v1/identity-providers/{provider_id}/sync-runs": {
@@ -3127,7 +4311,9 @@
           }
         ],
         "summary": "Enqueue one identity-provider full directory sync",
-        "tags": ["Identity Providers"]
+        "tags": [
+          "Identity Providers"
+        ]
       }
     },
     "/api/v1/agents": {
@@ -3173,7 +4359,9 @@
           }
         ],
         "summary": "List active agents",
-        "tags": ["Agents"]
+        "tags": [
+          "Agents"
+        ]
       },
       "post": {
         "callbacks": {},
@@ -3238,7 +4426,9 @@
           }
         ],
         "summary": "Create one agent",
-        "tags": ["Agents"]
+        "tags": [
+          "Agents"
+        ]
       }
     },
     "/api/v1/ai-gateway/providers": {
@@ -3284,7 +4474,9 @@
           }
         ],
         "summary": "List configured AIGateway providers",
-        "tags": ["AIGateway"]
+        "tags": [
+          "AIGateway"
+        ]
       }
     },
     "/api/v1/agents/{agent_uid}/sessions/{session_id}/checkbacks": {
@@ -3333,7 +4525,9 @@
           }
         ],
         "summary": "List checkback wakeups for one agent session",
-        "tags": ["Schedule"]
+        "tags": [
+          "Schedule"
+        ]
       }
     },
     "/api/v1/agents/{agent_uid}/model-profiles": {
@@ -3401,7 +4595,9 @@
           }
         ],
         "summary": "Read all model profiles for one agent",
-        "tags": ["AIGateway"]
+        "tags": [
+          "AIGateway"
+        ]
       }
     },
     "/api/v1/signal-adapters": {
@@ -3447,7 +4643,9 @@
           }
         ],
         "summary": "List signal adapters available for bindings",
-        "tags": ["Signal Bindings"]
+        "tags": [
+          "Signal Bindings"
+        ]
       }
     },
     "/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}": {
@@ -3507,7 +4705,9 @@
           }
         ],
         "summary": "Remove one recurring schedule",
-        "tags": ["Schedule"]
+        "tags": [
+          "Schedule"
+        ]
       },
       "get": {
         "callbacks": {},
@@ -3595,7 +4795,9 @@
           }
         ],
         "summary": "Read one recurring schedule",
-        "tags": ["Schedule"]
+        "tags": [
+          "Schedule"
+        ]
       },
       "patch": {
         "callbacks": {},
@@ -3704,7 +4906,9 @@
           }
         ],
         "summary": "Update one recurring schedule",
-        "tags": ["Schedule"]
+        "tags": [
+          "Schedule"
+        ]
       }
     },
     "/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/runs": {
@@ -3775,7 +4979,9 @@
           }
         ],
         "summary": "List recent concrete fires for one recurring schedule",
-        "tags": ["Schedule"]
+        "tags": [
+          "Schedule"
+        ]
       },
       "post": {
         "callbacks": {},
@@ -3833,7 +5039,9 @@
           }
         ],
         "summary": "Manually run one recurring schedule",
-        "tags": ["Schedule"]
+        "tags": [
+          "Schedule"
+        ]
       }
     },
     "/api/v1/agents/{agent_uid}/signal-bindings/{binding_name}": {
@@ -3912,7 +5120,9 @@
           }
         ],
         "summary": "Disable one signal binding for an agent",
-        "tags": ["Signal Bindings"]
+        "tags": [
+          "Signal Bindings"
+        ]
       }
     },
     "/api/v1/agents/{agent_uid}/sessions/{session_id}/checkbacks/{scheduled_event_id}": {
@@ -3972,7 +5182,9 @@
           }
         ],
         "summary": "Cancel one pending checkback wakeup",
-        "tags": ["Schedule"]
+        "tags": [
+          "Schedule"
+        ]
       }
     },
     "/api/v1/ai-gateway/web_search": {
@@ -4044,7 +5256,9 @@
           }
         ],
         "summary": "Search the web through AIGateway",
-        "tags": ["AIGateway"]
+        "tags": [
+          "AIGateway"
+        ]
       }
     },
     "/api/v1/ai-gateway/web_tools": {
@@ -4089,7 +5303,9 @@
           }
         ],
         "summary": "List provider-backed web tools available to this AIGateway subject",
-        "tags": ["AIGateway"]
+        "tags": [
+          "AIGateway"
+        ]
       }
     },
     "/api/v1/agents/{agent_uid}/signal-bindings/{adapter_id}/{binding_name}": {
@@ -4200,7 +5416,9 @@
           }
         ],
         "summary": "Create or update one signal binding for an agent",
-        "tags": ["Signal Bindings"]
+        "tags": [
+          "Signal Bindings"
+        ]
       }
     },
     "/.internal-apis/session": {
@@ -4221,7 +5439,9 @@
           }
         },
         "summary": "Clear the current browser admin session",
-        "tags": ["Auth"]
+        "tags": [
+          "Auth"
+        ]
       }
     },
     "/api/v1/ai-gateway/rerank": {
@@ -4280,7 +5500,9 @@
           }
         ],
         "summary": "Create a rerank result through AIGateway",
-        "tags": ["AIGateway"]
+        "tags": [
+          "AIGateway"
+        ]
       }
     },
     "/api/v1/app-configurations/{key}/decryptions": {
@@ -4358,7 +5580,9 @@
           }
         ],
         "summary": "Reveal one encrypted AppConfigure value on demand",
-        "tags": ["AppConfigure"]
+        "tags": [
+          "AppConfigure"
+        ]
       }
     },
     "/api/v1/ai-gateway/embeddings": {
@@ -4417,7 +5641,57 @@
           }
         ],
         "summary": "Create embeddings through AIGateway",
-        "tags": ["AIGateway"]
+        "tags": [
+          "AIGateway"
+        ]
+      }
+    },
+    "/api/v1/agent-computer-workers": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AgentComputerWorkerController.index",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentComputerWorkerListResponse"
+                }
+              }
+            },
+            "description": "Workers"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "List agent computer workers",
+        "tags": [
+          "Workers"
+        ]
       }
     },
     "/api/v1/app-configurations/{key}": {
@@ -4495,7 +5769,9 @@
           }
         ],
         "summary": "Reset one global AppConfigure value",
-        "tags": ["AppConfigure"]
+        "tags": [
+          "AppConfigure"
+        ]
       },
       "get": {
         "callbacks": {},
@@ -4571,7 +5847,9 @@
           }
         ],
         "summary": "Read one console-editable AppConfigure entry",
-        "tags": ["AppConfigure"]
+        "tags": [
+          "AppConfigure"
+        ]
       },
       "put": {
         "callbacks": {},
@@ -4658,7 +5936,9 @@
           }
         ],
         "summary": "Store one global AppConfigure value",
-        "tags": ["AppConfigure"]
+        "tags": [
+          "AppConfigure"
+        ]
       }
     },
     "/.internal-apis/oauth/token": {
@@ -4710,7 +5990,9 @@
           }
         },
         "summary": "Exchange a browser admin session or refresh token for console bearer tokens",
-        "tags": ["Auth"]
+        "tags": [
+          "Auth"
+        ]
       }
     }
   },
@@ -4753,6 +6035,10 @@
     {
       "description": "Operator-visible actor checkbacks and recurring schedules",
       "name": "Schedule"
+    },
+    {
+      "description": "Agent computer worker registry and worker filesystem management",
+      "name": "Workers"
     }
   ]
 }

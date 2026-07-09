@@ -33,6 +33,12 @@ defmodule Ankole.ActorRuntime do
   @type actor_key :: %{agent_uid: String.t(), session_id: String.t()}
 
   @doc """
+  Lists worker registry rows for operator-facing views.
+  """
+  @spec list_workers() :: [AgentComputerWorker.t()]
+  defdelegate list_workers(), to: WorkerAdmission
+
+  @doc """
   Admits an authenticated worker-ready message.
   """
   @spec admit_worker_ready(map(), String.t() | map()) ::
@@ -80,6 +86,81 @@ defmodule Ankole.ActorRuntime do
       when is_binary(root) and is_binary(relative_path) do
     with {:ok, route} <- WorkerPool.file_worker_route() do
       FileTransferLane.get(route, root, relative_path, opts)
+    end
+  end
+
+  @doc """
+  Lists a directory inside a specific worker's filesystem root.
+
+  Targets the exact worker because each worker owns its own per-worker PVC.
+  """
+  @spec list_files_on_worker(String.t(), String.t(), String.t(), keyword()) ::
+          FileTransferLane.operation_result()
+  def list_files_on_worker(worker_id, root, relative_path, opts \\ [])
+      when is_binary(worker_id) and is_binary(root) and is_binary(relative_path) do
+    with {:ok, route} <- WorkerPool.worker_file_route(worker_id) do
+      FileTransferLane.list(route, root, relative_path, opts)
+    end
+  end
+
+  @doc """
+  Reads filesystem information for one path on a specific worker.
+  """
+  @spec stat_file_on_worker(String.t(), String.t(), String.t(), keyword()) ::
+          FileTransferLane.operation_result()
+  def stat_file_on_worker(worker_id, root, relative_path, opts \\ [])
+      when is_binary(worker_id) and is_binary(root) and is_binary(relative_path) do
+    with {:ok, route} <- WorkerPool.worker_file_route(worker_id) do
+      FileTransferLane.stat(route, root, relative_path, opts)
+    end
+  end
+
+  @doc """
+  Reads bytes from a specific worker's filesystem root.
+  """
+  @spec get_file_from_worker(String.t(), String.t(), String.t(), keyword()) ::
+          FileTransferLane.get_result()
+  def get_file_from_worker(worker_id, root, relative_path, opts \\ [])
+      when is_binary(worker_id) and is_binary(root) and is_binary(relative_path) do
+    with {:ok, route} <- WorkerPool.worker_file_route(worker_id) do
+      FileTransferLane.get(route, root, relative_path, opts)
+    end
+  end
+
+  @doc """
+  Writes bytes into a specific worker's filesystem root.
+  """
+  @spec put_file_on_worker(String.t(), String.t(), String.t(), iodata(), keyword()) ::
+          FileTransferLane.operation_result()
+  def put_file_on_worker(worker_id, root, relative_path, content, opts \\ [])
+      when is_binary(worker_id) and is_binary(root) and is_binary(relative_path) do
+    with {:ok, route} <- WorkerPool.worker_file_route(worker_id) do
+      FileTransferLane.put(route, root, relative_path, content, opts)
+    end
+  end
+
+  @doc """
+  Deletes a file or directory on a specific worker.
+  """
+  @spec delete_file_on_worker(String.t(), String.t(), String.t(), keyword()) ::
+          FileTransferLane.operation_result()
+  def delete_file_on_worker(worker_id, root, relative_path, opts \\ [])
+      when is_binary(worker_id) and is_binary(root) and is_binary(relative_path) do
+    with {:ok, route} <- WorkerPool.worker_file_route(worker_id) do
+      FileTransferLane.delete(route, root, relative_path, opts)
+    end
+  end
+
+  @doc """
+  Moves or renames a path on a specific worker.
+  """
+  @spec move_file_on_worker(String.t(), String.t(), String.t(), String.t(), keyword()) ::
+          FileTransferLane.operation_result()
+  def move_file_on_worker(worker_id, root, from_relative_path, to_relative_path, opts \\ [])
+      when is_binary(worker_id) and is_binary(root) and is_binary(from_relative_path) and
+             is_binary(to_relative_path) do
+    with {:ok, route} <- WorkerPool.worker_file_route(worker_id) do
+      FileTransferLane.move(route, root, from_relative_path, to_relative_path, opts)
     end
   end
 

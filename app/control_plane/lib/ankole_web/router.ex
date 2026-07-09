@@ -113,6 +113,21 @@ defmodule AnkoleWeb.Router do
     patch "/agents/:agent_uid", AgentController, :update
     delete "/agents/:agent_uid", AgentController, :delete
 
+    get "/agent-computer-workers", AgentComputerWorkerController, :index
+
+    get "/agent-computer-workers/:worker_id/files", WorkerFileController, :index
+
+    get "/agent-computer-workers/:worker_id/files/content",
+        WorkerFileController,
+        :download
+
+    post "/agent-computer-workers/:worker_id/files", WorkerFileController, :upload
+    post "/agent-computer-workers/:worker_id/file-moves", WorkerFileController, :move
+
+    delete "/agent-computer-workers/:worker_id/files",
+           WorkerFileController,
+           :delete
+
     get "/ai-gateway/provider-kinds", AIGatewayProviderController, :provider_kinds
     get "/ai-gateway/providers", AIGatewayProviderController, :index
     put "/ai-gateway/providers/:provider_id", AIGatewayProviderController, :put_provider

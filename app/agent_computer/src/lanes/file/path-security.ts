@@ -41,6 +41,8 @@ export function rootPathFor(config: WorkerConfig, root: string): string {
       return config.userFilesRoot
     case 'agent_installed_skills':
       return config.agentInstalledSkillsRoot
+    case 'workspace_sessions':
+      return config.workspaceSessionsRoot
     default:
       throw new Error(`unsupported file root: ${root}`)
   }
@@ -57,7 +59,7 @@ export function parseVirtualPathFrame(
   }
 
   const [root, ...segments] = virtualPath.slice(1).split('/')
-  if (root !== 'user_files' && root !== 'agent_installed_skills') {
+  if (root !== 'user_files' && root !== 'agent_installed_skills' && root !== 'workspace_sessions') {
     throw new Error(`unsupported file root: ${root}`)
   }
 

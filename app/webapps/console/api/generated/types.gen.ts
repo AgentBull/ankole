@@ -12,6 +12,16 @@ export type AiGatewayProviderListResponse = {
 }
 
 /**
+ * WorkerFileListData
+ */
+export type WorkerFileListData = {
+  entries: Array<WorkerFileEntry>
+  path: string
+  root: 'workspace_sessions' | 'user_files' | 'agent_installed_skills'
+  truncated: boolean
+}
+
+/**
  * AppConfigurationResponse
  */
 export type AppConfigurationResponse = {
@@ -46,10 +56,31 @@ export type AgentUpdateRequest = {
 }
 
 /**
+ * WorkerFileEntry
+ */
+export type WorkerFileEntry = {
+  kind: 'file' | 'directory' | 'other'
+  modified_unix_ms: number
+  relative_path: string
+  size: number
+}
+
+/**
  * ConsoleApiErrorEnvelope
  */
 export type ConsoleApiErrorEnvelope = {
   error: ConsoleApiError
+}
+
+/**
+ * WorkerFileDeleteResponse
+ */
+export type WorkerFileDeleteResponse = {
+  data: {
+    deleted: boolean
+    relative_path: string
+    root: 'workspace_sessions' | 'user_files' | 'agent_installed_skills'
+  }
 }
 
 /**
@@ -253,6 +284,39 @@ export type SignalAdapterFieldOption = {
 }
 
 /**
+ * WorkerFileUploadResponse
+ */
+export type WorkerFileUploadResponse = {
+  data: {
+    relative_path: string
+    root: 'workspace_sessions' | 'user_files' | 'agent_installed_skills'
+    size: number
+    xxh3_128?: string | null
+  }
+}
+
+/**
+ * AgentComputerWorkerItem
+ */
+export type AgentComputerWorkerItem = {
+  capacity: {
+    [key: string]: unknown
+  }
+  inserted_at: string
+  last_worker_heartbeat_at?: string | null
+  load: {
+    [key: string]: unknown
+  }
+  started_at?: string | null
+  status: 'ready' | 'stale' | 'draining' | 'stopped'
+  stop_reason?: string | null
+  stopped_at?: string | null
+  updated_at: string
+  version: string
+  worker_id: string
+}
+
+/**
  * AgentItem
  */
 export type AgentItem = {
@@ -283,6 +347,23 @@ export type SignalBindingListResponse = {
 export type SignalBindingWriteRequest = {
   config: JsonValue
   group_message_mode?: 'addressed_only' | 'observe_all' | 'may_intervene'
+}
+
+/**
+ * WorkerFileListResponse
+ */
+export type WorkerFileListResponse = {
+  data: WorkerFileListData
+}
+
+/**
+ * WorkerFileMoveRequest
+ */
+export type WorkerFileMoveRequest = {
+  from_path: string
+  overwrite?: boolean
+  root: 'workspace_sessions' | 'user_files' | 'agent_installed_skills'
+  to_path: string
 }
 
 /**
@@ -326,6 +407,13 @@ export type ScheduleCronWriteRequest = {
   schedule: JsonValue
   status?: 'active' | 'paused'
   timezone?: string | null
+}
+
+/**
+ * AgentComputerWorkerListResponse
+ */
+export type AgentComputerWorkerListResponse = {
+  data: Array<AgentComputerWorkerItem>
 }
 
 /**
@@ -419,6 +507,18 @@ export type AiGatewayProviderKindListResponse = {
 }
 
 /**
+ * WorkerFileMoveResponse
+ */
+export type WorkerFileMoveResponse = {
+  data: {
+    from_relative_path: string
+    moved: boolean
+    root: 'workspace_sessions' | 'user_files' | 'agent_installed_skills'
+    to_relative_path: string
+  }
+}
+
+/**
  * AIGatewayProviderResponse
  */
 export type AiGatewayProviderResponse = {
@@ -444,6 +544,15 @@ export type ConsoleApiErrorDetail = {
   message: string
   path?: string | null
   [key: string]: unknown
+}
+
+/**
+ * WorkerFileUploadRequest
+ */
+export type WorkerFileUploadRequest = {
+  file: Blob | File
+  path: string
+  root: 'workspace_sessions' | 'user_files' | 'agent_installed_skills'
 }
 
 /**
@@ -514,6 +623,60 @@ export type AppConfigurationDecryptionValue = {
 export type AiGatewayProviderEncryptedOptionsProjection = {
   [key: string]: AiGatewayProviderEncryptedOptionProjection
 }
+
+export type AnkoleWebWorkerFileControllerDownloadData = {
+  body?: never
+  path: {
+    worker_id: string
+  }
+  query: {
+    /**
+     * Worker filesystem root
+     */
+    root: 'workspace_sessions' | 'user_files' | 'agent_installed_skills'
+    /**
+     * File path relative to the root
+     */
+    path: string
+  }
+  url: '/api/v1/agent-computer-workers/{worker_id}/files/content'
+}
+
+export type AnkoleWebWorkerFileControllerDownloadErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Worker not ready
+   */
+  409: ConsoleApiErrorEnvelope
+  /**
+   * Invalid request
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebWorkerFileControllerDownloadError =
+  AnkoleWebWorkerFileControllerDownloadErrors[keyof AnkoleWebWorkerFileControllerDownloadErrors]
+
+export type AnkoleWebWorkerFileControllerDownloadResponses = {
+  /**
+   * File content
+   */
+  200: Blob | File
+}
+
+export type AnkoleWebWorkerFileControllerDownloadResponse =
+  AnkoleWebWorkerFileControllerDownloadResponses[keyof AnkoleWebWorkerFileControllerDownloadResponses]
 
 export type AnkoleWebIdentityProviderControllerIndexData = {
   body?: never
@@ -672,6 +835,166 @@ export type AnkoleWebScheduleControllerCreateCronResponses = {
 
 export type AnkoleWebScheduleControllerCreateCronResponse =
   AnkoleWebScheduleControllerCreateCronResponses[keyof AnkoleWebScheduleControllerCreateCronResponses]
+
+export type AnkoleWebWorkerFileControllerDeleteData = {
+  body?: never
+  path: {
+    worker_id: string
+  }
+  query: {
+    /**
+     * Worker filesystem root
+     */
+    root: 'workspace_sessions' | 'user_files' | 'agent_installed_skills'
+    /**
+     * Path relative to the root
+     */
+    path: string
+    /**
+     * Required for directories
+     */
+    recursive?: boolean
+  }
+  url: '/api/v1/agent-computer-workers/{worker_id}/files'
+}
+
+export type AnkoleWebWorkerFileControllerDeleteErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Worker not ready
+   */
+  409: ConsoleApiErrorEnvelope
+  /**
+   * Invalid request
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebWorkerFileControllerDeleteError =
+  AnkoleWebWorkerFileControllerDeleteErrors[keyof AnkoleWebWorkerFileControllerDeleteErrors]
+
+export type AnkoleWebWorkerFileControllerDeleteResponses = {
+  /**
+   * Deleted file
+   */
+  200: WorkerFileDeleteResponse
+}
+
+export type AnkoleWebWorkerFileControllerDeleteResponse =
+  AnkoleWebWorkerFileControllerDeleteResponses[keyof AnkoleWebWorkerFileControllerDeleteResponses]
+
+export type AnkoleWebWorkerFileControllerIndexData = {
+  body?: never
+  path: {
+    worker_id: string
+  }
+  query: {
+    /**
+     * Worker filesystem root
+     */
+    root: 'workspace_sessions' | 'user_files' | 'agent_installed_skills'
+    /**
+     * Directory path relative to the root
+     */
+    path?: string
+  }
+  url: '/api/v1/agent-computer-workers/{worker_id}/files'
+}
+
+export type AnkoleWebWorkerFileControllerIndexErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Worker not ready
+   */
+  409: ConsoleApiErrorEnvelope
+  /**
+   * Invalid request
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebWorkerFileControllerIndexError =
+  AnkoleWebWorkerFileControllerIndexErrors[keyof AnkoleWebWorkerFileControllerIndexErrors]
+
+export type AnkoleWebWorkerFileControllerIndexResponses = {
+  /**
+   * Files
+   */
+  200: WorkerFileListResponse
+}
+
+export type AnkoleWebWorkerFileControllerIndexResponse =
+  AnkoleWebWorkerFileControllerIndexResponses[keyof AnkoleWebWorkerFileControllerIndexResponses]
+
+export type AnkoleWebWorkerFileControllerUploadData = {
+  /**
+   * multipart form
+   */
+  body: WorkerFileUploadRequest
+  path: {
+    worker_id: string
+  }
+  query?: never
+  url: '/api/v1/agent-computer-workers/{worker_id}/files'
+}
+
+export type AnkoleWebWorkerFileControllerUploadErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Worker not ready
+   */
+  409: ConsoleApiErrorEnvelope
+  /**
+   * Invalid request
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebWorkerFileControllerUploadError =
+  AnkoleWebWorkerFileControllerUploadErrors[keyof AnkoleWebWorkerFileControllerUploadErrors]
+
+export type AnkoleWebWorkerFileControllerUploadResponses = {
+  /**
+   * Uploaded file
+   */
+  200: WorkerFileUploadResponse
+}
+
+export type AnkoleWebWorkerFileControllerUploadResponse =
+  AnkoleWebWorkerFileControllerUploadResponses[keyof AnkoleWebWorkerFileControllerUploadResponses]
 
 export type AnkoleWebAiGatewayControllerResponsesData = {
   /**
@@ -1115,6 +1438,54 @@ export type AnkoleWebAiGatewayProviderControllerPutModelProfileResponses = {
 
 export type AnkoleWebAiGatewayProviderControllerPutModelProfileResponse =
   AnkoleWebAiGatewayProviderControllerPutModelProfileResponses[keyof AnkoleWebAiGatewayProviderControllerPutModelProfileResponses]
+
+export type AnkoleWebWorkerFileControllerMoveData = {
+  /**
+   * Move
+   */
+  body: WorkerFileMoveRequest
+  path: {
+    worker_id: string
+  }
+  query?: never
+  url: '/api/v1/agent-computer-workers/{worker_id}/file-moves'
+}
+
+export type AnkoleWebWorkerFileControllerMoveErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Worker not ready
+   */
+  409: ConsoleApiErrorEnvelope
+  /**
+   * Invalid request
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebWorkerFileControllerMoveError =
+  AnkoleWebWorkerFileControllerMoveErrors[keyof AnkoleWebWorkerFileControllerMoveErrors]
+
+export type AnkoleWebWorkerFileControllerMoveResponses = {
+  /**
+   * Moved file
+   */
+  200: WorkerFileMoveResponse
+}
+
+export type AnkoleWebWorkerFileControllerMoveResponse =
+  AnkoleWebWorkerFileControllerMoveResponses[keyof AnkoleWebWorkerFileControllerMoveResponses]
 
 export type AnkoleWebIdentityProviderControllerAdaptersData = {
   body?: never
@@ -2035,6 +2406,37 @@ export type AnkoleWebAiGatewayControllerEmbeddingsResponses = {
 
 export type AnkoleWebAiGatewayControllerEmbeddingsResponse =
   AnkoleWebAiGatewayControllerEmbeddingsResponses[keyof AnkoleWebAiGatewayControllerEmbeddingsResponses]
+
+export type AnkoleWebAgentComputerWorkerControllerIndexData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v1/agent-computer-workers'
+}
+
+export type AnkoleWebAgentComputerWorkerControllerIndexErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAgentComputerWorkerControllerIndexError =
+  AnkoleWebAgentComputerWorkerControllerIndexErrors[keyof AnkoleWebAgentComputerWorkerControllerIndexErrors]
+
+export type AnkoleWebAgentComputerWorkerControllerIndexResponses = {
+  /**
+   * Workers
+   */
+  200: AgentComputerWorkerListResponse
+}
+
+export type AnkoleWebAgentComputerWorkerControllerIndexResponse =
+  AnkoleWebAgentComputerWorkerControllerIndexResponses[keyof AnkoleWebAgentComputerWorkerControllerIndexResponses]
 
 export type AnkoleWebAppConfigurationControllerDeleteData = {
   body?: never

@@ -6,6 +6,7 @@ import { IdentityProviderEditorPage, IdentityProvidersListPage } from './pages/i
 import { ProviderEditorPage, ProvidersListPage } from './pages/providers'
 import { SettingEditorPage, SettingsListPage } from './pages/settings'
 import { SignalBindingEditorPage, SignalsListPage } from './pages/signals'
+import { WorkerFilesPage, WorkersListPage } from './pages/workers'
 
 // Configure the bearer-token API client at module load, before any route
 // component can render or fire a query. This must run eagerly and NOT inside a
@@ -38,6 +39,8 @@ const router = createBrowserRouter(
         { path: 'signals/new', element: <SignalBindingEditorPage /> },
         { path: 'settings', element: <SettingsListPage /> },
         { path: 'settings/:key', element: <SettingEditorPage /> },
+        { path: 'workers', element: <WorkersListPage /> },
+        { path: 'workers/:workerId/files', element: <WorkerFilesPage /> },
         { path: '*', element: <Navigate to="agents" replace /> }
       ]
     }

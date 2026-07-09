@@ -29,6 +29,19 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
   @stale_worker_ttl_seconds 3_600
 
   @doc """
+  Lists worker registry rows for operator-facing views.
+
+  The registry is owned by RuntimeFabric lifecycle messages; this read path only
+  projects what those messages have recorded.
+  """
+  @spec list_workers() :: [AgentComputerWorker.t()]
+  def list_workers do
+    AgentComputerWorker
+    |> order_by([worker], desc: worker.inserted_at)
+    |> Repo.all()
+  end
+
+  @doc """
   Admits an authenticated worker-ready message.
 
   Worker readiness is accepted only from the route that the transport already

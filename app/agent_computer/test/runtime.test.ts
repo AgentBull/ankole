@@ -497,6 +497,61 @@ describe('@ankole/agent-computer runtime', () => {
       rmSync(root, { recursive: true, force: true })
     }
   })
+
+  it('resolves the workspace_sessions root and round-trips LIST and STAT', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-file-lane-sessions-'))
+    const config = workerConfigForRoot(root)
+    const sentFrames: Buffer[][] = []
+    const lane = createFileTransferLane(config, async frames => {
+      sentFrames.push(frames)
+    })
+
+    try {
+      mkdirSync(join(config.workspaceSessionsRoot, 'agent-1/session-1'), { recursive: true })
+      writeFileSync(join(config.workspaceSessionsRoot, 'agent-1/session-1/log.txt'), 'logs')
+
+      await lane.handle([
+        fileTransferProtocol,
+        Buffer.from('LIST'),
+        Buffer.from('list-sessions'),
+        Buffer.from('/workspace_sessions/agent-1'),
+        boolFrame(true),
+        u64Frame(1000)
+      ])
+      const listFrame = frameFor(sentFrames, 'list-sessions', 'LIST_OK')
+      expect(listFrame[3]?.toString('utf8')).toBe('/workspace_sessions/agent-1')
+      const entries = decodeEntries(listFrame[6]!)
+      expect(entries).toContainEqual(
+        expect.objectContaining({
+          relative_path: 'agent-1/session-1/log.txt',
+          kind: 'file',
+          size: 4
+        })
+      )
+
+      await lane.handle([
+        fileTransferProtocol,
+        Buffer.from('STAT'),
+        Buffer.from('stat-sessions'),
+        Buffer.from('/workspace_sessions/agent-1/session-1/log.txt'),
+        Buffer.from('xxh3_128')
+      ])
+      const statFrame = frameFor(sentFrames, 'stat-sessions', 'STAT_OK')
+      expect(statFrame[3]?.toString('utf8')).toBe('/workspace_sessions/agent-1/session-1/log.txt')
+      expect(readU64Frame(statFrame[5])).toBe(4)
+
+      await lane.handle([
+        fileTransferProtocol,
+        Buffer.from('STAT'),
+        Buffer.from('unknown-root'),
+        Buffer.from('/shared_files/a.txt'),
+        Buffer.from('none')
+      ])
+      expect(errorMessageFor(sentFrames, 'unknown-root')).toMatch(/unsupported file root/)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })
 
 function workerConfig(): WorkerConfig {

@@ -22,7 +22,7 @@ defmodule AnkoleWeb.ApiSpec do
       servers: [Server.from_endpoint(AnkoleWeb.Endpoint)],
       info: %Info{
         title: "Ankole API",
-        version: "2026-06-24"
+        version: "2026-07-09"
       },
       paths: Paths.from_router(AnkoleWeb.Router),
       # The documented `consoleBearer` scheme is the spec-side mirror of
@@ -73,6 +73,10 @@ defmodule AnkoleWeb.ApiSpec do
         %Tag{
           name: "Schedule",
           description: "Operator-visible actor checkbacks and recurring schedules"
+        },
+        %Tag{
+          name: "Workers",
+          description: "Agent computer worker registry and worker filesystem management"
         }
       ]
     }

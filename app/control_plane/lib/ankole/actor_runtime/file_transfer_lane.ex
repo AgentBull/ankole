@@ -17,7 +17,7 @@ defmodule Ankole.ActorRuntime.FileTransferLane do
   @credit_window 4 * 1024 * 1024
   @zstd_level 3
   @default_timeout 120_000
-  @roots ~w(user_files agent_installed_skills)
+  @roots ~w(user_files agent_installed_skills workspace_sessions)
 
   @type route_auth :: %{
           route: String.t(),

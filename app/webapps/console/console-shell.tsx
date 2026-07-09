@@ -41,7 +41,8 @@ import {
   RiSettings3Line,
   RiSparkling2Line,
   RiBroadcastLine,
-  RiShieldKeyholeLine
+  RiShieldKeyholeLine,
+  RiServerLine
 } from '@remixicon/react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState, type ComponentProps, type ComponentType, type FormEvent, type ReactNode } from 'react'
@@ -71,6 +72,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: 'providers', label: 'console.nav.providers', icon: RiSparkling2Line },
   { to: 'identity', label: 'console.nav.identity', icon: RiShieldKeyholeLine },
   { to: 'signals', label: 'console.nav.signals', icon: RiBroadcastLine },
+  { to: 'workers', label: 'console.nav.workers', icon: RiServerLine },
   { to: 'settings', label: 'console.nav.settings', icon: RiSettings3Line }
 ]
 

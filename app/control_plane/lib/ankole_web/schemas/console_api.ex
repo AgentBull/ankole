@@ -1184,4 +1184,273 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
       struct?: false
     )
   end
+
+  defmodule AgentComputerWorkerItem do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "AgentComputerWorkerItem",
+        type: :object,
+        properties: %{
+          worker_id: %Schema{type: :string},
+          status: %Schema{
+            type: :string,
+            enum: ["ready", "stale", "draining", "stopped"]
+          },
+          version: %Schema{type: :string},
+          capacity: %Schema{type: :object, additionalProperties: true},
+          load: %Schema{type: :object, additionalProperties: true},
+          last_worker_heartbeat_at: %Schema{type: :string, nullable: true},
+          started_at: %Schema{type: :string, nullable: true},
+          stopped_at: %Schema{type: :string, nullable: true},
+          stop_reason: %Schema{type: :string, nullable: true},
+          inserted_at: %Schema{type: :string},
+          updated_at: %Schema{type: :string}
+        },
+        required: [
+          :worker_id,
+          :status,
+          :version,
+          :capacity,
+          :load,
+          :inserted_at,
+          :updated_at
+        ],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule AgentComputerWorkerListResponse do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "AgentComputerWorkerListResponse",
+        type: :object,
+        properties: %{
+          data: %Schema{type: :array, items: AgentComputerWorkerItem}
+        },
+        required: [:data],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule WorkerFileEntry do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "WorkerFileEntry",
+        type: :object,
+        properties: %{
+          relative_path: %Schema{type: :string},
+          kind: %Schema{type: :string, enum: ["file", "directory", "other"]},
+          size: %Schema{type: :integer},
+          modified_unix_ms: %Schema{type: :integer}
+        },
+        required: [:relative_path, :kind, :size, :modified_unix_ms],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule WorkerFileListData do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "WorkerFileListData",
+        type: :object,
+        properties: %{
+          root: %Schema{
+            type: :string,
+            enum: ["workspace_sessions", "user_files", "agent_installed_skills"]
+          },
+          path: %Schema{type: :string},
+          entries: %Schema{type: :array, items: WorkerFileEntry},
+          truncated: %Schema{type: :boolean}
+        },
+        required: [:root, :path, :entries, :truncated],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule WorkerFileListResponse do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "WorkerFileListResponse",
+        type: :object,
+        properties: %{
+          data: WorkerFileListData
+        },
+        required: [:data],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule WorkerFileUploadRequest do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "WorkerFileUploadRequest",
+        type: :object,
+        properties: %{
+          root: %Schema{
+            type: :string,
+            enum: ["workspace_sessions", "user_files", "agent_installed_skills"]
+          },
+          path: %Schema{type: :string},
+          file: %Schema{type: :string, format: :binary}
+        },
+        required: [:root, :path, :file],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule WorkerFileUploadResponse do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "WorkerFileUploadResponse",
+        type: :object,
+        properties: %{
+          data: %Schema{
+            type: :object,
+            properties: %{
+              root: %Schema{
+                type: :string,
+                enum: ["workspace_sessions", "user_files", "agent_installed_skills"]
+              },
+              relative_path: %Schema{type: :string},
+              size: %Schema{type: :integer},
+              xxh3_128: %Schema{type: :string, nullable: true}
+            },
+            required: [:root, :relative_path, :size],
+            additionalProperties: false
+          }
+        },
+        required: [:data],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule WorkerFileMoveRequest do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "WorkerFileMoveRequest",
+        type: :object,
+        properties: %{
+          root: %Schema{
+            type: :string,
+            enum: ["workspace_sessions", "user_files", "agent_installed_skills"]
+          },
+          from_path: %Schema{type: :string},
+          to_path: %Schema{type: :string},
+          overwrite: %Schema{type: :boolean}
+        },
+        required: [:root, :from_path, :to_path],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule WorkerFileMoveResponse do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "WorkerFileMoveResponse",
+        type: :object,
+        properties: %{
+          data: %Schema{
+            type: :object,
+            properties: %{
+              root: %Schema{
+                type: :string,
+                enum: ["workspace_sessions", "user_files", "agent_installed_skills"]
+              },
+              from_relative_path: %Schema{type: :string},
+              to_relative_path: %Schema{type: :string},
+              moved: %Schema{type: :boolean}
+            },
+            required: [:root, :from_relative_path, :to_relative_path, :moved],
+            additionalProperties: false
+          }
+        },
+        required: [:data],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule WorkerFileDeleteResponse do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "WorkerFileDeleteResponse",
+        type: :object,
+        properties: %{
+          data: %Schema{
+            type: :object,
+            properties: %{
+              root: %Schema{
+                type: :string,
+                enum: ["workspace_sessions", "user_files", "agent_installed_skills"]
+              },
+              relative_path: %Schema{type: :string},
+              deleted: %Schema{type: :boolean}
+            },
+            required: [:root, :relative_path, :deleted],
+            additionalProperties: false
+          }
+        },
+        required: [:data],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
 end

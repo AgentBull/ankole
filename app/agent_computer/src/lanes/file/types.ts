@@ -1,7 +1,7 @@
 import type { ReliableFileFrameSender } from '../../fabric/sender'
 import type { WorkerConfig } from '../../worker/config'
 
-export type FileRoot = 'user_files' | 'agent_installed_skills'
+export type FileRoot = 'user_files' | 'agent_installed_skills' | 'workspace_sessions'
 
 export type FingerprintMode = 'none' | 'xxh3_128'
 
