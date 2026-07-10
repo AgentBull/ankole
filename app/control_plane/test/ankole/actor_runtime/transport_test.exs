@@ -135,6 +135,51 @@ defmodule Ankole.ActorRuntime.TransportTest do
                )
     end
 
+    test "authenticated heartbeat revalidates only workers stopped by router restart" do
+      route = unique_route()
+      assert {:ok, worker} = admit_worker(route)
+
+      assert {:ok, 1} =
+               Ankole.ActorRuntime.WorkerAdmission.mark_all_routes_unusable(:router_stopped)
+
+      assert %AgentComputerWorker{status: "stale", stop_reason: "router_stopped"} =
+               Repo.get!(AgentComputerWorker, worker.id)
+
+      assert {:ok, revalidated} =
+               ActorRuntime.handle_worker_heartbeat(
+                 %{
+                   "worker_id" => worker.worker_id,
+                   "monotonic_ms" => 123,
+                   "load_json" => %{"active_turns" => 0}
+                 },
+                 %{authenticated?: true, transport_route: route}
+               )
+
+      assert revalidated.status == "ready"
+      assert is_nil(revalidated.stopped_at)
+      assert is_nil(revalidated.stop_reason)
+
+      stale_at = DateTime.add(revalidated.last_worker_heartbeat_at, 61, :second)
+
+      assert {:ok, timed_out} =
+               ActorRuntime.mark_worker_stale_if_due(revalidated.worker_id,
+                 now: stale_at,
+                 stale_after_seconds: 60
+               )
+
+      assert timed_out.status == "stale"
+      assert timed_out.stop_reason == "heartbeat_timeout"
+
+      assert {:ok, still_stale} =
+               ActorRuntime.handle_worker_heartbeat(
+                 %{"worker_id" => worker.worker_id},
+                 %{authenticated?: true, transport_route: route}
+               )
+
+      assert still_stale.status == "stale"
+      assert still_stale.stop_reason == "heartbeat_timeout"
+    end
+
     test "broker rejects worker actor lane writes from an unassigned route" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)

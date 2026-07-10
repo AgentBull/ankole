@@ -16,7 +16,7 @@ defmodule Ankole.E2E.DockerWorker do
 
   @doc "Starts a long-running Agent Computer Docker worker process for e2e tests."
   def start_docker_worker!(opts) do
-    name = "ankole-worker-e2e-#{System.unique_integer([:positive])}"
+    name = unique_worker_name()
     {workspace_root, persist_workspace?} = workspace_root(name)
 
     {:ok, spec} =
@@ -175,6 +175,11 @@ defmodule Ankole.E2E.DockerWorker do
       _value ->
         {Path.join(System.tmp_dir!(), name), false}
     end
+  end
+
+  defp unique_worker_name do
+    suffix = :crypto.strong_rand_bytes(10) |> Base.encode16(case: :lower)
+    "ankole-worker-e2e-#{suffix}"
   end
 
   defp close_port(port) when is_port(port) do

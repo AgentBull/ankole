@@ -386,6 +386,42 @@ fn worker_ready_does_not_require_actor_fields() {
 }
 
 #[test]
+fn worker_lifecycle_envelopes_expose_worker_id_for_route_auth() {
+    let bodies = [
+        json!({
+            "type": "worker_ready",
+            "worker_ready": {
+                "worker_id": "worker-a",
+                "runtime": "bun",
+                "version": "test"
+            }
+        }),
+        json!({
+            "type": "worker_heartbeat",
+            "worker_heartbeat": {"worker_id": "worker-a"}
+        }),
+        json!({
+            "type": "worker_capacity",
+            "worker_capacity": {"worker_id": "worker-a"}
+        }),
+    ];
+
+    for (index, body) in bodies.into_iter().enumerate() {
+        let encoded = encode_envelope(json!({
+            "protocol_version": 1,
+            "message_id": format!("worker-lifecycle-{index}"),
+            "lane": "LANE_CONTROL",
+            "durability": "CONTROL_EPHEMERAL",
+            "body": body
+        }))
+        .unwrap();
+
+        let decoded = decode_envelope_view(&encoded).unwrap();
+        assert_eq!(decoded.worker_lifecycle_id(), Some("worker-a"));
+    }
+}
+
+#[test]
 fn rejects_top_level_body_shape() {
     let envelope = json!({
         "protocol_version": 1,

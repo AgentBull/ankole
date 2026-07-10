@@ -17,6 +17,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
   alias Ankole.Actors.ActorEvent
   alias Ankole.ActorRuntime
   alias Ankole.ActorRuntime.ReadyEventProcessor
+  alias Ankole.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.ActorRuntime.Transport.Broker
   alias Ankole.E2E.DockerWorker
   alias Ankole.E2E.FakeFeishu
@@ -43,7 +44,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
 
     # Short lease: after the worker dies, the activation must expire instead of
     # blocking the session forever.
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+    assert {:ok, %{activation: activation, send_outcome: "sent_or_queued"}} =
              ReadyEventProcessor.process_ready_event_for_actor(
                %{agent_uid: input.agent_uid, session_id: input.session_id},
                now: DateTime.add(input.available_at, 1, :second),
@@ -64,6 +65,17 @@ defmodule Ankole.E2E.ChaosE2ETest do
              |> where([outbox], outbox.source_actor_event_id == ^input.id)
              |> Repo.all()
 
+    activation = Repo.reload(activation)
+    replay_now = DateTime.add(activation.lease_expires_at, 1, :microsecond)
+
+    case ActorRuntime.fail_activation_if_expired(activation.activation_uid, now: replay_now) do
+      {:ok, _failed_activation} ->
+        :ok
+
+      {:error, :activation_not_due} ->
+        assert Repo.reload(activation).status in ["failed", "stopped"]
+    end
+
     replacement_worker_id = "chaos-replacement-#{System.unique_integer([:positive])}"
 
     replacement =
@@ -72,7 +84,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
     # Re-dispatch after the lease expired. The first attempts may still pick the
     # dead worker's route; that failure marks the route unusable and the retry
     # lands on the replacement.
-    retry_until_sent!(input, DateTime.add(input.available_at, 120, :second))
+    retry_until_sent!(input, replay_now)
 
     assert {:ok, reply, _message} =
              wait_for_completed_final_reply(replacement, input.id, deadline(120_000))
@@ -91,7 +103,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
 
   @tag timeout: 600_000
   @tag ownership_timeout: 600_000
-  test "RuntimeFabric router restart releases stale routes and replacement worker completes turns" do
+  test "RuntimeFabric router restart reauthenticates the old route and a live worker completes turns" do
     ctx = start_worker_e2e_stack!()
 
     router_port =
@@ -108,6 +120,14 @@ defmodule Ankole.E2E.ChaosE2ETest do
     replacement =
       start_additional_worker!(ctx.endpoint, replacement_worker_id, ctx.worker_auth_key)
 
+    assert {:ok, %AgentComputerWorker{status: "ready", stop_reason: nil}} =
+             wait_until(deadline(30_000), fn ->
+               case Repo.get_by(AgentComputerWorker, worker_id: ctx.worker_id) do
+                 %AgentComputerWorker{status: "ready"} = worker -> worker
+                 _worker -> nil
+               end
+             end)
+
     assert :ok =
              FakeFeishu.State.user_sends_message(ctx.fake_feishu.state,
                event_id: "evt_chaos_router_restart_1",
@@ -122,7 +142,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
 
     # The worker reconnects on its own; dispatch retries until its re-admitted
     # route accepts the turn.
-    retry_until_sent!(input, DateTime.add(input.available_at, 120, :second))
+    retry_until_sent!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, reply, _message} =
              wait_for_completed_final_reply(replacement, input.id, deadline(120_000))
@@ -254,8 +274,6 @@ defmodule Ankole.E2E.ChaosE2ETest do
   defp retry_until_sent!(input, now) do
     assert {:ok, _result} =
              wait_until(deadline(90_000), fn ->
-               run_due_runtime_deadlines(now)
-
                case ReadyEventProcessor.process_ready_event_for_actor(
                       %{agent_uid: input.agent_uid, session_id: input.session_id},
                       now: now,
@@ -268,45 +286,6 @@ defmodule Ankole.E2E.ChaosE2ETest do
              end),
            "input #{input.id} was never accepted by a live worker"
   end
-
-  defp run_due_runtime_deadlines(now) do
-    Ankole.ActorRuntime.runtime_event_snapshot()
-    |> Enum.each(fn
-      {channel, %{"worker_id" => worker_id} = payload}
-      when channel == "ankole_worker_deadline" ->
-        if due_at?(payload["stale_at"], now) do
-          _ = ActorRuntime.mark_worker_stale_if_due(worker_id, now: now, lease_grace_seconds: 0)
-        end
-
-        if due_at?(payload["delete_at"], now) do
-          _ = ActorRuntime.delete_worker_if_due(worker_id, now: now)
-        end
-
-      {channel, %{"activation_uid" => activation_uid} = payload}
-      when channel == "ankole_activation_deadline" ->
-        if due_at?(payload["lease_expires_at"], now) do
-          _ = ActorRuntime.fail_activation_if_expired(activation_uid, now: now)
-        end
-
-      {channel, %{"message_id" => message_id} = payload}
-      when channel == "ankole_ai_message_deadline" ->
-        if due_at?(payload["orphan_at"], now) do
-          _ = ActorRuntime.reconcile_projection_lost_started_turn(message_id, now: now)
-        end
-
-      _event ->
-        :ok
-    end)
-  end
-
-  defp due_at?(value, now) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, due_at, _offset} -> DateTime.compare(due_at, now) != :gt
-      {:error, _reason} -> false
-    end
-  end
-
-  defp due_at?(_value, _now), do: false
 
   defp restart_router_on_port!(router_port, worker_auth_key) do
     endpoint = "tcp://0.0.0.0:#{router_port}"

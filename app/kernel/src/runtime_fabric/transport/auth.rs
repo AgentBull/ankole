@@ -51,21 +51,21 @@ pub(super) fn authenticated_route(
 pub(super) fn authenticated_envelope_route(
     auth_routes: &AuthenticatedRoutes,
     route: &str,
-    worker_ready_id: Option<&str>,
+    worker_lifecycle_id: Option<&str>,
 ) -> Option<AuthenticatedWorker> {
     if let Some(authenticated) = authenticated_route(auth_routes, route) {
-        if let Some(worker_id) = worker_ready_id {
+        if let Some(worker_id) = worker_lifecycle_id {
             return (authenticated.worker_id == worker_id).then_some(authenticated);
         }
 
         return Some(authenticated);
     }
 
-    let worker_id = worker_ready_id?;
-    bind_authenticated_ready_route(auth_routes, route, worker_id)
+    let worker_id = worker_lifecycle_id?;
+    bind_authenticated_lifecycle_route(auth_routes, route, worker_id)
 }
 
-fn bind_authenticated_ready_route(
+fn bind_authenticated_lifecycle_route(
     auth_routes: &AuthenticatedRoutes,
     route: &str,
     worker_id: &str,
@@ -347,7 +347,7 @@ mod tests {
     }
 
     #[test]
-    fn zap_success_without_route_identity_can_bind_from_worker_ready() {
+    fn zap_success_without_route_identity_can_bind_from_worker_lifecycle() {
         let auth_routes = authenticated_routes();
         let auth = zap_auth();
         let frames = zap_plain_frames("", "worker-a", "test-token");
@@ -357,7 +357,7 @@ mod tests {
 
         let authenticated =
             authenticated_envelope_route(&auth_routes, "worker-instance-a", Some("worker-a"))
-                .expect("pending auth binds to ready route");
+                .expect("pending auth binds to lifecycle route");
 
         assert_eq!(authenticated.worker_id, "worker-a");
 

@@ -283,15 +283,17 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
     end)
   end
 
-  # Updates heartbeat and capacity only when the worker still owns the transport
-  # route. This prevents an old connection from refreshing a replaced projection.
+  # Updates lifecycle projections only when the worker still owns the transport
+  # route. Authenticated traffic from that same process may revalidate a worker
+  # made stale solely because the router restarted; all other stale reasons stay
+  # terminal until a fresh worker-ready admission.
   defp update_worker_projection(worker_id, route, attrs) do
     Repo.transact(fn repo ->
-      case repo.get_by(AgentComputerWorker, worker_id: worker_id) do
+      case lock_worker_by_id(repo, worker_id) do
         %AgentComputerWorker{} = worker ->
           with :ok <- worker_route_matches(worker, route) do
             worker
-            |> AgentComputerWorker.changeset(attrs)
+            |> AgentComputerWorker.changeset(revalidate_after_router_restart(worker, attrs))
             |> repo.update()
             |> notify_worker_stale_deadline(repo)
           end
@@ -301,6 +303,15 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
       end
     end)
   end
+
+  defp revalidate_after_router_restart(
+         %AgentComputerWorker{status: "stale", stop_reason: "router_stopped"},
+         attrs
+       ) do
+    Map.merge(attrs, %{status: @ready_worker_status, stopped_at: nil, stop_reason: nil})
+  end
+
+  defp revalidate_after_router_restart(_worker, attrs), do: attrs
 
   # Ensures a live transport route belongs to one worker projection. ROUTER
   # identities are the address used by delivery, so sharing them would break

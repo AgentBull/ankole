@@ -187,6 +187,17 @@ implementation details:
   against the transport route;
 - lifecycle envelopes are admitted against that authenticated route identity.
 
+A router restart creates a fresh in-memory route/auth map. ZAP may authenticate
+the reconnecting DEALER before exposing its route identity, so the router keeps
+that success pending by `worker_id`; the first authenticated `worker_ready`,
+`worker_heartbeat`, or `worker_capacity` envelope binds the pending identity to
+the observed route. The control plane marks the old projection stale with
+`router_stopped` while the router is down and may revalidate that same worker
+when matching authenticated lifecycle traffic returns. Other stale reasons,
+including heartbeat timeout and broken mandatory sends, remain terminal until a
+fresh worker-ready admission. Raw worker-file frames cannot establish this
+binding because they carry no lifecycle `worker_id`.
+
 Worker startup needs only two worker identity/fabric environment variables:
 
 ```text

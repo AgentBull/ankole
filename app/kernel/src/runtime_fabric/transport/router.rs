@@ -313,7 +313,7 @@ fn emit_router_frames(
                         match authenticated_envelope_route(
                             auth_routes,
                             &route,
-                            envelope.worker_ready_id(),
+                            envelope.worker_lifecycle_id(),
                         ) {
                             Some(auth) => Some(auth),
                             None => {

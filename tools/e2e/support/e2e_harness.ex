@@ -27,7 +27,6 @@ defmodule Ankole.E2E.Harness do
   alias Ankole.JSON
   alias Ankole.Plugins.LarkAdapter.Config, as: LarkConfig
   alias Ankole.Plugins.LarkAdapter.ConnectionReconciler
-  alias Ankole.Plugins.LarkAdapter.Outbox, as: LarkOutbox
   alias Ankole.Principals
   alias Ankole.Repo
   alias Ankole.RuntimeEvents
@@ -665,11 +664,10 @@ defmodule Ankole.E2E.Harness do
     |> Enum.filter(&outbox_due_event?(&1, now))
     |> Enum.take(20)
     |> Enum.map(fn {_channel, payload} ->
-      SignalsGateway.dispatch_outbox(
+      SignalsGateway.dispatch_outbox_by_key(
         payload["agent_uid"],
         payload["binding_name"],
         payload["outbound_key"],
-        LarkOutbox,
         now: now
       )
     end)

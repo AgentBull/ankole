@@ -17,9 +17,11 @@ impl DecodedEnvelope {
         envelope_to_json(&self.envelope)
     }
 
-    pub(crate) fn worker_ready_id(&self) -> Option<&str> {
+    pub(crate) fn worker_lifecycle_id(&self) -> Option<&str> {
         match self.envelope.body.as_ref()? {
             proto::envelope::Body::WorkerReady(payload) => Some(payload.worker_id.as_str()),
+            proto::envelope::Body::WorkerHeartbeat(payload) => Some(payload.worker_id.as_str()),
+            proto::envelope::Body::WorkerCapacity(payload) => Some(payload.worker_id.as_str()),
             _body => None,
         }
     }
