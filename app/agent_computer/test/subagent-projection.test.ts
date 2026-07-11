@@ -1,56 +1,48 @@
 import { describe, expect, it } from 'bun:test'
 import { z } from 'zod'
-import { estimateO200kBaseTokens } from '@ankole/kernel'
 import type { AgentTool } from '../src/core'
 import { buildSubagentProjection } from '../src/tools/subagent/dynamic-tools'
 
 describe('@ankole/agent-computer subagent capability projection', () => {
-  it('shares only the allowlist, renders the same enabled skill index, and validates calls', async () => {
+  it('shares necessary Ankole tools, preserves screenshots, and rejects intentionally withheld tools', async () => {
     const calls: unknown[] = []
     const tools: AgentTool[] = [
-      tool('skill_view', z.object({ name: z.string() }), params => {
+      tool('skill_view', z.object({ name: z.string() }), () => 'must stay hidden'),
+      tool('web_search', z.object({ query: z.string() }), params => {
         calls.push(params)
-        return 'skill loaded'
+        return 'search result'
       }),
+      tool('web_fetch', z.object({ urls: z.array(z.string()) }), () => 'fetch result'),
       tool('memory_search', z.object({ query: z.string().min(1) }), params => {
         calls.push(params)
         return 'memory result'
       }),
       tool('memory_browse', z.object({ cursor: z.string() }), () => 'x'.repeat(20_000)),
-      ...['command', 'interactive_terminal', 'read_file', 'patch'].map(name =>
+      tool('browser_navigate', z.object({ url: z.string() }), () => 'page snapshot'),
+      imageTool('browser_screenshot'),
+      ...['browser_run', 'command', 'interactive_terminal', 'read_file', 'patch', 'reply_attachment'].map(name =>
         tool(name, z.object({ value: z.string() }), () => 'must stay hidden')
       ),
       tool(
-        'web_search',
+        'browser_snapshot',
         z.string().transform(value => value.trim()),
         () => 'quarantined'
       )
     ]
 
     const projection = buildSubagentProjection({
-      tools,
-      soul: 'SOUL',
-      mission: 'MISSION',
-      skills: [
-        { skill_name: 'enabled-skill', description: 'Visible skill.', metadata: {} },
-        {
-          skill_name: 'disabled-skill',
-          description: 'Hidden skill.',
-          metadata: { disable_model_invocation: true }
-        }
-      ]
+      tools
     })
 
     expect(projection.dynamicTools.map(spec => ('name' in spec ? spec.name : undefined))).toEqual([
-      'skill_view',
+      'web_search',
+      'web_fetch',
       'memory_search',
-      'memory_browse'
+      'memory_browse',
+      'browser_navigate',
+      'browser_screenshot'
     ])
-    expect(projection.quarantinedTools).toEqual(['web_search'])
-    expect(projection.projectedSkillCount).toBe(1)
-    expect(projection.developerInstructions).toContain('enabled-skill')
-    expect(projection.developerInstructions).not.toContain('disabled-skill')
-    expect(projection.developerInstructions).toContain('No terminal')
+    expect(projection.quarantinedTools).toEqual(['browser_snapshot'])
 
     const invalid = await projection.handleToolCall(
       {
@@ -112,23 +104,25 @@ describe('@ankole/agent-computer subagent capability projection', () => {
     const boundedText = bounded.contentItems[0]?.type === 'inputText' ? bounded.contentItems[0].text : ''
     expect(new TextEncoder().encode(boundedText).byteLength).toBeLessThanOrEqual(16_384)
     expect(boundedText).toEndWith('...[truncated]')
-  })
 
-  it('budgets identity and skill context with the Kernel tokenizer', () => {
-    const projection = buildSubagentProjection({
-      tools: [],
-      soul: `SOUL ${'长期身份背景'.repeat(10_000)}`,
-      mission: `MISSION ${'长期任务目标'.repeat(10_000)}`,
-      skills: Array.from({ length: 100 }, (_, index) => ({
-        skill_name: `skill-${index}`,
-        description: `Skill ${index} ${'详细说明'.repeat(1_000)}`,
-        metadata: {}
-      }))
+    const screenshot = await projection.handleToolCall(
+      {
+        ['threadId']: 'thread-1',
+        ['turnId']: 'turn-1',
+        ['callId']: 'call-image',
+        namespace: null,
+        tool: 'browser_screenshot',
+        arguments: {}
+      },
+      new AbortController().signal
+    )
+    expect(screenshot).toEqual({
+      contentItems: [
+        { type: 'inputText', text: 'screenshot saved' },
+        { type: 'inputImage', imageUrl: 'data:image/png;base64,iVBORw0KGgo=' }
+      ],
+      success: true
     })
-
-    expect(estimateO200kBaseTokens(projection.developerInstructions)).toBeLessThanOrEqual(24_000)
-    expect(projection.developerInstructions).toContain('Background task safety')
-    expect(projection.developerInstructions).toContain('truncated')
   })
 })
 
@@ -142,6 +136,25 @@ function tool(name: string, schema: z.ZodType, execute: (params: unknown) => str
     async execute(_callId, params) {
       const text = execute(params)
       return { content: [{ type: 'text', text }], details: { text } }
+    }
+  }
+}
+
+function imageTool(name: string): AgentTool {
+  return {
+    name,
+    description: `${name} description`,
+    schema: z.object({}),
+    isReadOnly: true,
+    isDestructive: false,
+    async execute() {
+      return {
+        content: [
+          { type: 'text', text: 'screenshot saved' },
+          { type: 'image', image: 'data:image/png;base64,iVBORw0KGgo=', mimeType: 'image/png' }
+        ],
+        details: { path: '/workspace/user-files/screenshot.png' }
+      }
     }
   }
 }

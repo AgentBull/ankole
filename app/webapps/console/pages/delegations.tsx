@@ -160,7 +160,9 @@ export function DelegationsPage() {
                     value={formatDuration(selected.duration_seconds)}
                   />
                   <DetailField label={t('console.delegations.workdir')} value={selected.workdir ?? '—'} wide />
-                  <DetailField label={t('console.delegations.prompt')} value={selected.prompt ?? '—'} wide />
+                  <DetailField label={t('console.delegations.task')} value={selected.task ?? '—'} wide />
+                  <DetailField label={t('console.delegations.background')} value={selected.background ?? '—'} wide />
+                  <DetailField label={t('console.delegations.notes')} value={selected.notes ?? '—'} wide />
                   <DetailField
                     label={t('console.delegations.result')}
                     value={summary(selected.status === 'failed' ? selected.error : selected.result)}

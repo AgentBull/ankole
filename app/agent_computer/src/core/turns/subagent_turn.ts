@@ -2,6 +2,7 @@ import { jsonObject, type JsonObject as JSONObject } from '@pleisto/active-suppo
 import { genericHash } from '@ankole/kernel'
 import { mkdirSync, readFileSync } from 'node:fs'
 import { errorMessage } from '../../common/errors'
+import { toWorkspacePath, WORKSPACE_MODEL_ROOT } from '../../core/workspace-paths'
 import type { TurnStart, TurnSteerUpdate } from '../../lanes/actor_lane'
 import {
   assertRPCResponse,
@@ -27,11 +28,14 @@ import { codexAppServerSandboxSpec, resolveCodexWorkdir } from '../../tools/code
 import { SubagentAuditBuffer } from '../../tools/subagent/audit'
 import { buildSubagentProjection } from '../../tools/subagent/dynamic-tools'
 import type { DynamicToolCallParams } from '../../tools/subagent/generated/protocol/v2/DynamicToolCallParams'
-import { createSkillTools } from '../../tools/library/skill-tools'
+import { materializeSubagentRuntimeFiles, SUBAGENT_SKILLS_SANDBOX_ROOT } from '../../tools/subagent/runtime-files'
 import { createMemoryTools } from '../../tools/memory/memory-tools'
 import { createWebTools } from '../../tools/web/web-tools'
+import { createBrowserTools } from '../../tools/browser/browser-tools'
+import { createComputerToolContext } from '../../tools/computer'
 import { httpClientFromAIGatewayAPIKey } from '../ai_gateway_transport'
 import { resolveAgentConversationContext } from './turn_context'
+import { resolveBrowserRuntimeConfig } from './browser_runtime_config'
 import type { TextTurnLoopOptions, TurnHandlerResult } from './turn_options'
 
 const terminalStatuses = new Set<SubagentDelegationStatus>(['succeeded', 'failed', 'stopped'])
@@ -73,11 +77,6 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     sharedFsRoot: opts.sharedFsRoot,
     runtime: runtimeConfig
   })
-  const sandbox = codexAppServerSandboxSpec({
-    workspaceRoot: parentWorkspaceRoot,
-    workdir,
-    materialized
-  })
   const audit = new SubagentAuditBuffer({
     delegationID,
     turn: turnStart.turn,
@@ -93,22 +92,30 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
   const projectionAIGateway = httpClientFromAIGatewayAPIKey(projectionAPIKey, options =>
     requestProjectionAIGatewayKey(turnStart, opts, options)
   )
+  const browserRuntimeConfig = await resolveBrowserRuntimeConfig(turnStart, opts)
+  const executionScopeID = `subagent:${delegationID}`
+  const webTools = await createWebTools({
+    aiGateway: projectionAIGateway,
+    abortSignal: opts.abortSignal,
+    localBrowser: {
+      agentUID: initial.agent_uid,
+      executionScopeID,
+      ...(typeof browserRuntimeConfig.localBrowserIdleTtlMs === 'number'
+        ? { localBrowserIdleTtlMs: browserRuntimeConfig.localBrowserIdleTtlMs }
+        : {})
+    }
+  })
+  const browserTools = createBrowserTools(
+    createComputerToolContext({
+      agentUID: initial.agent_uid,
+      conversationID: executionScopeID,
+      workspaceRoot: parentWorkspaceRoot,
+      browserRemoteCDPConfig: browserRuntimeConfig.remoteCDPConfig,
+      localBrowserIdleTtlMs: browserRuntimeConfig.localBrowserIdleTtlMs
+    })
+  )
   const projectedTools = [
-    ...createSkillTools(parentWorkspaceRoot, {
-      turn: turnStart.turn,
-      enabledSkills: agentContext.skills ?? [],
-      skillRoots:
-        opts.builtinSkillsRoot && opts.agentInstalledSkillsRoot
-          ? {
-              builtinSkillsRoot: opts.builtinSkillsRoot,
-              agentInstalledSkillsRoot: opts.agentInstalledSkillsRoot,
-              ...(opts.internalSkillsRoot ? { internalSkillsRoot: opts.internalSkillsRoot } : {})
-            }
-          : undefined,
-      requestSkillOverlay: opts.requestSkillOverlay,
-      replaceSkillOverlay: opts.replaceSkillOverlay
-    }),
-    ...(await createWebTools({ aiGateway: projectionAIGateway, abortSignal: opts.abortSignal })),
+    ...webTools,
     ...createMemoryTools({
       turnStart,
       requestMemoryRPC: opts.requestMemoryRPC
@@ -124,16 +131,54 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
             return opts.requestMemoryRPC!(method, scoped)
           }
         : undefined
-    })
-  ].filter(tool => ['skill_view', 'web_search', 'memory_search', 'memory_browse'].includes(tool.name))
+    }),
+    ...browserTools
+  ]
   const projection = buildSubagentProjection({
     tools: projectedTools,
-    skills: agentContext.skills ?? [],
-    soul: agentContext.soul ?? '',
-    mission: agentContext.mission ?? '',
     onAudit: (eventType, payload) => {
       if (!finalizing) audit.enqueue('tool', eventType, payload)
     }
+  })
+  const runtimeFiles = await materializeSubagentRuntimeFiles({
+    workspaceRoot: parentWorkspaceRoot,
+    workdir,
+    workdirForModel: toWorkspacePath(parentWorkspaceRoot, workdir),
+    durableArtifactsRootForModel: `${WORKSPACE_MODEL_ROOT}/user-files`,
+    soul: agentContext.soul ?? '',
+    mission: agentContext.mission ?? '',
+    background: initial.background,
+    notes: initial.notes,
+    timezone: agentContext.conversation?.timezone,
+    turn: turnStart.turn,
+    enabledSkills: agentContext.skills ?? [],
+    skillRoots:
+      opts.builtinSkillsRoot && opts.agentInstalledSkillsRoot
+        ? {
+            builtinSkillsRoot: opts.builtinSkillsRoot,
+            agentInstalledSkillsRoot: opts.agentInstalledSkillsRoot,
+            ...(opts.internalSkillsRoot ? { internalSkillsRoot: opts.internalSkillsRoot } : {})
+          }
+        : undefined,
+    requestSkillOverlay: opts.requestSkillOverlay
+  })
+  let sandbox: ReturnType<typeof codexAppServerSandboxSpec>
+  try {
+    sandbox = codexAppServerSandboxSpec({
+      workspaceRoot: parentWorkspaceRoot,
+      workdir,
+      materialized,
+      runtimeFiles
+    })
+  } catch (error) {
+    runtimeFiles.cleanup()
+    throw error
+  }
+  audit.enqueue('process', 'agents_instructions_materialized', {
+    source: runtimeFiles.localAgentsSandboxPath ?? runtimeFiles.agentsSandboxPath,
+    discovery: runtimeFiles.localAgentsSandboxPath ? 'same_level_readonly_override' : 'native_project_doc_fallback',
+    has_background: Boolean(initial.background),
+    has_notes: Boolean(initial.notes)
   })
 
   let client: CodexAppServerClient | undefined
@@ -246,7 +291,6 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
         approvalPolicy: 'never',
         sandbox: 'danger-full-access',
         threadSource: 'ankole',
-        developerInstructions: projection.developerInstructions,
         dynamicTools: projection.dynamicTools,
         ...(runtimeConfig.mode === 'aigateway' ? { model: runtimeConfig.modelOverride } : {})
       })
@@ -529,6 +573,12 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
 
     opts.abortSignal?.addEventListener('abort', onAbort, { once: true })
     const initializeResponse = await client.initialize()
+    const discoveredSkillNames = await configureCodexSkills(client, sandbox.codexCwd, runtimeFiles.expectedSkillNames)
+    audit.enqueue('process', 'skills_configured', {
+      root: SUBAGENT_SKILLS_SANDBOX_ROOT,
+      expected: runtimeFiles.expectedSkillNames,
+      discovered: discoveredSkillNames
+    })
 
     if (runtimeThreadID) {
       try {
@@ -536,8 +586,7 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
           ['threadId']: runtimeThreadID,
           cwd: sandbox.codexCwd,
           approvalPolicy: 'never',
-          sandbox: 'danger-full-access',
-          developerInstructions: projection.developerInstructions
+          sandbox: 'danger-full-access'
         })
         opts.onTurnActivity?.('codex:thread_resumed')
         audit.enqueue('process', 'thread_resumed', { thread_id: runtimeThreadID })
@@ -566,9 +615,10 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
       metadata: {
         codex_account_id: initial.codex_account_id,
         codex_user_agent: stringValue(initializeResponse.userAgent),
+        browser_execution_scope: executionScopeID,
         projected_tool_names: projection.dynamicTools.map(tool => tool.name),
         quarantined_tool_names: projection.quarantinedTools,
-        projected_skill_count: projection.projectedSkillCount
+        shared_skill_count: runtimeFiles.expectedSkillNames.length
       }
     })
     assertRPCResponse<SubagentDelegationResponse>(running, 'subagent running status rejected')
@@ -624,6 +674,15 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
   }
 
   try {
+    runtimeFiles.cleanup()
+  } catch (error) {
+    if (!hasThrownError) {
+      thrownError = error
+      hasThrownError = true
+    }
+  }
+
+  try {
     if (runtimeConfig.mode === 'official_subscription' && !authReconcilePromise) {
       audit.enqueue('process', 'codex_auth_checked', await reconcileCodexAuth())
     }
@@ -651,6 +710,47 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
   }
 
   return turnResult
+}
+
+async function configureCodexSkills(
+  client: CodexAppServerClient,
+  cwd: string,
+  expectedSkillNames: string[]
+): Promise<string[]> {
+  await client.request('skills/extraRoots/set', { extraRoots: [SUBAGENT_SKILLS_SANDBOX_ROOT] })
+  const response = jsonObject(
+    await client.request('skills/list', {
+      cwds: [cwd],
+      forceReload: true
+    })
+  )
+  const entries = Array.isArray(response.data) ? response.data.map(jsonObject) : []
+  const entry = entries.find(candidate => stringValue(candidate.cwd) === cwd) ?? entries[0]
+  if (!entry) {
+    if (expectedSkillNames.length === 0) return []
+    throw new Error(`Codex skills/list returned no entry for ${cwd}`)
+  }
+
+  const errors = Array.isArray(entry.errors) ? entry.errors.map(jsonObject) : []
+  if (errors.length > 0) {
+    const summaries = errors
+      .map(error => [stringValue(error.path), stringValue(error.message)].filter(Boolean).join(': '))
+      .filter(Boolean)
+    throw new Error(`Codex skill discovery failed: ${summaries.join('; ') || 'unknown skill error'}`)
+  }
+
+  const discovered = Array.isArray(entry.skills)
+    ? entry.skills
+        .map(jsonObject)
+        .filter(skill => skill.enabled !== false)
+        .map(skill => stringValue(skill.name))
+        .filter((name): name is string => Boolean(name))
+        .sort()
+    : []
+  const names = new Set(discovered)
+  const missing = expectedSkillNames.filter(name => !names.has(name))
+  if (missing.length > 0) throw new Error(`Codex did not discover enabled skills: ${missing.join(', ')}`)
+  return discovered
 }
 
 async function writebackCodexAuth(input: {
@@ -711,11 +811,11 @@ function turnInput(turnStart: TurnStart, delegation: SubagentDelegationResponse)
 
     input = delegation.runtime_thread_id
       ? steering
-      : `${delegation.prompt ?? ''}\n\nAdditional instructions from the parent agent:\n${steering}`.trim()
+      : `${delegation.task}\n\nAdditional instructions from the parent agent:\n${steering}`.trim()
   } else if (delegation.attempts > 1 && delegation.runtime_thread_id) {
-    input = 'Continue the delegated task. Re-check the acceptance criteria in the original brief before finishing.'
+    input = 'Continue the delegated task. Re-check the acceptance criteria in the original task before finishing.'
   } else {
-    input = delegation.prompt ?? ''
+    input = delegation.task
   }
 
   const pendingSteering = pendingSteeringInput(turnStart)
@@ -793,7 +893,7 @@ function recreatedThreadInput(delegation: SubagentDelegationResponse, continuati
   const priorAttempts = delegation.attempt_history?.length
     ? `\n\nBounded history from prior execution attempts:\n${JSON.stringify(delegation.attempt_history, null, 2)}`
     : ''
-  return `${delegation.prompt ?? ''}\n\nThe previous Codex thread could not be resumed. Inspect the existing working directory and continue from durable artifacts.${priorAttempts}\n\nCurrent continuation instructions:\n${continuation}\n\nRe-check every acceptance criterion before finishing.`.trim()
+  return `${delegation.task}\n\nThe previous Codex thread could not be resumed. Inspect the existing working directory and continue from durable artifacts.${priorAttempts}\n\nCurrent continuation instructions:\n${continuation}\n\nRe-check every acceptance criterion before finishing.`.trim()
 }
 
 function filesChangedFromDiff(diff: string): string[] {

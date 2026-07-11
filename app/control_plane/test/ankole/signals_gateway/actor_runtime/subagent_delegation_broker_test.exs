@@ -25,7 +25,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDelegationBrokerTest do
                    "actor_event_id" => Ecto.UUID.generate(),
                    "tool_call_id" => "tool-subagent-1",
                    "title" => "Prepare launch brief",
-                   "prompt" => "Write and verify the launch brief.",
+                   "task" => "Write and verify the launch brief.",
+                   "background" => "The brief is for operators.",
+                   "notes" => "Keep the result concise.",
                    "reply_route" => %{"binding_name" => "spoofed"}
                  }
                },
@@ -39,6 +41,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDelegationBrokerTest do
     assert delegation.agent_uid == agent.uid
     assert delegation.session_id == get_in(turn_ref, ["actor", "session_id"])
     assert delegation.actor_event_id == turn_ref["actor_event_id"]
+    assert delegation.task == "Write and verify the launch brief."
+    assert delegation.background == "The brief is for operators."
+    assert delegation.notes == "Keep the result concise."
     assert delegation.reply_route["binding_name"] == "bot"
     refute delegation.reply_route["binding_name"] == "spoofed"
     assert delegation.metadata["worker_route"] == route
@@ -59,7 +64,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDelegationBrokerTest do
         "turn" => turn_ref,
         "tool_call_id" => "tool-auth",
         "title" => "Authorized work",
-        "prompt" => "Do the authorized work."
+        "task" => "Do the authorized work."
       }
     }
 
@@ -103,7 +108,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDelegationBrokerTest do
                    "turn" => parent_turn,
                    "tool_call_id" => "tool-memory",
                    "title" => "Research prior decisions",
-                   "prompt" => "Search memory for prior decisions."
+                   "task" => "Search memory for prior decisions."
                  }
                },
                route
@@ -192,7 +197,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDelegationBrokerTest do
                    "turn" => parent_turn,
                    "tool_call_id" => "tool-codex-account",
                    "title" => "Use the subscription account",
-                   "prompt" => "Complete the delegated coding task."
+                   "task" => "Complete the delegated coding task."
                  }
                },
                route

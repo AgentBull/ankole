@@ -1,7 +1,21 @@
 import { describe, expect, it } from 'bun:test'
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
+import { CodexAppServerClient } from '../../src/tools/codex/app-server-client'
+import { materializeCodexConfig } from '../../src/tools/codex/config'
+import { codexAppServerSandboxSpec } from '../../src/tools/codex/sandbox'
+import { materializeSubagentRuntimeFiles, SUBAGENT_AGENTS_SANDBOX_ROOT } from '../../src/tools/subagent/runtime-files'
 
 const checkedInProtocolRoot = join(import.meta.dir, '../../src/tools/subagent/generated/protocol')
 
@@ -51,6 +65,266 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
       }
     } finally {
       rmSync(generatedRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('discovers standalone skills after replacing process extra roots', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-codex-native-skills-'))
+    const workspace = join(root, 'workspace')
+    const codexHome = join(root, 'codex-home')
+    const skillsRoot = join(root, 'skills')
+    const skillRoot = join(skillsRoot, 'pptx')
+    mkdirSync(workspace, { recursive: true })
+    mkdirSync(codexHome, { recursive: true })
+    mkdirSync(skillRoot, { recursive: true })
+    writeFileSync(
+      join(skillRoot, 'SKILL.md'),
+      ['---', 'name: pptx', 'description: Create PowerPoint presentations.', '---', '', '# PPTX', ''].join('\n')
+    )
+
+    const client = new CodexAppServerClient({
+      cwd: workspace,
+      env: {
+        PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
+        HOME: workspace,
+        CODEX_HOME: codexHome,
+        CODEX_UNSAFE_ALLOW_NO_SANDBOX: '1',
+        LANG: 'C.UTF-8'
+      }
+    })
+
+    try {
+      await client.initialize()
+      await client.request('skills/extraRoots/set', { extraRoots: [skillsRoot] })
+      const response = (await client.request('skills/list', {
+        cwds: [workspace],
+        forceReload: true
+      })) as { data: Array<{ skills: Array<{ name: string; path: string; enabled: boolean }> }> }
+
+      expect(response.data[0]?.skills.find(skill => skill.name === 'pptx')).toMatchObject({
+        name: 'pptx',
+        path: join(skillRoot, 'SKILL.md'),
+        enabled: true
+      })
+    } finally {
+      await client.close()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('mounts task AGENTS and enabled skills read-only inside the real bubblewrap sandbox', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-codex-runtime-mounts-'))
+    const workspace = join(root, 'workspace')
+    const userFilesRoot = join(root, 'shared-user-files')
+    const workdir = join(workspace, 'user-files', 'project')
+    const builtinSkillsRoot = join(root, 'skills')
+    const skillRoot = join(builtinSkillsRoot, 'pptx')
+    const fakeCodex = join(workspace, 'fake-codex')
+    const previousCodexBinary = process.env.ANKOLE_CODEX_BINARY
+    const previousUserFilesRoot = process.env.ANKOLE_USER_FILES_ROOT
+    mkdirSync(join(userFilesRoot, 'project'), { recursive: true })
+    mkdirSync(join(userFilesRoot, '.git'), { recursive: true })
+    writeFileSync(join(userFilesRoot, 'AGENTS.md'), 'ROOT_PROJECT_GUIDANCE\n')
+    mkdirSync(workspace, { recursive: true })
+    symlinkSync(userFilesRoot, join(workspace, 'user-files'), 'dir')
+    mkdirSync(skillRoot, { recursive: true })
+    writeFileSync(
+      join(skillRoot, 'SKILL.md'),
+      ['---', 'name: pptx', 'description: Create PowerPoint presentations.', '---', '', '# PPTX', ''].join('\n')
+    )
+    writeFileSync(
+      fakeCodex,
+      `#!/bin/sh
+set -eu
+agents_path=$(find ${SUBAGENT_AGENTS_SANDBOX_ROOT} -maxdepth 1 -type f -name '*.md' | head -n 1)
+grep -q 'TASK_AGENTS_MOUNT_MARKER' "$agents_path"
+grep -q '# PPTX' /ankole/subagent-skills/pptx/SKILL.md
+grep -q 'PG_OVERLAY_MARKER' /ankole/subagent-skills/pptx/SKILL.md
+test ! -e ./AGENTS.override.md
+if printf 'forbidden' >> "$agents_path" 2>/dev/null; then exit 21; fi
+if printf 'forbidden' >> /ankole/subagent-skills/pptx/SKILL.md 2>/dev/null; then exit 22; fi
+`
+    )
+    chmodSync(fakeCodex, 0o755)
+
+    const runtimeInput: Parameters<typeof materializeSubagentRuntimeFiles>[0] = {
+      workspaceRoot: workspace,
+      workdir,
+      workdirForModel: '/workspace/user-files/project',
+      durableArtifactsRootForModel: '/workspace/user-files',
+      soul: 'TASK_AGENTS_MOUNT_MARKER',
+      mission: 'Verify runtime mounts.',
+      turn: {
+        actor: { agent_uid: 'agent-1', session_id: 'subagent:delegation-1' },
+        activation_uid: 'activation-1',
+        actor_epoch: 1,
+        actor_event_id: '00000000-0000-0000-0000-000000000001',
+        revision: 0
+      },
+      enabledSkills: [
+        {
+          skill_name: 'pptx',
+          source_kind: 'builtin',
+          relative_path: 'pptx',
+          has_agent_overlay: true
+        }
+      ],
+      skillRoots: {
+        builtinSkillsRoot,
+        agentInstalledSkillsRoot: join(root, 'installed-skills')
+      },
+      requestSkillOverlay: async request => ({
+        request_id: request.request_id,
+        agent_uid: 'agent-1',
+        session_id: 'subagent:delegation-1',
+        skill_name: request.skill_name,
+        has_overlay: true,
+        overlay_json: { text: 'PG_OVERLAY_MARKER' }
+      })
+    }
+    const runtimeFiles = await materializeSubagentRuntimeFiles(runtimeInput)
+    rmSync(join(workspace, 'user-files'), { force: true })
+    symlinkSync('/workspace/shared/user-files', join(workspace, 'user-files'), 'dir')
+    const materialized = materializeCodexConfig({
+      sharedFsRoot: join(root, 'shared'),
+      runtime: {
+        mode: 'aigateway',
+        accountID: 'aigateway',
+        modelOverride: 'coding',
+        aiGatewayKey: {
+          request_id: 'key-1',
+          agent_uid: 'agent-1',
+          api_key: 'unused-test-key',
+          token_type: 'Bearer',
+          expires_at: Math.floor(Date.now() / 1_000) + 3_600,
+          expires_in: 3_600,
+          scope: 'ai_gateway',
+          base_url: 'http://control.test/api/v1/ai-gateway'
+        }
+      }
+    })
+    let realClient: CodexAppServerClient | undefined
+    let localRuntimeFiles: Awaited<ReturnType<typeof materializeSubagentRuntimeFiles>> | undefined
+
+    try {
+      process.env.ANKOLE_CODEX_BINARY = fakeCodex
+      process.env.ANKOLE_USER_FILES_ROOT = userFilesRoot
+      const sandbox = codexAppServerSandboxSpec({ workspaceRoot: workspace, workdir, materialized, runtimeFiles })
+      const proc = Bun.spawn(sandbox.commandArgv, {
+        cwd: sandbox.cwd,
+        env: sandbox.env,
+        stdin: 'ignore',
+        stdout: 'pipe',
+        stderr: 'pipe'
+      })
+      const [exitCode, stdout, stderr] = await Promise.all([
+        proc.exited,
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text()
+      ])
+
+      expect(stdout).toBe('')
+      expect(stderr).toContain('Read-only file system')
+      expect(exitCode).toBe(0)
+      expect(existsSync(join(userFilesRoot, 'project', 'AGENTS.override.md'))).toBe(false)
+      expect(readFileSync(join(skillRoot, 'SKILL.md'), 'utf8')).not.toContain('PG_OVERLAY_MARKER')
+
+      if (previousCodexBinary === undefined) delete process.env.ANKOLE_CODEX_BINARY
+      else process.env.ANKOLE_CODEX_BINARY = previousCodexBinary
+      const realSandbox = codexAppServerSandboxSpec({ workspaceRoot: workspace, workdir, materialized, runtimeFiles })
+      const stderrChunks: string[] = []
+      realClient = new CodexAppServerClient({
+        cwd: realSandbox.cwd,
+        env: realSandbox.env,
+        commandArgv: realSandbox.commandArgv,
+        onNotification: message => {
+          if (message.method === '$stderr' && typeof (message.params as { text?: unknown })?.text === 'string') {
+            stderrChunks.push((message.params as { text: string }).text)
+          }
+        }
+      })
+
+      try {
+        await realClient.initialize()
+        await realClient.request('skills/extraRoots/set', { extraRoots: ['/ankole/subagent-skills'] })
+        const response = (await realClient.request('skills/list', {
+          cwds: [realSandbox.codexCwd],
+          forceReload: true
+        })) as { data: Array<{ skills: Array<{ name: string; path: string; enabled: boolean }> }> }
+        expect(response.data[0]?.skills.find(skill => skill.name === 'pptx')).toMatchObject({
+          name: 'pptx',
+          path: '/ankole/subagent-skills/pptx/SKILL.md',
+          enabled: true
+        })
+        const thread = (await realClient.request('thread/start', {
+          cwd: realSandbox.codexCwd,
+          approvalPolicy: 'never',
+          sandbox: 'danger-full-access'
+        })) as { instructionSources: string[] }
+        expect(thread.instructionSources).toContain('/workspace/user-files/AGENTS.md')
+        expect(thread.instructionSources.filter(path => path.includes('/.ankole/subagent-runtime/'))).toHaveLength(1)
+        expect(thread.instructionSources).toHaveLength(2)
+
+        await realClient.close()
+        realClient = undefined
+        const localAgentsPath = join(userFilesRoot, 'project', 'AGENTS.md')
+        const originalLocalAgents = 'ORIGINAL_LOCAL_AGENTS\n'
+        writeFileSync(localAgentsPath, originalLocalAgents)
+        const workspaceUserFilesLink = join(workspace, 'user-files')
+        rmSync(workspaceUserFilesLink, { force: true })
+        symlinkSync(userFilesRoot, workspaceUserFilesLink, 'dir')
+        try {
+          localRuntimeFiles = await materializeSubagentRuntimeFiles(runtimeInput)
+        } finally {
+          rmSync(workspaceUserFilesLink, { force: true })
+          symlinkSync('/workspace/shared/user-files', workspaceUserFilesLink, 'dir')
+        }
+        expect(localRuntimeFiles.localAgentsFilename).toBe('AGENTS.md')
+        writeFileSync(
+          fakeCodex,
+          `#!/bin/sh
+set -eu
+grep -q 'ORIGINAL_LOCAL_AGENTS' ./AGENTS.md
+grep -q 'TASK_AGENTS_MOUNT_MARKER' ./AGENTS.md
+if printf 'forbidden' >> ./AGENTS.md 2>/dev/null; then exit 23; fi
+`
+        )
+        chmodSync(fakeCodex, 0o755)
+        process.env.ANKOLE_CODEX_BINARY = fakeCodex
+        const localSandbox = codexAppServerSandboxSpec({
+          workspaceRoot: workspace,
+          workdir,
+          materialized,
+          runtimeFiles: localRuntimeFiles
+        })
+        const localProc = Bun.spawn(localSandbox.commandArgv, {
+          cwd: localSandbox.cwd,
+          env: localSandbox.env,
+          stdin: 'ignore',
+          stdout: 'pipe',
+          stderr: 'pipe'
+        })
+        const [localExitCode, localStdout, localStderr] = await Promise.all([
+          localProc.exited,
+          new Response(localProc.stdout).text(),
+          new Response(localProc.stderr).text()
+        ])
+        expect(localStdout).toBe('')
+        expect(localStderr).toContain('Read-only file system')
+        expect(localExitCode).toBe(0)
+        expect(readFileSync(localAgentsPath, 'utf8')).toBe(originalLocalAgents)
+      } catch (error) {
+        throw new Error(`${error instanceof Error ? error.message : String(error)}\n${stderrChunks.join('')}`)
+      }
+    } finally {
+      await realClient?.close()
+      if (previousCodexBinary === undefined) delete process.env.ANKOLE_CODEX_BINARY
+      else process.env.ANKOLE_CODEX_BINARY = previousCodexBinary
+      if (previousUserFilesRoot === undefined) delete process.env.ANKOLE_USER_FILES_ROOT
+      else process.env.ANKOLE_USER_FILES_ROOT = previousUserFilesRoot
+      localRuntimeFiles?.cleanup()
+      runtimeFiles.cleanup()
+      rmSync(root, { recursive: true, force: true })
     }
   })
 })

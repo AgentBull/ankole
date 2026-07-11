@@ -391,7 +391,9 @@ export type SubagentDelegationStatus = 'queued' | 'running' | 'waiting_on_user' 
 export type SubagentDelegationCreateRequest = TurnScopedRPCRequest & {
   tool_call_id: string
   title: string
-  prompt: string
+  task: string
+  background?: string
+  notes?: string
   workdir?: string
   output_schema?: JSONObject
   metadata?: JSONObject
@@ -424,7 +426,9 @@ export type SubagentDelegationResponse = {
   runtime: 'codex'
   codex_account_id: string
   title: string
-  prompt?: string
+  task: string
+  background?: string
+  notes?: string
   reply_route: JSONObject
   attempts: number
   workdir?: string

@@ -1,4 +1,4 @@
-import { join, normalize, resolve } from 'node:path'
+import { normalize, resolve } from 'node:path'
 import { readFile, realpath } from 'node:fs/promises'
 import { z } from 'zod'
 import type { ActorTurnRef } from '../../lanes/actor_lane'
@@ -6,6 +6,13 @@ import type { AgentTool, AgentToolResult } from '../../core'
 import { jsonToolResult } from '../../core/tool-result'
 import type { RuntimeSkillSummary } from '../../lanes/rpc_lane'
 import type { SkillOverlayReplaceRequester, SkillOverlayRequester } from '../../core/turns/turn_options'
+import {
+  enabledSkillByName,
+  resolveSkillFilesystemRoot,
+  resolveSkillOverlayText,
+  stripSkillFrontmatter,
+  type SkillFileRoots
+} from '../../skills/effective-skill'
 
 // `name` is the enabled skill name from RuntimeFabric. `filePath` lets the model
 // follow references out of SKILL.md without a second tool, but resolution always
@@ -31,16 +38,12 @@ export const LONG_RUNNING_SKILL_ADDITION = [
   '---',
   'Ankole long-running skill discipline:',
   'After clarifying the request, do not run the execution phase inline. Tell the user the work is moving to the background, including the intended artifact and report path.',
-  "Put durable artifacts under /workspace/user-files using this skill's own project layout. Start exactly one subagent delegation with a self-contained brief containing the specification, project path, this skill file location, quality gates, and completion criteria.",
+  "Put durable artifacts under /workspace/user-files using this skill's own project layout. Start exactly one subagent delegation with a self-contained task containing the specification, project path, this skill file location, quality gates, and completion criteria.",
   'Completion, failure, and questions wake the parent automatically; do not poll. Use check_back_later only for an intentional mid-task inspection of unusually long work.',
   'When awakened, personally verify the artifacts and checks, then deliver files with reply_attachment. The delegation id can always be recovered with subagent(list).'
 ].join('\n')
 
-export interface SkillFileRoots {
-  builtinSkillsRoot: string
-  internalSkillsRoot?: string
-  agentInstalledSkillsRoot: string
-}
+export type { SkillFileRoots } from '../../skills/effective-skill'
 
 export interface CreateSkillToolsOptions {
   turn?: ActorTurnRef
@@ -184,29 +187,7 @@ async function safeSkillPath(skillRoot: string, filePath: string): Promise<strin
  * Looks up an enabled skill by name and rejects disabled or invalid names.
  */
 function enabledSkill(name: string, opts: CreateSkillToolsOptions): RuntimeSkillSummary {
-  assertValidSkillName(name)
-  if (!opts.enabledSkills) {
-    throw new Error('skill tools require RuntimeFabric enabled skill metadata')
-  }
-
-  const skill = opts.enabledSkills.map(normalizeEnabledSkill).find(candidate => candidate?.skill_name === name)
-
-  if (!skill) {
-    throw new Error(`skill is not enabled for this turn: ${name}`)
-  }
-
-  return skill
-}
-
-/**
- * Normalizes older string-only skill metadata into the current summary shape.
- */
-function normalizeEnabledSkill(skill: RuntimeSkillSummary | string): RuntimeSkillSummary | undefined {
-  if (typeof skill === 'string') {
-    return isValidSkillName(skill) ? { skill_name: skill, source_kind: 'builtin', relative_path: skill } : undefined
-  }
-
-  return typeof skill.skill_name === 'string' && isValidSkillName(skill.skill_name) ? skill : undefined
+  return enabledSkillByName(name, opts.enabledSkills)
 }
 
 /**
@@ -217,51 +198,7 @@ function skillFilesystemRoot(skill: RuntimeSkillSummary, opts: CreateSkillToolsO
     throw new Error('skill_view requires worker skill source roots')
   }
 
-  const relativePath = normalizeSkillRelativePath(skill.relative_path || skill.skill_name)
-  const sourceKind = skill.source_kind || 'builtin'
-  if (sourceKind === 'builtin') {
-    const skillRoot = skillRootName(skill)
-    if (skillRoot === 'internal') {
-      if (!opts.skillRoots.internalSkillsRoot) {
-        throw new Error(`internal skill root is not configured for builtin skill: ${skill.skill_name}`)
-      }
-      return join(opts.skillRoots.internalSkillsRoot, relativePath)
-    }
-
-    if (skillRoot && skillRoot !== 'library') {
-      throw new Error(`unsupported builtin skill root ${skillRoot}: ${skill.skill_name}`)
-    }
-
-    return join(opts.skillRoots.builtinSkillsRoot, relativePath)
-  }
-  if (sourceKind === 'installed') {
-    if (!opts.turn) throw new Error('installed skill_view requires an actor turn')
-    return join(opts.skillRoots.agentInstalledSkillsRoot, opts.turn.actor.agent_uid, relativePath)
-  }
-
-  throw new Error(`unsupported skill source_kind: ${sourceKind}`)
-}
-
-function skillRootName(skill: RuntimeSkillSummary): string | undefined {
-  if (typeof skill.skill_root === 'string' && skill.skill_root.length > 0) return skill.skill_root
-  const metadataRoot = skill.metadata?.['skill_root']
-  return typeof metadataRoot === 'string' && metadataRoot.length > 0 ? metadataRoot : undefined
-}
-
-/**
- * Throws when a skill name cannot be safely used as a skill identifier.
- */
-function assertValidSkillName(name: string): void {
-  if (!isValidSkillName(name)) {
-    throw new Error('invalid skill name')
-  }
-}
-
-/**
- * Checks the restricted skill-name syntax used in skill:// references.
- */
-function isValidSkillName(name: string): boolean {
-  return /^[a-z][a-z0-9_-]{0,63}$/.test(name)
+  return resolveSkillFilesystemRoot(skill, { skillRoots: opts.skillRoots, turn: opts.turn })
 }
 
 /**
@@ -286,22 +223,6 @@ function normalizeSkillFilePath(filePath: string): string {
 }
 
 /**
- * Normalizes the skill source directory path supplied by RuntimeFabric.
- */
-function normalizeSkillRelativePath(relativePath: string): string {
-  const normalized = relativePath.replaceAll('\\', '/').replace(/^\/+/, '').replace(/\/+/g, '/')
-  if (
-    normalized.length === 0 ||
-    normalized === '.' ||
-    normalized === '..' ||
-    normalized.split('/').some(segment => segment === '' || segment === '.' || segment === '..')
-  ) {
-    throw new Error(`invalid skill relative_path: ${relativePath}`)
-  }
-  return normalized
-}
-
-/**
  * Builds the model-facing URI for an enabled skill file.
  */
 function skillLocation(name: string, filePath: string): string {
@@ -312,15 +233,7 @@ function skillLocation(name: string, filePath: string): string {
  * Reads this agent's overlay text for one skill.
  */
 async function overlayText(name: string, opts: CreateSkillToolsOptions): Promise<string> {
-  if (!opts.turn || !opts.requestSkillOverlay) return ''
-
-  const response = await opts.requestSkillOverlay({
-    request_id: `skill-overlay-resolve-${crypto.randomUUID()}`,
-    turn: opts.turn,
-    skill_name: name
-  })
-  const text = response.overlay_json?.text
-  return typeof text === 'string' ? text.trim() : ''
+  return await resolveSkillOverlayText(name, opts)
 }
 
 /**
@@ -331,18 +244,6 @@ function appendOverlayText(existing: string, addition: string): string {
   if (!existing) return note
   if (!note) return existing
   return `${existing}\n\n${note}`
-}
-
-/**
- * Drops the YAML frontmatter block from a SKILL.md body. The frontmatter (name,
- * description, category) is catalog metadata already surfaced in the prompt index, so
- * it is noise once the model is reading the full skill. A file with no leading `---` is
- * returned trimmed and unchanged.
- */
-function stripSkillFrontmatter(content: string): string {
-  if (!content.startsWith('---')) return content.trim()
-  const match = /^---\r?\n[\s\S]*?\r?\n---\r?\n?([\s\S]*)$/.exec(content)
-  return (match?.[1] ?? content).trim()
 }
 
 /**

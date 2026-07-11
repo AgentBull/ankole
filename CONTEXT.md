@@ -58,17 +58,13 @@ _Avoid_: Codex（指角色时）, child agent
 实现 Subagent 执行能力的具体引擎（当前唯一实现是 Codex）。委托的生命周期语义不属于 runtime，runtime 只拥有执行机制。
 _Avoid_: Runtime（不加限定）, engine
 
-**Brief**:
-父 agent 为一次委托显式撰写的唯一任务输入：自包含的目标、路径、约束与验收标准。它是 durable 的，是重派与续跑时重建任务的依据。
-_Avoid_: Prompt, task description
-
 **Handoff**:
-父会话向 Subagent 移交上下文的三层契约：身份层自动携带（SOUL 与 MISSION）、任务层经 Brief 显式给出、知识层由 Subagent 按需检索。会话历史永不自动携带。
+父会话向 Subagent 移交工作所需信息的方式：完整指令与全部 requirements 写在 durable `task` 字段并作为首个 user input；SOUL、MISSION、相关 background、执行 notes 与环境信息写入任务级 AGENTS；Skills 与必要的 Ankole Tools 作为可用能力提供。父会话历史永不自动携带。
 _Avoid_: Context transfer, context dump
 
 **Capability Projection**:
-主 agent 能力面向 Subagent 的受限投影：白名单工具加全量 skills，每次派发时重组。Subagent 拿到的是投影，不是主 agent 的工具面本身。
-_Avoid_: Tool sharing, MCP bridge
+一次委托实际可用的能力集合：父 agent 的全部 enabled Skills 通过 Codex 原生 Skill discovery 提供，必要的 Ankole Tools 通过白名单提供；明确保留给父 agent 的交付、调度与长期写入能力除外。
+_Avoid_: Catalog parity, MCP bridge
 
 **Delegation Turn**:
 承载一次委托执行尝试的 worker 侧 turn 种类。它只是执行载体：委托的队列、状态与真相不归它所有，一次委托可跨多个 Delegation Turn 完成。

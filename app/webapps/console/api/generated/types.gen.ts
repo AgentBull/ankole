@@ -386,6 +386,7 @@ export type SubagentDelegationEventItem = {
 export type SubagentDelegationItem = {
   agent_uid: string
   attempts: number
+  background?: string | null
   codex_account_id: string
   completed_at?: string | null
   duration_seconds: number
@@ -398,7 +399,7 @@ export type SubagentDelegationItem = {
   metadata: {
     [key: string]: unknown
   }
-  prompt?: string | null
+  notes?: string | null
   queued_at?: string | null
   reply_route: {
     [key: string]: unknown
@@ -411,7 +412,8 @@ export type SubagentDelegationItem = {
   session_id: string
   started_at?: string | null
   status: 'queued' | 'running' | 'waiting_on_user' | 'succeeded' | 'failed' | 'stopped'
-  title?: string | null
+  task: string
+  title: string
   updated_at: string
   workdir?: string | null
 }

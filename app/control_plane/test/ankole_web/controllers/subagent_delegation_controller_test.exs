@@ -109,7 +109,9 @@ defmodule AnkoleWeb.SubagentDelegationControllerTest do
                "session_id" => "console-parent-#{suffix}",
                "tool_call_id" => "console-tool-#{suffix}",
                "title" => "Console delegation #{suffix}",
-               "prompt" => "Complete console delegation #{suffix}.",
+               "task" => "Complete console delegation #{suffix}.",
+               "background" => "Console test context.",
+               "notes" => "Keep the result concise.",
                "reply_route" => %{
                  "binding_name" => "bot",
                  "signal_channel_id" => "console-chat-#{suffix}"

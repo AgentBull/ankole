@@ -106,19 +106,17 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   @tag timeout: 1_800_000
   @tag ownership_timeout: 1_800_000
   @tag :real_llm
-  @tag :codex_todolist_real_llm
-  test "real OpenRouter model delegates and verifies a Vite React todolist task" do
+  @tag :codex_pptx_skill_real_llm
+  test "real OpenRouter parent delegates a native PPTX skill task and delivers the artifact" do
     ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!())
 
-    result = run_real_lark_codex_todolist_turn(ctx)
+    result = run_real_lark_codex_pptx_skill_turn(ctx)
 
-    assert_lark_final_reply(
-      ctx.fake_feishu,
-      result.reply,
-      "ANKOLE_CODEX_TODOLIST_REAL_OK",
-      :reply,
-      "om_real_codex_todolist_1"
-    )
+    assert result.delegation.status == "succeeded"
+    assert result.outbox.status == :succeeded
+    assert result.platform_message.msg_type == "file"
+    assert result.outline =~ "2 slides"
+    assert result.text =~ "Verified Handoff"
   end
 
   @tag timeout: 1_800_000

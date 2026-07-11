@@ -20,10 +20,24 @@ import type {
 const SubagentParams = z.object({
   action: z.enum(['start', 'list', 'status', 'steer', 'stop']),
   title: z.string().min(1).max(200).describe('Short task-board title for start.').optional(),
-  brief: z
+  task: z
     .string()
     .min(1)
-    .describe('Self-contained task brief for start: paths, constraints, acceptance criteria, and output language.')
+    .describe(
+      'Complete task to send to Codex as its user prompt. Include the instruction and every requirement, constraint, and acceptance criterion in this string.'
+    )
+    .optional(),
+  background: z
+    .string()
+    .min(1)
+    .describe(
+      'Relevant task context to place in Codex AGENTS instructions. Include parent-conversation context only when it is relevant; do not repeat task requirements.'
+    )
+    .optional(),
+  notes: z
+    .string()
+    .min(1)
+    .describe('Execution notes and cautions to place in Codex AGENTS instructions. Do not put task requirements here.')
     .optional(),
   delegation_id: z.string().uuid().describe('Delegation id for status, steer, or stop.').optional(),
   workdir: z.string().describe('Optional path under /workspace for the delegated work.').optional(),
@@ -51,11 +65,12 @@ const DESCRIPTION = [
   "Manage asynchronous background work performed by this Ankole installation's Codex subagent runtime.",
   'Delegate only work expected to take at least 10 minutes. Do faster work directly in this turn.',
   'start returns immediately. After start, tell the user the work has begun and that you will report when the system wakes you.',
-  'The subagent receives SOUL and MISSION automatically, but no parent conversation history. The brief is its only task input.',
-  'Write a self-contained brief with exact paths, constraints, acceptance criteria, and output language.',
+  'The subagent receives SOUL and MISSION automatically, but no parent conversation history.',
+  'Write one self-contained task string containing the instruction and every requirement, constraint, acceptance criterion, exact path, and output language.',
+  'Put only relevant task context in background and execution cautions in notes. These become AGENTS instructions and are not task requirements.',
   '',
   'Actions:',
-  '- start: create durable work; requires title and brief.',
+  '- start: create durable work; requires title and task.',
   '- list: list work from this conversation and prior conversations in the same channel.',
   '- status: inspect one delegation and its latest audit cursor.',
   '- steer: add instructions or answer pending questions.',
@@ -98,7 +113,9 @@ async function executeSubagent(
         turn,
         tool_call_id: toolCallID,
         title: requiredText(params.title, 'start requires title'),
-        prompt: requiredText(params.brief, 'start requires brief'),
+        task: requiredVerbatimText(params.task, 'start requires task'),
+        ...(params.background ? { background: params.background } : {}),
+        ...(params.notes ? { notes: params.notes } : {}),
         ...(params.workdir ? { workdir: params.workdir } : {}),
         ...(params.output_schema ? { output_schema: params.output_schema as JSONObject } : {}),
         ...(params.output_schema ? { metadata: { output_schema: params.output_schema as JSONObject } } : {})
@@ -160,6 +177,11 @@ function requiredText(value: string | undefined, error: string): string {
   const text = value?.trim()
   if (!text) throw new Error(error)
   return text
+}
+
+function requiredVerbatimText(value: string | undefined, error: string): string {
+  if (typeof value !== 'string' || value.trim().length === 0) throw new Error(error)
+  return value
 }
 
 function requiredDelegationID(params: SubagentParams): string {

@@ -63,6 +63,7 @@ function codexConfigToml(baseURL?: string): string {
 sandbox_mode = "danger-full-access"
 cli_auth_credentials_store = "file"
 web_search = "disabled"
+project_doc_max_bytes = 131072
 
 [features]
 remote_compaction_v2 = false

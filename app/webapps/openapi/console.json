@@ -788,6 +788,10 @@
           "attempts": {
             "type": "integer"
           },
+          "background": {
+            "nullable": true,
+            "type": "string"
+          },
           "codex_account_id": {
             "type": "string"
           },
@@ -818,7 +822,7 @@
             "additionalProperties": true,
             "type": "object"
           },
-          "prompt": {
+          "notes": {
             "nullable": true,
             "type": "string"
           },
@@ -853,8 +857,10 @@
             "enum": ["queued", "running", "waiting_on_user", "succeeded", "failed", "stopped"],
             "type": "string"
           },
+          "task": {
+            "type": "string"
+          },
           "title": {
-            "nullable": true,
             "type": "string"
           },
           "updated_at": {
@@ -871,6 +877,8 @@
           "session_id",
           "runtime",
           "codex_account_id",
+          "title",
+          "task",
           "status",
           "attempts",
           "reply_route",

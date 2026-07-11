@@ -1,6 +1,6 @@
-import { existsSync, realpathSync } from 'node:fs'
+import { existsSync, realpathSync, statSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
-import { relative } from 'node:path'
+import { dirname, relative } from 'node:path'
 import {
   BUILTIN_SKILLS_ROOT,
   INTERNAL_SKILLS_ROOT,
@@ -33,6 +33,7 @@ type BubblewrapArgvInput = {
     source: string
     target: string
     readonly?: boolean
+    createTargetParents?: boolean
   }>
 }
 
@@ -102,10 +103,13 @@ function extraBindArgs(binds: NonNullable<BubblewrapArgvInput['extraBinds']>): s
 
   for (const bind of binds) {
     if (!existsSync(bind.source)) continue
-    pushDirs(
-      args,
-      parentDirs(bind.target).filter(dir => dir !== '/tmp' && dir !== WORKSPACE_MODEL_ROOT)
-    )
+    if (bind.createTargetParents !== false) {
+      const mountDirs = statSync(bind.source).isDirectory() ? parentDirs(bind.target) : parentDirs(dirname(bind.target))
+      pushDirs(
+        args,
+        mountDirs.filter(dir => dir !== '/tmp' && dir !== WORKSPACE_MODEL_ROOT)
+      )
+    }
     args.push(bind.readonly ? '--ro-bind' : '--bind', bind.source, bind.target)
   }
 

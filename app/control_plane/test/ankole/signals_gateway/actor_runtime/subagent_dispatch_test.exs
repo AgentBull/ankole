@@ -827,7 +827,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDispatchTest do
                "session_id" => "parent-session-#{suffix}",
                "tool_call_id" => "tool-subagent-#{suffix}",
                "title" => "Delegation #{suffix}",
-               "prompt" => "Complete delegation #{suffix}.",
+               "task" => "Complete delegation #{suffix}.",
                "reply_route" => %{
                  "binding_name" => "bot",
                  "signal_channel_id" => "chat-#{suffix}"

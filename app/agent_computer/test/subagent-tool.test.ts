@@ -44,16 +44,21 @@ describe('@ankole/agent-computer subagent tool', () => {
     expect(tool.description).toContain('start returns immediately')
     expect(tool.description).not.toContain('action=run')
 
+    const verbatimTask = '\n  Write the brief, run checks, and report in Chinese.  \n'
     const started = await tool.execute('tool-call-1', {
       action: 'start',
       title: 'Launch brief',
-      brief: 'Write the brief, run checks, and report in Chinese.'
+      task: verbatimTask,
+      background: 'The audience is the operations team.',
+      notes: 'Keep the deliverable concise.'
     })
     expect('status' in started.details ? started.details.status : undefined).toBe('queued')
     expect(starts).toHaveLength(1)
     expect(starts[0]?.turn).toEqual(turnStartForTest().turn)
     expect(starts[0]?.title).toBe('Launch brief')
-    expect(starts[0]?.prompt).toContain('report in Chinese')
+    expect(starts[0]?.task).toBe(verbatimTask)
+    expect(starts[0]?.background).toBe('The audience is the operations team.')
+    expect(starts[0]?.notes).toBe('Keep the deliverable concise.')
 
     const listed = await tool.execute('tool-call-2', { action: 'list' })
     expect(listed.content[0]).toEqual({
@@ -102,6 +107,7 @@ describe('@ankole/agent-computer subagent tool', () => {
       const authPath = join(materialized.codexHome, 'auth.json')
       const config = readFileSync(configPath, 'utf8')
       expect(config).toContain('web_search = "disabled"')
+      expect(config).toContain('project_doc_max_bytes = 131072')
       expect(config).toContain('multi_agent = false')
       expect(config).toContain('apps = false')
       expect(config).toContain('plugins = false')
@@ -179,7 +185,9 @@ function response(): SubagentDelegationResponse {
     runtime: 'codex',
     codex_account_id: 'aigateway',
     title: 'Launch brief',
-    prompt: 'Write the brief.',
+    task: 'Write the brief.',
+    background: 'Operations handoff context.',
+    notes: 'Keep the report short.',
     reply_route: { binding_name: 'lark', signal_channel_id: 'chat-1' },
     attempts: 0,
     workdir: '/workspace/user-files/subagent/019f0000',

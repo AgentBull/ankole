@@ -1608,8 +1608,10 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           runtime: %Schema{type: :string, enum: ["codex"]},
           codex_account_id: %Schema{type: :string},
           runtime_thread_id: %Schema{type: :string, nullable: true},
-          title: %Schema{type: :string, nullable: true},
-          prompt: %Schema{type: :string, nullable: true},
+          title: %Schema{type: :string},
+          task: %Schema{type: :string},
+          background: %Schema{type: :string, nullable: true},
+          notes: %Schema{type: :string, nullable: true},
           status: %Schema{
             type: :string,
             enum: @statuses
@@ -1634,6 +1636,8 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           :session_id,
           :runtime,
           :codex_account_id,
+          :title,
+          :task,
           :status,
           :attempts,
           :reply_route,

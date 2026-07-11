@@ -14,7 +14,9 @@ completed promptly belongs in the current agent turn.
 
 ## User Contract
 
-1. The parent agent writes a self-contained brief and calls `subagent(start)`.
+1. The parent agent writes one self-contained `task` string and calls
+   `subagent(start)`. The string contains the instruction and every requirement,
+   constraint, and acceptance criterion.
 2. The call returns the durable delegation immediately. The parent confirms
    that work started and remains available for normal conversation.
 3. Codex works in an isolated actor session and a durable artifact directory.
@@ -37,8 +39,9 @@ originating channel.
 - Elixir owns dispatch, placement, authorization, capacity, retries, wakeups,
   Codex account storage, ModelProfiles, Console APIs, and terminal commit.
 - Rust kernel owns identifier/crypto helpers and `generic_hash`.
-- Bun Agent Computer owns the Codex process, protocol loop, dynamic tools,
-  sandbox, and materialization of the account-scoped Codex home.
+- Bun Agent Computer owns the Codex process, protocol loop, native Skill root,
+  dynamic tools, sandbox, task-level AGENTS, and materialization of the
+  account-scoped Codex home.
 - RuntimeFabric is live transport. Every worker mutation that affects durable
   state uses a private RPC and an active turn fence.
 - A delegation actor session is serial. A superseded worker cannot append
@@ -71,7 +74,8 @@ parent agent turn
 - UUIDv7 `id`;
 - parent `agent_uid`, `session_id`, `actor_event_id`, and `tool_call_id`;
 - `runtime`, currently `codex`;
-- operator-facing `title` and durable `prompt`;
+- operator-facing `title`, verbatim `task`, and optional `background` and
+  `notes` text;
 - frozen `reply_route`;
 - frozen `codex_account_id`;
 - `runtime_thread_id` and `workdir`;
@@ -199,7 +203,7 @@ Three execution attempts are allowed. Exhaustion commits `failed` with
 
 The normal recovery path resumes `runtime_thread_id`. If Codex reports an
 unknown thread, Agent Computer creates one replacement thread and supplies the
-original brief, continuation instruction, current workspace, and a bounded
+original task, continuation instruction, current workspace, and a bounded
 summary of at most three prior attempts derived from the event journal. The
 history is used only for thread recreation; routine resume relies on Codex's
 own rollout and compaction state.
@@ -253,7 +257,8 @@ The subagent handler:
 
 1. fetches the durable delegation and resolves its parent workspace;
 2. resolves the frozen Codex account and materializes the account home;
-3. rebuilds identity instructions, skill catalog, and dynamic tools;
+3. rebuilds the task-level AGENTS file, native enabled-Skill root, and dynamic
+   tools;
 4. starts or resumes Codex app-server;
 5. maps Codex notifications into the attempt-aware audit journal;
 6. persists waiting, terminal, or retryable outcomes before exiting.
@@ -281,28 +286,35 @@ and artifacts before reporting success.
 
 ## Handoff and Capability Projection
 
-Handoff has three layers:
+`task` is the complete instruction and is passed verbatim as the first Codex
+user input. Agent Computer only validates that it is non-blank; it does not
+parse, split, or reformat it. Steering, question answers, retries, and thread
+recovery remain later user inputs.
 
-1. Identity: SOUL and MISSION are injected on every dispatch.
-2. Task: the explicit brief carries paths, constraints, acceptance criteria,
-   and output language.
-3. Knowledge: projected skills and read-only memory tools provide information
-   that the brief could not anticipate.
+Every dispatch materializes a private, read-only `AGENTS.override.md`. Existing
+same-level Codex guidance is included first, followed by SOUL, MISSION, optional
+`background`, optional execution `notes`, and execution context. When a
+same-level AGENTS file already exists, the merged document overlays that
+existing sandbox mountpoint without changing its host contents. Otherwise,
+Codex discovers the document through its native project-doc fallback from a
+process-private mount; Agent Computer never creates a placeholder in the user
+workdir. Requirements belong in `task`, not `notes`. The task, Skill catalog,
+tool list, and parent transcript are not duplicated into AGENTS.
 
-The parent conversation transcript is not copied into the subagent. This keeps
-the handoff reproducible and protects the parent context budget.
+All Skills enabled for the parent turn are mounted into a delegation-specific
+Skill root. After app-server initialization and before thread start or resume,
+Agent Computer calls `skills/extraRoots/set`, forces `skills/list` to reload,
+and verifies that every enabled Ankole Skill is natively discoverable. A Skill
+with a database overlay receives a merged `SKILL.md` facade while other
+resources stay mounted from their source directory. A missing enabled Skill is
+a setup failure; there is no `skill_view`, prompt-catalog, or MCP fallback.
 
-The projected tool allowlist is:
-
-- `skill_view`;
-- `web_search`;
-- `memory_search`;
-- `memory_browse`.
-
-Tool definitions are rebuilt on every dispatch. Native Codex web search is
-disabled so Ankole's projected `web_search` preserves provider routing and
-audit semantics. Codex asks questions with its protocol-native
-`requestUserInput` item.
+The projected Ankole tools are `web_search`, `web_fetch`, `memory_search`,
+`memory_browse`, and every `browser_*` tool except `browser_run`. Browser work
+uses a private `subagent:<delegation_id>` execution scope and screenshot results
+remain Codex `inputImage` parts. Codex-native shell, file, patch, and planning
+capabilities are not projected twice. Skill/memory writes, user delivery,
+scheduling, clarification, and nested delegation remain parent-owned.
 
 Streaming message deltas are audit and activity signals. The last completed
 Codex `agentMessage` is the canonical delegation report. If Codex completes
@@ -313,8 +325,8 @@ another empty completion fails with `codex_empty_report`.
 
 The model-facing `subagent` tool has five asynchronous actions:
 
-- `start` creates a durable task from a title, brief, optional workdir, and
-  optional output schema;
+- `start` creates durable work from a title, complete `task`, optional
+  `background`, optional `notes`, optional workdir, and optional output schema;
 - `list` shows work visible from the current parent session or channel;
 - `status` returns durable lifecycle and result state;
 - `steer` appends instructions or answers a pending user-input request;
@@ -382,4 +394,9 @@ The implementation is protected by package-local gates for:
   rejection;
 - Codex 0.144 app-server success, resume, unknown-thread recovery, native
   compaction, steer races, abort, approval fail-closed, and auth refresh;
-- OpenAPI generation and Console type checking.
+- task-level AGENTS isolation, native Skill discovery and overlays, the tool
+  allowlist, Browser scope, and screenshot image projection;
+- OpenAPI generation and Console type checking;
+- a real parent-to-Codex PPTX scenario that reads the native Skill, runs
+  OfficeCLI, verifies the two-slide artifact independently, and delivers it
+  through `reply_attachment` and fake Feishu.

@@ -58,7 +58,9 @@ defmodule Ankole.SubagentDelegations.Schemas.Delegation do
     field(:runtime, :string, default: "codex")
     field(:codex_account_id, :string, default: "aigateway")
     field(:title, :string)
-    field(:prompt, :string)
+    field(:task, :string)
+    field(:background, :string)
+    field(:notes, :string)
     field(:reply_route, :map, default: %{})
     field(:attempts, :integer, default: 0)
     field(:workdir, :string)
@@ -85,7 +87,9 @@ defmodule Ankole.SubagentDelegations.Schemas.Delegation do
       :runtime,
       :codex_account_id,
       :title,
-      :prompt,
+      :task,
+      :background,
+      :notes,
       :reply_route,
       :attempts,
       :workdir,
@@ -105,7 +109,8 @@ defmodule Ankole.SubagentDelegations.Schemas.Delegation do
       :runtime,
       :codex_account_id,
       :title,
-      :prompt,
+      :background,
+      :notes,
       :workdir,
       :status
     ])
@@ -123,6 +128,9 @@ defmodule Ankole.SubagentDelegations.Schemas.Delegation do
     ])
     |> validate_inclusion(:runtime, ["codex"])
     |> validate_inclusion(:status, @statuses)
+    |> validate_change(:task, fn :task, task ->
+      if is_binary(task) and String.trim(task) != "", do: [], else: [task: "can't be blank"]
+    end)
     |> validate_number(:attempts, greater_than_or_equal_to: 0)
     |> JSONPayload.validate_map(:reply_route)
     |> JSONPayload.validate_map(:result, allow_datetime: true)
@@ -146,7 +154,7 @@ defmodule Ankole.SubagentDelegations.Schemas.Delegation do
   def creation_changeset(delegation, attrs) do
     delegation
     |> changeset(attrs)
-    |> validate_required([:tool_call_id, :title, :prompt, :workdir])
+    |> validate_required([:tool_call_id, :title, :task, :workdir])
     |> validate_change(:workdir, fn :workdir, path ->
       expanded = Path.expand(path)
 

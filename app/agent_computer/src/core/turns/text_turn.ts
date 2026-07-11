@@ -1,6 +1,4 @@
 import type { TurnStart } from '../../lanes/actor_lane'
-import { isRecord, type JsonObject as JSONObject } from '@pleisto/active-support'
-import { assertRPCResponse, type AppConfigureResolveResponse } from '../../lanes/rpc_lane'
 import { runAgentLoop } from '../agent-loop'
 import { buildAgentSystemPrompt } from '../../prompts/system_prompt'
 import { createComputerTools } from '../../tools/computer'
@@ -20,16 +18,10 @@ import { steeringMessages } from './turn_control'
 import { createTurnActivity } from './turn_activity'
 import { resolveAgentConversationContext } from './turn_context'
 import { agentRuntimePolicyFromTurnStart } from './turn_runtime_policy'
+import { resolveBrowserRuntimeConfig } from './browser_runtime_config'
 import type { TextTurnLoopOptions, TurnHandlerResult } from './turn_options'
 
 const silentSuccessMarker = '<silent_success/>'
-const RemoteBrowserCDPConfigKey = 'worker.remote_browser_cdp_config'
-const LocalBrowserIdleTtlMsKey = 'worker.local_browser_idle_ttl_ms'
-
-type BrowserRuntimeConfig = {
-  remoteCDPConfig: JSONObject | null
-  localBrowserIdleTtlMs?: number
-}
 
 /**
  * Runs one Ankole text turn inside Agent Computer.
@@ -207,36 +199,6 @@ function skillRootsFromOptions(opts: TextTurnLoopOptions): SkillFileRoots | unde
     builtinSkillsRoot: opts.builtinSkillsRoot,
     agentInstalledSkillsRoot: opts.agentInstalledSkillsRoot,
     ...(opts.internalSkillsRoot ? { internalSkillsRoot: opts.internalSkillsRoot } : {})
-  }
-}
-
-/**
- * Resolves browser runtime knobs from AppConfigure.
- *
- * Browser backend configuration is runtime-owned operator state, so it comes
- * through the same control-plane RPC path as other process-independent config.
- */
-async function resolveBrowserRuntimeConfig(
-  turnStart: TurnStart,
-  opts: TextTurnLoopOptions
-): Promise<BrowserRuntimeConfig> {
-  if (!opts.requestAppConfigure) return { remoteCDPConfig: null }
-
-  const response = await opts.requestAppConfigure({
-    request_id: `app-configure-browser-${crypto.randomUUID()}`,
-    agent_uid: turnStart.turn.actor.agent_uid,
-    keys: [RemoteBrowserCDPConfigKey, LocalBrowserIdleTtlMsKey]
-  })
-  assertRPCResponse<AppConfigureResolveResponse>(response, 'browser runtime config rejected')
-
-  const remoteCDPConfig = response.values[RemoteBrowserCDPConfigKey]?.value
-  const localBrowserIdleTtlMs = response.values[LocalBrowserIdleTtlMsKey]?.value
-
-  return {
-    remoteCDPConfig: isRecord(remoteCDPConfig) ? remoteCDPConfig : null,
-    ...(typeof localBrowserIdleTtlMs === 'number' && Number.isFinite(localBrowserIdleTtlMs)
-      ? { localBrowserIdleTtlMs }
-      : {})
   }
 }
 

@@ -1,4 +1,4 @@
-import { resolve } from 'node:path'
+import { join, posix, resolve } from 'node:path'
 import {
   insideWorkspace,
   resolveWorkspacePath,
@@ -8,6 +8,7 @@ import {
 import { bubblewrapArgv } from '../computer/bubblewrap'
 import { commandEnv } from '../computer/env'
 import { codexConfigCLIOverrides, type MaterializedCodexConfig } from './config'
+import { SUBAGENT_SKILLS_SANDBOX_ROOT, type MaterializedSubagentRuntimeFiles } from '../subagent/runtime-files'
 
 export type CodexAppServerSandboxSpec = {
   cwd: string
@@ -27,10 +28,12 @@ export function codexAppServerSandboxSpec(input: {
   workspaceRoot: string
   workdir: string
   materialized: MaterializedCodexConfig
+  runtimeFiles?: MaterializedSubagentRuntimeFiles
 }): CodexAppServerSandboxSpec {
   const codexCwd = modelPath(input.workspaceRoot, input.workdir)
   const codexHomeBind = codexHomeBindForSandbox(input.workspaceRoot, input.materialized.codexHome)
   const env = codexSandboxEnv(input.workspaceRoot, input.materialized.env, codexHomeBind?.target)
+  const runtimeFileBinds = input.runtimeFiles ? subagentRuntimeFileBinds(input.runtimeFiles) : []
 
   return {
     cwd: input.workspaceRoot,
@@ -40,15 +43,54 @@ export function codexAppServerSandboxSpec(input: {
       workspaceRoot: input.workspaceRoot,
       cwd: input.workdir,
       env,
-      extraBinds: codexHomeBind ? [codexHomeBind] : [],
+      extraBinds: [...(codexHomeBind ? [codexHomeBind] : []), ...runtimeFileBinds],
       commandArgv: [
         ...codexCommandForSandbox(input.workspaceRoot),
         'app-server',
         '--stdio',
-        ...codexConfigCLIOverrides()
+        ...codexConfigCLIOverrides(),
+        ...(input.runtimeFiles
+          ? [
+              '-c',
+              `project_doc_fallback_filenames=[${JSON.stringify(
+                posix.relative(codexCwd, input.runtimeFiles.agentsSandboxPath)
+              )}]`
+            ]
+          : [])
       ]
     })
   }
+}
+
+function subagentRuntimeFileBinds(runtime: MaterializedSubagentRuntimeFiles) {
+  return [
+    {
+      source: runtime.agentsPath,
+      target: runtime.agentsSandboxPath,
+      readonly: true,
+      createTargetParents: false
+    },
+    ...(runtime.localAgentsSandboxPath
+      ? [
+          {
+            source: runtime.agentsPath,
+            target: runtime.localAgentsSandboxPath,
+            readonly: true,
+            createTargetParents: false
+          }
+        ]
+      : []),
+    { source: runtime.skillsPlaceholderRoot, target: SUBAGENT_SKILLS_SANDBOX_ROOT, readonly: true },
+    ...runtime.skills.flatMap(skill => {
+      const target = join(SUBAGENT_SKILLS_SANDBOX_ROOT, skill.name)
+      return [
+        { source: skill.sourcePath, target, readonly: true },
+        ...(skill.skillFileOverridePath
+          ? [{ source: skill.skillFileOverridePath, target: join(target, 'SKILL.md'), readonly: true }]
+          : [])
+      ]
+    })
+  ]
 }
 
 function codexSandboxEnv(

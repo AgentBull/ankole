@@ -14,6 +14,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
       wait_until: 2,
       wait_for_completed_actor_event_message: 3,
       wait_for_completed_final_reply: 3,
+      wait_for_completed_outbox: 3,
       ai_messages_for_actor_event: 1
     ]
 
@@ -34,6 +35,22 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
   @real_tool_model "z-ai/glm-5.2"
   @real_text_only_model "z-ai/glm-5.2"
   @codex_real_llm_inactivity_timeout_ms 300_000
+  @pptx_workdir "/workspace/user-files/subagent/ankole-codex-pptx-real"
+  @pptx_name "ankole-skill-handoff.pptx"
+  @pptx_path Path.join(@pptx_workdir, @pptx_name)
+  @pptx_container_path "/workspace/shared/user-files/subagent/ankole-codex-pptx-real/ankole-skill-handoff.pptx"
+  @pptx_background "The audience is Ankole maintainers evaluating whether delegated Codex work preserves the parent agent's enabled capabilities."
+  @pptx_notes "Keep the delivery concise and do not create unrelated files. Execution-context marker: ANKOLE_PPTX_AGENTS_CONTEXT."
+  @pptx_task """
+  Create exactly one PowerPoint file at #{@pptx_path}.
+
+  Requirements and acceptance criteria:
+  1. Use the $pptx skill through Codex's native skill support and follow its SKILL.md instructions.
+  2. Create exactly two slides. Slide 1 title must be "Ankole Delegation" and its body must contain exactly "Codex shares enabled skills." Slide 2 title must be "Verified Handoff" and its body must contain exactly "Parent verifies before delivery."
+  3. Give both slides an intentional, readable visual layout and speaker notes. Do not create any other deliverable files.
+  4. Run officecli save, officecli validate, and officecli view of the final deck in outline mode. Resolve every validation error before finishing.
+  5. In the final report, include the exact marker ANKOLE_CODEX_PPTX_DELEGATE_DONE, the output path, the validation result, and the execution-context marker supplied by the task-level AGENTS Notes. Do not guess that marker from this task; read the AGENTS guidance.
+  """
   @vision_expected_answer "false"
   @vision_fixture_path Path.expand("../../fixtures/vision-dog.jpeg", __DIR__)
 
@@ -363,9 +380,9 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
                Task:
                1. Call subagent exactly once with action="start", title="Build the real todolist demo", and workdir="/workspace/user-files/subagent/ankole-codex-todolist-real".
-               2. The delegated brief must ask Codex to create the smallest possible Vite + React TypeScript in-memory todolist demo in that workdir. Keep the source tiny and write only package.json plus index.html, src/App.tsx, and src/index.scss.
+               2. The delegated task must ask Codex to create the smallest possible Vite + React TypeScript in-memory todolist demo in that workdir. Keep the source tiny and write only package.json plus index.html, src/App.tsx, and src/index.scss.
                3. The app only needs React useState, add/toggle/delete todo behavior, and a visible remaining count. No polish, no extra files, no tests.
-               4. The delegated brief must require Codex to run bun install and bun run build, and its final answer must include ANKOLE_CODEX_TODOLIST_DELEGATE_DONE.
+               4. The delegated task must require Codex to run bun install and bun run build, and its final answer must include ANKOLE_CODEX_TODOLIST_DELEGATE_DONE.
                5. Immediately after subagent(start) returns, reply exactly ANKOLE_CODEX_TODOLIST_STARTED.
                6. When the delegation completion notification later wakes this conversation, call subagent(status), verify the result marker, then reply exactly:
                   ANKOLE_CODEX_TODOLIST_REAL_OK build=passed verified=delegation
@@ -509,6 +526,245 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     assert_actor_event_completed!(dispatch_event.id)
     assert_actor_event_completed!(wakeup_event.id)
     %{input: input, reply: reply, message: message, delegation: delegation}
+  end
+
+  def run_real_lark_codex_pptx_skill_turn(%{
+        fake_feishu: fake_feishu,
+        agent: agent,
+        container: container,
+        provider_id: provider_id
+      }) do
+    put_real_model_profile!(agent.uid, provider_id, "primary", @real_coding_model, %{})
+    put_real_model_profile!(agent.uid, provider_id, "heavy", @real_coding_model, %{})
+    put_real_model_profile!(agent.uid, provider_id, "coding", @real_coding_model, %{})
+    put_agent_inactivity_timeout!(agent.uid, @codex_real_llm_inactivity_timeout_ms)
+
+    mention = lark_bot_mention()
+
+    start_arguments =
+      Ankole.JSON.encode!(%{
+        "action" => "start",
+        "title" => "Create the real PPTX skill artifact",
+        "task" => @pptx_task,
+        "background" => @pptx_background,
+        "notes" => @pptx_notes,
+        "workdir" => @pptx_workdir
+      })
+
+    assert :ok =
+             FakeFeishu.State.user_sends_message(fake_feishu.state,
+               event_id: "evt_real_codex_pptx_1",
+               message_id: "om_real_codex_pptx_1",
+               chat_id: "oc_real_llm_codex_pptx",
+               text: """
+               @_user_1 Delegate this PowerPoint task to the Codex subagent in the background using the configured coding runtime.
+
+               Initial-turn state machine:
+               1. Call subagent exactly once. Its decoded arguments must equal the JSON object below. Copy the complete strings; do not summarize, shorten, repair, or regenerate any field. The task value is intentionally long because it contains every requirement.
+               2. After that one subagent(start) result succeeds, do not call any more tools and never call subagent(start) again. Your very next response must be exactly ANKOLE_CODEX_PPTX_STARTED.
+
+               <subagent_start_arguments_json>
+               #{start_arguments}
+               </subagent_start_arguments_json>
+
+               When the delegation completion notification wakes this conversation:
+               1. Call subagent(status) and verify both ANKOLE_CODEX_PPTX_DELEGATE_DONE and ANKOLE_PPTX_AGENTS_CONTEXT in the result.
+               2. Independently run officecli validate and officecli view in outline mode against #{@pptx_path} with the command tool.
+               3. Call reply_attachment with path=#{inspect(@pptx_path)}, name=#{inspect(@pptx_name)}, and mimeType="application/vnd.openxmlformats-officedocument.presentationml.presentation".
+               4. Reply exactly ANKOLE_CODEX_PPTX_REAL_OK slides=2 validate=passed attached=yes.
+
+               Do not create the deck yourself and do not use web research.
+               """,
+               mentions: [mention],
+               create_time_ms:
+                 DateTime.to_unix(DateTime.add(@base_time, 13, :second), :millisecond)
+             )
+
+    input = actor_event_by_source_entry_id!(agent.uid, "om_real_codex_pptx_1")
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+
+    assert {:ok, start_message} =
+             wait_for_completed_actor_event_message(container, input.id, deadline(300_000))
+
+    start_messages = ai_messages_for_actor_event(input.id)
+
+    assert {:ok, %Entry{} = start_reply, %{id: start_message_id}} =
+             wait_for_completed_final_reply(container, input.id, deadline(60_000))
+
+    assert start_message_id == start_message.id
+    assert start_reply.text =~ "ANKOLE_CODEX_PPTX_STARTED"
+    assert tool_result_succeeded?(start_messages, "subagent")
+
+    subagent_calls = function_call_items(start_messages, "subagent")
+
+    assert length(subagent_calls) == 1,
+           "expected exactly one subagent call, got: #{inspect(subagent_calls, limit: :infinity, printable_limit: 12_000)}"
+
+    delegation =
+      Repo.one!(
+        from(delegation in SubagentDelegation,
+          where: delegation.agent_uid == ^agent.uid,
+          where: delegation.actor_event_id == ^input.id
+        )
+      )
+
+    assert delegation.title == "Create the real PPTX skill artifact"
+    assert delegation.workdir == @pptx_workdir
+    assert String.trim(delegation.task) == String.trim(@pptx_task)
+    assert delegation.background == @pptx_background
+    assert delegation.notes == @pptx_notes
+
+    dispatch_event =
+      Repo.one!(
+        from(event in ActorEvent,
+          where: event.agent_uid == ^agent.uid,
+          where: event.session_id == ^"subagent:#{delegation.id}",
+          where: event.type == "subagent.delegation.dispatch"
+        )
+      )
+
+    assert {:ok, _result} =
+             process_ready_event_for_actor!(
+               dispatch_event,
+               DateTime.add(dispatch_event.available_at, 1, :second)
+             )
+
+    assert {:ok, %SubagentDelegation{} = delegation} =
+             wait_until(deadline(1_500_000), fn ->
+               case Repo.get(SubagentDelegation, delegation.id) do
+                 %SubagentDelegation{status: "succeeded"} = completed ->
+                   completed
+
+                 %SubagentDelegation{status: status} = failed
+                 when status in ["failed", "stopped"] ->
+                   flunk("""
+                   real subagent PPTX delegation ended as #{status}.
+                   subagent_delegations=#{inspect(subagent_delegation_debug(input.id), limit: :infinity, printable_limit: 12_000)}
+                   failure=#{inspect(failed.error, printable_limit: 4_000)}
+                   """)
+
+                 _pending ->
+                   nil
+               end
+             end)
+
+    output_text = get_in(delegation.result, ["output_text"]) || ""
+    assert output_text =~ "ANKOLE_CODEX_PPTX_DELEGATE_DONE"
+    assert output_text =~ "ANKOLE_PPTX_AGENTS_CONTEXT"
+
+    events =
+      Repo.all(
+        from(event in SubagentDelegationEvent,
+          where: event.delegation_id == ^delegation.id,
+          order_by: [asc: event.seq]
+        )
+      )
+
+    event_types = Enum.map(events, & &1.event_type)
+    assert "agents_instructions_materialized" in event_types
+    assert "skills_configured" in event_types
+    assert "status_succeeded" in event_types
+
+    skills_event = Enum.find(events, &(&1.event_type == "skills_configured"))
+    assert "pptx" in skills_event.payload["expected"]
+    assert "pptx" in skills_event.payload["discovered"]
+
+    rpc_methods =
+      events
+      |> Enum.filter(&(&1.event_type == "json_rpc"))
+      |> Enum.map(&get_in(&1.payload, ["message", "method"]))
+
+    assert "skills/extraRoots/set" in rpc_methods
+    assert "skills/list" in rpc_methods
+
+    audit_text = events |> Enum.map(& &1.payload) |> Ankole.JSON.encode!()
+    assert audit_text =~ "pptx/SKILL.md"
+    assert audit_text =~ "officecli"
+
+    validate_output = docker_exec!(container, ["officecli", "validate", @pptx_container_path])
+
+    outline_output =
+      docker_exec!(container, ["officecli", "view", @pptx_container_path, "outline"])
+
+    text_output = docker_exec!(container, ["officecli", "view", @pptx_container_path, "text"])
+
+    assert is_binary(validate_output)
+    assert outline_output =~ "2 slides"
+    assert text_output =~ "Ankole Delegation"
+    assert text_output =~ "Verified Handoff"
+    assert text_output =~ "Codex shares enabled skills."
+    assert text_output =~ "Parent verifies before delivery."
+    assert pptx_slide_count!(container, @pptx_container_path) == 2
+
+    wakeup_event =
+      Repo.one!(
+        from(event in ActorEvent,
+          where: event.agent_uid == ^agent.uid,
+          where: event.session_id == ^input.session_id,
+          where: event.type == "subagent.delegation.completed",
+          where: event.source_event_id == ^"subagent_delegation:#{delegation.id}:succeeded"
+        )
+      )
+
+    if is_nil(wakeup_event.completed_at) do
+      assert {:ok, _result} =
+               process_ready_event_for_actor!(
+                 wakeup_event,
+                 DateTime.add(wakeup_event.available_at, 1, :second)
+               )
+    end
+
+    assert {:ok, outbox, _message} =
+             wait_for_completed_outbox(container, wakeup_event.id, deadline(300_000))
+
+    assert outbox.payload["text"] =~
+             "ANKOLE_CODEX_PPTX_REAL_OK slides=2 validate=passed attached=yes"
+
+    assert [attachment] = outbox.payload["attachments"]
+    assert attachment["agent_computer_path"] == @pptx_path
+
+    assert attachment["user_files_relative_path"] ==
+             "subagent/ankole-codex-pptx-real/#{@pptx_name}"
+
+    assert attachment["name"] == @pptx_name
+
+    assert attachment["mime_type"] ==
+             "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+
+    assert attachment["size"] > 1_000
+
+    wakeup_messages = ai_messages_for_actor_event(wakeup_event.id)
+    assert command_tool_succeeded?(wakeup_messages)
+    assert tool_result_succeeded?(wakeup_messages, "reply_attachment")
+
+    sent = dispatch_outbox_succeeded!(outbox)
+    platform_message = platform_message!(fake_feishu, sent.created_source_entry_id)
+    assert platform_message.sender == :bot
+    assert platform_message.msg_type == "file"
+    assert platform_message.reply_to == "om_real_codex_pptx_1"
+    assert {:ok, %{"file_key" => file_key}} = Ankole.JSON.decode(platform_message.content)
+
+    assert %{name: @pptx_name, content: uploaded_content} =
+             FakeFeishu.State.uploaded_file(fake_feishu.state, file_key)
+
+    assert byte_size(uploaded_content) == attachment["size"]
+    assert binary_part(uploaded_content, 0, 2) == "PK"
+    assert [%{"provider_file_key" => ^file_key}] = sent.payload["attachments"]
+
+    assert_actor_event_completed!(input.id)
+    assert_actor_event_completed!(dispatch_event.id)
+    assert_actor_event_completed!(wakeup_event.id)
+
+    %{
+      input: input,
+      delegation: delegation,
+      outbox: sent,
+      platform_message: platform_message,
+      outline: outline_output,
+      text: text_output
+    }
   end
 
   def run_real_lark_post_image_direct_vision_turn(%{
@@ -772,6 +1028,28 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
   defp image_summary_text?(_text), do: false
 
   defp vision_image_jpeg, do: File.read!(@vision_fixture_path)
+
+  defp pptx_slide_count!(container, path) do
+    script =
+      "import re,sys,zipfile; z=zipfile.ZipFile(sys.argv[1]); print(sum(1 for n in z.namelist() if re.fullmatch(r'ppt/slides/slide[0-9]+[.]xml', n)))"
+
+    container
+    |> docker_exec!(["python3", "-c", script, path])
+    |> String.trim()
+    |> String.to_integer()
+  end
+
+  defp docker_exec!(container, args) do
+    {output, status} =
+      System.cmd(docker_path(), ["exec", container.name | args], stderr_to_stdout: true)
+
+    assert status == 0, output
+    output
+  end
+
+  defp docker_path do
+    System.find_executable("docker") || flunk("docker executable was not found on PATH")
+  end
 
   defp wait_for_completed_final_reply_with_trace(container, actor_event_id, deadline) do
     wait_for_completed_final_reply(container, actor_event_id, deadline)

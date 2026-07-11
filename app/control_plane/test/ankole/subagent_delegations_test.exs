@@ -16,8 +16,10 @@ defmodule Ankole.SubagentDelegationsTest do
       "session_id" => "parent-session",
       "tool_call_id" => "tool-subagent-1",
       "title" => "Prepare the launch brief",
-      "prompt" =>
-        "Read the source material, write the brief, and verify every acceptance criterion.",
+      "task" =>
+        "\n  Read the source material, write the brief, and verify every acceptance criterion.  \n",
+      "background" => "The brief is for the operations team.",
+      "notes" => "Keep the handoff concise.",
       "workdir" => "/workspace/user-files/subagent/019f",
       "reply_route" => %{
         "binding_name" => "lark",
@@ -34,7 +36,9 @@ defmodule Ankole.SubagentDelegationsTest do
     assert delegation.status == "queued"
     assert delegation.attempts == 0
     assert delegation.title == attrs["title"]
-    assert delegation.prompt == attrs["prompt"]
+    assert delegation.task == attrs["task"]
+    assert delegation.background == attrs["background"]
+    assert delegation.notes == attrs["notes"]
     assert delegation.reply_route == attrs["reply_route"]
 
     assert event.agent_uid == agent.uid
@@ -50,7 +54,7 @@ defmodule Ankole.SubagentDelegationsTest do
     assert get_in(event.payload, ["data", "parent_session_id"]) == "parent-session"
     assert get_in(event.payload, ["data", "workdir"]) == attrs["workdir"]
     assert get_in(event.payload, ["data", "attempts"]) == 0
-    refute inspect(event.payload) =~ attrs["prompt"]
+    refute inspect(event.payload) =~ attrs["task"]
 
     assert {:ok, %{delegation: same_delegation, dispatch_event: same_event}} =
              SubagentDelegations.create_with_dispatch(attrs)
@@ -70,7 +74,7 @@ defmodule Ankole.SubagentDelegationsTest do
                "session_id" => "parent-session-invalid-workdir",
                "tool_call_id" => "tool-subagent-invalid-workdir",
                "title" => "Invalid workdir",
-               "prompt" => "This must never be dispatched.",
+               "task" => "This must never be dispatched.",
                "workdir" => "/workspace/user-files/../../etc",
                "reply_route" => %{"binding_name" => "lark"}
              })
@@ -476,7 +480,7 @@ defmodule Ankole.SubagentDelegationsTest do
                "session_id" => "parent-session-#{suffix}",
                "tool_call_id" => "tool-subagent-#{suffix}",
                "title" => "Delegation #{suffix}",
-               "prompt" => "Complete the #{suffix} delegation.",
+               "task" => "Complete the #{suffix} delegation.",
                "workdir" => "/workspace/user-files/subagent/#{suffix}",
                "reply_route" => %{
                  "binding_name" => "lark",

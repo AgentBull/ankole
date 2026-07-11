@@ -108,7 +108,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
                  "session_id" => "parent-session-subagent-stale",
                  "tool_call_id" => "tool-subagent-stale",
                  "title" => "Resume after worker loss",
-                 "prompt" => "Finish the durable delegated task.",
+                 "task" => "Finish the durable delegated task.",
                  "reply_route" => %{
                    "binding_name" => "bot",
                    "signal_channel_id" => "chat-subagent-stale"

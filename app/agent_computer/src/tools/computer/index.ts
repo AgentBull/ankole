@@ -25,16 +25,7 @@ export interface ComputerToolsBinding {
  * tool contracts but binds them to the container's `/workspace`.
  */
 export function createComputerTools(binding: ComputerToolsBinding): AgentTool<any>[] {
-  const executionScopeID = binding.conversationID ?? binding.agentUID
-  const computer = createContainerComputer(binding.workspaceRoot, executionScopeID)
-  const context: ComputerToolContext = {
-    agentUID: binding.agentUID,
-    workspaceRoot: binding.workspaceRoot,
-    executionScopeID,
-    browserRemoteCDPConfig: binding.browserRemoteCDPConfig,
-    localBrowserIdleTtlMs: binding.localBrowserIdleTtlMs,
-    getComputer: async () => computer
-  }
+  const context = createComputerToolContext(binding)
 
   return [
     ...createBrowserTools(context),
@@ -44,4 +35,18 @@ export function createComputerTools(binding: ComputerToolsBinding): AgentTool<an
     createPatchTool(context),
     createReplyAttachmentTool(context)
   ]
+}
+
+/** Builds the shared run-scoped context used by main-agent and subagent browser tools. */
+export function createComputerToolContext(binding: ComputerToolsBinding): ComputerToolContext {
+  const executionScopeID = binding.conversationID ?? binding.agentUID
+  const computer = createContainerComputer(binding.workspaceRoot, executionScopeID)
+  return {
+    agentUID: binding.agentUID,
+    workspaceRoot: binding.workspaceRoot,
+    executionScopeID,
+    browserRemoteCDPConfig: binding.browserRemoteCDPConfig,
+    localBrowserIdleTtlMs: binding.localBrowserIdleTtlMs,
+    getComputer: async () => computer
+  }
 }

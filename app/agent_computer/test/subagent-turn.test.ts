@@ -98,9 +98,25 @@ describe('@ankole/agent-computer subagent turn', () => {
       expect(statusUpdates[0]?.metadata).toMatchObject({
         codex_account_id: 'aigateway',
         codex_user_agent: 'codex-cli 0.144.0',
-        projected_tool_names: ['skill_view'],
+        browser_execution_scope: `subagent:${delegationID}`,
+        projected_tool_names: [
+          'web_fetch',
+          'browser_navigate',
+          'browser_snapshot',
+          'browser_find',
+          'browser_click',
+          'browser_type',
+          'browser_press',
+          'browser_scroll',
+          'browser_select',
+          'browser_wait',
+          'browser_back',
+          'browser_screenshot',
+          'browser_open',
+          'browser_extract'
+        ],
         quarantined_tool_names: [],
-        projected_skill_count: 0
+        shared_skill_count: 0
       })
       expect(statusUpdates[1]).toMatchObject({
         runtime_thread_id: 'thread-2',
@@ -125,11 +141,16 @@ describe('@ankole/agent-computer subagent turn', () => {
       expect(auditBatches.flatMap(batch => batch.events).map(event => event.seq)).toEqual(
         auditBatches.flatMap(batch => batch.events).map((_, index) => index)
       )
+      expect(auditBatches.flatMap(batch => batch.events).map(event => event.event_type)).toContain(
+        'agents_instructions_materialized'
+      )
+      expect(auditBatches.flatMap(batch => batch.events).map(event => event.event_type)).toContain('skills_configured')
 
       const workdir = workdirFor(root)
+      const firstTurnStart = JSON.parse(readFileSync(join(workdir, 'turn-start-1.json'), 'utf8')) as JSONObject
+      expect((firstTurnStart.input as JSONObject[])[0]?.text).toBe(delegation.task)
       const threadStart = JSON.parse(readFileSync(join(workdir, 'thread-start.json'), 'utf8')) as JSONObject
-      expect(String(threadStart.developerInstructions)).toContain('SOUL: Be careful')
-      expect(String(threadStart.developerInstructions)).toContain('Background task safety')
+      expect(threadStart).not.toHaveProperty('developerInstructions')
       expect(existsSync(join(root, 'shared', '.ankole', 'codex', 'aigateway', 'config.toml'))).toBe(true)
     } finally {
       rmSync(root, { recursive: true, force: true })
@@ -735,6 +756,48 @@ describe('@ankole/agent-computer subagent turn', () => {
       rmSync(root, { recursive: true, force: true })
     }
   }, 10_000)
+
+  it('fails setup when Codex does not discover an enabled Ankole skill', async () => {
+    const { root, cleanup } = prepareControlScenario('complete')
+    const statusUpdates: SubagentDelegationStatusUpdateRequest[] = []
+    const auditBatches: SubagentDelegationEventAppendRequest[] = []
+    const builtinSkillsRoot = join(root, 'builtin-skills')
+    const skillRoot = join(builtinSkillsRoot, 'required-skill')
+    const installedSkillsRoot = join(root, 'installed-skills')
+    mkdirSync(skillRoot, { recursive: true })
+    mkdirSync(installedSkillsRoot, { recursive: true })
+    writeFileSync(
+      join(skillRoot, 'SKILL.md'),
+      ['---', 'name: required-skill', 'description: Required test skill.', '---', '', '# Required', ''].join('\n')
+    )
+
+    try {
+      await expect(
+        runSubagentTurn(
+          turnStart(),
+          controlScenarioOptions(root, 'complete', statusUpdates, auditBatches, {
+            builtinSkillsRoot,
+            agentInstalledSkillsRoot: installedSkillsRoot,
+            requestAgentConversationContext: async request => ({
+              request_id: request.request_id,
+              agent_uid: 'agent-1',
+              session_id: `subagent:${delegationID}`,
+              turn: request.turn,
+              conversation: {},
+              soul: 'SOUL',
+              mission: 'MISSION',
+              skills: [{ skill_name: 'required-skill', source_kind: 'builtin', relative_path: 'required-skill' }],
+              memory_notes: [],
+              cache_key: 'context-with-required-skill'
+            })
+          })
+        )
+      ).rejects.toThrow('Codex did not discover enabled skills: required-skill')
+      expect(statusUpdates).toHaveLength(0)
+    } finally {
+      cleanup()
+    }
+  })
 })
 
 function turnStart(): TurnStart {
@@ -772,7 +835,9 @@ function response(): SubagentDelegationResponse {
     runtime: 'codex',
     codex_account_id: 'aigateway',
     title: 'Prepare launch brief',
-    prompt: 'Write and verify the launch brief.',
+    task: '\n  Write and verify the launch brief.  \n',
+    background: 'The launch brief is for operators.',
+    notes: 'Keep the handoff concise.',
     reply_route: { binding_name: 'lark', signal_channel_id: 'chat-1' },
     attempts: 1,
     attempt_history: [{ attempt: 0, event_types: ['status_failed'], summary: 'Prior worker exited.' }],
@@ -883,6 +948,9 @@ type ControlScenarioOverrides = Partial<
     | 'resolveCodexAccount'
     | 'updateCodexAccountAuth'
     | 'updateSubagentDelegationStatus'
+    | 'requestAgentConversationContext'
+    | 'builtinSkillsRoot'
+    | 'agentInstalledSkillsRoot'
   >
 >
 
@@ -977,6 +1045,7 @@ function handle(message) {
   if (message.id === 'approval-1' && message.result) return
   if (message.method === 'initialize') return write({ id: message.id, result: { userAgent: 'codex-cli 0.144.0' } })
   if (message.method === 'initialized') return
+  if (message.method === 'skills/list') return write({ id: message.id, result: { data: [{ cwd: message.params.cwds[0], skills: [], errors: [] }] } })
   if (message.method === 'thread/start') return write({ id: message.id, result: { thread: { id: 'thread-control' } } })
   if (message.method === 'turn/start') {
     turnCount += 1
@@ -1070,6 +1139,7 @@ async function handle(message) {
     const countExists = await Bun.file(countPath).exists()
     const count = (Number(countExists ? await Bun.file(countPath).text() : '0') || 0) + 1
     writeFileSync(countPath, String(count))
+    writeFileSync('turn-start-' + count + '.json', JSON.stringify(message.params))
     write({ id: message.id, result: { turn: { id: 'turn-' + count, status: 'in_progress' } } })
     setTimeout(() => {
       if (count === 1) return write({ method: 'turn/completed', params: { turn: { id: 'turn-1', status: 'failed', error: { message: 'context full', codexErrorInfo: 'contextWindowExceeded' } } } })

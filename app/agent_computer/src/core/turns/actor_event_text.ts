@@ -70,7 +70,7 @@ function subagentWakeupInputText(payload: JSONObject | undefined, type: string):
       summary ? `Failure: ${summary}` : undefined,
       attempts !== undefined ? `Attempts: ${attempts}` : undefined,
       workdir ? `Workdir: ${workdir}` : undefined,
-      'Use subagent(status) for full details. Decide whether to retry with a better brief, fix inputs first, or report the failure honestly to the user.'
+      'Use subagent(status) for full details. Decide whether to retry with a better task, fix inputs first, or report the failure honestly to the user.'
     ]
       .filter((line): line is string => Boolean(line))
       .join('\n')

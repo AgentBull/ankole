@@ -1,13 +1,9 @@
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
-import { estimateO200kBaseTokens } from '@ankole/kernel'
+import { Buffer } from 'node:buffer'
 import { errorMessage } from '../../common/errors'
 import { truncateUTF8Safe, utf8ByteLength } from '../../common/text-sanitize'
 import type { AgentTool } from '../../core'
 import { zodToJSONSchema } from '../../core/llm/tool-schema'
-import { skillPromptEntryFromRuntime } from '../../prompts/system_prompt'
-import { formatSkillsForSystemPrompt } from '../../prompts/skills_prompt'
-import type { SkillPromptEntry } from '../../prompts/skills_prompt'
-import type { RuntimeSkillSummary } from '../../lanes/rpc_lane'
 import type { DynamicToolCallParams } from './generated/protocol/v2/DynamicToolCallParams'
 import type { DynamicToolCallResponse } from './generated/protocol/v2/DynamicToolCallResponse'
 import type { DynamicToolSpec } from './generated/protocol/v2/DynamicToolSpec'
@@ -15,32 +11,24 @@ import type { JsonValue as JSONValue } from './generated/protocol/serde_json/Jso
 
 const maxToolResultBytes = 16_384
 const truncationSuffix = '...[truncated]'
-const allowedToolNames = new Set(['skill_view', 'web_search', 'memory_search', 'memory_browse'])
-const maxDeveloperInstructionTokens = 24_000
-const truncationMarker = '\n\n[truncated to the subagent context budget]'
+const allowedToolNames = new Set(['web_search', 'web_fetch', 'memory_search', 'memory_browse'])
 
 export type SubagentProjection = {
-  developerInstructions: string
   dynamicTools: DynamicToolSpec[]
   quarantinedTools: string[]
-  projectedSkillCount: number
   handleToolCall(params: DynamicToolCallParams, signal: AbortSignal): Promise<DynamicToolCallResponse>
 }
 
 export function buildSubagentProjection(input: {
   tools: AgentTool[]
-  skills: RuntimeSkillSummary[]
-  soul: string
-  mission: string
   onAudit?: (eventType: string, payload: JSONObject) => void
 }): SubagentProjection {
-  const skillEntries = input.skills.map(skillPromptEntryFromRuntime).filter(isSkillPromptEntry)
   const tools = new Map<string, AgentTool>()
   const dynamicTools: DynamicToolSpec[] = []
   const quarantinedTools: string[] = []
 
   for (const tool of input.tools) {
-    if (!allowedToolNames.has(tool.name)) continue
+    if (!allowedTool(tool.name)) continue
     try {
       const inputSchema = zodToJSONSchema(tool.schema)
       dynamicTools.push({
@@ -57,10 +45,8 @@ export function buildSubagentProjection(input: {
   }
 
   return {
-    developerInstructions: developerInstructions(input, skillEntries),
     dynamicTools,
     quarantinedTools,
-    projectedSkillCount: skillEntries.filter(skill => !skill.disableModelInvocation).length,
     async handleToolCall(params, signal) {
       const tool = tools.get(params.tool)
       if (!tool) {
@@ -80,9 +66,8 @@ export function buildSubagentProjection(input: {
       input.onAudit?.('dynamic_tool_started', { tool: params.tool, call_id: params.callId })
       try {
         const result = await tool.execute(params.callId, parsed.data, signal)
-        const text = boundedText(toolResultText(result))
         input.onAudit?.('dynamic_tool_completed', { tool: params.tool, call_id: params.callId, success: true })
-        return { contentItems: [{ type: 'inputText', text }], success: true }
+        return { contentItems: dynamicToolContentItems(result), success: true }
       } catch (error) {
         const message = boundedText(errorMessage(error))
         input.onAudit?.('dynamic_tool_completed', {
@@ -97,81 +82,14 @@ export function buildSubagentProjection(input: {
   }
 }
 
-function developerInstructions(input: { soul: string; mission: string }, skillEntries: SkillPromptEntry[]): string {
-  const contractSections = [
-    '---',
-    'You are a subagent delegated by the Ankole agent above. Work autonomously on the delegated brief. Your final message is the delegation report the parent agent will review — include what you did, evidence, artifact paths, and remaining risks.',
-    'Background task safety: your turn ends the moment your top-level answer ends; never background-and-yield, never end while a shell job you still need is running. Do all waiting in the foreground.',
-    'User-visible replies, attachments, scheduling, clarification, and long-term memory writes belong to the parent agent. Put deliverables under the working directory you were given.',
-    'Ankole projects only the following parent-owned read capabilities into this Codex thread: skill_view, web_search, memory_search, and memory_browse. No terminal, browser, scheduling, attachment, clarification, memory-write, skill-write, or nested-subagent tool is available through this bridge.'
-  ]
-  const contract = contractSections.join('\n\n')
-  const contractTokens = estimateO200kBaseTokens(contract)
-  const identityBudget = Math.max(Math.floor((maxDeveloperInstructionTokens - contractTokens) / 3), 0)
-  const soul = fitTextToTokenBudget(input.soul.trim(), identityBudget)
-  const mission = fitTextToTokenBudget(input.mission.trim(), identityBudget)
-  const identityAndContract = [soul, mission, contract].filter(Boolean).join('\n\n')
-  const skillsBudget = Math.max(maxDeveloperInstructionTokens - estimateO200kBaseTokens(identityAndContract) - 32, 0)
-  const skillsIndex = fitSkillsToTokenBudget(skillEntries, skillsBudget)
-
-  return [soul, mission, contractSections.slice(0, -1).join('\n\n'), skillsIndex, contractSections.at(-1)]
-    .filter(Boolean)
-    .join('\n\n')
+function allowedTool(name: string): boolean {
+  return allowedToolNames.has(name) || (name.startsWith('browser_') && name !== 'browser_run')
 }
 
-function fitSkillsToTokenBudget(entries: SkillPromptEntry[], maxTokens: number): string {
-  if (entries.length === 0 || maxTokens <= 0) return ''
-
-  let low = 0
-  let high = entries.length
-  let best = ''
-
-  while (low <= high) {
-    const midpoint = Math.floor((low + high) / 2)
-    const candidate = formatSkillsForSystemPrompt(entries.slice(0, midpoint))
-    if (estimateO200kBaseTokens(candidate) <= maxTokens) {
-      best = candidate
-      low = midpoint + 1
-    } else {
-      high = midpoint - 1
-    }
-  }
-
-  if (best && high < entries.length) {
-    const marker = `\n# Skills index truncated by token budget; use memory tools when the brief needs additional context.`
-    if (estimateO200kBaseTokens(best + marker) <= maxTokens) return best + marker
-  }
-  return best
-}
-
-function fitTextToTokenBudget(text: string, maxTokens: number): string {
-  if (!text || maxTokens <= 0) return ''
-  if (estimateO200kBaseTokens(text) <= maxTokens) return text
-
-  const chars = Array.from(text)
-  let low = 0
-  let high = chars.length
-  let best = ''
-
-  while (low <= high) {
-    const midpoint = Math.floor((low + high) / 2)
-    const candidate = chars.slice(0, midpoint).join('') + truncationMarker
-    if (estimateO200kBaseTokens(candidate) <= maxTokens) {
-      best = candidate
-      low = midpoint + 1
-    } else {
-      high = midpoint - 1
-    }
-  }
-
-  return best
-}
-
-function isSkillPromptEntry(entry: SkillPromptEntry | null): entry is SkillPromptEntry {
-  return entry !== null
-}
-
-function toolResultText(result: { content: unknown[]; details: unknown }): string {
+function dynamicToolContentItems(result: {
+  content: unknown[]
+  details: unknown
+}): DynamicToolCallResponse['contentItems'] {
   const text = result.content
     .map(part => {
       if (!part || typeof part !== 'object') return undefined
@@ -181,12 +99,43 @@ function toolResultText(result: { content: unknown[]; details: unknown }): strin
     .filter((value): value is string => Boolean(value))
     .join('\n')
 
-  if (text) return text
-  try {
-    return JSON.stringify(result.details)
-  } catch {
-    return String(result.details)
+  const contentItems: DynamicToolCallResponse['contentItems'] = [
+    { type: 'inputText', text: boundedText(text || toolResultDetailsText(result.details)) }
+  ]
+  for (const part of result.content) {
+    const imageUrl = toolResultImageURL(part)
+    if (imageUrl) contentItems.push({ type: 'inputImage', imageUrl })
   }
+  return contentItems
+}
+
+function toolResultDetailsText(details: unknown): string {
+  try {
+    return JSON.stringify(details)
+  } catch {
+    return String(details)
+  }
+}
+
+function toolResultImageURL(part: unknown): string | undefined {
+  if (!part || typeof part !== 'object') return undefined
+  const value = part as { type?: unknown; image?: unknown; mimeType?: unknown }
+  if (value.type !== 'image') return undefined
+  if (typeof value.image === 'string') return value.image
+  if (value.image instanceof URL) return value.image.toString()
+
+  const bytes = imageBytes(value.image)
+  if (!bytes) return undefined
+  const mimeType = typeof value.mimeType === 'string' ? value.mimeType : 'application/octet-stream'
+  return `data:${mimeType};base64,${bytes.toString('base64')}`
+}
+
+function imageBytes(value: unknown): Buffer | undefined {
+  if (Buffer.isBuffer(value)) return value
+  if (value instanceof Uint8Array) return Buffer.from(value.buffer, value.byteOffset, value.byteLength)
+  if (value instanceof ArrayBuffer) return Buffer.from(value)
+  if (ArrayBuffer.isView(value)) return Buffer.from(value.buffer, value.byteOffset, value.byteLength)
+  return undefined
 }
 
 function boundedText(text: string): string {
