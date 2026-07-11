@@ -82,7 +82,7 @@ impl GoogleGeminiState {
     }
 }
 
-impl ApiProtocol for GoogleGeminiState {
+impl APIProtocol for GoogleGeminiState {
     fn on_provider_event(
         &mut self,
         context: &ResponseContext,

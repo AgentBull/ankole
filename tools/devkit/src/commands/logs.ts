@@ -1,10 +1,10 @@
 import { Crust } from '@crustjs/core'
-import { isRecord, type JsonObject } from '@pleisto/active-support'
+import { isRecord, type JsonObject as JSONObject } from '@pleisto/active-support'
 import build from 'pino-pretty'
 
 import { bootstrapActivationCodeLine } from './bootstrap-activation-code'
 
-type PrettyLog = JsonObject
+type PrettyLog = JSONObject
 type PrettyOptions = NonNullable<Parameters<typeof build>[0]>
 
 export function ankolePrettyLogOptions(): PrettyOptions {

@@ -10,7 +10,7 @@ defmodule Ankole.SubagentDelegations.Schemas.Event do
 
   alias Ankole.SubagentDelegations.Schemas.Delegation
   alias Ankole.Principals.Principal
-  alias Ankole.Ecto.JsonPayload
+  alias Ankole.Ecto.JSONPayload
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
@@ -62,8 +62,8 @@ defmodule Ankole.SubagentDelegations.Schemas.Event do
     ])
     |> validate_number(:seq, greater_than_or_equal_to: 0)
     |> validate_inclusion(:direction, @directions)
-    |> JsonPayload.validate_map(:payload, allow_datetime: true)
-    |> JsonPayload.validate_map(:redaction, allow_datetime: true)
+    |> JSONPayload.validate_map(:payload, allow_datetime: true)
+    |> JSONPayload.validate_map(:redaction, allow_datetime: true)
     |> foreign_key_constraint(:delegation_id)
     |> foreign_key_constraint(:agent_uid)
     |> unique_constraint([:delegation_id, :seq],

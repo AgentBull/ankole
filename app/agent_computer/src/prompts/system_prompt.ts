@@ -11,7 +11,13 @@
  */
 import type { TurnStart } from '../lanes/actor_lane'
 import type { AgentConversationContext, RuntimeSkillSummary } from '../lanes/rpc_lane'
-import { isRecord, match, recordArg, stringArg as rawStringArg, type JsonObject } from '@pleisto/active-support'
+import {
+  isRecord,
+  match,
+  recordArg,
+  stringArg as rawStringArg,
+  type JsonObject as JSONObject
+} from '@pleisto/active-support'
 import { formatSkillsForSystemPrompt, type SkillPromptEntry } from './skills_prompt'
 
 export type BuildAgentSystemPromptOptions = {
@@ -126,9 +132,9 @@ function scheduleOriginLines(opts: BuildAgentSystemPromptOptions): string[] {
     `Schedule timezone: ${nonEmptyStringArg(origin, 'timezone') ?? 'unknown'}`
   ]
 
-  const cronScheduleId = nonEmptyStringArg(origin, 'cron_schedule_id')
+  const cronScheduleID = nonEmptyStringArg(origin, 'cron_schedule_id')
   const cronScheduleName = nonEmptyStringArg(origin, 'cron_schedule_name')
-  if (cronScheduleId) lines.push(`Cron schedule ID: ${cronScheduleId}`)
+  if (cronScheduleID) lines.push(`Cron schedule ID: ${cronScheduleID}`)
   if (cronScheduleName) lines.push(`Cron schedule name: ${cronScheduleName}`)
   const payload = recordArg(origin, 'payload')
   if (payload && Object.keys(payload).length > 0) lines.push(`Schedule payload: ${JSON.stringify(payload)}`)
@@ -390,7 +396,7 @@ function platformLabel(platform: string | undefined, noun: string): string {
 /**
  * Reads and trims a string field from prompt-building context.
  */
-function nonEmptyStringArg(args: JsonObject | undefined, key: string): string | undefined {
+function nonEmptyStringArg(args: JSONObject | undefined, key: string): string | undefined {
   const value = rawStringArg(args, key)?.trim()
   return value ? value : undefined
 }

@@ -13,7 +13,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation do
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
 
   alias Ankole.Principals.Principal
-  alias Ankole.Ecto.JsonPayload
+  alias Ankole.Ecto.JSONPayload
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
@@ -106,7 +106,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation do
     |> validate_number(:actor_epoch, greater_than: 0)
     |> validate_number(:revision, greater_than_or_equal_to: 0)
     |> validate_inclusion(:status, @statuses)
-    |> JsonPayload.validate_map(:metadata, allow_datetime: true)
+    |> JSONPayload.validate_map(:metadata, allow_datetime: true)
     |> foreign_key_constraint(:agent_uid)
     |> unique_constraint([:activation_uid], name: :actor_session_activations_activation_uid_index)
     # Partial index (in the migration) over live statuses enforces a single live

@@ -8,7 +8,7 @@ defmodule Ankole.Principals.ExternalIdentity do
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
 
-  alias Ankole.Ecto.JsonPayload
+  alias Ankole.Ecto.JSONPayload
   alias Ankole.Principals.Principal
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
@@ -54,7 +54,7 @@ defmodule Ankole.Principals.ExternalIdentity do
     ])
     |> normalize_blank([:provider, :adapter, :channel_id, :external_id])
     |> validate_required([:principal_uid, :kind, :external_id, :metadata])
-    |> JsonPayload.validate_map(:metadata)
+    |> JSONPayload.validate_map(:metadata)
     |> validate_format(:provider, @provider_format)
     |> validate_kind_shape()
     |> foreign_key_constraint(:principal_uid)

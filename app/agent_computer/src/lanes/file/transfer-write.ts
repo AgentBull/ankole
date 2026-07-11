@@ -4,22 +4,22 @@ import { appendFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { chunkSize, creditWindow, readBoolFrame, readU64Frame, sendFrame, u64Frame } from './codec'
 import { fileFingerprint } from './fingerprint'
-import { parseVirtualPathFrame, safeTransferId, scratchDirectoryFor, resolveFileAddress } from './path-security'
+import { parseVirtualPathFrame, safeTransferID, scratchDirectoryFor, resolveFileAddress } from './path-security'
 import type { FileTransferContext, PutTransfer } from './types'
 
 export async function handleWriteOpen(
   context: FileTransferContext,
-  transferId: string,
+  transferID: string,
   frames: Buffer[]
 ): Promise<void> {
-  if (context.state.puts.has(transferId)) {
-    throw new Error(`file transfer already exists: ${transferId}`)
+  if (context.state.puts.has(transferID)) {
+    throw new Error(`file transfer already exists: ${transferID}`)
   }
 
   const address = parseVirtualPathFrame(frames[3], 'write path')
   const expectedOriginalSize = readU64Frame(frames[4], 'original_size')
   const targetPath = resolveFileAddress(context.config, address)
-  const tempDir = scratchDirectoryFor(context.config, transferId)
+  const tempDir = scratchDirectoryFor(context.config, transferID)
   const decodedPath = join(tempDir, 'decoded')
 
   try {
@@ -31,8 +31,8 @@ export async function handleWriteOpen(
     throw error
   }
 
-  context.state.puts.set(transferId, {
-    transferId,
+  context.state.puts.set(transferID, {
+    transferID,
     address,
     targetPath,
     tempDir,
@@ -44,15 +44,15 @@ export async function handleWriteOpen(
   })
 
   try {
-    await sendFrame(context.sender, ['WRITE_READY', transferId, u64Frame(creditWindow)])
+    await sendFrame(context.sender, ['WRITE_READY', transferID, u64Frame(creditWindow)])
   } catch (error) {
-    cleanupWriteTransfer(context, transferId)
+    cleanupWriteTransfer(context, transferID)
     throw error
   }
 }
 
-export async function handleData(context: FileTransferContext, transferId: string, frames: Buffer[]): Promise<void> {
-  const transfer = getPutTransfer(context, transferId)
+export async function handleData(context: FileTransferContext, transferID: string, frames: Buffer[]): Promise<void> {
+  const transfer = getPutTransfer(context, transferID)
   const sequence = readU64Frame(frames[3], 'sequence')
   const offset = readU64Frame(frames[4], 'offset')
   readBoolFrame(frames[5], 'eof')
@@ -73,12 +73,12 @@ export async function handleData(context: FileTransferContext, transferId: strin
   transfer.nextSequence += 1
   transfer.nextOffset += chunk.byteLength
   transfer.decodedSize += decoded.byteLength
-  await sendFrame(context.sender, ['CREDIT', transferId, u64Frame(chunk.byteLength)])
+  await sendFrame(context.sender, ['CREDIT', transferID, u64Frame(chunk.byteLength)])
 }
 
-export async function handleWriteCommit(context: FileTransferContext, transferId: string): Promise<void> {
-  const transfer = getPutTransfer(context, transferId)
-  const finalTempPath = `${transfer.targetPath}.ankole-transfer-${safeTransferId(transferId)}.tmp`
+export async function handleWriteCommit(context: FileTransferContext, transferID: string): Promise<void> {
+  const transfer = getPutTransfer(context, transferID)
+  const finalTempPath = `${transfer.targetPath}.ankole-transfer-${safeTransferID(transferID)}.tmp`
   let fingerprint: string
 
   try {
@@ -98,39 +98,39 @@ export async function handleWriteCommit(context: FileTransferContext, transferId
       transfer.address.relativePath,
       transfer.targetPath
     )
-    context.state.puts.delete(transferId)
+    context.state.puts.delete(transferID)
     rmSync(transfer.tempDir, { recursive: true, force: true })
   } catch (error) {
     removePathBestEffort(finalTempPath)
-    cleanupWriteTransfer(context, transferId)
+    cleanupWriteTransfer(context, transferID)
     throw error
   }
 
   await sendFrame(context.sender, [
     'WRITE_COMMITTED',
-    transferId,
+    transferID,
     transfer.address.virtualPath,
     u64Frame(statSync(transfer.targetPath).size),
     fingerprint
   ])
 }
 
-export async function handleWriteAbort(context: FileTransferContext, transferId: string): Promise<void> {
-  const transfer = context.state.puts.get(transferId)
+export async function handleWriteAbort(context: FileTransferContext, transferID: string): Promise<void> {
+  const transfer = context.state.puts.get(transferID)
   if (transfer) {
     rmSync(transfer.tempDir, { recursive: true, force: true })
-    context.state.puts.delete(transferId)
+    context.state.puts.delete(transferID)
   }
 
-  await sendFrame(context.sender, ['WRITE_ABORTED', transferId])
+  await sendFrame(context.sender, ['WRITE_ABORTED', transferID])
 }
 
-export function cleanupWriteTransfer(context: FileTransferContext, transferId: string): void {
-  const transfer = context.state.puts.get(transferId)
+export function cleanupWriteTransfer(context: FileTransferContext, transferID: string): void {
+  const transfer = context.state.puts.get(transferID)
   if (!transfer) return
 
   rmSync(transfer.tempDir, { recursive: true, force: true })
-  context.state.puts.delete(transferId)
+  context.state.puts.delete(transferID)
 }
 
 function removePathBestEffort(path: string): void {
@@ -141,10 +141,10 @@ function removePathBestEffort(path: string): void {
   }
 }
 
-function getPutTransfer(context: FileTransferContext, transferId: string): PutTransfer {
-  const transfer = context.state.puts.get(transferId)
+function getPutTransfer(context: FileTransferContext, transferID: string): PutTransfer {
+  const transfer = context.state.puts.get(transferID)
   if (!transfer) {
-    throw new Error(`unknown file transfer: ${transferId}`)
+    throw new Error(`unknown file transfer: ${transferID}`)
   }
   return transfer
 }

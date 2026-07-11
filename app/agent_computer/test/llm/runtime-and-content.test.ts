@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import { tmpdir } from 'node:os'
 import { z } from 'zod'
 import { runAgentLoop } from '../../src/core/agent-loop'
@@ -9,11 +9,11 @@ import {
   actorEventEnvironmentInfoLines,
   prependEnvironmentInfoLinesToUserMessage
 } from '../../src/core/turns/message_context'
-import { modelConfigFromAIGatewayApiKey } from '../../src/core/aigateway_transport'
-import { acquireTurnAIGatewayAccess } from '../../src/core/turns/turn_aigateway_access'
+import { modelConfigFromAIGatewayAPIKey } from '../../src/core/ai_gateway_transport'
+import { acquireTurnAIGatewayAccess } from '../../src/core/turns/turn_ai_gateway_access'
 import { textTurnResultFromAssistantReply } from '../../src/core/turns/text_turn'
 import { steeringMessages } from '../../src/core/turns/turn_control'
-import type { AIGatewayApiKeyResponse } from '../../src/lanes/rpc_lane'
+import type { AIGatewayAPIKeyResponse } from '../../src/lanes/rpc_lane'
 import {
   FakeResponseSocket,
   fakeResponseSocket,
@@ -28,7 +28,7 @@ import {
 describe('@ankole/agent-computer llm helpers: transport and actor content', () => {
   it('acquires one AIGateway access handle for a turn and validates the initial key', async () => {
     const access = await acquireTurnAIGatewayAccess(turnStartForTest(), {
-      requestAIGatewayApiKey: async request => aiGatewayKeyForTest(request.agent_uid, 'agent-key')
+      requestAIGatewayAPIKey: async request => aiGatewayKeyForTest(request.agent_uid, 'agent-key')
     })
 
     expect(access.model.selector).toBe('openrouter/z-ai/glm-5.2')
@@ -39,7 +39,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
   it('rejects AIGateway access acquisition when the key response is rejected', async () => {
     await expect(
       acquireTurnAIGatewayAccess(turnStartForTest(), {
-        requestAIGatewayApiKey: async request => ({
+        requestAIGatewayAPIKey: async request => ({
           request_id: request.request_id,
           agent_uid: request.agent_uid,
           code: 'missing_agent_uid',
@@ -58,7 +58,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
 
     try {
       const access = await acquireTurnAIGatewayAccess(turnStartForTest(), {
-        requestAIGatewayApiKey: async (request, options) => {
+        requestAIGatewayAPIKey: async (request, options) => {
           refreshOptions.push(options)
           keyRequests += 1
 
@@ -78,7 +78,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
   })
 
   it('builds the AIGateway model config from the control-plane key response', async () => {
-    const model = modelConfigFromAIGatewayApiKey(
+    const model = modelConfigFromAIGatewayAPIKey(
       {
         profile: 'primary',
         provider_id: 'openrouter',
@@ -138,7 +138,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     }) as typeof fetch
 
     try {
-      const model = modelConfigFromAIGatewayApiKey(
+      const model = modelConfigFromAIGatewayAPIKey(
         {
           profile: 'primary',
           provider_id: 'ai_gateway',
@@ -185,10 +185,10 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
   it('forces AIGateway key refresh after a WebSocket open failure before retrying', async () => {
     const seenAuthorization: string[] = []
     const refreshOptions: Array<{ forceRefresh?: boolean } | undefined> = []
-    const sentPayloads: JsonObject[] = []
+    const sentPayloads: JSONObject[] = []
     let attempts = 0
 
-    const model = modelConfigFromAIGatewayApiKey(
+    const model = modelConfigFromAIGatewayAPIKey(
       {
         profile: 'primary',
         provider_id: 'ai_gateway',
@@ -232,7 +232,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       }
 
       return fakeResponseSocket(init, data => {
-        sentPayloads.push(JSON.parse(data) as JsonObject)
+        sentPayloads.push(JSON.parse(data) as JSONObject)
         return [
           {
             type: 'response.completed',
@@ -257,8 +257,8 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       maxModelIterations: 90,
       messages: [{ role: 'user', content: 'retry websocket auth' }],
       stateful: {
-        actorEventId: '00000000-0000-0000-0000-000000000401',
-        conversationId: '40140140-1401-4014-0140-140140140140'
+        actorEventID: '00000000-0000-0000-0000-000000000401',
+        conversationID: '40140140-1401-4014-0140-140140140140'
       }
     })
 
@@ -478,19 +478,19 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       textTurnResultFromAssistantReply(turnStartForTest(), '<silent_success/>', 'resp_final', 'loop_finished')
     ).toEqual({
       kind: 'turn_completed',
-      finalResponseId: 'resp_final',
+      finalResponseID: 'resp_final',
       outcome: 'loop_finished'
     })
     expect(textTurnResultFromAssistantReply(turnStartForTest(), '', 'resp_projection', 'loop_finished')).toEqual({
       kind: 'turn_completed',
-      finalResponseId: 'resp_projection',
+      finalResponseID: 'resp_projection',
       outcome: 'loop_finished'
     })
     expect(
       textTurnResultFromAssistantReply(scheduledTurnStart, '<silent_success/>', 'resp_exhausted', 'iteration_exhausted')
     ).toEqual({
       kind: 'turn_completed',
-      finalResponseId: 'resp_exhausted',
+      finalResponseID: 'resp_exhausted',
       outcome: 'iteration_exhausted'
     })
   })
@@ -551,9 +551,9 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       const imagePart = parts[1] as Extract<ContentPart, { type: 'image' }>
       expect(imagePart).toMatchObject({ mimeType: 'image/png' })
       expect(typeof imagePart.image).toBe('string')
-      const imageUrl = imagePart.image as string
-      expect(imageUrl).toMatch(/^data:image\/png;base64,[A-Za-z0-9+/]+=*$/)
-      expect([...Buffer.from(imageUrl.slice('data:image/png;base64,'.length), 'base64').subarray(0, 8)]).toEqual([
+      const imageURL = imagePart.image as string
+      expect(imageURL).toMatch(/^data:image\/png;base64,[A-Za-z0-9+/]+=*$/)
+      expect([...Buffer.from(imageURL.slice('data:image/png;base64,'.length), 'base64').subarray(0, 8)]).toEqual([
         0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a
       ])
     })
@@ -561,7 +561,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
 
   it('summarizes actor-event images through vision fallback for text-only models', async () => {
     await withImageWorkspace(async (workspaceRoot, imagePath) => {
-      const fallbackBodies: JsonObject[] = []
+      const fallbackBodies: JSONObject[] = []
       const fallbackModel = fallbackModelForTest('A small image with visible text.', fallbackBodies)
 
       const content = await actorEventUserContent(
@@ -596,7 +596,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
   })
 
   it('keeps sticker actor-event content deterministic and does not call vision fallback', async () => {
-    const fallbackBodies: JsonObject[] = []
+    const fallbackBodies: JSONObject[] = []
     const fallbackModel = fallbackModelForTest('should not be called', fallbackBodies)
 
     const content = await actorEventUserContent(
@@ -630,10 +630,10 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
   })
 })
 
-function aiGatewayKeyForTest(agentUid: string, apiKey: string): AIGatewayApiKeyResponse {
+function aiGatewayKeyForTest(agentUID: string, apiKey: string): AIGatewayAPIKeyResponse {
   return {
     request_id: `key-${apiKey}`,
-    agent_uid: agentUid,
+    agent_uid: agentUID,
     api_key: apiKey,
     token_type: 'Bearer',
     expires_at: Math.floor(Date.now() / 1000) + 3_600,

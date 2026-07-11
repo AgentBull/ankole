@@ -8,7 +8,7 @@ export type ClientOptions = {
  * SubagentDelegationListResponse
  */
 export type SubagentDelegationListResponse = {
-  data: Array<SubagentDelegationItem>
+  delegations: Array<SubagentDelegationItem>
   next_cursor: string | null
 }
 
@@ -16,7 +16,7 @@ export type SubagentDelegationListResponse = {
  * AIGatewayProviderListResponse
  */
 export type AiGatewayProviderListResponse = {
-  data: Array<AiGatewayProviderItem>
+  ai_gateway_providers: Array<AiGatewayProviderItem>
 }
 
 /**
@@ -33,7 +33,7 @@ export type WorkerFileListData = {
  * AppConfigurationResponse
  */
 export type AppConfigurationResponse = {
-  data: AppConfigurationItem
+  app_configuration: AppConfigurationItem
 }
 
 /**
@@ -55,8 +55,15 @@ export type AuthSessionDeleteResponse = {
  * SubagentDelegationResponse
  */
 export type SubagentDelegationResponse = {
-  data: SubagentDelegationItem
+  delegation: SubagentDelegationItem
 }
+
+/**
+ * JSONValue
+ *
+ * Any JSON-compatible value. AppConfigure validates the concrete key schema.
+ */
+export type JsonValue = unknown
 
 /**
  * AgentUpdateRequest
@@ -91,7 +98,7 @@ export type ConsoleApiErrorEnvelope = {
  * WorkerFileDeleteResponse
  */
 export type WorkerFileDeleteResponse = {
-  data: {
+  deleted_file: {
     deleted: boolean
     relative_path: string
     root: 'user_files' | 'agent_installed_skills' | 'workspace_sessions'
@@ -111,23 +118,16 @@ export type IdentityProviderSyncRunItem = {
  * ModelProfileResponse
  */
 export type ModelProfileResponse = {
-  data: {
+  model_profile: {
     [key: string]: unknown
   }
 }
 
 /**
- * JsonValue
- *
- * Any JSON-compatible value. AppConfigure validates the concrete key schema.
- */
-export type JsonValue = unknown
-
-/**
  * IdentityProviderListResponse
  */
 export type IdentityProviderListResponse = {
-  data: Array<IdentityProviderItem>
+  identity_providers: Array<IdentityProviderItem>
 }
 
 /**
@@ -152,14 +152,14 @@ export type AiGatewayProviderItem = {
  * ScheduleCronScheduleResponse
  */
 export type ScheduleCronScheduleResponse = {
-  data: JsonValue
+  cron_schedule: JsonValue
 }
 
 /**
  * AgentResponse
  */
 export type AgentResponse = {
-  data: AgentItem
+  agent: AgentItem
 }
 
 /**
@@ -186,7 +186,7 @@ export type AiGatewayProviderEncryptedOptionProjection = {
  * IdentityProviderResponse
  */
 export type IdentityProviderResponse = {
-  data: IdentityProviderItem
+  identity_provider: IdentityProviderItem
 }
 
 /**
@@ -213,14 +213,14 @@ export type AppConfigurationItem = {
  * SignalAdapterListResponse
  */
 export type SignalAdapterListResponse = {
-  data: Array<SignalAdapterItem>
+  signal_adapters: Array<SignalAdapterItem>
 }
 
 /**
  * SignalBindingResponse
  */
 export type SignalBindingResponse = {
-  data: SignalBindingItem
+  signal_binding: SignalBindingItem
 }
 
 /**
@@ -239,7 +239,7 @@ export type ScheduleCronUpdateRequest = {
  * ModelProfilesResponse
  */
 export type ModelProfilesResponse = {
-  data: {
+  model_profiles: {
     [key: string]: unknown
   }
 }
@@ -285,7 +285,7 @@ export type ConsoleTokenRequest = {
  * ScheduleEventListResponse
  */
 export type ScheduleEventListResponse = {
-  data: Array<JsonValue>
+  schedule_events: Array<JsonValue>
 }
 
 /**
@@ -302,7 +302,7 @@ export type SignalAdapterFieldOption = {
  * WorkerFileUploadResponse
  */
 export type WorkerFileUploadResponse = {
-  data: {
+  uploaded_file: {
     relative_path: string
     root: 'user_files' | 'agent_installed_skills' | 'workspace_sessions'
     size: number
@@ -353,14 +353,14 @@ export type AgentItem = {
  * CodexAccountResponse
  */
 export type CodexAccountResponse = {
-  data: CodexAccountItem
+  codex_account: CodexAccountItem
 }
 
 /**
  * SignalBindingListResponse
  */
 export type SignalBindingListResponse = {
-  data: Array<SignalBindingItem>
+  signal_bindings: Array<SignalBindingItem>
 }
 
 /**
@@ -428,7 +428,7 @@ export type SignalBindingWriteRequest = {
  * WorkerFileListResponse
  */
 export type WorkerFileListResponse = {
-  data: WorkerFileListData
+  file_listing: WorkerFileListData
 }
 
 /**
@@ -454,7 +454,7 @@ export type ConsoleApiError = {
  * ScheduleCronScheduleListResponse
  */
 export type ScheduleCronScheduleListResponse = {
-  data: Array<JsonValue>
+  cron_schedules: Array<JsonValue>
 }
 
 /**
@@ -497,7 +497,7 @@ export type CodexAccountUpdateRequest = {
  * AgentComputerWorkerListResponse
  */
 export type AgentComputerWorkerListResponse = {
-  data: Array<AgentComputerWorkerItem>
+  workers: Array<AgentComputerWorkerItem>
 }
 
 /**
@@ -539,14 +539,14 @@ export type AiGatewayProviderKindItem = {
  * ScheduleEventResponse
  */
 export type ScheduleEventResponse = {
-  data: JsonValue
+  schedule_event: JsonValue
 }
 
 /**
  * IdentityProviderSyncRunResponse
  */
 export type IdentityProviderSyncRunResponse = {
-  data: IdentityProviderSyncRunItem
+  sync_run: IdentityProviderSyncRunItem
 }
 
 /**
@@ -564,14 +564,14 @@ export type CodexAccountItem = {
  * AgentListResponse
  */
 export type AgentListResponse = {
-  data: Array<AgentItem>
+  agents: Array<AgentItem>
 }
 
 /**
  * IdentityProviderAdapterListResponse
  */
 export type IdentityProviderAdapterListResponse = {
-  data: Array<IdentityProviderAdapterItem>
+  identity_provider_adapters: Array<IdentityProviderAdapterItem>
 }
 
 /**
@@ -591,28 +591,28 @@ export type AgentCreateRequest = {
  * CodexAccountListResponse
  */
 export type CodexAccountListResponse = {
-  data: Array<CodexAccountItem>
+  codex_accounts: Array<CodexAccountItem>
 }
 
 /**
  * AppConfigurationListResponse
  */
 export type AppConfigurationListResponse = {
-  data: Array<AppConfigurationItem>
+  app_configurations: Array<AppConfigurationItem>
 }
 
 /**
  * AIGatewayProviderKindListResponse
  */
 export type AiGatewayProviderKindListResponse = {
-  data: Array<AiGatewayProviderKindItem>
+  provider_kinds: Array<AiGatewayProviderKindItem>
 }
 
 /**
  * WorkerFileMoveResponse
  */
 export type WorkerFileMoveResponse = {
-  data: {
+  moved_file: {
     from_relative_path: string
     moved: boolean
     root: 'user_files' | 'agent_installed_skills' | 'workspace_sessions'
@@ -624,7 +624,14 @@ export type WorkerFileMoveResponse = {
  * AIGatewayProviderResponse
  */
 export type AiGatewayProviderResponse = {
-  data: AiGatewayProviderItem
+  ai_gateway_provider: AiGatewayProviderItem
+}
+
+/**
+ * ScheduleRunListResponse
+ */
+export type ScheduleRunListResponse = {
+  schedule_runs: Array<JsonValue>
 }
 
 /**
@@ -699,7 +706,7 @@ export type SignalBindingItem = {
  * AppConfigurationDecryptionResponse
  */
 export type AppConfigurationDecryptionResponse = {
-  data: AppConfigurationDecryptionValue
+  decrypted_value: AppConfigurationDecryptionValue
 }
 
 /**
@@ -2189,9 +2196,9 @@ export type AnkoleWebScheduleControllerCronRunsData = {
 
 export type AnkoleWebScheduleControllerCronRunsResponses = {
   /**
-   * Scheduled events
+   * Schedule runs
    */
-  200: ScheduleEventListResponse
+  200: ScheduleRunListResponse
 }
 
 export type AnkoleWebScheduleControllerCronRunsResponse =

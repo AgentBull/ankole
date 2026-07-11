@@ -9,7 +9,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillOverlay do
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2, normalize_lower: 2]
 
   alias Ankole.Principals.Principal
-  alias Ankole.Ecto.JsonPayload
+  alias Ankole.Ecto.JSONPayload
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
@@ -43,7 +43,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillOverlay do
     |> normalize_lower(:skill_name)
     |> validate_required([:agent_uid, :skill_name, :overlay_json, :content_hash])
     |> validate_format(:skill_name, @skill_name_format)
-    |> JsonPayload.validate_map(:overlay_json, allow_datetime: true)
+    |> JSONPayload.validate_map(:overlay_json, allow_datetime: true)
     |> foreign_key_constraint(:agent_uid)
     |> unique_constraint([:agent_uid, :skill_name],
       name: :agent_skill_overlays_active_skill_index

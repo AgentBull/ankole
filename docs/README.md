@@ -65,7 +65,7 @@ Seven pieces, one sentence each:
   mirrors what the provider shows, decides what wakes an agent, previews live
   work, and durably delivers final replies.
   Owns `signal_gateway_channels`, `signal_gateway_entries`, `actor_events`,
-  `signal_gateway_outbox`. Read `design-docs/SignalsGateway.md`.
+  `signal_gateway_outbox_entries`. Read `design-docs/SignalsGateway.md`.
 - **ActorRuntime** (inside SignalsGateway) schedules actor events onto workers, one event per
   execution, with fences that stop stale workers from committing. Owns
   `actor_event_deliveries` and session activations.
@@ -214,7 +214,7 @@ row, optionally editing the preview entry recorded on the ActorEvent.
 
 Owns tables: `signal_gateway_bindings`, `signal_gateway_channels`, `signal_gateway_entries`,
 `signal_gateway_input_tombstones`, `signal_gateway_inbound_batches`,
-`signal_gateway_outbox`.
+`signal_gateway_outbox_entries`.
 
 ### ActorRuntime — scheduling turns onto workers, with fences
 
@@ -411,7 +411,7 @@ evaluation. The kernel never touches the database.
 
 `Ankole.AppConfigure` (`lib/ankole/app_configure/`). Every runtime setting is
 a declared key (`AppConfigure.define/1` or pattern definitions), stored in
-the `app_configure` table as `{scope, key, value}` with scope `global` or
+the `app_configurations` table as `{scope, key, value}` with scope `global` or
 `agent:<id>`. Resolution falls back agent -> global -> code default. Secret
 values are sealed with the kernel's AEAD using per-row derived keys, and an
 ETS cache fronts reads. Environment variables are only for process bootstrap
@@ -539,7 +539,7 @@ Side chains reuse the same shapes:
   -> same dispatch path.
 - **Provider-visible effects** (final text, clarification, attachments,
   reactions, command feedback): adopted Agent Turn output becomes
-  `signal_gateway_outbox` rows in the SignalsGateway completion transaction;
+  `signal_gateway_outbox_entries` rows in the SignalsGateway completion transaction;
   the outbox executor calls the binding's outbox adapter and records the
   provider outcome.
 - **Steering**: a new message during a running turn becomes an actor event
@@ -569,8 +569,8 @@ Identity Layers.
 
 Durable tables (crash truth): `principals`, `human_users`, `agents`,
 `external_identities`, `principal_groups`, `permission_grants`,
-`app_configure`, `signal_gateway_bindings`, `signal_gateway_channels`, `signal_gateway_entries`,
-`signal_gateway_outbox`, `actor_events`, `actor_cron_schedules`,
+`app_configurations`, `signal_gateway_bindings`, `signal_gateway_channels`, `signal_gateway_entries`,
+`signal_gateway_outbox_entries`, `actor_events`, `actor_cron_schedules`,
 `actor_scheduled_events`, `ai_gateway_conversations`, `ai_gateway_messages`,
 `ai_gateway_providers`, `memory_notes`, `memory_episodes`,
 `memory_channel_cursors`, plus the skill library tables.
@@ -709,7 +709,7 @@ while the workspace moves quickly.
   continuation always picks the latest one.
 - **source mirror**: `signal_gateway_channels` + `signal_gateway_entries`, the current
   picture of what the provider shows. Not a queue, not model history.
-- **outbox**: `signal_gateway_outbox`, the durable table of provider-visible
+- **outbox**: `signal_gateway_outbox_entries`, the durable table of provider-visible
   effects, including adopted final text, clarification, attachments,
   reactions, and command feedback. Only live preview deltas bypass it.
 - **preview / finalize**: preview is the transient lifecycle — send a provider

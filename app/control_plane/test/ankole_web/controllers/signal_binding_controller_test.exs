@@ -36,7 +36,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       |> put(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
         "group_message_mode" => "may_intervene",
         "config" => %{
-          "appId" => "cli_lark_main",
+          "appID" => "cli_lark_main",
           "appSecret" => "secret-lark-main",
           "domain" => "feishu",
           "platformSubjectNamespace" => "lark-main",
@@ -45,7 +45,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       })
 
     assert %{
-             "data" => %{
+             "signal_binding" => %{
                "agent_uid" => agent_uid,
                "name" => "lark-main",
                "adapter" => "lark",
@@ -64,11 +64,11 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     assert binding.unaddressed_group_message_policy == :may_intervene
 
     assert {:ok, config} = LarkConfig.load_chat_config_ref(binding.config_ref)
-    assert config["appId"] == "cli_lark_main"
+    assert config["appID"] == "cli_lark_main"
     assert config["appSecret"] == "secret-lark-main"
     # The bot identity is resolved automatically at connection time, so the
     # stored binding carries no hand-entered bot open_id.
-    assert config["botOpenId"] == nil
+    assert config["botOpenID"] == nil
     refute Map.has_key?(config, "group_message_mode")
 
     conn =
@@ -76,7 +76,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       |> recycle_api()
       |> get(~p"/api/v1/agents/#{agent.uid}/signal-bindings")
 
-    assert %{"data" => [listed]} = json_response(conn, 200)
+    assert %{"signal_bindings" => [listed]} = json_response(conn, 200)
     assert listed["agent_uid"] == agent.uid
     assert listed["name"] == "lark-main"
     assert listed["enabled"] == true
@@ -86,7 +86,9 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       |> recycle_api()
       |> delete(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark-main")
 
-    assert %{"data" => %{"name" => "lark-main", "enabled" => false}} = json_response(conn, 200)
+    assert %{"signal_binding" => %{"name" => "lark-main", "enabled" => false}} =
+             json_response(conn, 200)
+
     assert {:error, :binding_disabled} = SignalsGateway.get_binding(agent.uid, "lark-main")
   end
 
@@ -112,15 +114,15 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       |> bearer_conn()
       |> get(~p"/api/v1/signal-adapters")
 
-    assert %{"data" => [adapter]} = json_response(conn, 200)
+    assert %{"signal_adapters" => [adapter]} = json_response(conn, 200)
     assert adapter["adapter_id"] == "lark"
     assert adapter["display_name"]["default"] == "Lark"
 
     assert Enum.map(adapter["fields"], & &1["path"]) == [
-             "appId",
+             "appID",
              "appSecret",
              "domain",
-             "baseUrl",
+             "baseURL",
              "platformSubjectNamespace",
              "userName"
            ]

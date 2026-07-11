@@ -68,11 +68,11 @@ export function encodeEntries(entries: ListEntry[]): Buffer {
 
 export async function sendError(
   sender: FileFrameSender,
-  transferId: string,
+  transferID: string,
   code: string,
   message: string
 ): Promise<void> {
-  await sendFrame(sender, ['ERROR', transferId, code, message])
+  await sendFrame(sender, ['ERROR', transferID, code, message])
 }
 
 export async function sendFrame(sender: FileFrameSender, parts: Array<string | Buffer>): Promise<void> {

@@ -1,5 +1,8 @@
 import { recordValue } from '@pleisto/active-support'
-import type { AiGatewayProviderItem, AiGatewayProviderKindItem } from '../api/generated/types.gen'
+import type {
+  AiGatewayProviderItem as AIGatewayProviderItem,
+  AiGatewayProviderKindItem as AIGatewayProviderKindItem
+} from '../api/generated/types.gen'
 
 /**
  * Maps an AIGateway provider kind's declared connection settings into the shape
@@ -23,7 +26,7 @@ export type ProviderSetting = {
 const ACRONYMS = new Set(['api', 'url', 'id', 'serp', 'ai', 'gl', 'hl'])
 
 /** Returns the connection-scoped settings a provider kind accepts, in a safe shape. */
-export function connectionSettings(kind: AiGatewayProviderKindItem | undefined): ProviderSetting[] {
+export function connectionSettings(kind: AIGatewayProviderKindItem | undefined): ProviderSetting[] {
   if (!kind) return []
 
   return kind.settings
@@ -64,7 +67,7 @@ export function humanizeKey(key: string): string {
  * are never returned by the API (only a presence flag), so their inputs always
  * start empty; a blank encrypted input on save means "keep the stored secret".
  */
-export function initialSettingValue(setting: ProviderSetting, provider: AiGatewayProviderItem | undefined): string {
+export function initialSettingValue(setting: ProviderSetting, provider: AIGatewayProviderItem | undefined): string {
   if (setting.encrypted) return ''
 
   const stored = provider ? recordValue(provider.connection_options)?.[setting.key] : undefined
@@ -79,7 +82,7 @@ export type EncryptedOptionState = { present: boolean; masked?: string | null }
 
 /** Reads the masked presence projection for an encrypted option, if any. */
 export function encryptedOptionState(
-  provider: AiGatewayProviderItem | undefined,
+  provider: AIGatewayProviderItem | undefined,
   key: string
 ): EncryptedOptionState | undefined {
   const option = provider?.encrypted_options?.[key]
@@ -98,7 +101,7 @@ export type BuildResult = { ok: true; value: Record<string, unknown> } | { ok: f
 export function buildConnectionOptions(
   settings: ProviderSetting[],
   drafts: Record<string, string>,
-  invalidJsonMessage: (key: string) => string
+  invalidJSONMessage: (key: string) => string
 ): BuildResult {
   const options: Record<string, unknown> = {}
 
@@ -114,7 +117,7 @@ export function buildConnectionOptions(
     if (setting.isMap) {
       if (!trimmed) continue
       const parsed = parseObject(raw)
-      if (!parsed.ok) return { ok: false, key: setting.key, error: invalidJsonMessage(humanizeKey(setting.key)) }
+      if (!parsed.ok) return { ok: false, key: setting.key, error: invalidJSONMessage(humanizeKey(setting.key)) }
       if (Object.keys(parsed.value).length > 0) options[setting.key] = parsed.value
       continue
     }

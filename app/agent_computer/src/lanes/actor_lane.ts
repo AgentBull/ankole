@@ -1,6 +1,6 @@
 import { isRecord } from '@pleisto/active-support'
 import type { RuntimeFabricEnvelope } from '../fabric/fabric'
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 
 /**
  * Durable turn fence echoed by every worker reply.
@@ -33,20 +33,20 @@ export type ActorEventEnvelope = {
   signal_channel_id?: string
   provider_thread_id?: string
   source_entry_id?: string
-  payload_json?: JsonObject
+  payload_json?: JSONObject
 }
 
 export type TurnStart = {
   turn: ActorTurnRef
   actor_event: ActorEventEnvelope
   model_ref?: TurnModelRef | null
-  request_context?: JsonObject
+  request_context?: JSONObject
 }
 
 export type TurnSteerUpdate = {
   turn: ActorTurnRef
   actorEvent?: ActorEventEnvelope
-  correlationId?: string
+  correlationID?: string
 }
 
 export type MailboxUpdated = {
@@ -58,7 +58,7 @@ export type MailboxUpdated = {
 export type TurnControl = {
   turn?: ActorTurnRef
   command?: string
-  payload_json?: JsonObject
+  payload_json?: JSONObject
 }
 
 export type TurnModelRef = {

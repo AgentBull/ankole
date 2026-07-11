@@ -348,7 +348,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
 
     messages = ai_messages_for_actor_event(input.id)
     assert [command_result] = successful_tool_results(messages, "command")
-    assert is_binary(tool_detail(command_result, ["backgroundId"]))
+    assert is_binary(tool_detail(command_result, ["backgroundID"]))
     assert tool_detail(command_result, ["status"]) in ["running", "exited"]
 
     assert_actor_event_completed!(input.id)

@@ -12,7 +12,7 @@ import {
   TableRow,
   toast
 } from '@ankole/uikit'
-import { recordValue, type JsonObject } from '@pleisto/active-support'
+import { recordValue, type JsonObject as JSONObject } from '@pleisto/active-support'
 import { RiRefreshLine } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
@@ -42,7 +42,7 @@ export function IdentityProvidersListPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const providers = useQuery(ankoleWebIdentityProviderControllerIndexOptions())
-  const rows = providers.data?.data ?? []
+  const rows = providers.data?.identity_providers ?? []
 
   return (
     <ResourceListPage
@@ -86,10 +86,10 @@ export function IdentityProvidersListPage() {
 }
 
 type IdentityForm = {
-  adapterId: string
-  providerId: string
+  adapterID: string
+  providerID: string
   enabled: boolean
-  config: JsonObject
+  config: JSONObject
 }
 
 export function IdentityProviderEditorPage() {
@@ -97,18 +97,18 @@ export function IdentityProviderEditorPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const params = useParams()
-  const providerId = params.providerId ? decodeURIComponent(params.providerId) : undefined
-  const mode = providerId ? 'edit' : 'new'
+  const providerID = params.providerID ? decodeURIComponent(params.providerID) : undefined
+  const mode = providerID ? 'edit' : 'new'
   const locale = i18n.language
 
   const adapters = useQuery(ankoleWebIdentityProviderControllerAdaptersOptions())
   const providers = useQuery(ankoleWebIdentityProviderControllerIndexOptions())
-  const identityAdapters = adapters.data?.data ?? []
-  const selected = providers.data?.data.find(provider => provider.provider_id === providerId)
+  const identityAdapters = adapters.data?.identity_provider_adapters ?? []
+  const selected = providers.data?.identity_providers.find(provider => provider.provider_id === providerID)
 
   const [form, setForm] = useState<IdentityForm>(emptyForm())
   const [error, setError] = useState<string>()
-  const activeAdapter = identityAdapters.find(adapter => adapter.adapter_id === form.adapterId) ?? identityAdapters[0]
+  const activeAdapter = identityAdapters.find(adapter => adapter.adapter_id === form.adapterID) ?? identityAdapters[0]
   const selectedAdapter = identityAdapters.find(adapter => adapter.adapter_id === selected?.adapter_id)
 
   const ready = identityAdapters.length > 0 && (mode === 'new' || Boolean(selected))
@@ -120,13 +120,13 @@ export function IdentityProviderEditorPage() {
       setForm(emptyForm(identityAdapters[0]))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, mode, providerId])
+  }, [ready, mode, providerID])
 
   const refresh = () => void queryClient.invalidateQueries()
   const saveProvider = useMutation({
     ...ankoleWebIdentityProviderControllerPutProviderMutation(),
     onSuccess: response => {
-      toast.success(t('console.identity.saved', { id: response.data.provider_id }))
+      toast.success(t('console.identity.saved', { id: response.identity_provider.provider_id }))
       refresh()
       navigate('..')
     },
@@ -141,22 +141,22 @@ export function IdentityProviderEditorPage() {
     onError: mutationError => toast.error(requestErrorMessage(mutationError))
   })
 
-  const changeAdapter = (adapterId: string) => {
-    const adapter = identityAdapters.find(item => item.adapter_id === adapterId)
+  const changeAdapter = (adapterID: string) => {
+    const adapter = identityAdapters.find(item => item.adapter_id === adapterID)
     if (adapter) setForm(emptyForm(adapter))
   }
 
   const submit = () => {
     setError(undefined)
     if (!activeAdapter) return
-    const trimmedId = form.providerId.trim()
-    if (!trimmedId) {
+    const trimmedID = form.providerID.trim()
+    if (!trimmedID) {
       setError(t('console.identity.provider_id_required'))
       return
     }
     saveProvider.mutate({
       body: { adapter_id: activeAdapter.adapter_id, config: form.config, enabled: form.enabled },
-      path: { provider_id: trimmedId }
+      path: { provider_id: trimmedID }
     })
   }
 
@@ -171,7 +171,7 @@ export function IdentityProviderEditorPage() {
 
   return (
     <ResourceEditorPage
-      title={mode === 'new' ? t('console.identity.new') : (providerId ?? '')}
+      title={mode === 'new' ? t('console.identity.new') : (providerID ?? '')}
       description={t('console.identity.editor_description')}
       backTo=".."
       error={error ?? saveProvider.error}
@@ -214,8 +214,8 @@ export function IdentityProviderEditorPage() {
           required={mode === 'new'}>
           <Input
             disabled={mode === 'edit'}
-            value={form.providerId}
-            onChange={event => setForm(current => ({ ...current, providerId: event.target.value }))}
+            value={form.providerID}
+            onChange={event => setForm(current => ({ ...current, providerID: event.target.value }))}
           />
         </LabeledField>
       </div>
@@ -245,8 +245,8 @@ export function IdentityProviderEditorPage() {
 
 function emptyForm(adapter?: IdentityProviderAdapterItem): IdentityForm {
   return {
-    adapterId: adapter?.adapter_id ?? '',
-    providerId: adapter?.default_provider_id ?? '',
+    adapterID: adapter?.adapter_id ?? '',
+    providerID: adapter?.default_provider_id ?? '',
     enabled: true,
     config: defaultConfig(asConfigFields(adapter?.fields ?? []))
   }
@@ -254,8 +254,8 @@ function emptyForm(adapter?: IdentityProviderAdapterItem): IdentityForm {
 
 function formFromProvider(provider: IdentityProviderItem): IdentityForm {
   return {
-    adapterId: provider.adapter_id,
-    providerId: provider.provider_id,
+    adapterID: provider.adapter_id,
+    providerID: provider.provider_id,
     enabled: provider.enabled,
     config: recordValue(provider.config) ?? {}
   }

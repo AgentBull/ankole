@@ -1,12 +1,12 @@
 use super::*;
 
 #[derive(Debug)]
-pub struct ApiResolver {
+pub struct APIResolver {
     context: ResponseContext,
-    protocol: Box<dyn ApiProtocol>,
+    protocol: Box<dyn APIProtocol>,
 }
 
-pub(super) trait ApiProtocol: std::fmt::Debug + Send + Sync {
+pub(super) trait APIProtocol: std::fmt::Debug + Send + Sync {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
         Ok(context.resolved_provider_request_object())
     }
@@ -64,8 +64,8 @@ pub(super) trait ApiProtocol: std::fmt::Debug + Send + Sync {
     }
 }
 
-impl ApiResolver {
-    pub fn new(kind: ApiResolverKind, context: ResponseContext) -> Self {
+impl APIResolver {
+    pub fn new(kind: APIResolverKind, context: ResponseContext) -> Self {
         let protocol = make_protocol(kind, &context);
         Self { context, protocol }
     }
@@ -99,28 +99,28 @@ impl ApiResolver {
     }
 }
 
-fn make_protocol(kind: ApiResolverKind, context: &ResponseContext) -> Box<dyn ApiProtocol> {
+fn make_protocol(kind: APIResolverKind, context: &ResponseContext) -> Box<dyn APIProtocol> {
     match kind {
-        ApiResolverKind::OpenaiResponses => Box::new(OpenaiResponsesState::default()),
-        ApiResolverKind::OpenaiChatCompletions => Box::new(ChatState::new(context.model.clone())),
-        ApiResolverKind::AnthropicMessages => Box::new(AnthropicState::new(context.model.clone())),
-        ApiResolverKind::GeminiGenerateContent => {
+        APIResolverKind::OpenAIResponses => Box::new(OpenAIResponsesState::default()),
+        APIResolverKind::OpenAIChatCompletions => Box::new(ChatState::new(context.model.clone())),
+        APIResolverKind::AnthropicMessages => Box::new(AnthropicState::new(context.model.clone())),
+        APIResolverKind::GeminiGenerateContent => {
             Box::new(GoogleGeminiState::new(context.model.clone()))
         }
-        ApiResolverKind::BedrockConverse => {
-            Box::new(AwsBedrockConverseState::new(context.model.clone()))
+        APIResolverKind::BedrockConverse => {
+            Box::new(AWSBedrockConverseState::new(context.model.clone()))
         }
-        ApiResolverKind::OpenaiEmbeddings => Box::new(OpenaiEmbeddings),
-        ApiResolverKind::OpenrouterEmbeddings => Box::new(OpenrouterEmbeddings),
-        ApiResolverKind::JinaEmbeddings => Box::new(JinaEmbeddings),
-        ApiResolverKind::GoogleEmbeddings => Box::new(GoogleEmbeddings),
-        ApiResolverKind::OpenrouterRerank => Box::new(OpenrouterRerank),
-        ApiResolverKind::JinaRerank => Box::new(JinaRerank),
-        ApiResolverKind::ParallelWebSearch => Box::new(ParallelWebSearch),
-        ApiResolverKind::ParallelWebFetch => Box::new(ParallelWebFetch),
-        ApiResolverKind::BrightDataSerpWebSearch => Box::new(BrightDataSerpWebSearch),
-        ApiResolverKind::AgentbullWebSearch => Box::new(AgentBullWebSearch),
-        ApiResolverKind::JinaSearchWebSearch => Box::new(JinaSearchWebSearch),
-        ApiResolverKind::JinaReaderWebFetch => Box::new(JinaReaderWebFetch),
+        APIResolverKind::OpenAIEmbeddings => Box::new(OpenAIEmbeddings),
+        APIResolverKind::OpenrouterEmbeddings => Box::new(OpenrouterEmbeddings),
+        APIResolverKind::JinaEmbeddings => Box::new(JinaEmbeddings),
+        APIResolverKind::GoogleEmbeddings => Box::new(GoogleEmbeddings),
+        APIResolverKind::OpenrouterRerank => Box::new(OpenrouterRerank),
+        APIResolverKind::JinaRerank => Box::new(JinaRerank),
+        APIResolverKind::ParallelWebSearch => Box::new(ParallelWebSearch),
+        APIResolverKind::ParallelWebFetch => Box::new(ParallelWebFetch),
+        APIResolverKind::BrightDataSerpWebSearch => Box::new(BrightDataSerpWebSearch),
+        APIResolverKind::AgentbullWebSearch => Box::new(AgentBullWebSearch),
+        APIResolverKind::JinaSearchWebSearch => Box::new(JinaSearchWebSearch),
+        APIResolverKind::JinaReaderWebFetch => Box::new(JinaReaderWebFetch),
     }
 }

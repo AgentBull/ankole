@@ -17,7 +17,7 @@ pub(super) struct JinaSearchWebSearch;
 #[derive(Debug)]
 pub(super) struct JinaReaderWebFetch;
 
-impl ApiProtocol for ParallelWebSearch {
+impl APIProtocol for ParallelWebSearch {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
         Ok(parallel_search_body(context))
     }
@@ -32,7 +32,7 @@ impl ApiProtocol for ParallelWebSearch {
     }
 }
 
-impl ApiProtocol for ParallelWebFetch {
+impl APIProtocol for ParallelWebFetch {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
         Ok(parallel_extract_body(context))
     }
@@ -47,7 +47,7 @@ impl ApiProtocol for ParallelWebFetch {
     }
 }
 
-impl ApiProtocol for BrightDataSerpWebSearch {
+impl APIProtocol for BrightDataSerpWebSearch {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
         Ok(bright_data_serp_body(context))
     }
@@ -62,7 +62,7 @@ impl ApiProtocol for BrightDataSerpWebSearch {
     }
 }
 
-impl ApiProtocol for AgentBullWebSearch {
+impl APIProtocol for AgentBullWebSearch {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
         Ok(agentbull_search_body(context))
     }
@@ -77,7 +77,7 @@ impl ApiProtocol for AgentBullWebSearch {
     }
 }
 
-impl ApiProtocol for JinaSearchWebSearch {
+impl APIProtocol for JinaSearchWebSearch {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
         Ok(jina_search_body(context))
     }
@@ -92,7 +92,7 @@ impl ApiProtocol for JinaSearchWebSearch {
     }
 }
 
-impl ApiProtocol for JinaReaderWebFetch {
+impl APIProtocol for JinaReaderWebFetch {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
         Ok(jina_reader_extract_body(context))
     }

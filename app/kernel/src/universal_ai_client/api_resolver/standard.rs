@@ -750,7 +750,7 @@ pub(super) fn value_to_string(value: &Value) -> String {
 }
 
 pub(super) fn generated_id(prefix: &str) -> String {
-    format!("{prefix}_{}", Uuid::new_v4().simple())
+    format!("{prefix}_{}", UUID::new_v4().simple())
 }
 
 pub(super) fn now_seconds() -> i64 {

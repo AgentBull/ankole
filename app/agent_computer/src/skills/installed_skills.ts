@@ -3,7 +3,7 @@ import { lstat, readdir, readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { xxh3File128Hex, xxh3String128Hex } from '@ankole/kernel'
 import { match, ResultAsync } from '@pleisto/active-support'
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import type { InstalledSkillObservation } from './types'
 
 export type InstalledSkillDiagnostic = {
@@ -24,7 +24,7 @@ type SkillFileFingerprint = {
   xxh3_128: string
 }
 
-type SkillFrontmatter = JsonObject
+type SkillFrontmatter = JSONObject
 
 const skillFileName = 'SKILL.md'
 const maxInstalledSkills = 200
@@ -33,9 +33,9 @@ const excludedEntries = new Set(['target', 'node_modules', '__pycache__'])
 const yamlBlockItemRegex = /^\s*-\s+(.+)\s*$/
 const yamlBlockEndRegex = /^\S/
 
-export async function scanInstalledSkills(root: string, agentUid: string): Promise<InstalledSkillScanResult> {
+export async function scanInstalledSkills(root: string, agentUID: string): Promise<InstalledSkillScanResult> {
   const diagnostics: InstalledSkillDiagnostic[] = []
-  const agentDir = agentSkillRoot(root, agentUid, diagnostics)
+  const agentDir = agentSkillRoot(root, agentUID, diagnostics)
   if (!agentDir) return emptyScan(diagnostics)
 
   const entriesResult = await readDirEntries(agentDir)
@@ -138,7 +138,7 @@ function validateSkillMetadata(
   name: string
   description: string
   default_enabled: boolean
-  metadata: JsonObject
+  metadata: JSONObject
 } | null {
   const rawName = stringScalar(frontmatter, 'name') ?? directoryName
   if (!isValidSkillName(rawName) || rawName !== directoryName) {
@@ -169,7 +169,7 @@ function validateSkillMetadata(
     false
   const longRunning = optionalBooleanScalar(frontmatter, 'long_running') ?? false
 
-  const metadata: JsonObject = {
+  const metadata: JSONObject = {
     name: rawName,
     description: normalizedDescription,
     default_enabled: defaultEnabled,
@@ -246,14 +246,14 @@ async function readSkillFileFingerprintsRecursive(
   }
 }
 
-function agentSkillRoot(root: string, agentUid: string, diagnostics: InstalledSkillDiagnostic[]): string | undefined {
-  if (!agentUid || agentUid.includes('/') || agentUid.includes('\\') || agentUid === '.' || agentUid === '..') {
+function agentSkillRoot(root: string, agentUID: string, diagnostics: InstalledSkillDiagnostic[]): string | undefined {
+  if (!agentUID || agentUID.includes('/') || agentUID.includes('\\') || agentUID === '.' || agentUID === '..') {
     diagnostics.push(diagnostic('invalid_agent_uid', 'agent uid is not a valid installed-skill path segment', root))
     return undefined
   }
 
   const resolvedRoot = resolve(root)
-  const resolvedAgentRoot = resolve(resolvedRoot, agentUid)
+  const resolvedAgentRoot = resolve(resolvedRoot, agentUID)
   if (resolvedAgentRoot === resolvedRoot || !resolvedAgentRoot.startsWith(`${resolvedRoot}/`)) {
     diagnostics.push(diagnostic('invalid_agent_skill_root', 'agent installed skill root escapes configured root', root))
     return undefined

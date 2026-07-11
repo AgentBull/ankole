@@ -101,14 +101,14 @@ export class TodoStore {
    */
   write(todos: unknown[], merge = false): TodoItem[] {
     if (!merge) {
-      this.items = this.dedupeById(todos).map(item => this.validate(item))
+      this.items = this.dedupeByID(todos).map(item => this.validate(item))
     } else {
       // Patch existing items in place by id; append genuinely new ones. A blank
       // id is skipped (cannot be addressed). For a patch, only fields the model
       // actually sent overwrite the current value, so a partial update like
       // {id, status} keeps the existing content.
       const existing = new Map<string, TodoItem>(this.items.map(item => [item.id, { ...item }]))
-      for (const item of this.dedupeById(todos)) {
+      for (const item of this.dedupeByID(todos)) {
         const id = normalizeStringField(item, 'id')
         if (!id) continue
         const current = existing.get(id)
@@ -167,7 +167,7 @@ export class TodoStore {
   // a later edit in the same call wins) while preserving first-seen order. Items
   // with no id collapse under the shared '?' key. Done by recording each id's
   // last index, then replaying those indices in ascending order.
-  private dedupeById(todos: unknown[]): unknown[] {
+  private dedupeByID(todos: unknown[]): unknown[] {
     const lastIndex = new Map<string, number>()
     todos.forEach((item, index) => {
       const id = normalizeStringField(item, 'id') || '?'

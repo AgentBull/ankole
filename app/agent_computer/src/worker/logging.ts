@@ -1,9 +1,9 @@
 import pino, { type DestinationStream, type Logger as PinoLogger, type LoggerOptions } from 'pino'
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 
 export type LogSeverity = 'DEBUG' | 'INFO' | 'NOTICE' | 'WARNING' | 'ERROR' | 'CRITICAL' | 'ALERT' | 'EMERGENCY'
 
-export type WorkerLogFields = JsonObject
+export type WorkerLogFields = JSONObject
 
 export type WorkerLoggerChildOptions = {
   component?: string
@@ -215,7 +215,7 @@ function serializeError(error: Error): WorkerLogFields {
   return serialized
 }
 
-function jsonObjectValue(value: unknown): value is JsonObject {
+function jsonObjectValue(value: unknown): value is JSONObject {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 

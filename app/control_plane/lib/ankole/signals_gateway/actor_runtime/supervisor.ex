@@ -5,7 +5,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Supervisor do
   This supervisor is the failure domain for the actor runtime. It uses
   `:one_for_one`: each child is an independent concern (transport, naming, and
   per-actor controllers), so one crashing does not invalidate the others' state.
-  Durable correctness lives in Postgres, not in these processes.
+  Durable correctness lives in PostgreSQL, not in these processes.
   """
 
   use Supervisor

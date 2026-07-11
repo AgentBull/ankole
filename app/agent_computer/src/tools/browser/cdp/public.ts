@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { resolve } from 'node:path'
-import type { JsonObject } from '@pleisto/active-support'
-import { CdpClient } from './client'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import { CDPClient } from './client'
 import { BROWSER_NAVIGATION_ATTEMPTS, DEFAULT_BROWSER_COMMAND_TIMEOUT_MS, DEFAULT_WAIT_MS } from './constants'
 import {
   createLocalBrowserContext,
@@ -9,18 +9,18 @@ import {
   localBrowserIdleTtlMs,
   localSidecarKey
 } from './chromium'
-import { remoteBrowserCdpConfigFromOptions } from './config'
+import { remoteBrowserCDPConfigFromOptions } from './config'
 import { resolveConnectionForSession, resolveRemoteConnection } from './connection'
 import { captureScreenshot, captureSnapshot, evaluate, waitForReadyState, waitPredicate } from './page'
 import { actOnRef, forgetActiveBrowserSession, withPage } from './runtime'
 import { browserRoot, readSessionMeta, writeSessionMeta } from './session-store'
 import {
-  assertSafeBrowserUrl,
-  redactBrowserJson,
+  assertSafeBrowserURL,
+  redactBrowserJSON,
   redactText,
-  redactUrl,
-  sameBrowserUrl,
-  sanitizeId,
+  redactURL,
+  sameBrowserURL,
+  sanitizeID,
   sleep,
   toWorkspacePath,
   truncate,
@@ -47,8 +47,8 @@ import type {
 export async function ensureBrowserSession(
   args: { session: string | undefined },
   options?: BrowserRuntimeOptions
-): Promise<JsonObject> {
-  const session = sanitizeId(args.session || 'default')
+): Promise<JSONObject> {
+  const session = sanitizeID(args.session || 'default')
   const status = await browserStatus({ session }, options)
   if (status.ok === true) return status
   return await startBrowserSession(session, options)
@@ -63,8 +63,8 @@ export async function ensureBrowserSession(
 export async function releaseBrowserSession(
   args: { session: string | undefined },
   options?: BrowserRuntimeOptions
-): Promise<JsonObject> {
-  const session = sanitizeId(args.session || 'default')
+): Promise<JSONObject> {
+  const session = sanitizeID(args.session || 'default')
   forgetActiveBrowserSession(session)
 
   const meta = readSessionMeta(session, options)
@@ -73,14 +73,14 @@ export async function releaseBrowserSession(
   if (meta?.browser_context_id) {
     try {
       const connection = await resolveConnectionForSession(session, meta, options)
-      const cdp = await CdpClient.connect(connection.connectUrl, {
+      const cdp = await CDPClient.connect(connection.connectURL, {
         headers: connection.headers,
         timeoutMs: DEFAULT_BROWSER_COMMAND_TIMEOUT_MS
       })
       try {
         await cdp.send(
           'Target.disposeBrowserContext',
-          { browserContextId: meta.browser_context_id },
+          { browserContextID: meta.browser_context_id },
           undefined,
           DEFAULT_BROWSER_COMMAND_TIMEOUT_MS
         )
@@ -112,8 +112,8 @@ export async function releaseBrowserSession(
 /**
  * Creates session metadata for either a remote CDP backend or local Chromium.
  */
-async function startBrowserSession(session: string, options?: BrowserRuntimeOptions): Promise<JsonObject> {
-  const remoteConfig = remoteBrowserCdpConfigFromOptions(options)
+async function startBrowserSession(session: string, options?: BrowserRuntimeOptions): Promise<JSONObject> {
+  const remoteConfig = remoteBrowserCDPConfigFromOptions(options)
 
   const root = browserRoot(session, options)
   const profileDir = resolve(root, 'profile')
@@ -127,8 +127,8 @@ async function startBrowserSession(session: string, options?: BrowserRuntimeOpti
       backend: 'remote_cdp',
       adapter: remoteConfig.adapter,
       pid: null,
-      connect_url_redacted: connection.redactedConnectUrl,
-      ...(remoteConfig.adapter === 'cdp_session_request' ? { connect_url: connection.connectUrl } : {}),
+      connect_url_redacted: connection.redactedConnectURL,
+      ...(remoteConfig.adapter === 'cdp_session_request' ? { connect_url: connection.connectURL } : {}),
       connect_url_source: remoteConfig.adapter === 'cdp_session_request' ? 'session' : 'config',
       started_at_unix_ms: Date.now()
     }
@@ -140,7 +140,7 @@ async function startBrowserSession(session: string, options?: BrowserRuntimeOpti
       adapter: remoteConfig.adapter,
       session,
       pid: null,
-      connect_url: connection.redactedConnectUrl
+      connect_url: connection.redactedConnectURL
     }
   }
 
@@ -149,8 +149,8 @@ async function startBrowserSession(session: string, options?: BrowserRuntimeOpti
     localBrowserIdleTtlMs(options),
     options?.workspaceRoot
   )
-  const connectUrl = sidecar.connectUrl
-  const context = await createLocalBrowserContext(connectUrl)
+  const connectURL = sidecar.connectURL
+  const context = await createLocalBrowserContext(connectURL)
 
   const meta: BrowserSessionMeta = {
     version: 1,
@@ -159,11 +159,11 @@ async function startBrowserSession(session: string, options?: BrowserRuntimeOpti
     adapter: 'chromium',
     local_sidecar_key: sidecar.key,
     pid: sidecar.proc.pid,
-    connect_url: connectUrl,
-    connect_url_redacted: redactUrl(connectUrl),
+    connect_url: connectURL,
+    connect_url_redacted: redactURL(connectURL),
     connect_url_source: 'session',
-    browser_context_id: context.browserContextId,
-    target_id: context.targetId,
+    browser_context_id: context.browserContextID,
+    target_id: context.targetID,
     profile_dir: toWorkspacePath(profileDir),
     started_at_unix_ms: Date.now()
   }
@@ -175,9 +175,9 @@ async function startBrowserSession(session: string, options?: BrowserRuntimeOpti
     adapter: 'chromium',
     session,
     pid: sidecar.proc.pid,
-    connect_url: redactUrl(connectUrl),
-    browser_context_id: context.browserContextId,
-    target_id: context.targetId,
+    connect_url: redactURL(connectURL),
+    browser_context_id: context.browserContextID,
+    target_id: context.targetID,
     profile_dir: toWorkspacePath(profileDir)
   }
 
@@ -190,12 +190,12 @@ async function startBrowserSession(session: string, options?: BrowserRuntimeOpti
 export async function browserStatus(
   args: { session: string | undefined },
   options?: BrowserRuntimeOptions
-): Promise<JsonObject> {
-  const session = sanitizeId(args.session || 'default')
+): Promise<JSONObject> {
+  const session = sanitizeID(args.session || 'default')
 
   const meta = readSessionMeta(session, options)
   if (!meta) {
-    const remoteConfig = remoteBrowserCdpConfigFromOptions(options)
+    const remoteConfig = remoteBrowserCDPConfigFromOptions(options)
     return {
       ok: false,
       backend: remoteConfig ? 'remote_cdp' : 'chromium',
@@ -207,13 +207,13 @@ export async function browserStatus(
 
   try {
     const connection = await resolveConnectionForSession(session, meta, options)
-    const cdp = await CdpClient.connect(connection.connectUrl, {
+    const cdp = await CDPClient.connect(connection.connectURL, {
       headers: connection.headers,
       timeoutMs: DEFAULT_BROWSER_COMMAND_TIMEOUT_MS
     })
-    let body: JsonObject
+    let body: JSONObject
     try {
-      body = await cdp.send<JsonObject>('Browser.getVersion', {}, undefined, DEFAULT_BROWSER_COMMAND_TIMEOUT_MS)
+      body = await cdp.send<JSONObject>('Browser.getVersion', {}, undefined, DEFAULT_BROWSER_COMMAND_TIMEOUT_MS)
     } finally {
       cdp.close()
     }
@@ -223,7 +223,7 @@ export async function browserStatus(
       adapter: connection.adapter,
       session,
       pid: meta.pid,
-      connect_url: connection.redactedConnectUrl,
+      connect_url: connection.redactedConnectURL,
       profile_dir: meta.profile_dir,
       browser: body['product'] ?? body['Browser'] ?? null
     }
@@ -234,7 +234,7 @@ export async function browserStatus(
       adapter: meta.adapter,
       session,
       pid: meta.pid,
-      connect_url: meta.connect_url_redacted ?? (meta.connect_url ? redactUrl(meta.connect_url) : null),
+      connect_url: meta.connect_url_redacted ?? (meta.connect_url ? redactURL(meta.connect_url) : null),
       reason: error instanceof Error ? error.message : String(error)
     }
   }
@@ -251,12 +251,12 @@ export async function browserNavigate(
   args: {
     session: string | undefined
     url: string
-    taskId?: string
+    taskID?: string
     screenshot?: boolean
   },
   options?: BrowserRuntimeOptions
-): Promise<JsonObject> {
-  assertSafeBrowserUrl(args.url)
+): Promise<JSONObject> {
+  assertSafeBrowserURL(args.url)
 
   return withPage(
     args.session,
@@ -266,7 +266,7 @@ export async function browserNavigate(
       let navigationFailure: string | undefined
       for (let attempt = 1; attempt <= BROWSER_NAVIGATION_ATTEMPTS; attempt += 1) {
         resetPageNavigationState(page)
-        const navigation = await cdp.send<PageNavigateResult>('Page.navigate', { url: args.url }, page.sessionId)
+        const navigation = await cdp.send<PageNavigateResult>('Page.navigate', { url: args.url }, page.sessionID)
         await waitForReadyState(cdp, page, DEFAULT_WAIT_MS)
         snapshot = await captureSnapshot(cdp, page, session, options)
         navigationFailure = navigation.errorText || browserNavigationFailureReason(snapshot)
@@ -277,7 +277,7 @@ export async function browserNavigate(
       if (!snapshot) throw new Error('browser navigation did not produce a page snapshot')
       if (navigationFailure) throw new Error(`browser navigation failed for ${args.url}: ${navigationFailure}`)
 
-      const result: JsonObject = {
+      const result: JSONObject = {
         ok: true,
         backend: connection.backend,
         adapter: connection.adapter,
@@ -287,7 +287,7 @@ export async function browserNavigate(
         snapshot: formatSnapshot(snapshot)
       }
       if (args.screenshot) {
-        Object.assign(result, await captureScreenshot(cdp, page, session, args.taskId, undefined, options))
+        Object.assign(result, await captureScreenshot(cdp, page, session, args.taskID, undefined, options))
       }
       return result
     },
@@ -301,7 +301,7 @@ export async function browserNavigate(
 export async function browserSnapshot(
   args: { session: string | undefined; full?: boolean },
   options?: BrowserRuntimeOptions
-): Promise<JsonObject> {
+): Promise<JSONObject> {
   return withPage(
     args.session,
     options,
@@ -333,7 +333,7 @@ export async function browserFindInSession(
     caseSensitive?: boolean
   },
   options?: BrowserRuntimeOptions
-): Promise<JsonObject> {
+): Promise<JSONObject> {
   const query = args.query.trim()
   if (!query) throw new Error('find requires a non-empty query')
 
@@ -359,7 +359,7 @@ export async function browserFindInSession(
         session,
         query,
         match_count: matches.length,
-        matches: redactBrowserJson(matches),
+        matches: redactBrowserJSON(matches),
         text: truncate(redactText(formatFindMatches(matches)))
       }
     },
@@ -377,9 +377,9 @@ export async function browserFindInSession(
 export async function browserClick(
   args: { session: string | undefined; ref: string },
   options?: BrowserRuntimeOptions
-): Promise<JsonObject> {
+): Promise<JSONObject> {
   return actOnRef(args.session, args.ref, options, async (cdp, page, ref, session, connection) => {
-    const clicked = await evaluate<JsonObject & { beforeUrl: string; href?: string; x: number; y: number }>(
+    const clicked = await evaluate<JSONObject & { beforeURL: string; href?: string; x: number; y: number }>(
       cdp,
       page,
       `(() => {
@@ -410,17 +410,17 @@ export async function browserClick(
     await cdp.send(
       'Input.dispatchMouseEvent',
       { type: 'mouseMoved', x: clicked.x, y: clicked.y, button: 'none' },
-      page.sessionId
+      page.sessionID
     )
     await cdp.send(
       'Input.dispatchMouseEvent',
       { type: 'mousePressed', x: clicked.x, y: clicked.y, button: 'left', clickCount: 1 },
-      page.sessionId
+      page.sessionID
     )
     await cdp.send(
       'Input.dispatchMouseEvent',
       { type: 'mouseReleased', x: clicked.x, y: clicked.y, button: 'left', clickCount: 1 },
-      page.sessionId
+      page.sessionID
     )
     await waitBriefly()
     let snapshot = await captureSnapshot(cdp, page, session, options)
@@ -428,11 +428,11 @@ export async function browserClick(
     if (
       typeof clicked.href === 'string' &&
       clicked.href.length > 0 &&
-      !sameBrowserUrl(clicked.href, clicked.beforeUrl) &&
-      sameBrowserUrl(snapshot.url, clicked.beforeUrl)
+      !sameBrowserURL(clicked.href, clicked.beforeURL) &&
+      sameBrowserURL(snapshot.url, clicked.beforeURL)
     ) {
       resetPageNavigationState(page)
-      const navigation = await cdp.send<PageNavigateResult>('Page.navigate', { url: clicked.href }, page.sessionId)
+      const navigation = await cdp.send<PageNavigateResult>('Page.navigate', { url: clicked.href }, page.sessionID)
       await waitForReadyState(cdp, page, DEFAULT_WAIT_MS)
       snapshot = await captureSnapshot(cdp, page, session, options)
       const fallbackFailure = navigation.errorText || browserNavigationFailureReason(snapshot)
@@ -468,7 +468,7 @@ export async function browserType(
     text: string
   },
   options?: BrowserRuntimeOptions
-): Promise<JsonObject> {
+): Promise<JSONObject> {
   return actOnRef(args.session, args.ref, options, async (cdp, page, ref, session, connection) => {
     await evaluate(
       cdp,
@@ -517,12 +517,12 @@ export async function browserType(
 export async function browserPress(
   args: { session: string | undefined; key: string },
   options?: BrowserRuntimeOptions
-): Promise<JsonObject> {
+): Promise<JSONObject> {
   return withPage(args.session, options, async (cdp, page, session, connection) => {
     const key = keyDefinition(args.key)
-    await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', ...key }, page.sessionId)
-    if (key.text) await cdp.send('Input.dispatchKeyEvent', { type: 'char', ...key }, page.sessionId)
-    await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', ...key }, page.sessionId)
+    await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', ...key }, page.sessionID)
+    if (key.text) await cdp.send('Input.dispatchKeyEvent', { type: 'char', ...key }, page.sessionID)
+    await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', ...key }, page.sessionID)
     await waitBriefly()
     const snapshot = await captureSnapshot(cdp, page, session, options)
     return {
@@ -548,7 +548,7 @@ export async function browserScroll(
     pixels?: number
   },
   options?: BrowserRuntimeOptions
-): Promise<JsonObject> {
+): Promise<JSONObject> {
   const pixels = Math.max(1, Math.min(args.pixels ?? 700, 10_000))
   const direction = args.direction === 'up' || args.direction === 'left' ? -1 : 1
 
@@ -601,7 +601,7 @@ export async function browserSelect(
     value: string
   },
   options?: BrowserRuntimeOptions
-): Promise<JsonObject> {
+): Promise<JSONObject> {
   return actOnRef(args.session, args.ref, options, async (cdp, page, ref, session, connection) => {
     await evaluate(
       cdp,
@@ -643,7 +643,7 @@ export async function browserWait(
     timeoutMs?: number
   },
   options?: BrowserRuntimeOptions
-): Promise<JsonObject> {
+): Promise<JSONObject> {
   return withPage(
     args.session,
     options,
@@ -680,7 +680,7 @@ export async function browserWait(
 export async function browserBack(
   args: { session: string | undefined },
   options?: BrowserRuntimeOptions
-): Promise<JsonObject> {
+): Promise<JSONObject> {
   return withPage(
     args.session,
     options,
@@ -688,12 +688,12 @@ export async function browserBack(
       const history = await cdp.send<{ currentIndex: number; entries: Array<{ id: number }> }>(
         'Page.getNavigationHistory',
         {},
-        page.sessionId
+        page.sessionID
       )
       if (history.currentIndex <= 0) throw new Error('No previous browser history entry.')
       const entry = history.entries[history.currentIndex - 1]
       resetPageNavigationState(page)
-      await cdp.send('Page.navigateToHistoryEntry', { entryId: entry.id }, page.sessionId)
+      await cdp.send('Page.navigateToHistoryEntry', { entryID: entry.id }, page.sessionID)
       await waitForReadyState(cdp, page, DEFAULT_WAIT_MS)
       const snapshot = await captureSnapshot(cdp, page, session, options)
       return {
@@ -714,7 +714,7 @@ export async function browserBack(
  * load signal.
  */
 function resetPageNavigationState(page: PageSession): void {
-  page.mainContextId = undefined
+  page.mainContextID = undefined
   page.domContentEventAtUnixMs = undefined
   page.loadEventAtUnixMs = undefined
   page.mainFrameStoppedLoadingAtUnixMs = undefined
@@ -726,16 +726,16 @@ function resetPageNavigationState(page: PageSession): void {
 export async function browserScreenshot(
   args: {
     session: string | undefined
-    taskId?: string
+    taskID?: string
     path?: string
   },
   options?: BrowserRuntimeOptions
-): Promise<JsonObject> {
+): Promise<JSONObject> {
   return withPage(
     args.session,
     options,
     async (cdp, page, session, connection) => {
-      const screenshot = await captureScreenshot(cdp, page, session, args.taskId, args.path, options)
+      const screenshot = await captureScreenshot(cdp, page, session, args.taskID, args.path, options)
       if (screenshot.screenshot_unsupported === true) {
         return {
           ok: false,
@@ -767,17 +767,17 @@ export async function browserExtractFromSession(
   args: {
     session: string | undefined
     url?: string
-    taskId?: string
+    taskID?: string
     pattern?: string
   },
   options?: BrowserRuntimeOptions
-): Promise<JsonObject | undefined> {
-  if (args.url) assertSafeBrowserUrl(args.url)
+): Promise<JSONObject | undefined> {
+  if (args.url) assertSafeBrowserURL(args.url)
 
   const status = await browserStatus({ session: args.session }, options)
   if (status.ok !== true) throw new Error('No active browser session; run browser_navigate first.')
 
-  if (args.url) await browserNavigate({ session: args.session, url: args.url, taskId: args.taskId }, options)
+  if (args.url) await browserNavigate({ session: args.session, url: args.url, taskID: args.taskID }, options)
 
   return withPage(args.session, options, async (cdp, page, session, connection) => {
     const text = await evaluate<string>(

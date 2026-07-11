@@ -97,7 +97,7 @@ defmodule Ankole.AIGateway.ChinaMarketAIProvidersTest do
     assert "thinking" in volcengine_keys
     refute "reasoningEffort" in volcengine_keys
     refute "textVerbosity" in volcengine_keys
-    refute "strictJsonSchema" in volcengine_keys
+    refute "strictJSONSchema" in volcengine_keys
   end
 
   test "volcengine ark builds an OpenAI-compatible chat request" do

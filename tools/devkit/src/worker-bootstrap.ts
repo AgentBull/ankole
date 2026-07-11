@@ -29,7 +29,7 @@ export type DockerRunOptions = {
 
 export type RenderWorkerBootstrapOptions = {
   endpoint: string
-  workerId: string
+  workerID: string
   image: string
   workspaceRoot: string
 }
@@ -46,7 +46,7 @@ export async function renderWorkerBootstrapSpec(options: RenderWorkerBootstrapOp
       '--endpoint',
       options.endpoint,
       '--worker-id',
-      options.workerId,
+      options.workerID,
       '--image',
       options.image,
       '--workspace-root',

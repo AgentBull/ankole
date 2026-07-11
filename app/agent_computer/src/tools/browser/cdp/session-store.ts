@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
-import { safePath, sanitizeId } from './utils'
+import { safePath, sanitizeID } from './utils'
 import type { BrowserRef, BrowserRuntimeOptions, BrowserSessionMeta } from './types'
 
 /**
@@ -51,5 +51,5 @@ export function writeRefs(session: string, elements: BrowserRef[], options?: Bro
  * Returns the browser state directory for a session.
  */
 export function browserRoot(session: string, options?: BrowserRuntimeOptions): string {
-  return safePath(`/workspace/.sessions/${sanitizeId(session)}/browser`, options)
+  return safePath(`/workspace/.sessions/${sanitizeID(session)}/browser`, options)
 }

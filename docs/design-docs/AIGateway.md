@@ -715,7 +715,7 @@ The worker side stays thin:
 - it keeps only short-lived execution state: the WebSocket connection, the
   current actor event id, current tool-call ids, and tool-local state;
 - it never expands history, never compacts, and never writes `ai_gateway_messages`,
-  `ai_gateway_conversations`, or `signal_gateway_outbox`.
+  `ai_gateway_conversations`, or `signal_gateway_outbox_entries`.
 
 ## Compaction
 
@@ -808,7 +808,7 @@ Two consumers subscribe:
 
 Durable content truth stays in the message log; delivery state stays in
 SignalsGateway. The provider-side preview message id is never written back
-into a message-log row. Live preview deltas bypass `signal_gateway_outbox`,
+into a message-log row. Live preview deltas bypass `signal_gateway_outbox_entries`,
 but SignalsGateway always commits the adopted final reply through that durable
 outbox. The full provider-visible delivery and recovery story lives in
 `docs/design-docs/SignalsGateway.md` under Streamed AI Reply Delivery.
@@ -1034,4 +1034,4 @@ If Ankole later exposes MCP servers to model runs, that bridge belongs in the
 worker boundary as another local tool source. A worker drives loop iterations
 through the official `openai` client over WebSocket. It owns no durable Response
 history or anchors and writes none of `ai_gateway_messages`,
-`ai_gateway_conversations`, and `signal_gateway_outbox` directly.
+`ai_gateway_conversations`, and `signal_gateway_outbox_entries` directly.

@@ -177,15 +177,15 @@ export async function startComposeServices({
 export function resolveAppDatabaseName(explicitName?: string): string {
   if (explicitName) return validateDatabaseName(explicitName)
 
-  const databaseUrl = loadAppEnvValue('DATABASE_URL')
-  if (!databaseUrl) return 'ankole_dev'
+  const databaseURL = loadAppEnvValue('DATABASE_URL')
+  if (!databaseURL) return 'ankole_dev'
 
   try {
-    const parsed = new URL(databaseUrl)
+    const parsed = new URL(databaseURL)
     const databaseName = decodeURIComponent(parsed.pathname.replace(/^\//, ''))
     return validateDatabaseName(databaseName || 'ankole_dev')
   } catch {
-    throw new Error(`Invalid DATABASE_URL in app env files: ${databaseUrl}`)
+    throw new Error(`Invalid DATABASE_URL in app env files: ${databaseURL}`)
   }
 }
 

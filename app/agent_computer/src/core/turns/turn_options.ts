@@ -2,8 +2,8 @@ import type { AgentMessage } from '../types'
 import type {
   AgentConversationContext,
   AgentConversationContextRequest,
-  AIGatewayApiKeyRequest,
-  AIGatewayApiKeyResponse,
+  AIGatewayAPIKeyRequest,
+  AIGatewayAPIKeyResponse,
   AppConfigureResolveRequest,
   AppConfigureResolveResponse,
   CodexAccountAuthUpdateRequest,
@@ -20,64 +20,64 @@ import type {
   SubagentDelegationStatusUpdateRequest,
   SubagentDelegationSteerRequest,
   SubagentDelegationStopRequest,
-  MemoryRpcRequester,
-  RpcError,
-  ScheduleRpcRequester,
+  MemoryRPCRequester,
+  RPCError,
+  ScheduleRPCRequester,
   SkillOverlayReplaceRequest,
   SkillOverlayRequest,
   SkillOverlayResponse
 } from '../../lanes/rpc_lane'
 import type { TurnSteerUpdate } from '../../lanes/actor_lane'
 
-export type AIGatewayApiKeyRequestOptions = {
+export type AIGatewayAPIKeyRequestOptions = {
   forceRefresh?: boolean
 }
 
-export type AIGatewayApiKeyRequester = (
-  request: AIGatewayApiKeyRequest,
-  options?: AIGatewayApiKeyRequestOptions
-) => Promise<AIGatewayApiKeyResponse | RpcError>
+export type AIGatewayAPIKeyRequester = (
+  request: AIGatewayAPIKeyRequest,
+  options?: AIGatewayAPIKeyRequestOptions
+) => Promise<AIGatewayAPIKeyResponse | RPCError>
 
 export type AgentConversationContextRequester = (
   request: AgentConversationContextRequest
 ) => Promise<AgentConversationContext>
 export type AppConfigureRequester = (
   request: AppConfigureResolveRequest
-) => Promise<AppConfigureResolveResponse | RpcError>
+) => Promise<AppConfigureResolveResponse | RPCError>
 export type CodexAccountResolveRequester = (
   request: CodexAccountResolveRequest
-) => Promise<CodexAccountResolveResponse | RpcError>
+) => Promise<CodexAccountResolveResponse | RPCError>
 export type CodexAccountAuthUpdateRequester = (
   request: CodexAccountAuthUpdateRequest
-) => Promise<CodexAccountAuthUpdateResponse | RpcError>
+) => Promise<CodexAccountAuthUpdateResponse | RPCError>
 export type SubagentDelegationCreateRequester = (
   request: SubagentDelegationCreateRequest
-) => Promise<SubagentDelegationResponse | RpcError>
+) => Promise<SubagentDelegationResponse | RPCError>
 export type SubagentDelegationGetRequester = (
   request: SubagentDelegationGetRequest
-) => Promise<SubagentDelegationResponse | RpcError>
+) => Promise<SubagentDelegationResponse | RPCError>
 export type SubagentDelegationListRequester = (
   request: SubagentDelegationListRequest
-) => Promise<SubagentDelegationListResponse | RpcError>
+) => Promise<SubagentDelegationListResponse | RPCError>
 export type SubagentDelegationSteerRequester = (
   request: SubagentDelegationSteerRequest
-) => Promise<SubagentDelegationResponse | RpcError>
+) => Promise<SubagentDelegationResponse | RPCError>
 export type SubagentDelegationStopRequester = (
   request: SubagentDelegationStopRequest
-) => Promise<SubagentDelegationResponse | RpcError>
+) => Promise<SubagentDelegationResponse | RPCError>
 export type SubagentDelegationEventAppendRequester = (
   request: SubagentDelegationEventAppendRequest
-) => Promise<SubagentDelegationEventResponse | RpcError>
+) => Promise<SubagentDelegationEventResponse | RPCError>
 export type SubagentDelegationStatusUpdateRequester = (
   request: SubagentDelegationStatusUpdateRequest
-) => Promise<SubagentDelegationResponse | RpcError>
+) => Promise<SubagentDelegationResponse | RPCError>
 export type SkillOverlayRequester = (request: SkillOverlayRequest) => Promise<SkillOverlayResponse>
 export type SkillOverlayReplaceRequester = (request: SkillOverlayReplaceRequest) => Promise<SkillOverlayResponse>
 
 export type TurnHandlerResult =
   | {
       kind: 'turn_completed'
-      finalResponseId: string
+      finalResponseID: string
       outcome: 'loop_finished' | 'iteration_exhausted'
     }
   | { kind: 'noop_completed'; reason: string }
@@ -90,7 +90,7 @@ export type TextTurnLoopOptions = {
   builtinSkillsRoot?: string
   agentInstalledSkillsRoot?: string
   internalSkillsRoot?: string
-  requestAIGatewayApiKey: AIGatewayApiKeyRequester
+  requestAIGatewayAPIKey: AIGatewayAPIKeyRequester
   requestAppConfigure?: AppConfigureRequester
   resolveCodexAccount?: CodexAccountResolveRequester
   updateCodexAccountAuth?: CodexAccountAuthUpdateRequester
@@ -102,8 +102,8 @@ export type TextTurnLoopOptions = {
   appendSubagentDelegationEvents?: SubagentDelegationEventAppendRequester
   updateSubagentDelegationStatus?: SubagentDelegationStatusUpdateRequester
   requestAgentConversationContext?: AgentConversationContextRequester
-  requestScheduleRpc?: ScheduleRpcRequester
-  requestMemoryRpc?: MemoryRpcRequester
+  requestScheduleRPC?: ScheduleRPCRequester
+  requestMemoryRPC?: MemoryRPCRequester
   requestSkillOverlay?: SkillOverlayRequester
   replaceSkillOverlay?: SkillOverlayReplaceRequester
   agentConversationContext?: AgentConversationContext

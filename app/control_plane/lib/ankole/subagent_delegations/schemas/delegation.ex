@@ -9,7 +9,7 @@ defmodule Ankole.SubagentDelegations.Schemas.Delegation do
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
 
   alias Ankole.Principals.Principal
-  alias Ankole.Ecto.JsonPayload
+  alias Ankole.Ecto.JSONPayload
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
@@ -124,10 +124,10 @@ defmodule Ankole.SubagentDelegations.Schemas.Delegation do
     |> validate_inclusion(:runtime, ["codex"])
     |> validate_inclusion(:status, @statuses)
     |> validate_number(:attempts, greater_than_or_equal_to: 0)
-    |> JsonPayload.validate_map(:reply_route)
-    |> JsonPayload.validate_map(:result, allow_datetime: true)
-    |> JsonPayload.validate_map(:error, allow_datetime: true)
-    |> JsonPayload.validate_map(:metadata, allow_datetime: true)
+    |> JSONPayload.validate_map(:reply_route)
+    |> JSONPayload.validate_map(:result, allow_datetime: true)
+    |> JSONPayload.validate_map(:error, allow_datetime: true)
+    |> JSONPayload.validate_map(:metadata, allow_datetime: true)
     |> foreign_key_constraint(:agent_uid)
     |> foreign_key_constraint(:actor_event_id)
     |> unique_constraint([:agent_uid, :session_id, :tool_call_id],

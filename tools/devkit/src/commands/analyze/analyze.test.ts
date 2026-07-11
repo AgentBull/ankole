@@ -25,7 +25,7 @@ function createTopologyFixture(files: { coreIndex: string; consumer: string }): 
         moduleResolution: 'bundler',
         strict: true,
         noEmit: true,
-        baseUrl: '.',
+        baseURL: '.',
         paths: {
           '@/*': ['./src/*']
         }

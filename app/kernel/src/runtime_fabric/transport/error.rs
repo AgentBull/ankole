@@ -9,7 +9,7 @@ pub enum TransportError {
     InvalidConfig(String),
     InvalidEnvelope(String),
     InvalidFrame(String),
-    Zmq(String),
+    ZMQ(String),
 }
 
 impl TransportError {
@@ -22,7 +22,7 @@ impl TransportError {
             Self::InvalidConfig(_reason) => "invalid_config",
             Self::InvalidEnvelope(_reason) => "invalid_envelope",
             Self::InvalidFrame(_reason) => "invalid_frame",
-            Self::Zmq(_reason) => "zmq",
+            Self::ZMQ(_reason) => "zmq",
         }
     }
 
@@ -34,7 +34,7 @@ impl TransportError {
             Self::InvalidConfig(reason)
             | Self::InvalidEnvelope(reason)
             | Self::InvalidFrame(reason)
-            | Self::Zmq(reason) => format!("{}: {reason}", self.code()),
+            | Self::ZMQ(reason) => format!("{}: {reason}", self.code()),
         }
     }
 
@@ -62,5 +62,5 @@ pub(super) fn map_send_error(error: zmq::Error) -> TransportError {
 }
 
 pub(super) fn transport_error(error: zmq::Error) -> TransportError {
-    TransportError::Zmq(error.to_string())
+    TransportError::ZMQ(error.to_string())
 }

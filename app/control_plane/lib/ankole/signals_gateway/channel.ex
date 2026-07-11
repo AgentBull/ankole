@@ -16,7 +16,7 @@ defmodule Ankole.SignalsGateway.Channel do
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
 
-  alias Ankole.Ecto.JsonPayload
+  alias Ankole.Ecto.JSONPayload
   alias Ankole.AuthZ.Group
   alias Ankole.SignalsGateway.Entry
 
@@ -71,8 +71,8 @@ defmodule Ankole.SignalsGateway.Channel do
       :first_seen_at,
       :last_seen_at
     ])
-    |> JsonPayload.validate_map(:metadata, allow_datetime: true)
-    |> JsonPayload.validate_map(:raw_payload, allow_datetime: true)
+    |> JSONPayload.validate_map(:metadata, allow_datetime: true)
+    |> JSONPayload.validate_map(:raw_payload, allow_datetime: true)
     |> foreign_key_constraint(:principal_group_id)
     |> unique_constraint(:id, name: :signal_gateway_channels_pkey)
     |> check_constraint(:id, name: :signal_gateway_channels_id_present)

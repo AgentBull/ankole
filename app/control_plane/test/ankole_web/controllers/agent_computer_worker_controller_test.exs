@@ -39,7 +39,7 @@ defmodule AnkoleWeb.AgentComputerWorkerControllerTest do
 
     conn = bearer_conn(conn) |> get(~p"/api/v1/agent-computer-workers")
 
-    assert %{"data" => [first, second]} = json_response(conn, 200)
+    assert %{"workers" => [first, second]} = json_response(conn, 200)
     assert first["worker_id"] == newer_id
     assert first["status"] == "stale"
     refute Map.has_key?(first, "transport_route")
@@ -57,7 +57,7 @@ defmodule AnkoleWeb.AgentComputerWorkerControllerTest do
 
     conn = bearer_conn(conn) |> get(~p"/api/v1/agent-computer-workers")
 
-    [worker] = json_response(conn, 200)["data"]
+    [worker] = json_response(conn, 200)["workers"]
     assert worker["worker_id"] == worker_id
     refute Map.has_key?(worker, "transport_route")
   end

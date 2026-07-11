@@ -24,7 +24,7 @@ describe('@ankole/agent-computer browser CDP runtime', () => {
 
         if (url.pathname === '/json/version') {
           return Response.json({
-            webSocketDebuggerUrl: `ws://127.0.0.1:${server.port}/devtools/browser/mock`
+            ['webSocketDebuggerUrl']: `ws://127.0.0.1:${server.port}/devtools/browser/mock`
           })
         }
 
@@ -48,7 +48,7 @@ describe('@ankole/agent-computer browser CDP runtime', () => {
     const session = `remote-cdp-${Date.now()}`
     const options = {
       workspaceRoot,
-      remoteCdpConfig: {
+      remoteCDPConfig: {
         adapter: 'cdp_endpoint',
         endpoint_url: `http://127.0.0.1:${server.port}`,
         headers: { Authorization: token }

@@ -1,4 +1,4 @@
-defmodule Ankole.Repo.Migrations.CreateAiGateway do
+defmodule Ankole.Repo.Migrations.CreateAIGateway do
   # AIGateway owns durable conversation and message-log state.
   #
   # The continuation chain is previous_message_id, durable content is written only at

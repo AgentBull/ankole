@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { resolve } from 'node:path'
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import {
   DEFAULT_BROWSER_COMMAND_TIMEOUT_MS,
   DEFAULT_CDP_CONNECT_TIMEOUT_MS,
@@ -10,19 +10,19 @@ import {
   LOCAL_CHROMIUM_USER_AGENT,
   workspaceRoot
 } from './constants'
-import { drainProcessOutput, localCdpEndpointAlive, sleep } from './utils'
-import { CdpClient } from './client'
+import { drainProcessOutput, localCDPEndpointAlive, sleep } from './utils'
+import { CDPClient } from './client'
 import type { BrowserRuntimeOptions, LocalChromiumSidecar } from './types'
 
 const localChromiumSidecars = new Map<string, LocalChromiumSidecar>()
 let localChromiumShutdownHooksInstalled = false
-let closeActiveSessionsForConnectUrl = (_connectUrl: string): void => {}
+let closeActiveSessionsForConnectURL = (_connectUrl: string): void => {}
 
 /**
  * Installs the callback used to close cached CDP sessions before a sidecar dies.
  */
-export function setLocalChromiumSessionCloser(close: (connectUrl: string) => void): void {
-  closeActiveSessionsForConnectUrl = close
+export function setLocalChromiumSessionCloser(close: (connectURL: string) => void): void {
+  closeActiveSessionsForConnectURL = close
 }
 
 /**
@@ -32,26 +32,26 @@ export function setLocalChromiumSessionCloser(close: (connectUrl: string) => voi
  * One Chromium process can host many worker browser sessions, while each session
  * still gets isolated cookies/storage through its own BrowserContext.
  */
-export async function createLocalBrowserContext(connectUrl: string): Promise<{
-  browserContextId: string
-  targetId: string
+export async function createLocalBrowserContext(connectURL: string): Promise<{
+  browserContextID: string
+  targetID: string
 }> {
-  const cdp = await CdpClient.connect(connectUrl, { timeoutMs: DEFAULT_CDP_CONNECT_TIMEOUT_MS })
-  let browserContextId: string | undefined
+  const cdp = await CDPClient.connect(connectURL, { timeoutMs: DEFAULT_CDP_CONNECT_TIMEOUT_MS })
+  let browserContextID: string | undefined
   try {
-    const context = await cdp.send<{ browserContextId: string }>('Target.createBrowserContext', {})
-    browserContextId = context.browserContextId
-    const target = await cdp.send<{ targetId: string }>('Target.createTarget', {
+    const context = await cdp.send<{ browserContextID: string }>('Target.createBrowserContext', {})
+    browserContextID = context.browserContextID
+    const target = await cdp.send<{ targetID: string }>('Target.createTarget', {
       url: 'about:blank',
-      browserContextId
+      browserContextID
     })
-    return { browserContextId, targetId: target.targetId }
+    return { browserContextID, targetID: target.targetID }
   } catch (error) {
-    if (browserContextId) {
+    if (browserContextID) {
       try {
         await cdp.send(
           'Target.disposeBrowserContext',
-          { browserContextId },
+          { browserContextID },
           undefined,
           DEFAULT_BROWSER_COMMAND_TIMEOUT_MS
         )
@@ -93,7 +93,7 @@ export function findChromium(): string | null {
 /**
  * Polls `/json/version` until Chromium exposes its browser WebSocket URL.
  */
-async function pollJsonVersionForWebSocket(
+async function pollJSONVersionForWebSocket(
   url: string,
   headers: Record<string, string> | undefined,
   exited?: Promise<number | null>
@@ -113,9 +113,9 @@ async function pollJsonVersionForWebSocket(
         signal: AbortSignal.timeout(1_000)
       })
       if (response.ok) {
-        const body = (await response.json()) as JsonObject
-        const connectUrl = body['webSocketDebuggerUrl']
-        if (typeof connectUrl === 'string' && connectUrl.length > 0) return connectUrl
+        const body = (await response.json()) as JSONObject
+        const connectURL = body['webSocketDebuggerUrl']
+        if (typeof connectURL === 'string' && connectURL.length > 0) return connectURL
       }
       lastError = `HTTP ${response.status}`
     } catch (error) {
@@ -142,7 +142,7 @@ export async function ensureLocalChromiumSidecar(
   installLocalChromiumShutdownHooks()
 
   const existing = localChromiumSidecars.get(key)
-  if (existing && existing.proc.exitCode === null && (await localCdpEndpointAlive(existing.connectUrl))) {
+  if (existing && existing.proc.exitCode === null && (await localCDPEndpointAlive(existing.connectURL))) {
     existing.lastUsedAtUnixMs = Date.now()
     existing.idleTtlMs = idleTtlMs
     scheduleLocalSidecarIdleStop(existing)
@@ -196,14 +196,14 @@ export async function ensureLocalChromiumSidecar(
   drainProcessOutput(proc.stdout, `chromium:${key}:stdout`)
   drainProcessOutput(proc.stderr, `chromium:${key}:stderr`)
 
-  const cdpHttpUrl = `http://127.0.0.1:${port}`
-  const connectUrl = await pollJsonVersionForWebSocket(`${cdpHttpUrl}/json/version`, undefined, proc.exited)
+  const cdpHTTPURL = `http://127.0.0.1:${port}`
+  const connectURL = await pollJSONVersionForWebSocket(`${cdpHTTPURL}/json/version`, undefined, proc.exited)
   const sidecar: LocalChromiumSidecar = {
     key,
     port,
     proc,
-    connectUrl,
-    cdpHttpUrl,
+    connectURL,
+    cdpHTTPURL,
     profileDir,
     startedAtUnixMs: Date.now(),
     lastUsedAtUnixMs: Date.now(),
@@ -216,7 +216,7 @@ export async function ensureLocalChromiumSidecar(
     if (current === sidecar) {
       if (sidecar.idleTimer) clearTimeout(sidecar.idleTimer)
       localChromiumSidecars.delete(key)
-      closeActiveSessionsForConnectUrl(sidecar.connectUrl)
+      closeActiveSessionsForConnectURL(sidecar.connectURL)
     }
   })
   return sidecar
@@ -276,7 +276,7 @@ function scheduleLocalSidecarIdleStop(sidecar: LocalChromiumSidecar): void {
 export async function stopLocalSidecar(sidecar: LocalChromiumSidecar): Promise<void> {
   if (sidecar.idleTimer) clearTimeout(sidecar.idleTimer)
   localChromiumSidecars.delete(sidecar.key)
-  closeActiveSessionsForConnectUrl(sidecar.connectUrl)
+  closeActiveSessionsForConnectURL(sidecar.connectURL)
   if (sidecar.proc.exitCode !== null) return
 
   try {

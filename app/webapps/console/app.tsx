@@ -1,5 +1,5 @@
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router'
-import { configureConsoleApiClient } from './api/tokens'
+import { configureConsoleAPIClient } from './api/tokens'
 import { ConsoleLayout } from './console-shell'
 import { AgentEditorPage, AgentsListPage } from './pages/agents'
 import { IdentityProviderEditorPage, IdentityProvidersListPage } from './pages/identity'
@@ -14,7 +14,7 @@ import { DelegationsPage } from './pages/delegations'
 // `useMemo`/effect: it is a side effect, and the React Compiler may drop or
 // defer a memo whose result is unused — which would let the first `/api/v1`
 // requests go out with no Authorization header ("bearer token required").
-configureConsoleApiClient()
+configureConsoleAPIClient()
 
 // The Phoenix shell serves the console SPA under `/console/*`, so client-side
 // routing is anchored there. Each resource is a list route plus its editor
@@ -32,18 +32,18 @@ const router = createBrowserRouter(
         { path: 'agents/:uid', element: <AgentEditorPage /> },
         { path: 'providers', element: <ProvidersListPage /> },
         { path: 'providers/codex/new', element: <CodexAccountEditorPage /> },
-        { path: 'providers/codex/:accountId', element: <CodexAccountEditorPage /> },
+        { path: 'providers/codex/:accountID', element: <CodexAccountEditorPage /> },
         { path: 'providers/new', element: <ProviderEditorPage /> },
-        { path: 'providers/:providerId', element: <ProviderEditorPage /> },
+        { path: 'providers/:providerID', element: <ProviderEditorPage /> },
         { path: 'identity', element: <IdentityProvidersListPage /> },
         { path: 'identity/new', element: <IdentityProviderEditorPage /> },
-        { path: 'identity/:providerId', element: <IdentityProviderEditorPage /> },
+        { path: 'identity/:providerID', element: <IdentityProviderEditorPage /> },
         { path: 'signals', element: <SignalsListPage /> },
         { path: 'signals/new', element: <SignalBindingEditorPage /> },
         { path: 'settings', element: <SettingsListPage /> },
         { path: 'settings/:key', element: <SettingEditorPage /> },
         { path: 'workers', element: <WorkersListPage /> },
-        { path: 'workers/:workerId/files', element: <WorkerFilesPage /> },
+        { path: 'workers/:workerID/files', element: <WorkerFilesPage /> },
         { path: 'delegations', element: <DelegationsPage /> },
         { path: '*', element: <Navigate to="agents" replace /> }
       ]

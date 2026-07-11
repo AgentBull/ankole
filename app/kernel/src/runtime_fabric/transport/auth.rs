@@ -126,7 +126,7 @@ pub(super) fn start_zap_server(
                 init_tx,
             )
         })
-        .map_err(|error| TransportError::Zmq(format!("failed to spawn ZAP thread: {error}")))?;
+        .map_err(|error| TransportError::ZMQ(format!("failed to spawn ZAP thread: {error}")))?;
 
     let init_result = match init_rx.recv_timeout(Duration::from_secs(1)) {
         Ok(result) => result.map(|_| ()),

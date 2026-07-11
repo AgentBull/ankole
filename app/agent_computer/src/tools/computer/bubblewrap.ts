@@ -216,8 +216,8 @@ function runtimeWorkspaceBinds(): string[] {
  * Resolves Bun's global Codex package directory from the public `codex` executable.
  */
 function codexGlobalPackageRoot(): string {
-  const bunGlobalOpenAiRoot = '/root/.bun/install/global/node_modules/@openai'
-  if (existsSync(bunGlobalOpenAiRoot)) return bunGlobalOpenAiRoot
+  const bunGlobalOpenAIRoot = '/root/.bun/install/global/node_modules/@openai'
+  if (existsSync(bunGlobalOpenAIRoot)) return bunGlobalOpenAIRoot
 
   const codexBin = '/usr/local/bin/codex'
   if (!existsSync(codexBin)) return ''

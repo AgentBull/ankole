@@ -54,9 +54,9 @@ describe('@ankole/agent-computer subagent capability projection', () => {
 
     const invalid = await projection.handleToolCall(
       {
-        threadId: 'thread-1',
-        turnId: 'turn-1',
-        callId: 'call-invalid',
+        ['threadId']: 'thread-1',
+        ['turnId']: 'turn-1',
+        ['callId']: 'call-invalid',
         namespace: null,
         tool: 'memory_search',
         arguments: { query: '' }
@@ -68,9 +68,9 @@ describe('@ankole/agent-computer subagent capability projection', () => {
 
     const valid = await projection.handleToolCall(
       {
-        threadId: 'thread-1',
-        turnId: 'turn-1',
-        callId: 'call-valid',
+        ['threadId']: 'thread-1',
+        ['turnId']: 'turn-1',
+        ['callId']: 'call-valid',
         namespace: null,
         tool: 'memory_search',
         arguments: { query: 'decision' }
@@ -82,9 +82,9 @@ describe('@ankole/agent-computer subagent capability projection', () => {
 
     const hidden = await projection.handleToolCall(
       {
-        threadId: 'thread-1',
-        turnId: 'turn-1',
-        callId: 'call-hidden',
+        ['threadId']: 'thread-1',
+        ['turnId']: 'turn-1',
+        ['callId']: 'call-hidden',
         namespace: null,
         tool: 'command',
         arguments: { value: 'pwd' }
@@ -99,9 +99,9 @@ describe('@ankole/agent-computer subagent capability projection', () => {
 
     const bounded = await projection.handleToolCall(
       {
-        threadId: 'thread-1',
-        turnId: 'turn-1',
-        callId: 'call-bounded',
+        ['threadId']: 'thread-1',
+        ['turnId']: 'turn-1',
+        ['callId']: 'call-bounded',
         namespace: null,
         tool: 'memory_browse',
         arguments: { cursor: 'next' }

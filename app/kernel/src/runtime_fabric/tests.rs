@@ -1,5 +1,7 @@
 use super::*;
 use prost::Message;
+use proto::Lane::Rpc as RPCLane;
+use proto::envelope::Body::RpcRequest as RPCRequestBody;
 use serde_json::{Value, json};
 
 #[test]
@@ -619,10 +621,10 @@ fn rejects_decoded_protobuf_missing_required_nested_fields() {
         protocol_version: 1,
         message_id: "rpc-1".into(),
         correlation_id: "rpc-1".into(),
-        lane: proto::Lane::Rpc as i32,
+        lane: RPCLane as i32,
         sent_at_unix_ms: 0,
         durability: proto::DurabilityClass::ControlEphemeral as i32,
-        body: Some(proto::envelope::Body::RpcRequest(proto::RpcRequest {
+        body: Some(RPCRequestBody(proto::RPCRequest {
             request_id: "rpc-1".into(),
             ..Default::default()
         })),

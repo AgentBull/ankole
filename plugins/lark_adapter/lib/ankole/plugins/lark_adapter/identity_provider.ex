@@ -41,7 +41,7 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
          {:ok, state} <- required_opt(opts, :state) do
       query =
         [
-          app_id: Map.fetch!(config, "appId"),
+          app_id: Map.fetch!(config, "appID"),
           redirect_uri: redirect_uri,
           state: state,
           scope: Enum.join(get_in(config, ["oidc", "scopes"]) || [], " ")
@@ -354,9 +354,9 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
 
     compact_metadata_map(%{
       "provider" => provider_id,
-      "externalId" => department_id,
+      "externalID" => department_id,
       "name" => department_display_name(department, department_id),
-      "parentExternalId" => parent_id,
+      "parentExternalID" => parent_id,
       "status" => "active",
       "syncedAt" => DateTime.utc_now() |> DateTime.to_iso8601(),
       "external_directory" => external_directory_metadata(provider_id, department_id, parent_id)
@@ -368,7 +368,7 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
       "provider" => provider_id,
       "kind" => "department",
       "external_id" => department_id,
-      "parentExternalId" => parent_id
+      "parentExternalID" => parent_id
     })
   end
 

@@ -409,7 +409,7 @@ export function SecretInput({ className, ...props }: ComponentProps<typeof Input
 }
 
 /** Labeled multiline JSON editor used for genuinely freeform object payloads. */
-export function JsonField({
+export function JSONField({
   description,
   error,
   label,

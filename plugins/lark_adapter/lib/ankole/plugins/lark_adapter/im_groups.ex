@@ -528,13 +528,14 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   end
 
   defp im_group_by_binding_query(namespace, chat_id) do
-    from binding in ExternalBinding,
+    from(binding in ExternalBinding,
       join: group in Group,
       on: group.id == binding.group_id,
       where:
         binding.provider == ^namespace and binding.external_kind == ^@im_group_external_kind and
           binding.external_id == ^chat_id,
       select: group
+    )
   end
 
   defp upsert_im_binding_in_tx(repo, namespace, chat_id, group_id, attrs) do
@@ -548,7 +549,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
         compact_metadata_map(%{
           "provider" => namespace,
           "externalKind" => "im_group",
-          "externalId" => chat_id,
+          "externalID" => chat_id,
           "name" => optional_text(attrs, "name"),
           "app_id" => optional_text(attrs, "app_id"),
           "domain" => optional_text(attrs, "domain"),
@@ -752,7 +753,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
     %{
       "agent_uid" => context.agent_uid,
       "binding_name" => context.binding_name,
-      "app_id" => Map.fetch!(config, "appId"),
+      "app_id" => Map.fetch!(config, "appID"),
       "domain" => Map.fetch!(config, "domain"),
       "state" => Atom.to_string(state),
       "last_seen_at" => if(state == :joined, do: now),
@@ -780,7 +781,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   defp chat_attrs(config, chat) do
     %{
       "name" => chat_name(chat),
-      "app_id" => Map.fetch!(config, "appId"),
+      "app_id" => Map.fetch!(config, "appID"),
       "domain" => Map.fetch!(config, "domain"),
       "visibility" => optional_text(chat, "visibility"),
       "raw_payload" => chat

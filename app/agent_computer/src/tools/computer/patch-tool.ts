@@ -99,11 +99,11 @@ export function createPatchTool(context: ComputerToolContext): AgentTool<typeof 
           (params.mode ?? 'replace') === 'patch'
             ? await applyV4A(computer, params, signal)
             : await applyReplace(computer, params, signal)
-        resetPatchFailures(context.executionScopeId, result.details.filesModified)
+        resetPatchFailures(context.executionScopeID, result.details.filesModified)
         return result
       } catch (error) {
         if (error instanceof PatchMatchError) {
-          throw new Error(recordPatchFailure(context.executionScopeId, error.path, error.message))
+          throw new Error(recordPatchFailure(context.executionScopeID, error.path, error.message))
         }
         throw error
       }
@@ -348,22 +348,22 @@ function patchCwd(params: Pick<PatchInput, 'cwd' | 'workdir'>): string | undefin
 /**
  * Builds the retry-counter key for patch failures in one execution scope.
  */
-function patchFailureKey(scopeId: string, path: string): string {
-  return `${scopeId}\0${path}`
+function patchFailureKey(scopeID: string, path: string): string {
+  return `${scopeID}\0${path}`
 }
 
 /**
  * Clears repeated-failure counters after a successful edit.
  */
-function resetPatchFailures(scopeId: string, paths: string[]): void {
-  for (const path of paths) patchFailureCounts.delete(patchFailureKey(scopeId, path))
+function resetPatchFailures(scopeID: string, paths: string[]): void {
+  for (const path of paths) patchFailureCounts.delete(patchFailureKey(scopeID, path))
 }
 
 /**
  * Records a patch-match failure and escalates guidance after repeated misses.
  */
-function recordPatchFailure(scopeId: string, path: string, message: string): string {
-  const key = patchFailureKey(scopeId, path)
+function recordPatchFailure(scopeID: string, path: string, message: string): string {
+  const key = patchFailureKey(scopeID, path)
   const count = (patchFailureCounts.get(key) ?? 0) + 1
   patchFailureCounts.set(key, count)
   if (count < 3) return message

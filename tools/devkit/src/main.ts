@@ -2,7 +2,7 @@ import { Crust } from '@crustjs/core'
 import { didYouMeanPlugin, helpPlugin } from '@crustjs/plugins'
 import { analyzeCommand } from './commands/analyze'
 import { agentComputerTestCommand } from './commands/agent-computer-test'
-import { appDbCommand } from './commands/app-db'
+import { appDBCommand } from './commands/app-db'
 import { devCommand } from './commands/dev'
 import { envSetupCommand } from './commands/env-setup'
 import { externalServicesCommand } from './commands/external-services'
@@ -31,7 +31,7 @@ let app = new Crust('bun kit')
 
 app = app.command(externalServicesCommand())
 app = app.command(envSetupCommand())
-app = app.command(appDbCommand())
+app = app.command(appDBCommand())
 app = app.command(agentComputerTestCommand())
 app = app.command(devCommand())
 app = app.command(logsCommand())

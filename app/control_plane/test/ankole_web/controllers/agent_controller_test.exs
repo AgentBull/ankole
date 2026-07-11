@@ -42,7 +42,7 @@ defmodule AnkoleWeb.AgentControllerTest do
       })
 
     assert %{
-             "data" => %{
+             "agent" => %{
                "uid" => "console-agent",
                "display_name" => "Console Agent",
                "role" => "Research Operator",
@@ -60,7 +60,7 @@ defmodule AnkoleWeb.AgentControllerTest do
       |> recycle_api()
       |> get(~p"/api/v1/agents")
 
-    assert %{"data" => agents} = json_response(conn, 200)
+    assert %{"agents" => agents} = json_response(conn, 200)
     assert Enum.any?(agents, &(&1["uid"] == "console-agent"))
 
     conn =
@@ -73,7 +73,7 @@ defmodule AnkoleWeb.AgentControllerTest do
       })
 
     assert %{
-             "data" => %{
+             "agent" => %{
                "uid" => "console-agent",
                "display_name" => "Console Agent Updated",
                "role" => "Customer Success Operator",
@@ -86,14 +86,15 @@ defmodule AnkoleWeb.AgentControllerTest do
       |> recycle_api()
       |> get(~p"/api/v1/agents/console-agent")
 
-    assert %{"data" => %{"display_name" => "Console Agent Updated"}} = json_response(conn, 200)
+    assert %{"agent" => %{"display_name" => "Console Agent Updated"}} =
+             json_response(conn, 200)
 
     conn =
       conn
       |> recycle_api()
       |> delete(~p"/api/v1/agents/console-agent")
 
-    assert %{"data" => %{"uid" => "console-agent", "status" => "disabled"}} =
+    assert %{"agent" => %{"uid" => "console-agent", "status" => "disabled"}} =
              json_response(conn, 200)
 
     conn =
@@ -101,7 +102,7 @@ defmodule AnkoleWeb.AgentControllerTest do
       |> recycle_api()
       |> get(~p"/api/v1/agents")
 
-    assert %{"data" => agents} = json_response(conn, 200)
+    assert %{"agents" => agents} = json_response(conn, 200)
     refute Enum.any?(agents, &(&1["uid"] == "console-agent"))
   end
 

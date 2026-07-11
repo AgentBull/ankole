@@ -1,4 +1,4 @@
-defmodule Ankole.E2E.FakeFeishu.WsHandler do
+defmodule Ankole.E2E.FakeFeishu.WebSocketHandler do
   @moduledoc """
   WebSock handler for one fake Feishu long connection.
 

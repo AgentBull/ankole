@@ -378,12 +378,12 @@ describe('@ankole/kernel', () => {
         type: 'human',
         status: 'active'
       },
-      staticGroupIds: [],
+      staticGroupIDs: [],
       computedGroups: [],
       grants: [
         {
           id: 'grant-1',
-          principalUid: 'alice',
+          principalUID: 'alice',
           resourcePattern: 'workspace:**',
           action: 'read',
           condition: 'context.request.source == "test"'
@@ -397,7 +397,7 @@ describe('@ankole/kernel', () => {
     expect(decision).toMatchObject({
       status: 'allow',
       diagnostics: [],
-      effectiveGroupIds: []
+      effectiveGroupIDs: []
     })
   })
 })
@@ -429,16 +429,16 @@ function actorEventEnvelope() {
   }
 }
 
-function workerReadyEnvelope(workerId: string) {
+function workerReadyEnvelope(workerID: string) {
   return {
     protocol_version: 1,
-    message_id: `worker-ready-${workerId}`,
+    message_id: `worker-ready-${workerID}`,
     lane: 'LANE_CONTROL',
     durability: 'CONTROL_EPHEMERAL',
     body: {
       type: 'worker_ready',
       worker_ready: {
-        worker_id: workerId,
+        worker_id: workerID,
         runtime: 'bun',
         version: 'test',
         capacity_json: { available_turn_slots: 1 }

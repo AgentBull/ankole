@@ -1,4 +1,4 @@
-defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayApiKeyBroker do
+defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker do
   @moduledoc """
   RuntimeFabric broker for agent-scoped AIGateway API keys.
 

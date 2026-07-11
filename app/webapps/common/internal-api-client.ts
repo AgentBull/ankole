@@ -1,26 +1,26 @@
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 
-type InternalApiRequestOptions = {
-  body?: JsonObject
+type InternalAPIRequestOptions = {
+  body?: JSONObject
   method?: 'GET' | 'POST' | 'PUT'
 }
 
 /** Sends a same-origin GET request to the session-backed internal SPA API. */
-export async function internalApiGet<T>(path: string): Promise<T> {
-  return internalApiRequest<T>(path, { method: 'GET' })
+export async function internalAPIGet<T>(path: string): Promise<T> {
+  return internalAPIRequest<T>(path, { method: 'GET' })
 }
 
 /** Sends a same-origin POST request to the session-backed internal SPA API. */
-export async function internalApiPost<T>(path: string, body?: JsonObject): Promise<T> {
-  return internalApiRequest<T>(path, { method: 'POST', body })
+export async function internalAPIPost<T>(path: string, body?: JSONObject): Promise<T> {
+  return internalAPIRequest<T>(path, { method: 'POST', body })
 }
 
 /** Sends a same-origin PUT request to the session-backed internal SPA API. */
-export async function internalApiPut<T>(path: string, body?: JsonObject): Promise<T> {
-  return internalApiRequest<T>(path, { method: 'PUT', body })
+export async function internalAPIPut<T>(path: string, body?: JSONObject): Promise<T> {
+  return internalAPIRequest<T>(path, { method: 'PUT', body })
 }
 
-async function internalApiRequest<T>(path: string, options: InternalApiRequestOptions): Promise<T> {
+async function internalAPIRequest<T>(path: string, options: InternalAPIRequestOptions): Promise<T> {
   const headers = new Headers()
   const csrfToken = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content
 

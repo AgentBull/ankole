@@ -57,7 +57,7 @@ defmodule AnkoleWeb.SubagentDelegationControllerTest do
     conn = bearer_conn(conn)
     first_page = conn |> get(~p"/api/v1/delegations?limit=2") |> json_response(200)
 
-    assert Enum.map(first_page["data"], & &1["id"]) == [newest.id, middle.id]
+    assert Enum.map(first_page["delegations"], & &1["id"]) == [newest.id, middle.id]
     assert is_binary(first_page["next_cursor"])
 
     second_page =
@@ -66,7 +66,7 @@ defmodule AnkoleWeb.SubagentDelegationControllerTest do
       |> get(~p"/api/v1/delegations?limit=2&cursor=#{first_page["next_cursor"]}")
       |> json_response(200)
 
-    assert Enum.map(second_page["data"], & &1["id"]) == [oldest.id]
+    assert Enum.map(second_page["delegations"], & &1["id"]) == [oldest.id]
     assert second_page["next_cursor"] == nil
 
     filtered =
@@ -75,14 +75,14 @@ defmodule AnkoleWeb.SubagentDelegationControllerTest do
       |> get(~p"/api/v1/delegations?agent=#{agent.uid}&status=queued")
       |> json_response(200)
 
-    assert Enum.map(filtered["data"], & &1["id"]) == [middle.id, oldest.id]
+    assert Enum.map(filtered["delegations"], & &1["id"]) == [middle.id, oldest.id]
 
     detail =
       conn
       |> recycle_bearer()
       |> get(~p"/api/v1/delegations/#{middle.id}")
       |> json_response(200)
-      |> Map.fetch!("data")
+      |> Map.fetch!("delegation")
 
     assert detail["title"] == middle.title
     assert [%{"seq" => 0, "event_type" => "thread_started"}] = detail["events"]
@@ -92,7 +92,7 @@ defmodule AnkoleWeb.SubagentDelegationControllerTest do
       |> recycle_bearer()
       |> post(~p"/api/v1/delegations/#{middle.id}/cancel")
       |> json_response(200)
-      |> Map.fetch!("data")
+      |> Map.fetch!("delegation")
 
     assert cancelled["status"] == "stopped"
     assert cancelled["metadata"]["cancel_requested_by"] =~ "operator:"

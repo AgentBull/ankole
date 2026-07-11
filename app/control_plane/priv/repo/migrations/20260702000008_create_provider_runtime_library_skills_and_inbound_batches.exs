@@ -129,7 +129,7 @@ defmodule Ankole.Repo.Migrations.CreateProviderRuntimeLibrarySkillsAndInboundBat
     })
 
     # Built-in library sync state records source hashes without duplicating every file.
-    create table(:library_builtin_sync_state, primary_key: false) do
+    create table(:library_builtin_sync_states, primary_key: false) do
       add :name, :text, primary_key: true
       add :content_hash, :text, null: false
       add :synced_at, :utc_datetime_usec
@@ -138,23 +138,23 @@ defmodule Ankole.Repo.Migrations.CreateProviderRuntimeLibrarySkillsAndInboundBat
       timestamps(type: :utc_datetime_usec)
     end
 
-    create constraint(:library_builtin_sync_state, :library_builtin_sync_state_name_present,
+    create constraint(:library_builtin_sync_states, :library_builtin_sync_states_name_present,
              check: "length(btrim(name)) > 0"
            )
 
     create constraint(
-             :library_builtin_sync_state,
-             :library_builtin_sync_state_content_hash_present,
+             :library_builtin_sync_states,
+             :library_builtin_sync_states_content_hash_present,
              check: "length(btrim(content_hash)) > 0"
            )
 
-    create constraint(:library_builtin_sync_state, :library_builtin_sync_state_metadata_object,
+    create constraint(:library_builtin_sync_states, :library_builtin_sync_states_metadata_object,
              check: "jsonb_typeof(metadata) = 'object'"
            )
 
-    comment_table(:library_builtin_sync_state, "Sync checkpoints for built-in library content.")
+    comment_table(:library_builtin_sync_states, "Sync checkpoints for built-in library content.")
 
-    comment_columns(:library_builtin_sync_state, %{
+    comment_columns(:library_builtin_sync_states, %{
       name: "Built-in content bundle or source name.",
       content_hash: "Hash last observed for the built-in content source.",
       synced_at: "Time the built-in content source was last synchronized.",
@@ -372,7 +372,7 @@ defmodule Ankole.Repo.Migrations.CreateProviderRuntimeLibrarySkillsAndInboundBat
     drop table(:signal_gateway_inbound_batches)
     drop table(:agent_skills)
     drop table(:agent_skill_overlays)
-    drop table(:library_builtin_sync_state)
+    drop table(:library_builtin_sync_states)
     drop table(:agent_library_container_entries)
     drop table(:ai_gateway_providers)
   end

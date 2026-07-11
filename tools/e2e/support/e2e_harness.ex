@@ -135,21 +135,21 @@ defmodule Ankole.E2E.Harness do
       )
 
     {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
-    old_env = Application.fetch_env(:ankole, Ankole.SignalsGateway.ActorRuntime.AIGatewayApiKeyBroker)
+    old_env = Application.fetch_env(:ankole, Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker)
 
     # The Docker worker cannot reach the host's localhost; the broker setting
     # points it at the real Phoenix endpoint exposed on the Docker host gateway.
-    Application.put_env(:ankole, Ankole.SignalsGateway.ActorRuntime.AIGatewayApiKeyBroker,
+    Application.put_env(:ankole, Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker,
       worker_facing_base_url: "http://host.docker.internal:#{port}/api/v1/ai-gateway"
     )
 
     on_exit(fn ->
       case old_env do
         {:ok, value} ->
-          Application.put_env(:ankole, Ankole.SignalsGateway.ActorRuntime.AIGatewayApiKeyBroker, value)
+          Application.put_env(:ankole, Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker, value)
 
         :error ->
-          Application.delete_env(:ankole, Ankole.SignalsGateway.ActorRuntime.AIGatewayApiKeyBroker)
+          Application.delete_env(:ankole, Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker)
       end
     end)
   end
@@ -166,7 +166,7 @@ defmodule Ankole.E2E.Harness do
   Starts the full worker e2e stack one suite test needs:
 
   fake OpenAI upstream + fake Feishu platform + agent domain (bindings with
-  `baseUrl` pointing at fake Feishu) + RuntimeFabric router + AIGateway HTTP
+  `baseURL` pointing at fake Feishu) + RuntimeFabric router + AIGateway HTTP
   server + one real Docker worker, then waits for WS connections and worker
   admission. Returns the ctx map the scenario functions consume.
 
@@ -463,23 +463,23 @@ defmodule Ankole.E2E.Harness do
 
   @doc """
   Creates one enabled Lark binding plus its encrypted AppConfigure chat config
-  pointing `baseUrl` at the fake Feishu server.
+  pointing `baseURL` at the fake Feishu server.
   """
   def upsert_lark_binding!(agent_uid, name, policy, fake_feishu, opts) do
     app_id = Keyword.fetch!(opts, :app_id)
 
     config =
       %{
-        "appId" => app_id,
+        "appID" => app_id,
         "appSecret" => @app_secret,
         "domain" => "feishu",
-        "baseUrl" => fake_feishu.base_url,
+        "baseURL" => fake_feishu.base_url,
         "platformSubjectNamespace" => "lark-chaos",
         "userName" => Keyword.get(opts, :user_name, "Lark Chaos Bot"),
         "group_message_mode" => Keyword.fetch!(opts, :group_message_mode)
       }
-      |> maybe_put_config("botOpenId", Keyword.get(opts, :bot_open_id, "ou_bot"))
-      |> maybe_put_config("botUserId", Keyword.get(opts, :bot_user_id))
+      |> maybe_put_config("botOpenID", Keyword.get(opts, :bot_open_id, "ou_bot"))
+      |> maybe_put_config("botUserID", Keyword.get(opts, :bot_user_id))
 
     assert {:ok, _stored} =
              AppConfigure.put_global_by_key(LarkConfig.chat_config_key(name), config)
@@ -982,7 +982,7 @@ defmodule Ankole.E2E.Harness do
       |> String.split("\n", trim: true)
       |> Enum.reduce(%{}, fn line, acc ->
         case String.split(line, "=", parts: 2) do
-          ["background_id", background_id] -> Map.put(acc, "backgroundId", background_id)
+          ["background_id", background_id] -> Map.put(acc, "backgroundID", background_id)
           ["status", status] -> Map.put(acc, "status", status)
           ["exit_code", exit_code] -> Map.put(acc, "exitCode", String.to_integer(exit_code))
           _other -> acc

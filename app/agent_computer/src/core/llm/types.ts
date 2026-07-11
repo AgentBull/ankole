@@ -1,5 +1,5 @@
 import OpenAI from 'openai'
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import type { z } from 'zod'
 import type { ResponseCreateParams, ResponseFunctionToolCall } from 'openai/resources/responses/responses'
 
@@ -40,7 +40,7 @@ export interface AssistantMessage {
 
 export interface ToolResultMessage {
   role: 'tool'
-  toolCallId: string
+  toolCallID: string
   result: string
 }
 
@@ -91,7 +91,7 @@ export interface ToolDefinition<TSchema extends z.ZodType = z.ZodType> {
   name: string
   description?: string
   parameters: TSchema
-  execute?: (args: z.infer<TSchema>, opts: { toolCallId: string }) => Promise<unknown> | unknown
+  execute?: (args: z.infer<TSchema>, opts: { toolCallID: string }) => Promise<unknown> | unknown
 }
 
 export type ToolSet = Record<string, ToolDefinition>
@@ -113,22 +113,22 @@ export interface CallModelOptions {
 export type ModelTurnCallOptions = Omit<CallModelOptions, 'stateful' | 'abortSignal' | 'onActivity' | 'onTextDelta'>
 
 export type StatefulResponseContext = {
-  actorEventId: string
-  conversationId?: string
-  previousResponseId?: string
+  actorEventID: string
+  conversationID?: string
+  previousResponseID?: string
   truncation?: 'auto' | 'disabled'
-  metadata?: JsonObject
+  metadata?: JSONObject
 }
 
 export interface ModelCallResult {
   message: AssistantMessage
   functionCalls: ResponseFunctionToolCall[]
   hasToolCalls: boolean
-  responseId?: string
+  responseID?: string
 }
 
 export interface ToolResultsRecordResult {
-  responseId: string
+  responseID: string
 }
 
 export interface ModelTurn {

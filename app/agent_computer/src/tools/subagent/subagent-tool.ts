@@ -1,11 +1,11 @@
 import { match } from '@pleisto/active-support'
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import { z } from 'zod'
-import { truncateUtf8Safe, utf8ByteLength } from '../../common/text-sanitize'
+import { truncateUTF8Safe, utf8ByteLength } from '../../common/text-sanitize'
 import type { AgentTool, AgentToolResult } from '../../core'
 import type { TurnStart } from '../../lanes/actor_lane'
 import {
-  assertRpcResponse,
+  assertRPCResponse,
   type SubagentDelegationListResponse,
   type SubagentDelegationResponse
 } from '../../lanes/rpc_lane'
@@ -72,8 +72,8 @@ export function createSubagentTool(opts: SubagentToolOptions): AgentTool<typeof 
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: true,
-    async execute(toolCallId, params): Promise<AgentToolResult<SubagentToolDetails>> {
-      const details = await executeSubagent(toolCallId, params, opts)
+    async execute(toolCallID, params): Promise<AgentToolResult<SubagentToolDetails>> {
+      const details = await executeSubagent(toolCallID, params, opts)
       return {
         content: [{ type: 'text', text: visibleResult(details) }],
         details
@@ -83,43 +83,43 @@ export function createSubagentTool(opts: SubagentToolOptions): AgentTool<typeof 
 }
 
 async function executeSubagent(
-  toolCallId: string,
+  toolCallID: string,
   params: SubagentParams,
   opts: SubagentToolOptions
 ): Promise<SubagentToolDetails> {
-  const requestId = `subagent-${params.action}-${crypto.randomUUID()}`
+  const requestID = `subagent-${params.action}-${crypto.randomUUID()}`
   const turn = opts.turnStart.turn
 
   return match(params.action)
     .with('start', async () => {
       const request = requireRequester(opts.createSubagentDelegation, 'start')
       const response = await request({
-        request_id: requestId,
+        request_id: requestID,
         turn,
-        tool_call_id: toolCallId,
+        tool_call_id: toolCallID,
         title: requiredText(params.title, 'start requires title'),
         prompt: requiredText(params.brief, 'start requires brief'),
         ...(params.workdir ? { workdir: params.workdir } : {}),
-        ...(params.output_schema ? { output_schema: params.output_schema as JsonObject } : {}),
-        ...(params.output_schema ? { metadata: { output_schema: params.output_schema as JsonObject } } : {})
+        ...(params.output_schema ? { output_schema: params.output_schema as JSONObject } : {}),
+        ...(params.output_schema ? { metadata: { output_schema: params.output_schema as JSONObject } } : {})
       })
-      assertRpcResponse<SubagentDelegationResponse>(response, 'subagent start rejected')
+      assertRPCResponse<SubagentDelegationResponse>(response, 'subagent start rejected')
       return response
     })
     .with('list', async () => {
       const request = requireRequester(opts.listSubagentDelegations, 'list')
-      const response = await request({ request_id: requestId, turn })
-      assertRpcResponse<SubagentDelegationListResponse>(response, 'subagent list rejected')
+      const response = await request({ request_id: requestID, turn })
+      assertRPCResponse<SubagentDelegationListResponse>(response, 'subagent list rejected')
       return response
     })
     .with('status', async () => {
       const request = requireRequester(opts.getSubagentDelegation, 'status')
       const response = await request({
-        request_id: requestId,
+        request_id: requestID,
         turn,
-        delegation_id: requiredDelegationId(params)
+        delegation_id: requiredDelegationID(params)
       })
-      assertRpcResponse<SubagentDelegationResponse>(response, 'subagent status rejected')
+      assertRPCResponse<SubagentDelegationResponse>(response, 'subagent status rejected')
       return response
     })
     .with('steer', async () => {
@@ -128,24 +128,24 @@ async function executeSubagent(
         throw new Error('steer requires text or answers')
       }
       const response = await request({
-        request_id: requestId,
+        request_id: requestID,
         turn,
-        delegation_id: requiredDelegationId(params),
+        delegation_id: requiredDelegationID(params),
         ...(params.text ? { text: params.text } : {}),
         ...(params.answers ? { answers: params.answers } : {})
       })
-      assertRpcResponse<SubagentDelegationResponse>(response, 'subagent steer rejected')
+      assertRPCResponse<SubagentDelegationResponse>(response, 'subagent steer rejected')
       return response
     })
     .with('stop', async () => {
       const request = requireRequester(opts.stopSubagentDelegation, 'stop')
       const response = await request({
-        request_id: requestId,
+        request_id: requestID,
         turn,
-        delegation_id: requiredDelegationId(params),
+        delegation_id: requiredDelegationID(params),
         ...(params.text ? { reason: params.text } : {})
       })
-      assertRpcResponse<SubagentDelegationResponse>(response, 'subagent stop rejected')
+      assertRPCResponse<SubagentDelegationResponse>(response, 'subagent stop rejected')
       return response
     })
     .exhaustive()
@@ -162,7 +162,7 @@ function requiredText(value: string | undefined, error: string): string {
   return text
 }
 
-function requiredDelegationId(params: SubagentParams): string {
+function requiredDelegationID(params: SubagentParams): string {
   if (!params.delegation_id) throw new Error(`${params.action} requires delegation_id`)
   return params.delegation_id
 }
@@ -184,17 +184,17 @@ function visibleResult(details: SubagentToolDetails): string {
   if (details.workdir) lines.push(`workdir: ${details.workdir}`)
   if (details.runtime_thread_id) lines.push(`runtime_thread_id: ${details.runtime_thread_id}`)
   if (details.last_event_seq !== undefined) lines.push(`last_event_seq: ${details.last_event_seq}`)
-  if (details.result && Object.keys(details.result).length > 0) lines.push(`result: ${boundedJson(details.result)}`)
-  if (details.error && Object.keys(details.error).length > 0) lines.push(`error: ${boundedJson(details.error)}`)
+  if (details.result && Object.keys(details.result).length > 0) lines.push(`result: ${boundedJSON(details.result)}`)
+  if (details.error && Object.keys(details.error).length > 0) lines.push(`error: ${boundedJSON(details.error)}`)
   if (details.status === 'waiting_on_user' && details.metadata?.pending_user_input) {
     lines.push(`pending_user_input: ${JSON.stringify(details.metadata.pending_user_input)}`)
   }
   return lines.join('\n')
 }
 
-function boundedJson(value: JsonObject): string {
+function boundedJSON(value: JSONObject): string {
   const text = JSON.stringify(value)
   const suffix = '...[truncated]'
   if (utf8ByteLength(text) <= 16_384) return text
-  return `${truncateUtf8Safe(text, 16_384 - utf8ByteLength(suffix))}${suffix}`
+  return `${truncateUTF8Safe(text, 16_384 - utf8ByteLength(suffix))}${suffix}`
 }

@@ -13,7 +13,7 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
   use Ecto.Migration
 
   def change do
-    # Provider-facing enum values stay constrained in Postgres for replay and recovery.
+    # Provider-facing enum values stay constrained in PostgreSQL for replay and recovery.
     execute(
       """
       CREATE TYPE signal_channel_kind AS ENUM (
@@ -376,7 +376,7 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
 
     # The outbox stores non-streamed provider-visible side effects. Streamed final AI
     # replies are sent as live chunk process events and mirrored after provider success.
-    create table(:signal_gateway_outbox, primary_key: false) do
+    create table(:signal_gateway_outbox_entries, primary_key: false) do
       add :agent_uid,
           references(:principals, column: :uid, type: :text, on_delete: :delete_all),
           primary_key: true
@@ -407,42 +407,50 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
       timestamps(type: :utc_datetime_usec)
     end
 
-    create index(:signal_gateway_outbox, [:status, :next_attempt_at])
+    create index(:signal_gateway_outbox_entries, [:status, :next_attempt_at])
 
-    create index(:signal_gateway_outbox, [:signal_channel_id, :created_source_entry_id],
-             name: :signal_gateway_outbox_channel_created_entry_index
+    create index(:signal_gateway_outbox_entries, [:signal_channel_id, :created_source_entry_id],
+             name: :signal_gateway_outbox_entries_channel_created_entry_index
            )
 
-    create index(:signal_gateway_outbox, [:source_actor_event_id],
-             name: :signal_gateway_outbox_source_actor_event_id_index
+    create index(:signal_gateway_outbox_entries, [:source_actor_event_id],
+             name: :signal_gateway_outbox_entries_source_actor_event_id_index
            )
 
-    create index(:signal_gateway_outbox, [:ai_message_id],
-             name: :signal_gateway_outbox_ai_message_id_index
+    create index(:signal_gateway_outbox_entries, [:ai_message_id],
+             name: :signal_gateway_outbox_entries_ai_message_id_index
            )
 
-    create constraint(:signal_gateway_outbox, :signal_gateway_outbox_payload_object,
+    create constraint(
+             :signal_gateway_outbox_entries,
+             :signal_gateway_outbox_entries_payload_object,
              check: "jsonb_typeof(payload) = 'object'"
            )
 
-    create constraint(:signal_gateway_outbox, :signal_gateway_outbox_last_error_object,
+    create constraint(
+             :signal_gateway_outbox_entries,
+             :signal_gateway_outbox_entries_last_error_object,
              check: "jsonb_typeof(last_error) = 'object'"
            )
 
-    create constraint(:signal_gateway_outbox, :signal_gateway_outbox_recovery_state_object,
+    create constraint(
+             :signal_gateway_outbox_entries,
+             :signal_gateway_outbox_entries_recovery_state_object,
              check: "jsonb_typeof(recovery_state) = 'object'"
            )
 
-    create constraint(:signal_gateway_outbox, :signal_gateway_outbox_attempts_non_negative,
+    create constraint(
+             :signal_gateway_outbox_entries,
+             :signal_gateway_outbox_entries_attempts_non_negative,
              check: "attempt_count >= 0 AND max_attempts > 0"
            )
 
     comment_table(
-      :signal_gateway_outbox,
+      :signal_gateway_outbox_entries,
       "Durable provider-visible side-effect intents committed by actor events."
     )
 
-    comment_columns(:signal_gateway_outbox, %{
+    comment_columns(:signal_gateway_outbox_entries, %{
       agent_uid: "Agent principal that owns the outbound side effect.",
       binding_name: "Output binding that should dispatch the side effect.",
       outbound_key: "Agent-provided idempotency key for the side effect.",

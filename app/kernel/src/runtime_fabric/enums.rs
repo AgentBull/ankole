@@ -3,13 +3,14 @@ use serde_json::Value;
 use crate::common::{KernelError, KernelResult};
 
 use super::{json::normalized_enum, proto};
+use proto::Lane::Rpc as RPCLane;
 
 pub(super) fn lane_from_json(value: &Value) -> KernelResult<proto::Lane> {
     match normalized_enum(value)?.as_str() {
         "lane_control" | "control" => Ok(proto::Lane::Control),
         "lane_turn" | "turn" => Ok(proto::Lane::Turn),
         "lane_progress" | "progress" => Ok(proto::Lane::Progress),
-        "lane_rpc" | "rpc" => Ok(proto::Lane::Rpc),
+        "lane_rpc" | "rpc" => Ok(RPCLane),
         other => Err(KernelError::new(format!("unsupported lane: {other}"))),
     }
 }
@@ -74,7 +75,7 @@ pub(super) fn lane_name(lane: proto::Lane) -> &'static str {
         proto::Lane::Control => "LANE_CONTROL",
         proto::Lane::Turn => "LANE_TURN",
         proto::Lane::Progress => "LANE_PROGRESS",
-        proto::Lane::Rpc => "LANE_RPC",
+        RPCLane => "LANE_RPC",
         proto::Lane::Unspecified => "LANE_UNSPECIFIED",
     }
 }

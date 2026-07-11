@@ -16,7 +16,7 @@ defmodule Ankole.Application do
     # failed child in place, but the initial boot still proceeds top to bottom, so
     # anything later may assume earlier children are already up.
     #
-    #   - Repo before AppConfigure: durable config is read from Postgres.
+    #   - Repo before AppConfigure: durable config is read from PostgreSQL.
     #   - AppConfigure.Registry + Cache before Plugins/I18n: those subsystems read
     #     and register AppConfigure definitions during their own `init/1`.
     #   - Plugins.Registry before Plugins.Supervisor: the registry discovers and

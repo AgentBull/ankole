@@ -246,12 +246,12 @@ defmodule Ankole.KernelTest do
           type: "human",
           status: "active"
         },
-        staticGroupIds: [],
+        staticGroupIDs: [],
         computedGroups: [],
         grants: [
           %{
             id: "grant-1",
-            principalUid: "alice",
+            principalUID: "alice",
             resourcePattern: "workspace:**",
             action: "read",
             condition: ~s(context.request.source == "test")
@@ -264,7 +264,7 @@ defmodule Ankole.KernelTest do
 
     assert decision["status"] == "allow"
     assert decision["diagnostics"] == []
-    assert decision["effectiveGroupIds"] == []
+    assert decision["effectiveGroupIDs"] == []
   end
 
   test "signals gateway CEL filters evaluate normalized contexts" do
@@ -324,12 +324,12 @@ defmodule Ankole.KernelTest do
           type: "human",
           status: "active"
         },
-        staticGroupIds: [],
+        staticGroupIDs: [],
         computedGroups: [],
         grants: [
           %{
             id: "grant-1",
-            principalUid: "alice",
+            principalUID: "alice",
             resourcePattern: "workspace:**",
             action: "read",
             condition: "true"

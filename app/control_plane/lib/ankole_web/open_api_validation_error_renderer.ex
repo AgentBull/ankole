@@ -1,4 +1,6 @@
-defmodule AnkoleWeb.OpenApiValidationErrorRenderer do
+defmodule AnkoleWeb.OpenAPIValidationErrorRenderer do
+  alias OpenApiSpex, as: OpenAPISpex
+
   @moduledoc """
   Renders OpenAPI validation failures in the console API error envelope.
   """
@@ -11,7 +13,7 @@ defmodule AnkoleWeb.OpenApiValidationErrorRenderer do
   def init(errors), do: errors
 
   @impl Plug
-  # Reshapes OpenApiSpex's validation errors into the same `%{error: %{code,
+  # Reshapes OpenAPISpex's validation errors into the same `%{error: %{code,
   # message, details}}` envelope the controllers emit by hand, so clients get one
   # consistent error shape whether a request fails schema validation or business
   # logic. Always responds 422.
@@ -21,7 +23,7 @@ defmodule AnkoleWeb.OpenApiValidationErrorRenderer do
       |> List.wrap()
       |> Enum.map(fn error ->
         %{
-          "path" => OpenApiSpex.path_to_string(error),
+          "path" => OpenAPISpex.path_to_string(error),
           "message" => to_string(error)
         }
       end)

@@ -7,6 +7,9 @@ use super::{
     json::{empty_json_payload_bytes, normalized_name},
     proto,
 };
+use proto::envelope::Body::{
+    RpcError as RPCErrorBody, RpcRequest as RPCRequestBody, RpcResponse as RPCResponseBody,
+};
 
 // Validates protocol invariants that must be identical for Elixir and Bun
 // callers. Host code should not need to duplicate lane, durability, or
@@ -47,13 +50,13 @@ pub(super) fn validate_envelope(envelope: &proto::Envelope) -> KernelResult<()> 
                 proto::envelope::Body::WorkerProgress(progress) => {
                     validate_worker_progress(progress)
                 }
-                proto::envelope::Body::RpcRequest(request) => {
+                RPCRequestBody(request) => {
                     validate_rpc_correlation(&envelope.correlation_id, &request.request_id)
                 }
-                proto::envelope::Body::RpcResponse(response) => {
+                RPCResponseBody(response) => {
                     validate_rpc_correlation(&envelope.correlation_id, &response.request_id)
                 }
-                proto::envelope::Body::RpcError(error) => {
+                RPCErrorBody(error) => {
                     validate_rpc_correlation(&envelope.correlation_id, &error.request_id)
                 }
                 _body => Ok(()),
@@ -165,14 +168,14 @@ fn validate_body_required_fields(body: &proto::envelope::Body) -> KernelResult<(
             validate_turn_completion_outcome(payload.outcome)
         }
         proto::envelope::Body::ControlShutdown(_payload) => Ok(()),
-        proto::envelope::Body::RpcRequest(payload) => {
+        RPCRequestBody(payload) => {
             require_non_empty(&payload.request_id, "rpc_request.request_id")?;
             require_non_empty(&payload.method, "rpc_request.method")
         }
-        proto::envelope::Body::RpcResponse(payload) => {
+        RPCResponseBody(payload) => {
             require_non_empty(&payload.request_id, "rpc_response.request_id")
         }
-        proto::envelope::Body::RpcError(payload) => {
+        RPCErrorBody(payload) => {
             require_non_empty(&payload.request_id, "rpc_error.request_id")?;
             require_non_empty(&payload.code, "rpc_error.code")
         }

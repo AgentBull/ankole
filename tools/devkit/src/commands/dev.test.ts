@@ -5,7 +5,7 @@ import {
   buildManagedWorkerPsArgs,
   buildManagedWorkerRmArgs,
   buildWorkerDockerArgs,
-  parseDockerContainerIds
+  parseDockerContainerIDs
 } from './dev'
 import type { WorkerBootstrapSpec } from '../worker-bootstrap'
 import { mixCommand } from '../utils'
@@ -87,7 +87,7 @@ describe('managed worker cleanup args', () => {
   })
 
   test('removes only ids returned by the guarded lookup', () => {
-    expect(parseDockerContainerIds('abc\n\n def \n')).toEqual(['abc', 'def'])
+    expect(parseDockerContainerIDs('abc\n\n def \n')).toEqual(['abc', 'def'])
     expect(buildManagedWorkerRmArgs(['abc', 'def'])).toEqual(['rm', '-f', 'abc', 'def'])
   })
 })

@@ -14,10 +14,10 @@ export function materializeCodexConfig(input: {
   sharedFsRoot: string
   runtime: CodexRuntimeConfig
 }): MaterializedCodexConfig {
-  const safeAccountId = sanitizePathSegment(input.runtime.accountId, { replacement: '_' })
-  if (safeAccountId !== input.runtime.accountId) throw new Error('Codex account id is not a safe path segment')
+  const safeAccountID = sanitizePathSegment(input.runtime.accountID, { replacement: '_' })
+  if (safeAccountID !== input.runtime.accountID) throw new Error('Codex account id is not a safe path segment')
 
-  const codexHome = join(input.sharedFsRoot, '.ankole', 'codex', safeAccountId)
+  const codexHome = join(input.sharedFsRoot, '.ankole', 'codex', safeAccountID)
   mkdirSync(codexHome, { recursive: true, mode: 0o700 })
   chmodSync(codexHome, 0o700)
 
@@ -38,7 +38,7 @@ export function materializeCodexConfig(input: {
 
   atomicWrite(join(codexHome, 'config.toml'), codexConfigToml())
   const authPath = join(codexHome, 'auth.json')
-  atomicWrite(authPath, input.runtime.authJson)
+  atomicWrite(authPath, input.runtime.authJSON)
   return {
     codexHome,
     authPath,
@@ -47,7 +47,7 @@ export function materializeCodexConfig(input: {
   }
 }
 
-export function codexConfigCliOverrides(): string[] {
+export function codexConfigCLIOverrides(): string[] {
   return [
     '-c',
     'approval_policy="never"',
@@ -58,7 +58,7 @@ export function codexConfigCliOverrides(): string[] {
   ]
 }
 
-function codexConfigToml(baseUrl?: string): string {
+function codexConfigToml(baseURL?: string): string {
   const common = `approval_policy = "never"
 sandbox_mode = "danger-full-access"
 cli_auth_credentials_store = "file"
@@ -72,9 +72,9 @@ enable_mcp_apps = false
 tool_suggest = false
 plugins = false
 `
-  if (!baseUrl) return common
+  if (!baseURL) return common
 
-  const normalizedBaseUrl = baseUrl.replace(/\/+$/, '')
+  const normalizedBaseURL = baseURL.replace(/\/+$/, '')
   return `model = "coding"
 model_provider = "ankole_aigateway"
 model_reasoning_effort = "xhigh"
@@ -82,7 +82,7 @@ ${common}
 
 [model_providers.ankole_aigateway]
 name = "Ankole AIGateway"
-base_url = ${JSON.stringify(normalizedBaseUrl)}
+base_url = ${JSON.stringify(normalizedBaseURL)}
 env_key = "ANKOLE_AIGATEWAY_API_KEY"
 wire_api = "responses"
 supports_websockets = true

@@ -3,7 +3,7 @@ defmodule Ankole.SignalsGateway.ClarifyPrompt do
   Extracts a turn-ending `clarify` tool result into portable interactive output.
   """
 
-  alias Ankole.Ecto.JsonPayload
+  alias Ankole.Ecto.JSONPayload
   alias Ankole.SignalsGateway.ToolOutput
 
   @tool_name "clarify"
@@ -84,7 +84,7 @@ defmodule Ankole.SignalsGateway.ClarifyPrompt do
   defp normalize_choices(_choices), do: {:error, :choices_invalid}
 
   defp normalize_choice(choice, index) do
-    with {:ok, choice} <- JsonPayload.normalize_map(choice),
+    with {:ok, choice} <- JSONPayload.normalize_map(choice),
          {:ok, label} <- required_text(choice, "label") do
       {:ok,
        %{

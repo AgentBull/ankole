@@ -476,8 +476,8 @@ defmodule Ankole.AuthZ.Store do
 
   defp parent_external_id(%{metadata: metadata}) when is_map(metadata) do
     value =
-      Map.get(metadata, "parentExternalId") ||
-        get_in(metadata, ["external_directory", "parentExternalId"]) ||
+      Map.get(metadata, "parentExternalID") ||
+        get_in(metadata, ["external_directory", "parentExternalID"]) ||
         get_in(metadata, ["external_directory", "parent_external_id"])
 
     normalize_parent_external_id(value)

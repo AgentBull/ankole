@@ -1,5 +1,5 @@
 use cel::{Context, Program, Value as CelValue};
-use serde_json::Value as JsonValue;
+use serde_json::Value as JSONValue;
 
 use crate::common::{KernelError, KernelResult};
 
@@ -24,7 +24,7 @@ pub fn compile_condition(condition: &str) -> KernelResult<Program> {
 ///
 /// The kernel does not fetch DB state itself; the caller must pass every
 /// variable a condition can read.
-pub fn build_context(variables: Vec<(&str, JsonValue)>) -> KernelResult<Context<'static>> {
+pub fn build_context(variables: Vec<(&str, JSONValue)>) -> KernelResult<Context<'static>> {
     let mut context = Context::default();
 
     for (name, value) in variables {

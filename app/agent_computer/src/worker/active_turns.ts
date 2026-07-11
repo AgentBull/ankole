@@ -1,6 +1,6 @@
-import { classifyLlmError } from '../core/llm-error-classifier'
+import { classifyLLMError } from '../core/llm-error-classifier'
 import { workerProgressEnvelope } from '../fabric/envelopes'
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import { isRuntimeFabricTransportError, type EnvelopeSender } from '../fabric/fabric'
 import type { ActorTurnRef, TurnStart, TurnSteerUpdate } from '../lanes/actor_lane'
 import type { WorkerConfig } from './config'
@@ -10,7 +10,7 @@ const turnProgressIntervalMs = 60_000
 
 export type ActiveTurn = {
   turnStart: TurnStart
-  correlationId: string
+  correlationID: string
   steeringUpdates: TurnSteerUpdate[]
   abortController: AbortController
   controlledStopRequested: boolean
@@ -86,7 +86,7 @@ export function startTurnProgress(
  */
 async function sendTurnProgress(sendEnvelope: EnvelopeSender, active: ActiveTurn, summary: string): Promise<void> {
   try {
-    await sendEnvelope(workerProgressEnvelope(active.turnStart.turn, 'checkpoint', summary, active.correlationId))
+    await sendEnvelope(workerProgressEnvelope(active.turnStart.turn, 'checkpoint', summary, active.correlationID))
   } catch (error) {
     workerLogger.warning('worker.turn_progress_skipped', 'worker turn progress skipped', {
       actor_event_id: active.turnStart.turn.actor_event_id,
@@ -103,10 +103,10 @@ async function sendTurnProgress(sendEnvelope: EnvelopeSender, active: ActiveTurn
  * classification and AIGateway fields so the owner of the turn can make that
  * decision with more than a plain string.
  */
-export function turnFailureDetails(error: unknown): JsonObject {
-  const classification = classifyLlmError(error)
+export function turnFailureDetails(error: unknown): JSONObject {
+  const classification = classifyLLMError(error)
   const workerError = workerErrorDetails(error)
-  const details: JsonObject = {
+  const details: JSONObject = {
     runtime: 'bun',
     llm_error_kind: classification.kind,
     retryable: workerError.retryable ?? classification.retryable,
@@ -129,16 +129,16 @@ export function turnFailureDetails(error: unknown): JsonObject {
  * HTTP and WebSocket paths surface slightly different shapes; this helper keeps
  * the durable error JSON stable across both transports.
  */
-export function aigatewayErrorDetails(error: unknown): JsonObject | undefined {
+export function aigatewayErrorDetails(error: unknown): JSONObject | undefined {
   if (!error || typeof error !== 'object') return undefined
 
-  const record = error as JsonObject
-  const details: JsonObject = {}
+  const record = error as JSONObject
+  const details: JSONObject = {}
 
   if (typeof record.code === 'string') details.code = record.code
   if (typeof record.status === 'number') details.status = record.status
   if (record.details && typeof record.details === 'object' && !Array.isArray(record.details)) {
-    details.details_json = record.details as JsonObject
+    details.details_json = record.details as JSONObject
   }
 
   return Object.keys(details).length > 0 ? details : undefined

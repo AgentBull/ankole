@@ -57,25 +57,25 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   """
   @spec validate_chat_config(term()) :: {:ok, chat_config()} | {:error, term()}
   def validate_chat_config(value) when is_map(value) do
-    with {:ok, app_id} <- required_string(value, "appId"),
+    with {:ok, app_id} <- required_string(value, "appID"),
          {:ok, app_secret} <- required_string(value, "appSecret"),
          {:ok, domain} <- enum_string(value, "domain", @domains, "feishu"),
-         {:ok, base_url} <- optional_base_url(value, "baseUrl"),
+         {:ok, base_url} <- optional_base_url(value, "baseURL"),
          {:ok, platform_subject_namespace} <-
            optional_string(value, "platformSubjectNamespace", "lark-main"),
          {:ok, user_name} <- optional_string(value, "userName", "Lark / Feishu"),
-         {:ok, bot_open_id} <- optional_string(value, "botOpenId", nil),
-         {:ok, bot_user_id} <- optional_string(value, "botUserId", nil) do
+         {:ok, bot_open_id} <- optional_string(value, "botOpenID", nil),
+         {:ok, bot_user_id} <- optional_string(value, "botUserID", nil) do
       {:ok,
        %{
-         "appId" => app_id,
+         "appID" => app_id,
          "appSecret" => app_secret,
          "domain" => domain,
-         "baseUrl" => base_url,
+         "baseURL" => base_url,
          "platformSubjectNamespace" => platform_subject_namespace,
          "userName" => user_name,
-         "botOpenId" => bot_open_id,
-         "botUserId" => bot_user_id
+         "botOpenID" => bot_open_id,
+         "botUserID" => bot_user_id
        }}
     end
   end
@@ -97,7 +97,7 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   """
   @spec validate_identity_config(term()) :: {:ok, identity_config()} | {:error, term()}
   def validate_identity_config(value) when is_map(value) do
-    with {:ok, app_id} <- required_string(value, "appId"),
+    with {:ok, app_id} <- required_string(value, "appID"),
          {:ok, app_secret} <- required_string(value, "appSecret"),
          {:ok, domain} <- enum_string(value, "domain", @domains, "feishu"),
          oidc <- MapHelpers.fetch_map(value, "oidc", %{}),
@@ -111,7 +111,7 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
 
       {:ok,
        %{
-         "appId" => app_id,
+         "appID" => app_id,
          "appSecret" => app_secret,
          "domain" => domain,
          "oidc" => %{"enabled" => oidc_enabled, "scopes" => oidc_scopes},
@@ -154,19 +154,19 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   @doc """
   Builds a FeishuOpenAPI client without exposing the secret in inspect output.
 
-  A configured `baseUrl` overrides the domain-derived provider URL for both the
+  A configured `baseURL` overrides the domain-derived provider URL for both the
   WS endpoint discovery and HTTP calls; explicit `opts` still win over config.
   """
   @spec client(chat_config() | identity_config(), keyword()) :: Client.t()
   def client(config, opts \\ []) when is_map(config) do
     base_opts =
-      case Map.get(config, "baseUrl") do
+      case Map.get(config, "baseURL") do
         base_url when is_binary(base_url) -> [base_url: base_url]
         _absent -> []
       end
 
     Client.new(
-      Map.fetch!(config, "appId"),
+      Map.fetch!(config, "appID"),
       fn -> Map.fetch!(config, "appSecret") end,
       [domain: domain_atom(Map.fetch!(config, "domain"))]
       |> Keyword.merge(base_opts)
@@ -178,7 +178,7 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   Returns the stable local connection key for config that shares one Lark app.
   """
   @spec connection_key(chat_config() | identity_config()) :: {String.t(), String.t()}
-  def connection_key(config), do: {Map.fetch!(config, "domain"), Map.fetch!(config, "appId")}
+  def connection_key(config), do: {Map.fetch!(config, "domain"), Map.fetch!(config, "appID")}
 
   @doc """
   Fingerprints a secret for conflict detection without storing the secret in state.
@@ -197,26 +197,26 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   carry the mentioned bot's `open_id`, so the adapter resolves its own
   `open_id` from `bot/v3/info` (using the app credentials alone) while building
   the live connection and keeps it only in the process-local consumer config as
-  `runtimeBotOpenId`. A config that already carries an explicit `botOpenId`
+  `runtimeBotOpenID`. A config that already carries an explicit `botOpenID`
   override is left untouched.
   """
   @spec resolve_runtime_bot_identity(chat_config(), keyword()) :: chat_config()
   def resolve_runtime_bot_identity(config, opts \\ []) when is_map(config) do
-    if present_string?(Map.get(config, "botOpenId")) do
+    if present_string?(Map.get(config, "botOpenID")) do
       config
     else
       fetcher = Keyword.get(opts, :bot_info_fetcher, &fetch_runtime_bot_open_id/1)
 
       case fetcher.(config) do
         {:ok, open_id} when is_binary(open_id) ->
-          Map.put(config, "runtimeBotOpenId", String.trim(open_id))
+          Map.put(config, "runtimeBotOpenID", String.trim(open_id))
 
         {:error, reason} ->
           Logging.warning(
             "lark_adapter.config.runtime_bot_open_id_failed",
             "lark adapter could not resolve runtime bot open_id",
             %{
-              app_id: Map.get(config, "appId"),
+              app_id: Map.get(config, "appID"),
               reason: inspect(reason)
             }
           )

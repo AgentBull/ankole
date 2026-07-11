@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { recordValue, type JsonObject } from '@pleisto/active-support'
+import { recordValue, type JsonObject as JSONObject } from '@pleisto/active-support'
 import { Writable } from 'node:stream'
 import type { DestinationStream } from 'pino'
 import { createWorkerLogger, createWorkerPinoOptions } from '../src/worker/logging'
@@ -162,7 +162,7 @@ describe('@ankole/agent-computer worker logger', () => {
   })
 })
 
-function createCapture(): { stream: DestinationStream; entries(): JsonObject[] } {
+function createCapture(): { stream: DestinationStream; entries(): JSONObject[] } {
   const chunks: string[] = []
   const stream = new Writable({
     write(chunk, _encoding, callback) {
@@ -178,7 +178,7 @@ function createCapture(): { stream: DestinationStream; entries(): JsonObject[] }
         .join('')
         .split('\n')
         .filter(Boolean)
-        .map(line => JSON.parse(line) as JsonObject)
+        .map(line => JSON.parse(line) as JSONObject)
     }
   }
 }

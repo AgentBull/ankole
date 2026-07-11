@@ -1,7 +1,7 @@
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import { estimateO200kBaseTokens } from '@ankole/kernel'
 import { errorMessage } from '../../common/errors'
-import { truncateUtf8Safe, utf8ByteLength } from '../../common/text-sanitize'
+import { truncateUTF8Safe, utf8ByteLength } from '../../common/text-sanitize'
 import type { AgentTool } from '../../core'
 import { zodToJSONSchema } from '../../core/llm/tool-schema'
 import { skillPromptEntryFromRuntime } from '../../prompts/system_prompt'
@@ -11,7 +11,7 @@ import type { RuntimeSkillSummary } from '../../lanes/rpc_lane'
 import type { DynamicToolCallParams } from './generated/protocol/v2/DynamicToolCallParams'
 import type { DynamicToolCallResponse } from './generated/protocol/v2/DynamicToolCallResponse'
 import type { DynamicToolSpec } from './generated/protocol/v2/DynamicToolSpec'
-import type { JsonValue } from './generated/protocol/serde_json/JsonValue'
+import type { JsonValue as JSONValue } from './generated/protocol/serde_json/JsonValue'
 
 const maxToolResultBytes = 16_384
 const truncationSuffix = '...[truncated]'
@@ -32,7 +32,7 @@ export function buildSubagentProjection(input: {
   skills: RuntimeSkillSummary[]
   soul: string
   mission: string
-  onAudit?: (eventType: string, payload: JsonObject) => void
+  onAudit?: (eventType: string, payload: JSONObject) => void
 }): SubagentProjection {
   const skillEntries = input.skills.map(skillPromptEntryFromRuntime).filter(isSkillPromptEntry)
   const tools = new Map<string, AgentTool>()
@@ -47,7 +47,7 @@ export function buildSubagentProjection(input: {
         type: 'function',
         name: tool.name,
         description: tool.description,
-        inputSchema: inputSchema as unknown as JsonValue
+        inputSchema: inputSchema as unknown as JSONValue
       })
       tools.set(tool.name, tool)
     } catch (error) {
@@ -72,7 +72,7 @@ export function buildSubagentProjection(input: {
         input.onAudit?.('dynamic_tool_invalid_arguments', {
           tool: params.tool,
           call_id: params.callId,
-          issues: parsed.error.issues as unknown as JsonObject
+          issues: parsed.error.issues as unknown as JSONObject
         })
         return dynamicToolFailure(`Invalid arguments for ${params.tool}: ${parsed.error.message}`)
       }
@@ -191,7 +191,7 @@ function toolResultText(result: { content: unknown[]; details: unknown }): strin
 
 function boundedText(text: string): string {
   if (utf8ByteLength(text) <= maxToolResultBytes) return text
-  const prefix = truncateUtf8Safe(text, maxToolResultBytes - utf8ByteLength(truncationSuffix))
+  const prefix = truncateUTF8Safe(text, maxToolResultBytes - utf8ByteLength(truncationSuffix))
   return `${prefix}${truncationSuffix}`
 }
 

@@ -16,6 +16,8 @@ mod validate;
 
 pub mod proto {
     include!(concat!(env!("OUT_DIR"), "/ankole.runtime_fabric.v1.rs"));
+
+    pub use self::{RpcError as RPCError, RpcRequest as RPCRequest, RpcResponse as RPCResponse};
 }
 
 pub mod transport;

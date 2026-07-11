@@ -52,7 +52,7 @@ The plugin declaration should expose:
 
 The adapter declarations are references to host-owned contracts. The plugin does
 not own `signal_gateway_bindings`, `signal_gateway_channels`, `signal_gateway_entries`,
-`actor_events`, `signal_gateway_outbox`, Principal rows, or AuthZ grants.
+`actor_events`, `signal_gateway_outbox_entries`, Principal rows, or AuthZ grants.
 
 The supervised runtime may keep a connection registry keyed by `domain + appId`.
 That registry is process state and should be rebuildable from active
@@ -91,7 +91,7 @@ SignalsGateway writes the adopted final send or edit as a durable outbox
 operation; provider success is then mirrored into `signal_gateway_entries` with
 the final Response backref.
 Explicit side effects — attachments, reactions, dividers, command feedback —
-still execute through `signal_gateway_outbox` rows.
+still execute through `signal_gateway_outbox_entries` rows.
 
 A group has normal conversation near the agent. The binding policy decides
 whether those unaddressed messages are ignored, mirrored only, or delivered as
@@ -486,7 +486,7 @@ computer. Live adapter closures, FeishuOpenAPI client structs, and host-only
 temp paths must not enter the provider mirror or actor event payloads.
 
 SignalsGateway validates durable JSON with Ankole's own JSON adapter through
-the strict `JsonPayload` path. The sanitizer is only for `last_error`, logging,
+the strict `JSONPayload` path. The sanitizer is only for `last_error`, logging,
 and short error previews. It must not be used to "fix" attachment descriptors or
 other mirror/event/outbox payloads.
 
@@ -587,7 +587,7 @@ The SignalsGateway outbox capability allowlist for this adapter is:
 - `card`.
 
 `outbound_idempotency` and `streaming` are not capability names. Idempotency is
-the `signal_gateway_outbox.idempotency_key` row value that the adapter passes to
+the `signal_gateway_outbox_entries.idempotency_key` row value that the adapter passes to
 Feishu/Lark when the provider API supports it. Streaming preview policy is owned
 only by SignalsGateway; AIGateway publishes generic conversation-scoped
 Response events and does not interpret Actor metadata. Preview writes are

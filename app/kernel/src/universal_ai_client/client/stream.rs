@@ -13,10 +13,10 @@ async fn run_stream(
     };
 
     match spec.upstream.kind {
-        UpstreamKind::HttpSse | UpstreamKind::HttpEventstream => {
+        UpstreamKind::HTTPSSE | UpstreamKind::HTTPEventstream => {
             run_http_stream(spec, command_rx, sink, aborted_sent).await;
         }
-        UpstreamKind::WebsocketText => {
+        UpstreamKind::WebSocketText => {
             run_websocket_stream(spec, command_rx, sink, aborted_sent).await;
         }
     }
@@ -42,7 +42,7 @@ async fn run_http_stream(
     }
 
     let encoder = DownstreamEncoder::new(spec.downstream);
-    let mut resolver = api_resolver::ApiResolver::new(
+    let mut resolver = api_resolver::APIResolver::new(
         spec.api_resolver,
         spec.response_context.clone(),
     );
@@ -65,8 +65,8 @@ async fn run_http_stream(
     })));
 
     match spec.upstream.kind {
-        UpstreamKind::HttpSse => {
-            let mut parser = wire::SseParser::new(spec.limits.max_sse_event_bytes);
+        UpstreamKind::HTTPSSE => {
+            let mut parser = wire::SSEParser::new(spec.limits.max_sse_event_bytes);
             loop {
                 if !delivery.wait_for_read_capacity().await {
                     return;
@@ -202,9 +202,9 @@ async fn run_http_stream(
                 }
             }
         }
-        UpstreamKind::HttpEventstream => {
+        UpstreamKind::HTTPEventstream => {
             let mut parser =
-                wire::AwsEventStreamParser::new(spec.limits.max_eventstream_frame_bytes);
+                wire::AWSEventStreamParser::new(spec.limits.max_eventstream_frame_bytes);
             loop {
                 if !delivery.wait_for_read_capacity().await {
                     return;
@@ -307,7 +307,7 @@ async fn run_http_stream(
                 }
             }
         }
-        UpstreamKind::WebsocketText => unreachable!("websocket stream is handled separately"),
+        UpstreamKind::WebSocketText => unreachable!("websocket stream is handled separately"),
     }
 }
 
@@ -320,11 +320,11 @@ async fn run_websocket_stream(
     let opened =
         wait_for_open_websocket(&spec, command_rx, sink.clone(), aborted_sent.clone()).await;
     let (mut websocket, command_rx) = match opened {
-        WebsocketOpenResult::Opened {
+        WebSocketOpenResult::Opened {
             websocket,
             command_rx,
         } => (websocket, command_rx),
-        WebsocketOpenResult::Finished => return,
+        WebSocketOpenResult::Finished => return,
     };
 
     let websocket_initial_messages = websocket_initial_messages(&spec);
@@ -343,7 +343,7 @@ async fn run_websocket_stream(
     }
 
     let encoder = DownstreamEncoder::new(spec.downstream);
-    let mut resolver = api_resolver::ApiResolver::new(
+    let mut resolver = api_resolver::APIResolver::new(
         spec.api_resolver,
         spec.response_context.clone(),
     );
@@ -465,7 +465,7 @@ async fn run_websocket_stream(
 
 enum OpenResult {
     Opened {
-        stream: transport::HttpStream,
+        stream: transport::HTTPStream,
         command_rx: mpsc::Receiver<StreamCommand>,
     },
     Finished,
@@ -501,7 +501,7 @@ async fn wait_for_open_http(
     }
 }
 
-enum WebsocketOpenResult {
+enum WebSocketOpenResult {
     Opened {
         websocket: Box<transport::UpstreamWebSocket>,
         command_rx: mpsc::Receiver<StreamCommand>,
@@ -514,7 +514,7 @@ async fn wait_for_open_websocket(
     mut command_rx: mpsc::Receiver<StreamCommand>,
     sink: EventSink,
     aborted_sent: Arc<AtomicBool>,
-) -> WebsocketOpenResult {
+) -> WebSocketOpenResult {
     let open = transport::open_websocket(spec);
     tokio::pin!(open);
 
@@ -523,7 +523,7 @@ async fn wait_for_open_websocket(
             result = &mut open => {
                 return match result {
                     Ok((websocket, 101)) => {
-                        WebsocketOpenResult::Opened { websocket: Box::new(websocket), command_rx }
+                        WebSocketOpenResult::Opened { websocket: Box::new(websocket), command_rx }
                     }
                     Ok((_websocket, status)) => {
                         sink(StreamEvent::Error(StreamError::new(
@@ -531,18 +531,18 @@ async fn wait_for_open_websocket(
                             "connect",
                             format!("upstream WebSocket returned status {status}"),
                         ).provider_status(status).to_json()));
-                        WebsocketOpenResult::Finished
+                        WebSocketOpenResult::Finished
                     }
                     Err(error) => {
                         sink(StreamEvent::Error(error.to_json()));
-                        WebsocketOpenResult::Finished
+                        WebSocketOpenResult::Finished
                     }
                 };
             },
             command = command_rx.recv() => {
                 if matches!(command, Some(StreamCommand::Cancel) | None) {
                     send_aborted_once(&sink, &aborted_sent);
-                    return WebsocketOpenResult::Finished;
+                    return WebSocketOpenResult::Finished;
                 }
             }
         }
@@ -724,7 +724,7 @@ fn summary(reason: &str) -> Value {
 
 async fn flush_resolver_events(
     delivery: &mut Delivery,
-    resolver: &api_resolver::ApiResolver,
+    resolver: &api_resolver::APIResolver,
     events: Vec<Value>,
 ) -> bool {
     delivery.push_events(events);
@@ -787,7 +787,7 @@ fn websocket_initial_messages(spec: &StreamSpec) -> Vec<String> {
 
 async fn finish_after_ready_error(
     delivery: Delivery,
-    resolver: &mut api_resolver::ApiResolver,
+    resolver: &mut api_resolver::APIResolver,
     error: StreamError,
 ) {
     let events = resolver.fail(&error);

@@ -41,24 +41,24 @@ function infraResult(message: string): CheckResult {
 }
 
 export function runTopology(options: TopologyOptions = {}): CheckResult {
-  const scopeId = options.scope ?? DEFAULT_TOPOLOGY_SCOPE
-  const scopeConfig = TOPOLOGY_SCOPES[scopeId]
+  const scopeID = options.scope ?? DEFAULT_TOPOLOGY_SCOPE
+  const scopeConfig = TOPOLOGY_SCOPES[scopeID]
   if (!scopeConfig) {
-    return infraResult(`unknown scope '${scopeId}' (valid: ${Object.keys(TOPOLOGY_SCOPES).join(', ')})`)
+    return infraResult(`unknown scope '${scopeID}' (valid: ${Object.keys(TOPOLOGY_SCOPES).join(', ')})`)
   }
   const report = (options.report ?? 'public-surface-usage') as TopologyReportName
   if (!VALID_REPORTS.has(report)) {
     return infraResult(`unknown report '${report}' (valid: ${[...VALID_REPORTS].join(', ')})`)
   }
-  const gated = report === 'unused-public-surface' && (TOPOLOGY_GATED_SCOPES as readonly string[]).includes(scopeId)
+  const gated = report === 'unused-public-surface' && (TOPOLOGY_GATED_SCOPES as readonly string[]).includes(scopeID)
   const limit = options.limit ?? 25
   const intentionalUnusedPublicExportNames = new Set(
-    TOPOLOGY_UNUSED_ALLOWLIST.filter(entry => entry.scope === scopeId).map(entry => entry.exportName)
+    TOPOLOGY_UNUSED_ALLOWLIST.filter(entry => entry.scope === scopeID).map(entry => entry.exportName)
   )
 
   try {
     const scope = createFilesystemPublicSurfaceScope(repoRootPath, {
-      id: scopeId,
+      id: scopeID,
       description: scopeConfig.description,
       entrypointRoot: scopeConfig.entrypointRoot,
       importPrefix: scopeConfig.importPrefix
@@ -83,9 +83,9 @@ export function runTopology(options: TopologyOptions = {}): CheckResult {
       check: 'topology',
       ok,
       exitCode,
-      summary: `${ok ? (gated ? 'OK' : 'report') : 'FAIL'} (${scopeId}: ${envelope.totals.exports} exports, ${unusedSummary}) [${mode}]`,
+      summary: `${ok ? (gated ? 'OK' : 'report') : 'FAIL'} (${scopeID}: ${envelope.totals.exports} exports, ${unusedSummary}) [${mode}]`,
       human: `analyze:topology [${mode}]\n${renderTextReport(envelope, limit)}`,
-      json: { check: 'topology', ok, exitCode, scope: scopeId, report, envelope }
+      json: { check: 'topology', ok, exitCode, scope: scopeID, report, envelope }
     }
   } catch (error) {
     return infraResult(error instanceof Error ? error.message : String(error))

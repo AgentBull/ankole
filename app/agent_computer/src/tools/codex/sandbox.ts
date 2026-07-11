@@ -7,7 +7,7 @@ import {
 } from '../../core/workspace-paths'
 import { bubblewrapArgv } from '../computer/bubblewrap'
 import { commandEnv } from '../computer/env'
-import { codexConfigCliOverrides, type MaterializedCodexConfig } from './config'
+import { codexConfigCLIOverrides, type MaterializedCodexConfig } from './config'
 
 export type CodexAppServerSandboxSpec = {
   cwd: string
@@ -45,7 +45,7 @@ export function codexAppServerSandboxSpec(input: {
         ...codexCommandForSandbox(input.workspaceRoot),
         'app-server',
         '--stdio',
-        ...codexConfigCliOverrides()
+        ...codexConfigCLIOverrides()
       ]
     })
   }

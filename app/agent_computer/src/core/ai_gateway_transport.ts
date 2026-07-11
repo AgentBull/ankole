@@ -1,24 +1,24 @@
 import { match } from '@pleisto/active-support'
 import type { TurnModelRef } from '../lanes/actor_lane'
-import { assertRpcResponse, type AIGatewayApiKeyResponse, type RpcError } from '../lanes/rpc_lane'
+import { assertRPCResponse, type AIGatewayAPIKeyResponse, type RPCError } from '../lanes/rpc_lane'
 import { createModel, type ModelConfig } from './llm'
 
-const aiGatewayApiKeyRefreshSkewMs = 60_000
+const aiGatewayAPIKeyRefreshSkewMs = 60_000
 
-export type AIGatewayApiKeyRefreshOptions = {
+export type AIGatewayAPIKeyRefreshOptions = {
   forceRefresh?: boolean
 }
 
-export type AIGatewayApiKeyRefresher = (
-  options?: AIGatewayApiKeyRefreshOptions
-) => Promise<AIGatewayApiKeyResponse | RpcError>
+export type AIGatewayAPIKeyRefresher = (
+  options?: AIGatewayAPIKeyRefreshOptions
+) => Promise<AIGatewayAPIKeyResponse | RPCError>
 
 export type AIGatewayFetch = (
   input: Parameters<typeof fetch>[0],
   init?: Parameters<typeof fetch>[1]
 ) => Promise<Response>
 
-export interface AIGatewayHttpClient {
+export interface AIGatewayHTTPClient {
   baseURL: string
   fetch: AIGatewayFetch
 }
@@ -29,14 +29,14 @@ export interface AIGatewayHttpClient {
  * HTTP and WebSocket transports share the same refresh callback so stateful
  * response.create can recover from both expiring and revoked keys.
  */
-export function modelConfigFromAIGatewayApiKey(
+export function modelConfigFromAIGatewayAPIKey(
   modelRef: TurnModelRef,
-  apiKey: AIGatewayApiKeyResponse,
-  refreshApiKey?: AIGatewayApiKeyRefresher
+  apiKey: AIGatewayAPIKeyResponse,
+  refreshAPIKey?: AIGatewayAPIKeyRefresher
 ): ModelConfig {
   const selector = aiGatewayModelSelector(modelRef)
-  const { baseURL, fetch: gatewayFetch } = httpClientFromAIGatewayApiKey(apiKey, refreshApiKey)
-  const authorization = aiGatewayAuthorization(apiKey, refreshApiKey)
+  const { baseURL, fetch: gatewayFetch } = httpClientFromAIGatewayAPIKey(apiKey, refreshAPIKey)
+  const authorization = aiGatewayAuthorization(apiKey, refreshAPIKey)
 
   return createModel({
     apiKey: apiKey.api_key,
@@ -47,7 +47,7 @@ export function modelConfigFromAIGatewayApiKey(
     fetch: gatewayFetch as never,
     responseWebSocket: {
       kind: 'aigateway-websocket',
-      url: aiGatewayWebSocketUrl(baseURL),
+      url: aiGatewayWebSocketURL(baseURL),
       authorization
     }
   })
@@ -56,13 +56,13 @@ export function modelConfigFromAIGatewayApiKey(
 /**
  * Builds the small HTTP client used by worker tools that call AIGateway.
  */
-export function httpClientFromAIGatewayApiKey(
-  apiKey: AIGatewayApiKeyResponse,
-  refreshApiKey?: AIGatewayApiKeyRefresher
-): AIGatewayHttpClient {
+export function httpClientFromAIGatewayAPIKey(
+  apiKey: AIGatewayAPIKeyResponse,
+  refreshAPIKey?: AIGatewayAPIKeyRefresher
+): AIGatewayHTTPClient {
   return {
     baseURL: apiKey.base_url.replace(/\/+$/, ''),
-    fetch: aiGatewayFetch(apiKey, refreshApiKey)
+    fetch: aiGatewayFetch(apiKey, refreshAPIKey)
   }
 }
 
@@ -82,33 +82,33 @@ export function aiGatewayModelSelector(modelRef: TurnModelRef): string {
  * Wraps fetch with proactive and reactive AIGateway bearer-token refresh.
  */
 function aiGatewayFetch(
-  initialApiKey: AIGatewayApiKeyResponse,
-  refreshApiKey?: AIGatewayApiKeyRefresher
+  initialAPIKey: AIGatewayAPIKeyResponse,
+  refreshAPIKey?: AIGatewayAPIKeyRefresher
 ): AIGatewayFetch {
-  let currentApiKey = initialApiKey
+  let currentAPIKey = initialAPIKey
 
   function sendWithKey(input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) {
     const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined))
-    headers.set('authorization', `Bearer ${currentApiKey.api_key}`)
+    headers.set('authorization', `Bearer ${currentAPIKey.api_key}`)
     return fetch(input, { ...init, headers })
   }
 
   return async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
     // Proactive refresh: rotate the key before it expires, within the local skew window.
-    if (currentApiKey.expires_at * 1000 <= Date.now() + aiGatewayApiKeyRefreshSkewMs) {
-      currentApiKey = await refreshApiKeyOrThrow(refreshApiKey)
+    if (currentAPIKey.expires_at * 1000 <= Date.now() + aiGatewayAPIKeyRefreshSkewMs) {
+      currentAPIKey = await refreshAPIKeyOrThrow(refreshAPIKey)
     }
 
     const response = await sendWithKey(input, init)
 
     // Reactive refresh: a key can be revoked server-side before its stated expiry.
-    if (response.status === 401 && refreshApiKey) {
+    if (response.status === 401 && refreshAPIKey) {
       try {
         await response.body?.cancel()
       } catch {
         // ignore: discarding the unauthorized response body before retrying
       }
-      currentApiKey = await refreshApiKeyOrThrow(refreshApiKey, { forceRefresh: true })
+      currentAPIKey = await refreshAPIKeyOrThrow(refreshAPIKey, { forceRefresh: true })
       return sendWithKey(input, init)
     }
 
@@ -122,45 +122,45 @@ function aiGatewayFetch(
  * The stateful WebSocket path can request a forced refresh after pre-open
  * failures where no response.create was sent.
  */
-function aiGatewayAuthorization(initialApiKey: AIGatewayApiKeyResponse, refreshApiKey?: AIGatewayApiKeyRefresher) {
-  let currentApiKey = initialApiKey
+function aiGatewayAuthorization(initialAPIKey: AIGatewayAPIKeyResponse, refreshAPIKey?: AIGatewayAPIKeyRefresher) {
+  let currentAPIKey = initialAPIKey
 
-  return async (options?: AIGatewayApiKeyRefreshOptions) => {
+  return async (options?: AIGatewayAPIKeyRefreshOptions) => {
     const refreshed = await match({
-      force: Boolean(options?.forceRefresh && refreshApiKey),
-      stale: currentApiKey.expires_at * 1000 <= Date.now() + aiGatewayApiKeyRefreshSkewMs
+      force: Boolean(options?.forceRefresh && refreshAPIKey),
+      stale: currentAPIKey.expires_at * 1000 <= Date.now() + aiGatewayAPIKeyRefreshSkewMs
     })
-      .with({ force: true }, () => refreshApiKeyOrThrow(refreshApiKey, { forceRefresh: true }))
-      .with({ stale: true }, () => refreshApiKeyOrThrow(refreshApiKey))
+      .with({ force: true }, () => refreshAPIKeyOrThrow(refreshAPIKey, { forceRefresh: true }))
+      .with({ stale: true }, () => refreshAPIKeyOrThrow(refreshAPIKey))
       .otherwise(() => undefined)
     if (refreshed) {
-      currentApiKey = refreshed
+      currentAPIKey = refreshed
     }
 
-    return `Bearer ${currentApiKey.api_key}`
+    return `Bearer ${currentAPIKey.api_key}`
   }
 }
 
 /**
  * Refreshes the key or throws the rejection as a worker-visible error.
  */
-async function refreshApiKeyOrThrow(
-  refreshApiKey?: AIGatewayApiKeyRefresher,
-  options?: AIGatewayApiKeyRefreshOptions
-): Promise<AIGatewayApiKeyResponse> {
-  if (!refreshApiKey) {
+async function refreshAPIKeyOrThrow(
+  refreshAPIKey?: AIGatewayAPIKeyRefresher,
+  options?: AIGatewayAPIKeyRefreshOptions
+): Promise<AIGatewayAPIKeyResponse> {
+  if (!refreshAPIKey) {
     throw new Error('AIGateway API key expired and no refresh callback is available')
   }
-  const refreshed = await refreshApiKey(options)
-  assertRpcResponse<AIGatewayApiKeyResponse>(refreshed, 'AIGateway API key rejected')
+  const refreshed = await refreshAPIKey(options)
+  assertRPCResponse<AIGatewayAPIKeyResponse>(refreshed, 'AIGateway API key rejected')
   return refreshed
 }
 
 /**
  * Derives the stateful Responses WebSocket URL from the AIGateway base URL.
  */
-function aiGatewayWebSocketUrl(baseUrl: string): string {
-  const url = new URL(`${baseUrl.replace(/\/+$/, '')}/responses`)
+function aiGatewayWebSocketURL(baseURL: string): string {
+  const url = new URL(`${baseURL.replace(/\/+$/, '')}/responses`)
   match(url.protocol)
     .with('http:', () => {
       url.protocol = 'ws:'

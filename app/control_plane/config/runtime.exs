@@ -99,7 +99,7 @@ case Ankole.Config.Bootstrap.env_string("ANKOLE_AI_GATEWAY_WORKER_FACING_BASE_UR
     :ok
 
   worker_facing_base_url ->
-    config :ankole, Ankole.SignalsGateway.ActorRuntime.AIGatewayApiKeyBroker,
+    config :ankole, Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker,
       worker_facing_base_url: worker_facing_base_url
 end
 

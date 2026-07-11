@@ -18,7 +18,7 @@ export type FingerprintCacheEntry = {
 }
 
 export type PutTransfer = {
-  transferId: string
+  transferID: string
   address: FileAddress
   targetPath: string
   tempDir: string
@@ -30,7 +30,7 @@ export type PutTransfer = {
 }
 
 export type GetTransfer = {
-  transferId: string
+  transferID: string
   address: FileAddress
   filePath: string
   fd: number

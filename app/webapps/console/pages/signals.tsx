@@ -10,7 +10,7 @@ import {
   TableRow,
   toast
 } from '@ankole/uikit'
-import { type JsonObject } from '@pleisto/active-support'
+import { type JsonObject as JSONObject } from '@pleisto/active-support'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -44,13 +44,13 @@ export function SignalsListPage() {
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const agents = useQuery(ankoleWebAgentControllerIndexOptions())
-  const agentList = agents.data?.data ?? []
-  const agentUid = searchParams.get('agent') ?? agentList[0]?.uid ?? ''
+  const agentList = agents.data?.agents ?? []
+  const agentUID = searchParams.get('agent') ?? agentList[0]?.uid ?? ''
   const bindings = useQuery({
-    ...ankoleWebSignalBindingControllerIndexOptions({ path: { agent_uid: agentUid } }),
-    enabled: Boolean(agentUid)
+    ...ankoleWebSignalBindingControllerIndexOptions({ path: { agent_uid: agentUID } }),
+    enabled: Boolean(agentUID)
   })
-  const rows = bindings.data?.data ?? []
+  const rows = bindings.data?.signal_bindings ?? []
   const deleteBinding = useMutation({
     ...ankoleWebSignalBindingControllerDeleteMutation(),
     onSuccess: (_data, variables) => {
@@ -66,7 +66,7 @@ export function SignalsListPage() {
     <ResourceListPage
       title={t('console.signals.title')}
       description={t('console.signals.description')}
-      createTo={agentUid ? `new?agent=${encodeURIComponent(agentUid)}` : undefined}
+      createTo={agentUID ? `new?agent=${encodeURIComponent(agentUID)}` : undefined}
       createLabel={t('console.signals.new')}
       columns={[
         t('console.signals.name'),
@@ -82,7 +82,7 @@ export function SignalsListPage() {
       toolbar={
         <div className="max-w-sm">
           <LabeledField label={t('console.agents.agent')}>
-            <Select value={agentUid} onValueChange={value => selectAgent(String(value))}>
+            <Select value={agentUID} onValueChange={value => selectAgent(String(value))}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder={t('console.signals.select_agent')} />
               </SelectTrigger>
@@ -101,7 +101,7 @@ export function SignalsListPage() {
         <TableRow
           key={`${binding.adapter}:${binding.name}`}
           className="cursor-pointer"
-          onClick={() => navigate(reconfigureTo(agentUid, binding.adapter, binding.name))}>
+          onClick={() => navigate(reconfigureTo(agentUID, binding.adapter, binding.name))}>
           <TableCell className="font-mono text-xs">{binding.name}</TableCell>
           <TableCell>{binding.adapter}</TableCell>
           <TableCell>{binding.unaddressed_group_message_policy}</TableCell>
@@ -111,7 +111,7 @@ export function SignalsListPage() {
             </Badge>
           </TableCell>
           <RowActions
-            editTo={reconfigureTo(agentUid, binding.adapter, binding.name)}
+            editTo={reconfigureTo(agentUID, binding.adapter, binding.name)}
             editLabel={t('console.signals.reconfigure')}
             deletePending={deleteBinding.isPending}
             deleteConfirm={{
@@ -119,7 +119,7 @@ export function SignalsListPage() {
               description: t('console.signals.delete_description', { name: binding.name }),
               confirmLabel: t('common.delete')
             }}
-            onDelete={() => deleteBinding.mutate({ path: { agent_uid: agentUid, binding_name: binding.name } })}
+            onDelete={() => deleteBinding.mutate({ path: { agent_uid: agentUID, binding_name: binding.name } })}
           />
         </TableRow>
       ))}
@@ -128,10 +128,10 @@ export function SignalsListPage() {
 }
 
 type SignalForm = {
-  adapterId: string
+  adapterID: string
   name: string
   groupMessageMode: GroupMessageMode | ''
-  config: JsonObject
+  config: JSONObject
 }
 
 export function SignalBindingEditorPage() {
@@ -141,17 +141,17 @@ export function SignalBindingEditorPage() {
   const [searchParams] = useSearchParams()
   const locale = i18n.language
 
-  const agentUid = searchParams.get('agent') ?? ''
+  const agentUID = searchParams.get('agent') ?? ''
   const lockedAdapter = searchParams.get('adapter') ?? undefined
   const lockedName = searchParams.get('name') ?? undefined
   const reconfigure = Boolean(lockedName)
 
   const adapters = useQuery(ankoleWebSignalBindingControllerAdaptersOptions())
-  const signalAdapters = adapters.data?.data ?? []
+  const signalAdapters = adapters.data?.signal_adapters ?? []
 
   const [form, setForm] = useState<SignalForm>(emptyForm())
   const [error, setError] = useState<string>()
-  const activeAdapter = signalAdapters.find(adapter => adapter.adapter_id === form.adapterId) ?? signalAdapters[0]
+  const activeAdapter = signalAdapters.find(adapter => adapter.adapter_id === form.adapterID) ?? signalAdapters[0]
 
   const ready = signalAdapters.length > 0
   useEffect(() => {
@@ -166,14 +166,14 @@ export function SignalBindingEditorPage() {
     onSuccess: (_data, variables) => {
       toast.success(t('console.signals.saved', { name: variables.path.binding_name }))
       void queryClient.invalidateQueries()
-      navigate(`..?agent=${encodeURIComponent(agentUid)}`)
+      navigate(`..?agent=${encodeURIComponent(agentUID)}`)
     },
     onError: mutationError => setError(requestErrorMessage(mutationError))
   })
 
   const submit = () => {
     setError(undefined)
-    if (!activeAdapter || !agentUid) return
+    if (!activeAdapter || !agentUID) return
     const name = form.name.trim()
     if (!name) {
       setError(t('console.signals.binding_name_required'))
@@ -186,7 +186,7 @@ export function SignalBindingEditorPage() {
     }
     saveBinding.mutate({
       body: { config: form.config, group_message_mode: groupMessageMode },
-      path: { adapter_id: activeAdapter.adapter_id, agent_uid: agentUid, binding_name: name }
+      path: { adapter_id: activeAdapter.adapter_id, agent_uid: agentUID, binding_name: name }
     })
   }
 
@@ -194,7 +194,7 @@ export function SignalBindingEditorPage() {
     <ResourceEditorPage
       title={reconfigure ? t('console.signals.reconfigure') : t('console.signals.new')}
       description={reconfigure ? t('console.signals.reconfigure_hint') : t('console.signals.editor_description')}
-      backTo={`..?agent=${encodeURIComponent(agentUid)}`}
+      backTo={`..?agent=${encodeURIComponent(agentUID)}`}
       error={error ?? adapters.error ?? saveBinding.error}
       submitting={saveBinding.isPending}
       onSubmit={submit}>
@@ -252,19 +252,19 @@ export function SignalBindingEditorPage() {
   )
 }
 
-function reconfigureTo(agentUid: string, adapter: string, name: string): string {
-  const query = new URLSearchParams({ agent: agentUid, adapter, name })
+function reconfigureTo(agentUID: string, adapter: string, name: string): string {
+  const query = new URLSearchParams({ agent: agentUID, adapter, name })
   return `new?${query.toString()}`
 }
 
 function emptyForm(): SignalForm {
-  return { adapterId: '', name: '', groupMessageMode: '', config: {} }
+  return { adapterID: '', name: '', groupMessageMode: '', config: {} }
 }
 
 function formFromAdapter(adapter: SignalAdapterItem | undefined, name?: string): SignalForm {
   if (!adapter) return emptyForm()
   return {
-    adapterId: adapter.adapter_id,
+    adapterID: adapter.adapter_id,
     name: name ?? `${adapter.adapter_id}-main`,
     groupMessageMode: defaultGroupMessageMode(adapter),
     config: defaultConfig(asConfigFields(adapter.fields))

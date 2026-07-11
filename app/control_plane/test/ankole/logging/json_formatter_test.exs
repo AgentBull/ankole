@@ -133,16 +133,16 @@ defmodule Ankole.Logging.JSONFormatterTest do
     entry =
       format(%{
         level: :debug,
-        msg: {:string, "QUERY OK source=\"app_configure\" db=1.9ms"},
+        msg: {:string, "QUERY OK source=\"app_configurations\" db=1.9ms"},
         meta: %{
           ansi_color: :cyan,
-          source: "app_configure",
-          query: "SELECT a0.\"scope\" FROM \"app_configure\" AS a0 []"
+          source: "app_configurations",
+          query: "SELECT a0.\"scope\" FROM \"app_configurations\" AS a0 []"
         }
       })
 
     refute Map.has_key?(entry, "ansi_color")
-    assert entry["source"] == "app_configure"
+    assert entry["source"] == "app_configurations"
     assert entry["query"] =~ "SELECT"
   end
 
@@ -173,7 +173,8 @@ defmodule Ankole.Logging.JSONFormatterTest do
     assert entry["request_id"] == "request-1"
     assert entry["duration_ms"] == 125
     assert entry["http_request"]["requestMethod"] == "GET"
-    assert entry["http_request"]["requestUrl"] == "https://ankole.test/boom"
+    assert entry["http_request"]["requestURL"] == "https://ankole.test/boom"
+    assert entry["http_request"]["remoteIP"] == "127.0.0.1"
     assert entry["http_request"]["status"] == 503
     assert entry["http_request"]["userAgent"] == "curl/8"
   end

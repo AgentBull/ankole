@@ -23,13 +23,13 @@ export function resolveFileAddress(
   return resolvedPath
 }
 
-export function scratchDirectoryFor(config: WorkerConfig, transferId: string): string {
+export function scratchDirectoryFor(config: WorkerConfig, transferID: string): string {
   const scratchRoot = resolve(config.sharedFsRoot, transferScratchDir)
-  const tempDir = resolve(scratchRoot, safeTransferId(transferId))
+  const tempDir = resolve(scratchRoot, safeTransferID(transferID))
   const rel = relative(scratchRoot, tempDir)
 
   if (rel === '' || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
-    throw new Error(`transfer_id escapes scratch root: ${transferId}`)
+    throw new Error(`transfer_id escapes scratch root: ${transferID}`)
   }
 
   return tempDir
@@ -103,7 +103,7 @@ export function normalizeRelativePath(value: unknown, opts: { allowRoot?: boolea
   return normalized
 }
 
-export function safeTransferId(value: string): string {
+export function safeTransferID(value: string): string {
   if (!/^[a-zA-Z0-9_-]{1,128}$/.test(value)) {
     throw new Error(`invalid transfer_id: ${value}`)
   }

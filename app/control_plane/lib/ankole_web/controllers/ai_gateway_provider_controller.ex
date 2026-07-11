@@ -1,25 +1,27 @@
 defmodule AnkoleWeb.AIGatewayProviderController do
+  alias OpenApiSpex, as: OpenAPISpex
+
   @moduledoc """
   Console REST API for operator-managed AIGateway providers.
   """
 
   use AnkoleWeb, :controller
-  use OpenApiSpex.ControllerSpecs
+  use OpenAPISpex.ControllerSpecs
 
   alias Ankole.AIGateway.ProviderConfigs
   alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsolePolicy
-  alias AnkoleWeb.Schemas.ConsoleApi.AIGatewayProviderKindListResponse
-  alias AnkoleWeb.Schemas.ConsoleApi.AIGatewayProviderListResponse
-  alias AnkoleWeb.Schemas.ConsoleApi.AIGatewayProviderResponse
-  alias AnkoleWeb.Schemas.ConsoleApi.AIGatewayProviderWriteRequest
-  alias AnkoleWeb.Schemas.ConsoleApi.ErrorEnvelope
+  alias AnkoleWeb.Schemas.ConsoleAPI.AIGatewayProviderKindListResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.AIGatewayProviderListResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.AIGatewayProviderResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.AIGatewayProviderWriteRequest
+  alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
 
   tags(["AIGateway"])
   security([%{"consoleBearer" => []}])
 
-  plug(OpenApiSpex.Plug.CastAndValidate,
-    render_error: AnkoleWeb.OpenApiValidationErrorRenderer
+  plug(OpenAPISpex.Plug.CastAndValidate,
+    render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
   )
 
   operation(:provider_kinds,
@@ -67,7 +69,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
 
   def provider_kinds(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider_kinds", "read") do
-      json(conn, %{data: ProviderConfigs.list_provider_kinds()})
+      json(conn, %{provider_kinds: ProviderConfigs.list_provider_kinds()})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -75,7 +77,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
 
   def index(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "ai_gateway_providers", "read") do
-      json(conn, %{data: ProviderConfigs.list_providers()})
+      json(conn, %{ai_gateway_providers: ProviderConfigs.list_providers()})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -86,7 +88,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
          :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "update"),
          {:ok, attrs} <- provider_attrs(provider_id, conn.body_params),
          {:ok, provider} <- put_provider_row(provider_id, attrs) do
-      json(conn, %{data: ProviderConfigs.projection(provider)})
+      json(conn, %{ai_gateway_provider: ProviderConfigs.projection(provider)})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -96,7 +98,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
     with {:ok, provider_id} <- provider_id_param(params),
          :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "delete"),
          {:ok, provider} <- ProviderConfigs.delete_provider(provider_id) do
-      json(conn, %{data: ProviderConfigs.projection(provider)})
+      json(conn, %{ai_gateway_provider: ProviderConfigs.projection(provider)})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -143,7 +145,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   end
 
   # Console params arrive with string keys from the raw request body, but with
-  # atom keys once OpenApiSpex has cast the declared path parameters, so both
+  # atom keys once OpenAPISpex has cast the declared path parameters, so both
   # spellings of the same key are accepted.
   defp fetch_param(params, key) do
     atom_key = param_atom(key)

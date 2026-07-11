@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
-import type { JsonObject } from '@pleisto/active-support'
-import type { AIGatewayHttpClient } from '../src/core/aigateway_transport'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import type { AIGatewayHTTPClient } from '../src/core/ai_gateway_transport'
 import { createWebTools } from '../src/tools/web/web-tools'
 
 function textOf(result: { content: Array<{ type: string; text?: string }> }): string {
@@ -11,7 +11,7 @@ function textOf(result: { content: Array<{ type: string; text?: string }> }): st
 
 describe('web tools', () => {
   it('omits unavailable web tools', async () => {
-    const client: AIGatewayHttpClient = {
+    const client: AIGatewayHTTPClient = {
       baseURL: 'https://control.test/api/v1/ai-gateway',
       fetch: async () =>
         new Response(
@@ -29,7 +29,7 @@ describe('web tools', () => {
   })
 
   it('registers local browser web_fetch when provider-backed fetch is unavailable', async () => {
-    const client: AIGatewayHttpClient = {
+    const client: AIGatewayHTTPClient = {
       baseURL: 'https://control.test/api/v1/ai-gateway',
       fetch: async () =>
         jsonResponse({
@@ -41,9 +41,9 @@ describe('web tools', () => {
     const tools = await createWebTools({
       aiGateway: client,
       localBrowser: {
-        agentUid: 'agent-1',
-        executionScopeId: 'conversation-1',
-        fetchUrl: async ({ url }) => ({
+        agentUID: 'agent-1',
+        executionScopeID: 'conversation-1',
+        fetchURL: async ({ url }) => ({
           url,
           title: 'Local Example',
           text: 'Local browser text',
@@ -81,11 +81,11 @@ describe('web tools', () => {
 
   it('registers provider-backed tools and calls AIGateway with resolved models', async () => {
     const requests: Array<{ url: string; body?: unknown }> = []
-    const client: AIGatewayHttpClient = {
+    const client: AIGatewayHTTPClient = {
       baseURL: 'https://control.test/api/v1/ai-gateway/',
       fetch: async (input, init) => {
         const url = input instanceof Request ? input.url : String(input)
-        const body = init?.body ? (JSON.parse(String(init.body)) as JsonObject) : undefined
+        const body = init?.body ? (JSON.parse(String(init.body)) as JSONObject) : undefined
         requests.push({ url, body })
 
         if (url.endsWith('/web_tools')) {
@@ -133,7 +133,7 @@ describe('web tools', () => {
   })
 
   it('surfaces AIGateway web tool errors without a local fallback', async () => {
-    const client: AIGatewayHttpClient = {
+    const client: AIGatewayHTTPClient = {
       baseURL: 'https://control.test/api/v1/ai-gateway',
       fetch: async input => {
         const url = input instanceof Request ? input.url : String(input)
@@ -156,7 +156,7 @@ describe('web tools', () => {
   })
 
   it('falls back to local browser web_fetch when AIGateway provider fetch fails', async () => {
-    const client: AIGatewayHttpClient = {
+    const client: AIGatewayHTTPClient = {
       baseURL: 'https://control.test/api/v1/ai-gateway',
       fetch: async input => {
         const url = input instanceof Request ? input.url : String(input)
@@ -173,9 +173,9 @@ describe('web tools', () => {
     const tools = await createWebTools({
       aiGateway: client,
       localBrowser: {
-        agentUid: 'agent-1',
-        executionScopeId: 'conversation-1',
-        fetchUrl: async ({ url }) => ({ url, text: 'Recovered through local browser' })
+        agentUID: 'agent-1',
+        executionScopeID: 'conversation-1',
+        fetchURL: async ({ url }) => ({ url, text: 'Recovered through local browser' })
       }
     })
     const webFetch = tools.find(tool => tool.name === 'web_fetch')
@@ -193,7 +193,7 @@ describe('web tools', () => {
   })
 
   it('returns a clear local browser unavailable error for web_fetch', async () => {
-    const client: AIGatewayHttpClient = {
+    const client: AIGatewayHTTPClient = {
       baseURL: 'https://control.test/api/v1/ai-gateway',
       fetch: async () =>
         jsonResponse({
@@ -204,9 +204,9 @@ describe('web tools', () => {
     const tools = await createWebTools({
       aiGateway: client,
       localBrowser: {
-        agentUid: 'agent-1',
-        executionScopeId: 'conversation-1',
-        fetchUrl: async () => {
+        agentUID: 'agent-1',
+        executionScopeID: 'conversation-1',
+        fetchURL: async () => {
           throw new Error(
             'local browser requires chromium-headless-shell or another Chromium-compatible binary; no remote CDP override is configured'
           )

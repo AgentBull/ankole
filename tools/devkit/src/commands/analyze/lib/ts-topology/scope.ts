@@ -72,7 +72,7 @@ function extractOwner(relPath: string): string | null {
 }
 
 /** Owner-as-plugin (openclaw "extension" id) when the consumer lives in plugins/. */
-function extractExtensionId(relPath: string): string | null {
+function extractExtensionID(relPath: string): string | null {
   if (!relPath.startsWith('plugins/')) {
     return null
   }
@@ -103,7 +103,7 @@ function buildScopeFromEntrypoints(id: string, description: string, entrypoints:
       return extractOwner(relPath)
     },
     extensionForPath(relPath: string) {
-      return extractExtensionId(relPath)
+      return extractExtensionID(relPath)
     },
     packageOwnerForPath(relPath: string) {
       return extractPackageOwner(relPath)

@@ -86,13 +86,13 @@ describe('@ankole/agent-computer subagent tool', () => {
   it('writes fixed official config and credentials into account-scoped CODEX_HOME', () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-subagent-home-'))
     try {
-      const authJson = '{"tokens":{"access_token":"sensitive-subscription-token"}}'
+      const authJSON = '{"tokens":{"access_token":"sensitive-subscription-token"}}'
       const materialized = materializeCodexConfig({
         sharedFsRoot: root,
         runtime: {
           mode: 'official_subscription',
-          accountId: 'account-1',
-          authJson,
+          accountID: 'account-1',
+          authJSON,
           authHash: 'hash-1'
         }
       })
@@ -107,7 +107,7 @@ describe('@ankole/agent-computer subagent tool', () => {
       expect(config).toContain('plugins = false')
       expect(config).not.toContain('base_url')
       expect(config).not.toContain('model_provider')
-      expect(readFileSync(authPath, 'utf8')).toBe(authJson)
+      expect(readFileSync(authPath, 'utf8')).toBe(authJSON)
       expect(statSync(configPath).mode & 0o777).toBe(0o600)
       expect(statSync(authPath).mode & 0o777).toBe(0o600)
       expect(materialized).not.toHaveProperty('cleanupRoot')
@@ -123,7 +123,7 @@ describe('@ankole/agent-computer subagent tool', () => {
         sharedFsRoot: root,
         runtime: {
           mode: 'aigateway',
-          accountId: 'aigateway',
+          accountID: 'aigateway',
           modelOverride: 'coding',
           aiGatewayKey: {
             request_id: 'key-1',

@@ -1,25 +1,27 @@
 defmodule AnkoleWeb.CodexAccountController do
+  alias OpenApiSpex, as: OpenAPISpex
+
   @moduledoc """
   Console REST API for operator-managed Codex subscription accounts.
   """
 
   use AnkoleWeb, :controller
-  use OpenApiSpex.ControllerSpecs
+  use OpenAPISpex.ControllerSpecs
 
   alias Ankole.AIAgent.CodexAccounts
   alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsolePolicy
-  alias AnkoleWeb.Schemas.ConsoleApi.CodexAccountCreateRequest
-  alias AnkoleWeb.Schemas.ConsoleApi.CodexAccountListResponse
-  alias AnkoleWeb.Schemas.ConsoleApi.CodexAccountResponse
-  alias AnkoleWeb.Schemas.ConsoleApi.CodexAccountUpdateRequest
-  alias AnkoleWeb.Schemas.ConsoleApi.ErrorEnvelope
+  alias AnkoleWeb.Schemas.ConsoleAPI.CodexAccountCreateRequest
+  alias AnkoleWeb.Schemas.ConsoleAPI.CodexAccountListResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.CodexAccountResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.CodexAccountUpdateRequest
+  alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
 
   tags(["Codex Accounts"])
   security([%{"consoleBearer" => []}])
 
-  plug OpenApiSpex.Plug.CastAndValidate,
-    render_error: AnkoleWeb.OpenApiValidationErrorRenderer
+  plug OpenAPISpex.Plug.CastAndValidate,
+    render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
 
   operation(:index,
     summary: "List Codex accounts",
@@ -64,7 +66,7 @@ defmodule AnkoleWeb.CodexAccountController do
 
   def index(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "codex_accounts", "read") do
-      json(conn, %{data: CodexAccounts.list_accounts()})
+      json(conn, %{codex_accounts: CodexAccounts.list_accounts()})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -73,7 +75,7 @@ defmodule AnkoleWeb.CodexAccountController do
   def create(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "codex_accounts", "update"),
          {:ok, account} <- CodexAccounts.create_account(conn.body_params) do
-      json(conn, %{data: CodexAccounts.projection(account)})
+      json(conn, %{codex_account: CodexAccounts.projection(account)})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -84,7 +86,7 @@ defmodule AnkoleWeb.CodexAccountController do
 
     with :ok <- ConsolePolicy.authorize(conn, "codex_account:#{account_id}", "update"),
          {:ok, account} <- CodexAccounts.update_account(account_id, conn.body_params) do
-      json(conn, %{data: CodexAccounts.projection(account)})
+      json(conn, %{codex_account: CodexAccounts.projection(account)})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -95,7 +97,7 @@ defmodule AnkoleWeb.CodexAccountController do
 
     with :ok <- ConsolePolicy.authorize(conn, "codex_account:#{account_id}", "delete"),
          {:ok, account} <- CodexAccounts.delete_account(account_id) do
-      json(conn, %{data: CodexAccounts.projection(account)})
+      json(conn, %{codex_account: CodexAccounts.projection(account)})
     else
       {:error, reason} -> error(conn, reason)
     end

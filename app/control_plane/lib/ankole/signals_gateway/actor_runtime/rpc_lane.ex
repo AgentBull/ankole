@@ -18,7 +18,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
   """
 
   alias Ankole.SignalsGateway.ActorRuntime.AgentConversationContextBroker
-  alias Ankole.SignalsGateway.ActorRuntime.AIGatewayApiKeyBroker
+  alias Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker
   alias Ankole.SignalsGateway.ActorRuntime.AppConfigureBroker
   alias Ankole.SignalsGateway.ActorRuntime.CodexAccountBroker
   alias Ankole.SignalsGateway.ActorRuntime.RPCWire
@@ -35,7 +35,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
 
   @rpc_operations %{
     "ai_gateway.api_key_for.create_or_find_by_agent" =>
-      {AIGatewayApiKeyBroker, :handle_request, :worker_agent},
+      {AIGatewayAPIKeyBroker, :handle_request, :worker_agent},
     "agent_conversation.context.resolve" =>
       {AgentConversationContextBroker, :handle_request, :turn_read},
     "app_configure.resolve" => {AppConfigureBroker, :handle_request, :worker_agent},

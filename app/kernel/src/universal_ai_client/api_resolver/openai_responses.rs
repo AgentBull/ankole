@@ -1,13 +1,13 @@
 use super::*;
 #[derive(Debug, Default)]
-pub(super) struct OpenaiResponsesState {
+pub(super) struct OpenAIResponsesState {
     sequence: u64,
     terminal: bool,
     response: Option<Value>,
     saw_error: bool,
 }
 
-impl OpenaiResponsesState {
+impl OpenAIResponsesState {
     fn ingest(
         &mut self,
         context: &ResponseContext,
@@ -95,7 +95,7 @@ impl OpenaiResponsesState {
     }
 }
 
-impl ApiProtocol for OpenaiResponsesState {
+impl APIProtocol for OpenAIResponsesState {
     fn websocket_initial_messages(
         &self,
         context: &ResponseContext,

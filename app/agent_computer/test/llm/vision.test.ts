@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import type { ImageContent, ModelConfig } from '../../src/core/llm'
 import { modelImageAdaptation } from '../../src/core/vision'
 import { fallbackModelForTest } from '../support/llm'
@@ -19,7 +19,7 @@ describe('@ankole/agent-computer vision helpers', () => {
   })
 
   it('summarizes images through the configured fallback for text-only models', async () => {
-    const fallbackBodies: JsonObject[] = []
+    const fallbackBodies: JSONObject[] = []
     const fallbackModel = fallbackModelForTest('A visible dashboard.', fallbackBodies)
 
     await expect(

@@ -1,4 +1,6 @@
 defmodule AnkoleWeb.Endpoint do
+  alias Plug.RequestId, as: RequestID
+
   @moduledoc """
   Phoenix endpoint for the control-plane web process.
 
@@ -46,7 +48,7 @@ defmodule AnkoleWeb.Endpoint do
     plug Phoenix.Ecto.CheckRepoStatus, otp_app: :ankole
   end
 
-  plug Plug.RequestId
+  plug RequestID
   plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
 
   plug Plug.Parsers,

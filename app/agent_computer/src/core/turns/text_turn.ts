@@ -1,6 +1,6 @@
 import type { TurnStart } from '../../lanes/actor_lane'
-import { isRecord, type JsonObject } from '@pleisto/active-support'
-import { assertRpcResponse, type AppConfigureResolveResponse } from '../../lanes/rpc_lane'
+import { isRecord, type JsonObject as JSONObject } from '@pleisto/active-support'
+import { assertRPCResponse, type AppConfigureResolveResponse } from '../../lanes/rpc_lane'
 import { runAgentLoop } from '../agent-loop'
 import { buildAgentSystemPrompt } from '../../prompts/system_prompt'
 import { createComputerTools } from '../../tools/computer'
@@ -14,7 +14,7 @@ import { createClarifyTool } from '../../tools/clarify/clarify-tool'
 import { assistantText, userMessage } from '../llm'
 import { currentChannelFromTurnStart, statefulTruncationFromActorEventPayload } from './actor_event_text'
 import { actorEventUserContent } from './actor_event_content'
-import { acquireTurnAIGatewayAccess } from './turn_aigateway_access'
+import { acquireTurnAIGatewayAccess } from './turn_ai_gateway_access'
 import { actorEventEnvironmentInfoLines, prependEnvironmentInfoLinesToUserMessage } from './message_context'
 import { steeringMessages } from './turn_control'
 import { createTurnActivity } from './turn_activity'
@@ -23,11 +23,11 @@ import { agentRuntimePolicyFromTurnStart } from './turn_runtime_policy'
 import type { TextTurnLoopOptions, TurnHandlerResult } from './turn_options'
 
 const silentSuccessMarker = '<silent_success/>'
-const RemoteBrowserCdpConfigKey = 'worker.remote_browser_cdp_config'
+const RemoteBrowserCDPConfigKey = 'worker.remote_browser_cdp_config'
 const LocalBrowserIdleTtlMsKey = 'worker.local_browser_idle_ttl_ms'
 
 type BrowserRuntimeConfig = {
-  remoteCdpConfig: JsonObject | null
+  remoteCDPConfig: JSONObject | null
   localBrowserIdleTtlMs?: number
 }
 
@@ -52,15 +52,15 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
     }
 
     const { model, aiGateway, visionFallbackModel } = await acquireTurnAIGatewayAccess(turnStart, {
-      requestAIGatewayApiKey: opts.requestAIGatewayApiKey,
+      requestAIGatewayAPIKey: opts.requestAIGatewayAPIKey,
       runStep: turnActivity.runStep
     })
     const agentConversationContext = await turnActivity.runStep(
       resolveAgentConversationContext(turnStart, opts),
       'agent conversation context'
     )
-    const aiGatewayConversationId = agentConversationContext.conversation?.id
-    if (!aiGatewayConversationId) {
+    const aiGatewayConversationID = agentConversationContext.conversation?.id
+    if (!aiGatewayConversationID) {
       throw new Error('agent conversation context is missing AIGateway conversation id')
     }
     const browserRuntimeConfig = await turnActivity.runStep(
@@ -72,8 +72,8 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
         aiGateway,
         abortSignal: turnActivity.signal,
         localBrowser: {
-          agentUid: turnStart.turn.actor.agent_uid,
-          executionScopeId: turnStart.turn.actor.session_id ?? turnStart.turn.actor.agent_uid,
+          agentUID: turnStart.turn.actor.agent_uid,
+          executionScopeID: turnStart.turn.actor.session_id ?? turnStart.turn.actor.agent_uid,
           ...(typeof browserRuntimeConfig.localBrowserIdleTtlMs === 'number'
             ? { localBrowserIdleTtlMs: browserRuntimeConfig.localBrowserIdleTtlMs }
             : {})
@@ -100,19 +100,19 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
     const tools = [
       createTodoTool(todoStore),
       ...createComputerTools({
-        agentUid: turnStart.turn.actor.agent_uid,
-        conversationId: turnStart.turn.actor.session_id,
+        agentUID: turnStart.turn.actor.agent_uid,
+        conversationID: turnStart.turn.actor.session_id,
         workspaceRoot: opts.workspaceRoot,
-        browserRemoteCdpConfig: browserRuntimeConfig.remoteCdpConfig,
+        browserRemoteCDPConfig: browserRuntimeConfig.remoteCDPConfig,
         localBrowserIdleTtlMs: browserRuntimeConfig.localBrowserIdleTtlMs
       }),
       ...createScheduleTools({
         turnStart,
-        requestScheduleRpc: opts.requestScheduleRpc
+        requestScheduleRPC: opts.requestScheduleRPC
       }),
       ...createMemoryTools({
         turnStart,
-        requestMemoryRpc: opts.requestMemoryRpc
+        requestMemoryRPC: opts.requestMemoryRPC
       }),
       ...webTools,
       createClarifyTool(),
@@ -150,8 +150,8 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       maxTokens: runtimePolicy.maxOutputTokens,
       maxModelIterations: runtimePolicy.maxIterations,
       stateful: {
-        actorEventId: actorEvent.actor_event_id,
-        conversationId: aiGatewayConversationId,
+        actorEventID: actorEvent.actor_event_id,
+        conversationID: aiGatewayConversationID,
         truncation: statefulTruncationFromActorEventPayload(actorEvent.payload_json)
       },
       tools,
@@ -167,7 +167,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       )
     }
     const replyText = assistantText(latest.message)
-    return textTurnResultFromAssistantReply(turnStart, replyText, latest.responseId, latest.outcome)
+    return textTurnResultFromAssistantReply(turnStart, replyText, latest.responseID, latest.outcome)
   } finally {
     turnActivity.cleanup()
   }
@@ -184,14 +184,14 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
 export function textTurnResultFromAssistantReply(
   turnStart: TurnStart,
   replyText: string,
-  finalResponseId: string,
+  finalResponseID: string,
   outcome: 'loop_finished' | 'iteration_exhausted'
 ): TurnHandlerResult {
   if (outcome === 'loop_finished' && silentSuccessAllowed(turnStart) && silentSuccessReply(replyText)) {
     return { kind: 'noop_completed', reason: 'schedule_silent_success' }
   }
 
-  return { kind: 'turn_completed', finalResponseId, outcome }
+  return { kind: 'turn_completed', finalResponseID, outcome }
 }
 
 /**
@@ -220,20 +220,20 @@ async function resolveBrowserRuntimeConfig(
   turnStart: TurnStart,
   opts: TextTurnLoopOptions
 ): Promise<BrowserRuntimeConfig> {
-  if (!opts.requestAppConfigure) return { remoteCdpConfig: null }
+  if (!opts.requestAppConfigure) return { remoteCDPConfig: null }
 
   const response = await opts.requestAppConfigure({
     request_id: `app-configure-browser-${crypto.randomUUID()}`,
     agent_uid: turnStart.turn.actor.agent_uid,
-    keys: [RemoteBrowserCdpConfigKey, LocalBrowserIdleTtlMsKey]
+    keys: [RemoteBrowserCDPConfigKey, LocalBrowserIdleTtlMsKey]
   })
-  assertRpcResponse<AppConfigureResolveResponse>(response, 'browser runtime config rejected')
+  assertRPCResponse<AppConfigureResolveResponse>(response, 'browser runtime config rejected')
 
-  const remoteCdpConfig = response.values[RemoteBrowserCdpConfigKey]?.value
+  const remoteCDPConfig = response.values[RemoteBrowserCDPConfigKey]?.value
   const localBrowserIdleTtlMs = response.values[LocalBrowserIdleTtlMsKey]?.value
 
   return {
-    remoteCdpConfig: isRecord(remoteCdpConfig) ? remoteCdpConfig : null,
+    remoteCDPConfig: isRecord(remoteCDPConfig) ? remoteCDPConfig : null,
     ...(typeof localBrowserIdleTtlMs === 'number' && Number.isFinite(localBrowserIdleTtlMs)
       ? { localBrowserIdleTtlMs }
       : {})

@@ -1,4 +1,4 @@
-defmodule Ankole.Repo.Migrations.DecoupleAiGatewayFromActor do
+defmodule Ankole.Repo.Migrations.DecoupleAIGatewayFromActor do
   use Ecto.Migration
 
   def up do

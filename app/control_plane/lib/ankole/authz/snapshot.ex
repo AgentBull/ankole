@@ -41,7 +41,7 @@ defmodule Ankole.AuthZ.Snapshot do
       {:ok,
        %{
          "principal" => principal_snapshot(principal),
-         "staticGroupIds" => static_group_ids,
+         "staticGroupIDs" => static_group_ids,
          "computedGroups" => computed_groups,
          "grants" => grants,
          "resource" => resource,
@@ -56,7 +56,7 @@ defmodule Ankole.AuthZ.Snapshot do
       "type" => Atom.to_string(principal.type),
       "status" => Atom.to_string(principal.status),
       "displayName" => principal.display_name,
-      "avatarUrl" => principal.avatar_url
+      "avatarURL" => principal.avatar_url
     }
   end
 
@@ -103,8 +103,8 @@ defmodule Ankole.AuthZ.Snapshot do
   defp grant_snapshot(%Grant{} = grant) do
     %{
       "id" => grant.id,
-      "principalUid" => grant.principal_uid,
-      "groupId" => grant.group_id,
+      "principalUID" => grant.principal_uid,
+      "groupID" => grant.group_id,
       "resourcePattern" => grant.resource_pattern,
       "action" => grant.action,
       "condition" => grant.condition

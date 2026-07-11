@@ -1,5 +1,5 @@
 import { Buffer } from 'node:buffer'
-import { match, P, type JsonObject } from '@pleisto/active-support'
+import { match, P, type JsonObject as JSONObject } from '@pleisto/active-support'
 import type {
   ResponseCreateParams,
   ResponseInputItem,
@@ -66,7 +66,7 @@ export function toResponseInput(messages: Message[]): ResponseInputItem[] {
       .with({ role: 'tool' }, msg => [
         {
           type: 'function_call_output',
-          call_id: msg.toolCallId,
+          call_id: msg.toolCallID,
           output: msg.result
         } as ResponseInputItem
       ])
@@ -80,24 +80,24 @@ export function statefulResponseParams(
 ): ResponseCreateParams {
   const metadata = {
     ...stateful.metadata,
-    actor_event_id: stateful.actorEventId
+    actor_event_id: stateful.actorEventID
   }
 
   const request = {
     ...params,
     store: true,
     metadata
-  } as ResponseCreateParams & JsonObject
+  } as ResponseCreateParams & JSONObject
 
-  match([stateful.previousResponseId, stateful.conversationId] as const)
-    .with([P.string, P._], ([previousResponseId]) => {
-      request.previous_response_id = previousResponseId
+  match([stateful.previousResponseID, stateful.conversationID] as const)
+    .with([P.string, P._], ([previousResponseID]) => {
+      request.previous_response_id = previousResponseID
     })
-    .with([P._, P.string], ([, conversationId]) => {
-      request.conversation = `conv_${conversationId}`
+    .with([P._, P.string], ([, conversationID]) => {
+      request.conversation = `conv_${conversationID}`
     })
     .otherwise(() => {
-      throw new Error('stateful response.create requires a conversationId or previousResponseId')
+      throw new Error('stateful response.create requires a conversationID or previousResponseID')
     })
 
   if (stateful.truncation) {
@@ -112,18 +112,18 @@ export function statefulToolResultsRecordParams(
   input: ResponseInputItem[],
   stateful: StatefulResponseContext
 ): ResponseCreateParams {
-  if (!stateful.previousResponseId) {
-    throw new Error('stateful tool result recording requires a previousResponseId')
+  if (!stateful.previousResponseID) {
+    throw new Error('stateful tool result recording requires a previousResponseID')
   }
 
   return {
     model: model.selector,
     input,
     store: true,
-    previous_response_id: stateful.previousResponseId,
+    previous_response_id: stateful.previousResponseID,
     metadata: {
       ...stateful.metadata,
-      actor_event_id: stateful.actorEventId
+      actor_event_id: stateful.actorEventID
     }
   } as ResponseCreateParams
 }
@@ -132,7 +132,7 @@ function responseInputContentParts(parts: ContentPart[]): ResponseInputMessageCo
   const content: ResponseInputMessageContentList = []
   for (const part of parts) {
     if (part.type === 'image') {
-      content.push({ type: 'input_image', image_url: imageContentUrl(part), detail: 'auto' })
+      content.push({ type: 'input_image', image_url: imageContentURL(part), detail: 'auto' })
       continue
     }
     content.push({ type: 'input_text', text: part.text })
@@ -140,7 +140,7 @@ function responseInputContentParts(parts: ContentPart[]): ResponseInputMessageCo
   return content
 }
 
-function imageContentUrl(part: ImageContent): string {
+function imageContentURL(part: ImageContent): string {
   if (typeof part.image === 'string') return part.image
   if (part.image instanceof URL) return part.image.toString()
 

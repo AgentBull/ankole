@@ -13,7 +13,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignmen
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
 
   alias Ankole.Principals.Principal
-  alias Ankole.Ecto.JsonPayload
+  alias Ankole.Ecto.JSONPayload
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
@@ -72,7 +72,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignmen
       :metadata
     ])
     |> validate_inclusion(:status, @statuses)
-    |> JsonPayload.validate_map(:metadata, allow_datetime: true)
+    |> JSONPayload.validate_map(:metadata, allow_datetime: true)
     |> foreign_key_constraint(:agent_uid)
     # Partial index (in the migration) keeps one live assignment per actor key, so
     # the sticky placement hint cannot fork into two workers for one session.

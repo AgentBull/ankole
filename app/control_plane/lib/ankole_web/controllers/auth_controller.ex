@@ -1,4 +1,6 @@
 defmodule AnkoleWeb.AuthController do
+  alias OpenApiSpex, as: OpenAPISpex
+
   @moduledoc """
   JSON and callback endpoints for normal admin authentication.
 
@@ -8,17 +10,17 @@ defmodule AnkoleWeb.AuthController do
   """
 
   use AnkoleWeb, :controller
-  use OpenApiSpex.ControllerSpecs
+  use OpenAPISpex.ControllerSpecs
 
   alias Ankole.AdminAuth
   alias Ankole.AuthZ
   alias Ankole.IdentityProviders
   alias Ankole.Setup.Config, as: SetupConfig
   alias AnkoleWeb.ConsoleTokens
-  alias AnkoleWeb.Schemas.ConsoleApi.AuthSessionDeleteResponse
-  alias AnkoleWeb.Schemas.ConsoleApi.ConsoleTokenRequest
-  alias AnkoleWeb.Schemas.ConsoleApi.ConsoleTokenResponse
-  alias AnkoleWeb.Schemas.ConsoleApi.OAuthErrorResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.AuthSessionDeleteResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.ConsoleTokenRequest
+  alias AnkoleWeb.Schemas.ConsoleAPI.ConsoleTokenResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.OAuthErrorResponse
   alias AnkoleWeb.Session, as: WebSession
 
   tags(["Auth"])
@@ -53,8 +55,8 @@ defmodule AnkoleWeb.AuthController do
       {:ok, session} ->
         json(conn, %{
           authenticated: true,
-          principalUid: session["principal_uid"],
-          providerId: session["provider_id"]
+          principalUID: session["principal_uid"],
+          providerID: session["provider_id"]
         })
 
       :error ->
@@ -126,9 +128,9 @@ defmodule AnkoleWeb.AuthController do
         providers:
           Enum.map(providers, fn provider ->
             %{
-              providerId: provider["provider_id"],
-              adapterId: provider["adapter_id"],
-              pluginId: provider["plugin_id"]
+              providerID: provider["provider_id"],
+              adapterID: provider["adapter_id"],
+              pluginID: provider["plugin_id"]
             }
           end)
       })
@@ -159,7 +161,7 @@ defmodule AnkoleWeb.AuthController do
         redirect_uri: redirect_uri,
         return_to: return_to
       })
-      |> json(%{authorizationUrl: authorization_url})
+      |> json(%{authorizationURL: authorization_url})
     else
       {:ok, false} -> error(conn, 409, "setup is not complete")
       {:error, reason} -> error(conn, 400, reason)

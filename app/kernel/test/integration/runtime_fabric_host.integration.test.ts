@@ -36,7 +36,7 @@ describe('RuntimeFabric native host adapter integration', () => {
       const endpoint = await waitForFixtureEndpoint(endpointPath)
       fabric = connectRuntimeFabric({
         endpoint,
-        workerId: 'worker-binding-roundtrip',
+        workerID: 'worker-binding-roundtrip',
         workerAuthKey: 'binding-secret'
       })
       await fabric.sendEnvelope(testEnvelope('worker-binding-roundtrip'))
@@ -74,16 +74,16 @@ describe('RuntimeFabric native host adapter integration', () => {
   }, 30_000)
 })
 
-function testEnvelope(workerId: string): RuntimeFabricEnvelope {
+function testEnvelope(workerID: string): RuntimeFabricEnvelope {
   return {
     protocol_version: 1,
-    message_id: `worker-ready-${workerId}`,
+    message_id: `worker-ready-${workerID}`,
     lane: 'LANE_CONTROL',
     durability: 'CONTROL_EPHEMERAL',
     body: {
       type: 'worker_ready',
       worker_ready: {
-        worker_id: workerId,
+        worker_id: workerID,
         runtime: 'bun',
         version: 'test',
         capacity_json: { available_turn_slots: 1 }

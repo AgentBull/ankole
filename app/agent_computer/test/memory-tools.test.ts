@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'bun:test'
 import type { TurnStart } from '../src/lanes/actor_lane'
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import { createMemoryTools } from '../src/tools/memory/memory-tools'
 
 describe('memory tools', () => {
   it('describes memory_note as proactive current-channel memory management', () => {
     const memoryNote = createMemoryTools({
       turnStart: turnStartForMemoryTool(),
-      requestMemoryRpc: async (): Promise<JsonObject> => ({ status: 'ok' })
+      requestMemoryRPC: async (): Promise<JSONObject> => ({ status: 'ok' })
     }).find(tool => tool.name === 'memory_note')
 
     expect(memoryNote?.description).toContain('current channel only')

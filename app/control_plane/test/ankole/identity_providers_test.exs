@@ -52,7 +52,7 @@ defmodule Ankole.IdentityProvidersTest do
              IdentityProviders.save_provider(
                "lark-main",
                "lark",
-               %{"appId" => "cli_identity", "appSecret" => "secret"},
+               %{"appID" => "cli_identity", "appSecret" => "secret"},
                true
              )
 
@@ -73,7 +73,7 @@ defmodule Ankole.IdentityProvidersTest do
              IdentityProviders.save_provider(
                "lark-main",
                "lark",
-               %{"appId" => "cli_identity", "appSecret" => "secret"},
+               %{"appID" => "cli_identity", "appSecret" => "secret"},
                true
              )
 
@@ -102,7 +102,7 @@ defmodule Ankole.IdentityProvidersTest do
                "lark-main",
                "lark",
                %{
-                 "appId" => "cli_identity",
+                 "appID" => "cli_identity",
                  "appSecret" => "secret",
                  "sync" => %{"contacts" => true, "websocket" => true}
                },
@@ -132,7 +132,7 @@ defmodule Ankole.IdentityProvidersTest do
              IdentityProviders.save_provider(
                "lark-main",
                "lark",
-               %{"appId" => "cli_identity", "appSecret" => "secret"},
+               %{"appID" => "cli_identity", "appSecret" => "secret"},
                true
              )
 
@@ -140,7 +140,7 @@ defmodule Ankole.IdentityProvidersTest do
              IdentityProviders.save_provider(
                "lark-disabled",
                "lark",
-               %{"appId" => "cli_identity_disabled", "appSecret" => "secret"},
+               %{"appID" => "cli_identity_disabled", "appSecret" => "secret"},
                false
              )
 
@@ -162,7 +162,7 @@ defmodule Ankole.IdentityProvidersTest do
                "lark-main",
                "lark",
                %{
-                 "appId" => "cli_identity",
+                 "appID" => "cli_identity",
                  "appSecret" => "secret",
                  "sync" => %{"contacts" => false, "websocket" => true}
                },
@@ -190,7 +190,7 @@ defmodule Ankole.IdentityProvidersTest do
                "lark-main",
                "lark",
                %{
-                 "appId" => "cli_identity",
+                 "appID" => "cli_identity",
                  "appSecret" => "secret",
                  "sync" => %{"contacts" => false}
                },
@@ -205,7 +205,7 @@ defmodule Ankole.IdentityProvidersTest do
              IdentityProviders.save_provider(
                "lark-main",
                "lark",
-               %{"appId" => "cli_identity", "appSecret" => "secret"},
+               %{"appID" => "cli_identity", "appSecret" => "secret"},
                true
              )
 
@@ -224,7 +224,7 @@ defmodule Ankole.IdentityProvidersTest do
              IdentityProviders.save_provider(
                "lark-main",
                "lark",
-               %{"appId" => "cli_identity", "appSecret" => "secret"},
+               %{"appID" => "cli_identity", "appSecret" => "secret"},
                true
              )
 
@@ -247,7 +247,7 @@ defmodule Ankole.IdentityProvidersTest do
              IdentityProviders.save_provider(
                "lark-main",
                "lark",
-               %{"appId" => "cli_identity", "appSecret" => "secret"},
+               %{"appID" => "cli_identity", "appSecret" => "secret"},
                true
              )
 
@@ -256,7 +256,7 @@ defmodule Ankole.IdentityProvidersTest do
                "lark-disabled-sync",
                "lark",
                %{
-                 "appId" => "cli_identity_disabled",
+                 "appID" => "cli_identity_disabled",
                  "appSecret" => "secret",
                  "sync" => %{"contacts" => false}
                },
@@ -267,7 +267,7 @@ defmodule Ankole.IdentityProvidersTest do
              IdentityProviders.save_provider(
                "lark-disabled-provider",
                "lark",
-               %{"appId" => "cli_identity_disabled_provider", "appSecret" => "secret"},
+               %{"appID" => "cli_identity_disabled_provider", "appSecret" => "secret"},
                false
              )
 
@@ -302,7 +302,7 @@ defmodule Ankole.IdentityProvidersTest do
              IdentityProviders.save_provider(
                "lark-main",
                "lark",
-               %{"appId" => "cli_identity", "appSecret" => "secret"},
+               %{"appID" => "cli_identity", "appSecret" => "secret"},
                true
              )
 

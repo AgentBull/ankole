@@ -1,12 +1,12 @@
 import type { AgentToolResult } from './types'
 
-export interface JsonToolResultOptions {
+export interface JSONToolResultOptions {
   textPrefix?: string
 }
 
 export function jsonToolResult<TDetails>(
   details: TDetails,
-  opts: JsonToolResultOptions = {}
+  opts: JSONToolResultOptions = {}
 ): AgentToolResult<TDetails> {
   const text = JSON.stringify(details)
   return {

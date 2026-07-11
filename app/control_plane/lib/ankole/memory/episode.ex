@@ -9,7 +9,7 @@ defmodule Ankole.Memory.Episode do
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
 
   alias Ankole.SignalsGateway.Channel
-  alias Ankole.Ecto.JsonPayload
+  alias Ankole.Ecto.JSONPayload
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
@@ -72,7 +72,7 @@ defmodule Ankole.Memory.Episode do
     |> check_constraint(:embedding_dimensions,
       name: :memory_episodes_embedding_dimensions_positive
     )
-    |> JsonPayload.validate_map(:metadata)
+    |> JSONPayload.validate_map(:metadata)
     |> check_constraint(:metadata, name: :memory_episodes_metadata_object)
   end
 end

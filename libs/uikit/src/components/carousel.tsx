@@ -5,7 +5,7 @@ import { cn } from '@ankole/uikit/lib/utils'
 import { Button } from '@ankole/uikit/components/button'
 import { RiArrowLeftSLine, RiArrowRightSLine } from '@remixicon/react'
 
-type CarouselApi = UseEmblaCarouselType[1]
+type CarouselAPI = UseEmblaCarouselType[1]
 type UseCarouselParameters = Parameters<typeof useEmblaCarousel>
 type CarouselOptions = UseCarouselParameters[0]
 type CarouselPlugin = UseCarouselParameters[1]
@@ -14,7 +14,7 @@ type CarouselProps = {
   opts?: CarouselOptions
   plugins?: CarouselPlugin
   orientation?: 'horizontal' | 'vertical'
-  setApi?: (api: CarouselApi) => void
+  setAPI?: (api: CarouselAPI) => void
 }
 
 type CarouselContextProps = {
@@ -41,7 +41,7 @@ function useCarousel() {
 function Carousel({
   orientation = 'horizontal',
   opts,
-  setApi,
+  setAPI,
   plugins,
   className,
   children,
@@ -57,7 +57,7 @@ function Carousel({
   const [canScrollPrev, setCanScrollPrev] = React.useState(false)
   const [canScrollNext, setCanScrollNext] = React.useState(false)
 
-  const onSelect = React.useCallback((api: CarouselApi) => {
+  const onSelect = React.useCallback((api: CarouselAPI) => {
     if (!api) return
     setCanScrollPrev(api.canScrollPrev())
     setCanScrollNext(api.canScrollNext())
@@ -85,9 +85,9 @@ function Carousel({
   )
 
   React.useEffect(() => {
-    if (!api || !setApi) return
-    setApi(api)
-  }, [api, setApi])
+    if (!api || !setAPI) return
+    setAPI(api)
+  }, [api, setAPI])
 
   React.useEffect(() => {
     if (!api) return
@@ -203,4 +203,4 @@ function CarouselNext({
   )
 }
 
-export { type CarouselApi, Carousel, CarouselContent, CarouselItem, CarouselPrevious, CarouselNext, useCarousel }
+export { type CarouselAPI, Carousel, CarouselContent, CarouselItem, CarouselPrevious, CarouselNext, useCarousel }

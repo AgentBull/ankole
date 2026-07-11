@@ -8,8 +8,8 @@ describe('@ankole/agent-computer installed skill scanner', () => {
   it('parses valid installed skills and skips excluded or symlinked files', async () => {
     const root = tempRoot('installed-skill-valid')
     try {
-      const agentUid = 'agent-valid'
-      const skillDir = join(root, agentUid, 'agent-notes')
+      const agentUID = 'agent-valid'
+      const skillDir = join(root, agentUID, 'agent-notes')
       mkdirSync(join(skillDir, 'references'), { recursive: true })
       mkdirSync(join(skillDir, 'target'), { recursive: true })
       mkdirSync(join(skillDir, 'node_modules'), { recursive: true })
@@ -28,7 +28,7 @@ describe('@ankole/agent-computer installed skill scanner', () => {
         // Some host filesystems disallow symlink creation; the core scan still runs.
       }
 
-      const scan = await scanInstalledSkills(root, agentUid)
+      const scan = await scanInstalledSkills(root, agentUID)
       expect(scan.observations).toHaveLength(1)
       expect(scan.observations[0]).toMatchObject({
         skill_name: 'agent-notes',
@@ -44,7 +44,7 @@ describe('@ankole/agent-computer installed skill scanner', () => {
       })
       expect(scan.observations[0]!.xxh3_128).toMatch(/^[a-f0-9]{32}$/)
 
-      const secondScan = await scanInstalledSkills(root, agentUid)
+      const secondScan = await scanInstalledSkills(root, agentUID)
       expect(secondScan.fingerprint).toBe(scan.fingerprint)
       expect(secondScan.observations[0]!.xxh3_128).toBe(scan.observations[0]!.xxh3_128)
     } finally {
@@ -55,8 +55,8 @@ describe('@ankole/agent-computer installed skill scanner', () => {
   it('skips missing, mismatched, and symlinked skill directories without failing the scan', async () => {
     const root = tempRoot('installed-skill-invalid')
     try {
-      const agentUid = 'agent-invalid'
-      const agentRoot = join(root, agentUid)
+      const agentUID = 'agent-invalid'
+      const agentRoot = join(root, agentUID)
       mkdirSync(join(agentRoot, 'no-skill-md'), { recursive: true })
       writeSkill(join(agentRoot, 'mismatch'), {
         name: 'other-name',
@@ -69,7 +69,7 @@ describe('@ankole/agent-computer installed skill scanner', () => {
         // Symlink diagnostics are covered when the host permits them.
       }
 
-      const scan = await scanInstalledSkills(root, agentUid)
+      const scan = await scanInstalledSkills(root, agentUID)
       expect(scan.observations).toEqual([])
       expect(scan.diagnostics.some(diagnostic => diagnostic.code === 'skill_name_directory_mismatch')).toBe(true)
     } finally {
@@ -91,8 +91,8 @@ describe('@ankole/agent-computer installed skill scanner', () => {
   it('reports the per-skill file limit once', async () => {
     const root = tempRoot('installed-skill-file-limit')
     try {
-      const agentUid = 'agent-file-limit'
-      const skillDir = join(root, agentUid, 'agent-notes')
+      const agentUID = 'agent-file-limit'
+      const skillDir = join(root, agentUID, 'agent-notes')
       writeSkill(skillDir, {
         name: 'agent-notes',
         description: 'Agent installed notes.'
@@ -102,7 +102,7 @@ describe('@ankole/agent-computer installed skill scanner', () => {
         writeFileSync(join(skillDir, 'references', `file-${index}.md`), `# File ${index}\n`)
       }
 
-      const scan = await scanInstalledSkills(root, agentUid)
+      const scan = await scanInstalledSkills(root, agentUID)
       expect(scan.observations[0]?.file_count).toBe(512)
       expect(
         scan.diagnostics.filter(diagnostic => diagnostic.code === 'installed_skill_file_limit_reached')

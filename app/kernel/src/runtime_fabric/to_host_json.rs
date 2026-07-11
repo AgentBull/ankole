@@ -8,6 +8,9 @@ use super::{
     json::*,
     proto,
 };
+use proto::envelope::Body::{
+    RpcError as RPCErrorBody, RpcRequest as RPCRequestBody, RpcResponse as RPCResponseBody,
+};
 
 // Converts prost structs back to the canonical host JSON shape. The nested
 // `body.type` form keeps dispatch simple in Elixir and TypeScript.
@@ -55,9 +58,9 @@ fn body_to_json(body: Option<&proto::envelope::Body>) -> KernelResult<Value> {
         proto::envelope::Body::TurnNoopCompleted(payload) => turn_noop_completed_to_json(payload),
         proto::envelope::Body::TurnCompleted(payload) => turn_completed_to_json(payload),
         proto::envelope::Body::ControlShutdown(payload) => control_shutdown_to_json(payload),
-        proto::envelope::Body::RpcRequest(payload) => rpc_request_to_json(payload),
-        proto::envelope::Body::RpcResponse(payload) => rpc_response_to_json(payload),
-        proto::envelope::Body::RpcError(payload) => rpc_error_to_json(payload),
+        RPCRequestBody(payload) => rpc_request_to_json(payload),
+        RPCResponseBody(payload) => rpc_response_to_json(payload),
+        RPCErrorBody(payload) => rpc_error_to_json(payload),
     }?;
 
     let mut object = Map::new();
@@ -189,7 +192,7 @@ fn control_shutdown_to_json(payload: &proto::ControlShutdown) -> KernelResult<Va
     )]))
 }
 
-fn rpc_request_to_json(payload: &proto::RpcRequest) -> KernelResult<Value> {
+fn rpc_request_to_json(payload: &proto::RPCRequest) -> KernelResult<Value> {
     Ok(json_object([
         ("request_id", Value::from(payload.request_id.clone())),
         ("method", Value::from(payload.method.clone())),
@@ -198,14 +201,14 @@ fn rpc_request_to_json(payload: &proto::RpcRequest) -> KernelResult<Value> {
     ]))
 }
 
-fn rpc_response_to_json(payload: &proto::RpcResponse) -> KernelResult<Value> {
+fn rpc_response_to_json(payload: &proto::RPCResponse) -> KernelResult<Value> {
     Ok(json_object([
         ("request_id", Value::from(payload.request_id.clone())),
         ("payload_json", bytes_to_json(&payload.payload_json)?),
     ]))
 }
 
-fn rpc_error_to_json(payload: &proto::RpcError) -> KernelResult<Value> {
+fn rpc_error_to_json(payload: &proto::RPCError) -> KernelResult<Value> {
     Ok(json_object([
         ("request_id", Value::from(payload.request_id.clone())),
         ("code", Value::from(payload.code.clone())),

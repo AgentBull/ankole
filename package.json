@@ -41,6 +41,7 @@
     "feishu-openapi": "bun run --filter @ankole/feishu-openapi",
     "feishu-openapi:test": "bun run --filter @ankole/feishu-openapi test",
     "analyze": "bun run kit analyze all",
+    "analyze:naming": "bun run kit analyze naming",
     "analyze:smells": "bun run kit analyze smells",
     "analyze:unused": "bun run kit analyze unused",
     "analyze:structure": "bun run kit analyze structure",

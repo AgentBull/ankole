@@ -12,7 +12,7 @@ defmodule Ankole.AIGateway.Schemas.CompactionArtifact do
   import Ecto.Changeset
 
   alias Ankole.AIGateway.Schemas.Conversation
-  alias Ankole.Ecto.JsonPayload
+  alias Ankole.Ecto.JSONPayload
   alias Ankole.Principals.Principal
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
@@ -28,7 +28,7 @@ defmodule Ankole.AIGateway.Schemas.CompactionArtifact do
 
     belongs_to(:conversation, Conversation, type: :binary_id)
 
-    field(:content, Ankole.Types.JsonValue, default: %{})
+    field(:content, Ankole.Types.JSONValue, default: %{})
 
     timestamps()
   end
@@ -41,7 +41,7 @@ defmodule Ankole.AIGateway.Schemas.CompactionArtifact do
     artifact
     |> cast(attrs, [:subject_uid, :conversation_id, :content])
     |> validate_required([:subject_uid, :content])
-    |> JsonPayload.validate_map(:content, allow_datetime: true)
+    |> JSONPayload.validate_map(:content, allow_datetime: true)
     |> validate_content_contract()
     |> foreign_key_constraint(:subject_uid)
     |> foreign_key_constraint(:conversation_id)

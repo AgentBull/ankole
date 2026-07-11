@@ -258,11 +258,11 @@ defmodule Ankole.AppConfigureTest do
   end
 
   test "rejects empty agent scope at the database boundary", %{prefix: prefix} do
-    assert {:error, %Postgrex.Error{postgres: %{constraint: "app_configure_scope_check"}}} =
+    assert {:error, %Postgrex.Error{postgres: %{constraint: "app_configurations_scope_check"}}} =
              Ecto.Adapters.SQL.query(
                Repo,
                """
-               INSERT INTO app_configure (scope, key, value, inserted_at, updated_at)
+               INSERT INTO app_configurations (scope, key, value, inserted_at, updated_at)
                VALUES ($1, $2, jsonb_build_object('type', 'plaintext', 'value', 'bad'), now(), now())
                """,
                [

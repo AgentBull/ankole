@@ -7,13 +7,16 @@ use crate::common::{KernelError, KernelResult};
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
-pub enum ApiResolverKind {
-    OpenaiResponses,
-    OpenaiChatCompletions,
+pub enum APIResolverKind {
+    #[serde(rename = "openai_responses")]
+    OpenAIResponses,
+    #[serde(rename = "openai_chat_completions")]
+    OpenAIChatCompletions,
     AnthropicMessages,
     GeminiGenerateContent,
     BedrockConverse,
-    OpenaiEmbeddings,
+    #[serde(rename = "openai_embeddings")]
+    OpenAIEmbeddings,
     OpenrouterEmbeddings,
     JinaEmbeddings,
     GoogleEmbeddings,
@@ -27,15 +30,15 @@ pub enum ApiResolverKind {
     JinaReaderWebFetch,
 }
 
-impl ApiResolverKind {
+impl APIResolverKind {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::OpenaiResponses => "openai_responses",
-            Self::OpenaiChatCompletions => "openai_chat_completions",
+            Self::OpenAIResponses => "openai_responses",
+            Self::OpenAIChatCompletions => "openai_chat_completions",
             Self::AnthropicMessages => "anthropic_messages",
             Self::GeminiGenerateContent => "gemini_generate_content",
             Self::BedrockConverse => "bedrock_converse",
-            Self::OpenaiEmbeddings => "openai_embeddings",
+            Self::OpenAIEmbeddings => "openai_embeddings",
             Self::OpenrouterEmbeddings => "openrouter_embeddings",
             Self::JinaEmbeddings => "jina_embeddings",
             Self::GoogleEmbeddings => "google_embeddings",
@@ -54,17 +57,20 @@ impl ApiResolverKind {
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum UpstreamKind {
-    HttpSse,
-    HttpEventstream,
-    WebsocketText,
+    #[serde(rename = "http_sse")]
+    HTTPSSE,
+    #[serde(rename = "http_eventstream")]
+    HTTPEventstream,
+    #[serde(rename = "websocket_text")]
+    WebSocketText,
 }
 
 impl UpstreamKind {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::HttpSse => "http_sse",
-            Self::HttpEventstream => "http_eventstream",
-            Self::WebsocketText => "websocket_text",
+            Self::HTTPSSE => "http_sse",
+            Self::HTTPEventstream => "http_eventstream",
+            Self::WebSocketText => "websocket_text",
         }
     }
 }
@@ -72,28 +78,30 @@ impl UpstreamKind {
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum DownstreamKind {
-    Sse,
-    WebsocketText,
+    #[serde(rename = "sse")]
+    SSE,
+    #[serde(rename = "websocket_text")]
+    WebSocketText,
 }
 
 impl DownstreamKind {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Sse => "sse",
-            Self::WebsocketText => "websocket_text",
+            Self::SSE => "sse",
+            Self::WebSocketText => "websocket_text",
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
-pub enum HttpVersionPreference {
+pub enum HTTPVersionPreference {
     H3,
     H2,
     H1,
 }
 
-impl HttpVersionPreference {
+impl HTTPVersionPreference {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::H3 => "h3",
@@ -113,7 +121,7 @@ pub enum CompressionPreference {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct StreamSpec {
-    pub api_resolver: ApiResolverKind,
+    pub api_resolver: APIResolverKind,
     pub upstream: UpstreamSpec,
     pub downstream: DownstreamKind,
     #[serde(default)]
@@ -133,7 +141,7 @@ impl StreamSpec {
 
     fn validate(&self) -> KernelResult<()> {
         match self.upstream.kind {
-            UpstreamKind::HttpSse | UpstreamKind::HttpEventstream => {
+            UpstreamKind::HTTPSSE | UpstreamKind::HTTPEventstream => {
                 if self.upstream.url.starts_with("ws://") || self.upstream.url.starts_with("wss://")
                 {
                     return Err(KernelError::new(
@@ -141,7 +149,7 @@ impl StreamSpec {
                     ));
                 }
             }
-            UpstreamKind::WebsocketText => {
+            UpstreamKind::WebSocketText => {
                 if !self.upstream.url.starts_with("ws://")
                     && !self.upstream.url.starts_with("wss://")
                 {
@@ -182,7 +190,7 @@ pub struct UpstreamSpec {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct PreparedHttpRequestSpec {
+pub struct PreparedHTTPRequestSpec {
     pub method: String,
     pub url: String,
     #[serde(default)]
@@ -240,7 +248,7 @@ impl TimeoutSpec {
 #[derive(Debug, Clone, Deserialize)]
 pub struct TransportSpec {
     #[serde(default = "default_http_versions")]
-    pub http_versions: Vec<HttpVersionPreference>,
+    pub http_versions: Vec<HTTPVersionPreference>,
     #[serde(default = "default_compression")]
     pub compression: Vec<CompressionPreference>,
     #[serde(default)]
@@ -418,8 +426,8 @@ fn value_to_prompt_text(value: &Value) -> String {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ModelRequestSpec {
-    pub api_resolver: ApiResolverKind,
-    pub upstream: PreparedHttpRequestSpec,
+    pub api_resolver: APIResolverKind,
+    pub upstream: PreparedHTTPRequestSpec,
     #[serde(default)]
     pub response_context: ResponseContext,
     #[serde(default)]
@@ -443,7 +451,7 @@ impl ModelRequestSpec {
 
     pub fn stream_upstream(&self) -> UpstreamSpec {
         UpstreamSpec {
-            kind: UpstreamKind::HttpSse,
+            kind: UpstreamKind::HTTPSSE,
             method: self.upstream.method.clone(),
             url: self.upstream.url.clone(),
             headers: self.upstream.headers.clone(),
@@ -457,7 +465,7 @@ impl ModelRequestSpec {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct RawRequestSpec {
-    pub upstream: PreparedHttpRequestSpec,
+    pub upstream: PreparedHTTPRequestSpec,
     #[serde(default)]
     pub limits: RequestLimits,
 }
@@ -479,7 +487,7 @@ impl RawRequestSpec {
 
     pub fn stream_upstream(&self) -> UpstreamSpec {
         UpstreamSpec {
-            kind: UpstreamKind::HttpSse,
+            kind: UpstreamKind::HTTPSSE,
             method: self.upstream.method.clone(),
             url: self.upstream.url.clone(),
             headers: self.upstream.headers.clone(),
@@ -507,11 +515,11 @@ fn default_model_request_timeout_ms() -> u64 {
     1_800_000
 }
 
-fn default_http_versions() -> Vec<HttpVersionPreference> {
+fn default_http_versions() -> Vec<HTTPVersionPreference> {
     vec![
-        HttpVersionPreference::H3,
-        HttpVersionPreference::H2,
-        HttpVersionPreference::H1,
+        HTTPVersionPreference::H3,
+        HTTPVersionPreference::H2,
+        HTTPVersionPreference::H1,
     ]
 }
 
@@ -552,7 +560,7 @@ fn default_include_model() -> bool {
 }
 
 fn validate_prepared_http_request(
-    upstream: &PreparedHttpRequestSpec,
+    upstream: &PreparedHTTPRequestSpec,
     label: &str,
 ) -> KernelResult<()> {
     if upstream.url.starts_with("ws://") || upstream.url.starts_with("wss://") {

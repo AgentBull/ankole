@@ -9,7 +9,7 @@ import {
   startComposeServices
 } from '../utils'
 
-const commonDbFlags = {
+const commonDBFlags = {
   name: {
     type: 'string',
     description:
@@ -92,7 +92,7 @@ const requireYes = (command: string, yes?: boolean): void => {
 }
 
 /** Builds the `kit app-db` command tree. */
-export function appDbCommand(): Crust {
+export function appDBCommand(): Crust {
   return new Crust('app-db')
     .meta({
       aliases: ['db'],
@@ -101,7 +101,7 @@ export function appDbCommand(): Crust {
     .command('create', cmd =>
       cmd
         .meta({ description: 'Create the app database if it does not already exist.' })
-        .flags(commonDbFlags)
+        .flags(commonDBFlags)
         .run(async ({ flags }) => {
           const databaseName = resolveAppDatabaseName(flags.name)
           if (flags['start-services']) {
@@ -117,7 +117,7 @@ export function appDbCommand(): Crust {
       cmd
         .meta({ description: 'Drop the app database.' })
         .flags({
-          ...commonDbFlags,
+          ...commonDBFlags,
           yes: {
             type: 'boolean',
             description: 'Confirm the destructive drop operation.',
@@ -141,7 +141,7 @@ export function appDbCommand(): Crust {
       cmd
         .meta({ description: 'Drop, create, and migrate the app database.' })
         .flags({
-          ...commonDbFlags,
+          ...commonDBFlags,
           yes: {
             type: 'boolean',
             description: 'Confirm the destructive rebuild operation.',

@@ -9,13 +9,13 @@
 
 import { match, P } from '@pleisto/active-support'
 import { isRecord } from '@pleisto/active-support'
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 
 /** Backend-independent failure class derived from a raw LLM error. */
-export type LlmErrorKind = 'auth' | 'content_filter' | 'overflow' | 'rate_limit' | 'server' | 'timeout' | 'unknown'
+export type LLMErrorKind = 'auth' | 'content_filter' | 'overflow' | 'rate_limit' | 'server' | 'timeout' | 'unknown'
 
-export interface LlmErrorClassification {
-  kind: LlmErrorKind
+export interface LLMErrorClassification {
+  kind: LLMErrorKind
   /** Safe to re-issue the same request as-is (transient transport/capacity failures). */
   retryable: boolean
   /**
@@ -30,13 +30,13 @@ export interface LlmErrorClassification {
 }
 
 /**
- * Classifies a raw error thrown by the LLM SDK or provider into an {@link LlmErrorClassification}.
+ * Classifies a raw error thrown by the LLM SDK or provider into an {@link LLMErrorClassification}.
  *
  * Accepts `unknown` because the error can arrive as an `Error`, a provider response object, a wrapped
  * cause chain, or a plain string; it digs through nested `cause`/`error`/`response` to find a usable
  * status, code, and message before matching.
  */
-export function classifyLlmError(error: unknown): LlmErrorClassification {
+export function classifyLLMError(error: unknown): LLMErrorClassification {
   const status = findErrorProperty(error, ['status', 'statusCode', 'code'], value => {
     const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number.parseInt(value, 10) : NaN
     return Number.isInteger(parsed) && parsed >= 100 && parsed <= 599 ? parsed : undefined
@@ -58,7 +58,7 @@ export function classifyLlmError(error: unknown): LlmErrorClassification {
   if (
     status === 429 ||
     includesAny(code, ['429', 'rate_limit', 'rate-limit', 'ratelimit', 'resource_exhausted', 'throttlingexception']) ||
-    containsHttpStatus(message, 429) ||
+    containsHTTPStatus(message, 429) ||
     includesAny(message, [
       'rate limit',
       'rate_limit',
@@ -180,9 +180,9 @@ export function classifyLlmError(error: unknown): LlmErrorClassification {
   return classified('unknown', false, false, false)
 }
 
-/** Convenience predicate used on the retry hot path; equivalent to `classifyLlmError(error).retryable`. */
-export function isRetryableLlmError(error: unknown): boolean {
-  return classifyLlmError(error).retryable
+/** Convenience predicate used on the retry hot path; equivalent to `classifyLLMError(error).retryable`. */
+export function isRetryableLLMError(error: unknown): boolean {
+  return classifyLLMError(error).retryable
 }
 
 /**
@@ -190,8 +190,8 @@ export function isRetryableLlmError(error: unknown): boolean {
  * but the AIGateway WebSocket adapter marks failures that happened after `response.create` was sent as
  * durable-only retries so the control plane can redeliver from the actor event fence instead.
  */
-export function isLocallyRetryableLlmError(error: unknown): boolean {
-  if (!isRetryableLlmError(error)) return false
+export function isLocallyRetryableLLMError(error: unknown): boolean {
+  if (!isRetryableLLMError(error)) return false
 
   const hint = localRetryableHint(error)
   return hint ?? true
@@ -201,11 +201,11 @@ export function isLocallyRetryableLlmError(error: unknown): boolean {
  * Builds the normalized classification object.
  */
 function classified(
-  kind: LlmErrorKind,
+  kind: LLMErrorKind,
   retryable: boolean,
   shouldCompress: boolean,
   shouldFallbackProvider: boolean
-): LlmErrorClassification {
+): LLMErrorClassification {
   return { kind, retryable, shouldCompress, shouldFallbackProvider }
 }
 
@@ -232,7 +232,7 @@ function includesAny(text: string, needles: string[]): boolean {
 /**
  * Finds an HTTP status code in free-form text without matching larger numbers.
  */
-function containsHttpStatus(text: string, status: number): boolean {
+function containsHTTPStatus(text: string, status: number): boolean {
   return new RegExp(`(^|\\D)${status}(\\D|$)`).test(text)
 }
 
@@ -241,7 +241,7 @@ function containsHttpStatus(text: string, status: number): boolean {
  */
 function localRetryableHint(error: unknown): boolean | undefined {
   if (!error || typeof error !== 'object') return undefined
-  const record = error as JsonObject
+  const record = error as JSONObject
   const details = record.details
   if (!isRecord(details)) return undefined
   const value = details.local_retryable
@@ -263,7 +263,7 @@ function findErrorProperty<T>(
 ): T | undefined {
   if (!error || typeof error !== 'object' || seen.has(error) || depth > 25) return undefined
   seen.add(error)
-  const record = error as JsonObject
+  const record = error as JSONObject
   for (const key of keys) {
     const parsed = parse(record[key])
     if (parsed !== undefined) return parsed
@@ -293,7 +293,7 @@ function collectMessages(error: unknown, messages: string[], seen: WeakSet<objec
 
   if (seen.has(error)) return
   seen.add(error)
-  const record = error as JsonObject
+  const record = error as JSONObject
   match(error)
     .when(
       (value): value is Error => value instanceof Error,

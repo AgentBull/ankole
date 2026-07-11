@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { z } from 'zod'
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import { createModel } from '../../src/core/llm'
 
 type CreateModelOptions = Parameters<typeof createModel>[0]
@@ -101,14 +101,14 @@ export function modelRefForTest(inputModalities: string[]) {
   }
 }
 
-export function fallbackModelForTest(summary: string, bodies: JsonObject[]) {
+export function fallbackModelForTest(summary: string, bodies: JSONObject[]) {
   return createModel({
     apiKey: 'unused',
     baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
     selector: 'vision_fallback',
     fetch: (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       const request = input instanceof Request ? input : new Request(input, init)
-      bodies.push(JSON.parse(await request.text()) as JsonObject)
+      bodies.push(JSON.parse(await request.text()) as JSONObject)
 
       return new Response(
         JSON.stringify({
@@ -129,7 +129,7 @@ export function fallbackModelForTest(summary: string, bodies: JsonObject[]) {
   })
 }
 
-export function toolResultsRecordedFrame(id: string): JsonObject {
+export function toolResultsRecordedFrame(id: string): JSONObject {
   return {
     type: 'response.tool_results.recorded',
     response_id: id,
@@ -143,7 +143,7 @@ export function toolResultsRecordedFrame(id: string): JsonObject {
 
 export function fakeResponseSocket(
   init: { headers: Record<string, string> },
-  onSend: (data: string, socket: FakeResponseSocket) => JsonObject[]
+  onSend: (data: string, socket: FakeResponseSocket) => JSONObject[]
 ): TestResponseWebSocket {
   const socket = new FakeResponseSocket(init, onSend)
   queueMicrotask(() => socket.emitOpen())
@@ -161,7 +161,7 @@ export class FakeResponseSocket {
 
   constructor(
     readonly init: { headers: Record<string, string> },
-    private readonly onSend: (data: string, socket: FakeResponseSocket) => JsonObject[]
+    private readonly onSend: (data: string, socket: FakeResponseSocket) => JSONObject[]
   ) {}
 
   send(data: string): void {
@@ -207,7 +207,7 @@ export class FakeResponseSocket {
     this.emit('error', {})
   }
 
-  private emitMessage(frame: JsonObject): void {
+  private emitMessage(frame: JSONObject): void {
     this.emit('message', { data: JSON.stringify(frame) })
   }
 

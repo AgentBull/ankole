@@ -1,26 +1,26 @@
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import {
-  RuntimeRpcClient,
-  assertRpcResponse,
-  isRpcError,
+  RuntimeRPCClient,
+  assertRPCResponse,
+  isRPCError,
   rpcMethods,
   type AgentConversationContext,
   type AgentConversationContextRequest,
-  type AIGatewayApiKeyRequest,
-  type AIGatewayApiKeyResponse,
+  type AIGatewayAPIKeyRequest,
+  type AIGatewayAPIKeyResponse,
   type InstalledSkillReplaceRequest,
   type InstalledSkillReplaceResponse,
-  type RpcError,
-  type RpcMethod,
-  type RpcRequester,
-  type RpcSchemaByMethod,
+  type RPCError,
+  type RPCMethod,
+  type RPCRequester,
+  type RPCSchemaByMethod,
   type SkillOverlayReplaceRequest,
   type SkillOverlayRequest,
   type SkillOverlayResponse
 } from '../lanes/rpc_lane'
 
-const aiGatewayApiKeyRefreshSkewMs = 60_000
-const aiGatewayApiKeyCache = new Map<string, AIGatewayApiKeyResponse>()
+const aiGatewayAPIKeyRefreshSkewMs = 60_000
+const aiGatewayAPIKeyCache = new Map<string, AIGatewayAPIKeyResponse>()
 
 /**
  * Resolves the agent-scoped AIGateway key over RuntimeFabric and caches it
@@ -30,21 +30,21 @@ const aiGatewayApiKeyCache = new Map<string, AIGatewayApiKeyResponse>()
  * model round while still letting callers force a refresh after a 401 or socket
  * open failure.
  */
-export async function requestAIGatewayApiKey(
-  rpcClient: RuntimeRpcClient,
-  request: AIGatewayApiKeyRequest,
+export async function requestAIGatewayAPIKey(
+  rpcClient: RuntimeRPCClient,
+  request: AIGatewayAPIKeyRequest,
   options: { forceRefresh?: boolean } = {}
-): Promise<AIGatewayApiKeyResponse | RpcError> {
+): Promise<AIGatewayAPIKeyResponse | RPCError> {
   const cacheKey = request.agent_uid
-  const cached = aiGatewayApiKeyCache.get(cacheKey)
-  if (!options.forceRefresh && cached && cached.expires_at * 1000 > Date.now() + aiGatewayApiKeyRefreshSkewMs) {
+  const cached = aiGatewayAPIKeyCache.get(cacheKey)
+  if (!options.forceRefresh && cached && cached.expires_at * 1000 > Date.now() + aiGatewayAPIKeyRefreshSkewMs) {
     return { ...cached, request_id: request.request_id }
   }
 
-  const response = await rpcClient.request(rpcMethods.aiGatewayApiKeyForCreateOrFindByAgent, request)
-  if (isRpcError(response)) return response
+  const response = await rpcClient.request(rpcMethods.aiGatewayAPIKeyForCreateOrFindByAgent, request)
+  if (isRPCError(response)) return response
 
-  aiGatewayApiKeyCache.set(cacheKey, response)
+  aiGatewayAPIKeyCache.set(cacheKey, response)
   return response
 }
 
@@ -55,11 +55,11 @@ export async function requestAIGatewayApiKey(
  * identity, skill metadata, or conversation anchors locally.
  */
 export async function requestAgentConversationContext(
-  rpcClient: RuntimeRpcClient,
+  rpcClient: RuntimeRPCClient,
   request: AgentConversationContextRequest
 ): Promise<AgentConversationContext> {
   const response = await rpcClient.request(rpcMethods.agentConversationContextResolve, request)
-  assertRpcResponse<AgentConversationContext>(response, 'agent conversation context RPC failed')
+  assertRPCResponse<AgentConversationContext>(response, 'agent conversation context RPC failed')
   return response
 }
 
@@ -68,10 +68,10 @@ export async function requestAgentConversationContext(
  * tool failures. Schedule and memory tools consume this seam; the operations
  * mutate durable PostgreSQL-owned state, so no local fallback is applied.
  */
-export function throwingRpcRequester(rpcClient: RuntimeRpcClient, label: string): RpcRequester {
-  return async <M extends RpcMethod>(method: M, payload: RpcSchemaByMethod[M]['request']) => {
+export function throwingRPCRequester(rpcClient: RuntimeRPCClient, label: string): RPCRequester {
+  return async <M extends RPCMethod>(method: M, payload: RPCSchemaByMethod[M]['request']) => {
     const response = await rpcClient.request(method, payload)
-    assertRpcResponse<RpcSchemaByMethod[M]['response']>(response, label)
+    assertRPCResponse<RPCSchemaByMethod[M]['response']>(response, label)
     return response
   }
 }
@@ -83,11 +83,11 @@ export function throwingRpcRequester(rpcClient: RuntimeRpcClient, label: string)
  * runtime state and must be resolved through RuntimeFabric.
  */
 export async function requestSkillOverlay(
-  rpcClient: RuntimeRpcClient,
+  rpcClient: RuntimeRPCClient,
   request: SkillOverlayRequest
 ): Promise<SkillOverlayResponse> {
   const response = await rpcClient.request(rpcMethods.skillsOverlayResolve, request)
-  assertRpcResponse<SkillOverlayResponse>(response, 'skill overlay RPC failed')
+  assertRPCResponse<SkillOverlayResponse>(response, 'skill overlay RPC failed')
   return response
 }
 
@@ -98,11 +98,11 @@ export async function requestSkillOverlay(
  * the RPC surface narrow and explicit.
  */
 export async function replaceSkillOverlay(
-  rpcClient: RuntimeRpcClient,
+  rpcClient: RuntimeRPCClient,
   request: SkillOverlayReplaceRequest
 ): Promise<SkillOverlayResponse> {
   const response = await rpcClient.request(rpcMethods.skillsOverlayReplace, request)
-  assertRpcResponse<SkillOverlayResponse>(response, 'skill overlay replace RPC failed')
+  assertRPCResponse<SkillOverlayResponse>(response, 'skill overlay replace RPC failed')
   return response
 }
 
@@ -110,19 +110,19 @@ export async function replaceSkillOverlay(
  * Replaces the agent-installed skill registry from worker filesystem observations.
  */
 export async function replaceInstalledSkillObservations(
-  rpcClient: RuntimeRpcClient,
+  rpcClient: RuntimeRPCClient,
   request: InstalledSkillReplaceRequest
 ): Promise<InstalledSkillReplaceResponse> {
   const response = await rpcClient.request(rpcMethods.skillsInstalledReplace, request)
-  assertRpcResponse<InstalledSkillReplaceResponse>(response, 'installed skill registry RPC failed')
+  assertRPCResponse<InstalledSkillReplaceResponse>(response, 'installed skill registry RPC failed')
   return response
 }
 
 /**
- * Reads a string from either an RpcError details object or a plain JSON object.
+ * Reads a string from either an RPCError details object or a plain JSON object.
  */
-export function stringFromDetails(source: RpcError | JsonObject | undefined, key: string): string | undefined {
-  const details = (source && 'details_json' in source ? source.details_json : source) as JsonObject | undefined
+export function stringFromDetails(source: RPCError | JSONObject | undefined, key: string): string | undefined {
+  const details = (source && 'details_json' in source ? source.details_json : source) as JSONObject | undefined
   const value = details?.[key]
   return typeof value === 'string' ? value : undefined
 }

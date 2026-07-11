@@ -14,7 +14,7 @@ defmodule Ankole.SignalsGateway.ActorEvent do
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
 
   alias Ankole.Principals.Principal
-  alias Ankole.Ecto.JsonPayload
+  alias Ankole.Ecto.JSONPayload
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
@@ -97,7 +97,7 @@ defmodule Ankole.SignalsGateway.ActorEvent do
       :payload
     ])
     |> validate_inclusion(:input_state, @states)
-    |> JsonPayload.validate_map(:payload)
+    |> JSONPayload.validate_map(:payload)
     |> foreign_key_constraint(:agent_uid)
     |> unique_constraint([:agent_uid, :binding_name, :source_event_id],
       name: :actor_events_signal_idempotency_index

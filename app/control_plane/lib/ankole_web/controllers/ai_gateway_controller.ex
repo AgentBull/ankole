@@ -1,15 +1,17 @@
 defmodule AnkoleWeb.AIGatewayController do
+  alias OpenApiSpex, as: OpenAPISpex
+
   @moduledoc """
   Principal-authenticated AIGateway runtime API.
   """
 
   use AnkoleWeb, :controller
-  use OpenApiSpex.ControllerSpecs
+  use OpenAPISpex.ControllerSpecs
 
   alias Ankole.AIGateway
   alias Ankole.Kernel.UniversalAIClient
   alias AnkoleWeb.AIGatewaySSELimit
-  alias OpenApiSpex.Schema
+  alias OpenAPISpex.Schema
 
   @json_object %Schema{type: :object, additionalProperties: true}
 

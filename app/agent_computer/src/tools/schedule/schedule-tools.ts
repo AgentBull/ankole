@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { compactRecord, deepString as rawDeepString, match } from '@pleisto/active-support'
 import { z } from 'zod'
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import { deepString } from '@pleisto/active-support'
 import type { ActorEventEnvelope, TurnStart } from '../../lanes/actor_lane'
 import type { AgentTool, AgentToolResult } from '../../core'
@@ -9,18 +9,18 @@ import { jsonToolResult } from '../../core/tool-result'
 import {
   rpcMethods,
   type ScheduleCronAddRequest,
-  type ScheduleRpcRequester,
-  type TurnScopedRpcRequest
+  type ScheduleRPCRequester,
+  type TurnScopedRPCRequest
 } from '../../lanes/rpc_lane'
 
 export interface CreateScheduleToolsOptions {
   turnStart: TurnStart
-  requestScheduleRpc?: ScheduleRpcRequester
+  requestScheduleRPC?: ScheduleRPCRequester
 }
 
-type ScheduleToolDetails = JsonObject
+type ScheduleToolDetails = JSONObject
 
-const JsonMap = z.record(z.string(), z.unknown())
+const JSONMap = z.record(z.string(), z.unknown())
 
 const CRON_DESCRIPTION = [
   'Manage recurring schedules for this conversation: list, inspect, create, update, pause, resume, remove, manually run, or view run history.',
@@ -75,9 +75,9 @@ const CronParams = z.object({
   name: z.string().optional(),
   binding_name: z.string().optional(),
   schedule: z.union([EverySchedule, CronSchedule]).optional(),
-  payload: JsonMap.optional(),
+  payload: JSONMap.optional(),
   delivery: DeliveryParams.optional(),
-  updates: JsonMap.optional(),
+  updates: JSONMap.optional(),
   idempotency_key: z.string().optional(),
   limit: z.number().int().positive().max(100).optional()
 })
@@ -88,7 +88,7 @@ const CronOriginReadActions = new Set<z.output<typeof CronParams>['action']>(['l
  * Creates scheduling tools only when the turn runtime provides schedule RPC.
  */
 export function createScheduleTools(opts: CreateScheduleToolsOptions): AgentTool<any>[] {
-  if (!opts.requestScheduleRpc) return []
+  if (!opts.requestScheduleRPC) return []
   return [createCheckBackLaterTool(opts), createCronTool(opts)]
 }
 
@@ -106,7 +106,7 @@ function createCheckBackLaterTool(
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
-    async execute(toolCallId, params): Promise<AgentToolResult<ScheduleToolDetails>> {
+    async execute(toolCallID, params): Promise<AgentToolResult<ScheduleToolDetails>> {
       const replyRoute = currentReplyRoute(opts.turnStart)
       if (!replyRoute) {
         throw new Error('check_back_later requires a provider reply route from the current turn')
@@ -116,10 +116,10 @@ function createCheckBackLaterTool(
         ? { after: params.after, ...(params.timezone ? { timezone: params.timezone } : {}) }
         : { at: params.at, ...(params.timezone ? { timezone: params.timezone } : {}) }
 
-      const response = await opts.requestScheduleRpc!(rpcMethods.scheduleCheckBackLaterCreate, {
+      const response = await opts.requestScheduleRPC!(rpcMethods.scheduleCheckBackLaterCreate, {
         request_id: `schedule-checkback-${crypto.randomUUID()}`,
         turn: opts.turnStart.turn,
-        tool_call_id: toolCallId,
+        tool_call_id: toolCallID,
         idempotency_key: params.idempotency_key ?? defaultCheckBackIdempotencyKey(opts.turnStart, params),
         reason: params.reason,
         check: params.check,
@@ -172,12 +172,12 @@ function createCronTool(opts: CreateScheduleToolsOptions): AgentTool<typeof Cron
     isDestructive: false,
     async execute(_toolCallId, params): Promise<AgentToolResult<ScheduleToolDetails>> {
       rejectCronOriginMutation(params, opts.turnStart)
-      const call = opts.requestScheduleRpc!
-      const base: TurnScopedRpcRequest = {
+      const call = opts.requestScheduleRPC!
+      const base: TurnScopedRPCRequest = {
         request_id: `schedule-cron-${params.action}-${crypto.randomUUID()}`,
         turn: opts.turnStart.turn
       }
-      const target = () => ({ ...base, cron_schedule_id: requiredCronScheduleId(params) })
+      const target = () => ({ ...base, cron_schedule_id: requiredCronScheduleID(params) })
 
       // Method and payload for one action stay in a single branch so the RPC
       // contract types check each shape exactly.
@@ -227,7 +227,7 @@ function isCronOriginTurn(turnStart: TurnStart): boolean {
 function cronAddPayload(
   params: z.output<typeof CronParams>,
   turnStart: TurnStart
-): Omit<ScheduleCronAddRequest, keyof TurnScopedRpcRequest> {
+): Omit<ScheduleCronAddRequest, keyof TurnScopedRPCRequest> {
   if (!params.schedule) throw new Error('cron add requires schedule')
   const route = currentReplyRoute(turnStart)
   const bindingName = params.binding_name ?? route?.binding_name
@@ -267,9 +267,9 @@ function defaultCronAddIdempotencyKey(
 /**
  * Builds the partial update object for cron update actions.
  */
-function cronUpdates(params: z.output<typeof CronParams>, turnStart: TurnStart): JsonObject {
+function cronUpdates(params: z.output<typeof CronParams>, turnStart: TurnStart): JSONObject {
   const route = currentReplyRoute(turnStart)
-  const updates: JsonObject = { ...params.updates }
+  const updates: JSONObject = { ...params.updates }
   if (params.name !== undefined) updates.name = params.name
   if (params.schedule !== undefined) updates.schedule = params.schedule
   if (params.payload !== undefined) updates.payload = params.payload
@@ -280,7 +280,7 @@ function cronUpdates(params: z.output<typeof CronParams>, turnStart: TurnStart):
 /**
  * Merges explicit delivery options with the current provider reply route.
  */
-function cronDelivery(params: z.output<typeof CronParams>, route: ReplyRoute | undefined): JsonObject | undefined {
+function cronDelivery(params: z.output<typeof CronParams>, route: ReplyRoute | undefined): JSONObject | undefined {
   const delivery = {
     ...(route?.signal_channel_id ? { signal_channel_id: route.signal_channel_id } : {}),
     ...(route?.provider_thread_id ? { provider_thread_id: route.provider_thread_id } : {}),
@@ -292,7 +292,7 @@ function cronDelivery(params: z.output<typeof CronParams>, route: ReplyRoute | u
 /**
  * Reads the required cron schedule id for actions that target one schedule.
  */
-function requiredCronScheduleId(params: z.output<typeof CronParams>): string {
+function requiredCronScheduleID(params: z.output<typeof CronParams>): string {
   if (!params.cron_schedule_id) throw new Error(`${params.action} requires cron_schedule_id`)
   return params.cron_schedule_id
 }
@@ -351,20 +351,20 @@ function nonEmptyDeepString(value: unknown, path: string[]): string | undefined 
  * Produces a short deterministic hash for idempotency keys.
  */
 function stableHash(value: unknown): string {
-  return createHash('sha256').update(stableJson(value)).digest('hex').slice(0, 16)
+  return createHash('sha256').update(stableJSON(value)).digest('hex').slice(0, 16)
 }
 
 /**
  * Serializes JSON with stable object key order.
  */
-function stableJson(value: unknown): string {
+function stableJSON(value: unknown): string {
   if (Array.isArray(value)) {
-    return `[${value.map(stableJson).join(',')}]`
+    return `[${value.map(stableJSON).join(',')}]`
   }
 
   if (value && typeof value === 'object') {
-    const entries = Object.entries(value as JsonObject).sort(([left], [right]) => left.localeCompare(right))
-    return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`).join(',')}}`
+    const entries = Object.entries(value as JSONObject).sort(([left], [right]) => left.localeCompare(right))
+    return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${stableJSON(entry)}`).join(',')}}`
   }
 
   return JSON.stringify(value) ?? 'null'

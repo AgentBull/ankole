@@ -51,7 +51,7 @@ Ankole 里的 agent 不是简单的 chat completion 封装，而是一个持久�
 
 六个部分，各一句话：
 
-- **SignalsGateway**（Elixir）接收 provider event，镜像 provider 侧可见的状态，拥有 Actor journal/runtime，并在 `turn_completed` 后原子提交最终回复、ActorEvent completion 和 delivery cleanup。它拥有 `signal_gateway_channels`、`signal_gateway_entries`、`actor_events`、`signal_gateway_outbox`。见 `design-docs/SignalsGateway.md`。
+- **SignalsGateway**（Elixir）接收 provider event，镜像 provider 侧可见的状态，拥有 Actor journal/runtime，并在 `turn_completed` 后原子提交最终回复、ActorEvent completion 和 delivery cleanup。它拥有 `signal_gateway_channels`、`signal_gateway_entries`、`actor_events`、`signal_gateway_outbox_entries`。见 `design-docs/SignalsGateway.md`。
 - **ActorRuntime**（Elixir）是 SignalsGateway 的子系统：把 actor event 调度到 worker 上，每个 event 执行一次，并用 fence 挡住 stale 的 worker commit。它拥有 `actor_event_deliveries` 和 session activation。
 - **AIGateway**（Elixir）是通用 AI 边界：管 provider 凭证和路由，外加按 Principal subject 隔离的有状态 Responses 日志，包括 model 历史、compaction 和单条 Response 的 terminal commit。它不了解 Actor、delivery 或 outbox。它拥有 `ai_gateway_messages` 和 `ai_gateway_conversations`。见 `design-docs/AIGateway.md`。
 - **RuntimeFabric**（Rust + ZeroMQ）是 control plane 和 worker 之间的实时传输：turn envelope、RPC、文件字节。它永远不是持久事实来源。见 `design-docs/RuntimeFabric.md`。
@@ -140,7 +140,7 @@ Kernel 从同一个 crate 编译两次：一次作为 Elixir 的 Rustler NIF（�
 
 `Ankole.SignalsGateway`（`lib/ankole/signals_gateway/`）。Adapter 用归一化后的事实调 `emit_entry/emit_reaction/emit_action`；gateway 检查 binding（`bindings.ex`），应用 CEL filter（由 kernel 求值），挡住被 tombstone 的 entry，upsert provider 镜像（`channel.ex`、`entry.ex`），并把 IM 突发消息合并成 inbound batch（`inbound_batch*.ex`）。关闭 batch 时，在一个事务里写一条 `actor_events` 行，然后向 provider 确认。对外的 provider 可见副作用走 `outbox.ex` / `outbox_entry.ex`，由 binding 的 outbox adapter 执行。`ai_reply_preview.ex` 只驱动瞬态 provider 预览；worker 发送 `turn_completed` 后，SignalsGateway 根据最终 Response 投影 final、clarify 或 attachment，并在一个事务里写 durable outbox、完成 ActorEvent、清理 delivery。首次 preview 成功得到的 provider entry id 存在 ActorEvent 上，最终 outbox 据此选择 edit。
 
-拥有的表：`signal_gateway_bindings`、`signal_gateway_channels`、`signal_gateway_entries`、`signal_gateway_input_tombstones`、`signal_gateway_inbound_batches`、`signal_gateway_outbox`。
+拥有的表：`signal_gateway_bindings`、`signal_gateway_channels`、`signal_gateway_entries`、`signal_gateway_input_tombstones`、`signal_gateway_inbound_batches`、`signal_gateway_outbox_entries`。
 
 ### Memory：channel 记忆和历史召回
 
@@ -195,7 +195,7 @@ Ankole 会持久保存 provider mirror 和 AI Gateway history，但单个 turn �
 
 ### AppConfigure：operator 管理的运行时设置
 
-`Ankole.AppConfigure`（`lib/ankole/app_configure/`）。每个运行时设置都是一个声明的 key（`AppConfigure.define/1` 或 pattern definition），存在 `app_configure` 表里，形状是 `{scope, key, value}`，scope 为 `global` 或 `agent:<id>`；解析的回退顺序是 agent -> global -> 代码默认值。Secret 值用 kernel 的 AEAD 和按行派生的 key 封装；读路径前面有 ETS 缓存。环境变量只用于进程启动（`DATABASE_URL`、`SECRET_KEY_BASE`、fabric endpoint）；任何 operator 在运行时管理的东西都应该放这里，而不是 env。
+`Ankole.AppConfigure`（`lib/ankole/app_configure/`）。每个运行时设置都是一个声明的 key（`AppConfigure.define/1` 或 pattern definition），存在 `app_configurations` 表里，形状是 `{scope, key, value}`，scope 为 `global` 或 `agent:<id>`；解析的回退顺序是 agent -> global -> 代码默认值。Secret 值用 kernel 的 AEAD 和按行派生的 key 封装；读路径前面有 ETS 缓存。环境变量只用于进程启动（`DATABASE_URL`、`SECRET_KEY_BASE`、fabric endpoint）；任何 operator 在运行时管理的东西都应该放这里，而不是 env。
 
 ### Plugins：可信的第一方 Elixir 扩展
 
@@ -229,7 +229,7 @@ Canonical 链路：用户在飞书群里 mention 一个 agent，agent 在跑了�
 Side chain 复用同样的形状：
 
 - **定时唤醒**：`check_back_later` / `cron` tool -> `schedule.*` RPC -> `actor_scheduled_events` 行 + Oban 作业 -> 触发时写入新的 actor event -> 走同样的分发路径。
-- **Provider 可见副作用**（最终回复、clarify、附件、reaction、命令反馈）：最终采用的 final/clarify/attachment 在 SignalsGateway completion 事务中变成 `signal_gateway_outbox` 行；其他副作用也由其 owner 写 outbox。Outbox executor 调 binding 的 outbox adapter 并记录 provider 结果。
+- **Provider 可见副作用**（最终回复、clarify、附件、reaction、命令反馈）：最终采用的 final/clarify/attachment 在 SignalsGateway completion 事务中变成 `signal_gateway_outbox_entries` 行；其他副作用也由其 owner 写 outbox。Outbox executor 调 binding 的 outbox adapter 并记录 provider 结果。
 - **Steering**：running turn 期间来的新消息会变成 actor event，它的到达通过 `mailbox_updated` 推送；worker 在 model 轮次之间注入它。`/steer` 在这个 nudge 成功发送或排队给 active turn 时即 ack，不等待模型证明已经消费。
 - **`/compress`**：一个 IM 命令，通过 `POST /api/v1/ai-gateway/responses/compact` 写入 compaction 行。
 - **Recall**：被 recall 的 provider 消息会 tombstone 镜像；对于 completed 的工作，还会硬删除或 retract 消息链的尾部。
@@ -249,7 +249,7 @@ Canonical 定义在 `design-docs/SignalsGateway.md` 的 Identity Layers 部分�
 
 ## Data Model Essentials
 
-持久表（崩溃后的事实来源）：`principals`、`human_users`、`agents`、`external_identities`、`principal_groups`、`permission_grants`、`app_configure`、`signal_gateway_bindings`、`signal_gateway_channels`、`signal_gateway_entries`、`signal_gateway_outbox`、`actor_events`、`actor_cron_schedules`、`actor_scheduled_events`、`ai_gateway_conversations`、`ai_gateway_messages`、`ai_gateway_providers`、`memory_notes`、`memory_episodes`、`memory_channel_cursors`，以及 skill library 表。
+持久表（崩溃后的事实来源）：`principals`、`human_users`、`agents`、`external_identities`、`principal_groups`、`permission_grants`、`app_configurations`、`signal_gateway_bindings`、`signal_gateway_channels`、`signal_gateway_entries`、`signal_gateway_outbox_entries`、`actor_events`、`actor_cron_schedules`、`actor_scheduled_events`、`ai_gateway_conversations`、`ai_gateway_messages`、`ai_gateway_providers`、`memory_notes`、`memory_episodes`、`memory_channel_cursors`，以及 skill library 表。
 
 运行时投影（UNLOGGED、可重建）：`actor_event_deliveries`、`actor_session_activations`、`actor_session_worker_assignments`、`agent_computer_workers`。
 
@@ -318,7 +318,7 @@ E2E harness（`tools/e2e/`）跑一个 fake 飞书平台，它用真实 WS 协�
 - **anchor**：新 run 链接到的行（`previous_message_id`；在 API 边缘渲染成 `previous_response_id`）。
 - **visible leaf**：没有其他行链接到它的 `complete` 行。隐式续接总是选最新的 visible leaf。
 - **source mirror**：`signal_gateway_channels` + `signal_gateway_entries`，provider 侧当前显示内容的映像。不是队列，也不是 model 历史。
-- **outbox**：`signal_gateway_outbox`，所有需要 durable delivery 的 provider 可见副作用（包括最终回复、clarify、附件、reaction、命令反馈）的持久表。只有瞬态 preview delta 不走这里。
+- **outbox**：`signal_gateway_outbox_entries`，所有需要 durable delivery 的 provider 可见副作用（包括最终回复、clarify、附件、reaction、命令反馈）的持久表。只有瞬态 preview delta 不走这里。
 - **preview / adopted final**：Preview 是 best-effort 流式进度；`response.completed` 不终止它。只有 completion/noop/dead-letter/显式 stop 终止 preview，最终采用的内容始终通过 durable outbox 发送或编辑。
 - **final mirror**：最终 outbox 确认发送/编辑之后写入的 `signal_gateway_entries` 行（带最终 Response backref）。它是送达凭证。
 - **fence**（`ActorTurnRef`）：一个相等性检查（activation、epoch、actor event id、revision），挡住 stale 的 worker commit 到更新的 actor 状态。

@@ -62,7 +62,7 @@ export function utf8ByteLength(text: string): number {
 }
 
 /** Truncates to the largest UTF-16-safe prefix whose UTF-8 encoding fits. */
-export function truncateUtf8Safe(text: string, maxBytes: number): string {
+export function truncateUTF8Safe(text: string, maxBytes: number): string {
   if (maxBytes <= 0) return ''
   if (utf8ByteLength(text) <= maxBytes) return text
 

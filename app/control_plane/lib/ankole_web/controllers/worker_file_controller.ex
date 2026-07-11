@@ -1,4 +1,6 @@
 defmodule AnkoleWeb.WorkerFileController do
+  alias OpenApiSpex, as: OpenAPISpex
+
   @moduledoc """
   Console REST API for S3-style file management on one agent computer worker.
 
@@ -9,26 +11,26 @@ defmodule AnkoleWeb.WorkerFileController do
   """
 
   use AnkoleWeb, :controller
-  use OpenApiSpex.ControllerSpecs
+  use OpenAPISpex.ControllerSpecs
 
   alias Ankole.WorkerFiles
   alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsolePolicy
-  alias AnkoleWeb.Schemas.ConsoleApi.ErrorEnvelope
-  alias AnkoleWeb.Schemas.ConsoleApi.WorkerFileDeleteResponse
-  alias AnkoleWeb.Schemas.ConsoleApi.WorkerFileListResponse
-  alias AnkoleWeb.Schemas.ConsoleApi.WorkerFileMoveRequest
-  alias AnkoleWeb.Schemas.ConsoleApi.WorkerFileMoveResponse
-  alias AnkoleWeb.Schemas.ConsoleApi.WorkerFileUploadRequest
-  alias AnkoleWeb.Schemas.ConsoleApi.WorkerFileUploadResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
+  alias AnkoleWeb.Schemas.ConsoleAPI.WorkerFileDeleteResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.WorkerFileListResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.WorkerFileMoveRequest
+  alias AnkoleWeb.Schemas.ConsoleAPI.WorkerFileMoveResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.WorkerFileUploadRequest
+  alias AnkoleWeb.Schemas.ConsoleAPI.WorkerFileUploadResponse
 
-  alias OpenApiSpex.Schema
+  alias OpenAPISpex.Schema
 
   tags(["Workers"])
   security([%{"consoleBearer" => []}])
 
-  plug OpenApiSpex.Plug.CastAndValidate,
-    render_error: AnkoleWeb.OpenApiValidationErrorRenderer
+  plug OpenAPISpex.Plug.CastAndValidate,
+    render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
 
   @list_max_entries 1000
 
@@ -164,7 +166,7 @@ defmodule AnkoleWeb.WorkerFileController do
          {:ok, result} <-
            WorkerFiles.list(root, path, worker_id: worker_id, max_entries: @list_max_entries) do
       json(conn, %{
-        data: %{
+        file_listing: %{
           root: result["root"],
           path: result["relative_path"],
           entries: result["entries"],
@@ -210,7 +212,7 @@ defmodule AnkoleWeb.WorkerFileController do
          {:ok, content} <- File.read(upload.path),
          {:ok, result} <- WorkerFiles.put(root, path, content, worker_id: worker_id) do
       json(conn, %{
-        data: %{
+        uploaded_file: %{
           root: result["root"],
           relative_path: result["relative_path"],
           size: result["size"],
@@ -239,7 +241,7 @@ defmodule AnkoleWeb.WorkerFileController do
              overwrite: overwrite
            ) do
       json(conn, %{
-        data: %{
+        moved_file: %{
           root: result["root"],
           from_relative_path: result["from_relative_path"],
           to_relative_path: result["to_relative_path"],
@@ -261,7 +263,7 @@ defmodule AnkoleWeb.WorkerFileController do
          {:ok, result} <-
            WorkerFiles.delete(root, path, worker_id: worker_id, recursive: recursive) do
       json(conn, %{
-        data: %{
+        deleted_file: %{
           root: result["root"],
           relative_path: result["relative_path"],
           deleted: result["deleted"]

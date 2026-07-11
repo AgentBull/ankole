@@ -1,4 +1,4 @@
-defmodule Ankole.Ecto.JsonPayload do
+defmodule Ankole.Ecto.JSONPayload do
   @moduledoc """
   Strict JSON durability checks for PostgreSQL JSON/JSONB-like payloads.
 

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'bun:test'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { jsonObject, type JsonObject } from '@pleisto/active-support'
+import { jsonObject, type JsonObject as JSONObject } from '@pleisto/active-support'
 import { genericHash } from '@ankole/kernel'
 import { runSubagentTurn } from '../src/core/turns/subagent_turn'
 import type {
@@ -14,7 +14,7 @@ import type { TurnStart, TurnSteerUpdate } from '../src/lanes/actor_lane'
 import type { TextTurnLoopOptions } from '../src/core/turns/turn_options'
 import { turnFailureDetails } from '../src/worker/active_turns'
 
-const delegationId = '019f0000-0000-7000-8000-000000000001'
+const delegationID = '019f0000-0000-7000-8000-000000000001'
 const previousCodexBinary = process.env.ANKOLE_CODEX_BINARY
 const previousBwrap = process.env.ANKOLE_BWRAP_PATH
 
@@ -39,18 +39,18 @@ describe('@ankole/agent-computer subagent turn', () => {
 
     const auditBatches: SubagentDelegationEventAppendRequest[] = []
     let auditAppendAttempts = 0
-    const auditAppendRequestIds: string[] = []
+    const auditAppendRequestIDs: string[] = []
     const statusUpdates: SubagentDelegationStatusUpdateRequest[] = []
     const activity: string[] = []
     const delegation = response()
 
     try {
       const result = await runSubagentTurn(turnStart(), {
-        workspaceRoot: join(sessionsRoot, 'agent-1', `subagent:${delegationId}`),
+        workspaceRoot: join(sessionsRoot, 'agent-1', `subagent:${delegationID}`),
         workspaceSessionsRoot: sessionsRoot,
         sharedFsRoot: join(root, 'shared'),
         userFilesRoot,
-        requestAIGatewayApiKey: async request => ({
+        requestAIGatewayAPIKey: async request => ({
           request_id: request.request_id,
           agent_uid: request.agent_uid,
           api_key: 'unused',
@@ -63,7 +63,7 @@ describe('@ankole/agent-computer subagent turn', () => {
         getSubagentDelegation: async () => delegation,
         appendSubagentDelegationEvents: async request => {
           auditAppendAttempts += 1
-          auditAppendRequestIds.push(request.request_id)
+          auditAppendRequestIDs.push(request.request_id)
           if (auditAppendAttempts === 1) throw new Error('transient audit transport failure')
           auditBatches.push(request)
           return {
@@ -81,7 +81,7 @@ describe('@ankole/agent-computer subagent turn', () => {
         requestAgentConversationContext: async request => ({
           request_id: request.request_id,
           agent_uid: 'agent-1',
-          session_id: `subagent:${delegationId}`,
+          session_id: `subagent:${delegationID}`,
           turn: request.turn,
           agent: { display_name: 'Ankole Agent', role: 'colleague' },
           conversation: {},
@@ -119,7 +119,7 @@ describe('@ankole/agent-computer subagent turn', () => {
       expect(activity).toContain('codex:agent_delta')
       expect(auditBatches.length).toBeGreaterThan(0)
       expect(auditAppendAttempts).toBe(auditBatches.length + 1)
-      expect(auditAppendRequestIds[0]).toBe(auditAppendRequestIds[1])
+      expect(auditAppendRequestIDs[0]).toBe(auditAppendRequestIDs[1])
       expect(auditBatches.every(batch => batch.events.length <= 20)).toBe(true)
       expect(auditBatches.flatMap(batch => batch.events).every(event => event.payload.attempt === 1)).toBe(true)
       expect(auditBatches.flatMap(batch => batch.events).map(event => event.seq)).toEqual(
@@ -127,7 +127,7 @@ describe('@ankole/agent-computer subagent turn', () => {
       )
 
       const workdir = workdirFor(root)
-      const threadStart = JSON.parse(readFileSync(join(workdir, 'thread-start.json'), 'utf8')) as JsonObject
+      const threadStart = JSON.parse(readFileSync(join(workdir, 'thread-start.json'), 'utf8')) as JSONObject
       expect(String(threadStart.developerInstructions)).toContain('SOUL: Be careful')
       expect(String(threadStart.developerInstructions)).toContain('Background task safety')
       expect(existsSync(join(root, 'shared', '.ankole', 'codex', 'aigateway', 'config.toml'))).toBe(true)
@@ -152,11 +152,11 @@ describe('@ankole/agent-computer subagent turn', () => {
     const updates: SubagentDelegationStatusUpdateRequest[] = []
     let current = response()
     const options = {
-      workspaceRoot: join(sessionsRoot, 'agent-1', `subagent:${delegationId}`),
+      workspaceRoot: join(sessionsRoot, 'agent-1', `subagent:${delegationID}`),
       workspaceSessionsRoot: sessionsRoot,
       sharedFsRoot: join(root, 'shared'),
       userFilesRoot,
-      requestAIGatewayApiKey: async (request: { request_id: string; agent_uid: string }) => ({
+      requestAIGatewayAPIKey: async (request: { request_id: string; agent_uid: string }) => ({
         request_id: request.request_id,
         agent_uid: request.agent_uid,
         api_key: 'unused',
@@ -186,7 +186,7 @@ describe('@ankole/agent-computer subagent turn', () => {
       requestAgentConversationContext: async (request: { request_id: string; turn: TurnStart['turn'] }) => ({
         request_id: request.request_id,
         agent_uid: 'agent-1',
-        session_id: `subagent:${delegationId}`,
+        session_id: `subagent:${delegationID}`,
         turn: request.turn,
         conversation: {},
         soul: 'SOUL',
@@ -690,11 +690,11 @@ describe('@ankole/agent-computer subagent turn', () => {
     try {
       await expect(
         runSubagentTurn(turnStart(), {
-          workspaceRoot: join(sessionsRoot, 'agent-1', `subagent:${delegationId}`),
+          workspaceRoot: join(sessionsRoot, 'agent-1', `subagent:${delegationID}`),
           workspaceSessionsRoot: sessionsRoot,
           sharedFsRoot: join(root, 'shared'),
           userFilesRoot,
-          requestAIGatewayApiKey: async request => ({
+          requestAIGatewayAPIKey: async request => ({
             request_id: request.request_id,
             agent_uid: request.agent_uid,
             api_key: 'unused',
@@ -718,7 +718,7 @@ describe('@ankole/agent-computer subagent turn', () => {
           requestAgentConversationContext: async request => ({
             request_id: request.request_id,
             agent_uid: 'agent-1',
-            session_id: `subagent:${delegationId}`,
+            session_id: `subagent:${delegationID}`,
             turn: request.turn,
             conversation: {},
             soul: 'SOUL',
@@ -740,7 +740,7 @@ describe('@ankole/agent-computer subagent turn', () => {
 function turnStart(): TurnStart {
   return {
     turn: {
-      actor: { agent_uid: 'agent-1', session_id: `subagent:${delegationId}` },
+      actor: { agent_uid: 'agent-1', session_id: `subagent:${delegationID}` },
       activation_uid: 'activation-1',
       actor_epoch: 1,
       actor_event_id: '00000000-0000-0000-0000-000000000001',
@@ -751,11 +751,11 @@ function turnStart(): TurnStart {
       queue_sequence: 1,
       type: 'subagent.delegation.dispatch',
       source_event_id: 'subagent-dispatch-1',
-      payload_json: { data: { delegation_id: delegationId, parent_session_id: 'parent-session', attempts: 1 } }
+      payload_json: { data: { delegation_id: delegationID, parent_session_id: 'parent-session', attempts: 1 } }
     },
     request_context: {
       turn_mode: 'subagent_delegation',
-      delegation_id: delegationId,
+      delegation_id: delegationID,
       parent_session_id: 'parent-session',
       attempts: 1
     }
@@ -765,7 +765,7 @@ function turnStart(): TurnStart {
 function response(): SubagentDelegationResponse {
   return {
     request_id: 'get-1',
-    delegation_id: delegationId,
+    delegation_id: delegationID,
     agent_uid: 'agent-1',
     session_id: 'parent-session',
     status: 'running',
@@ -898,11 +898,11 @@ function controlScenarioOptions(
   const userFilesRoot = join(root, 'user-files')
 
   return {
-    workspaceRoot: join(sessionsRoot, 'agent-1', `subagent:${delegationId}`),
+    workspaceRoot: join(sessionsRoot, 'agent-1', `subagent:${delegationID}`),
     workspaceSessionsRoot: sessionsRoot,
     sharedFsRoot: join(root, 'shared'),
     userFilesRoot,
-    requestAIGatewayApiKey: async request => ({
+    requestAIGatewayAPIKey: async request => ({
       request_id: request.request_id,
       agent_uid: request.agent_uid,
       api_key: 'unused',
@@ -929,7 +929,7 @@ function controlScenarioOptions(
     requestAgentConversationContext: async request => ({
       request_id: request.request_id,
       agent_uid: 'agent-1',
-      session_id: `subagent:${delegationId}`,
+      session_id: `subagent:${delegationID}`,
       turn: request.turn,
       conversation: {},
       soul: 'SOUL',

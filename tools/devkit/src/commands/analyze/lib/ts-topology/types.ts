@@ -47,7 +47,7 @@ export type ReferenceEvent = {
   importCount: number
   importSpecifier: string
   owner: string | null
-  extensionId: string | null
+  extensionID: string | null
   packageOwner: string | null
 }
 

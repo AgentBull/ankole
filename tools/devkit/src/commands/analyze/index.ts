@@ -2,6 +2,7 @@ import { Crust } from '@crustjs/core'
 import { DEFAULT_TOPOLOGY_SCOPE, TOPOLOGY_GATED_SCOPES, TOPOLOGY_SCOPES } from './config'
 import { runCycles } from './cycles'
 import { runDuplicates } from './duplicates'
+import { runNaming } from './naming'
 import { runSmells } from './smells'
 import { runStructure } from './structure'
 import { runTopology } from './topology'
@@ -33,6 +34,7 @@ async function runAll(options: { json: boolean; skip?: string }): Promise<void> 
   )
 
   const gates: Array<{ name: string; run: () => CheckResult | Promise<CheckResult> }> = [
+    { name: 'naming', run: () => runNaming() },
     { name: 'smells', run: () => runSmells() },
     { name: 'unused', run: () => runUnused() },
     { name: 'structure', run: () => runStructure() },
@@ -104,6 +106,14 @@ export function analyzeCommand(): Crust {
         .flags({ ...jsonFlag })
         .run(({ flags }) => {
           emit(runSmells({ json: flags.json }), flags.json)
+        })
+    )
+    .command('naming', cmd =>
+      cmd
+        .meta({ description: 'Project identifier and source-path naming gate.' })
+        .flags({ ...jsonFlag })
+        .run(async ({ flags }) => {
+          emit(await runNaming({ json: flags.json }), flags.json)
         })
     )
     .command('unused', cmd =>

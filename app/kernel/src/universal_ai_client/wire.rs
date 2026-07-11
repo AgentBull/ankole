@@ -1,18 +1,18 @@
 use super::error::StreamError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SseEvent {
+pub struct SSEEvent {
     pub event: Option<String>,
     pub data: String,
 }
 
 #[derive(Debug, Default)]
-pub struct SseParser {
+pub struct SSEParser {
     buffer: Vec<u8>,
     max_event_bytes: usize,
 }
 
-impl SseParser {
+impl SSEParser {
     pub fn new(max_event_bytes: usize) -> Self {
         Self {
             buffer: Vec::new(),
@@ -20,7 +20,7 @@ impl SseParser {
         }
     }
 
-    pub fn push(&mut self, bytes: &[u8]) -> Result<Vec<SseEvent>, StreamError> {
+    pub fn push(&mut self, bytes: &[u8]) -> Result<Vec<SSEEvent>, StreamError> {
         self.buffer.extend_from_slice(bytes);
         let mut events = Vec::new();
 
@@ -64,7 +64,7 @@ impl SseParser {
         Ok(events)
     }
 
-    pub fn finish(&mut self) -> Result<Vec<SseEvent>, StreamError> {
+    pub fn finish(&mut self) -> Result<Vec<SSEEvent>, StreamError> {
         if self.buffer.iter().all(|byte| byte.is_ascii_whitespace()) {
             self.buffer.clear();
             Ok(Vec::new())
@@ -85,7 +85,7 @@ fn find_sse_boundary(buffer: &[u8]) -> Option<usize> {
         .or_else(|| buffer.windows(2).position(|window| window == b"\n\n"))
 }
 
-fn parse_sse_event(raw: &[u8]) -> Option<SseEvent> {
+fn parse_sse_event(raw: &[u8]) -> Option<SSEEvent> {
     let text = String::from_utf8_lossy(raw);
     let mut event = None;
     let mut data_lines = Vec::new();
@@ -107,7 +107,7 @@ fn parse_sse_event(raw: &[u8]) -> Option<SseEvent> {
         return None;
     }
 
-    Some(SseEvent {
+    Some(SSEEvent {
         event,
         data: data_lines.join("\n"),
     })
@@ -121,12 +121,12 @@ pub struct EventStreamMessage {
 }
 
 #[derive(Debug, Default)]
-pub struct AwsEventStreamParser {
+pub struct AWSEventStreamParser {
     buffer: Vec<u8>,
     max_frame_bytes: usize,
 }
 
-impl AwsEventStreamParser {
+impl AWSEventStreamParser {
     pub fn new(max_frame_bytes: usize) -> Self {
         Self {
             buffer: Vec::new(),
@@ -344,7 +344,7 @@ mod tests {
 
     #[test]
     fn sse_parser_handles_split_events() {
-        let mut parser = SseParser::new(1024);
+        let mut parser = SSEParser::new(1024);
 
         assert!(
             parser
@@ -356,7 +356,7 @@ mod tests {
 
         assert_eq!(
             events,
-            vec![SseEvent {
+            vec![SSEEvent {
                 event: Some("response.output_text.delta".to_string()),
                 data: "{\"type\":\"x\"}".to_string()
             }]
@@ -365,7 +365,7 @@ mod tests {
 
     #[test]
     fn sse_finish_rejects_partial_event() {
-        let mut parser = SseParser::new(1024);
+        let mut parser = SSEParser::new(1024);
         assert!(
             parser
                 .push(b"data: {\"type\":\"response.created\"}")
@@ -379,7 +379,7 @@ mod tests {
 
     #[test]
     fn sse_parser_rejects_unbounded_event_buffer() {
-        let mut parser = SseParser::new(8);
+        let mut parser = SSEParser::new(8);
 
         let error = parser.push(b"data: 123456789").unwrap_err();
 
@@ -395,7 +395,7 @@ mod tests {
             ],
             br#"{"x":1}"#,
         );
-        let mut parser = AwsEventStreamParser::new(1024);
+        let mut parser = AWSEventStreamParser::new(1024);
         let messages = parser.push(&frame).unwrap();
 
         assert_eq!(messages.len(), 1);
@@ -407,7 +407,7 @@ mod tests {
     #[test]
     fn aws_eventstream_finish_rejects_partial_frame() {
         let frame = eventstream_frame(&[(":message-type", "event")], br#"{"x":1}"#);
-        let mut parser = AwsEventStreamParser::new(1024);
+        let mut parser = AWSEventStreamParser::new(1024);
 
         assert!(parser.push(&frame[..8]).unwrap().is_empty());
         let error = parser.finish().unwrap_err();
@@ -417,7 +417,7 @@ mod tests {
 
     #[test]
     fn aws_eventstream_parser_rejects_oversized_frame_length() {
-        let mut parser = AwsEventStreamParser::new(32);
+        let mut parser = AWSEventStreamParser::new(32);
         let mut prelude = Vec::new();
         prelude.extend_from_slice(&64_u32.to_be_bytes());
         prelude.extend_from_slice(&0_u32.to_be_bytes());

@@ -61,7 +61,7 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
       consumer =
         Inbound.chat_consumer(
           adapter_context(agent.uid),
-          chat_config(%{"botOpenId" => "ou_this_bot"})
+          chat_config(%{"botOpenID" => "ou_this_bot"})
         )
 
       event =
@@ -100,7 +100,7 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
       consumer =
         Inbound.chat_consumer(
           adapter_context(agent.uid),
-          chat_config(%{"botOpenId" => "ou_this_bot"})
+          chat_config(%{"botOpenID" => "ou_this_bot"})
         )
 
       event =
@@ -134,9 +134,9 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
 
     test "message receive accepts runtime bot identity resolved from configured bot user id" do
       config =
-        %{"botUserId" => "cli_this_bot"}
+        %{"botUserID" => "cli_this_bot"}
         |> chat_config()
-        |> Map.put("runtimeBotOpenId", "ou_this_bot")
+        |> Map.put("runtimeBotOpenID", "ou_this_bot")
 
       consumer = Inbound.chat_consumer(adapter_context("agentbull"), config)
 
@@ -161,7 +161,7 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
                Inbound.normalize_message_receive(event, consumer)
 
       assert agent_uid == "agentbull"
-      assert config["botOpenId"] == nil
+      assert config["botOpenID"] == nil
     end
 
     test "message receive strips the current bot mention from visible addressed text" do
@@ -171,7 +171,7 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
       consumer =
         Inbound.chat_consumer(
           adapter_context(agent.uid),
-          chat_config(%{"botOpenId" => "ou_this_bot"})
+          chat_config(%{"botOpenID" => "ou_this_bot"})
         )
 
       event =
@@ -206,7 +206,7 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
       consumer =
         Inbound.chat_consumer(
           adapter_context(agent.uid),
-          chat_config(%{"botOpenId" => "ou_this_bot"})
+          chat_config(%{"botOpenID" => "ou_this_bot"})
         )
 
       no_mention_event =
@@ -302,7 +302,7 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
   defp chat_config(overrides) do
     {:ok, config} =
       %{
-        "appId" => "cli_test",
+        "appID" => "cli_test",
         "appSecret" => "secret",
         "platformSubjectNamespace" => "lark-main"
       }

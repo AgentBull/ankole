@@ -58,7 +58,7 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
       )
 
     assert %{
-             "data" => %{
+             "file_listing" => %{
                "root" => "workspace_sessions",
                "path" => "agent-1",
                "truncated" => false,
@@ -96,7 +96,7 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
       )
 
     assert %{
-             "data" => %{
+             "uploaded_file" => %{
                "root" => "workspace_sessions",
                "relative_path" => "agent-1/session-1/inbox/note.txt",
                "size" => 11
@@ -201,7 +201,7 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
       })
 
     assert %{
-             "data" => %{
+             "moved_file" => %{
                "root" => "user_files",
                "from_relative_path" => "inbox/message-1/hello.txt",
                "to_relative_path" => "archive/message-1/hello.txt",
@@ -229,7 +229,7 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
       )
 
     assert %{
-             "data" => %{
+             "deleted_file" => %{
                "root" => "user_files",
                "relative_path" => "archive/message-1/hello.txt",
                "deleted" => true

@@ -5,7 +5,7 @@
 //! state, actor state, or database rows.
 
 use ::cel::{Context, Program};
-use serde_json::Value as JsonValue;
+use serde_json::Value as JSONValue;
 use std::sync::{Arc, OnceLock};
 
 use crate::authz::cel::{self, BoolEvalError};
@@ -22,7 +22,7 @@ pub fn validate_filter_source(source: &str) -> KernelResult<()> {
 }
 
 /// Evaluates a SignalsGateway CEL filter against a host-supplied context.
-pub fn evaluate_filter(source: &str, context_json: JsonValue) -> KernelResult<bool> {
+pub fn evaluate_filter(source: &str, context_json: JSONValue) -> KernelResult<bool> {
     let program = cached_filter_program(source)?;
     let context = build_filter_context(context_json)?;
 
@@ -61,7 +61,7 @@ fn store_cached_filter_program(source: &str, program: &Arc<Program>) {
     cache.insert(source.to_owned(), Arc::clone(program));
 }
 
-fn build_filter_context(context_json: JsonValue) -> KernelResult<Context<'static>> {
+fn build_filter_context(context_json: JSONValue) -> KernelResult<Context<'static>> {
     let object = context_json
         .as_object()
         .ok_or_else(|| KernelError::new("signal filter context must be a JSON object"))?;
@@ -81,14 +81,14 @@ fn build_filter_context(context_json: JsonValue) -> KernelResult<Context<'static
 }
 
 fn required_context_object(
-    object: &serde_json::Map<String, JsonValue>,
+    object: &serde_json::Map<String, JSONValue>,
     field: &str,
-) -> KernelResult<JsonValue> {
+) -> KernelResult<JSONValue> {
     // The host bridge owns the fixed CEL variable envelope. Missing or scalar
     // variables are caller bugs, so fail closed instead of evaluating against an
     // empty object that could make `true` admit a signal.
     match object.get(field) {
-        Some(value @ JsonValue::Object(_)) => Ok(value.clone()),
+        Some(value @ JSONValue::Object(_)) => Ok(value.clone()),
         Some(_) => Err(KernelError::new(format!(
             "signal filter context {field} must be a JSON object"
         ))),
@@ -198,7 +198,7 @@ mod tests {
         assert_eq!(filter_cache_len(), MAX_FILTER_CACHE_ENTRIES);
     }
 
-    fn filter_context() -> JsonValue {
+    fn filter_context() -> JSONValue {
         json!({
             "binding": {
                 "name": "bot",

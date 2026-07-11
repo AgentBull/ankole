@@ -15,7 +15,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery do
 
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.Principals.Principal
-  alias Ankole.Ecto.JsonPayload
+  alias Ankole.Ecto.JSONPayload
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
@@ -121,7 +121,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery do
     |> validate_number(:revision, greater_than_or_equal_to: 0)
     |> validate_inclusion(:state, @states)
     |> validate_inclusion(:send_outcome, @send_outcomes, allow_nil: true)
-    |> JsonPayload.validate_map(:error, allow_datetime: true)
+    |> JSONPayload.validate_map(:error, allow_datetime: true)
     |> foreign_key_constraint(:agent_uid)
     |> unique_constraint([:actor_event_id, :attempt_no],
       name: :actor_event_deliveries_event_attempt_index

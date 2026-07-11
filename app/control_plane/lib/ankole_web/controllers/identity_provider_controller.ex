@@ -1,26 +1,28 @@
 defmodule AnkoleWeb.IdentityProviderController do
+  alias OpenApiSpex, as: OpenAPISpex
+
   @moduledoc """
   Console REST API for operator-managed identity providers.
   """
 
   use AnkoleWeb, :controller
-  use OpenApiSpex.ControllerSpecs
+  use OpenAPISpex.ControllerSpecs
 
   alias Ankole.IdentityProviders
   alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsolePolicy
-  alias AnkoleWeb.Schemas.ConsoleApi.ErrorEnvelope
-  alias AnkoleWeb.Schemas.ConsoleApi.IdentityProviderAdapterListResponse
-  alias AnkoleWeb.Schemas.ConsoleApi.IdentityProviderListResponse
-  alias AnkoleWeb.Schemas.ConsoleApi.IdentityProviderResponse
-  alias AnkoleWeb.Schemas.ConsoleApi.IdentityProviderSyncRunResponse
-  alias AnkoleWeb.Schemas.ConsoleApi.IdentityProviderWriteRequest
+  alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
+  alias AnkoleWeb.Schemas.ConsoleAPI.IdentityProviderAdapterListResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.IdentityProviderListResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.IdentityProviderResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.IdentityProviderSyncRunResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.IdentityProviderWriteRequest
 
   tags(["Identity Providers"])
   security([%{"consoleBearer" => []}])
 
-  plug OpenApiSpex.Plug.CastAndValidate,
-    render_error: AnkoleWeb.OpenApiValidationErrorRenderer
+  plug OpenAPISpex.Plug.CastAndValidate,
+    render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
 
   operation(:adapters,
     summary: "List identity-provider adapters",
@@ -68,7 +70,9 @@ defmodule AnkoleWeb.IdentityProviderController do
 
   def adapters(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "identity_provider_adapters", "read") do
-      json(conn, %{data: Enum.map(IdentityProviders.list_adapters(), &adapter_json/1)})
+      json(conn, %{
+        identity_provider_adapters: Enum.map(IdentityProviders.list_adapters(), &adapter_json/1)
+      })
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -77,7 +81,7 @@ defmodule AnkoleWeb.IdentityProviderController do
   def index(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "identity_providers", "read"),
          {:ok, providers} <- IdentityProviders.list_configured_providers() do
-      json(conn, %{data: providers})
+      json(conn, %{identity_providers: providers})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -96,7 +100,7 @@ defmodule AnkoleWeb.IdentityProviderController do
              source: "console"
            ),
          {:ok, provider} <- IdentityProviders.fetch_configured_provider(provider_id) do
-      json(conn, %{data: provider})
+      json(conn, %{identity_provider: provider})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -108,7 +112,7 @@ defmodule AnkoleWeb.IdentityProviderController do
          {:ok, job} <-
            IdentityProviders.enqueue_sync(provider_id, reason: "manual", source: "console") do
       json(conn, %{
-        data: %{
+        sync_run: %{
           provider_id: provider_id,
           status: "enqueued",
           job_id: job.id
@@ -120,8 +124,7 @@ defmodule AnkoleWeb.IdentityProviderController do
   end
 
   defp provider_attrs(params) when is_map(params) do
-    adapter_id =
-      params[:adapter_id] || params["adapter_id"] || params["adapter"] || params["adapterId"]
+    adapter_id = params[:adapter_id] || params["adapter_id"]
 
     config = Map.get(params, :config, Map.get(params, "config", %{}))
     enabled = Map.get(params, :enabled, Map.get(params, "enabled", true))

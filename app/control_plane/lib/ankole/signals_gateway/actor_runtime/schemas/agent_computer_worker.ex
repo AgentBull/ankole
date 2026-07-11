@@ -12,7 +12,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker do
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
 
-  alias Ankole.Ecto.JsonPayload
+  alias Ankole.Ecto.JSONPayload
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @timestamps_opts [type: :utc_datetime_usec]
@@ -73,9 +73,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker do
     ])
     |> validate_inclusion(:status, @statuses)
     |> validate_runtime_metadata()
-    |> JsonPayload.validate_map(:capacity, allow_datetime: true)
-    |> JsonPayload.validate_map(:load, allow_datetime: true)
-    |> JsonPayload.validate_map(:metadata, allow_datetime: true)
+    |> JSONPayload.validate_map(:capacity, allow_datetime: true)
+    |> JSONPayload.validate_map(:load, allow_datetime: true)
+    |> JSONPayload.validate_map(:metadata, allow_datetime: true)
     # worker_id is the process identity authenticated by RuntimeFabric, while
     # transport_route is the live ZeroMQ address used for replies. Uniqueness
     # stops two rows claiming the same route to send to.

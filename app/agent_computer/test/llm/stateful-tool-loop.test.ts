@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import { z } from 'zod'
 import { runAgentLoop } from '../../src/core/agent-loop'
 import { createModel } from '../../src/core/llm'
@@ -13,7 +13,7 @@ import {
 
 describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations', () => {
   it('anchors stateful tool-loop continuations without replaying local transcript', async () => {
-    const sentPayloads: JsonObject[] = []
+    const sentPayloads: JSONObject[] = []
     const sockets: FakeResponseSocket[] = []
     const model = createModel({
       apiKey: 'unused',
@@ -25,7 +25,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
         authorization: () => 'Bearer agent-key',
         createWebSocket: (_url, init) => {
           const socket = new FakeResponseSocket(init, data => {
-            const payload = JSON.parse(data) as JsonObject
+            const payload = JSON.parse(data) as JSONObject
             sentPayloads.push(payload)
 
             if (payload.type === 'response.tool_results.record') {
@@ -83,8 +83,8 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       systemPrompt: 'system prompt',
       messages: [{ role: 'user', content: 'what is the weather?' }],
       stateful: {
-        actorEventId: '00000000-0000-0000-0000-000000000002',
-        conversationId: '22222222-2222-2222-2222-222222222222'
+        actorEventID: '00000000-0000-0000-0000-000000000002',
+        conversationID: '22222222-2222-2222-2222-222222222222'
       },
       tools: [
         {
@@ -101,7 +101,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
 
     expect(final.message.content).toEqual([{ type: 'text', text: 'done' }])
     expect(final.outcome).toBe('loop_finished')
-    expect(final.responseId).toBe('resp_second')
+    expect(final.responseID).toBe('resp_second')
     expect(sockets).toHaveLength(1)
     expect(sockets[0]!.closeCount).toBe(1)
     expect(sentPayloads).toHaveLength(3)
@@ -117,8 +117,8 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       previous_response_id: 'resp_first',
       input: [{ type: 'function_call_output', call_id: 'call_1' }]
     })
-    expect((sentPayloads[1]!.input as Array<JsonObject>)[0]!.output).toContain('sunny')
-    expectWrappedToolOutput((sentPayloads[1]!.input as Array<JsonObject>)[0]!.output)
+    expect((sentPayloads[1]!.input as Array<JSONObject>)[0]!.output).toContain('sunny')
+    expectWrappedToolOutput((sentPayloads[1]!.input as Array<JSONObject>)[0]!.output)
     expect(sentPayloads[1]!.conversation).toBeUndefined()
     expect(JSON.stringify(sentPayloads[1]!.input)).not.toContain('what is the weather?')
     expect(sentPayloads[2]).toMatchObject({
@@ -131,7 +131,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
   })
 
   it('preserves function_call_output pairing and adds tool image follow-up for vision models', async () => {
-    const sentPayloads: JsonObject[] = []
+    const sentPayloads: JSONObject[] = []
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
@@ -142,7 +142,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
         authorization: () => 'Bearer agent-key',
         createWebSocket: (_url, init) =>
           fakeResponseSocket(init, data => {
-            const payload = JSON.parse(data) as JsonObject
+            const payload = JSON.parse(data) as JSONObject
             sentPayloads.push(payload)
 
             if (payload.type === 'response.tool_results.record') {
@@ -195,8 +195,8 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       maxModelIterations: 90,
       messages: [{ role: 'user', content: 'take a screenshot' }],
       stateful: {
-        actorEventId: '00000000-0000-0000-0000-000000000010',
-        conversationId: '10101010-1010-1010-1010-101010101010'
+        actorEventID: '00000000-0000-0000-0000-000000000010',
+        conversationID: '10101010-1010-1010-1010-101010101010'
       },
       modelInputModalities: ['text', 'image'],
       tools: [
@@ -217,7 +217,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
 
     expect(final.message.content).toEqual([{ type: 'text', text: 'image handled' }])
     expect(sentPayloads).toHaveLength(3)
-    const continuation = sentPayloads[1]!.input as Array<JsonObject>
+    const continuation = sentPayloads[1]!.input as Array<JSONObject>
     expect(sentPayloads[1]).toMatchObject({
       type: 'response.tool_results.record',
       previous_response_id: 'resp_tool_image'
@@ -240,8 +240,8 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
   })
 
   it('preserves function_call_output pairing and adds tool image summary for text-only models', async () => {
-    const sentPayloads: JsonObject[] = []
-    const fallbackBodies: JsonObject[] = []
+    const sentPayloads: JSONObject[] = []
+    const fallbackBodies: JSONObject[] = []
     const fallbackModel = fallbackModelForTest('The tool image shows a dashboard.', fallbackBodies)
     const model = createModel({
       apiKey: 'unused',
@@ -253,7 +253,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
         authorization: () => 'Bearer agent-key',
         createWebSocket: (_url, init) =>
           fakeResponseSocket(init, data => {
-            const payload = JSON.parse(data) as JsonObject
+            const payload = JSON.parse(data) as JSONObject
             sentPayloads.push(payload)
 
             if (payload.type === 'response.tool_results.record') {
@@ -306,8 +306,8 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       maxModelIterations: 90,
       messages: [{ role: 'user', content: 'take a screenshot' }],
       stateful: {
-        actorEventId: '00000000-0000-0000-0000-000000000011',
-        conversationId: '11111111-1111-1111-1111-111111111112'
+        actorEventID: '00000000-0000-0000-0000-000000000011',
+        conversationID: '11111111-1111-1111-1111-111111111112'
       },
       modelInputModalities: ['text'],
       visionFallbackModel: fallbackModel,
@@ -329,7 +329,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
 
     expect(final.message.content).toEqual([{ type: 'text', text: 'summary handled' }])
     expect(sentPayloads).toHaveLength(3)
-    const continuation = sentPayloads[1]!.input as Array<JsonObject>
+    const continuation = sentPayloads[1]!.input as Array<JSONObject>
     expect(sentPayloads[1]).toMatchObject({
       type: 'response.tool_results.record',
       previous_response_id: 'resp_tool_summary'
@@ -350,7 +350,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
   })
 
   it('safely stringifies non-JSON tool result details for function_call_output fallback', async () => {
-    const sentPayloads: JsonObject[] = []
+    const sentPayloads: JSONObject[] = []
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
@@ -361,7 +361,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
         authorization: () => 'Bearer agent-key',
         createWebSocket: (_url, init) =>
           fakeResponseSocket(init, data => {
-            const payload = JSON.parse(data) as JsonObject
+            const payload = JSON.parse(data) as JSONObject
             sentPayloads.push(payload)
 
             if (payload.type === 'response.tool_results.record') {
@@ -414,8 +414,8 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       maxModelIterations: 90,
       messages: [{ role: 'user', content: 'what is the weather?' }],
       stateful: {
-        actorEventId: '00000000-0000-0000-0000-000000000006',
-        conversationId: '66666666-6666-6666-6666-666666666666'
+        actorEventID: '00000000-0000-0000-0000-000000000006',
+        conversationID: '66666666-6666-6666-6666-666666666666'
       },
       tools: [
         {
@@ -437,8 +437,8 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       previous_response_id: 'resp_tool_bigint',
       input: [{ type: 'function_call_output', call_id: 'call_bigint' }]
     })
-    expect((sentPayloads[1]!.input as Array<JsonObject>)[0]!.output).toContain('1')
-    expectWrappedToolOutput((sentPayloads[1]!.input as Array<JsonObject>)[0]!.output)
+    expect((sentPayloads[1]!.input as Array<JSONObject>)[0]!.output).toContain('1')
+    expectWrappedToolOutput((sentPayloads[1]!.input as Array<JSONObject>)[0]!.output)
     expect(sentPayloads[2]).toMatchObject({
       type: 'response.create',
       previous_response_id: 'resp_tool_bigint_results',
@@ -447,7 +447,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
   })
 
   it('counts post-tool empty-response nudges against the model iteration budget', async () => {
-    const sentPayloads: JsonObject[] = []
+    const sentPayloads: JSONObject[] = []
     let toolExecutions = 0
     let recordCount = 0
     const model = createModel({
@@ -460,7 +460,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
         authorization: () => 'Bearer agent-key',
         createWebSocket: (_url, init) =>
           fakeResponseSocket(init, data => {
-            const payload = JSON.parse(data) as JsonObject
+            const payload = JSON.parse(data) as JSONObject
             sentPayloads.push(payload)
 
             if (payload.type === 'response.tool_results.record') {
@@ -527,8 +527,8 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       model,
       messages: [{ role: 'user', content: 'loop with empty responses' }],
       stateful: {
-        actorEventId: '00000000-0000-0000-0000-000000000019',
-        conversationId: '19191919-1919-1919-1919-191919191919'
+        actorEventID: '00000000-0000-0000-0000-000000000019',
+        conversationID: '19191919-1919-1919-1919-191919191919'
       },
       maxModelIterations: 3,
       tools: [
@@ -548,7 +548,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
     expect(final.message.content).toEqual([{ type: 'text', text: 'summarized after iteration limit' }])
     expect(final.message.stopReason).toBe('stop')
     expect(final.outcome).toBe('iteration_exhausted')
-    expect(final.responseId).toBe('resp_iteration_synthesis')
+    expect(final.responseID).toBe('resp_iteration_synthesis')
     expect(toolExecutions).toBe(2)
     expect(responseCreates).toHaveLength(4)
     expect(responseCreates[2]!.input).toEqual([
@@ -567,7 +567,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
   })
 
   it('completes normally when the last allowed model iteration returns final text', async () => {
-    const sentPayloads: JsonObject[] = []
+    const sentPayloads: JSONObject[] = []
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
@@ -578,7 +578,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
         authorization: () => 'Bearer agent-key',
         createWebSocket: (_url, init) =>
           fakeResponseSocket(init, data => {
-            sentPayloads.push(JSON.parse(data) as JsonObject)
+            sentPayloads.push(JSON.parse(data) as JSONObject)
             return [
               {
                 type: 'response.completed',
@@ -603,14 +603,14 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       model,
       messages: [{ role: 'user', content: 'finish now' }],
       stateful: {
-        actorEventId: '00000000-0000-0000-0000-000000000020',
-        conversationId: '20202020-2020-2020-2020-202020202020'
+        actorEventID: '00000000-0000-0000-0000-000000000020',
+        conversationID: '20202020-2020-2020-2020-202020202020'
       },
       maxModelIterations: 1
     })
 
     expect(final).toMatchObject({
-      responseId: 'resp_last_allowed',
+      responseID: 'resp_last_allowed',
       outcome: 'loop_finished',
       message: {
         content: [{ type: 'text', text: 'finished on the limit' }],
@@ -621,7 +621,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
   })
 
   it('completes naturally on the configured 90th model iteration without synthesis', async () => {
-    const sentPayloads: JsonObject[] = []
+    const sentPayloads: JSONObject[] = []
     let modelCalls = 0
 
     const model = createModel({
@@ -634,7 +634,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
         authorization: () => 'Bearer agent-key',
         createWebSocket: (_url, init) =>
           fakeResponseSocket(init, data => {
-            const payload = JSON.parse(data) as JsonObject
+            const payload = JSON.parse(data) as JSONObject
             sentPayloads.push(payload)
 
             if (payload.type === 'response.tool_results.record') {
@@ -688,8 +688,8 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       model,
       messages: [{ role: 'user', content: 'finish on the final allowed iteration' }],
       stateful: {
-        actorEventId: '00000000-0000-0000-0000-000000000090',
-        conversationId: '90909090-9090-9090-9090-909090909090'
+        actorEventID: '00000000-0000-0000-0000-000000000090',
+        conversationID: '90909090-9090-9090-9090-909090909090'
       },
       maxModelIterations: 90,
       tools: [
@@ -703,7 +703,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
     })
 
     expect(final).toMatchObject({
-      responseId: 'resp_iteration_90_final',
+      responseID: 'resp_iteration_90_final',
       outcome: 'loop_finished',
       message: {
         content: [{ type: 'text', text: 'finished on iteration 90' }],
@@ -716,7 +716,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
   })
 
   it('drains steering updates after tool results before the next stateful model call', async () => {
-    const sentPayloads: JsonObject[] = []
+    const sentPayloads: JSONObject[] = []
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
@@ -727,7 +727,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
         authorization: () => 'Bearer agent-key',
         createWebSocket: (_url, init) =>
           fakeResponseSocket(init, data => {
-            const payload = JSON.parse(data) as JsonObject
+            const payload = JSON.parse(data) as JSONObject
             sentPayloads.push(payload)
 
             if (payload.type === 'response.tool_results.record') {
@@ -782,8 +782,8 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       maxModelIterations: 90,
       messages: [{ role: 'user', content: 'use a tool, then wait' }],
       stateful: {
-        actorEventId: '00000000-0000-0000-0000-000000000008',
-        conversationId: '88888888-8888-8888-8888-888888888888'
+        actorEventID: '00000000-0000-0000-0000-000000000008',
+        conversationID: '88888888-8888-8888-8888-888888888888'
       },
       tools: [
         {
@@ -810,7 +810,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       previous_response_id: 'resp_tool_before_steer',
       input: [{ type: 'function_call_output', call_id: 'call_steer_boundary' }]
     })
-    expect((sentPayloads[1]!.input as Array<JsonObject>)[0]!.output).toContain('tool complete')
+    expect((sentPayloads[1]!.input as Array<JSONObject>)[0]!.output).toContain('tool complete')
     expect(sentPayloads[2]).toMatchObject({
       type: 'response.create',
       previous_response_id: 'resp_tool_before_steer_results',
@@ -819,7 +819,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
   })
 
   it('does not start another stateful run when steering arrives after a final response', async () => {
-    const sentPayloads: JsonObject[] = []
+    const sentPayloads: JSONObject[] = []
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
@@ -830,7 +830,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
         authorization: () => 'Bearer agent-key',
         createWebSocket: (_url, init) =>
           fakeResponseSocket(init, data => {
-            sentPayloads.push(JSON.parse(data) as JsonObject)
+            sentPayloads.push(JSON.parse(data) as JSONObject)
 
             return [
               {
@@ -857,8 +857,8 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       maxModelIterations: 90,
       messages: [{ role: 'user', content: 'answer directly' }],
       stateful: {
-        actorEventId: '00000000-0000-0000-0000-000000000009',
-        conversationId: '99999999-9999-9999-9999-999999999999'
+        actorEventID: '00000000-0000-0000-0000-000000000009',
+        conversationID: '99999999-9999-9999-9999-999999999999'
       },
       getSteeringMessages: async () => [{ role: 'user', content: 'Runtime note: steer too late' }]
     })

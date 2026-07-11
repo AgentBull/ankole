@@ -59,13 +59,13 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
       |> bearer_conn()
       |> get(~p"/api/v1/identity-provider-adapters")
 
-    assert %{"data" => [adapter]} = json_response(conn, 200)
+    assert %{"identity_provider_adapters" => [adapter]} = json_response(conn, 200)
     assert adapter["adapter_id"] == "lark"
     assert adapter["display_name"]["default"] == "Lark"
     assert "directory_full_sync" in adapter["capabilities"]
 
     assert Enum.map(adapter["fields"], & &1["path"]) == [
-             "appId",
+             "appID",
              "appSecret",
              "domain",
              "oidc.enabled",
@@ -85,19 +85,19 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
         "adapter_id" => "lark",
         "enabled" => true,
         "config" => %{
-          "appId" => "cli_identity_console",
+          "appID" => "cli_identity_console",
           "appSecret" => "secret-console",
           "sync" => %{"contacts" => true, "websocket" => true}
         }
       })
 
     assert %{
-             "data" => %{
+             "identity_provider" => %{
                "provider_id" => "lark-main",
                "adapter_id" => "lark",
                "config_key" => "principals.identity_providers.lark.lark-main",
                "enabled" => true,
-               "config" => %{"appId" => "cli_identity_console", "appSecret" => "********"}
+               "config" => %{"appID" => "cli_identity_console", "appSecret" => "********"}
              }
            } = json_response(conn, 200)
 
@@ -111,7 +111,11 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
       |> recycle_api()
       |> get(~p"/api/v1/identity-providers")
 
-    assert %{"data" => [%{"provider_id" => "lark-main", "config" => listed_config}]} =
+    assert %{
+             "identity_providers" => [
+               %{"provider_id" => "lark-main", "config" => listed_config}
+             ]
+           } =
              json_response(conn, 200)
 
     assert listed_config["appSecret"] == "********"
@@ -122,7 +126,7 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
       |> post(~p"/api/v1/identity-providers/lark-main/sync-runs", %{})
 
     assert %{
-             "data" => %{
+             "sync_run" => %{
                "provider_id" => "lark-main",
                "status" => "enqueued"
              }
@@ -142,12 +146,13 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
         "adapter_id" => "lark",
         "enabled" => true,
         "config" => %{
-          "appId" => "cli_identity_console",
+          "appID" => "cli_identity_console",
           "appSecret" => "secret-console"
         }
       })
 
-    assert %{"data" => %{"config" => %{"appSecret" => "********"}}} = json_response(conn, 200)
+    assert %{"identity_provider" => %{"config" => %{"appSecret" => "********"}}} =
+             json_response(conn, 200)
 
     conn =
       conn
@@ -156,16 +161,17 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
         "adapter_id" => "lark",
         "enabled" => true,
         "config" => %{
-          "appId" => "cli_identity_console_renamed",
+          "appID" => "cli_identity_console_renamed",
           "appSecret" => "********",
           "sync" => %{"contacts" => true}
         }
       })
 
-    assert %{"data" => %{"config" => %{"appSecret" => "********"}}} = json_response(conn, 200)
+    assert %{"identity_provider" => %{"config" => %{"appSecret" => "********"}}} =
+             json_response(conn, 200)
 
     assert {:ok, config} = AppConfigure.get_by_key(LarkConfig.identity_config_key("lark-main"))
-    assert config["appId"] == "cli_identity_console_renamed"
+    assert config["appID"] == "cli_identity_console_renamed"
     assert config["appSecret"] == "secret-console"
   end
 
@@ -177,13 +183,13 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
         "adapter_id" => "lark",
         "enabled" => true,
         "config" => %{
-          "appId" => "cli_identity_console",
+          "appID" => "cli_identity_console",
           "appSecret" => "secret-console",
           "sync" => %{"contacts" => false}
         }
       })
 
-    assert %{"data" => %{"enabled" => true}} = json_response(conn, 200)
+    assert %{"identity_provider" => %{"enabled" => true}} = json_response(conn, 200)
 
     conn =
       conn

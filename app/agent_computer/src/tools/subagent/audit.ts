@@ -1,7 +1,7 @@
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import { toError } from '../../common/errors'
 import {
-  isRpcRejected,
+  isRPCRejected,
   rpcRejectedMessage,
   type SubagentDelegationAuditEvent,
   type SubagentDelegationEventAppendRequest
@@ -25,7 +25,7 @@ export class SubagentAuditBuffer {
 
   constructor(
     private readonly input: {
-      delegationId: string
+      delegationID: string
       turn: ActorTurnRef
       append?: AuditAppender
       nextSeq?: number
@@ -39,7 +39,7 @@ export class SubagentAuditBuffer {
     return this.failureError
   }
 
-  enqueue(direction: SubagentDelegationAuditEvent['direction'], eventType: string, payload: JsonObject): void {
+  enqueue(direction: SubagentDelegationAuditEvent['direction'], eventType: string, payload: JSONObject): void {
     if (this.failureError) return
 
     this.pending.push({
@@ -60,7 +60,7 @@ export class SubagentAuditBuffer {
   async record(
     direction: SubagentDelegationAuditEvent['direction'],
     eventType: string,
-    payload: JsonObject
+    payload: JSONObject
   ): Promise<void> {
     this.enqueue(direction, eventType, payload)
     await this.flush()
@@ -113,7 +113,7 @@ export class SubagentAuditBuffer {
     const request: SubagentDelegationEventAppendRequest = {
       request_id: `subagent-events-${crypto.randomUUID()}`,
       turn: this.input.turn,
-      delegation_id: this.input.delegationId,
+      delegation_id: this.input.delegationID,
       events
     }
 
@@ -129,7 +129,7 @@ export class SubagentAuditBuffer {
     for (let attempt = 1; attempt <= appendMaxAttempts; attempt += 1) {
       try {
         const response = await append(request)
-        if (isRpcRejected(response)) {
+        if (isRPCRejected(response)) {
           throw new AuditBatchRejectedError(rpcRejectedMessage('subagent audit event batch rejected', response))
         }
         return

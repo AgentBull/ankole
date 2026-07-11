@@ -1,21 +1,21 @@
 import { describe, expect, it } from 'bun:test'
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import { runAgentLoop } from '../../src/core/agent-loop'
 import { callModel, createModel } from '../../src/core/llm'
-import { classifyLlmError, isLocallyRetryableLlmError } from '../../src/core/llm-error-classifier'
+import { classifyLLMError, isLocallyRetryableLLMError } from '../../src/core/llm-error-classifier'
 
 import { fakeResponseSocket } from '../support/llm'
 
 describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire shape', () => {
   it('passes image input through as Responses input_image content', async () => {
-    const bodies: JsonObject[] = []
+    const bodies: JSONObject[] = []
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
       selector: 'primary',
       fetch: (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
         const request = input instanceof Request ? input : new Request(input, init)
-        bodies.push(JSON.parse(await request.text()) as JsonObject)
+        bodies.push(JSON.parse(await request.text()) as JSONObject)
 
         return new Response(
           JSON.stringify({
@@ -59,14 +59,14 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
   })
 
   it('encodes binary PNG image input as a base64 PNG data URL', async () => {
-    const bodies: JsonObject[] = []
+    const bodies: JSONObject[] = []
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
       selector: 'primary',
       fetch: (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
         const request = input instanceof Request ? input : new Request(input, init)
-        bodies.push(JSON.parse(await request.text()) as JsonObject)
+        bodies.push(JSON.parse(await request.text()) as JSONObject)
 
         return new Response(
           JSON.stringify({
@@ -103,25 +103,25 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       ]
     })
 
-    const input = bodies[0]!.input as Array<{ content: Array<JsonObject> }>
-    const imageUrl = input[0]!.content[1]!.image_url
+    const input = bodies[0]!.input as Array<{ content: Array<JSONObject> }>
+    const imageURL = input[0]!.content[1]!.image_url
 
-    expect(typeof imageUrl).toBe('string')
-    expect(imageUrl).toMatch(/^data:image\/png;base64,[A-Za-z0-9+/]+=*$/)
+    expect(typeof imageURL).toBe('string')
+    expect(imageURL).toMatch(/^data:image\/png;base64,[A-Za-z0-9+/]+=*$/)
     expect([
-      ...Buffer.from((imageUrl as string).slice('data:image/png;base64,'.length), 'base64').subarray(0, 8)
+      ...Buffer.from((imageURL as string).slice('data:image/png;base64,'.length), 'base64').subarray(0, 8)
     ]).toEqual([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
   })
 
   it('passes Responses structured output text format through HTTP calls', async () => {
-    const bodies: JsonObject[] = []
+    const bodies: JSONObject[] = []
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
       selector: 'primary',
       fetch: (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
         const request = input instanceof Request ? input : new Request(input, init)
-        bodies.push(JSON.parse(await request.text()) as JsonObject)
+        bodies.push(JSON.parse(await request.text()) as JSONObject)
 
         return new Response(
           JSON.stringify({
@@ -170,14 +170,14 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
   })
 
   it('omits max_output_tokens unless the agent runtime policy provides one', async () => {
-    const bodies: JsonObject[] = []
+    const bodies: JSONObject[] = []
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
       selector: 'primary',
       fetch: (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
         const request = input instanceof Request ? input : new Request(input, init)
-        bodies.push(JSON.parse(await request.text()) as JsonObject)
+        bodies.push(JSON.parse(await request.text()) as JSONObject)
 
         return new Response(
           JSON.stringify({
@@ -310,21 +310,21 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       new Error('AIGateway WebSocket transport error'),
       new Error('LLM provider call aborted')
     ]) {
-      expect(classifyLlmError(error)).toMatchObject({ kind: 'timeout', retryable: true })
+      expect(classifyLLMError(error)).toMatchObject({ kind: 'timeout', retryable: true })
     }
 
-    expect(isLocallyRetryableLlmError(beforeOpen)).toBe(true)
-    expect(isLocallyRetryableLlmError(afterSend)).toBe(false)
+    expect(isLocallyRetryableLLMError(beforeOpen)).toBe(true)
+    expect(isLocallyRetryableLLMError(afterSend)).toBe(false)
   })
 
   it('classifies incomplete terminal reason fallbacks without retrying blindly', () => {
-    expect(classifyLlmError(new Error('AIGateway response incomplete reason=content_filter'))).toMatchObject({
+    expect(classifyLLMError(new Error('AIGateway response incomplete reason=content_filter'))).toMatchObject({
       kind: 'content_filter',
       retryable: false,
       shouldCompress: false,
       shouldFallbackProvider: false
     })
-    expect(classifyLlmError(new Error('max_output_tokens'))).toMatchObject({
+    expect(classifyLLMError(new Error('max_output_tokens'))).toMatchObject({
       kind: 'overflow',
       retryable: false,
       shouldCompress: true,
@@ -333,7 +333,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
   })
 
   it('sends stateful response.create over AIGateway WebSocket', async () => {
-    const sentPayloads: JsonObject[] = []
+    const sentPayloads: JSONObject[] = []
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
@@ -344,7 +344,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
         authorization: () => 'Bearer agent-key',
         createWebSocket: (_url, init) =>
           fakeResponseSocket(init, data => {
-            sentPayloads.push(JSON.parse(data) as JsonObject)
+            sentPayloads.push(JSON.parse(data) as JSONObject)
             return [
               {
                 type: 'response.completed',
@@ -370,12 +370,12 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       instructions: 'system prompt',
       messages: [{ role: 'user', content: 'hi' }],
       stateful: {
-        actorEventId: '00000000-0000-0000-0000-000000000001',
-        conversationId: '11111111-1111-1111-1111-111111111111'
+        actorEventID: '00000000-0000-0000-0000-000000000001',
+        conversationID: '11111111-1111-1111-1111-111111111111'
       }
     })
 
-    expect(result.responseId).toBe('resp_message_1')
+    expect(result.responseID).toBe('resp_message_1')
     expect(result.message.content).toEqual([{ type: 'text', text: 'hello' }])
     expect(sentPayloads).toHaveLength(1)
     expect(sentPayloads[0]).toMatchObject({
@@ -391,7 +391,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
   })
 
   it('keeps user text parts as Responses input_text parts', async () => {
-    const sentPayloads: JsonObject[] = []
+    const sentPayloads: JSONObject[] = []
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
@@ -402,7 +402,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
         authorization: () => 'Bearer agent-key',
         createWebSocket: (_url, init) =>
           fakeResponseSocket(init, data => {
-            sentPayloads.push(JSON.parse(data) as JsonObject)
+            sentPayloads.push(JSON.parse(data) as JSONObject)
             return [
               {
                 type: 'response.completed',
@@ -434,8 +434,8 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
         }
       ],
       stateful: {
-        actorEventId: '00000000-0000-0000-0000-000000000701',
-        conversationId: '77777777-7777-7777-7777-777777777777'
+        actorEventID: '00000000-0000-0000-0000-000000000701',
+        conversationID: '77777777-7777-7777-7777-777777777777'
       }
     })
 
@@ -453,7 +453,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
   })
 
   it('uses the native WebSocket constructor when no test socket factory is injected', async () => {
-    const sentPayloads: JsonObject[] = []
+    const sentPayloads: JSONObject[] = []
     const server = Bun.serve({
       port: 0,
       fetch(request, server) {
@@ -463,7 +463,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       websocket: {
         message(ws, message) {
           const text = typeof message === 'string' ? message : new TextDecoder().decode(message as BufferSource)
-          sentPayloads.push(JSON.parse(text) as JsonObject)
+          sentPayloads.push(JSON.parse(text) as JSONObject)
           ws.send(
             JSON.stringify({
               type: 'response.completed',
@@ -499,12 +499,12 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       const result = await callModel(model, {
         messages: [{ role: 'user', content: 'hi' }],
         stateful: {
-          actorEventId: '00000000-0000-0000-0000-000000000012',
-          conversationId: 'cccccccc-cccc-cccc-cccc-cccccccccccc'
+          actorEventID: '00000000-0000-0000-0000-000000000012',
+          conversationID: 'cccccccc-cccc-cccc-cccc-cccccccccccc'
         }
       })
 
-      expect(result.responseId).toBe('resp_native_ws')
+      expect(result.responseID).toBe('resp_native_ws')
       expect(result.message.content).toEqual([{ type: 'text', text: 'native websocket ok' }])
       expect(sentPayloads).toHaveLength(1)
       expect(sentPayloads[0]).toMatchObject({
@@ -550,12 +550,12 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
     const result = await callModel(model, {
       messages: [{ role: 'user', content: 'hi' }],
       stateful: {
-        actorEventId: '00000000-0000-0000-0000-000000000013',
-        conversationId: 'dddddddd-dddd-dddd-dddd-dddddddddddd'
+        actorEventID: '00000000-0000-0000-0000-000000000013',
+        conversationID: 'dddddddd-dddd-dddd-dddd-dddddddddddd'
       }
     })
 
-    expect(result.responseId).toBe('resp_empty_terminal_output')
+    expect(result.responseID).toBe('resp_empty_terminal_output')
     expect(result.message.content).toEqual([{ type: 'text', text: 'stable item text' }])
     expect(result.message.stopReason).toBe('stop')
   })
@@ -593,12 +593,12 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
     const result = await callModel(model, {
       messages: [{ role: 'user', content: 'hi' }],
       stateful: {
-        actorEventId: '00000000-0000-0000-0000-000000000014',
-        conversationId: 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'
+        actorEventID: '00000000-0000-0000-0000-000000000014',
+        conversationID: 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'
       }
     })
 
-    expect(result.responseId).toBe('resp_incomplete')
+    expect(result.responseID).toBe('resp_incomplete')
     expect(result.message.content).toEqual([{ type: 'text', text: 'partial answer' }])
     expect(result.message.stopReason).toBe('length')
     expect(result.message.errorMessage).toBeUndefined()
@@ -637,12 +637,12 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
     const result = await callModel(model, {
       messages: [{ role: 'user', content: 'hi' }],
       stateful: {
-        actorEventId: '00000000-0000-0000-0000-000000000016',
-        conversationId: '16161616-1616-1616-1616-161616161616'
+        actorEventID: '00000000-0000-0000-0000-000000000016',
+        conversationID: '16161616-1616-1616-1616-161616161616'
       }
     })
 
-    expect(result.responseId).toBe('resp_content_filter')
+    expect(result.responseID).toBe('resp_content_filter')
     expect(result.message.content).toEqual([{ type: 'text', text: 'filtered partial answer' }])
     expect(result.message.stopReason).toBe('error')
     expect(result.message.errorMessage).toBe('AIGateway response incomplete reason=content_filter')
@@ -683,8 +683,8 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       maxModelIterations: 90,
       messages: [{ role: 'user', content: 'write a long answer' }],
       stateful: {
-        actorEventId: '00000000-0000-0000-0000-000000000017',
-        conversationId: '17171717-1717-1717-1717-171717171717'
+        actorEventID: '00000000-0000-0000-0000-000000000017',
+        conversationID: '17171717-1717-1717-1717-171717171717'
       }
     })
 

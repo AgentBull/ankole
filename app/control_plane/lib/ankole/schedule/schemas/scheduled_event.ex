@@ -10,7 +10,7 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
 
   alias Ankole.Principals.Principal
   alias Ankole.Schedule.Schemas.CronSchedule
-  alias Ankole.Ecto.JsonPayload
+  alias Ankole.Ecto.JSONPayload
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
@@ -124,9 +124,9 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
     |> validate_inclusion(:status, @statuses)
     |> validate_number(:fire_attempts, greater_than_or_equal_to: 0)
     |> validate_timezone(:timezone)
-    |> JsonPayload.validate_map(:source_provenance)
-    |> JsonPayload.validate_map(:wake_payload)
-    |> JsonPayload.validate_map(:last_fire_error)
+    |> JSONPayload.validate_map(:source_provenance)
+    |> JSONPayload.validate_map(:wake_payload)
+    |> JSONPayload.validate_map(:last_fire_error)
     |> foreign_key_constraint(:agent_uid)
     |> foreign_key_constraint(:cron_schedule_id)
     |> foreign_key_constraint(:source_actor_event_id)

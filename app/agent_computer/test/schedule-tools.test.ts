@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'bun:test'
 import type { TurnStart } from '../src/lanes/actor_lane'
-import type { JsonObject } from '@pleisto/active-support'
-import { rpcMethods, type ScheduleRpcMethod } from '../src/lanes/rpc_lane'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import { rpcMethods, type ScheduleRPCMethod } from '../src/lanes/rpc_lane'
 import { createScheduleTools } from '../src/tools/schedule/schedule-tools'
 
 describe('schedule tools', () => {
   it('uses a stable default check_back_later idempotency key across provider tool call retries', async () => {
-    const requests: JsonObject[] = []
+    const requests: JSONObject[] = []
     const tools = createScheduleTools({
       turnStart: turnStartForScheduleTool(),
-      requestScheduleRpc: async (method: ScheduleRpcMethod, request: JsonObject): Promise<JsonObject> => {
+      requestScheduleRPC: async (method: ScheduleRPCMethod, request: JSONObject): Promise<JSONObject> => {
         expect(method).toBe(rpcMethods.scheduleCheckBackLaterCreate)
         requests.push(request)
         return { status: 'scheduled' }
@@ -40,10 +40,10 @@ describe('schedule tools', () => {
   })
 
   it('keeps explicit check_back_later idempotency keys unchanged', async () => {
-    const requests: JsonObject[] = []
+    const requests: JSONObject[] = []
     const [checkBackLater] = createScheduleTools({
       turnStart: turnStartForScheduleTool(),
-      requestScheduleRpc: async (_method: ScheduleRpcMethod, request: JsonObject): Promise<JsonObject> => {
+      requestScheduleRPC: async (_method: ScheduleRPCMethod, request: JSONObject): Promise<JSONObject> => {
         requests.push(request)
         return { status: 'scheduled' }
       }
@@ -60,10 +60,10 @@ describe('schedule tools', () => {
   })
 
   it('uses a stable default cron:add idempotency key across provider tool call retries', async () => {
-    const requests: JsonObject[] = []
+    const requests: JSONObject[] = []
     const tools = createScheduleTools({
       turnStart: turnStartForScheduleTool(),
-      requestScheduleRpc: async (method: ScheduleRpcMethod, request: JsonObject): Promise<JsonObject> => {
+      requestScheduleRPC: async (method: ScheduleRPCMethod, request: JSONObject): Promise<JSONObject> => {
         expect(method).toBe(rpcMethods.scheduleCronAdd)
         requests.push(request)
         return { status: 'created' }
@@ -94,10 +94,10 @@ describe('schedule tools', () => {
   })
 
   it('keeps explicit cron:add idempotency keys unchanged', async () => {
-    const requests: JsonObject[] = []
+    const requests: JSONObject[] = []
     const cron = createScheduleTools({
       turnStart: turnStartForScheduleTool(),
-      requestScheduleRpc: async (_method: ScheduleRpcMethod, request: JsonObject): Promise<JsonObject> => {
+      requestScheduleRPC: async (_method: ScheduleRPCMethod, request: JSONObject): Promise<JSONObject> => {
         requests.push(request)
         return { status: 'created' }
       }
@@ -118,10 +118,10 @@ describe('schedule tools', () => {
   })
 
   it('makes cron-origin turns read-only to prevent recursive schedule mutation', async () => {
-    const requests: JsonObject[] = []
+    const requests: JSONObject[] = []
     const cron = createScheduleTools({
       turnStart: turnStartForScheduleTool({ cronOrigin: true }),
-      requestScheduleRpc: async (_method: ScheduleRpcMethod, request: JsonObject): Promise<JsonObject> => {
+      requestScheduleRPC: async (_method: ScheduleRPCMethod, request: JSONObject): Promise<JSONObject> => {
         requests.push(request)
         return { status: 'created' }
       }
@@ -143,10 +143,10 @@ describe('schedule tools', () => {
   })
 
   it('allows cron-origin turns to inspect schedules and run history', async () => {
-    const calls: Array<{ method: ScheduleRpcMethod; request: JsonObject }> = []
+    const calls: Array<{ method: ScheduleRPCMethod; request: JSONObject }> = []
     const cron = createScheduleTools({
       turnStart: turnStartForScheduleTool({ cronOrigin: true }),
-      requestScheduleRpc: async (method: ScheduleRpcMethod, request: JsonObject): Promise<JsonObject> => {
+      requestScheduleRPC: async (method: ScheduleRPCMethod, request: JSONObject): Promise<JSONObject> => {
         calls.push({ method, request })
         return { status: 'ok', runs: [] }
       }
@@ -165,7 +165,7 @@ describe('schedule tools', () => {
   it('describes cron as conversational standing-work management with confirmation rules', () => {
     const cron = createScheduleTools({
       turnStart: turnStartForScheduleTool(),
-      requestScheduleRpc: async (): Promise<JsonObject> => ({ status: 'ok' })
+      requestScheduleRPC: async (): Promise<JSONObject> => ({ status: 'ok' })
     }).find(tool => tool.name === 'cron')
 
     expect(cron?.description).toContain('standing work')

@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use std::io::{Read, Write};
-    use std::net::TcpListener as StdTcpListener;
+    use std::net::TcpListener as StdTCPListener;
     use std::sync::mpsc;
     use std::thread;
     use std::time::Duration;
@@ -32,16 +32,16 @@ mod tests {
 
         assert_eq!(
             spec.api_resolver,
-            ApiResolverKind::OpenaiChatCompletions
+            APIResolverKind::OpenAIChatCompletions
         );
-        assert_eq!(spec.upstream.kind, UpstreamKind::HttpSse);
-        assert_eq!(spec.downstream, DownstreamKind::Sse);
+        assert_eq!(spec.upstream.kind, UpstreamKind::HTTPSSE);
+        assert_eq!(spec.downstream, DownstreamKind::SSE);
         assert_eq!(spec.upstream.headers[0].0, "authorization");
     }
 
     #[test]
     fn websocket_stream_sends_body_as_initial_response_create_message() {
-        let listener = StdTcpListener::bind("127.0.0.1:0").unwrap();
+        let listener = StdTCPListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let (initial_tx, initial_rx) = mpsc::channel::<String>();
 
@@ -116,7 +116,7 @@ mod tests {
 
     #[test]
     fn http_sse_stream_finishes_on_terminal_event_without_done_or_close() {
-        let listener = StdTcpListener::bind("127.0.0.1:0").unwrap();
+        let listener = StdTCPListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
 
         thread::spawn(move || {
@@ -185,7 +185,7 @@ mod tests {
 
     #[test]
     fn http_sse_stream_reads_ahead_but_waits_for_downstream_demand() {
-        let listener = StdTcpListener::bind("127.0.0.1:0").unwrap();
+        let listener = StdTCPListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
 
         thread::spawn(move || {
@@ -254,7 +254,7 @@ mod tests {
 
     #[test]
     fn websocket_binary_frame_after_ready_becomes_protocol_error_chunks() {
-        let listener = StdTcpListener::bind("127.0.0.1:0").unwrap();
+        let listener = StdTCPListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
 
         thread::spawn(move || {
@@ -312,7 +312,7 @@ mod tests {
     fn chunk_event(event_rx: &mpsc::Receiver<StreamEvent>) -> Value {
         match event_rx.recv_timeout(Duration::from_secs(1)).unwrap() {
             StreamEvent::Chunk {
-                kind: DownstreamKind::WebsocketText,
+                kind: DownstreamKind::WebSocketText,
                 bytes,
                 ..
             } => sonic_rs::from_slice(&bytes).unwrap(),
@@ -323,7 +323,7 @@ mod tests {
     fn sse_chunk(event_rx: &mpsc::Receiver<StreamEvent>) -> String {
         match event_rx.recv_timeout(Duration::from_secs(1)).unwrap() {
             StreamEvent::Chunk {
-                kind: DownstreamKind::Sse,
+                kind: DownstreamKind::SSE,
                 bytes,
                 ..
             } => String::from_utf8(bytes).unwrap(),

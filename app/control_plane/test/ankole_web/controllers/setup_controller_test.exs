@@ -107,12 +107,12 @@ defmodule AnkoleWeb.SetupControllerTest do
 
     assert %{"adapters" => adapters} = json_response(conn, 200)
 
-    lark = Enum.find(adapters, &(&1["adapterId"] == "lark"))
+    lark = Enum.find(adapters, &(&1["adapterID"] == "lark"))
     assert lark["displayName"]["default"] == "Lark"
-    assert lark["defaultProviderId"] == "lark-main"
+    assert lark["defaultProviderID"] == "lark-main"
 
     assert Enum.map(lark["fields"], & &1["path"]) == [
-             "appId",
+             "appID",
              "appSecret",
              "domain",
              "oidc.enabled",
@@ -126,7 +126,7 @@ defmodule AnkoleWeb.SetupControllerTest do
     assert hd(lark["fields"])["description"]["default"] == "Self-built app identifier."
 
     fields_by_path = Map.new(lark["fields"], &{&1["path"], &1})
-    assert fields_by_path["appId"]["advanced"] == false
+    assert fields_by_path["appID"]["advanced"] == false
     assert fields_by_path["oidc.scopes"]["advanced"] == true
     assert fields_by_path["sync.websocket"]["advanced"] == true
     assert fields_by_path["sync.pageSize"]["advanced"] == true

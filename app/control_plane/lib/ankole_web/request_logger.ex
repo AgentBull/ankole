@@ -59,10 +59,10 @@ defmodule AnkoleWeb.RequestLogger do
   defp http_request(conn, status, duration_us) do
     %{
       "requestMethod" => conn.method,
-      "requestUrl" => request_url(conn),
+      "requestURL" => request_url(conn),
       "status" => status,
       "latency" => latency(duration_us),
-      "remoteIp" => remote_ip(conn.remote_ip),
+      "remoteIP" => remote_ip(conn.remote_ip),
       "userAgent" => req_header(conn, "user-agent"),
       "protocol" => conn_adapter(conn)
     }

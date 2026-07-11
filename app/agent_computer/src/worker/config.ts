@@ -12,7 +12,7 @@ import {
 export type WorkerConfig = {
   endpoint: string
   workerAuthKey: string
-  workerId: string
+  workerID: string
   workspaceRoot: string
   workspaceSessionsRoot: string
   sharedFsRoot: string
@@ -47,8 +47,8 @@ export function parseWorkerEnv(env: Record<string, string | undefined> = Bun.env
   }
 
   return {
-    ...parseRuntimeFabricUrl(requiredEnv(env, 'RUNTIME_FABRIC_URL')),
-    workerId: requiredEnv(env, 'WORKER_ID'),
+    ...parseRuntimeFabricURL(requiredEnv(env, 'RUNTIME_FABRIC_URL')),
+    workerID: requiredEnv(env, 'WORKER_ID'),
     workspaceRoot: optionalEnv(env, 'ANKOLE_WORKSPACE_ROOT', WORKSPACE_MODEL_ROOT),
     workspaceSessionsRoot: optionalEnv(env, 'ANKOLE_WORKSPACE_SESSIONS_ROOT', WORKSPACE_SESSIONS_ROOT),
     sharedFsRoot: optionalEnv(env, 'ANKOLE_SHARED_FS_ROOT', WORKSPACE_SHARED_ROOT),
@@ -99,7 +99,7 @@ function optionalEnv(env: Record<string, string | undefined>, key: string, fallb
  * The worker id is intentionally not accepted in the URL username: route
  * identity comes from `WORKER_ID`, while the URL password is only the auth key.
  */
-export function parseRuntimeFabricUrl(value: string): Pick<WorkerConfig, 'endpoint' | 'workerAuthKey'> {
+export function parseRuntimeFabricURL(value: string): Pick<WorkerConfig, 'endpoint' | 'workerAuthKey'> {
   let url: URL
 
   try {
@@ -150,7 +150,7 @@ export function workerReadyEnvelope(
     body: {
       type: 'worker_ready',
       worker_ready: {
-        worker_id: config.workerId,
+        worker_id: config.workerID,
         runtime: 'bun',
         version: '0.1.0',
         capacity_json: {
@@ -181,7 +181,7 @@ export function workerHeartbeatEnvelope(
     body: {
       type: 'worker_heartbeat',
       worker_heartbeat: {
-        worker_id: config.workerId,
+        worker_id: config.workerID,
         monotonic_ms: monotonicMs,
         load_json: {
           active_turns: activeTurns
@@ -212,7 +212,7 @@ export function workerCapacityEnvelope(
     body: {
       type: 'worker_capacity',
       worker_capacity: {
-        worker_id: config.workerId,
+        worker_id: config.workerID,
         available_turn_slots: available,
         capacity_json: {
           max_turns: config.maxConcurrentTurns,

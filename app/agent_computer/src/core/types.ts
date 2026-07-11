@@ -84,7 +84,7 @@ export type AgentLoopOutcome = 'loop_finished' | 'iteration_exhausted'
 
 export type AgentLoopResult = {
   message: AssistantMessage
-  responseId: string
+  responseID: string
   outcome: AgentLoopOutcome
 }
 
@@ -119,7 +119,7 @@ export interface AgentTool<TParameters extends z.ZodType = z.ZodType, TDetails =
   isReadOnly?: boolean
   isDestructive?: boolean
   execute: (
-    toolCallId: string,
+    toolCallID: string,
     params: z.output<TParameters>,
     signal?: AbortSignal
   ) => Promise<AgentToolResult<TDetails>>

@@ -26,7 +26,7 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
     setting(:promptCacheKey, scope: :request)
     setting(:promptCacheRetention, scope: :request)
     setting(:serviceTier, scope: :request)
-    setting(:strictJsonSchema, scope: :request)
+    setting(:strictJSONSchema, scope: :request)
     setting(:textVerbosity, scope: :request)
     setting(:truncation, scope: :request)
     setting(:systemMessageMode, scope: :request)

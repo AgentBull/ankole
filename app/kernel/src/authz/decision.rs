@@ -3,7 +3,7 @@ use std::sync::{Arc, OnceLock};
 
 use globset::GlobMatcher;
 use serde::{Deserialize, Serialize};
-use serde_json::Value as JsonValue;
+use serde_json::Value as JSONValue;
 
 use crate::authz::cel::{self, BoolEvalError};
 use crate::authz::resource_pattern::{normalize_resource_for_glob, resource_pattern_matcher};
@@ -17,13 +17,14 @@ use crate::common::{KernelError, KernelResult, bounded_cache::BoundedCache};
 #[serde(rename_all = "camelCase")]
 pub struct AuthzSnapshot {
     pub principal: SnapshotPrincipal,
+    #[serde(rename = "staticGroupIDs")]
     pub static_group_ids: Vec<String>,
     pub computed_groups: Vec<SnapshotComputedGroup>,
     pub grants: Vec<SnapshotGrant>,
     pub resource: String,
     pub action: String,
     #[serde(default)]
-    pub context: JsonValue,
+    pub context: JSONValue,
 }
 
 /// Batch authorization snapshot for multiple actions on the same resource.
@@ -31,13 +32,14 @@ pub struct AuthzSnapshot {
 #[serde(rename_all = "camelCase")]
 pub struct AuthzBatchSnapshot {
     pub principal: SnapshotPrincipal,
+    #[serde(rename = "staticGroupIDs")]
     pub static_group_ids: Vec<String>,
     pub computed_groups: Vec<SnapshotComputedGroup>,
     pub grants: Vec<SnapshotGrant>,
     pub resource: String,
     pub actions: Vec<String>,
     #[serde(default)]
-    pub context: JsonValue,
+    pub context: JSONValue,
 }
 
 /// Minimal Principal shape the native engine needs.
@@ -53,7 +55,7 @@ pub struct SnapshotPrincipal {
     pub status: String,
     #[serde(default)]
     pub display_name: Option<String>,
-    #[serde(default)]
+    #[serde(default, rename = "avatarURL")]
     pub avatar_url: Option<String>,
 }
 
@@ -73,9 +75,9 @@ pub struct SnapshotComputedGroup {
 #[serde(rename_all = "camelCase")]
 pub struct SnapshotGrant {
     pub id: String,
-    #[serde(default)]
+    #[serde(default, rename = "principalUID")]
     pub principal_uid: Option<String>,
-    #[serde(default)]
+    #[serde(default, rename = "groupID")]
     pub group_id: Option<String>,
     pub resource_pattern: String,
     pub action: String,
@@ -88,6 +90,7 @@ pub struct SnapshotGrant {
 pub struct AuthzDecision {
     pub status: String,
     pub diagnostics: Vec<AuthzDiagnostic>,
+    #[serde(rename = "effectiveGroupIDs")]
     pub effective_group_ids: Vec<String>,
     pub denied_action: Option<String>,
 }
@@ -180,7 +183,7 @@ pub fn authorize_all(snapshot: AuthzBatchSnapshot) -> KernelResult<AuthzDecision
 }
 
 /// Decodes, evaluates, and encodes a single-action snapshot as host values.
-pub fn authorize_value(snapshot: JsonValue) -> KernelResult<JsonValue> {
+pub fn authorize_value(snapshot: JSONValue) -> KernelResult<JSONValue> {
     let snapshot: AuthzSnapshot = serde_json::from_value(snapshot)
         .map_err(|reason| KernelError::new(format!("invalid authz snapshot: {reason}")))?;
     let decision = authorize(snapshot)?;
@@ -190,7 +193,7 @@ pub fn authorize_value(snapshot: JsonValue) -> KernelResult<JsonValue> {
 }
 
 /// Decodes, evaluates, and encodes a batch-action snapshot as host values.
-pub fn authorize_all_value(snapshot: JsonValue) -> KernelResult<JsonValue> {
+pub fn authorize_all_value(snapshot: JSONValue) -> KernelResult<JSONValue> {
     let snapshot: AuthzBatchSnapshot = serde_json::from_value(snapshot)
         .map_err(|reason| KernelError::new(format!("invalid authz batch snapshot: {reason}")))?;
     let decision = authorize_all(snapshot)?;
@@ -309,14 +312,14 @@ fn grants_allow(
     grants: &[SnapshotGrant],
     resource: &str,
     action: &str,
-    request_context: &JsonValue,
+    request_context: &JSONValue,
 ) -> KernelResult<(bool, Vec<AuthzDiagnostic>)> {
     let effective_group_ids: HashSet<&str> =
         effective_group_ids.iter().map(String::as_str).collect();
     let cel_context = cel::build_context(vec![
         ("principal", principal_to_json(principal)),
-        ("resource", JsonValue::String(resource.to_owned())),
-        ("action", JsonValue::String(action.to_owned())),
+        ("resource", JSONValue::String(resource.to_owned())),
+        ("action", JSONValue::String(action.to_owned())),
         ("context", normalized_context(request_context)),
     ])?;
     let mut diagnostics = Vec::new();
@@ -375,18 +378,18 @@ fn grant_owned_by_subject(
 }
 
 /// Converts the Principal snapshot into the CEL-visible object.
-fn principal_to_json(principal: &SnapshotPrincipal) -> JsonValue {
+fn principal_to_json(principal: &SnapshotPrincipal) -> JSONValue {
     serde_json::json!({
         "uid": principal.uid,
         "type": principal.principal_type,
         "status": principal.status,
         "displayName": principal.display_name,
-        "avatarUrl": principal.avatar_url
+        "avatarURL": principal.avatar_url
     })
 }
 
 /// Namespaces caller context under `context.request` for CEL expressions.
-fn normalized_context(request_context: &JsonValue) -> JsonValue {
+fn normalized_context(request_context: &JSONValue) -> JSONValue {
     serde_json::json!({
         "request": request_context
     })

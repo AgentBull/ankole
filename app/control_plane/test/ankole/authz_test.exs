@@ -35,7 +35,7 @@ defmodule Ankole.AuthZTest do
                AuthZ.authorize_decision(principal.uid, "workspace:default", "read", %{})
 
       assert decision["status"] == "allow"
-      assert group.id in decision["effectiveGroupIds"]
+      assert group.id in decision["effectiveGroupIDs"]
     end
 
     test "static membership grants allow and batch authorization reports first denial" do
@@ -432,7 +432,7 @@ defmodule Ankole.AuthZTest do
                  external_kind: :directory_department,
                  external_id: "od_parent",
                  group_id: parent_group.id,
-                 metadata: %{"parentExternalId" => "0"}
+                 metadata: %{"parentExternalID" => "0"}
                })
 
       assert {:ok, _binding} =
@@ -441,7 +441,7 @@ defmodule Ankole.AuthZTest do
                  external_kind: :directory_department,
                  external_id: "od_child",
                  group_id: child_group.id,
-                 metadata: %{"parentExternalId" => "od_parent"}
+                 metadata: %{"parentExternalID" => "od_parent"}
                })
 
       assert {:ok, directory_group_index} = AuthZ.external_directory_group_index("lark-main")
@@ -488,7 +488,7 @@ defmodule Ankole.AuthZTest do
                  external_kind: :directory_department,
                  external_id: "od_cycle_first",
                  group_id: first_group.id,
-                 metadata: %{"parentExternalId" => "od_cycle_second"}
+                 metadata: %{"parentExternalID" => "od_cycle_second"}
                })
 
       assert {:ok, _binding} =
@@ -497,7 +497,7 @@ defmodule Ankole.AuthZTest do
                  external_kind: :directory_department,
                  external_id: "od_cycle_second",
                  group_id: second_group.id,
-                 metadata: %{"parentExternalId" => "od_cycle_first"}
+                 metadata: %{"parentExternalID" => "od_cycle_first"}
                })
 
       assert {:ok, %{synced_group_ids: synced_group_ids}} =

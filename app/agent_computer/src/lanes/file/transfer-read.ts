@@ -17,11 +17,11 @@ import type { FileTransferContext, GetTransfer } from './types'
 
 export async function handleReadOpen(
   context: FileTransferContext,
-  transferId: string,
+  transferID: string,
   frames: Buffer[]
 ): Promise<void> {
-  if (context.state.gets.has(transferId)) {
-    throw new Error(`file transfer already exists: ${transferId}`)
+  if (context.state.gets.has(transferID)) {
+    throw new Error(`file transfer already exists: ${transferID}`)
   }
 
   const address = parseVirtualPathFrame(frames[3], 'read path')
@@ -38,7 +38,7 @@ export async function handleReadOpen(
   const fd = openSync(filePath, 'r')
 
   const transfer: GetTransfer = {
-    transferId,
+    transferID,
     address,
     filePath,
     fd,
@@ -52,38 +52,38 @@ export async function handleReadOpen(
     initialMtimeMs: stableStat.mtimeMs,
     draining: false
   }
-  context.state.gets.set(transferId, transfer)
+  context.state.gets.set(transferID, transfer)
 
   try {
     await sendFrame(context.sender, [
       'READ_READY',
-      transferId,
+      transferID,
       address.virtualPath,
       u64Frame(stableStat.size),
       fingerprint === 'none' ? '' : fileFingerprint(context.state, address.root, address.relativePath, filePath)
     ])
   } catch (error) {
-    handleReadAbort(context, transferId)
+    handleReadAbort(context, transferID)
     throw error
   }
 }
 
-export function sendReadData(context: FileTransferContext, transferId: string, frames: Buffer[]): void {
-  const transfer = context.state.gets.get(transferId)
+export function sendReadData(context: FileTransferContext, transferID: string, frames: Buffer[]): void {
+  const transfer = context.state.gets.get(transferID)
   if (!transfer) {
-    throw new Error(`unknown read transfer: ${transferId}`)
+    throw new Error(`unknown read transfer: ${transferID}`)
   }
 
   transfer.credit += readU64Frame(frames[3], 'credit')
   void drainReadTransfer(context, transfer)
 }
 
-export function handleReadAbort(context: FileTransferContext, transferId: string): void {
-  const transfer = context.state.gets.get(transferId)
+export function handleReadAbort(context: FileTransferContext, transferID: string): void {
+  const transfer = context.state.gets.get(transferID)
   if (!transfer) return
 
   closeTransferFile(transfer)
-  context.state.gets.delete(transferId)
+  context.state.gets.delete(transferID)
   transfer.finished = true
 }
 
@@ -118,7 +118,7 @@ async function drainReadTransfer(context: FileTransferContext, transfer: GetTran
       try {
         await sendFrame(context.sender, [
           'DATA',
-          transfer.transferId,
+          transfer.transferID,
           u64Frame(transfer.nextSequence),
           u64Frame(transfer.nextOffset),
           boolFrame(eof),
@@ -178,11 +178,11 @@ async function maybeFinishReadTransfer(context: FileTransferContext, transfer: G
 
   transfer.finished = true
   closeTransferFile(transfer)
-  context.state.gets.delete(transfer.transferId)
+  context.state.gets.delete(transfer.transferID)
   try {
     await sendFrame(context.sender, [
       'READ_DONE',
-      transfer.transferId,
+      transfer.transferID,
       u64Frame(transfer.chunksSent),
       u64Frame(transfer.nextOffset)
     ])
@@ -217,9 +217,9 @@ async function finishReadTransferWithError(
 
   transfer.finished = true
   closeTransferFile(transfer)
-  context.state.gets.delete(transfer.transferId)
+  context.state.gets.delete(transfer.transferID)
   try {
-    await sendError(context.sender, transfer.transferId, 'operation_failed', message)
+    await sendError(context.sender, transfer.transferID, 'operation_failed', message)
   } catch {
     // If the sender is gone, there is no second channel for reporting the failure.
   }
@@ -228,5 +228,5 @@ async function finishReadTransferWithError(
 function finishReadTransferAfterSendFailure(context: FileTransferContext, transfer: GetTransfer): void {
   transfer.finished = true
   closeTransferFile(transfer)
-  context.state.gets.delete(transfer.transferId)
+  context.state.gets.delete(transfer.transferID)
 }

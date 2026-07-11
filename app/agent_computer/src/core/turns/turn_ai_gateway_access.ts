@@ -1,27 +1,27 @@
 import type { TurnStart } from '../../lanes/actor_lane'
-import { assertRpcResponse, type AIGatewayApiKeyResponse, type RpcError } from '../../lanes/rpc_lane'
+import { assertRPCResponse, type AIGatewayAPIKeyResponse, type RPCError } from '../../lanes/rpc_lane'
 import {
-  httpClientFromAIGatewayApiKey,
-  modelConfigFromAIGatewayApiKey,
-  type AIGatewayApiKeyRefreshOptions,
-  type AIGatewayHttpClient
-} from '../aigateway_transport'
+  httpClientFromAIGatewayAPIKey,
+  modelConfigFromAIGatewayAPIKey,
+  type AIGatewayAPIKeyRefreshOptions,
+  type AIGatewayHTTPClient
+} from '../ai_gateway_transport'
 import type { ModelConfig } from '../llm'
-import type { AIGatewayApiKeyRequester } from './turn_options'
+import type { AIGatewayAPIKeyRequester } from './turn_options'
 
-type AIGatewayApiKeyResult = AIGatewayApiKeyResponse | RpcError
+type AIGatewayAPIKeyResult = AIGatewayAPIKeyResponse | RPCError
 
 export type TurnAIGatewayAccess = {
   model: ModelConfig
   visionFallbackModel?: ModelConfig
-  aiGateway: AIGatewayHttpClient
+  aiGateway: AIGatewayHTTPClient
 }
 
 export type TurnAIGatewayAccessStep = <T>(promise: Promise<T>, step: string) => Promise<T>
 
 export type AcquireTurnAIGatewayAccessOptions = {
-  requestAIGatewayApiKey: AIGatewayApiKeyRequester
-  requestIdPrefix?: string
+  requestAIGatewayAPIKey: AIGatewayAPIKeyRequester
+  requestIDPrefix?: string
   runStep?: TurnAIGatewayAccessStep
 }
 
@@ -42,49 +42,49 @@ export async function acquireTurnAIGatewayAccess(
     throw new Error('turn is missing a real model_ref')
   }
 
-  const requestIdPrefix = opts.requestIdPrefix ?? 'ai-gateway-key'
-  const requestApiKey = (refreshOptions?: AIGatewayApiKeyRefreshOptions) =>
-    opts.requestAIGatewayApiKey(
+  const requestIDPrefix = opts.requestIDPrefix ?? 'ai-gateway-key'
+  const requestAPIKey = (refreshOptions?: AIGatewayAPIKeyRefreshOptions) =>
+    opts.requestAIGatewayAPIKey(
       {
-        request_id: `${requestIdPrefix}-${crypto.randomUUID()}`,
+        request_id: `${requestIDPrefix}-${crypto.randomUUID()}`,
         agent_uid: turnStart.turn.actor.agent_uid
       },
       refreshOptions
     )
 
-  const apiKey = await requestApiKeyOrThrow(turnStart, requestApiKey(), 'AIGateway API key', opts.runStep)
-  const refreshAIGatewayApiKey = (refreshOptions?: AIGatewayApiKeyRefreshOptions) =>
-    requestApiKeyOrThrow(turnStart, requestApiKey(refreshOptions), 'AIGateway API key refresh', opts.runStep)
+  const apiKey = await requestAPIKeyOrThrow(turnStart, requestAPIKey(), 'AIGateway API key', opts.runStep)
+  const refreshAIGatewayAPIKey = (refreshOptions?: AIGatewayAPIKeyRefreshOptions) =>
+    requestAPIKeyOrThrow(turnStart, requestAPIKey(refreshOptions), 'AIGateway API key refresh', opts.runStep)
 
   return {
-    model: modelConfigFromAIGatewayApiKey(modelRef, apiKey, refreshAIGatewayApiKey),
-    aiGateway: httpClientFromAIGatewayApiKey(apiKey, refreshAIGatewayApiKey),
+    model: modelConfigFromAIGatewayAPIKey(modelRef, apiKey, refreshAIGatewayAPIKey),
+    aiGateway: httpClientFromAIGatewayAPIKey(apiKey, refreshAIGatewayAPIKey),
     ...(modelRef.vision_fallback_model_ref
       ? {
-          visionFallbackModel: modelConfigFromAIGatewayApiKey(
+          visionFallbackModel: modelConfigFromAIGatewayAPIKey(
             modelRef.vision_fallback_model_ref,
             apiKey,
-            refreshAIGatewayApiKey
+            refreshAIGatewayAPIKey
           )
         }
       : {})
   }
 }
 
-async function requestApiKeyOrThrow(
+async function requestAPIKeyOrThrow(
   turnStart: TurnStart,
-  promise: Promise<AIGatewayApiKeyResult>,
+  promise: Promise<AIGatewayAPIKeyResult>,
   step: string,
   runStep?: TurnAIGatewayAccessStep
-): Promise<AIGatewayApiKeyResponse> {
+): Promise<AIGatewayAPIKeyResponse> {
   const apiKey = await (runStep ? runStep(promise, step) : promise)
-  assertRpcResponse<AIGatewayApiKeyResponse>(apiKey, 'AIGateway API key rejected')
+  assertRPCResponse<AIGatewayAPIKeyResponse>(apiKey, 'AIGateway API key rejected')
 
-  assertAIGatewayApiKeyMatchesTurn(turnStart, apiKey)
+  assertAIGatewayAPIKeyMatchesTurn(turnStart, apiKey)
   return apiKey
 }
 
-function assertAIGatewayApiKeyMatchesTurn(turnStart: TurnStart, apiKey: AIGatewayApiKeyResponse): void {
+function assertAIGatewayAPIKeyMatchesTurn(turnStart: TurnStart, apiKey: AIGatewayAPIKeyResponse): void {
   if (
     apiKey.agent_uid !== turnStart.turn.actor.agent_uid ||
     apiKey.token_type !== 'Bearer' ||

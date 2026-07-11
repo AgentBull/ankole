@@ -1,6 +1,6 @@
 use super::*;
 #[derive(Debug)]
-pub(super) struct OpenaiEmbeddings;
+pub(super) struct OpenAIEmbeddings;
 
 #[derive(Debug)]
 pub(super) struct OpenrouterEmbeddings;
@@ -8,7 +8,7 @@ pub(super) struct OpenrouterEmbeddings;
 #[derive(Debug)]
 pub(super) struct JinaEmbeddings;
 
-impl ApiProtocol for OpenaiEmbeddings {
+impl APIProtocol for OpenAIEmbeddings {
     fn on_provider_body(
         &mut self,
         context: &ResponseContext,
@@ -19,7 +19,7 @@ impl ApiProtocol for OpenaiEmbeddings {
     }
 }
 
-impl ApiProtocol for OpenrouterEmbeddings {
+impl APIProtocol for OpenrouterEmbeddings {
     fn on_provider_body(
         &mut self,
         context: &ResponseContext,
@@ -30,7 +30,7 @@ impl ApiProtocol for OpenrouterEmbeddings {
     }
 }
 
-impl ApiProtocol for JinaEmbeddings {
+impl APIProtocol for JinaEmbeddings {
     fn on_provider_body(
         &mut self,
         context: &ResponseContext,

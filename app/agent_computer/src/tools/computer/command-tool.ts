@@ -12,14 +12,14 @@ const CommandParams = z
       .enum(['run', 'status', 'kill', 'list'])
       .optional()
       .describe(
-        'Action to perform. Omit or use run to execute a command; use status/kill with backgroundId; use list to show all background commands.'
+        'Action to perform. Omit or use run to execute a command; use status/kill with backgroundID; use list to show all background commands.'
       ),
     command: z.string().min(1).optional().describe('Shell command to execute. Required for action=run.'),
     background: z
       .boolean()
       .optional()
-      .describe('When true, start the command in the background and return a backgroundId immediately.'),
-    backgroundId: z.string().min(1).optional().describe('Background command id returned by a prior background run.'),
+      .describe('When true, start the command in the background and return a backgroundID immediately.'),
+    backgroundID: z.string().min(1).optional().describe('Background command id returned by a prior background run.'),
     workdir: z
       .string()
       .optional()
@@ -39,11 +39,11 @@ const CommandParams = z
     if (action === 'run' && !params.command) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['command'], message: 'command is required for run' })
     }
-    if ((action === 'status' || action === 'kill') && !params.backgroundId) {
+    if ((action === 'status' || action === 'kill') && !params.backgroundID) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ['backgroundId'],
-        message: 'backgroundId is required for status/kill'
+        path: ['backgroundID'],
+        message: 'backgroundID is required for status/kill'
       })
     }
   })
@@ -51,7 +51,7 @@ const CommandParams = z
 interface CommandDetails {
   durationMs?: number
   exitCode?: number
-  backgroundId?: string
+  backgroundID?: string
   status?: 'running' | 'exited' | 'killed' | 'not_found'
 }
 
@@ -68,7 +68,7 @@ export function createCommandTool(context: ComputerToolContext): AgentTool<typeo
   return {
     name: 'command',
     description:
-      'Execute one stateless, non-interactive shell command in the computer. Use this for builds, tests, installs, git, rg/find searches, package managers, scripts, network checks, and one-shot commands that should not depend on persistent cd/export/alias state. If a required workflow says to run, build, test, or verify with a shell command, call this tool before saying that step ran or passed; future-tense text does not execute a command. Set background=true for long-running non-interactive commands such as dev servers, then poll with action=status, list all with action=list, and stop with action=kill using the returned backgroundId. Do not use cat/head/tail to read files; use read_file. Do not use sed/awk to edit files; use patch. Do not use echo/cat heredoc to create files; use patch. Use interactive_terminal for direct TTY/TUI programs, REPLs, installers, and troubleshooting interactive CLIs.',
+      'Execute one stateless, non-interactive shell command in the computer. Use this for builds, tests, installs, git, rg/find searches, package managers, scripts, network checks, and one-shot commands that should not depend on persistent cd/export/alias state. If a required workflow says to run, build, test, or verify with a shell command, call this tool before saying that step ran or passed; future-tense text does not execute a command. Set background=true for long-running non-interactive commands such as dev servers, then poll with action=status, list all with action=list, and stop with action=kill using the returned backgroundID. Do not use cat/head/tail to read files; use read_file. Do not use sed/awk to edit files; use patch. Do not use echo/cat heredoc to create files; use patch. Use interactive_terminal for direct TTY/TUI programs, REPLs, installers, and troubleshooting interactive CLIs.',
     schema: CommandParams,
     executionMode: 'sequential',
     isReadOnly: false,
@@ -92,16 +92,16 @@ export function createCommandTool(context: ComputerToolContext): AgentTool<typeo
       }
 
       if (action === 'status' || action === 'kill') {
-        const backgroundId = params.backgroundId!
+        const backgroundID = params.backgroundID!
         const snapshot =
           action === 'status'
-            ? await computer.backgroundCommands.status(backgroundId, { signal })
-            : await computer.backgroundCommands.kill(backgroundId, { signal })
+            ? await computer.backgroundCommands.status(backgroundID, { signal })
+            : await computer.backgroundCommands.kill(backgroundID, { signal })
 
         if (!snapshot) {
           return {
-            content: [{ type: 'text', text: `background_id=${backgroundId}\nstatus=not_found` }],
-            details: { backgroundId, status: 'not_found' }
+            content: [{ type: 'text', text: `background_id=${backgroundID}\nstatus=not_found` }],
+            details: { backgroundID, status: 'not_found' }
           }
         }
 
@@ -252,7 +252,7 @@ async function backgroundResult(
       }
     ],
     details: {
-      backgroundId: snapshot.id,
+      backgroundID: snapshot.id,
       status: snapshot.status,
       ...(snapshot.exitCode === undefined ? {} : { exitCode: snapshot.exitCode })
     }

@@ -8,7 +8,7 @@ defmodule Ankole.SignalsGateway.Outbox do
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Repo
   alias Ankole.RuntimeEvents
-  alias Ankole.Ecto.JsonPayload
+  alias Ankole.Ecto.JSONPayload
   alias Ankole.SignalsGateway.Adapters
   alias Ankole.SignalsGateway.OutboxAdapter
   alias Ankole.SignalsGateway.OutboxEntry
@@ -818,8 +818,8 @@ defmodule Ankole.SignalsGateway.Outbox do
     payload = fetch_value(result, :payload) || outbox.payload
 
     with {:ok, recovery_state} <-
-           JsonPayload.normalize_map(recovery_state, allow_datetime: true),
-         {:ok, payload} <- JsonPayload.normalize_map(payload, allow_datetime: true) do
+           JSONPayload.normalize_map(recovery_state, allow_datetime: true),
+         {:ok, payload} <- JSONPayload.normalize_map(payload, allow_datetime: true) do
       outbox
       |> OutboxEntry.changeset(%{
         status: :succeeded,

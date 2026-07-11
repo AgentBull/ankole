@@ -1,11 +1,11 @@
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import type { TurnStart } from '../lanes/actor_lane'
 import type { InstalledSkillObservation } from './types'
 import { scanInstalledSkills } from './installed_skills'
 
 export type InstalledSkillSyncLogger = {
-  warning(event: string, message: string, fields?: JsonObject): void
-  error(event: string, message: string, fields?: JsonObject): void
+  warning(event: string, message: string, fields?: JSONObject): void
+  error(event: string, message: string, fields?: JSONObject): void
 }
 
 export type InstalledSkillReplaceRequester = (request: {
@@ -32,25 +32,25 @@ const defaultInstalledSkillSyncMemoTtlMs = 60_000
 export async function syncInstalledSkillsForTurn(turnStart: TurnStart, opts: InstalledSkillSyncOptions): Promise<void> {
   if (!opts.agentInstalledSkillsRoot || !opts.replaceInstalledSkillObservations) return
 
-  const agentUid = turnStart.turn.actor.agent_uid
+  const agentUID = turnStart.turn.actor.agent_uid
 
   try {
-    const scan = await scanInstalledSkills(opts.agentInstalledSkillsRoot, agentUid)
+    const scan = await scanInstalledSkills(opts.agentInstalledSkillsRoot, agentUID)
     for (const diagnostic of scan.diagnostics) {
       if (diagnostic.severity === 'error') {
         opts.logger?.error('worker.installed_skill_diagnostic', 'worker installed skill diagnostic', {
-          agent_uid: agentUid,
+          agent_uid: agentUID,
           diagnostic
         })
       } else {
         opts.logger?.warning('worker.installed_skill_diagnostic', 'worker installed skill diagnostic', {
-          agent_uid: agentUid,
+          agent_uid: agentUID,
           diagnostic
         })
       }
     }
 
-    if (installedSkillSyncMemoFresh(agentUid, scan.fingerprint, opts)) return
+    if (installedSkillSyncMemoFresh(agentUID, scan.fingerprint, opts)) return
 
     await opts.replaceInstalledSkillObservations({
       request_id: `skills-installed-replace-${crypto.randomUUID()}`,
@@ -58,17 +58,17 @@ export async function syncInstalledSkillsForTurn(turnStart: TurnStart, opts: Ins
       observations: scan.observations
     })
 
-    installedSkillSyncMemo.set(agentUid, { fingerprint: scan.fingerprint, syncedAtMs: Date.now() })
+    installedSkillSyncMemo.set(agentUID, { fingerprint: scan.fingerprint, syncedAtMs: Date.now() })
   } catch (error) {
     opts.logger?.warning('worker.installed_skill_sync_failed', 'worker installed skill sync failed', {
-      agent_uid: agentUid,
+      agent_uid: agentUID,
       error: error instanceof Error ? error : new Error(String(error))
     })
   }
 }
 
-function installedSkillSyncMemoFresh(agentUid: string, fingerprint: string, opts: InstalledSkillSyncOptions): boolean {
-  const memo = installedSkillSyncMemo.get(agentUid)
+function installedSkillSyncMemoFresh(agentUID: string, fingerprint: string, opts: InstalledSkillSyncOptions): boolean {
+  const memo = installedSkillSyncMemo.get(agentUID)
   if (!memo || memo.fingerprint !== fingerprint) return false
 
   const ttlMs = opts.memoTtlMs ?? defaultInstalledSkillSyncMemoTtlMs

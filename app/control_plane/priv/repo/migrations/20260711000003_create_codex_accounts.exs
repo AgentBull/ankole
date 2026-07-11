@@ -2,7 +2,7 @@ defmodule Ankole.Repo.Migrations.CreateCodexAccounts do
   use Ecto.Migration
 
   def up do
-    execute("DELETE FROM app_configure WHERE key = 'agent_computer.codex.config_override'")
+    execute("DELETE FROM app_configurations WHERE key = 'agent_computer.codex.config_override'")
 
     create table(:codex_accounts, primary_key: false) do
       add(:account_id, :text, primary_key: true)

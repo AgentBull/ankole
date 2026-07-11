@@ -10,13 +10,13 @@ import {
   ankoleWebAgentControllerIndexOptions,
   ankoleWebAgentControllerIndexModelProfilesOptions,
   ankoleWebAgentControllerUpdateMutation,
-  ankoleWebAiGatewayProviderControllerIndexOptions,
+  ankoleWebAiGatewayProviderControllerIndexOptions as ankoleWebAIGatewayProviderControllerIndexOptions,
   ankoleWebCodexAccountControllerIndexOptions
 } from '../api/generated/@tanstack/react-query.gen'
 import type { AgentItem } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
-import { blankToNull, formatJson, parseObjectDraft } from '../console-primitives'
-import { JsonField, LabeledField, ResourceEditorPage, ResourceListPage, RowActions } from '../console-shell'
+import { blankToNull, formatJSON, parseObjectDraft } from '../console-primitives'
+import { JSONField, LabeledField, ResourceEditorPage, ResourceListPage, RowActions } from '../console-shell'
 import { ModelProfilesEditor } from './model-profiles-editor'
 
 export function AgentsListPage() {
@@ -24,7 +24,7 @@ export function AgentsListPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const agents = useQuery(ankoleWebAgentControllerIndexOptions())
-  const rows = agents.data?.data ?? []
+  const rows = agents.data?.agents ?? []
   const deleteAgent = useMutation({
     ...ankoleWebAgentControllerDeleteMutation(),
     onSuccess: (_data, variables) => {
@@ -73,7 +73,7 @@ export function AgentsListPage() {
 type AgentForm = {
   uid: string
   displayName: string
-  avatarUrl: string
+  avatarURL: string
   role: string
   options: string
 }
@@ -87,9 +87,9 @@ export function AgentEditorPage() {
   const mode = uid ? 'edit' : 'new'
 
   const agents = useQuery(ankoleWebAgentControllerIndexOptions())
-  const providers = useQuery(ankoleWebAiGatewayProviderControllerIndexOptions())
+  const providers = useQuery(ankoleWebAIGatewayProviderControllerIndexOptions())
   const codexAccounts = useQuery(ankoleWebCodexAccountControllerIndexOptions())
-  const selectedAgent = agents.data?.data.find(agent => agent.uid === uid)
+  const selectedAgent = agents.data?.agents.find(agent => agent.uid === uid)
   const modelProfiles = useQuery({
     ...ankoleWebAgentControllerIndexModelProfilesOptions({ path: { agent_uid: selectedAgent?.uid ?? '' } }),
     enabled: Boolean(selectedAgent?.uid)
@@ -107,17 +107,17 @@ export function AgentEditorPage() {
   const createAgent = useMutation({
     ...ankoleWebAgentControllerCreateMutation(),
     onSuccess: response => {
-      toast.success(t('console.agents.saved', { id: response.data.uid }))
+      toast.success(t('console.agents.saved', { id: response.agent.uid }))
       refresh()
       // Land on the new agent's editor so model profiles can be configured next.
-      navigate(`../${encodeURIComponent(response.data.uid)}`)
+      navigate(`../${encodeURIComponent(response.agent.uid)}`)
     },
     onError: mutationError => setError(requestErrorMessage(mutationError))
   })
   const updateAgent = useMutation({
     ...ankoleWebAgentControllerUpdateMutation(),
     onSuccess: response => {
-      toast.success(t('console.agents.saved', { id: response.data.uid }))
+      toast.success(t('console.agents.saved', { id: response.agent.uid }))
       refresh()
     },
     onError: mutationError => setError(requestErrorMessage(mutationError))
@@ -132,7 +132,7 @@ export function AgentEditorPage() {
     }
     const body = {
       display_name: blankToNull(form.displayName),
-      avatar_url: blankToNull(form.avatarUrl),
+      avatar_url: blankToNull(form.avatarURL),
       role: form.role.trim(),
       options: parsed.value
     }
@@ -175,11 +175,11 @@ export function AgentEditorPage() {
       </div>
       <LabeledField label={t('console.agents.avatar_url')}>
         <Input
-          value={form.avatarUrl}
-          onChange={event => setForm(current => ({ ...current, avatarUrl: event.target.value }))}
+          value={form.avatarURL}
+          onChange={event => setForm(current => ({ ...current, avatarURL: event.target.value }))}
         />
       </LabeledField>
-      <JsonField
+      <JSONField
         label={t('console.agents.options')}
         description={t('console.agents.options_hint')}
         value={form.options}
@@ -193,9 +193,9 @@ export function AgentEditorPage() {
             agent={selectedAgent}
             error={modelProfiles.error}
             loading={modelProfiles.isLoading}
-            profiles={recordValue(modelProfiles.data?.data) ?? {}}
-            providers={providers.data?.data ?? []}
-            codexAccounts={codexAccounts.data?.data ?? []}
+            profiles={recordValue(modelProfiles.data?.model_profiles) ?? {}}
+            providers={providers.data?.ai_gateway_providers ?? []}
+            codexAccounts={codexAccounts.data?.codex_accounts ?? []}
             onChanged={refresh}
           />
         </>
@@ -208,7 +208,7 @@ function emptyAgentForm(): AgentForm {
   return {
     uid: '',
     displayName: '',
-    avatarUrl: '',
+    avatarURL: '',
     role: 'Research Analyst',
     options: '{}'
   }
@@ -218,8 +218,8 @@ function formFromAgent(agent: AgentItem): AgentForm {
   return {
     uid: agent.uid,
     displayName: agent.display_name ?? '',
-    avatarUrl: agent.avatar_url ?? '',
+    avatarURL: agent.avatar_url ?? '',
     role: agent.role,
-    options: formatJson(agent.options)
+    options: formatJSON(agent.options)
   }
 }

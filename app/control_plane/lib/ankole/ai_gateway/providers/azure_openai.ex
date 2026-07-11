@@ -23,7 +23,7 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
     setting(:reasoningEffort, scope: :request)
     setting(:reasoningSummary, scope: :request)
     setting(:serviceTier, scope: :request)
-    setting(:strictJsonSchema, scope: :request)
+    setting(:strictJSONSchema, scope: :request)
     setting(:textVerbosity, scope: :request)
     setting(:truncation, scope: :request)
 

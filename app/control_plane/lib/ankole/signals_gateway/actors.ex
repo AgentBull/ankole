@@ -7,7 +7,7 @@ defmodule Ankole.SignalsGateway.Actors do
   in AIGateway-owned tables.
 
   Append is idempotent on the source ingress key. `queue_sequence` is allocated
-  under a Postgres advisory lock only for ordering currently open events in one
+  under a PostgreSQL advisory lock only for ordering currently open events in one
   actor session.
 
   Several `*_in_tx` functions take a `repo` and run inside a caller-owned

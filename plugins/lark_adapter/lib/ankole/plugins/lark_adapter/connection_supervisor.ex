@@ -1,6 +1,6 @@
 defmodule Ankole.Plugins.LarkAdapter.ConnectionSupervisor do
   @moduledoc """
-  Starts or reuses one long-connection owner for each `domain + appId`.
+  Starts or reuses one long-connection owner for each `domain + appID`.
   """
 
   alias Ankole.Plugins.LarkAdapter.Config

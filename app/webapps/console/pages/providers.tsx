@@ -20,20 +20,23 @@ import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router'
 import {
-  ankoleWebAiGatewayProviderControllerDeleteProviderMutation,
-  ankoleWebAiGatewayProviderControllerIndexOptions,
-  ankoleWebAiGatewayProviderControllerProviderKindsOptions,
-  ankoleWebAiGatewayProviderControllerPutProviderMutation,
+  ankoleWebAiGatewayProviderControllerDeleteProviderMutation as ankoleWebAIGatewayProviderControllerDeleteProviderMutation,
+  ankoleWebAiGatewayProviderControllerIndexOptions as ankoleWebAIGatewayProviderControllerIndexOptions,
+  ankoleWebAiGatewayProviderControllerProviderKindsOptions as ankoleWebAIGatewayProviderControllerProviderKindsOptions,
+  ankoleWebAiGatewayProviderControllerPutProviderMutation as ankoleWebAIGatewayProviderControllerPutProviderMutation,
   ankoleWebCodexAccountControllerCreateMutation,
   ankoleWebCodexAccountControllerDeleteMutation,
   ankoleWebCodexAccountControllerIndexOptions,
   ankoleWebCodexAccountControllerUpdateMutation
 } from '../api/generated/@tanstack/react-query.gen'
-import type { AiGatewayProviderItem, AiGatewayProviderKindItem } from '../api/generated/types.gen'
+import type {
+  AiGatewayProviderItem as AIGatewayProviderItem,
+  AiGatewayProviderKindItem as AIGatewayProviderKindItem
+} from '../api/generated/types.gen'
 import i18n from '../../common/i18n'
 import { requestErrorMessage } from '../../common/request-errors'
 import {
-  JsonField,
+  JSONField,
   LabeledField,
   ResourceEditorPage,
   ResourceListPage,
@@ -53,12 +56,12 @@ export function ProvidersListPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const providers = useQuery(ankoleWebAiGatewayProviderControllerIndexOptions())
+  const providers = useQuery(ankoleWebAIGatewayProviderControllerIndexOptions())
   const codexAccounts = useQuery(ankoleWebCodexAccountControllerIndexOptions())
-  const rows = providers.data?.data ?? []
-  const accounts = codexAccounts.data?.data ?? []
+  const rows = providers.data?.ai_gateway_providers ?? []
+  const accounts = codexAccounts.data?.codex_accounts ?? []
   const deleteProvider = useMutation({
-    ...ankoleWebAiGatewayProviderControllerDeleteProviderMutation(),
+    ...ankoleWebAIGatewayProviderControllerDeleteProviderMutation(),
     onSuccess: (_data, variables) => {
       toast.success(t('console.providers.deleted', { id: variables.path.provider_id }))
       void queryClient.invalidateQueries()
@@ -171,7 +174,7 @@ export function ProvidersListPage() {
 
 type CodexAccountForm = {
   name: string
-  authJson: string
+  authJSON: string
 }
 
 export function CodexAccountEditorPage() {
@@ -179,21 +182,21 @@ export function CodexAccountEditorPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const params = useParams()
-  const accountId = params.accountId ? decodeURIComponent(params.accountId) : undefined
-  const mode = accountId ? 'edit' : 'new'
+  const accountID = params.accountID ? decodeURIComponent(params.accountID) : undefined
+  const mode = accountID ? 'edit' : 'new'
   const accounts = useQuery(ankoleWebCodexAccountControllerIndexOptions())
-  const selected = accounts.data?.data.find(account => account.account_id === accountId)
-  const [form, setForm] = useState<CodexAccountForm>({ name: '', authJson: '' })
+  const selected = accounts.data?.codex_accounts.find(account => account.account_id === accountID)
+  const [form, setForm] = useState<CodexAccountForm>({ name: '', authJSON: '' })
   const [error, setError] = useState<string>()
 
   useEffect(() => {
-    setForm({ name: selected?.name ?? '', authJson: '' })
+    setForm({ name: selected?.name ?? '', authJSON: '' })
   }, [selected?.account_id, selected?.name])
 
   const createAccount = useMutation({
     ...ankoleWebCodexAccountControllerCreateMutation(),
     onSuccess: response => {
-      toast.success(t('console.codex_accounts.saved', { name: response.data.name }))
+      toast.success(t('console.codex_accounts.saved', { name: response.codex_account.name }))
       void queryClient.invalidateQueries()
       navigate('../..')
     },
@@ -202,7 +205,7 @@ export function CodexAccountEditorPage() {
   const updateAccount = useMutation({
     ...ankoleWebCodexAccountControllerUpdateMutation(),
     onSuccess: response => {
-      toast.success(t('console.codex_accounts.saved', { name: response.data.name }))
+      toast.success(t('console.codex_accounts.saved', { name: response.codex_account.name }))
       void queryClient.invalidateQueries()
       navigate('../..')
     },
@@ -216,32 +219,32 @@ export function CodexAccountEditorPage() {
       return
     }
     if (mode === 'new') {
-      if (!form.authJson.trim()) {
+      if (!form.authJSON.trim()) {
         setError(t('console.codex_accounts.auth_required'))
         return
       }
-      createAccount.mutate({ body: { name: form.name.trim(), auth_json: form.authJson } })
+      createAccount.mutate({ body: { name: form.name.trim(), auth_json: form.authJSON } })
       return
     }
-    if (accountId) {
+    if (accountID) {
       updateAccount.mutate({
-        body: { name: form.name.trim(), auth_json: form.authJson.trim() ? form.authJson : undefined },
-        path: { account_id: accountId }
+        body: { name: form.name.trim(), auth_json: form.authJSON.trim() ? form.authJSON : undefined },
+        path: { account_id: accountID }
       })
     }
   }
 
   return (
     <ResourceEditorPage
-      title={mode === 'new' ? t('console.codex_accounts.new') : (selected?.name ?? accountId ?? '')}
+      title={mode === 'new' ? t('console.codex_accounts.new') : (selected?.name ?? accountID ?? '')}
       description={t('console.codex_accounts.editor_description')}
       backTo={mode === 'new' ? '../..' : '../..'}
       error={error ?? createAccount.error ?? updateAccount.error}
       submitting={createAccount.isPending || updateAccount.isPending}
       onSubmit={submit}>
-      {accountId ? (
+      {accountID ? (
         <LabeledField label={t('console.codex_accounts.account_id')}>
-          <Input disabled value={accountId} />
+          <Input disabled value={accountID} />
         </LabeledField>
       ) : null}
       <LabeledField label={t('console.codex_accounts.name')} required>
@@ -256,8 +259,8 @@ export function CodexAccountEditorPage() {
         <Textarea
           className="min-h-48 font-mono text-xs"
           spellCheck={false}
-          value={form.authJson}
-          onChange={event => setForm(current => ({ ...current, authJson: event.target.value }))}
+          value={form.authJSON}
+          onChange={event => setForm(current => ({ ...current, authJSON: event.target.value }))}
         />
       </LabeledField>
     </ResourceEditorPage>
@@ -265,9 +268,9 @@ export function CodexAccountEditorPage() {
 }
 
 type ProviderForm = {
-  providerId: string
+  providerID: string
   providerKind: string
-  baseUrl: string
+  baseURL: string
   options: Record<string, string>
 }
 
@@ -276,15 +279,15 @@ export function ProviderEditorPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const params = useParams()
-  const providerId = params.providerId ? decodeURIComponent(params.providerId) : undefined
-  const mode = providerId ? 'edit' : 'new'
+  const providerID = params.providerID ? decodeURIComponent(params.providerID) : undefined
+  const mode = providerID ? 'edit' : 'new'
 
-  const providers = useQuery(ankoleWebAiGatewayProviderControllerIndexOptions())
-  const providerKinds = useQuery(ankoleWebAiGatewayProviderControllerProviderKindsOptions())
-  const kinds = providerKinds.data?.data ?? []
-  const selected = providers.data?.data.find(provider => provider.provider_id === providerId)
+  const providers = useQuery(ankoleWebAIGatewayProviderControllerIndexOptions())
+  const providerKinds = useQuery(ankoleWebAIGatewayProviderControllerProviderKindsOptions())
+  const kinds = providerKinds.data?.provider_kinds ?? []
+  const selected = providers.data?.ai_gateway_providers.find(provider => provider.provider_id === providerID)
 
-  const [form, setForm] = useState<ProviderForm>({ providerId: '', providerKind: '', baseUrl: '', options: {} })
+  const [form, setForm] = useState<ProviderForm>({ providerID: '', providerKind: '', baseURL: '', options: {} })
   const [error, setError] = useState<string>()
 
   const activeKind = kinds.find(kind => kind.provider_kind === form.providerKind)
@@ -299,27 +302,27 @@ export function ProviderEditorPage() {
     if (mode === 'edit' && selected) {
       const kind = kinds.find(item => item.provider_kind === selected.provider_kind)
       setForm({
-        providerId: selected.provider_id,
+        providerID: selected.provider_id,
         providerKind: selected.provider_kind,
-        baseUrl: selected.base_url ?? '',
+        baseURL: selected.base_url ?? '',
         options: initialOptions(connectionSettings(kind), selected)
       })
     } else if (mode === 'new') {
       const kind = kinds[0]
       setForm({
-        providerId: '',
+        providerID: '',
         providerKind: kind?.provider_kind ?? '',
-        baseUrl: kind?.default_base_url ?? '',
+        baseURL: kind?.default_base_url ?? '',
         options: initialOptions(connectionSettings(kind), undefined)
       })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, mode, providerId])
+  }, [ready, mode, providerID])
 
   const saveProvider = useMutation({
-    ...ankoleWebAiGatewayProviderControllerPutProviderMutation(),
+    ...ankoleWebAIGatewayProviderControllerPutProviderMutation(),
     onSuccess: response => {
-      toast.success(t('console.providers.saved', { id: response.data.provider_id }))
+      toast.success(t('console.providers.saved', { id: response.ai_gateway_provider.provider_id }))
       void queryClient.invalidateQueries()
       navigate('..')
     },
@@ -329,17 +332,17 @@ export function ProviderEditorPage() {
   const changeKind = (providerKind: string) => {
     const kind = kinds.find(item => item.provider_kind === providerKind)
     setForm({
-      providerId: form.providerId,
+      providerID: form.providerID,
       providerKind,
-      baseUrl: kind?.default_base_url ?? '',
+      baseURL: kind?.default_base_url ?? '',
       options: initialOptions(connectionSettings(kind), undefined)
     })
   }
 
   const submit = () => {
     setError(undefined)
-    const trimmedId = form.providerId.trim()
-    if (!trimmedId) {
+    const trimmedID = form.providerID.trim()
+    if (!trimmedID) {
       setError(t('console.providers.provider_id_required'))
       return
     }
@@ -354,12 +357,12 @@ export function ProviderEditorPage() {
 
     saveProvider.mutate({
       body: {
-        provider_id: trimmedId,
+        provider_id: trimmedID,
         provider_kind: form.providerKind,
-        base_url: form.baseUrl.trim() ? form.baseUrl.trim() : null,
+        base_url: form.baseURL.trim() ? form.baseURL.trim() : null,
         connection_options: built.value
       },
-      path: { provider_id: trimmedId }
+      path: { provider_id: trimmedID }
     })
   }
 
@@ -368,7 +371,7 @@ export function ProviderEditorPage() {
 
   return (
     <ResourceEditorPage
-      title={mode === 'new' ? t('console.providers.new') : (providerId ?? '')}
+      title={mode === 'new' ? t('console.providers.new') : (providerID ?? '')}
       description={t('console.providers.editor_description')}
       backTo=".."
       error={error ?? saveProvider.error}
@@ -379,8 +382,8 @@ export function ProviderEditorPage() {
           <Input
             disabled={mode === 'edit'}
             placeholder="openai"
-            value={form.providerId}
-            onChange={event => setForm(current => ({ ...current, providerId: event.target.value }))}
+            value={form.providerID}
+            onChange={event => setForm(current => ({ ...current, providerID: event.target.value }))}
           />
         </LabeledField>
         <LabeledField label={t('console.providers.kind')}>
@@ -405,8 +408,8 @@ export function ProviderEditorPage() {
       <LabeledField label={t('console.providers.base_url')} description={t('console.providers.base_url_hint')}>
         <Input
           placeholder={activeKind?.default_base_url ?? 'https://api.example.com/v1'}
-          value={form.baseUrl}
-          onChange={event => setForm(current => ({ ...current, baseUrl: event.target.value }))}
+          value={form.baseURL}
+          onChange={event => setForm(current => ({ ...current, baseURL: event.target.value }))}
         />
       </LabeledField>
 
@@ -466,7 +469,7 @@ function SettingField({
   value
 }: {
   onChange: (value: string) => void
-  provider: AiGatewayProviderItem | undefined
+  provider: AIGatewayProviderItem | undefined
   setting: ProviderSetting
   value: string
 }) {
@@ -487,7 +490,7 @@ function SettingField({
 
   if (setting.isMap) {
     return (
-      <JsonField
+      <JSONField
         label={label}
         description={t('console.providers.map_hint')}
         minRows={4}
@@ -510,12 +513,12 @@ function SettingField({
 
 function initialOptions(
   settings: ProviderSetting[],
-  provider: AiGatewayProviderItem | undefined
+  provider: AIGatewayProviderItem | undefined
 ): Record<string, string> {
   return Object.fromEntries(settings.map(setting => [setting.key, initialSettingValue(setting, provider)]))
 }
 
-function providerKindLabel(kind: AiGatewayProviderKindItem): string {
+function providerKindLabel(kind: AIGatewayProviderKindItem): string {
   const label = kind.label.en ?? kind.label['en-US'] ?? kind.label.default ?? kind.provider_kind
   return `${label} (${kind.provider_kind})`
 }

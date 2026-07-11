@@ -2,7 +2,7 @@ defmodule Ankole.SignalsGateway.FactNormalizer do
   @moduledoc false
 
   alias Ankole.Principals
-  alias Ankole.Ecto.JsonPayload
+  alias Ankole.Ecto.JSONPayload
   alias Ankole.SignalsGateway.Sanitizer
   alias Ankole.SignalsGateway.Binding
 
@@ -277,7 +277,7 @@ defmodule Ankole.SignalsGateway.FactNormalizer do
   end
 
   defp normalize_attachment(%{} = attachment) do
-    case JsonPayload.normalize_map(attachment, allow_datetime: true) do
+    case JSONPayload.normalize_map(attachment, allow_datetime: true) do
       {:ok, normalized} ->
         case durable_attachment?(normalized) do
           true -> {:ok, normalized}

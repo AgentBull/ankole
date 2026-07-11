@@ -20,7 +20,7 @@ import {
 
 const defaultFabricPort = 6010
 const defaultPhoenixPort = 4000
-const defaultWorkerId = 'local-dev-worker'
+const defaultWorkerID = 'local-dev-worker'
 const defaultWorkerImage = 'ankole-agent-computer:0.1.0'
 const defaultWorkspaceRoot = 'var/ankole-dev/worker'
 const defaultContainerName = 'ankole-dev-agent-computer'
@@ -38,14 +38,14 @@ export function buildControlPlaneEnv(
   env: NodeJS.ProcessEnv,
   opts: { port: number; fabricPort: number }
 ): NodeJS.ProcessEnv {
-  const workerFacingBaseUrl =
+  const workerFacingBaseURL =
     env.ANKOLE_AI_GATEWAY_WORKER_FACING_BASE_URL?.trim() || `http://host.docker.internal:${opts.port}/api/v1/ai-gateway`
 
   return {
     ...env,
     PORT: String(opts.port),
     ANKOLE_RUNTIME_FABRIC_BIND_ENDPOINT: `tcp://127.0.0.1:${opts.fabricPort}`,
-    ANKOLE_AI_GATEWAY_WORKER_FACING_BASE_URL: workerFacingBaseUrl
+    ANKOLE_AI_GATEWAY_WORKER_FACING_BASE_URL: workerFacingBaseURL
   }
 }
 
@@ -53,11 +53,11 @@ export function buildManagedWorkerPsArgs(containerName = defaultContainerName): 
   return ['ps', '-aq', '--filter', `label=${managedLabel}=true`, '--filter', `name=^/${containerName}$`]
 }
 
-export function buildManagedWorkerRmArgs(containerIds: string[]): string[] {
-  return ['rm', '-f', ...containerIds]
+export function buildManagedWorkerRmArgs(containerIDs: string[]): string[] {
+  return ['rm', '-f', ...containerIDs]
 }
 
-export function parseDockerContainerIds(output: string): string[] {
+export function parseDockerContainerIDs(output: string): string[] {
   return output
     .split(/\r?\n/)
     .map(line => line.trim())
@@ -67,14 +67,14 @@ export function parseDockerContainerIds(output: string): string[] {
 export function buildWorkerDockerArgs(spec: WorkerBootstrapSpec, opts: WorkerDockerArgsOptions): string[] {
   const containerName = opts.containerName ?? defaultContainerName
   const repoRoot = path.resolve(opts.repoRoot)
-  const workerId = spec.env.WORKER_ID
-  if (!workerId) throw new Error('worker bootstrap contract is missing WORKER_ID')
+  const workerID = spec.env.WORKER_ID
+  if (!workerID) throw new Error('worker bootstrap contract is missing WORKER_ID')
 
   return buildDockerRunArgs(spec, {
     name: containerName,
     labels: {
       [managedLabel]: 'true',
-      'ankole.dev.worker_id': workerId
+      'ankole.dev.worker_id': workerID
     },
     additionalMounts: [
       {
@@ -179,10 +179,10 @@ async function cleanupManagedWorker(containerName: string): Promise<void> {
     throw new Error(`failed to inspect managed dev worker containers: ${result.stderr || result.stdout}`)
   }
 
-  const containerIds = parseDockerContainerIds(result.stdout)
-  if (containerIds.length === 0) return
+  const containerIDs = parseDockerContainerIDs(result.stdout)
+  if (containerIDs.length === 0) return
 
-  await runChild('docker', buildManagedWorkerRmArgs(containerIds))
+  await runChild('docker', buildManagedWorkerRmArgs(containerIDs))
 }
 
 function ensureWorkspaceDirs(spec: WorkerBootstrapSpec): void {
@@ -213,7 +213,7 @@ function startWorker(spec: WorkerBootstrapSpec): ChildProcess {
   })
 }
 
-async function waitForTcpPort(host: string, port: number, timeoutMs: number, aborted: () => boolean): Promise<void> {
+async function waitForTCPPort(host: string, port: number, timeoutMs: number, aborted: () => boolean): Promise<void> {
   const deadline = Date.now() + timeoutMs
 
   while (Date.now() < deadline) {
@@ -284,7 +284,7 @@ async function runDev(flags: {
   const port = flags.port
   const fabricPort = flags['fabric-port']
   const workerImage = flags['worker-image']
-  const workerId = flags['worker-id']
+  const workerID = flags['worker-id']
   const workspaceRoot = path.resolve(repoRootPath, flags['workspace-root'])
   const databaseName = resolveAppDatabaseName()
 
@@ -298,7 +298,7 @@ async function runDev(flags: {
 
   const workerSpec = await renderWorkerBootstrapSpec({
     endpoint: `tcp://host.docker.internal:${fabricPort}`,
-    workerId,
+    workerID,
     image: workerImage,
     workspaceRoot
   })
@@ -321,7 +321,7 @@ async function runDev(flags: {
 
   try {
     controlPlane = startControlPlane(controlPlaneEnv)
-    await waitForTcpPort('127.0.0.1', fabricPort, 30_000, () => controlPlane?.exitCode !== null)
+    await waitForTCPPort('127.0.0.1', fabricPort, 30_000, () => controlPlane?.exitCode !== null)
     worker = startWorker(workerSpec)
 
     const exit = await waitForFirstExit([
@@ -376,7 +376,7 @@ export function devCommand(): Crust {
       'worker-id': {
         type: 'string',
         description: 'Agent Computer worker id.',
-        default: defaultWorkerId
+        default: defaultWorkerID
       },
       'worker-image': {
         type: 'string',

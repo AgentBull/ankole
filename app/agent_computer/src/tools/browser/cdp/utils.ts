@@ -1,5 +1,5 @@
 import { isIP } from 'node:net'
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import {
   resolveWorkspacePath,
   sanitizePathSegment,
@@ -12,15 +12,15 @@ import type { BrowserRuntimeOptions } from './types'
  * Recursively redacts browser diagnostic values before they reach logs or tool
  * output.
  */
-export function redactBrowserJson<T>(value: T): T {
+export function redactBrowserJSON<T>(value: T): T {
   if (typeof value === 'string') return redactText(value) as T
-  if (Array.isArray(value)) return value.map(item => redactBrowserJson(item)) as T
+  if (Array.isArray(value)) return value.map(item => redactBrowserJSON(item)) as T
   if (value && typeof value === 'object') {
-    const output: JsonObject = {}
+    const output: JSONObject = {}
     for (const [key, item] of Object.entries(value)) {
       output[key] = /password|secret|token|api[_-]?key|authorization/i.test(key)
         ? '[redacted]'
-        : redactBrowserJson(item)
+        : redactBrowserJSON(item)
     }
     return output as T
   }
@@ -31,8 +31,8 @@ export function redactBrowserJson<T>(value: T): T {
  * Rejects browser navigation URLs that would let the model hit local/cloud
  * metadata surfaces.
  */
-export function assertSafeBrowserUrl(rawUrl: string): void {
-  const url = new URL(rawUrl)
+export function assertSafeBrowserURL(rawURL: string): void {
+  const url = new URL(rawURL)
   if (url.protocol === 'data:' || url.protocol === 'about:') return
   if (!['http:', 'https:'].includes(url.protocol)) {
     throw new Error(`unsupported browser URL protocol: ${url.protocol}`)
@@ -58,8 +58,8 @@ export function isBlockedMetadataHost(host: string): boolean {
 /**
  * Converts a browser WebSocket URL to its matching CDP HTTP URL.
  */
-export function browserHttpUrl(connectUrl: string, path: string): string {
-  const url = new URL(connectUrl)
+export function browserHTTPURL(connectURL: string, path: string): string {
+  const url = new URL(connectURL)
   url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:'
   url.pathname = path
   url.search = ''
@@ -70,9 +70,9 @@ export function browserHttpUrl(connectUrl: string, path: string): string {
 /**
  * Checks whether a local CDP endpoint still answers quickly.
  */
-export async function localCdpEndpointAlive(connectUrl: string): Promise<boolean> {
+export async function localCDPEndpointAlive(connectURL: string): Promise<boolean> {
   try {
-    const response = await fetch(browserHttpUrl(connectUrl, '/json/version'), {
+    const response = await fetch(browserHTTPURL(connectURL, '/json/version'), {
       signal: AbortSignal.timeout(1_000)
     })
     return response.ok
@@ -92,9 +92,9 @@ export function stableHeadersKey(headers: Record<string, string> | undefined): s
 /**
  * Redacts credentials in a URL for logs and tool output.
  */
-export function redactUrl(rawUrl: string): string {
+export function redactURL(rawURL: string): string {
   try {
-    const url = new URL(rawUrl)
+    const url = new URL(rawURL)
     if (url.username || url.password) {
       url.username = '[redacted]'
       url.password = '[redacted]'
@@ -104,14 +104,14 @@ export function redactUrl(rawUrl: string): string {
     }
     return url.toString()
   } catch {
-    return rawUrl.replace(/\/\/([^/@]+)@/, '//[redacted]@')
+    return rawURL.replace(/\/\/([^/@]+)@/, '//[redacted]@')
   }
 }
 
 /**
  * Detects CDP method-not-supported errors across several backend wordings.
  */
-export function isUnsupportedCdpMethod(error: unknown): boolean {
+export function isUnsupportedCDPMethod(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error)
   return /wasn't found|was not found|not found|unknown method|method.*not.*support|unsupported/i.test(message)
 }
@@ -119,7 +119,7 @@ export function isUnsupportedCdpMethod(error: unknown): boolean {
 /**
  * Detects CDP connection errors that are worth one local Chromium recovery.
  */
-export function isRecoverableCdpConnectionError(error: unknown): boolean {
+export function isRecoverableCDPConnectionError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error)
   return /CDP socket (closed|error|is not open)|Failed to connect to browser CDP|WebSocket is not open|connection.*closed/i.test(
     message
@@ -166,7 +166,7 @@ export function forwardProcessLogLine(label: string, line: string): void {
 /**
  * Compares browser URLs after URL normalization.
  */
-export function sameBrowserUrl(left: string, right: string): boolean {
+export function sameBrowserURL(left: string, right: string): boolean {
   try {
     return new URL(left, 'http://invalid.local').toString() === new URL(right, 'http://invalid.local').toString()
   } catch {
@@ -225,7 +225,7 @@ export function sleep(ms: number): Promise<void> {
 /**
  * Sanitizes a browser session or artifact id.
  */
-export function sanitizeId(value: string, fallback = 'default'): string {
+export function sanitizeID(value: string, fallback = 'default'): string {
   return sanitizePathSegment(value, { fallback })
 }
 

@@ -426,7 +426,7 @@ impl ChatState {
     }
 }
 
-impl ApiProtocol for ChatState {
+impl APIProtocol for ChatState {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
         Ok(build_openai_chat_body(context))
     }

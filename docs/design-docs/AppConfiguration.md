@@ -149,7 +149,7 @@ Environment variables are not part of AppConfigure resolution.
 
 ## Persistence
 
-The table is `app_configure`.
+The table is `app_configurations`.
 
 It stores one row per `{scope, key}`:
 
@@ -306,7 +306,7 @@ hooks from their owning write path.
 - AppConfigure must not read OS environment variables.
 - Scoped definitions resolve through current agent, global, then code default.
 - Global-only definitions resolve only through global and code default.
-- Scope lives in `app_configure.scope`, not inside the key path.
+- Scope lives in `app_configurations.scope`, not inside the key path.
 - Definition scope decides whether agent rows are allowed for a key.
 - Missing rows may inherit; invalid rows must fail visibly.
 - Secret values are stored encrypted in PostgreSQL.

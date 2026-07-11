@@ -20,7 +20,7 @@ defmodule Ankole.SignalsGateway.Entry do
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
 
-  alias Ankole.Ecto.JsonPayload
+  alias Ankole.Ecto.JSONPayload
   alias Ankole.SignalsGateway.Channel
 
   @primary_key false
@@ -122,14 +122,14 @@ defmodule Ankole.SignalsGateway.Entry do
     )
     |> check_constraint(:source_entry_id, name: :signal_gateway_entries_source_entry_id_present)
     |> check_constraint(:document_id, name: :signal_gateway_entries_document_id_present)
-    |> JsonPayload.validate_map(:formatted_content, allow_datetime: true)
-    |> JsonPayload.validate_list(:attachments, allow_datetime: true)
-    |> JsonPayload.validate_list(:links, allow_datetime: true)
-    |> JsonPayload.validate_map(:author, allow_datetime: true)
-    |> JsonPayload.validate_list(:mentions, allow_datetime: true)
-    |> JsonPayload.validate_map(:metadata, allow_datetime: true)
-    |> JsonPayload.validate_map(:raw_payload, allow_datetime: true)
-    |> JsonPayload.validate_map(:reactions)
-    |> JsonPayload.validate_map(:raw_reaction_keys)
+    |> JSONPayload.validate_map(:formatted_content, allow_datetime: true)
+    |> JSONPayload.validate_list(:attachments, allow_datetime: true)
+    |> JSONPayload.validate_list(:links, allow_datetime: true)
+    |> JSONPayload.validate_map(:author, allow_datetime: true)
+    |> JSONPayload.validate_list(:mentions, allow_datetime: true)
+    |> JSONPayload.validate_map(:metadata, allow_datetime: true)
+    |> JSONPayload.validate_map(:raw_payload, allow_datetime: true)
+    |> JSONPayload.validate_map(:reactions)
+    |> JSONPayload.validate_map(:raw_reaction_keys)
   end
 end

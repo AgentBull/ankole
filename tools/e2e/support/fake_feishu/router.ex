@@ -11,7 +11,7 @@ defmodule Ankole.E2E.FakeFeishu.Router do
   use Plug.Router
 
   alias Ankole.E2E.FakeFeishu.State
-  alias Ankole.E2E.FakeFeishu.WsHandler
+  alias Ankole.E2E.FakeFeishu.WebSocketHandler
   alias Ankole.JSON
 
   plug :match
@@ -35,7 +35,7 @@ defmodule Ankole.E2E.FakeFeishu.Router do
 
     WebSockAdapter.upgrade(
       conn,
-      WsHandler,
+      WebSocketHandler,
       %{state: state(conn), app_id: app_id},
       []
     )

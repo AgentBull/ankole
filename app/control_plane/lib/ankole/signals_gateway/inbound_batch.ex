@@ -14,7 +14,7 @@ defmodule Ankole.SignalsGateway.InboundBatch do
 
   alias Ankole.Principals.Principal
   alias Ankole.SignalsGateway.Channel
-  alias Ankole.Types.JsonValue
+  alias Ankole.Types.JSONValue
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
@@ -43,7 +43,7 @@ defmodule Ankole.SignalsGateway.InboundBatch do
     field :mode, :string, default: "neutral"
     field :policy, :string
     field :requester_sender_key, :string
-    field :entries, JsonValue, default: []
+    field :entries, JSONValue, default: []
     field :available_at, :utc_datetime_usec
     field :hard_cap_at, :utc_datetime_usec
     field :batch_revision, :integer, default: 0

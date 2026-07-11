@@ -9,7 +9,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentLibraryContainerEntry do
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2, normalize_lower: 2]
 
   alias Ankole.Principals.Principal
-  alias Ankole.Ecto.JsonPayload
+  alias Ankole.Ecto.JSONPayload
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
@@ -56,7 +56,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentLibraryContainerEntry do
     |> normalize_path(:path)
     |> validate_required([:agent_uid, :path, :source_kind, :metadata])
     |> validate_inclusion(:source_kind, @source_kinds)
-    |> JsonPayload.validate_map(:metadata, allow_datetime: true)
+    |> JSONPayload.validate_map(:metadata, allow_datetime: true)
     |> foreign_key_constraint(:agent_uid)
     # Uniqueness is over *live* rows only (the backing index is partial on
     # `deleted_at IS NULL`). Deletes are soft, so a previously deleted path can be

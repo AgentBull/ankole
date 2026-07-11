@@ -1,26 +1,28 @@
 defmodule AnkoleWeb.SignalBindingController do
+  alias OpenApiSpex, as: OpenAPISpex
+
   @moduledoc """
   Console REST API for operator-managed signal bindings.
   """
 
   use AnkoleWeb, :controller
-  use OpenApiSpex.ControllerSpecs
+  use OpenAPISpex.ControllerSpecs
 
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.Binding
   alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsolePolicy
-  alias AnkoleWeb.Schemas.ConsoleApi.ErrorEnvelope
-  alias AnkoleWeb.Schemas.ConsoleApi.SignalAdapterListResponse
-  alias AnkoleWeb.Schemas.ConsoleApi.SignalBindingListResponse
-  alias AnkoleWeb.Schemas.ConsoleApi.SignalBindingResponse
-  alias AnkoleWeb.Schemas.ConsoleApi.SignalBindingWriteRequest
+  alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
+  alias AnkoleWeb.Schemas.ConsoleAPI.SignalAdapterListResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.SignalBindingListResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.SignalBindingResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.SignalBindingWriteRequest
 
   tags(["Signal Bindings"])
   security([%{"consoleBearer" => []}])
 
-  plug OpenApiSpex.Plug.CastAndValidate,
-    render_error: AnkoleWeb.OpenApiValidationErrorRenderer
+  plug OpenAPISpex.Plug.CastAndValidate,
+    render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
 
   operation(:adapters,
     summary: "List signal adapters available for bindings",
@@ -81,7 +83,7 @@ defmodule AnkoleWeb.SignalBindingController do
   def adapters(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "signal_gateway_adapters", "read"),
          {:ok, adapters} <- SignalsGateway.list_adapters() do
-      json(conn, %{data: adapters})
+      json(conn, %{signal_adapters: adapters})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -92,7 +94,7 @@ defmodule AnkoleWeb.SignalBindingController do
          :ok <-
            ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_gateway_bindings", "read"),
          {:ok, bindings} <- SignalsGateway.list_agent_bindings(agent_uid) do
-      json(conn, %{data: Enum.map(bindings, &signal_binding_json/1)})
+      json(conn, %{signal_bindings: Enum.map(bindings, &signal_binding_json/1)})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -106,7 +108,7 @@ defmodule AnkoleWeb.SignalBindingController do
            ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_gateway_bindings", "update"),
          {:ok, result} <-
            SignalsGateway.put_binding(agent_uid, adapter_id, binding_name, conn.body_params) do
-      json(conn, %{data: signal_binding_json(result)})
+      json(conn, %{signal_binding: signal_binding_json(result)})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -118,7 +120,7 @@ defmodule AnkoleWeb.SignalBindingController do
          :ok <-
            ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_gateway_bindings", "delete"),
          {:ok, binding} <- SignalsGateway.disable_binding(agent_uid, binding_name) do
-      json(conn, %{data: signal_binding_json(binding)})
+      json(conn, %{signal_binding: signal_binding_json(binding)})
     else
       {:error, reason} -> error(conn, reason)
     end

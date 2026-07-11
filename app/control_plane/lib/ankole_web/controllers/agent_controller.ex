@@ -1,10 +1,12 @@
 defmodule AnkoleWeb.AgentController do
+  alias OpenApiSpex, as: OpenAPISpex
+
   @moduledoc """
   Console REST API for operator-managed agent principals.
   """
 
   use AnkoleWeb, :controller
-  use OpenApiSpex.ControllerSpecs
+  use OpenAPISpex.ControllerSpecs
 
   alias Ankole.Principals
   alias Ankole.AIAgent.ModelProfiles
@@ -12,20 +14,20 @@ defmodule AnkoleWeb.AgentController do
   alias Ankole.Principals.Principal
   alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsolePolicy
-  alias AnkoleWeb.Schemas.ConsoleApi.AgentCreateRequest
-  alias AnkoleWeb.Schemas.ConsoleApi.AgentListResponse
-  alias AnkoleWeb.Schemas.ConsoleApi.AgentResponse
-  alias AnkoleWeb.Schemas.ConsoleApi.AgentUpdateRequest
-  alias AnkoleWeb.Schemas.ConsoleApi.ErrorEnvelope
-  alias AnkoleWeb.Schemas.ConsoleApi.ModelProfileResponse
-  alias AnkoleWeb.Schemas.ConsoleApi.ModelProfileWriteRequest
-  alias AnkoleWeb.Schemas.ConsoleApi.ModelProfilesResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.AgentCreateRequest
+  alias AnkoleWeb.Schemas.ConsoleAPI.AgentListResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.AgentResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.AgentUpdateRequest
+  alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
+  alias AnkoleWeb.Schemas.ConsoleAPI.ModelProfileResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.ModelProfileWriteRequest
+  alias AnkoleWeb.Schemas.ConsoleAPI.ModelProfilesResponse
 
   tags(["Agents"])
   security([%{"consoleBearer" => []}])
 
-  plug OpenApiSpex.Plug.CastAndValidate,
-    render_error: AnkoleWeb.OpenApiValidationErrorRenderer
+  plug OpenAPISpex.Plug.CastAndValidate,
+    render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
 
   operation(:index,
     summary: "List active agents",
@@ -118,7 +120,7 @@ defmodule AnkoleWeb.AgentController do
 
   def index(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "agents", "read") do
-      json(conn, %{data: Enum.map(Principals.list_active_agents(), &agent_json/1)})
+      json(conn, %{agents: Enum.map(Principals.list_active_agents(), &agent_json/1)})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -128,7 +130,7 @@ defmodule AnkoleWeb.AgentController do
     with :ok <- ConsolePolicy.authorize(conn, "agents", "update"),
          {:ok, attrs} <- create_attrs(conn.body_params, conn.assigns.current_principal_uid),
          {:ok, result} <- Principals.create_agent(attrs) do
-      json(conn, %{data: agent_json(result)})
+      json(conn, %{agent: agent_json(result)})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -138,7 +140,7 @@ defmodule AnkoleWeb.AgentController do
     with {:ok, agent_uid} <- agent_uid_param(params),
          :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}", "read"),
          {:ok, result} <- Principals.get_agent(agent_uid) do
-      json(conn, %{data: agent_json(result)})
+      json(conn, %{agent: agent_json(result)})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -149,7 +151,7 @@ defmodule AnkoleWeb.AgentController do
          :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}", "update"),
          {:ok, attrs} <- update_attrs(conn.body_params),
          {:ok, result} <- Principals.update_agent(agent_uid, attrs) do
-      json(conn, %{data: agent_json(result)})
+      json(conn, %{agent: agent_json(result)})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -160,7 +162,7 @@ defmodule AnkoleWeb.AgentController do
          :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}", "delete"),
          {:ok, %{agent: agent}} <- Principals.get_agent(agent_uid),
          {:ok, %Principal{} = principal} <- Principals.disable_principal(agent_uid) do
-      json(conn, %{data: agent_json(%{principal: principal, agent: agent})})
+      json(conn, %{agent: agent_json(%{principal: principal, agent: agent})})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -170,7 +172,7 @@ defmodule AnkoleWeb.AgentController do
     with {:ok, agent_uid} <- agent_uid_param(params),
          :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}:model_profiles", "read"),
          {:ok, profiles} <- ModelProfiles.get_model_profiles(agent_uid) do
-      json(conn, %{data: profiles})
+      json(conn, %{model_profiles: profiles})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -183,7 +185,7 @@ defmodule AnkoleWeb.AgentController do
            ConsolePolicy.authorize(conn, "agent:#{agent_uid}:model_profile:#{profile}", "update"),
          {:ok, %{profile: profile_attrs}} <-
            ModelProfiles.put_model_profile(agent_uid, profile, conn.body_params) do
-      json(conn, %{data: model_profile_payload(profile, profile_attrs)})
+      json(conn, %{model_profile: model_profile_payload(profile, profile_attrs)})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -196,7 +198,7 @@ defmodule AnkoleWeb.AgentController do
            ConsolePolicy.authorize(conn, "agent:#{agent_uid}:model_profile:#{profile}", "delete"),
          {:ok, %{profile: profile_attrs}} <-
            ModelProfiles.put_model_profile(agent_uid, profile, nil) do
-      json(conn, %{data: model_profile_payload(profile, profile_attrs)})
+      json(conn, %{model_profile: model_profile_payload(profile, profile_attrs)})
     else
       {:error, reason} -> error(conn, reason)
     end

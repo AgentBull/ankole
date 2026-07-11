@@ -1,10 +1,10 @@
 use super::*;
 #[derive(Debug)]
-pub(super) struct AwsBedrockConverseState {
+pub(super) struct AWSBedrockConverseState {
     inner: ChatState,
 }
 
-impl AwsBedrockConverseState {
+impl AWSBedrockConverseState {
     pub(super) fn new(model: String) -> Self {
         Self {
             inner: ChatState::new(model),
@@ -65,7 +65,7 @@ impl AwsBedrockConverseState {
     }
 }
 
-impl ApiProtocol for AwsBedrockConverseState {
+impl APIProtocol for AWSBedrockConverseState {
     fn on_provider_event(
         &mut self,
         context: &ResponseContext,
@@ -104,7 +104,7 @@ impl ApiProtocol for AwsBedrockConverseState {
 }
 
 fn aws_bedrock_converse_body_to_response(context: &ResponseContext, body: Value) -> Value {
-    let mut state = AwsBedrockConverseState::new(context.model.clone());
+    let mut state = AWSBedrockConverseState::new(context.model.clone());
     let mut events = state.ingest(context, body);
     if !state.inner.is_terminal() {
         events.extend(state.finish(context, "completed", None));

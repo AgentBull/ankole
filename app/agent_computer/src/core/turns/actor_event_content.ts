@@ -1,5 +1,5 @@
 import { readFile, stat } from 'node:fs/promises'
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import type { TurnModelRef } from '../../lanes/actor_lane'
 import { resolveWorkspacePath } from '../workspace-paths'
 import type { ContentPart, ImageContent, ModelConfig } from '../llm'
@@ -21,7 +21,7 @@ import { actorEventText } from './actor_event_text'
  * text-only models still receive useful context.
  */
 export async function actorEventUserContent(
-  payload: JsonObject | undefined,
+  payload: JSONObject | undefined,
   fallbackType: string,
   modelRef: TurnModelRef,
   opts: {
@@ -57,7 +57,7 @@ export async function actorEventUserContent(
  * Provider references without an agent-computer path are ignored here because
  * the worker cannot fetch provider-owned blobs directly.
  */
-async function actorEventImageParts(payload: JsonObject | undefined, workspaceRoot: string): Promise<ImageContent[]> {
+async function actorEventImageParts(payload: JSONObject | undefined, workspaceRoot: string): Promise<ImageContent[]> {
   const attachments = arrayPath(payload, ['data', 'entry', 'attachments'])
   const paths = attachments.flatMap(visionEligibleAttachmentPath).slice(0, VISION_MAX_IMAGES_PER_TURN)
   const parts: ImageContent[] = []

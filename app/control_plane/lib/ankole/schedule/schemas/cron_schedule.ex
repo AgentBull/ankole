@@ -9,7 +9,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
 
   alias Ankole.Principals.Principal
-  alias Ankole.Ecto.JsonPayload
+  alias Ankole.Ecto.JSONPayload
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
@@ -85,11 +85,11 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
     ])
     |> validate_inclusion(:status, @statuses)
     |> validate_timezone(:timezone)
-    |> JsonPayload.validate_map(:schedule)
-    |> JsonPayload.validate_map(:payload)
+    |> JSONPayload.validate_map(:schedule)
+    |> JSONPayload.validate_map(:payload)
     |> validate_nullable_map(:delivery)
-    |> JsonPayload.validate_map(:created_by)
-    |> JsonPayload.validate_map(:failure_policy)
+    |> JSONPayload.validate_map(:created_by)
+    |> JSONPayload.validate_map(:failure_policy)
     |> foreign_key_constraint(:agent_uid)
     |> unique_constraint([:agent_uid, :session_id, :idempotency_key],
       name: :actor_cron_schedules_idempotency_index
@@ -112,7 +112,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
   defp validate_nullable_map(changeset, field) do
     case get_change(changeset, field, get_field(changeset, field)) do
       nil -> changeset
-      _value -> JsonPayload.validate_map(changeset, field)
+      _value -> JSONPayload.validate_map(changeset, field)
     end
   end
 

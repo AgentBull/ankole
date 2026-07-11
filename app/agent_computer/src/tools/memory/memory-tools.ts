@@ -1,17 +1,17 @@
 import { compactRecord, match } from '@pleisto/active-support'
 import { z } from 'zod'
 import type { TurnStart } from '../../lanes/actor_lane'
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import type { AgentTool, AgentToolResult } from '../../core'
 import { jsonToolResult } from '../../core/tool-result'
-import { rpcMethods, type MemoryRpcRequestBase, type MemoryRpcRequester } from '../../lanes/rpc_lane'
+import { rpcMethods, type MemoryRPCRequestBase, type MemoryRPCRequester } from '../../lanes/rpc_lane'
 
 export interface CreateMemoryToolsOptions {
   turnStart: TurnStart
-  requestMemoryRpc?: MemoryRpcRequester
+  requestMemoryRPC?: MemoryRPCRequester
 }
 
-type MemoryToolDetails = JsonObject
+type MemoryToolDetails = JSONObject
 
 const MEMORY_NOTE_DESCRIPTION = [
   'Manage curated durable facts for this agent in the current channel only.',
@@ -50,7 +50,7 @@ const MemoryBrowseParams = z.object({
  * Creates Memory tools only when the turn runtime provides Memory RPC.
  */
 export function createMemoryTools(opts: CreateMemoryToolsOptions): AgentTool<any>[] {
-  if (!opts.requestMemoryRpc) return []
+  if (!opts.requestMemoryRPC) return []
   return [createMemoryNoteTool(opts), createMemorySearchTool(opts), createMemoryBrowseTool(opts)]
 }
 
@@ -62,9 +62,9 @@ function createMemoryNoteTool(opts: CreateMemoryToolsOptions): AgentTool<typeof 
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
-    async execute(toolCallId, params): Promise<AgentToolResult<MemoryToolDetails>> {
-      const call = opts.requestMemoryRpc!
-      const base = { ...memoryRequest(opts.turnStart), tool_call_id: toolCallId }
+    async execute(toolCallID, params): Promise<AgentToolResult<MemoryToolDetails>> {
+      const call = opts.requestMemoryRPC!
+      const base = { ...memoryRequest(opts.turnStart), tool_call_id: toolCallID }
 
       // Method and payload for one action stay in a single branch so the RPC
       // contract types check each shape exactly.
@@ -73,11 +73,11 @@ function createMemoryNoteTool(opts: CreateMemoryToolsOptions): AgentTool<typeof 
         .with('update', () =>
           call(rpcMethods.memoryNoteUpdate, {
             ...base,
-            note_id: requiredNoteId(params),
+            note_id: requiredNoteID(params),
             content: requiredContent(params)
           })
         )
-        .with('forget', () => call(rpcMethods.memoryNoteForget, { ...base, note_id: requiredNoteId(params) }))
+        .with('forget', () => call(rpcMethods.memoryNoteForget, { ...base, note_id: requiredNoteID(params) }))
         .with('list', () => call(rpcMethods.memoryNoteList, base))
         .exhaustive()
       return memoryToolResult(response)
@@ -97,7 +97,7 @@ function createMemorySearchTool(
     isReadOnly: true,
     isDestructive: false,
     async execute(_toolCallId, params): Promise<AgentToolResult<MemoryToolDetails>> {
-      const response = await opts.requestMemoryRpc!(rpcMethods.memorySearch, {
+      const response = await opts.requestMemoryRPC!(rpcMethods.memorySearch, {
         ...memoryRequest(opts.turnStart),
         ...compactRecord(params)
       })
@@ -118,7 +118,7 @@ function createMemoryBrowseTool(
     isReadOnly: true,
     isDestructive: false,
     async execute(_toolCallId, params): Promise<AgentToolResult<MemoryToolDetails>> {
-      const response = await opts.requestMemoryRpc!(rpcMethods.memoryBrowse, {
+      const response = await opts.requestMemoryRPC!(rpcMethods.memoryBrowse, {
         ...memoryRequest(opts.turnStart),
         ...compactRecord(params)
       })
@@ -132,12 +132,12 @@ function requiredContent(params: z.output<typeof MemoryNoteParams>): string {
   return params.content
 }
 
-function requiredNoteId(params: z.output<typeof MemoryNoteParams>): string {
+function requiredNoteID(params: z.output<typeof MemoryNoteParams>): string {
   if (!params.note_id?.trim()) throw new Error(`${params.action} requires note_id`)
   return params.note_id
 }
 
-function memoryRequest(turnStart: TurnStart): MemoryRpcRequestBase {
+function memoryRequest(turnStart: TurnStart): MemoryRPCRequestBase {
   return {
     request_id: `memory-${crypto.randomUUID()}`,
     turn: turnStart.turn,
@@ -145,7 +145,7 @@ function memoryRequest(turnStart: TurnStart): MemoryRpcRequestBase {
   }
 }
 
-function memoryToolResult(details: JsonObject): AgentToolResult<MemoryToolDetails> {
+function memoryToolResult(details: JSONObject): AgentToolResult<MemoryToolDetails> {
   const notice = typeof details.history_notice === 'string' ? `Memory notice: ${details.history_notice}\n` : ''
   return jsonToolResult(details, { textPrefix: notice })
 }

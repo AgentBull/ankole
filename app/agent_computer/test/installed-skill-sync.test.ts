@@ -11,9 +11,9 @@ describe('@ankole/agent-computer installed skill sync', () => {
   it('pushes installed skill observations and memoizes unchanged scans', async () => {
     const root = tempRoot('turn-context-installed-skills')
     try {
-      const agentUid = `agent-${Date.now()}`
-      const turnStart = turnStartFor(agentUid)
-      const skillDir = join(root, agentUid, 'agent-notes')
+      const agentUID = `agent-${Date.now()}`
+      const turnStart = turnStartFor(agentUID)
+      const skillDir = join(root, agentUID, 'agent-notes')
       mkdirSync(skillDir, { recursive: true })
       writeFileSync(
         join(skillDir, 'SKILL.md'),
@@ -36,7 +36,7 @@ describe('@ankole/agent-computer installed skill sync', () => {
           pushedObservations.push(request.observations)
           return {
             request_id: request.request_id,
-            agent_uid: agentUid,
+            agent_uid: agentUID,
             session_id: 'session-1',
             changed: true,
             skills: request.observations.length,
@@ -72,11 +72,11 @@ function tempRoot(name: string): string {
   return root
 }
 
-function turnStartFor(agentUid: string): TurnStart {
+function turnStartFor(agentUID: string): TurnStart {
   return {
     turn: {
       actor: {
-        agent_uid: agentUid,
+        agent_uid: agentUID,
         session_id: 'session-1'
       },
       activation_uid: 'activation-1',

@@ -24,7 +24,7 @@ defmodule Ankole.AIGateway.Schemas.Message do
 
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.Principals.Principal
-  alias Ankole.Ecto.JsonPayload
+  alias Ankole.Ecto.JSONPayload
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
@@ -56,7 +56,7 @@ defmodule Ankole.AIGateway.Schemas.Message do
     # Self-reference continuation anchor (renders as `previous_response_id` on the API).
     # `resp_#{id}` always equals `resp_#{ai_gateway_messages.id}` (see plan §1.4).
     field(:previous_message_id, Ecto.UUID)
-    field(:content, Ankole.Types.JsonValue, default: [])
+    field(:content, Ankole.Types.JSONValue, default: [])
     # Caller metadata is opaque to AIGateway. AIGateway-owned response facts such
     # as model/provider, usage, and provider raw ids also live here.
     # Must NOT carry a second item list.
@@ -94,7 +94,7 @@ defmodule Ankole.AIGateway.Schemas.Message do
     |> validate_inclusion(:role, @roles)
     |> validate_inclusion(:status, @statuses)
     |> validate_json_array(:content)
-    |> JsonPayload.validate_map(:metadata, allow_datetime: true)
+    |> JSONPayload.validate_map(:metadata, allow_datetime: true)
     |> validate_type_content_contract()
     |> foreign_key_constraint(:subject_uid)
     |> foreign_key_constraint(:conversation_id)

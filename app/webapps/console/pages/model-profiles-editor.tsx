@@ -1,4 +1,4 @@
-import { recordValue, type JsonObject } from '@pleisto/active-support'
+import { recordValue, type JsonObject as JSONObject } from '@pleisto/active-support'
 import {
   Badge,
   Button,
@@ -18,16 +18,20 @@ import {
   ankoleWebAgentControllerDeleteModelProfileMutation,
   ankoleWebAgentControllerPutModelProfileMutation
 } from '../api/generated/@tanstack/react-query.gen'
-import type { AgentItem, AiGatewayProviderItem, CodexAccountItem } from '../api/generated/types.gen'
-import { ErrorBlock, formatJson, parseObjectDraft } from '../console-primitives'
-import { JsonField, LabeledField } from '../console-shell'
+import type {
+  AgentItem,
+  AiGatewayProviderItem as AIGatewayProviderItem,
+  CodexAccountItem
+} from '../api/generated/types.gen'
+import { ErrorBlock, formatJSON, parseObjectDraft } from '../console-primitives'
+import { JSONField, LabeledField } from '../console-shell'
 
 const PROFILE_NAMES = ['primary', 'light', 'heavy', 'coding', 'embedding', 'rerank'] as const
 const REQUIRED_PROFILES = new Set<string>(['primary', 'light', 'heavy'])
 
 type ProfileDraft = {
-  codexAccountId: string
-  providerId: string
+  codexAccountID: string
+  providerID: string
   model: string
   contextLength: string
   providerOptions: string
@@ -47,8 +51,8 @@ export function ModelProfilesEditor({
   error: unknown
   loading: boolean
   onChanged: () => void
-  profiles: JsonObject
-  providers: AiGatewayProviderItem[]
+  profiles: JSONObject
+  providers: AIGatewayProviderItem[]
   codexAccounts: CodexAccountItem[]
 }) {
   const { t } = useTranslation()
@@ -82,9 +86,9 @@ export function ModelProfilesEditor({
 
   const submit = (profile: string) => {
     const draft = drafts[profile] ?? emptyProfileDraft()
-    if (profile === 'coding' && draft.codexAccountId) {
+    if (profile === 'coding' && draft.codexAccountID) {
       saveProfile.mutate({
-        body: { codex_account_id: draft.codexAccountId },
+        body: { codex_account_id: draft.codexAccountID },
         path: { agent_uid: agent.uid, profile }
       })
       return
@@ -98,7 +102,7 @@ export function ModelProfilesEditor({
     const contextLength = draft.contextLength.trim() ? Number.parseInt(draft.contextLength, 10) : undefined
     saveProfile.mutate({
       body: {
-        provider_id: draft.providerId,
+        provider_id: draft.providerID,
         model: draft.model,
         context_length: Number.isFinite(contextLength) ? contextLength : undefined,
         provider_options: parsedOptions.value
@@ -118,8 +122,8 @@ export function ModelProfilesEditor({
       <div className="grid gap-4">
         {PROFILE_NAMES.map(profile => {
           const draft = drafts[profile] ?? emptyProfileDraft()
-          const configured = Boolean(draft.codexAccountId || (draft.providerId && draft.model))
-          const subscriptionCoding = profile === 'coding' && Boolean(draft.codexAccountId)
+          const configured = Boolean(draft.codexAccountID || (draft.providerID && draft.model))
+          const subscriptionCoding = profile === 'coding' && Boolean(draft.codexAccountID)
           return (
             <div key={profile} className="grid gap-4 border border-border bg-card p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -150,10 +154,10 @@ export function ModelProfilesEditor({
                   label={t('console.models.coding_runtime')}
                   description={t('console.models.coding_runtime_hint')}>
                   <Select
-                    value={draft.codexAccountId || 'aigateway'}
+                    value={draft.codexAccountID || 'aigateway'}
                     onValueChange={value =>
                       updateDraft(profile, {
-                        codexAccountId: String(value) === 'aigateway' ? '' : String(value)
+                        codexAccountID: String(value) === 'aigateway' ? '' : String(value)
                       })
                     }>
                     <SelectTrigger className="w-full">
@@ -175,8 +179,8 @@ export function ModelProfilesEditor({
                   <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_128px]">
                     <LabeledField label={t('console.models.provider')}>
                       <Select
-                        value={draft.providerId}
-                        onValueChange={value => updateDraft(profile, { providerId: String(value) })}>
+                        value={draft.providerID}
+                        onValueChange={value => updateDraft(profile, { providerID: String(value) })}>
                         <SelectTrigger className="w-full">
                           <SelectValue placeholder={t('console.models.provider_placeholder')} />
                         </SelectTrigger>
@@ -204,7 +208,7 @@ export function ModelProfilesEditor({
                       />
                     </LabeledField>
                   </div>
-                  <JsonField
+                  <JSONField
                     label={t('console.models.provider_options')}
                     minRows={3}
                     value={draft.providerOptions}
@@ -222,21 +226,21 @@ export function ModelProfilesEditor({
 
 function emptyProfileDraft(): ProfileDraft {
   return {
-    codexAccountId: '',
-    providerId: '',
+    codexAccountID: '',
+    providerID: '',
     model: '',
     contextLength: '',
     providerOptions: '{}'
   }
 }
 
-function draftFromProfile(profile: JsonObject): ProfileDraft {
+function draftFromProfile(profile: JSONObject): ProfileDraft {
   return {
-    codexAccountId: asString(profile.codex_account_id),
-    providerId: asString(profile.provider_id),
+    codexAccountID: asString(profile.codex_account_id),
+    providerID: asString(profile.provider_id),
     model: asString(profile.model),
     contextLength: profile.context_length ? String(profile.context_length) : '',
-    providerOptions: formatJson(recordValue(profile.provider_options) ?? {})
+    providerOptions: formatJSON(recordValue(profile.provider_options) ?? {})
   }
 }
 

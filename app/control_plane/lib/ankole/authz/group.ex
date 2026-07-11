@@ -8,7 +8,7 @@ defmodule Ankole.AuthZ.Group do
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
 
-  alias Ankole.Ecto.JsonPayload
+  alias Ankole.Ecto.JSONPayload
   alias Ankole.AuthZ.ExternalBinding
   alias Ankole.AuthZ.Grant
   alias Ankole.AuthZ.Membership
@@ -53,7 +53,7 @@ defmodule Ankole.AuthZ.Group do
     |> normalize_blank([:name, :display_name, :computed_condition, :description])
     |> normalize_name()
     |> validate_required([:name, :display_name, :domain, :kind, :built_in, :metadata])
-    |> JsonPayload.validate_map(:metadata)
+    |> JSONPayload.validate_map(:metadata)
     |> validate_kind_shape()
     |> unique_constraint(:name, name: :principal_groups_name_index)
     |> check_constraint(:name, name: :principal_groups_name_present)

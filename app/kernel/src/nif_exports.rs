@@ -6,8 +6,8 @@
 use rustler::env::{OwnedEnv, SavedTerm};
 use rustler::types::atom as rustler_atom;
 use rustler::types::binary::{Binary, OwnedBinary};
-use rustler::{Encoder, Env, Error, LocalPid, Monitor, NifResult, ResourceArc, Term};
-use serde_json::Value as JsonValue;
+use rustler::{Encoder, Env, Error, LocalPid, Monitor, NifResult as NIFResult, ResourceArc, Term};
+use serde_json::Value as JSONValue;
 use std::sync::{Arc, Mutex};
 
 use crate::authz;
@@ -92,7 +92,7 @@ impl Encoder for BeamStreamRef {
 /// The function is scheduled on DirtyCpu because runtime cost depends on payload
 /// size and cryptographic work should not risk blocking normal BEAM schedulers.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn aead_decrypt(ciphertext: Term<'_>, key: Term<'_>) -> NifResult<OwnedBinary> {
+pub fn aead_decrypt(ciphertext: Term<'_>, key: Term<'_>) -> NIFResult<OwnedBinary> {
     let ciphertext = decode_string(ciphertext, "ciphertext")?;
     let key = decode_string(key, "key")?;
 
@@ -103,7 +103,7 @@ pub fn aead_decrypt(ciphertext: Term<'_>, key: Term<'_>) -> NifResult<OwnedBinar
 
 /// Encrypts an Elixir binary with the shared AEAD token format.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn aead_encrypt(plaintext: Term<'_>, key: Term<'_>) -> NifResult<String> {
+pub fn aead_encrypt(plaintext: Term<'_>, key: Term<'_>) -> NIFResult<String> {
     let plaintext = decode_binary(plaintext, "plaintext")?;
     let key = decode_string(key, "key")?;
 
@@ -112,7 +112,7 @@ pub fn aead_encrypt(plaintext: Term<'_>, key: Term<'_>) -> NifResult<String> {
 
 /// Authorizes one exact action on one concrete resource from an encoded snapshot.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn authz_authorize_nif(snapshot: Term<'_>) -> NifResult<String> {
+pub fn authz_authorize_nif(snapshot: Term<'_>) -> NIFResult<String> {
     let snapshot = decode_json(snapshot, "snapshot")?;
     let decision = authz::authorize_value(snapshot).map_err(error)?;
 
@@ -121,7 +121,7 @@ pub fn authz_authorize_nif(snapshot: Term<'_>) -> NifResult<String> {
 
 /// Authorizes every requested action against the same resource from an encoded snapshot.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn authz_authorize_all_nif(snapshot: Term<'_>) -> NifResult<String> {
+pub fn authz_authorize_all_nif(snapshot: Term<'_>) -> NIFResult<String> {
     let snapshot = decode_json(snapshot, "snapshot")?;
     let decision = authz::authorize_all_value(snapshot).map_err(error)?;
 
@@ -130,7 +130,7 @@ pub fn authz_authorize_all_nif(snapshot: Term<'_>) -> NifResult<String> {
 
 /// Returns whether a CEL authorization condition compiles.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn authz_validate_condition(condition: Term<'_>) -> NifResult<bool> {
+pub fn authz_validate_condition(condition: Term<'_>) -> NIFResult<bool> {
     let condition = decode_string(condition, "condition")?;
 
     authz::validate_condition_source(&condition)
@@ -140,7 +140,7 @@ pub fn authz_validate_condition(condition: Term<'_>) -> NifResult<bool> {
 
 /// Returns whether a SignalsGateway CEL admission filter compiles.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn signals_gateway_validate_filter(filter_source: Term<'_>) -> NifResult<bool> {
+pub fn signals_gateway_validate_filter(filter_source: Term<'_>) -> NIFResult<bool> {
     let filter_source = decode_string(filter_source, "filter_source")?;
 
     signals_gateway::validate_filter_source(&filter_source)
@@ -153,7 +153,7 @@ pub fn signals_gateway_validate_filter(filter_source: Term<'_>) -> NifResult<boo
 pub fn signals_gateway_filter_match_nif(
     filter_source: Term<'_>,
     context: Term<'_>,
-) -> NifResult<bool> {
+) -> NIFResult<bool> {
     let filter_source = decode_string(filter_source, "filter_source")?;
     let context = decode_json(context, "context")?;
 
@@ -162,7 +162,7 @@ pub fn signals_gateway_filter_match_nif(
 
 /// Returns whether a resource pattern is valid.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn authz_validate_resource_pattern(pattern: Term<'_>) -> NifResult<bool> {
+pub fn authz_validate_resource_pattern(pattern: Term<'_>) -> NIFResult<bool> {
     let pattern = decode_string(pattern, "pattern")?;
 
     authz::validate_pattern_source(&pattern)
@@ -172,7 +172,7 @@ pub fn authz_validate_resource_pattern(pattern: Term<'_>) -> NifResult<bool> {
 
 /// Encodes a RuntimeFabric v1 envelope map as protobuf bytes.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn runtime_fabric_encode_envelope_nif(envelope: Term<'_>) -> NifResult<OwnedBinary> {
+pub fn runtime_fabric_encode_envelope_nif(envelope: Term<'_>) -> NIFResult<OwnedBinary> {
     let envelope = decode_json(envelope, "envelope")?;
 
     runtime_fabric::encode_envelope(envelope)
@@ -182,7 +182,7 @@ pub fn runtime_fabric_encode_envelope_nif(envelope: Term<'_>) -> NifResult<Owned
 
 /// Decodes RuntimeFabric v1 protobuf bytes into the host envelope shape.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn runtime_fabric_decode_envelope_nif(envelope_bytes: Term<'_>) -> NifResult<String> {
+pub fn runtime_fabric_decode_envelope_nif(envelope_bytes: Term<'_>) -> NIFResult<String> {
     let envelope_bytes = decode_binary(envelope_bytes, "envelope_bytes")?;
     let envelope = runtime_fabric::decode_envelope(envelope_bytes.as_slice()).map_err(error)?;
 
@@ -195,7 +195,7 @@ pub fn runtime_fabric_router_start(
     endpoint: Term<'_>,
     owner_pid: LocalPid,
     opts_json: Term<'_>,
-) -> NifResult<ResourceArc<RuntimeFabricRouterResource>> {
+) -> NIFResult<ResourceArc<RuntimeFabricRouterResource>> {
     let endpoint = decode_string(endpoint, "endpoint")?;
     let opts_json = decode_string(opts_json, "opts_json")?;
     let mut config =
@@ -212,7 +212,7 @@ pub fn runtime_fabric_router_start(
 #[rustler::nif]
 pub fn runtime_fabric_router_endpoint(
     router: ResourceArc<RuntimeFabricRouterResource>,
-) -> NifResult<String> {
+) -> NIFResult<String> {
     Ok(router.0.endpoint().to_string())
 }
 
@@ -222,7 +222,7 @@ pub fn runtime_fabric_router_send_mandatory(
     router: ResourceArc<RuntimeFabricRouterResource>,
     transport_route: Term<'_>,
     envelope_json: Term<'_>,
-) -> NifResult<String> {
+) -> NIFResult<String> {
     let transport_route = decode_string(transport_route, "transport_route")?;
     let envelope = decode_json(envelope_json, "envelope_json")?;
 
@@ -239,7 +239,7 @@ pub fn runtime_fabric_router_send_file_frame(
     router: ResourceArc<RuntimeFabricRouterResource>,
     transport_route: Term<'_>,
     frames: Term<'_>,
-) -> NifResult<String> {
+) -> NIFResult<String> {
     let transport_route = decode_string(transport_route, "transport_route")?;
     let frames = decode_binary_frames(frames, "frames")?;
 
@@ -254,7 +254,7 @@ pub fn runtime_fabric_router_send_file_frame(
 #[rustler::nif(schedule = "DirtyIo")]
 pub fn runtime_fabric_router_stop(
     router: ResourceArc<RuntimeFabricRouterResource>,
-) -> NifResult<bool> {
+) -> NIFResult<bool> {
     router
         .0
         .stop()
@@ -269,7 +269,7 @@ pub fn universal_ai_client_open_nif<'a>(
     encoded_spec: Term<'a>,
     owner_pid: LocalPid,
     stream_ref: Term<'a>,
-) -> NifResult<Term<'a>> {
+) -> NIFResult<Term<'a>> {
     let encoded_spec = decode_string(encoded_spec, "encoded_spec")?;
     let stream_ref = Arc::new(Mutex::new(BeamStreamRef::new(stream_ref)));
     let sink = {
@@ -305,7 +305,7 @@ pub fn universal_ai_client_open_nif<'a>(
 pub fn universal_ai_client_read_nif(
     stream: ResourceArc<UniversalAIClientStreamResource>,
     count: Term<'_>,
-) -> NifResult<rustler::Atom> {
+) -> NIFResult<rustler::Atom> {
     let count = decode_u64(count, "count")?;
     stream.0.read(count).map_err(error)?;
     Ok(atoms::ok())
@@ -315,7 +315,7 @@ pub fn universal_ai_client_read_nif(
 #[rustler::nif]
 pub fn universal_ai_client_cancel_nif(
     stream: ResourceArc<UniversalAIClientStreamResource>,
-) -> NifResult<rustler::Atom> {
+) -> NIFResult<rustler::Atom> {
     stream.0.cancel().map_err(error)?;
     Ok(atoms::ok())
 }
@@ -325,7 +325,7 @@ pub fn universal_ai_client_cancel_nif(
 pub fn universal_ai_client_model_request_nif<'a>(
     env: Env<'a>,
     encoded_spec: Term<'a>,
-) -> NifResult<Term<'a>> {
+) -> NIFResult<Term<'a>> {
     let encoded_spec = decode_string(encoded_spec, "encoded_spec")?;
 
     match universal_ai_client::send_model_request(&encoded_spec) {
@@ -339,7 +339,7 @@ pub fn universal_ai_client_model_request_nif<'a>(
 pub fn universal_ai_client_raw_request_nif<'a>(
     env: Env<'a>,
     encoded_spec: Term<'a>,
-) -> NifResult<Term<'a>> {
+) -> NIFResult<Term<'a>> {
     let encoded_spec = decode_string(encoded_spec, "encoded_spec")?;
 
     match universal_ai_client::send_raw_request(&encoded_spec) {
@@ -350,7 +350,7 @@ pub fn universal_ai_client_raw_request_nif<'a>(
 
 /// Returns whether a resource pattern matches a concrete resource key.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn authz_match_resource_pattern(pattern: Term<'_>, resource: Term<'_>) -> NifResult<bool> {
+pub fn authz_match_resource_pattern(pattern: Term<'_>, resource: Term<'_>) -> NIFResult<bool> {
     let pattern = decode_string(pattern, "pattern")?;
     let resource = decode_string(resource, "resource")?;
 
@@ -359,7 +359,7 @@ pub fn authz_match_resource_pattern(pattern: Term<'_>, resource: Term<'_>) -> Ni
 
 /// Estimates provider-neutral token budget with the o200k_base vocabulary.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn estimate_o200k_base_tokens(text: Term<'_>) -> NifResult<u64> {
+pub fn estimate_o200k_base_tokens(text: Term<'_>) -> NIFResult<u64> {
     let text = decode_string(text, "text")?;
 
     Ok(common::estimate_o200k_base_tokens(&text))
@@ -367,7 +367,7 @@ pub fn estimate_o200k_base_tokens(text: Term<'_>) -> NifResult<u64> {
 
 /// Computes the non-cryptological XXH3 128-bit observation fingerprint.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn xxh3_128_hex(input: Term<'_>) -> NifResult<String> {
+pub fn xxh3_128_hex(input: Term<'_>) -> NIFResult<String> {
     let input = decode_binary(input, "input")?;
 
     Ok(common::xxh3_128_hex(input.as_slice()))
@@ -379,7 +379,7 @@ pub fn xxh3_128_hex(input: Term<'_>) -> NifResult<String> {
 /// frames that a receiver can decompress per chunk. `level` follows the zstd
 /// CLI scale and is not negotiated on the wire.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn zstd_compress_block(input: Term<'_>, level: Term<'_>) -> NifResult<OwnedBinary> {
+pub fn zstd_compress_block(input: Term<'_>, level: Term<'_>) -> NIFResult<OwnedBinary> {
     let input = decode_binary(input, "input")?;
     let level = decode_i32(level, "level")?;
 
@@ -392,7 +392,7 @@ pub fn zstd_compress_block(input: Term<'_>, level: Term<'_>) -> NifResult<OwnedB
 ///
 /// `max_out` rejects oversized payloads, capping zip-bomb exposure at one block.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn zstd_decompress_block(input: Term<'_>, max_out: Term<'_>) -> NifResult<OwnedBinary> {
+pub fn zstd_decompress_block(input: Term<'_>, max_out: Term<'_>) -> NIFResult<OwnedBinary> {
     let input = decode_binary(input, "input")?;
     let max_out = decode_u64(max_out, "max_out")?;
 
@@ -413,7 +413,7 @@ pub fn derive_key(
     key_seed: Term<'_>,
     sub_key_id: Term<'_>,
     extra_context: Term<'_>,
-) -> NifResult<String> {
+) -> NIFResult<String> {
     let key_seed = decode_binary(key_seed, "key_seed")?;
     let sub_key_id = decode_string(sub_key_id, "sub_key_id")?;
     let extra_context = decode_optional_string(extra_context, "extra_context")?;
@@ -427,7 +427,7 @@ pub fn derive_key(
 
 /// Signs claims with a JWT header and binary key.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn jwt_sign_nif(claims: Term<'_>, key: Term<'_>, header: Term<'_>) -> NifResult<String> {
+pub fn jwt_sign_nif(claims: Term<'_>, key: Term<'_>, header: Term<'_>) -> NIFResult<String> {
     let claims = decode_string(claims, "claims")?;
     let key = decode_binary(key, "key")?;
     let header = decode_string(header, "header")?;
@@ -437,7 +437,7 @@ pub fn jwt_sign_nif(claims: Term<'_>, key: Term<'_>, header: Term<'_>) -> NifRes
 
 /// Verifies a JWT with a binary key and validation options.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn jwt_verify_nif(token: Term<'_>, key: Term<'_>, validation: Term<'_>) -> NifResult<String> {
+pub fn jwt_verify_nif(token: Term<'_>, key: Term<'_>, validation: Term<'_>) -> NIFResult<String> {
     let token = decode_string(token, "token")?;
     let key = decode_binary(key, "key")?;
     let validation = decode_string(validation, "validation")?;
@@ -453,7 +453,7 @@ pub fn generate_key() -> String {
 
 /// Hashes an Elixir binary with BLAKE3 and returns lowercase hexadecimal text.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn generic_hash(data: Term<'_>, salt: Term<'_>) -> NifResult<String> {
+pub fn generic_hash(data: Term<'_>, salt: Term<'_>) -> NIFResult<String> {
     let data = decode_binary(data, "data")?;
     let salt = decode_optional_string(salt, "salt")?;
 
@@ -462,7 +462,7 @@ pub fn generic_hash(data: Term<'_>, salt: Term<'_>) -> NifResult<String> {
 
 /// Parses and validates an international phone number, returning E.164 text.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn phone_normalize_e164(phone: Term<'_>) -> NifResult<String> {
+pub fn phone_normalize_e164(phone: Term<'_>) -> NIFResult<String> {
     let phone = decode_string(phone, "phone")?;
 
     common::phone_normalize_e164(&phone).map_err(error)
@@ -485,7 +485,7 @@ pub fn gen_uuid_v7() -> String {
 /// Returning `Vec<u8>` directly would be encoded by Rustler as a list of byte
 /// integers. `OwnedBinary` keeps the Elixir API binary-safe and matches caller
 /// expectations for decrypted and decoded payloads.
-fn binary_from_vec(bytes: Vec<u8>) -> NifResult<OwnedBinary> {
+fn binary_from_vec(bytes: Vec<u8>) -> NIFResult<OwnedBinary> {
     let mut binary =
         OwnedBinary::new(bytes.len()).ok_or_else(|| error_message("failed to allocate binary"))?;
     binary.as_mut_slice().copy_from_slice(&bytes);
@@ -497,7 +497,7 @@ fn binary_from_vec(bytes: Vec<u8>) -> NifResult<OwnedBinary> {
 ///
 /// The explicit `is_binary` check gives callers a stable, simple error message
 /// instead of exposing Rustler's lower-level conversion wording.
-fn decode_binary<'a>(term: Term<'a>, field: &str) -> NifResult<Binary<'a>> {
+fn decode_binary<'a>(term: Term<'a>, field: &str) -> NIFResult<Binary<'a>> {
     if !term.is_binary() {
         return Err(error_message(format!("{field} must be a binary")));
     }
@@ -506,7 +506,7 @@ fn decode_binary<'a>(term: Term<'a>, field: &str) -> NifResult<Binary<'a>> {
 }
 
 /// Decodes a BEAM list of binaries into owned frame bytes.
-fn decode_binary_frames(term: Term<'_>, field: &str) -> NifResult<Vec<Vec<u8>>> {
+fn decode_binary_frames(term: Term<'_>, field: &str) -> NIFResult<Vec<Vec<u8>>> {
     let frames: Vec<Binary<'_>> = term
         .decode()
         .map_err(|_| error_message(format!("{field} must be a list of binaries")))?;
@@ -518,7 +518,7 @@ fn decode_binary_frames(term: Term<'_>, field: &str) -> NifResult<Vec<Vec<u8>>> 
 }
 
 /// Decodes a JSON string into the host-neutral serde value used by AuthZ.
-fn decode_json(term: Term<'_>, field: &str) -> NifResult<JsonValue> {
+fn decode_json(term: Term<'_>, field: &str) -> NIFResult<JSONValue> {
     let json = decode_string(term, field)?;
 
     serde_json::from_str(&json)
@@ -526,31 +526,31 @@ fn decode_json(term: Term<'_>, field: &str) -> NifResult<JsonValue> {
 }
 
 /// Decodes an optional Elixir string, where `nil` maps to `None`.
-fn decode_optional_string(term: Term<'_>, field: &str) -> NifResult<Option<String>> {
+fn decode_optional_string(term: Term<'_>, field: &str) -> NIFResult<Option<String>> {
     term.decode()
         .map_err(|_| error_message(format!("{field} must be a string or nil")))
 }
 
 /// Decodes a non-negative 64-bit integer.
-fn decode_u64(term: Term<'_>, field: &str) -> NifResult<u64> {
+fn decode_u64(term: Term<'_>, field: &str) -> NIFResult<u64> {
     term.decode()
         .map_err(|_| error_message(format!("{field} must be a non-negative integer")))
 }
 
 /// Decodes a signed 32-bit integer.
-fn decode_i32(term: Term<'_>, field: &str) -> NifResult<i32> {
+fn decode_i32(term: Term<'_>, field: &str) -> NIFResult<i32> {
     term.decode()
         .map_err(|_| error_message(format!("{field} must be an integer")))
 }
 
 /// Decodes an Elixir string and reports the field name on failure.
-fn decode_string(term: Term<'_>, field: &str) -> NifResult<String> {
+fn decode_string(term: Term<'_>, field: &str) -> NIFResult<String> {
     term.decode()
         .map_err(|_| error_message(format!("{field} must be a string")))
 }
 
 /// Encodes a host-neutral JSON value into a string for Elixir.
-fn encode_json(value: JsonValue) -> NifResult<String> {
+fn encode_json(value: JSONValue) -> NIFResult<String> {
     serde_json::to_string(&value)
         .map_err(|reason| error_message(format!("failed to encode JSON: {reason}")))
 }
@@ -693,8 +693,8 @@ fn send_universal_ai_client_event(
 
 fn downstream_kind_atom(kind: universal_ai_client::DownstreamKind) -> rustler::Atom {
     match kind {
-        universal_ai_client::DownstreamKind::Sse => atoms::sse(),
-        universal_ai_client::DownstreamKind::WebsocketText => atoms::websocket_text(),
+        universal_ai_client::DownstreamKind::SSE => atoms::sse(),
+        universal_ai_client::DownstreamKind::WebSocketText => atoms::websocket_text(),
     }
 }
 
@@ -707,11 +707,11 @@ fn binary_term<'a>(env: Env<'a>, bytes: Vec<u8>) -> Result<Term<'a>, String> {
     Ok(binary.release(env).encode(env))
 }
 
-fn encode_json_value<'a>(env: Env<'a>, value: &JsonValue) -> Term<'a> {
+fn encode_json_value<'a>(env: Env<'a>, value: &JSONValue) -> Term<'a> {
     match value {
-        JsonValue::Null => rustler_atom::nil().encode(env),
-        JsonValue::Bool(value) => value.encode(env),
-        JsonValue::Number(number) => {
+        JSONValue::Null => rustler_atom::nil().encode(env),
+        JSONValue::Bool(value) => value.encode(env),
+        JSONValue::Number(number) => {
             if let Some(value) = number.as_i64() {
                 value.encode(env)
             } else if let Some(value) = number.as_u64() {
@@ -722,13 +722,13 @@ fn encode_json_value<'a>(env: Env<'a>, value: &JsonValue) -> Term<'a> {
                 rustler_atom::nil().encode(env)
             }
         }
-        JsonValue::String(value) => value.encode(env),
-        JsonValue::Array(values) => values
+        JSONValue::String(value) => value.encode(env),
+        JSONValue::Array(values) => values
             .iter()
             .map(|value| encode_json_value(env, value))
             .collect::<Vec<_>>()
             .encode(env),
-        JsonValue::Object(values) => {
+        JSONValue::Object(values) => {
             let mut map = Term::map_new(env);
             for (key, value) in values {
                 map = map

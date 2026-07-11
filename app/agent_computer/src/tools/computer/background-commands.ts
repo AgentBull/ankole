@@ -18,7 +18,7 @@ export interface BackgroundCommandSnapshot {
 
 export interface BackgroundCommandScope {
   workspaceRoot: string
-  executionScopeId: string
+  executionScopeID: string
 }
 
 type MutableBackgroundCommand = {
@@ -146,7 +146,7 @@ export class BackgroundCommandRegistry {
   }
 
   private scopeKey(scope: BackgroundCommandScope): string {
-    return `${resolve(scope.workspaceRoot)}\u0000${scope.executionScopeId}`
+    return `${resolve(scope.workspaceRoot)}\u0000${scope.executionScopeID}`
   }
 }
 

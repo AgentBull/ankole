@@ -1,5 +1,5 @@
 import OpenAI from 'openai'
-import { recordValue, type JsonObject } from '@pleisto/active-support'
+import { recordValue, type JsonObject as JSONObject } from '@pleisto/active-support'
 import { ResponsesWS } from 'openai/resources/responses/ws'
 import { ResponsesWSBase } from 'openai/resources/responses/ws-base'
 import type {
@@ -41,7 +41,7 @@ type ResponsesSocket = ResponsesWS | InjectedResponsesWS
 type InjectedSocketFactory = NonNullable<ResponseWebSocketTransport['createWebSocket']>
 type InjectedSocketLike = ReturnType<InjectedSocketFactory>
 
-interface SdkWebSocketLike {
+interface SDKWebSocketLike {
   readonly readyState: number
   send(data: string | ArrayBufferLike | ArrayBufferView): void
   close(code?: number, reason?: string): void
@@ -88,7 +88,7 @@ class AIGatewayResponsesTurn implements ModelTurn {
     await options.beforeCall?.(params)
 
     const result = await this.withSingleFlight(() => this.callOverWebSocket(params))
-    if (result.responseId && result.message.stopReason !== 'error') this.advanceAnchor(result.responseId)
+    if (result.responseID && result.message.stopReason !== 'error') this.advanceAnchor(result.responseID)
     return result
   }
 
@@ -97,7 +97,7 @@ class AIGatewayResponsesTurn implements ModelTurn {
     const params = statefulToolResultsRecordParams(this.model, input, this.stateful)
 
     const result = await this.withSingleFlight(() => this.recordToolResultsOverWebSocket(params))
-    this.advanceAnchor(result.responseId)
+    this.advanceAnchor(result.responseID)
     return result
   }
 
@@ -183,9 +183,9 @@ class AIGatewayResponsesTurn implements ModelTurn {
     const stream = ws.stream() as AsyncIterableIterator<ResponsesStreamMessage>
     const requestPayload = { type: 'response.create' as const, ...params }
     let textBuffer = ''
-    let responseId: string | undefined
+    let responseID: string | undefined
     const stableItems: ResponseOutputItem[] = []
-    const functionCallsById = new Map<string, ResponseFunctionToolCall>()
+    const functionCallsByID = new Map<string, ResponseFunctionToolCall>()
 
     try {
       ws.send(requestPayload)
@@ -210,7 +210,7 @@ class AIGatewayResponsesTurn implements ModelTurn {
               const item = recordValue(frame.item)
               if (item) {
                 stableItems.push(item as unknown as ResponseOutputItem)
-                rememberFunctionCall(functionCallsById, item)
+                rememberFunctionCall(functionCallsByID, item)
               }
               continue
             }
@@ -222,7 +222,7 @@ class AIGatewayResponsesTurn implements ModelTurn {
               const output = arrayValue(response?.output) as ResponseOutputItem[] | undefined
               const terminalItems = output && output.length > 0 ? output : stableItems
               const responseStatus = typeof response?.status === 'string' ? response.status : undefined
-              responseId = typeof response?.id === 'string' ? response.id : responseId
+              responseID = typeof response?.id === 'string' ? response.id : responseID
               const usage = usageFromResponse(recordValue(response?.usage))
               const terminal = terminalProjection(frame.type, responseStatus, response, frame)
               const result = parseOutputItems(
@@ -232,9 +232,9 @@ class AIGatewayResponsesTurn implements ModelTurn {
                 terminal.status,
                 textBuffer,
                 terminal.errorMessage,
-                [...functionCallsById.values()]
+                [...functionCallsByID.values()]
               )
-              result.responseId = responseId
+              result.responseID = responseID
               await stream.return?.()
               return result
             }
@@ -291,12 +291,12 @@ class AIGatewayResponsesTurn implements ModelTurn {
           switch (frame.type) {
             case 'response.tool_results.recorded': {
               const response = recordValue(frame.response)
-              const responseId = stringValue(response?.id) ?? stringValue(frame.response_id)
-              if (!responseId) {
+              const responseID = stringValue(response?.id) ?? stringValue(frame.response_id)
+              if (!responseID) {
                 throw new Error('AIGateway tool result record ack did not include response.id')
               }
               await stream.return?.()
-              return { responseId }
+              return { responseID }
             }
 
             case 'error':
@@ -332,11 +332,11 @@ class AIGatewayResponsesTurn implements ModelTurn {
     }
   }
 
-  private advanceAnchor(responseId: string): void {
+  private advanceAnchor(responseID: string): void {
     this.stateful = {
       ...this.stateful,
-      conversationId: undefined,
-      previousResponseId: responseId
+      conversationID: undefined,
+      previousResponseID: responseID
     }
   }
 
@@ -368,15 +368,15 @@ function responsesSocket(transport: ResponseWebSocketTransport, authorization: s
   } as never)
 }
 
-function openAIClientForWebSocket(webSocketUrl: string): OpenAI {
+function openAIClientForWebSocket(webSocketURL: string): OpenAI {
   return new OpenAI({
     apiKey: 'unused',
-    baseURL: httpBaseUrlFromWebSocketUrl(webSocketUrl)
+    baseURL: httpBaseURLFromWebSocketURL(webSocketURL)
   })
 }
 
-function httpBaseUrlFromWebSocketUrl(webSocketUrl: string): string {
-  const url = new URL(webSocketUrl)
+function httpBaseURLFromWebSocketURL(webSocketURL: string): string {
+  const url = new URL(webSocketURL)
   url.protocol = url.protocol === 'ws:' ? 'http:' : 'https:'
   url.pathname = url.pathname.replace(/\/responses\/?$/, '')
   return url.toString().replace(/\/+$/, '')
@@ -389,8 +389,8 @@ function responseSocketReadyState(ws: ResponsesSocket): number | undefined {
 function terminalProjection(
   frameType: string | undefined,
   responseStatus: string | undefined,
-  response: JsonObject | undefined,
-  frame: JsonObject
+  response: JSONObject | undefined,
+  frame: JSONObject
 ): { status?: StopReason; errorMessage?: string } {
   if (frameType === 'response.completed' && responseStatus !== 'failed') return {}
 
@@ -410,7 +410,7 @@ function terminalProjection(
   }
 }
 
-function incompleteReason(response: JsonObject | undefined): string | undefined {
+function incompleteReason(response: JSONObject | undefined): string | undefined {
   return stringValue(recordValue(response?.incomplete_details)?.reason)
 }
 
@@ -477,7 +477,7 @@ class InjectedResponsesWS extends ResponsesWSBase<InjectedWebSocketAdapter> {
   }
 }
 
-class InjectedWebSocketAdapter implements SdkWebSocketLike {
+class InjectedWebSocketAdapter implements SDKWebSocketLike {
   private listeners = new Map<string, Map<(...args: never[]) => void, (event: unknown) => void>>()
 
   constructor(private readonly socket: InjectedSocketLike) {}

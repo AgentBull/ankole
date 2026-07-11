@@ -2,10 +2,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Map, Number, Value, json};
-use uuid::Uuid;
+use uuid::Uuid as UUID;
 
 use super::error::{StreamError, StreamErrorCode};
-use super::spec::{ApiResolverKind, ResponseContext};
+use super::spec::{APIResolverKind, ResponseContext};
 
 mod anthropic;
 mod aws_bedrock_converse;
@@ -23,8 +23,8 @@ mod web;
 
 use self::anthropic::*;
 use self::aws_bedrock_converse::*;
-use self::core::ApiProtocol;
-pub use self::core::ApiResolver;
+use self::core::APIProtocol;
+pub use self::core::APIResolver;
 use self::embeddings::*;
 use self::google_embeddings::*;
 use self::google_gemini::*;

@@ -1,12 +1,17 @@
 import { z } from 'zod'
-import { deepString, isRecord, safeJsonParse, safeJsonStringify } from '@pleisto/active-support'
-import type { JsonObject } from '@pleisto/active-support'
+import {
+  deepString,
+  isRecord,
+  safeJsonParse as safeJSONParse,
+  safeJsonStringify as safeJSONStringify
+} from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import { browserExtractFromSession, ensureBrowserSession, type BrowserRuntimeOptions } from '../browser/cdp'
 import type { AgentTool, AgentToolResult } from '../../core'
-import type { AIGatewayHttpClient } from '../../core/aigateway_transport'
+import type { AIGatewayHTTPClient } from '../../core/ai_gateway_transport'
 import { errorMessage } from '../../common/errors'
 
-type WebToolDetails = JsonObject
+type WebToolDetails = JSONObject
 
 interface WebToolAvailability {
   available?: boolean
@@ -20,32 +25,32 @@ interface WebToolsResponse {
 }
 
 export interface CreateWebToolsOptions {
-  aiGateway: AIGatewayHttpClient
+  aiGateway: AIGatewayHTTPClient
   abortSignal?: AbortSignal
   localBrowser?: LocalBrowserWebFetchOptions
 }
 
 export interface LocalBrowserWebFetchOptions {
-  agentUid: string
-  executionScopeId?: string | null
+  agentUID: string
+  executionScopeID?: string | null
   localBrowserIdleTtlMs?: number
-  fetchUrl?: LocalBrowserFetchUrl
+  fetchURL?: LocalBrowserFetchURL
 }
 
-export type LocalBrowserFetchUrl = (input: { url: string; index: number }, signal?: AbortSignal) => Promise<unknown>
+export type LocalBrowserFetchURL = (input: { url: string; index: number }, signal?: AbortSignal) => Promise<unknown>
 
 const WebSearchParams = z.object({
   query: z.string().min(1).max(500).describe('Search query.'),
   limit: z.number().int().min(1).max(100).optional().describe('Maximum result count. Defaults to 5.')
 })
 
-const HttpsUrl = z
+const HTTPSURL = z
   .string()
   .url()
-  .refine(value => isHttpsUrl(value), 'Only HTTPS URLs are supported.')
+  .refine(value => isHTTPSURL(value), 'Only HTTPS URLs are supported.')
 
 const WebFetchParams = z.object({
-  urls: z.array(HttpsUrl).min(1).max(5).describe('Public HTTPS URLs to fetch. Maximum 5.')
+  urls: z.array(HTTPSURL).min(1).max(5).describe('Public HTTPS URLs to fetch. Maximum 5.')
 })
 
 /**
@@ -80,7 +85,7 @@ export async function createWebTools(opts: CreateWebToolsOptions): Promise<Agent
  * Builds the provider-backed web_search tool.
  */
 function createWebSearchTool(
-  aiGateway: AIGatewayHttpClient,
+  aiGateway: AIGatewayHTTPClient,
   model: string
 ): AgentTool<typeof WebSearchParams, WebToolDetails> {
   return {
@@ -91,7 +96,7 @@ function createWebSearchTool(
     isReadOnly: true,
     isDestructive: false,
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<WebToolDetails>> {
-      const body = await postAIGatewayJson(
+      const body = await postAIGatewayJSON(
         aiGateway,
         '/web_search',
         {
@@ -118,7 +123,7 @@ function createWebSearchTool(
  * the provider path is unavailable.
  */
 function createWebFetchTool(
-  aiGateway: AIGatewayHttpClient,
+  aiGateway: AIGatewayHTTPClient,
   config: {
     providerModel?: string
     localBrowser?: LocalBrowserWebFetchOptions
@@ -140,7 +145,7 @@ function createWebFetchTool(
 
       if (config.providerModel) {
         try {
-          body = await postAIGatewayJson(
+          body = await postAIGatewayJSON(
             aiGateway,
             '/web_fetch',
             { model: config.providerModel, urls: params.urls },
@@ -178,15 +183,15 @@ async function localBrowserFetch(
   config: LocalBrowserWebFetchOptions,
   signal?: AbortSignal,
   fallbackReason?: string
-): Promise<JsonObject> {
-  const fetchUrl = config.fetchUrl ?? createLocalBrowserFetchUrl(config)
-  const results: JsonObject[] = []
+): Promise<JSONObject> {
+  const fetchURL = config.fetchURL ?? createLocalBrowserFetchURL(config)
+  const results: JSONObject[] = []
 
   for (const [index, url] of urls.entries()) {
     if (signal?.aborted) throw new Error('web_fetch aborted')
     try {
-      if (!isHttpsUrl(url)) throw new Error('Only HTTPS URLs are supported.')
-      const result = await fetchUrl({ url, index }, signal)
+      if (!isHTTPSURL(url)) throw new Error('Only HTTPS URLs are supported.')
+      const result = await fetchURL({ url, index }, signal)
       results.push(normalizeLocalBrowserFetchResult(url, result))
     } catch (error) {
       if (signal?.aborted) throw error
@@ -214,11 +219,11 @@ async function localBrowserFetch(
  * The session name is scoped to the agent/session so cookies and page state can
  * persist during a turn without leaking across unrelated execution scopes.
  */
-function createLocalBrowserFetchUrl(config: LocalBrowserWebFetchOptions): LocalBrowserFetchUrl {
-  const executionScopeId = sanitizeWebFetchId(config.executionScopeId || config.agentUid || 'default')
-  const session = `web-fetch-${executionScopeId}`
+function createLocalBrowserFetchURL(config: LocalBrowserWebFetchOptions): LocalBrowserFetchURL {
+  const executionScopeID = sanitizeWebFetchID(config.executionScopeID || config.agentUID || 'default')
+  const session = `web-fetch-${executionScopeID}`
   const options: BrowserRuntimeOptions = {
-    remoteCdpConfig: null,
+    remoteCDPConfig: null,
     ...(typeof config.localBrowserIdleTtlMs === 'number' ? { localBrowserIdleTtlMs: config.localBrowserIdleTtlMs } : {})
   }
   let sessionReady = false
@@ -229,7 +234,7 @@ function createLocalBrowserFetchUrl(config: LocalBrowserWebFetchOptions): LocalB
       await ensureBrowserSession({ session }, options)
       sessionReady = true
     }
-    const extracted = await browserExtractFromSession({ session, url, taskId: `web-fetch-${index + 1}` }, options)
+    const extracted = await browserExtractFromSession({ session, url, taskID: `web-fetch-${index + 1}` }, options)
     if (!extracted) throw new Error('local browser returned no extract result')
     return extracted
   }
@@ -239,10 +244,10 @@ function createLocalBrowserFetchUrl(config: LocalBrowserWebFetchOptions): LocalB
  * Normalizes browser extract output into the same rough result shape as
  * provider web_fetch.
  */
-function normalizeLocalBrowserFetchResult(url: string, value: unknown): JsonObject {
+function normalizeLocalBrowserFetchResult(url: string, value: unknown): JSONObject {
   const record = isRecord(value) ? value : { text: String(value ?? '') }
   const metadata = isRecord(record.metadata) ? record.metadata : {}
-  const result: JsonObject = {
+  const result: JSONObject = {
     url: stringField(record, 'url') || url,
     title: stringField(record, 'title'),
     text: stringField(record, 'text') || '',
@@ -264,11 +269,11 @@ function normalizeLocalBrowserFetchResult(url: string, value: unknown): JsonObje
  * Reads the web-tool availability document from AIGateway.
  */
 async function fetchWebToolsAvailability(
-  aiGateway: AIGatewayHttpClient,
+  aiGateway: AIGatewayHTTPClient,
   signal?: AbortSignal
 ): Promise<WebToolsResponse> {
   try {
-    const response = await aiGateway.fetch(aiGatewayUrl(aiGateway, '/web_tools'), { signal })
+    const response = await aiGateway.fetch(aiGatewayURL(aiGateway, '/web_tools'), { signal })
     if (!response.ok) return {}
     const body = await response.json()
     return isRecord(body) ? (body as WebToolsResponse) : {}
@@ -280,20 +285,20 @@ async function fetchWebToolsAvailability(
 /**
  * Sends a JSON POST to an AIGateway web-tool endpoint and parses the response.
  */
-async function postAIGatewayJson(
-  aiGateway: AIGatewayHttpClient,
+async function postAIGatewayJSON(
+  aiGateway: AIGatewayHTTPClient,
   path: string,
-  body: JsonObject,
+  body: JSONObject,
   signal?: AbortSignal
 ): Promise<unknown> {
-  const response = await aiGateway.fetch(aiGatewayUrl(aiGateway, path), {
+  const response = await aiGateway.fetch(aiGatewayURL(aiGateway, path), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
     signal
   })
   const text = await response.text()
-  const parsed = parseJson(text)
+  const parsed = parseJSON(text)
 
   if (!response.ok) {
     throw new Error(gatewayErrorMessage(parsed, response.status))
@@ -357,9 +362,9 @@ function formatFetchResults(body: unknown): string {
 /**
  * Parses JSON, preserving raw text when the gateway returns non-JSON content.
  */
-function parseJson(text: string): unknown {
+function parseJSON(text: string): unknown {
   if (!text) return {}
-  return safeJsonParse(text).match(
+  return safeJSONParse(text).match(
     value => value,
     () => ({ raw: text })
   )
@@ -371,7 +376,7 @@ function parseJson(text: string): unknown {
 function gatewayErrorMessage(body: unknown, status: number): string {
   const message = isRecord(body) ? deepString(body, ['error', 'message']) : undefined
   const code = isRecord(body) ? deepString(body, ['error', 'code']) : undefined
-  return [`AIGateway web tool request failed with HTTP ${status}`, code, message || safeJsonStringify(body)]
+  return [`AIGateway web tool request failed with HTTP ${status}`, code, message || safeJSONStringify(body)]
     .filter(Boolean)
     .join(': ')
 }
@@ -379,21 +384,21 @@ function gatewayErrorMessage(body: unknown, status: number): string {
 /**
  * Joins an AIGateway base URL and endpoint path.
  */
-function aiGatewayUrl(aiGateway: AIGatewayHttpClient, path: string): string {
+function aiGatewayURL(aiGateway: AIGatewayHTTPClient, path: string): string {
   return `${aiGateway.baseURL.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`
 }
 
 /**
  * Ensures details are JSON-object-shaped for AgentToolResult.
  */
-function detailsObject(value: unknown): JsonObject {
+function detailsObject(value: unknown): JSONObject {
   return isRecord(value) ? value : { value }
 }
 
 /**
  * Reads a non-empty string field from a JSON object.
  */
-function stringField(record: JsonObject, key: string): string | undefined {
+function stringField(record: JSONObject, key: string): string | undefined {
   const value = record[key]
   return typeof value === 'string' && value.trim() ? value : undefined
 }
@@ -404,7 +409,7 @@ function stringField(record: JsonObject, key: string): string | undefined {
 /**
  * Accepts only public HTTPS URLs for web_fetch.
  */
-function isHttpsUrl(value: string): boolean {
+function isHTTPSURL(value: string): boolean {
   try {
     return new URL(value).protocol === 'https:'
   } catch {
@@ -415,7 +420,7 @@ function isHttpsUrl(value: string): boolean {
 /**
  * Sanitizes the execution scope into a browser session id.
  */
-function sanitizeWebFetchId(value: string): string {
+function sanitizeWebFetchID(value: string): string {
   const safe = value
     .trim()
     .replace(/[^a-zA-Z0-9._-]+/g, '-')

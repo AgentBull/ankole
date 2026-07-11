@@ -117,7 +117,7 @@ defmodule Ankole.Plugins.LarkAdapter do
   defp chat_fields do
     [
       field(
-        "appId",
+        "appID",
         %{"default" => "App ID", "zh-Hans-CN" => "应用 ID"},
         %{"default" => "Self-built app identifier.", "zh-Hans-CN" => "自建应用的 App ID。"},
         :string,
@@ -143,7 +143,7 @@ defmodule Ankole.Plugins.LarkAdapter do
         ]
       ),
       field(
-        "baseUrl",
+        "baseURL",
         %{"default" => "Base URL", "zh-Hans-CN" => "基础 URL"},
         %{
           "default" => "Optional override for local provider-compatible testing.",
@@ -178,7 +178,7 @@ defmodule Ankole.Plugins.LarkAdapter do
   defp identity_fields do
     [
       field(
-        "appId",
+        "appID",
         %{"default" => "App ID", "zh-Hans-CN" => "应用 ID"},
         %{"default" => "Self-built app identifier.", "zh-Hans-CN" => "自建应用的 App ID。"},
         :string,

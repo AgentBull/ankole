@@ -8,7 +8,7 @@ defmodule Ankole.AuthZ.ExternalBinding do
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
 
-  alias Ankole.Ecto.JsonPayload
+  alias Ankole.Ecto.JSONPayload
   alias Ankole.AuthZ.Group
 
   @primary_key false
@@ -42,7 +42,7 @@ defmodule Ankole.AuthZ.ExternalBinding do
     |> normalize_provider()
     |> validate_required([:provider, :external_kind, :external_id, :group_id, :metadata])
     |> validate_format(:provider, @provider_format)
-    |> JsonPayload.validate_map(:metadata)
+    |> JSONPayload.validate_map(:metadata)
     |> foreign_key_constraint(:group_id)
     |> unique_constraint(:external_id, name: :principal_group_external_bindings_pkey)
     |> check_constraint(:provider, name: :principal_group_external_bindings_provider_present)

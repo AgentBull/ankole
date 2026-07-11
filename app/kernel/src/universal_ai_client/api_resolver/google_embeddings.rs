@@ -2,7 +2,7 @@ use super::*;
 #[derive(Debug)]
 pub(super) struct GoogleEmbeddings;
 
-impl ApiProtocol for GoogleEmbeddings {
+impl APIProtocol for GoogleEmbeddings {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
         Ok(build_google_embeddings_body(context))
     }

@@ -81,8 +81,8 @@ class FakeComputer implements ContainerComputer {
 
 function contextFor(computer: ContainerComputer, overrides: Partial<ComputerToolContext> = {}): ComputerToolContext {
   return {
-    agentUid: 'agent-1',
-    executionScopeId: 'scope-1',
+    agentUID: 'agent-1',
+    executionScopeID: 'scope-1',
     workspaceRoot: '/workspace',
     getComputer: async () => computer,
     ...overrides
@@ -274,7 +274,7 @@ describe('computer tools', () => {
     )
     const tool = createCommandTool(contextFor(computer))
 
-    const result = await tool.execute('call-1', { action: 'status', backgroundId: 'bg-1' })
+    const result = await tool.execute('call-1', { action: 'status', backgroundID: 'bg-1' })
     const text = textOf(result)
 
     expect(text).toContain('background_id=bg-1')
@@ -299,7 +299,7 @@ describe('computer tools', () => {
     computer.backgroundStatusSnapshot = backgroundSnapshot('bg-1', async () => '')
     const tool = createCommandTool(contextFor(computer))
 
-    const result = await tool.execute('call-1', { action: 'status', backgroundId: 'bg-1' })
+    const result = await tool.execute('call-1', { action: 'status', backgroundID: 'bg-1' })
 
     expect(textOf(result)).toContain('[no new output]')
   })
@@ -310,7 +310,7 @@ describe('computer tools', () => {
     const workspaceRoot = mkdtempSync(join(tmpdir(), 'ankole-bg-owner-'))
     const otherWorkspaceRoot = mkdtempSync(join(tmpdir(), 'ankole-bg-other-'))
     let ownerComputer: ContainerComputer | undefined
-    let backgroundId: string | undefined
+    let backgroundID: string | undefined
 
     try {
       mkdirSync(join(workspaceRoot, 'temp'), { recursive: true })
@@ -325,23 +325,23 @@ describe('computer tools', () => {
         args: ['-lc', 'sleep 30'],
         timeoutMs: 30_000
       })
-      backgroundId = started.id
+      backgroundID = started.id
 
-      expect((await ownerComputer.backgroundCommands.list()).map(command => command.id)).toContain(backgroundId)
-      expect(await ownerComputer.backgroundCommands.status(backgroundId)).not.toBeNull()
+      expect((await ownerComputer.backgroundCommands.list()).map(command => command.id)).toContain(backgroundID)
+      expect(await ownerComputer.backgroundCommands.status(backgroundID)).not.toBeNull()
 
       expect(await peerConversationComputer.backgroundCommands.list()).toEqual([])
-      expect(await peerConversationComputer.backgroundCommands.status(backgroundId)).toBeNull()
-      expect(await peerConversationComputer.backgroundCommands.kill(backgroundId)).toBeNull()
+      expect(await peerConversationComputer.backgroundCommands.status(backgroundID)).toBeNull()
+      expect(await peerConversationComputer.backgroundCommands.kill(backgroundID)).toBeNull()
 
       expect(await otherWorkspaceComputer.backgroundCommands.list()).toEqual([])
-      expect(await otherWorkspaceComputer.backgroundCommands.status(backgroundId)).toBeNull()
-      expect(await otherWorkspaceComputer.backgroundCommands.kill(backgroundId)).toBeNull()
+      expect(await otherWorkspaceComputer.backgroundCommands.status(backgroundID)).toBeNull()
+      expect(await otherWorkspaceComputer.backgroundCommands.kill(backgroundID)).toBeNull()
 
-      expect((await ownerComputer.backgroundCommands.kill(backgroundId))?.status).toBe('killed')
-      backgroundId = undefined
+      expect((await ownerComputer.backgroundCommands.kill(backgroundID))?.status).toBe('killed')
+      backgroundID = undefined
     } finally {
-      if (ownerComputer && backgroundId) await ownerComputer.backgroundCommands.kill(backgroundId)
+      if (ownerComputer && backgroundID) await ownerComputer.backgroundCommands.kill(backgroundID)
       rmSync(workspaceRoot, { recursive: true, force: true })
       rmSync(otherWorkspaceRoot, { recursive: true, force: true })
     }
@@ -501,8 +501,8 @@ describe('computer tools', () => {
     try {
       const computer = createContainerComputer(workspaceRoot, 'scope-patch-boundary')
       const tool = createPatchTool({
-        agentUid: 'agent-1',
-        executionScopeId: 'scope-patch-boundary',
+        agentUID: 'agent-1',
+        executionScopeID: 'scope-patch-boundary',
         workspaceRoot,
         getComputer: async () => computer
       })

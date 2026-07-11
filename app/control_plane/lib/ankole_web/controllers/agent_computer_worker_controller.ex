@@ -1,22 +1,24 @@
 defmodule AnkoleWeb.AgentComputerWorkerController do
+  alias OpenApiSpex, as: OpenAPISpex
+
   @moduledoc """
   Console REST API for the agent computer worker registry.
   """
 
   use AnkoleWeb, :controller
-  use OpenApiSpex.ControllerSpecs
+  use OpenAPISpex.ControllerSpecs
 
   alias Ankole.SignalsGateway
   alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsolePolicy
-  alias AnkoleWeb.Schemas.ConsoleApi.AgentComputerWorkerListResponse
-  alias AnkoleWeb.Schemas.ConsoleApi.ErrorEnvelope
+  alias AnkoleWeb.Schemas.ConsoleAPI.AgentComputerWorkerListResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
 
   tags(["Workers"])
   security([%{"consoleBearer" => []}])
 
-  plug OpenApiSpex.Plug.CastAndValidate,
-    render_error: AnkoleWeb.OpenApiValidationErrorRenderer
+  plug OpenAPISpex.Plug.CastAndValidate,
+    render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
 
   operation(:index,
     summary: "List agent computer workers",
@@ -29,7 +31,7 @@ defmodule AnkoleWeb.AgentComputerWorkerController do
 
   def index(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "agent_computer_workers", "read") do
-      json(conn, %{data: Enum.map(SignalsGateway.list_workers(), &worker_json/1)})
+      json(conn, %{workers: Enum.map(SignalsGateway.list_workers(), &worker_json/1)})
     else
       {:error, reason} -> error(conn, reason)
     end

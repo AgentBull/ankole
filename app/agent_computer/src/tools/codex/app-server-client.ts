@@ -1,7 +1,7 @@
-import { err, isRecord, ok, Result, type JsonObject } from '@pleisto/active-support'
+import { err, isRecord, ok, Result, type JsonObject as JSONObject } from '@pleisto/active-support'
 import { errorMessage, toError } from '../../common/errors'
 
-export type JsonRpcMessage = JsonObject & {
+export type JSONRPCMessage = JSONObject & {
   id?: string | number
   method?: string
   params?: unknown
@@ -9,11 +9,11 @@ export type JsonRpcMessage = JsonObject & {
   error?: unknown
 }
 
-export type CodexServerRequestHandler = (message: JsonRpcMessage, client: CodexAppServerClient) => Promise<void>
-export type CodexNotificationHandler = (message: JsonRpcMessage) => void
+export type CodexServerRequestHandler = (message: JSONRPCMessage, client: CodexAppServerClient) => Promise<void>
+export type CodexNotificationHandler = (message: JSONRPCMessage) => void
 export type CodexAuditHandler = (
   direction: 'client_to_server' | 'server_to_client' | 'client_response',
-  message: JsonRpcMessage
+  message: JSONRPCMessage
 ) => void
 
 type PendingRequest = {
@@ -22,7 +22,7 @@ type PendingRequest = {
   timeout: ReturnType<typeof setTimeout>
 }
 
-type JsonRpcLineError = {
+type JSONRPCLineError = {
   line: string
   message: string
 }
@@ -50,10 +50,10 @@ export type CodexAppServerClientOptions = {
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000
 const INITIALIZE_REQUEST_TIMEOUT_MS = 15_000
 const THREAD_START_REQUEST_TIMEOUT_MS = 30_000
-const parseJsonLine = Result.fromThrowable((line: string) => JSON.parse(line) as unknown)
+const parseJSONLine = Result.fromThrowable((line: string) => JSON.parse(line) as unknown)
 
 export class CodexAppServerClient {
-  private nextId = 1
+  private nextID = 1
   private pending = new Map<string | number, PendingRequest>()
   private stdin?: WritableFileSink
   private closed = false
@@ -96,7 +96,7 @@ export class CodexAppServerClient {
     )
   }
 
-  async initialize(): Promise<JsonObject> {
+  async initialize(): Promise<JSONObject> {
     const response =
       (await this.request(
         'initialize',
@@ -107,17 +107,17 @@ export class CodexAppServerClient {
             version: '0.1.0'
           },
           capabilities: {
-            experimentalApi: true
+            ['experimentalApi']: true
           }
         },
         INITIALIZE_REQUEST_TIMEOUT_MS
       )) ?? {}
     await this.notify('initialized', {})
-    return isRecord(response) ? (response as JsonObject) : {}
+    return isRecord(response) ? (response as JSONObject) : {}
   }
 
   async request(method: string, params: unknown, timeoutMs = defaultRequestTimeoutMs(method)): Promise<unknown> {
-    const id = this.nextId++
+    const id = this.nextID++
     const message = { method, id, params }
     const promise = new Promise<unknown>((resolve, reject) => {
       const timeout = setTimeout(() => {
@@ -160,14 +160,14 @@ export class CodexAppServerClient {
     }
   }
 
-  private async write(message: JsonRpcMessage, direction: 'client_to_server' | 'client_response' = 'client_to_server') {
+  private async write(message: JSONRPCMessage, direction: 'client_to_server' | 'client_response' = 'client_to_server') {
     if (this.closed) throw new Error('codex app-server client is closed')
     this.opts.audit?.(direction, message)
     await Promise.resolve(this.stdin?.write(this.encoder.encode(`${JSON.stringify(message)}\n`)))
   }
 
   private async readStdout(): Promise<void> {
-    await readJsonLines(this.proc.stdout && typeof this.proc.stdout === 'object' ? this.proc.stdout : null, line =>
+    await readJSONLines(this.proc.stdout && typeof this.proc.stdout === 'object' ? this.proc.stdout : null, line =>
       this.handleLine(line)
     )
   }
@@ -182,7 +182,7 @@ export class CodexAppServerClient {
   }
 
   private handleLine(line: string): void {
-    const parsed = parseJsonRpcLine(line)
+    const parsed = parseJSONRPCLine(line)
     if (parsed.isErr()) {
       this.opts.onNotification?.({
         method: '$parse_error',
@@ -226,7 +226,7 @@ export class CodexAppServerClient {
     this.opts.onNotification?.(rpc)
   }
 
-  private resolveResponse(message: JsonRpcMessage): void {
+  private resolveResponse(message: JSONRPCMessage): void {
     const id = message.id
     if (id === undefined) return
     const pending = this.pending.get(id)
@@ -257,17 +257,17 @@ function defaultRequestTimeoutMs(method: string): number {
   return DEFAULT_REQUEST_TIMEOUT_MS
 }
 
-function parseJsonRpcLine(line: string): Result<JsonRpcMessage | undefined, JsonRpcLineError> {
-  const parsed = parseJsonLine(line).mapErr(error => ({ line, message: errorText(error) }))
+function parseJSONRPCLine(line: string): Result<JSONRPCMessage | undefined, JSONRPCLineError> {
+  const parsed = parseJSONLine(line).mapErr(error => ({ line, message: errorText(error) }))
   if (parsed.isErr()) {
     return err(parsed.error)
   }
 
   const message = parsed.value
-  return ok(isRecord(message) ? (message as JsonRpcMessage) : undefined)
+  return ok(isRecord(message) ? (message as JSONRPCMessage) : undefined)
 }
 
-async function readJsonLines(stream: ReadableStream<Uint8Array> | null, onLine: (line: string) => void): Promise<void> {
+async function readJSONLines(stream: ReadableStream<Uint8Array> | null, onLine: (line: string) => void): Promise<void> {
   if (!stream) return
   const reader = stream.getReader()
   const decoder = new TextDecoder()

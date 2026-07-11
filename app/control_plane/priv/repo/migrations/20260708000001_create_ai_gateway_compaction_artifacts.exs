@@ -1,4 +1,4 @@
-defmodule Ankole.Repo.Migrations.CreateAiGatewayCompactionArtifacts do
+defmodule Ankole.Repo.Migrations.CreateAIGatewayCompactionArtifacts do
   use Ecto.Migration
 
   def up do

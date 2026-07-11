@@ -63,9 +63,9 @@ message Envelope {
     TurnNoopCompleted turn_noop_completed = 42;
     TurnCompleted turn_completed = 43;
     ControlShutdown control_shutdown = 50;
-    RpcRequest rpc_request = 70;
-    RpcResponse rpc_response = 71;
-    RpcError rpc_error = 72;
+    RPCRequest rpc_request = 70;
+    RPCResponse rpc_response = 71;
+    RPCError rpc_error = 72;
   }
 
 }
@@ -181,19 +181,19 @@ message ControlShutdown {
   string reason = 1;
 }
 
-message RpcRequest {
+message RPCRequest {
   string request_id = 1;
   string method = 2;
   int64 deadline_unix_ms = 3;
   bytes payload_json = 4;
 }
 
-message RpcResponse {
+message RPCResponse {
   string request_id = 1;
   bytes payload_json = 2;
 }
 
-message RpcError {
+message RPCError {
   string request_id = 1;
   string code = 2;
   string message = 3;

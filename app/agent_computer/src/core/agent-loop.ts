@@ -14,7 +14,11 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto'
-import { safeJsonParse, safeJsonStringify, type JsonObject } from '@pleisto/active-support'
+import {
+  safeJsonParse as safeJSONParse,
+  safeJsonStringify as safeJSONStringify,
+  type JsonObject as JSONObject
+} from '@pleisto/active-support'
 import { withRetry } from '../common/async'
 import { errorMessage } from '../common/errors'
 import {
@@ -29,7 +33,7 @@ import {
   type ModelTurn,
   type ToolCall
 } from './llm'
-import { isLocallyRetryableLlmError, isRetryableLlmError } from './llm-error-classifier'
+import { isLocallyRetryableLLMError, isRetryableLLMError } from './llm-error-classifier'
 import type { AgentLoopConfig, AgentLoopResult, AgentTool, AgentToolResult } from './types'
 import { contentText, imageSummaryBlock, modelImageAdaptation, responseImageUnavailableText } from './vision'
 
@@ -57,7 +61,7 @@ const VOLATILE_TOOL_ARGUMENT_KEYS = new Set([
 export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopResult> {
   let pendingMessages: Message[] = [...config.messages]
   let latestAssistant: AssistantMessage | undefined
-  let latestResponseId: string | undefined
+  let latestResponseID: string | undefined
   let outcome: AgentLoopResult['outcome'] = 'loop_finished'
   let modelIterations = 0
   let sawToolResults = false
@@ -85,7 +89,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
           modelTurn
         })
         latestAssistant = synthesized.message
-        latestResponseId = requiredResponseId(synthesized.responseId)
+        latestResponseID = requiredResponseID(synthesized.responseID)
         outcome = 'iteration_exhausted'
         break
       }
@@ -100,8 +104,8 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
                 name: t.name,
                 description: t.description,
                 parameters: t.schema,
-                execute: async (args: unknown, opts: { toolCallId: string }) => {
-                  return t.execute(opts.toolCallId, args as never, config.abortSignal)
+                execute: async (args: unknown, opts: { toolCallID: string }) => {
+                  return t.execute(opts.toolCallID, args as never, config.abortSignal)
                 }
               }
             ])
@@ -128,12 +132,12 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
         {
           maxAttempts: 2,
           signal: config.abortSignal,
-          isRetryable: isLocallyRetryableLlmError
+          isRetryable: isLocallyRetryableLLMError
         }
       )
 
       latestAssistant = result.message
-      latestResponseId = requiredResponseId(result.responseId)
+      latestResponseID = requiredResponseID(result.responseID)
 
       // If no tool calls, the loop is done.
       if (!result.hasToolCalls || !latestAssistant.toolCalls?.length) {
@@ -178,7 +182,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
           {
             maxAttempts: 2,
             signal: config.abortSignal,
-            isRetryable: isLocallyRetryableLlmError
+            isRetryable: isLocallyRetryableLLMError
           }
         )
 
@@ -192,10 +196,10 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
     modelTurn.close()
   }
 
-  if (!latestAssistant || !latestResponseId) {
+  if (!latestAssistant || !latestResponseID) {
     throw new Error('agent loop completed without a response-backed assistant message')
   }
-  return { message: latestAssistant, responseId: latestResponseId, outcome }
+  return { message: latestAssistant, responseID: latestResponseID, outcome }
 }
 
 /**
@@ -244,7 +248,7 @@ function retryableTerminalModelError(message: AssistantMessage): Error | undefin
   if (message.stopReason !== 'error') return undefined
   const error = new Error(message.errorMessage || 'LLM provider returned an error')
   error.name = 'LLMProviderTerminalError'
-  return isRetryableLlmError(error) ? error : undefined
+  return isRetryableLLMError(error) ? error : undefined
 }
 
 interface ExecutedToolCall {
@@ -295,18 +299,18 @@ async function synthesizeAfterModelIterationLimit(input: ModelIterationLimitSynt
     {
       maxAttempts: 2,
       signal: input.config.abortSignal,
-      isRetryable: isLocallyRetryableLlmError
+      isRetryable: isLocallyRetryableLLMError
     }
   )
 
   return result
 }
 
-function requiredResponseId(responseId: string | undefined): string {
-  if (!responseId?.startsWith('resp_')) {
+function requiredResponseID(responseID: string | undefined): string {
+  if (!responseID?.startsWith('resp_')) {
     throw new Error('AIGateway model call completed without a valid response id')
   }
-  return responseId
+  return responseID
 }
 
 /**
@@ -367,7 +371,7 @@ async function executeToolCall(
       toolName: toolCall.name,
       resultMsg: {
         role: 'tool',
-        toolCallId: toolCall.id,
+        toolCallID: toolCall.id,
         result: wrapUntrustedToolOutput(formatToolError(message))
       },
       followUpMessages: [],
@@ -387,7 +391,7 @@ async function executeToolCall(
       toolName: toolCall.name,
       resultMsg: {
         role: 'tool',
-        toolCallId: toolCall.id,
+        toolCallID: toolCall.id,
         result: wrapUntrustedToolOutput(formatToolError(message))
       },
       followUpMessages: [],
@@ -428,8 +432,8 @@ async function executeToolCall(
     toolName: toolCall.name,
     resultMsg: {
       role: 'tool',
-      toolCallId: toolCall.id,
-      result: wrapUntrustedToolOutput(resultText || safeJsonStringify(toolResult.details))
+      toolCallID: toolCall.id,
+      result: wrapUntrustedToolOutput(resultText || safeJSONStringify(toolResult.details))
     },
     followUpMessages,
     failure
@@ -496,12 +500,12 @@ function toolCallFailureKey(toolCall: ToolCall, kind: string, args: unknown): st
     name: toolCall.name,
     arguments: scrubVolatileToolArguments(parseToolArguments(args))
   }
-  return createHash('sha256').update(stableJson(stableInput)).digest('hex').slice(0, 16)
+  return createHash('sha256').update(stableJSON(stableInput)).digest('hex').slice(0, 16)
 }
 
 function parseToolArguments(args: unknown): unknown {
   if (typeof args !== 'string') return args
-  return safeJsonParse(args).match(
+  return safeJSONParse(args).match(
     value => value,
     () => args
   )
@@ -512,19 +516,19 @@ function scrubVolatileToolArguments(value: unknown): unknown {
   if (!value || typeof value !== 'object') return value
 
   return Object.fromEntries(
-    Object.entries(value as JsonObject)
+    Object.entries(value as JSONObject)
       .filter(([key]) => !VOLATILE_TOOL_ARGUMENT_KEYS.has(key))
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([key, entry]) => [key, scrubVolatileToolArguments(entry)])
   )
 }
 
-function stableJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`
+function stableJSON(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJSON).join(',')}]`
   if (value && typeof value === 'object') {
-    return `{${Object.entries(value as JsonObject)
+    return `{${Object.entries(value as JSONObject)
       .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`)
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableJSON(entry)}`)
       .join(',')}}`
   }
   return JSON.stringify(value) ?? 'null'

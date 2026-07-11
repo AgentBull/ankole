@@ -8,7 +8,7 @@ describe('@ankole/agent-computer turn context', () => {
     const turnStart = turnStartFor('agent-direct-context')
     const opts: TextTurnLoopOptions = {
       workspaceRoot: '/workspace',
-      requestAIGatewayApiKey: async () => {
+      requestAIGatewayAPIKey: async () => {
         throw new Error('not used')
       },
       requestAgentConversationContext: async () => {
@@ -29,11 +29,11 @@ describe('@ankole/agent-computer turn context', () => {
   })
 })
 
-function turnStartFor(agentUid: string): TurnStart {
+function turnStartFor(agentUID: string): TurnStart {
   return {
     turn: {
       actor: {
-        agent_uid: agentUid,
+        agent_uid: agentUID,
         session_id: 'session-1'
       },
       activation_uid: 'activation-1',

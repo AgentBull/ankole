@@ -1,24 +1,26 @@
-defmodule AnkoleWeb.ApiSpec do
+defmodule AnkoleWeb.APISpec do
+  alias OpenApiSpex, as: OpenAPISpex
+  alias OpenAPISpex.OpenApi, as: OpenAPI
+
   @moduledoc """
   OpenAPI description for the console SPA's generated client.
   """
 
-  @behaviour OpenApiSpex.OpenApi
+  @behaviour OpenAPI
 
-  alias OpenApiSpex.Components
-  alias OpenApiSpex.Info
-  alias OpenApiSpex.OpenApi
-  alias OpenApiSpex.Paths
-  alias OpenApiSpex.SecurityScheme
-  alias OpenApiSpex.Server
-  alias OpenApiSpex.Tag
+  alias OpenAPISpex.Components
+  alias OpenAPISpex.Info
+  alias OpenAPISpex.Paths
+  alias OpenAPISpex.SecurityScheme
+  alias OpenAPISpex.Server
+  alias OpenAPISpex.Tag
 
-  @impl OpenApiSpex.OpenApi
+  @impl OpenAPI
   def spec do
     # Paths are derived from the router's `operation/2` specs, so the document
     # always tracks the actual versioned routes. `version` is date-stamped rather
     # than semver.
-    %OpenApi{
+    %OpenAPI{
       servers: [Server.from_endpoint(AnkoleWeb.Endpoint)],
       info: %Info{
         title: "Ankole API",
@@ -88,6 +90,6 @@ defmodule AnkoleWeb.ApiSpec do
         }
       ]
     }
-    |> OpenApiSpex.resolve_schema_modules()
+    |> OpenAPISpex.resolve_schema_modules()
   end
 end

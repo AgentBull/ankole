@@ -1,5 +1,8 @@
 import { client } from './generated/client.gen'
-import { ankoleWebAuthControllerDeleteSession, ankoleWebAuthControllerOauthToken } from './generated/sdk.gen'
+import {
+  ankoleWebAuthControllerDeleteSession,
+  ankoleWebAuthControllerOauthToken as ankoleWebAuthControllerOAuthToken
+} from './generated/sdk.gen'
 import type { ConsoleTokenResponse } from './generated/types.gen'
 
 type TokenState = {
@@ -15,15 +18,15 @@ let tokenRequest: Promise<TokenState> | null = null
 let configured = false
 
 /** Configures the generated console API client for same-origin bearer requests. */
-export function configureConsoleApiClient() {
+export function configureConsoleAPIClient() {
   if (configured) return
   configured = true
 
   client.setConfig({
     auth: () => ensureAccessToken(),
-    baseUrl: window.location.origin,
+    ['baseUrl']: window.location.origin,
     credentials: 'same-origin',
-    fetch: consoleApiFetch as typeof fetch
+    fetch: consoleAPIFetch as typeof fetch
   })
 }
 
@@ -86,7 +89,7 @@ async function runTokenRequest(factory: () => Promise<TokenState>): Promise<Toke
 }
 
 async function exchangeBrowserSession(): Promise<TokenState> {
-  const { data } = await ankoleWebAuthControllerOauthToken({
+  const { data } = await ankoleWebAuthControllerOAuthToken({
     body: {
       grant_type: browserSessionGrant
     },
@@ -98,7 +101,7 @@ async function exchangeBrowserSession(): Promise<TokenState> {
 }
 
 async function refreshTokens(refreshToken: string): Promise<TokenState> {
-  const { data } = await ankoleWebAuthControllerOauthToken({
+  const { data } = await ankoleWebAuthControllerOAuthToken({
     body: {
       grant_type: 'refresh_token',
       refresh_token: refreshToken
@@ -127,7 +130,7 @@ function preRefreshAt(state: TokenState): number {
   return state.accessExpiresAt - skew
 }
 
-async function consoleApiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+async function consoleAPIFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const request = new Request(input, init)
   const retrySource = request.clone()
   const response = await fetch(request)

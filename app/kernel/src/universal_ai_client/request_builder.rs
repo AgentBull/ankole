@@ -1,20 +1,20 @@
 use serde_json::Value;
 
-use super::api_resolver::ApiResolver;
+use super::api_resolver::APIResolver;
 use super::error::StreamError;
 use super::spec::{ModelRequestSpec, StreamSpec, UpstreamKind, UpstreamSpec};
 
 pub fn prepare_stream_spec(mut spec: StreamSpec) -> Result<StreamSpec, StreamError> {
     match spec.upstream.kind {
-        UpstreamKind::WebsocketText => {
+        UpstreamKind::WebSocketText => {
             if spec.upstream.websocket_initial_messages.is_empty() {
-                let resolver = ApiResolver::new(spec.api_resolver, spec.response_context.clone());
+                let resolver = APIResolver::new(spec.api_resolver, spec.response_context.clone());
                 spec.upstream.websocket_initial_messages = resolver.websocket_initial_messages()?;
             }
             spec.upstream.body = None;
         }
-        UpstreamKind::HttpSse | UpstreamKind::HttpEventstream => {
-            let resolver = ApiResolver::new(spec.api_resolver, spec.response_context.clone());
+        UpstreamKind::HTTPSSE | UpstreamKind::HTTPEventstream => {
+            let resolver = APIResolver::new(spec.api_resolver, spec.response_context.clone());
             spec.upstream.body = Some(encode_json(Value::Object(resolver.build_body()?))?);
             put_default_model_headers(&mut spec.upstream);
         }
@@ -25,7 +25,7 @@ pub fn prepare_stream_spec(mut spec: StreamSpec) -> Result<StreamSpec, StreamErr
 
 pub fn prepare_model_upstream(spec: &ModelRequestSpec) -> Result<UpstreamSpec, StreamError> {
     let mut upstream = spec.stream_upstream();
-    let resolver = ApiResolver::new(spec.api_resolver, spec.response_context.clone());
+    let resolver = APIResolver::new(spec.api_resolver, spec.response_context.clone());
     upstream.body = Some(encode_json(Value::Object(resolver.build_body()?))?);
     put_default_json_headers(&mut upstream);
     Ok(upstream)
@@ -35,15 +35,15 @@ fn put_default_model_headers(upstream: &mut UpstreamSpec) {
     put_new_header(&mut upstream.headers, "content-type", "application/json");
 
     match upstream.kind {
-        UpstreamKind::HttpSse => {
+        UpstreamKind::HTTPSSE => {
             put_new_header(&mut upstream.headers, "accept", "text/event-stream")
         }
-        UpstreamKind::HttpEventstream => put_new_header(
+        UpstreamKind::HTTPEventstream => put_new_header(
             &mut upstream.headers,
             "accept",
             "application/vnd.amazon.eventstream",
         ),
-        UpstreamKind::WebsocketText => {}
+        UpstreamKind::WebSocketText => {}
     }
 }
 
@@ -78,13 +78,13 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::super::spec::{
-        ApiResolverKind, DownstreamKind, ResponseContext, StreamLimits, StreamSpec, TimeoutSpec,
+        APIResolverKind, DownstreamKind, ResponseContext, StreamLimits, StreamSpec, TimeoutSpec,
         TransportSpec, UpstreamKind, UpstreamSpec,
     };
     use super::*;
 
-    fn protocol_body(kind: ApiResolverKind, context: ResponseContext) -> Value {
-        let resolver = ApiResolver::new(kind, context);
+    fn protocol_body(kind: APIResolverKind, context: ResponseContext) -> Value {
+        let resolver = APIResolver::new(kind, context);
         sonic_rs::from_str(&encode_json(Value::Object(resolver.build_body().unwrap())).unwrap())
             .unwrap()
     }
@@ -92,9 +92,9 @@ mod tests {
     #[test]
     fn openai_responses_websocket_initial_message_preserves_stream_fields_not_service_tier() {
         let spec = StreamSpec {
-            api_resolver: ApiResolverKind::OpenaiResponses,
+            api_resolver: APIResolverKind::OpenAIResponses,
             upstream: UpstreamSpec {
-                kind: UpstreamKind::WebsocketText,
+                kind: UpstreamKind::WebSocketText,
                 method: "GET".to_string(),
                 url: "wss://example.test/v1/responses".to_string(),
                 headers: Vec::new(),
@@ -103,7 +103,7 @@ mod tests {
                 timeout: TimeoutSpec::default(),
                 transport: TransportSpec::default(),
             },
-            downstream: DownstreamKind::WebsocketText,
+            downstream: DownstreamKind::WebSocketText,
             response_context: ResponseContext {
                 model: "gpt-test".to_string(),
                 request: json!({
@@ -142,7 +142,7 @@ mod tests {
     #[test]
     fn google_embeddings_body_builds_embed_content_request() {
         let body = protocol_body(
-            ApiResolverKind::GoogleEmbeddings,
+            APIResolverKind::GoogleEmbeddings,
             ResponseContext {
                 model: "gemini-embedding-001".to_string(),
                 request: json!({"input": "hello", "dimensions": 2}),
@@ -160,7 +160,7 @@ mod tests {
     #[test]
     fn google_embeddings_body_builds_batch_embed_contents_request() {
         let body = protocol_body(
-            ApiResolverKind::GoogleEmbeddings,
+            APIResolverKind::GoogleEmbeddings,
             ResponseContext {
                 model: "models/gemini-embedding-001".to_string(),
                 request: json!({"input": ["hello", "world"], "taskType": "RETRIEVAL_DOCUMENT"}),
@@ -188,7 +188,7 @@ mod tests {
     #[test]
     fn openai_chat_body_keeps_provider_options_as_body_defaults() {
         let body = protocol_body(
-            ApiResolverKind::OpenaiChatCompletions,
+            APIResolverKind::OpenAIChatCompletions,
             ResponseContext {
                 model: "openrouter/model".to_string(),
                 request: json!({
@@ -214,7 +214,7 @@ mod tests {
     #[test]
     fn anthropic_messages_body_keeps_provider_options_as_body_defaults() {
         let body = protocol_body(
-            ApiResolverKind::AnthropicMessages,
+            APIResolverKind::AnthropicMessages,
             ResponseContext {
                 model: "claude-sonnet".to_string(),
                 request: json!({"input": "hello", "max_output_tokens": 128}),

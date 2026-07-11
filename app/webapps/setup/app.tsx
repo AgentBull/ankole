@@ -18,7 +18,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import * as v from 'valibot'
-import { internalApiGet, internalApiPost, internalApiPut } from '../common/internal-api-client'
+import { internalAPIGet, internalAPIPost, internalAPIPut } from '../common/internal-api-client'
 import {
   ConfigFields,
   defaultConfig,
@@ -28,7 +28,7 @@ import {
   type LocalizedText
 } from '../common/config-fields'
 import i18n, { nativeLocaleLabel } from '../common/i18n'
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import { requestErrorMessage } from '../common/request-errors'
 import { SetupLayout } from './layout'
 
@@ -48,11 +48,11 @@ type Plugin = {
 type SetupField = ConfigFieldDefinition
 
 type IdentityAdapter = {
-  adapterId: string
-  defaultProviderId: string
+  adapterID: string
+  defaultProviderID: string
   displayName?: LocalizedText
   fields: SetupField[]
-  pluginId: string
+  pluginID: string
 }
 
 const BootstrapSchema = v.object({
@@ -61,8 +61,8 @@ const BootstrapSchema = v.object({
 })
 
 const IdentitySchema = v.object({
-  adapterId: v.pipe(v.string(), v.nonEmpty('Adapter is required.')),
-  providerId: v.pipe(v.string(), v.regex(/^[a-z][a-z0-9_-]*$/, 'Use lowercase letters, numbers, _, or -.'))
+  adapterID: v.pipe(v.string(), v.nonEmpty('Adapter is required.')),
+  providerID: v.pipe(v.string(), v.regex(/^[a-z][a-z0-9_-]*$/, 'Use lowercase letters, numbers, _, or -.'))
 })
 
 /** Renders the setup SPA and switches between bootstrap, plugin, and identity steps. */
@@ -72,7 +72,7 @@ export function SetupApp() {
   const [step, setStep] = useState<'plugins' | 'identity'>('plugins')
   const state = useQuery({
     queryKey: ['setup-state'],
-    queryFn: () => internalApiGet<SetupState>('/.internal-apis/setup/state')
+    queryFn: () => internalAPIGet<SetupState>('/.internal-apis/setup/state')
   })
 
   useEffect(() => {
@@ -135,11 +135,11 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
   })
   const mutation = useMutation({
     mutationFn: (input: v.InferOutput<typeof BootstrapSchema>) =>
-      internalApiPost<{ ok: true }>('/.internal-apis/setup/sessions', input),
+      internalAPIPost<{ ok: true }>('/.internal-apis/setup/sessions', input),
     onSuccess: onAuthenticated
   })
   const printActivationCode = useMutation({
-    mutationFn: () => internalApiPost<{ ok: true }>('/.internal-apis/setup/bootstrap-activation-code/log-entries'),
+    mutationFn: () => internalAPIPost<{ ok: true }>('/.internal-apis/setup/bootstrap-activation-code/log-entries'),
     onSuccess: () => toast.success(t('setup.activation_printed'))
   })
   const availableLocales = useMemo(
@@ -222,16 +222,16 @@ function PluginsStep({ onContinue }: { onContinue: () => void }) {
   const { i18n: i18next, t } = useTranslation()
   const query = useQuery({
     queryKey: ['setup-plugins'],
-    queryFn: () => internalApiGet<{ enabledPluginIds: string[]; plugins: Plugin[] }>('/.internal-apis/setup/plugins')
+    queryFn: () => internalAPIGet<{ enabledPluginIDs: string[]; plugins: Plugin[] }>('/.internal-apis/setup/plugins')
   })
   const [selected, setSelected] = useState<Set<string> | null>(null)
   // `null` means the user has not touched the form yet. Until then, the server
   // value remains the source of truth and late query data can still populate UI.
-  const selectedIds = selected ?? new Set(query.data?.enabledPluginIds ?? [])
+  const selectedIDs = selected ?? new Set(query.data?.enabledPluginIDs ?? [])
   const mutation = useMutation({
     mutationFn: () =>
-      internalApiPut<{ enabledPluginIds: string[] }>('/.internal-apis/setup/plugins/enabled', {
-        pluginIds: [...selectedIds]
+      internalAPIPut<{ enabledPluginIDs: string[] }>('/.internal-apis/setup/plugins/enabled', {
+        pluginIDs: [...selectedIDs]
       }),
     onSuccess: onContinue
   })
@@ -242,14 +242,14 @@ function PluginsStep({ onContinue }: { onContinue: () => void }) {
       <ErrorAlert error={query.error ?? mutation.error} />
       <div className="grid gap-3 xl:grid-cols-2">
         {(query.data?.plugins ?? []).map(plugin => {
-          const checked = selectedIds.has(plugin.id)
+          const checked = selectedIDs.has(plugin.id)
 
           return (
             <label key={plugin.id} className="flex items-start gap-3 border border-border/70 bg-card/60 px-4 py-4">
               <Checkbox
                 checked={checked}
                 onCheckedChange={value => {
-                  const next = new Set(selectedIds)
+                  const next = new Set(selectedIDs)
                   value ? next.add(plugin.id) : next.delete(plugin.id)
                   setSelected(next)
                 }}
@@ -281,7 +281,7 @@ function PluginsStep({ onContinue }: { onContinue: () => void }) {
 function IdentityStep() {
   const query = useQuery({
     queryKey: ['setup-identity-provider-adapters'],
-    queryFn: () => internalApiGet<{ adapters: IdentityAdapter[] }>('/.internal-apis/setup/identity-provider-adapters')
+    queryFn: () => internalAPIGet<{ adapters: IdentityAdapter[] }>('/.internal-apis/setup/identity-provider-adapters')
   })
 
   if (query.isLoading) return <Panel title="">{i18n.t('common.loading')}</Panel>
@@ -297,37 +297,37 @@ function IdentityForm({ adapters }: { adapters: IdentityAdapter[] }) {
   const form = useForm({
     schema: IdentitySchema,
     initialInput: {
-      adapterId: firstAdapter.adapterId,
-      providerId: firstAdapter.defaultProviderId
+      adapterID: firstAdapter.adapterID,
+      providerID: firstAdapter.defaultProviderID
     },
     validate: 'submit',
     revalidate: 'input'
   })
-  const [adapterId, setAdapterId] = useState(firstAdapter.adapterId)
-  const activeAdapter = adapters.find(adapter => adapter.adapterId === adapterId) ?? firstAdapter
-  const [config, setConfig] = useState<JsonObject>(() => defaultConfig(activeAdapter.fields))
+  const [adapterID, setAdapterID] = useState(firstAdapter.adapterID)
+  const activeAdapter = adapters.find(adapter => adapter.adapterID === adapterID) ?? firstAdapter
+  const [config, setConfig] = useState<JSONObject>(() => defaultConfig(activeAdapter.fields))
   const mutation = useMutation({
     mutationFn: async (input: v.InferOutput<typeof IdentitySchema>) => {
-      await internalApiPut(`/.internal-apis/setup/identity-providers/${encodeURIComponent(input.providerId)}`, {
-        adapter: input.adapterId,
+      await internalAPIPut(`/.internal-apis/setup/identity-providers/${encodeURIComponent(input.providerID)}`, {
+        adapterID: input.adapterID,
         config,
         enabled: true
       })
-      return internalApiPost<{ authorizationUrl: string }>(
-        `/.internal-apis/setup/identity-providers/${encodeURIComponent(input.providerId)}/oidc/authorizations`
+      return internalAPIPost<{ authorizationURL: string }>(
+        `/.internal-apis/setup/identity-providers/${encodeURIComponent(input.providerID)}/oidc/authorizations`
       )
     },
-    onSuccess: result => window.location.assign(result.authorizationUrl)
+    onSuccess: result => window.location.assign(result.authorizationURL)
   })
 
-  function changeAdapter(nextAdapterId: string) {
-    const nextAdapter = adapters.find(adapter => adapter.adapterId === nextAdapterId) ?? firstAdapter
-    setAdapterId(nextAdapter.adapterId)
+  function changeAdapter(nextAdapterID: string) {
+    const nextAdapter = adapters.find(adapter => adapter.adapterID === nextAdapterID) ?? firstAdapter
+    setAdapterID(nextAdapter.adapterID)
     // Switching adapters resets generated config because field paths and default
     // values are adapter-owned. Preserving old config would mix provider contracts.
     setConfig(defaultConfig(nextAdapter.fields))
-    setInput(form, { path: ['adapterId'], input: nextAdapter.adapterId })
-    setInput(form, { path: ['providerId'], input: nextAdapter.defaultProviderId })
+    setInput(form, { path: ['adapterID'], input: nextAdapter.adapterID })
+    setInput(form, { path: ['providerID'], input: nextAdapter.defaultProviderID })
   }
 
   return (
@@ -335,25 +335,25 @@ function IdentityForm({ adapters }: { adapters: IdentityAdapter[] }) {
       <ErrorAlert error={mutation.error} />
       <Form className="grid gap-6" of={form} onSubmit={output => mutation.mutate(output)}>
         <FieldGroup className="grid gap-5 md:grid-cols-2">
-          <FormField of={form} path={['adapterId']}>
+          <FormField of={form} path={['adapterID']}>
             {field => (
               <Field>
                 <FieldLabel>{t('setup.adapter')}</FieldLabel>
                 <Select
-                  value={String(field.input ?? activeAdapter.adapterId)}
+                  value={String(field.input ?? activeAdapter.adapterID)}
                   onValueChange={value => {
                     if (value) changeAdapter(value)
                   }}>
                   <SelectTrigger className="w-full">
                     <SelectValue>
                       {value =>
-                        identityAdapterLabel(adapterById(adapters, value ?? activeAdapter.adapterId), i18next.language)
+                        identityAdapterLabel(adapterByID(adapters, value ?? activeAdapter.adapterID), i18next.language)
                       }
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {adapters.map(adapter => (
-                      <SelectItem key={adapter.adapterId} value={adapter.adapterId}>
+                      <SelectItem key={adapter.adapterID} value={adapter.adapterID}>
                         {identityAdapterLabel(adapter, i18next.language)}
                       </SelectItem>
                     ))}
@@ -364,7 +364,7 @@ function IdentityForm({ adapters }: { adapters: IdentityAdapter[] }) {
             )}
           </FormField>
 
-          <FormField of={form} path={['providerId']}>
+          <FormField of={form} path={['providerID']}>
             {field => (
               <Field>
                 <FieldLabel>{t('setup.provider_id')}</FieldLabel>
@@ -416,12 +416,12 @@ function NoAdapters({ error }: { error: unknown }) {
   )
 }
 
-function adapterById(adapters: IdentityAdapter[], adapterId: string): IdentityAdapter {
-  return adapters.find(adapter => adapter.adapterId === adapterId) ?? adapters[0]
+function adapterByID(adapters: IdentityAdapter[], adapterID: string): IdentityAdapter {
+  return adapters.find(adapter => adapter.adapterID === adapterID) ?? adapters[0]
 }
 
 function identityAdapterLabel(adapter: IdentityAdapter, locale: string): string {
-  return localizedText(adapter.displayName, locale) ?? adapter.adapterId
+  return localizedText(adapter.displayName, locale) ?? adapter.adapterID
 }
 
 /** Shared setup panel frame. */

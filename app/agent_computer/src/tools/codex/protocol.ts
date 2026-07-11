@@ -1,24 +1,24 @@
 import { jsonObject, match } from '@pleisto/active-support'
-import type { JsonObject } from '@pleisto/active-support'
-import type { JsonRpcMessage } from './app-server-client'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import type { JSONRPCMessage } from './app-server-client'
 import type { SubagentDelegationStatus } from '../../lanes/rpc_lane'
 
 export type CodexNotificationProjection =
-  | { type: 'stderr'; params: JsonObject }
-  | { type: 'turn_started'; turnId?: string }
+  | { type: 'stderr'; params: JSONObject }
+  | { type: 'turn_started'; turnID?: string }
   | { type: 'agent_delta'; delta: string }
   | { type: 'agent_completed'; text: string }
-  | { type: 'token_usage'; usage: JsonObject }
+  | { type: 'token_usage'; usage: JSONObject }
   | { type: 'turn_diff'; diff: string }
   | {
       type: 'turn_completed'
       codexTurnStatus: string
       terminalStatus: SubagentDelegationStatus
-      error: JsonObject
+      error: JSONObject
     }
   | { type: 'ignored' }
 
-export function projectCodexNotification(message: JsonRpcMessage): CodexNotificationProjection {
+export function projectCodexNotification(message: JSONRPCMessage): CodexNotificationProjection {
   const method = typeof message.method === 'string' ? message.method : ''
   const params = jsonObject(message.params)
 
@@ -26,7 +26,7 @@ export function projectCodexNotification(message: JsonRpcMessage): CodexNotifica
 
   if (method === 'turn/started') {
     const turn = jsonObject(params.turn)
-    return { type: 'turn_started', turnId: stringValue(turn.id) }
+    return { type: 'turn_started', turnID: stringValue(turn.id) }
   }
 
   if (method === 'item/agentMessage/delta' && typeof params.delta === 'string') {
@@ -62,7 +62,7 @@ export function projectCodexNotification(message: JsonRpcMessage): CodexNotifica
   return { type: 'ignored' }
 }
 
-export function textInput(text: string): Array<JsonObject> {
+export function textInput(text: string): Array<JSONObject> {
   return [{ type: 'text', text, text_elements: [] }]
 }
 
@@ -74,17 +74,17 @@ export function approvalRequestMethod(method: string): boolean {
   return method.endsWith('/requestApproval') || method === 'execCommandApproval' || method === 'applyPatchApproval'
 }
 
-export function approvalRejection(method: string): JsonObject {
+export function approvalRejection(method: string): JSONObject {
   return match(method)
     .with('execCommandApproval', 'applyPatchApproval', () => ({ decision: 'denied' }))
     .otherwise(() => ({ decision: 'decline' }))
 }
 
 export function userInputResponse(
-  params: JsonObject,
+  params: JSONObject,
   fallbackAnswer: string,
   suppliedAnswers?: Record<string, string | string[]>
-): JsonObject {
+): JSONObject {
   const questions = Array.isArray(params.questions) ? params.questions : []
   const answers: Record<string, { answers: string[] }> = {}
 

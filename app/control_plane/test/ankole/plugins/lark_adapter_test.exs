@@ -90,16 +90,16 @@ defmodule Ankole.Plugins.LarkAdapterTest do
              ]
 
       assert Enum.map(chat_fields, & &1.path) == [
-               "appId",
+               "appID",
                "appSecret",
                "domain",
-               "baseUrl",
+               "baseURL",
                "platformSubjectNamespace",
                "userName"
              ]
 
       assert Enum.map(identity_fields, & &1.path) == [
-               "appId",
+               "appID",
                "appSecret",
                "domain",
                "oidc.enabled",
@@ -117,11 +117,11 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       identity_fields_by_path = Map.new(identity_fields, &{&1.path, &1})
 
       assert Enum.all?(chat_fields, &(&1.advanced == false))
-      assert identity_fields_by_path["appId"].advanced == false
+      assert identity_fields_by_path["appID"].advanced == false
       assert identity_fields_by_path["oidc.scopes"].advanced == true
       assert identity_fields_by_path["sync.websocket"].advanced == true
       assert identity_fields_by_path["sync.pageSize"].advanced == true
-      assert chat_fields_by_path["appId"].advanced == false
+      assert chat_fields_by_path["appID"].advanced == false
 
       patterns = LarkAdapter.app_config_patterns()
 
@@ -136,63 +136,63 @@ defmodule Ankole.Plugins.LarkAdapterTest do
     test "chat and identity config validation applies design defaults" do
       assert {:ok, chat} =
                Config.validate_chat_config(%{
-                 "appId" => "cli_x",
+                 "appID" => "cli_x",
                  "appSecret" => "secret"
                })
 
       assert chat["domain"] == "feishu"
-      assert chat["baseUrl"] == nil
+      assert chat["baseURL"] == nil
       refute Map.has_key?(chat, "group_message_mode")
       assert chat["platformSubjectNamespace"] == "lark-main"
-      assert chat["botOpenId"] == nil
-      assert chat["botUserId"] == nil
+      assert chat["botOpenID"] == nil
+      assert chat["botUserID"] == nil
 
       # A binding no longer requires a hand-entered bot identity: the bot's own
       # open_id is resolved from bot/v3/info at connection time.
-      assert {:ok, %{"botOpenId" => nil, "botUserId" => nil}} =
+      assert {:ok, %{"botOpenID" => nil, "botUserID" => nil}} =
                Config.validate_binding_config(%{
-                 "appId" => "cli_x",
+                 "appID" => "cli_x",
                  "appSecret" => "secret"
                })
 
-      assert {:ok, %{"baseUrl" => "http://127.0.0.1:4455"}} =
+      assert {:ok, %{"baseURL" => "http://127.0.0.1:4455"}} =
                Config.validate_chat_config(%{
-                 "appId" => "cli_x",
+                 "appID" => "cli_x",
                  "appSecret" => "secret",
-                 "baseUrl" => "http://127.0.0.1:4455"
+                 "baseURL" => "http://127.0.0.1:4455"
                })
 
-      assert {:error, {:invalid_base_url, "baseUrl"}} =
+      assert {:error, {:invalid_base_url, "baseURL"}} =
                Config.validate_chat_config(%{
-                 "appId" => "cli_x",
+                 "appID" => "cli_x",
                  "appSecret" => "secret",
-                 "baseUrl" => "ftp://bad"
+                 "baseURL" => "ftp://bad"
                })
 
-      # With no botOpenId configured, the adapter resolves the bot's own open_id
+      # With no botOpenID configured, the adapter resolves the bot's own open_id
       # from bot/v3/info using the app credentials alone.
       resolved =
         Config.resolve_runtime_bot_identity(
           chat,
           bot_info_fetcher: fn config ->
-            send(self(), {:bot_info_config, Map.take(config, ["appId", "botOpenId"])})
+            send(self(), {:bot_info_config, Map.take(config, ["appID", "botOpenID"])})
             {:ok, "ou_runtime_bot"}
           end
         )
 
-      assert_received {:bot_info_config, %{"appId" => "cli_x", "botOpenId" => nil}}
-      assert resolved["botOpenId"] == nil
-      assert resolved["runtimeBotOpenId"] == "ou_runtime_bot"
+      assert_received {:bot_info_config, %{"appID" => "cli_x", "botOpenID" => nil}}
+      assert resolved["botOpenID"] == nil
+      assert resolved["runtimeBotOpenID"] == "ou_runtime_bot"
 
-      # An explicit botOpenId override skips the provider lookup entirely.
+      # An explicit botOpenID override skips the provider lookup entirely.
       assert Config.resolve_runtime_bot_identity(
-               %{chat | "botOpenId" => "ou_explicit"},
+               %{chat | "botOpenID" => "ou_explicit"},
                bot_info_fetcher: fn _config -> {:error, :should_not_be_called} end
-             ) == %{chat | "botOpenId" => "ou_explicit"}
+             ) == %{chat | "botOpenID" => "ou_explicit"}
 
       assert {:ok, identity} =
                Config.validate_identity_config(%{
-                 "appId" => "cli_x",
+                 "appID" => "cli_x",
                  "appSecret" => "secret"
                })
 
@@ -202,7 +202,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
       assert {:ok, identity_sync_disabled} =
                Config.validate_identity_config(%{
-                 "appId" => "cli_x",
+                 "appID" => "cli_x",
                  "appSecret" => "secret",
                  "sync" => %{"contacts" => false, "websocket" => true}
                })
@@ -214,7 +214,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
       assert {:error, {:invalid_integer_range, "pageSize", 1, 50}} =
                Config.validate_identity_config(%{
-                 "appId" => "cli_x",
+                 "appID" => "cli_x",
                  "appSecret" => "secret",
                  "sync" => %{"pageSize" => 100}
                })
@@ -236,7 +236,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                AppConfigure.put_global_by_key(
                  Config.chat_config_key("lark-first"),
                  %{
-                   "appId" => "cli_reconciler",
+                   "appID" => "cli_reconciler",
                    "appSecret" => "secret",
                    "platformSubjectNamespace" => "lark-main",
                    "userName" => "Lark Bot"
@@ -247,7 +247,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                AppConfigure.put_global_by_key(
                  Config.chat_config_key("lark-second"),
                  %{
-                   "appId" => "cli_reconciler",
+                   "appID" => "cli_reconciler",
                    "appSecret" => "secret",
                    "platformSubjectNamespace" => "lark-main",
                    "userName" => "Lark Bot"
@@ -280,7 +280,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                IdentityProviders.save_provider(
                  "lark-main",
                  "lark",
-                 %{"appId" => "cli_identity_reconciler", "appSecret" => "secret"},
+                 %{"appID" => "cli_identity_reconciler", "appSecret" => "secret"},
                  true
                )
 
@@ -311,7 +311,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  "lark-disabled",
                  "lark",
                  %{
-                   "appId" => "cli_identity_disabled",
+                   "appID" => "cli_identity_disabled",
                    "appSecret" => "secret",
                    "sync" => %{"contacts" => false, "websocket" => true}
                  },
@@ -1213,7 +1213,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert {:ok, _} =
                AppConfigure.put_global_by_key(
                  Config.chat_config_key("lark-disabled-sync"),
-                 chat_config(%{"appId" => "cli_disabled_sync"})
+                 chat_config(%{"appID" => "cli_disabled_sync"})
                )
 
       binding_fixture(agent.uid, "lark-disabled-sync", :ignore)
@@ -1418,7 +1418,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
       assert get_in(department_group.metadata, [
                "external_directory",
-               "parentExternalId"
+               "parentExternalID"
              ]) == "0"
 
       assert Repo.get_by(Membership,
@@ -1457,7 +1457,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  "lark-main",
                  "lark",
                  %{
-                   "appId" => "cli_identity",
+                   "appID" => "cli_identity",
                    "appSecret" => "secret",
                    "sync" => %{"contacts" => true, "websocket" => false}
                  },
@@ -1474,7 +1474,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  "lark-main",
                  "lark",
                  %{
-                   "appId" => "cli_identity",
+                   "appID" => "cli_identity",
                    "appSecret" => "secret",
                    "sync" => %{"contacts" => true, "websocket" => true}
                  },
@@ -1526,7 +1526,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                IdentityProviders.save_provider(
                  "lark-main",
                  "lark",
-                 %{"appId" => "cli_identity", "appSecret" => "secret"},
+                 %{"appID" => "cli_identity", "appSecret" => "secret"},
                  true
                )
 
@@ -1560,7 +1560,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                IdentityProviders.save_provider(
                  "lark-main",
                  "lark",
-                 %{"appId" => "cli_identity", "appSecret" => "secret"},
+                 %{"appID" => "cli_identity", "appSecret" => "secret"},
                  true
                )
 
@@ -1623,7 +1623,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
           adapter: "lark",
           user_name: "Lark Bot"
         ),
-      config: chat_config(%{"appId" => app_id})
+      config: chat_config(%{"appID" => app_id})
     }
   end
 
@@ -1698,10 +1698,10 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   defp chat_config(overrides \\ %{}) do
     {:ok, config} =
       %{
-        "appId" => "cli_test",
+        "appID" => "cli_test",
         "appSecret" => "secret",
         "platformSubjectNamespace" => "lark-main",
-        "botOpenId" => "ou_bot"
+        "botOpenID" => "ou_bot"
       }
       |> Map.merge(overrides)
       |> Config.validate_chat_config()
@@ -1712,7 +1712,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   defp identity_config do
     {:ok, config} =
       Config.validate_identity_config(%{
-        "appId" => "cli_test",
+        "appID" => "cli_test",
         "appSecret" => "secret"
       })
 

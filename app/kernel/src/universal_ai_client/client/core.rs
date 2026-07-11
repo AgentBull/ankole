@@ -13,7 +13,7 @@ use tokio::time::timeout;
 use tokio_tungstenite::tungstenite::Message;
 
 pub use spec::{
-    DownstreamKind, ModelRequestSpec, RawRequestSpec, ApiResolverKind, StreamLimits,
+    DownstreamKind, ModelRequestSpec, RawRequestSpec, APIResolverKind, StreamLimits,
     StreamSpec, UpstreamKind,
 };
 
@@ -138,7 +138,7 @@ async fn run_model_request(spec: ModelRequestSpec) -> Result<Value, StreamError>
     }
 
     let body = decode_response_body(&response.body)?;
-    let mut resolver = api_resolver::ApiResolver::new(
+    let mut resolver = api_resolver::APIResolver::new(
         spec.api_resolver,
         spec.response_context.clone(),
     );

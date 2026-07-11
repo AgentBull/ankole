@@ -1,27 +1,29 @@
 defmodule AnkoleWeb.SubagentDelegationController do
+  alias OpenApiSpex, as: OpenAPISpex
+
   @moduledoc """
   Installation-wide console API for observing and cancelling subagent work.
   """
 
   use AnkoleWeb, :controller
-  use OpenApiSpex.ControllerSpecs
+  use OpenAPISpex.ControllerSpecs
 
   alias Ankole.SubagentDelegations
   alias Ankole.SubagentDelegations.Schemas.Delegation
   alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsolePolicy
-  alias AnkoleWeb.Schemas.ConsoleApi.ErrorEnvelope
-  alias AnkoleWeb.Schemas.ConsoleApi.SubagentDelegationListResponse
-  alias AnkoleWeb.Schemas.ConsoleApi.SubagentDelegationResponse
-  alias OpenApiSpex.Schema
+  alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
+  alias AnkoleWeb.Schemas.ConsoleAPI.SubagentDelegationListResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.SubagentDelegationResponse
+  alias OpenAPISpex.Schema
 
   @statuses Delegation.statuses()
 
   tags(["Subagent Delegations"])
   security([%{"consoleBearer" => []}])
 
-  plug OpenApiSpex.Plug.CastAndValidate,
-    render_error: AnkoleWeb.OpenApiValidationErrorRenderer
+  plug OpenAPISpex.Plug.CastAndValidate,
+    render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
 
   operation(:index,
     summary: "List subagent delegations",
@@ -75,7 +77,7 @@ defmodule AnkoleWeb.SubagentDelegationController do
              limit: integer_param(params, "limit", 50)
            ) do
       json(conn, %{
-        data: Enum.map(page.delegations, &SubagentDelegations.console_projection/1),
+        delegations: Enum.map(page.delegations, &SubagentDelegations.console_projection/1),
         next_cursor: page.next_cursor
       })
     else
@@ -86,7 +88,7 @@ defmodule AnkoleWeb.SubagentDelegationController do
   def show(conn, params) do
     with :ok <- ConsolePolicy.authorize(conn, "subagent_delegations", "read"),
          %Delegation{} = delegation <- delegation(params) do
-      json(conn, %{data: detail_projection(delegation)})
+      json(conn, %{delegation: detail_projection(delegation)})
     else
       nil -> error(conn, :not_found)
       {:error, reason} -> error(conn, reason)
@@ -102,7 +104,7 @@ defmodule AnkoleWeb.SubagentDelegationController do
              "cancel_requested_by" => "operator:#{conn.assigns.current_principal_uid}",
              "reason" => "Cancelled from the operator console"
            }) do
-      json(conn, %{data: detail_projection(cancelled)})
+      json(conn, %{delegation: detail_projection(cancelled)})
     else
       nil -> error(conn, :not_found)
       {:error, reason} -> error(conn, reason)

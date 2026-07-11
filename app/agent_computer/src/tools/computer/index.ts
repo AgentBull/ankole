@@ -1,5 +1,5 @@
 import type { AgentTool } from '../../core'
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import { createBrowserTools } from '../browser/browser-tools'
 import { createCommandTool } from './command-tool'
 import { createContainerComputer } from './computer'
@@ -10,10 +10,10 @@ import { createReadFileTool } from './read-file-tool'
 import { createReplyAttachmentTool } from './reply-attachment-tool'
 
 export interface ComputerToolsBinding {
-  agentUid: string
-  conversationId?: string
+  agentUID: string
+  conversationID?: string
   workspaceRoot: string
-  browserRemoteCdpConfig?: JsonObject | null
+  browserRemoteCDPConfig?: JSONObject | null
   localBrowserIdleTtlMs?: number
 }
 
@@ -25,13 +25,13 @@ export interface ComputerToolsBinding {
  * tool contracts but binds them to the container's `/workspace`.
  */
 export function createComputerTools(binding: ComputerToolsBinding): AgentTool<any>[] {
-  const executionScopeId = binding.conversationId ?? binding.agentUid
-  const computer = createContainerComputer(binding.workspaceRoot, executionScopeId)
+  const executionScopeID = binding.conversationID ?? binding.agentUID
+  const computer = createContainerComputer(binding.workspaceRoot, executionScopeID)
   const context: ComputerToolContext = {
-    agentUid: binding.agentUid,
+    agentUID: binding.agentUID,
     workspaceRoot: binding.workspaceRoot,
-    executionScopeId,
-    browserRemoteCdpConfig: binding.browserRemoteCdpConfig,
+    executionScopeID,
+    browserRemoteCDPConfig: binding.browserRemoteCDPConfig,
     localBrowserIdleTtlMs: binding.localBrowserIdleTtlMs,
     getComputer: async () => computer
   }

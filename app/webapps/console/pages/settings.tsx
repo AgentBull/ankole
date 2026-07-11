@@ -12,14 +12,14 @@ import {
   ankoleWebAppConfigurationControllerUpdateMutation
 } from '../api/generated/@tanstack/react-query.gen'
 import { requestErrorMessage } from '../../common/request-errors'
-import { formatJson, parseJson } from '../console-primitives'
-import { JsonField, ResourceEditorPage, ResourceListPage } from '../console-shell'
+import { formatJSON, parseJSON } from '../console-primitives'
+import { JSONField, ResourceEditorPage, ResourceListPage } from '../console-shell'
 
 export function SettingsListPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const list = useQuery(ankoleWebAppConfigurationControllerIndexOptions())
-  const items = list.data?.data ?? []
+  const items = list.data?.app_configurations ?? []
 
   return (
     <ResourceListPage
@@ -78,12 +78,12 @@ export function SettingEditorPage() {
   const key = params.key ? decodeURIComponent(params.key) : ''
 
   const list = useQuery(ankoleWebAppConfigurationControllerIndexOptions())
-  const summary = list.data?.data.find(item => item.key === key)
+  const summary = list.data?.app_configurations.find(item => item.key === key)
   const detail = useQuery({
     ...ankoleWebAppConfigurationControllerShowOptions({ path: { key } }),
     enabled: Boolean(summary?.editable && key)
   })
-  const item = detail.data?.data ?? summary
+  const item = detail.data?.app_configuration ?? summary
 
   const [text, setText] = useState('')
   const [error, setError] = useState<string>()
@@ -91,7 +91,7 @@ export function SettingEditorPage() {
 
   useEffect(() => {
     setRevealed(undefined)
-    setText(formatJson(item?.encrypted && item.value === undefined ? {} : (item?.value ?? null)))
+    setText(formatJSON(item?.encrypted && item.value === undefined ? {} : (item?.value ?? null)))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item?.key, item?.source, item?.value])
 
@@ -99,7 +99,7 @@ export function SettingEditorPage() {
   const update = useMutation({
     ...ankoleWebAppConfigurationControllerUpdateMutation(),
     onSuccess: response => {
-      toast.success(t('console.settings.saved', { key: response.data.key }))
+      toast.success(t('console.settings.saved', { key: response.app_configuration.key }))
       refresh()
       navigate('..')
     },
@@ -116,14 +116,14 @@ export function SettingEditorPage() {
   })
   const decrypt = useMutation({
     ...ankoleWebAppConfigurationControllerDecryptMutation(),
-    onSuccess: response => setRevealed(response.data.value),
+    onSuccess: response => setRevealed(response.decrypted_value.value),
     onError: mutationError => toast.error(requestErrorMessage(mutationError))
   })
 
   const submit = () => {
     setError(undefined)
     if (!item) return
-    const parsed = parseJson(text, 'value')
+    const parsed = parseJSON(text, 'value')
     if (!parsed.ok) {
       setError(parsed.error)
       return
@@ -157,7 +157,7 @@ export function SettingEditorPage() {
         {item?.encrypted ? <Badge variant="destructive">{t('console.status.encrypted')}</Badge> : null}
       </div>
 
-      <JsonField label={t('console.settings.value')} value={text} minRows={10} onChange={setText} />
+      <JSONField label={t('console.settings.value')} value={text} minRows={10} onChange={setText} />
 
       {item?.encrypted ? (
         <Button
@@ -172,7 +172,7 @@ export function SettingEditorPage() {
       ) : null}
 
       {revealed !== undefined ? (
-        <pre className="max-h-72 overflow-auto border border-border bg-muted p-3 text-xs">{formatJson(revealed)}</pre>
+        <pre className="max-h-72 overflow-auto border border-border bg-muted p-3 text-xs">{formatJSON(revealed)}</pre>
       ) : null}
     </ResourceEditorPage>
   )

@@ -1,4 +1,7 @@
 defmodule AnkoleWeb.Router do
+  alias OpenApiSpex, as: OpenAPISpex
+  alias OpenAPISpex.Plug.PutApiSpec, as: PutAPISpec
+
   @moduledoc """
   Routes the Phoenix shell, setup API, and admin auth API.
 
@@ -28,7 +31,7 @@ defmodule AnkoleWeb.Router do
 
   pipeline :openapi do
     plug :accepts, ["json"]
-    plug OpenApiSpex.Plug.PutApiSpec, module: AnkoleWeb.ApiSpec
+    plug PutAPISpec, module: AnkoleWeb.APISpec
   end
 
   pipeline :session_api do
@@ -46,7 +49,7 @@ defmodule AnkoleWeb.Router do
     # No session/CSRF here. Each request must present its own bearer token, which
     # RequireConsoleAccessToken verifies and resolves to an active human admin.
     plug :accepts, ["json"]
-    plug OpenApiSpex.Plug.PutApiSpec, module: AnkoleWeb.ApiSpec
+    plug PutAPISpec, module: AnkoleWeb.APISpec
     plug AnkoleWeb.Plugs.RequireConsoleAccessToken
   end
 
@@ -54,7 +57,7 @@ defmodule AnkoleWeb.Router do
     # Runtime AI calls are stateless HTTP requests authenticated as either an
     # agent-scoped AIGateway token or an active human admin console token.
     plug :accepts, ["json", "event-stream"]
-    plug OpenApiSpex.Plug.PutApiSpec, module: AnkoleWeb.ApiSpec
+    plug PutAPISpec, module: AnkoleWeb.APISpec
     plug AnkoleWeb.Plugs.RequireAIGatewayAccessToken
   end
 
@@ -95,7 +98,7 @@ defmodule AnkoleWeb.Router do
   scope "/api/v1" do
     pipe_through :openapi
 
-    get "/openapi.json", OpenApiSpex.Plug.RenderSpec, []
+    get "/openapi.json", OpenAPISpex.Plug.RenderSpec, []
   end
 
   scope "/api/v1", AnkoleWeb do

@@ -30,7 +30,7 @@ defmodule Ankole.AIGateway.Providers.GoogleAIStudioOpenAI do
     setting(:user, scope: :request)
     setting(:reasoningEffort, scope: :request)
     setting(:textVerbosity, scope: :request)
-    setting(:strictJsonSchema, scope: :request)
+    setting(:strictJSONSchema, scope: :request)
     setting(:taskType, scope: :request)
     setting(:title, scope: :request)
     setting(:outputDimensionality, scope: :request)

@@ -27,7 +27,7 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
     setting(:reasoning, scope: :request)
     setting(:reasoningEffort, scope: :request)
     setting(:textVerbosity, scope: :request)
-    setting(:strictJsonSchema, scope: :request)
+    setting(:strictJSONSchema, scope: :request)
 
     language_model do
       upstream(:sse)

@@ -125,7 +125,7 @@ defmodule Ankole.E2E.FakeFeishu.State do
   @doc "Arms a one-shot delay (milliseconds) before one server op."
   def delay_next(state, op, ms), do: GenServer.call(state, {:arm_fault, op, {:delay, ms}})
 
-  # -- server-facing API (Router / WsHandler) --------------------------------
+  # -- server-facing API (Router / WebSocketHandler) --------------------------------
 
   def authenticate_app(state, app_id, app_secret),
     do: GenServer.call(state, {:authenticate_app, app_id, app_secret})

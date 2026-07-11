@@ -1,23 +1,26 @@
 defmodule AnkoleWeb.ScheduleController do
+  alias OpenApiSpex, as: OpenAPISpex
+
   @moduledoc """
   Console REST API for actor schedules.
   """
 
   use AnkoleWeb, :controller
-  use OpenApiSpex.ControllerSpecs
+  use OpenAPISpex.ControllerSpecs
 
   alias Ankole.Schedule
   alias Ankole.Schedule.Schemas.CronSchedule
   alias Ankole.Schedule.Schemas.ScheduledEvent
   alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsolePolicy
-  alias AnkoleWeb.Schemas.ConsoleApi.ErrorEnvelope
-  alias AnkoleWeb.Schemas.ConsoleApi.ScheduleCronScheduleListResponse
-  alias AnkoleWeb.Schemas.ConsoleApi.ScheduleCronScheduleResponse
-  alias AnkoleWeb.Schemas.ConsoleApi.ScheduleCronUpdateRequest
-  alias AnkoleWeb.Schemas.ConsoleApi.ScheduleCronWriteRequest
-  alias AnkoleWeb.Schemas.ConsoleApi.ScheduleEventListResponse
-  alias AnkoleWeb.Schemas.ConsoleApi.ScheduleEventResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
+  alias AnkoleWeb.Schemas.ConsoleAPI.ScheduleCronScheduleListResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.ScheduleCronScheduleResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.ScheduleCronUpdateRequest
+  alias AnkoleWeb.Schemas.ConsoleAPI.ScheduleCronWriteRequest
+  alias AnkoleWeb.Schemas.ConsoleAPI.ScheduleEventListResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.ScheduleEventResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.ScheduleRunListResponse
 
   @actor_parameters [
     agent_uid: [in: :path, type: :string, required: true],
@@ -27,8 +30,8 @@ defmodule AnkoleWeb.ScheduleController do
   tags(["Schedule"])
   security([%{"consoleBearer" => []}])
 
-  plug OpenApiSpex.Plug.CastAndValidate,
-    render_error: AnkoleWeb.OpenApiValidationErrorRenderer
+  plug OpenAPISpex.Plug.CastAndValidate,
+    render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
 
   operation(:index_cron,
     summary: "List recurring schedules for one agent session",
@@ -115,7 +118,7 @@ defmodule AnkoleWeb.ScheduleController do
           cron_schedule_id: [in: :path, type: :string, required: true],
           limit: [in: :query, type: :integer, required: false]
         ],
-    responses: [ok: {"Scheduled events", "application/json", ScheduleEventListResponse}]
+    responses: [ok: {"Schedule runs", "application/json", ScheduleRunListResponse}]
   )
 
   operation(:index_checkbacks,
@@ -139,7 +142,7 @@ defmodule AnkoleWeb.ScheduleController do
         |> Schedule.list_cron_schedules(actor.session_id)
         |> Enum.map(&Schedule.cron_projection/1)
 
-      json(conn, %{data: schedules})
+      json(conn, %{cron_schedules: schedules})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -152,7 +155,7 @@ defmodule AnkoleWeb.ScheduleController do
          created_by <- cron_created_by(conn),
          {:ok, %{cron_schedule: schedule}} <-
            Schedule.create_cron_schedule(attrs, created_by: created_by) do
-      json(conn, %{data: Schedule.cron_projection(schedule)})
+      json(conn, %{cron_schedule: Schedule.cron_projection(schedule)})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -162,7 +165,7 @@ defmodule AnkoleWeb.ScheduleController do
     with {:ok, actor} <- actor_params(params),
          :ok <- ConsolePolicy.authorize(conn, schedule_resource(actor.agent_uid), "read"),
          {:ok, schedule} <- cron_for_actor(params, actor) do
-      json(conn, %{data: Schedule.cron_projection(schedule)})
+      json(conn, %{cron_schedule: Schedule.cron_projection(schedule)})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -174,7 +177,7 @@ defmodule AnkoleWeb.ScheduleController do
          {:ok, schedule} <- cron_for_actor(params, actor),
          {:ok, updated} <-
            Schedule.update_cron_schedule(schedule.id, normalize_external_attrs(conn.body_params)) do
-      json(conn, %{data: Schedule.cron_projection(updated)})
+      json(conn, %{cron_schedule: Schedule.cron_projection(updated)})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -194,7 +197,7 @@ defmodule AnkoleWeb.ScheduleController do
          :ok <- ConsolePolicy.authorize(conn, schedule_resource(actor.agent_uid), "update"),
          {:ok, schedule} <- cron_for_actor(params, actor),
          {:ok, %{scheduled_event: event}} <- Schedule.run_cron_schedule(schedule.id) do
-      json(conn, %{data: Schedule.event_projection(event)})
+      json(conn, %{schedule_event: Schedule.event_projection(event)})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -209,7 +212,7 @@ defmodule AnkoleWeb.ScheduleController do
         |> Schedule.list_cron_runs(list_limit(params))
         |> Enum.map(&Schedule.event_projection/1)
 
-      json(conn, %{data: runs})
+      json(conn, %{schedule_runs: runs})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -223,7 +226,7 @@ defmodule AnkoleWeb.ScheduleController do
         |> Schedule.list_checkbacks(actor.session_id)
         |> Enum.map(&Schedule.event_projection/1)
 
-      json(conn, %{data: events})
+      json(conn, %{schedule_events: events})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -236,7 +239,7 @@ defmodule AnkoleWeb.ScheduleController do
          {:ok, event} <- Schedule.get_scheduled_event(scheduled_event_id),
          :ok <- event_belongs_to_actor(event, actor),
          {:ok, cancelled} <- Schedule.cancel_checkback(scheduled_event_id) do
-      json(conn, %{data: Schedule.event_projection(cancelled)})
+      json(conn, %{schedule_event: Schedule.event_projection(cancelled)})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -247,7 +250,7 @@ defmodule AnkoleWeb.ScheduleController do
          :ok <- ConsolePolicy.authorize(conn, schedule_resource(actor.agent_uid), action),
          {:ok, schedule} <- cron_for_actor(params, actor),
          {:ok, updated} <- fun.(schedule.id) do
-      json(conn, %{data: Schedule.cron_projection(updated)})
+      json(conn, %{cron_schedule: Schedule.cron_projection(updated)})
     else
       {:error, reason} -> error(conn, reason)
     end

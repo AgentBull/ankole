@@ -65,7 +65,7 @@ describe('RuntimeFabric host adapter', () => {
   })
 
   it('translates native dealer construction failures at the production seam', () => {
-    expect(() => connectRuntimeFabric({ endpoint: '', workerId: 'worker-a', workerAuthKey: 'test-secret' })).toThrow(
+    expect(() => connectRuntimeFabric({ endpoint: '', workerID: 'worker-a', workerAuthKey: 'test-secret' })).toThrow(
       expect.objectContaining({
         name: 'RuntimeFabricTransportError',
         code: 'invalid_config'

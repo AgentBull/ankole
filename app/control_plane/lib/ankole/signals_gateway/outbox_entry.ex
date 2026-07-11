@@ -24,13 +24,13 @@ defmodule Ankole.SignalsGateway.OutboxEntry do
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
 
   alias Ankole.Principals.Principal
-  alias Ankole.Ecto.JsonPayload
+  alias Ankole.Ecto.JSONPayload
 
   @primary_key false
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
 
-  schema "signal_gateway_outbox" do
+  schema "signal_gateway_outbox_entries" do
     belongs_to :agent, Principal,
       foreign_key: :agent_uid,
       references: :uid,
@@ -142,16 +142,20 @@ defmodule Ankole.SignalsGateway.OutboxEntry do
     ])
     |> validate_number(:attempt_count, greater_than_or_equal_to: 0)
     |> validate_number(:max_attempts, greater_than: 0)
-    |> JsonPayload.validate_map(:payload)
-    |> JsonPayload.validate_map(:last_error, allow_datetime: true)
-    |> JsonPayload.validate_map(:recovery_state, allow_datetime: true)
+    |> JSONPayload.validate_map(:payload)
+    |> JSONPayload.validate_map(:last_error, allow_datetime: true)
+    |> JSONPayload.validate_map(:recovery_state, allow_datetime: true)
     |> foreign_key_constraint(:agent_uid)
     |> unique_constraint([:agent_uid, :binding_name, :outbound_key],
-      name: :signal_gateway_outbox_pkey
+      name: :signal_gateway_outbox_entries_pkey
     )
-    |> check_constraint(:payload, name: :signal_gateway_outbox_payload_object)
-    |> check_constraint(:last_error, name: :signal_gateway_outbox_last_error_object)
-    |> check_constraint(:recovery_state, name: :signal_gateway_outbox_recovery_state_object)
-    |> check_constraint(:attempt_count, name: :signal_gateway_outbox_attempts_non_negative)
+    |> check_constraint(:payload, name: :signal_gateway_outbox_entries_payload_object)
+    |> check_constraint(:last_error, name: :signal_gateway_outbox_entries_last_error_object)
+    |> check_constraint(:recovery_state,
+      name: :signal_gateway_outbox_entries_recovery_state_object
+    )
+    |> check_constraint(:attempt_count,
+      name: :signal_gateway_outbox_entries_attempts_non_negative
+    )
   end
 end

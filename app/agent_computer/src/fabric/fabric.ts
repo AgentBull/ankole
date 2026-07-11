@@ -77,7 +77,7 @@ export type RuntimeFabricRetryOptions = {
 
 export type RuntimeFabricConnectionConfig = {
   endpoint: string
-  workerId: string
+  workerID: string
   workerAuthKey: string
 }
 
@@ -98,7 +98,7 @@ const nativeErrorCodes = new Set<RuntimeFabricErrorCode>([
 export function connectRuntimeFabric(config: RuntimeFabricConnectionConfig): RuntimeFabricHost {
   try {
     return createRuntimeFabricHost(
-      new kernel.RuntimeFabricDealer(config.endpoint, config.workerId, config.workerId, config.workerAuthKey)
+      new kernel.RuntimeFabricDealer(config.endpoint, config.workerID, config.workerID, config.workerAuthKey)
     )
   } catch (error) {
     throw runtimeFabricTransportError(error)

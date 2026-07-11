@@ -106,7 +106,7 @@ defmodule AnkoleWeb.SetupController do
 
       json(conn, %{
         plugins: Enum.map(plugins, &plugin_json/1),
-        enabledPluginIds:
+        enabledPluginIDs:
           plugins
           |> Enum.map(& &1.id)
           |> Enum.reject(&MapSet.member?(disabled, &1))
@@ -120,17 +120,17 @@ defmodule AnkoleWeb.SetupController do
   @doc """
   Persists which discovered plugins should be enabled for this installation.
   """
-  def update_plugins(conn, %{"pluginIds" => plugin_ids}) when is_list(plugin_ids) do
+  def update_plugins(conn, %{"pluginIDs" => plugin_ids}) when is_list(plugin_ids) do
     with :ok <- require_setup_session(conn),
          {:ok, enabled_ids} <- persist_enabled_plugin_ids(plugin_ids) do
-      json(conn, %{enabledPluginIds: enabled_ids})
+      json(conn, %{enabledPluginIDs: enabled_ids})
     else
       {:error, status, reason} -> error(conn, status, reason)
       {:error, reason} -> error(conn, 400, reason)
     end
   end
 
-  def update_plugins(conn, _params), do: error(conn, 422, "pluginIds must be an array")
+  def update_plugins(conn, _params), do: error(conn, 422, "pluginIDs must be an array")
 
   @doc """
   Lists identity-provider adapters that plugins expose to setup.
@@ -149,7 +149,7 @@ defmodule AnkoleWeb.SetupController do
   Saves an identity-provider instance during setup.
   """
   def put_identity_provider(conn, %{"provider_id" => provider_id} = params) do
-    adapter_id = params["adapter"] || params["adapterId"] || params["adapter_id"]
+    adapter_id = params["adapterID"]
     config = params["config"] || %{}
     enabled = Map.get(params, "enabled", true)
 
@@ -185,7 +185,7 @@ defmodule AnkoleWeb.SetupController do
         redirect_uri: redirect_uri,
         return_to: "/console"
       })
-      |> json(%{authorizationUrl: authorization_url})
+      |> json(%{authorizationURL: authorization_url})
     else
       {:error, status, reason} -> error(conn, status, reason)
       {:error, reason} -> error(conn, 400, reason)
@@ -275,11 +275,11 @@ defmodule AnkoleWeb.SetupController do
 
   defp adapter_json(adapter) do
     %{
-      adapterId: adapter.adapter_id,
-      pluginId: adapter.plugin_id,
+      adapterID: adapter.adapter_id,
+      pluginID: adapter.plugin_id,
       displayName: adapter.display_name,
       fields: adapter.fields,
-      defaultProviderId: adapter.default_provider_id
+      defaultProviderID: adapter.default_provider_id
     }
   end
 

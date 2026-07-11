@@ -1,4 +1,6 @@
 defmodule AnkoleWeb.AppConfigurationController do
+  alias OpenApiSpex, as: OpenAPISpex
+
   @moduledoc """
   Console REST API for registry-backed AppConfigure values.
 
@@ -14,25 +16,25 @@ defmodule AnkoleWeb.AppConfigurationController do
   """
 
   use AnkoleWeb, :controller
-  use OpenApiSpex.ControllerSpecs
+  use OpenAPISpex.ControllerSpecs
 
   alias Ankole.AppConfigure
   alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsolePolicy
-  alias AnkoleWeb.Schemas.ConsoleApi.AppConfigurationDecryptionResponse
-  alias AnkoleWeb.Schemas.ConsoleApi.AppConfigurationListResponse
-  alias AnkoleWeb.Schemas.ConsoleApi.AppConfigurationResponse
-  alias AnkoleWeb.Schemas.ConsoleApi.AppConfigurationUpdateRequest
-  alias AnkoleWeb.Schemas.ConsoleApi.ErrorEnvelope
+  alias AnkoleWeb.Schemas.ConsoleAPI.AppConfigurationDecryptionResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.AppConfigurationListResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.AppConfigurationResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.AppConfigurationUpdateRequest
+  alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
 
   tags(["AppConfigure"])
   security([%{"consoleBearer" => []}])
 
   # Casts and validates params/body against the `operation/2` specs below before
   # any action runs; on a schema mismatch it short-circuits with a 422 rendered in
-  # our console error envelope instead of the OpenApiSpex default JSON.
-  plug OpenApiSpex.Plug.CastAndValidate,
-    render_error: AnkoleWeb.OpenApiValidationErrorRenderer
+  # our console error envelope instead of the OpenAPISpex default JSON.
+  plug OpenAPISpex.Plug.CastAndValidate,
+    render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
 
   operation(:index,
     summary: "List console-visible AppConfigure entries",
@@ -102,7 +104,7 @@ defmodule AnkoleWeb.AppConfigurationController do
   def index(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "app_configurations", "read"),
          {:ok, items} <- AppConfigure.list_console_items() do
-      json(conn, %{data: items})
+      json(conn, %{app_configurations: items})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -115,7 +117,7 @@ defmodule AnkoleWeb.AppConfigurationController do
     with {:ok, key} <- key_param(params),
          :ok <- ConsolePolicy.authorize(conn, "app_configuration:#{key}", "read"),
          {:ok, item} <- AppConfigure.console_detail_by_key(key) do
-      json(conn, %{data: item})
+      json(conn, %{app_configuration: item})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -132,7 +134,7 @@ defmodule AnkoleWeb.AppConfigurationController do
          :ok <- ConsolePolicy.authorize(conn, "app_configuration:#{key}", "update"),
          {:ok, value} <- request_value(conn.body_params),
          {:ok, item} <- AppConfigure.console_put_global_by_key(key, value) do
-      json(conn, %{data: item})
+      json(conn, %{app_configuration: item})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -148,7 +150,7 @@ defmodule AnkoleWeb.AppConfigurationController do
     with {:ok, key} <- key_param(params),
          :ok <- ConsolePolicy.authorize(conn, "app_configuration:#{key}", "reset"),
          {:ok, item} <- AppConfigure.console_delete_global_by_key(key) do
-      json(conn, %{data: item})
+      json(conn, %{app_configuration: item})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -165,7 +167,7 @@ defmodule AnkoleWeb.AppConfigurationController do
     with {:ok, key} <- key_param(params),
          :ok <- ConsolePolicy.authorize(conn, "app_configuration:#{key}", "decrypt"),
          {:ok, value} <- AppConfigure.console_decrypt_by_key(key) do
-      json(conn, %{data: %{key: key, value: value}})
+      json(conn, %{decrypted_value: %{key: key, value: value}})
     else
       {:error, reason} -> error(conn, reason)
     end

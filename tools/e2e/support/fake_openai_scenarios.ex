@@ -646,7 +646,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
     %{
       id: "call_lark_chaos_background_lifecycle_status",
       name: "command",
-      arguments: %{"action" => "status", "backgroundId" => background_id}
+      arguments: %{"action" => "status", "backgroundID" => background_id}
     }
   end
 
@@ -654,7 +654,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
     %{
       id: "call_lark_chaos_background_lifecycle_kill",
       name: "command",
-      arguments: %{"action" => "kill", "backgroundId" => background_id}
+      arguments: %{"action" => "kill", "backgroundID" => background_id}
     }
   end
 
@@ -762,7 +762,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       name: "browser_open",
       arguments: %{
         "url" => "https://example.com",
-        "taskId" => "lark-chaos-open",
+        "taskID" => "lark-chaos-open",
         "timeout" => 30,
         "profileMode" => "ephemeral"
       }
@@ -775,7 +775,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       name: "browser_run",
       arguments: %{
         "script" => "print('CHAOS_BROWSER_RUN_SCRIPT_OK')",
-        "taskId" => "lark-chaos-run",
+        "taskID" => "lark-chaos-run",
         "timeout" => 30,
         "profileMode" => "ephemeral"
       }
@@ -788,7 +788,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       name: "browser_extract",
       arguments: %{
         "url" => "https://example.com",
-        "taskId" => "lark-chaos-extract",
+        "taskID" => "lark-chaos-extract",
         "format" => "text",
         "timeout" => 30,
         "profileMode" => "ephemeral"
@@ -913,9 +913,9 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
     find_background_id(request)
   end
 
-  defp find_background_id(%{"backgroundId" => id}) when is_binary(id) and id != "", do: id
+  defp find_background_id(%{"backgroundID" => id}) when is_binary(id) and id != "", do: id
   defp find_background_id(%{"background_id" => id}) when is_binary(id) and id != "", do: id
-  defp find_background_id(%{backgroundId: id}) when is_binary(id) and id != "", do: id
+  defp find_background_id(%{backgroundID: id}) when is_binary(id) and id != "", do: id
   defp find_background_id(%{background_id: id}) when is_binary(id) and id != "", do: id
 
   defp find_background_id(map) when is_map(map) do

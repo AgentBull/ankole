@@ -9,7 +9,7 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2, normalize_lower: 2]
 
   alias Ankole.AIGateway.Providers
-  alias Ankole.Ecto.JsonPayload
+  alias Ankole.Ecto.JSONPayload
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @timestamps_opts [type: :utc_datetime_usec]
@@ -53,8 +53,8 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
     |> validate_base_url()
     |> validate_provider_kind()
     |> validate_connection_options()
-    |> JsonPayload.validate_map(:connection_options, allow_datetime: false)
-    |> JsonPayload.validate_map(:encrypted_options, allow_datetime: false)
+    |> JSONPayload.validate_map(:connection_options, allow_datetime: false)
+    |> JSONPayload.validate_map(:encrypted_options, allow_datetime: false)
     |> unique_constraint(:provider_id, name: :ai_gateway_providers_provider_id_index)
     |> check_constraint(:provider_id, name: :ai_gateway_providers_provider_id_format)
     |> check_constraint(:provider_kind, name: :ai_gateway_providers_provider_kind_format)

@@ -506,7 +506,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
       refute "signal_gateway_processed_ingress_events" in tables
       refute "actor_input_consumptions" in tables
 
-      assert "signal_gateway_outbox" in tables
+      assert "signal_gateway_outbox_entries" in tables
       refute "actor_outbox" in tables
     end
   end

@@ -10,7 +10,7 @@ defmodule Ankole.Memory.Note do
 
   alias Ankole.Principals.Principal
   alias Ankole.SignalsGateway.Channel
-  alias Ankole.Ecto.JsonPayload
+  alias Ankole.Ecto.JSONPayload
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
@@ -44,7 +44,7 @@ defmodule Ankole.Memory.Note do
     |> foreign_key_constraint(:signal_channel_id)
     |> check_constraint(:content, name: :memory_notes_content_present)
     |> check_constraint(:content, name: :memory_notes_content_length)
-    |> JsonPayload.validate_map(:source)
+    |> JSONPayload.validate_map(:source)
     |> check_constraint(:source, name: :memory_notes_source_object)
   end
 end

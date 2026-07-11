@@ -48,7 +48,7 @@ export function DelegationsPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [agentFilter, setAgentFilter] = useState('')
-  const [selectedId, setSelectedId] = useState<string>()
+  const [selectedID, setSelectedID] = useState<string>()
   const [cancelTarget, setCancelTarget] = useState<SubagentDelegationItem>()
   const list = useQuery({
     ...ankoleWebSubagentDelegationControllerIndexOptions({
@@ -58,10 +58,10 @@ export function DelegationsPage() {
   })
   const detail = useQuery({
     ...ankoleWebSubagentDelegationControllerShowOptions({
-      path: { delegation_id: selectedId ?? 'not-selected' }
+      path: { delegation_id: selectedID ?? 'not-selected' }
     }),
-    enabled: Boolean(selectedId),
-    refetchInterval: selectedId ? 5_000 : false
+    enabled: Boolean(selectedID),
+    refetchInterval: selectedID ? 5_000 : false
   })
   const cancel = useMutation({
     ...ankoleWebSubagentDelegationControllerCancelMutation(),
@@ -72,15 +72,18 @@ export function DelegationsPage() {
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
-  const tasks = list.data?.data ?? []
-  const selected = detail.data?.data
+  const delegations = list.data?.delegations ?? []
+  const selected = detail.data?.delegation
 
   const grouped = useMemo(
     () =>
       Object.fromEntries(
-        columns.map(column => [column.key, tasks.filter(task => column.statuses.includes(task.status))])
+        columns.map(column => [
+          column.key,
+          delegations.filter(delegation => column.statuses.includes(delegation.status))
+        ])
       ) as Record<Column['key'], SubagentDelegationItem[]>,
-    [tasks]
+    [delegations]
   )
 
   return (
@@ -125,7 +128,7 @@ export function DelegationsPage() {
                     task={task}
                     cancelling={cancel.isPending}
                     onCancel={() => setCancelTarget(task)}
-                    onOpen={() => setSelectedId(task.id)}
+                    onOpen={() => setSelectedID(task.id)}
                   />
                 ))
               )}
@@ -134,7 +137,7 @@ export function DelegationsPage() {
         ))}
       </div>
 
-      <Sheet open={Boolean(selectedId)} onOpenChange={open => !open && setSelectedId(undefined)}>
+      <Sheet open={Boolean(selectedID)} onOpenChange={open => !open && setSelectedID(undefined)}>
         <SheetContent className="w-full sm:max-w-2xl">
           <SheetHeader>
             <SheetTitle>{selected?.title ?? t('console.delegations.detail_title')}</SheetTitle>

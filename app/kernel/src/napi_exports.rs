@@ -2,7 +2,7 @@
 
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
-use serde_json::Value as JsonValue;
+use serde_json::Value as JSONValue;
 use std::path::Path;
 use std::time::Duration;
 
@@ -37,13 +37,13 @@ fn runtime_fabric_error(error: TransportError) -> Error {
 
 /// Authorizes one exact action on one concrete resource.
 #[napi(ts_args_type = "snapshot: any", ts_return_type = "any")]
-pub fn authz_authorize(snapshot: JsonValue) -> Result<JsonValue> {
+pub fn authz_authorize(snapshot: JSONValue) -> Result<JSONValue> {
     authz::authorize_value(snapshot).map_err(napi_error)
 }
 
 /// Authorizes every requested action against the same concrete resource.
 #[napi(ts_args_type = "snapshot: any", ts_return_type = "any")]
-pub fn authz_authorize_all(snapshot: JsonValue) -> Result<JsonValue> {
+pub fn authz_authorize_all(snapshot: JSONValue) -> Result<JSONValue> {
     authz::authorize_all_value(snapshot).map_err(napi_error)
 }
 
@@ -68,7 +68,7 @@ pub fn js_signals_gateway_validate_filter(filter_source: String) -> Result<bool>
     js_name = "signalsGatewayFilterMatch",
     ts_args_type = "filterSource: string, context: any"
 )]
-pub fn js_signals_gateway_filter_match(filter_source: String, context: JsonValue) -> Result<bool> {
+pub fn js_signals_gateway_filter_match(filter_source: String, context: JSONValue) -> Result<bool> {
     signals_gateway::evaluate_filter(&filter_source, context).map_err(napi_error)
 }
 
@@ -91,7 +91,7 @@ pub fn authz_match_resource_pattern(pattern: String, resource: String) -> Result
     js_name = "runtimeFabricEncodeEnvelope",
     ts_args_type = "envelope: any"
 )]
-pub fn js_runtime_fabric_encode_envelope(envelope: JsonValue) -> Result<Buffer> {
+pub fn js_runtime_fabric_encode_envelope(envelope: JSONValue) -> Result<Buffer> {
     runtime_fabric::encode_envelope(envelope)
         .map(Buffer::from)
         .map_err(napi_error)
@@ -103,7 +103,7 @@ pub fn js_runtime_fabric_encode_envelope(envelope: JsonValue) -> Result<Buffer> 
     ts_args_type = "bytes: Buffer",
     ts_return_type = "any"
 )]
-pub fn js_runtime_fabric_decode_envelope(bytes: Buffer) -> Result<JsonValue> {
+pub fn js_runtime_fabric_decode_envelope(bytes: Buffer) -> Result<JSONValue> {
     runtime_fabric::decode_envelope(bytes.as_ref()).map_err(napi_error)
 }
 
@@ -140,7 +140,7 @@ impl JsRuntimeFabricDealer {
     }
 
     #[napi(ts_args_type = "envelope: any")]
-    pub fn send_envelope(&self, envelope: JsonValue) -> Result<()> {
+    pub fn send_envelope(&self, envelope: JSONValue) -> Result<()> {
         self.handle
             .send_envelope(envelope)
             .map(|_| ())

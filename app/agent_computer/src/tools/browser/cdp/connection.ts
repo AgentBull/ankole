@@ -1,5 +1,5 @@
-import type { JsonObject } from '@pleisto/active-support'
-import { remoteBrowserCdpConfigFromOptions, connectTimeoutMs, valueAtJsonPath } from './config'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import { remoteBrowserCDPConfigFromOptions, connectTimeoutMs, valueAtJSONPath } from './config'
 import {
   ensureLocalChromiumSidecar,
   createLocalBrowserContext,
@@ -8,8 +8,8 @@ import {
   touchLocalChromiumSidecar
 } from './chromium'
 import { writeSessionMeta } from './session-store'
-import { localCdpEndpointAlive, redactUrl } from './utils'
-import type { BrowserConnection, BrowserRuntimeOptions, BrowserSessionMeta, RemoteBrowserCdpConfig } from './types'
+import { localCDPEndpointAlive, redactURL } from './utils'
+import type { BrowserConnection, BrowserRuntimeOptions, BrowserSessionMeta, RemoteBrowserCDPConfig } from './types'
 
 /**
  * Resolves the CDP endpoint that should back an existing browser session.
@@ -22,7 +22,7 @@ export async function resolveConnectionForSession(
   meta: BrowserSessionMeta,
   options?: BrowserRuntimeOptions
 ): Promise<BrowserConnection> {
-  const remoteConfig = remoteBrowserCdpConfigFromOptions(options)
+  const remoteConfig = remoteBrowserCDPConfigFromOptions(options)
   if (remoteConfig) {
     const connection =
       remoteConfig.adapter === 'cdp_endpoint'
@@ -31,19 +31,19 @@ export async function resolveConnectionForSession(
           ? {
               backend: 'remote_cdp' as const,
               adapter: meta.adapter,
-              connectUrl: meta.connect_url,
-              redactedConnectUrl: meta.connect_url_redacted ?? redactUrl(meta.connect_url),
+              connectURL: meta.connect_url,
+              redactedConnectURL: meta.connect_url_redacted ?? redactURL(meta.connect_url),
               headers: remoteConfig.headers
             }
           : await resolveRemoteConnection(remoteConfig)
 
-    if (!meta.connect_url && connection.connectUrl) {
+    if (!meta.connect_url && connection.connectURL) {
       writeSessionMeta(
         session,
         {
           ...meta,
-          connect_url: connection.connectUrl,
-          connect_url_redacted: connection.redactedConnectUrl,
+          connect_url: connection.connectURL,
+          connect_url_redacted: connection.redactedConnectURL,
           connect_url_source: 'session'
         },
         options
@@ -60,7 +60,7 @@ export async function resolveConnectionForSession(
   if (meta.backend === 'chromium') {
     const sidecarKey = meta.local_sidecar_key ?? localSidecarKey()
     const idleTtlMs = localBrowserIdleTtlMs(options)
-    if (meta.connect_url && (await localCdpEndpointAlive(meta.connect_url))) {
+    if (meta.connect_url && (await localCDPEndpointAlive(meta.connect_url))) {
       touchLocalChromiumSidecar(sidecarKey, idleTtlMs)
       if (!meta.browser_context_id || !meta.target_id) {
         const context = await createLocalBrowserContext(meta.connect_url)
@@ -68,8 +68,8 @@ export async function resolveConnectionForSession(
           session,
           {
             ...meta,
-            browser_context_id: context.browserContextId,
-            target_id: context.targetId
+            browser_context_id: context.browserContextID,
+            target_id: context.targetID
           },
           options
         )
@@ -77,29 +77,29 @@ export async function resolveConnectionForSession(
       return {
         backend: 'chromium',
         adapter: 'chromium',
-        connectUrl: meta.connect_url,
-        redactedConnectUrl: meta.connect_url_redacted ?? redactUrl(meta.connect_url)
+        connectURL: meta.connect_url,
+        redactedConnectURL: meta.connect_url_redacted ?? redactURL(meta.connect_url)
       }
     }
 
     const sidecar = await ensureLocalChromiumSidecar(sidecarKey, idleTtlMs, options?.workspaceRoot)
-    const sidecarChanged = meta.connect_url !== sidecar.connectUrl || meta.pid !== sidecar.proc.pid
+    const sidecarChanged = meta.connect_url !== sidecar.connectURL || meta.pid !== sidecar.proc.pid
     const context =
       sidecarChanged || !meta.browser_context_id || !meta.target_id
-        ? await createLocalBrowserContext(sidecar.connectUrl)
-        : { browserContextId: meta.browser_context_id, targetId: meta.target_id }
-    if (sidecarChanged || meta.browser_context_id !== context.browserContextId || meta.target_id !== context.targetId) {
+        ? await createLocalBrowserContext(sidecar.connectURL)
+        : { browserContextID: meta.browser_context_id, targetID: meta.target_id }
+    if (sidecarChanged || meta.browser_context_id !== context.browserContextID || meta.target_id !== context.targetID) {
       writeSessionMeta(
         session,
         {
           ...meta,
           local_sidecar_key: sidecar.key,
           pid: sidecar.proc.pid,
-          connect_url: sidecar.connectUrl,
-          connect_url_redacted: redactUrl(sidecar.connectUrl),
+          connect_url: sidecar.connectURL,
+          connect_url_redacted: redactURL(sidecar.connectURL),
           connect_url_source: 'session',
-          browser_context_id: context.browserContextId,
-          target_id: context.targetId
+          browser_context_id: context.browserContextID,
+          target_id: context.targetID
         },
         options
       )
@@ -107,8 +107,8 @@ export async function resolveConnectionForSession(
     return {
       backend: 'chromium',
       adapter: 'chromium',
-      connectUrl: sidecar.connectUrl,
-      redactedConnectUrl: redactUrl(sidecar.connectUrl)
+      connectURL: sidecar.connectURL,
+      redactedConnectURL: redactURL(sidecar.connectURL)
     }
   }
 
@@ -118,29 +118,29 @@ export async function resolveConnectionForSession(
 /**
  * Resolves a remote CDP config into a browser WebSocket connection.
  */
-export async function resolveRemoteConnection(config: RemoteBrowserCdpConfig): Promise<BrowserConnection> {
+export async function resolveRemoteConnection(config: RemoteBrowserCDPConfig): Promise<BrowserConnection> {
   if (config.adapter === 'cdp_endpoint') {
     const endpoint = new URL(config.endpoint_url)
-    const connectUrl =
+    const connectURL =
       endpoint.protocol === 'ws:' || endpoint.protocol === 'wss:'
         ? endpoint.toString()
-        : await discoverWebSocketUrl(endpoint.toString(), config.headers, connectTimeoutMs(config))
+        : await discoverWebSocketURL(endpoint.toString(), config.headers, connectTimeoutMs(config))
 
     return {
       backend: 'remote_cdp',
       adapter: 'cdp_endpoint',
-      connectUrl,
-      redactedConnectUrl: redactUrl(connectUrl),
+      connectURL,
+      redactedConnectURL: redactURL(connectURL),
       headers: config.headers
     }
   }
 
-  const connectUrl = await requestRemoteSession(config)
+  const connectURL = await requestRemoteSession(config)
   return {
     backend: 'remote_cdp',
     adapter: 'cdp_session_request',
-    connectUrl,
-    redactedConnectUrl: redactUrl(connectUrl),
+    connectURL,
+    redactedConnectURL: redactURL(connectURL),
     headers: config.headers
   }
 }
@@ -148,12 +148,12 @@ export async function resolveRemoteConnection(config: RemoteBrowserCdpConfig): P
 /**
  * Discovers a WebSocket URL from a CDP HTTP endpoint.
  */
-async function discoverWebSocketUrl(
-  endpointUrl: string,
+async function discoverWebSocketURL(
+  endpointURL: string,
   headers: Record<string, string> | undefined,
   timeoutMs: number
 ): Promise<string> {
-  const url = new URL(endpointUrl)
+  const url = new URL(endpointURL)
   if (!url.pathname || url.pathname === '/') {
     url.pathname = '/json/version'
   }
@@ -162,12 +162,12 @@ async function discoverWebSocketUrl(
     signal: AbortSignal.timeout(timeoutMs)
   })
   if (!response.ok) throw new Error(`CDP /json/version failed with HTTP ${response.status}`)
-  const body = (await response.json()) as JsonObject
-  const connectUrl = body['webSocketDebuggerUrl']
-  if (typeof connectUrl !== 'string' || connectUrl.length === 0) {
+  const body = (await response.json()) as JSONObject
+  const connectURL = body['webSocketDebuggerUrl']
+  if (typeof connectURL !== 'string' || connectURL.length === 0) {
     throw new Error('CDP /json/version response is missing webSocketDebuggerUrl')
   }
-  return normalizeDiscoveredWebSocketUrl(connectUrl, url)
+  return normalizeDiscoveredWebSocketURL(connectURL, url)
 }
 
 /**
@@ -177,25 +177,25 @@ async function discoverWebSocketUrl(
  * browser's point of view. The worker must connect back to the provider host,
  * not to its own loopback interface.
  */
-function normalizeDiscoveredWebSocketUrl(connectUrl: string, endpointUrl: URL): string {
-  const wsUrl = new URL(connectUrl)
+function normalizeDiscoveredWebSocketURL(connectURL: string, endpointURL: URL): string {
+  const wsURL = new URL(connectURL)
   const isLoopback =
-    wsUrl.hostname === '127.0.0.1' ||
-    wsUrl.hostname === '::1' ||
-    wsUrl.hostname === '[::1]' ||
-    wsUrl.hostname === 'localhost'
-  if (!isLoopback) return wsUrl.toString()
+    wsURL.hostname === '127.0.0.1' ||
+    wsURL.hostname === '::1' ||
+    wsURL.hostname === '[::1]' ||
+    wsURL.hostname === 'localhost'
+  if (!isLoopback) return wsURL.toString()
 
-  wsUrl.hostname = endpointUrl.hostname
-  wsUrl.port = endpointUrl.port
-  wsUrl.protocol = endpointUrl.protocol === 'https:' ? 'wss:' : 'ws:'
-  return wsUrl.toString()
+  wsURL.hostname = endpointURL.hostname
+  wsURL.port = endpointURL.port
+  wsURL.protocol = endpointURL.protocol === 'https:' ? 'wss:' : 'ws:'
+  return wsURL.toString()
 }
 
 /**
  * Requests a new remote browser session and extracts its WebSocket URL.
  */
-async function requestRemoteSession(config: Extract<RemoteBrowserCdpConfig, { adapter: 'cdp_session_request' }>) {
+async function requestRemoteSession(config: Extract<RemoteBrowserCDPConfig, { adapter: 'cdp_session_request' }>) {
   const request = config.request
   const method = request.method ?? 'GET'
   const response = await fetch(request.url, {
@@ -213,8 +213,8 @@ async function requestRemoteSession(config: Extract<RemoteBrowserCdpConfig, { ad
     return text
   }
 
-  const body = (await response.json()) as JsonObject
-  const value = valueAtJsonPath(body, responseSpec.path)
+  const body = (await response.json()) as JSONObject
+  const value = valueAtJSONPath(body, responseSpec.path)
   if (typeof value !== 'string' || value.length === 0) {
     throw new Error(`remote CDP session JSON response is missing ${responseSpec.path.join('.')}`)
   }

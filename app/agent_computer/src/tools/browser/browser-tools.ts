@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { isRecord, type JsonObject } from '@pleisto/active-support'
+import { isRecord, type JsonObject as JSONObject } from '@pleisto/active-support'
 import type { AgentTool, AgentToolResult } from '../../core'
 import { imageContentPartFromBuffer } from '../../core/vision'
 import type { CommandFinished } from '../computer/computer'
@@ -18,10 +18,10 @@ import {
   browserSnapshot,
   browserType,
   browserWait,
-  ensureBrowserSession as ensureCdpBrowserSession,
+  ensureBrowserSession as ensureCDPBrowserSession,
   type BrowserRuntimeOptions
 } from './cdp'
-import { sanitizeId } from './cdp/utils'
+import { sanitizeID } from './cdp/utils'
 
 const BrowserSession = z
   .string()
@@ -29,7 +29,7 @@ const BrowserSession = z
   .optional()
   .describe('Browser capture session id. Defaults to the current Ankole Agent UID.')
 
-const BrowserTaskId = z
+const BrowserTaskID = z
   .string()
   .min(1)
   .optional()
@@ -45,7 +45,7 @@ function browserSchemas() {
     open: z.object({
       url: z.url().describe('URL to open in the rendered browser.'),
       session: BrowserSession,
-      taskId: BrowserTaskId
+      taskID: BrowserTaskID
     }),
     extract: z.object({
       url: z.url().optional().describe('URL to open and extract. If omitted, extracts the latest session capture.'),
@@ -55,12 +55,12 @@ function browserSchemas() {
         .optional()
         .describe('Optional case-insensitive line filter applied to extracted page text.'),
       session: BrowserSession,
-      taskId: BrowserTaskId
+      taskID: BrowserTaskID
     }),
     navigate: z.object({
       url: z.url().describe('URL to open in the persistent browser session.'),
       session: BrowserSession,
-      taskId: BrowserTaskId
+      taskID: BrowserTaskID
     }),
     snapshot: z.object({
       full: z.boolean().optional().describe('Return the full page text instead of the default bounded snapshot.'),
@@ -131,13 +131,13 @@ function browserSchemas() {
         .optional()
         .describe('Optional /workspace path for the PNG. Defaults under /workspace/user-files/browser.'),
       session: BrowserSession,
-      taskId: BrowserTaskId
+      taskID: BrowserTaskID
     }),
     run: z.object({
       script: z.string().min(1).describe('Python source for a helper script run inside the computer.'),
       session: BrowserSession,
-      taskId: BrowserTaskId,
-      startUrl: z.url().optional().describe('Optional start URL exposed to the script as ANKOLE_BROWSER_START_URL.')
+      taskID: BrowserTaskID,
+      startURL: z.url().optional().describe('Optional start URL exposed to the script as ANKOLE_BROWSER_START_URL.')
     })
   }
 }
@@ -168,7 +168,7 @@ interface BrowserToolSpec<TSchema extends z.ZodType> {
   schema: TSchema
   isReadOnly?: boolean
   isDestructive?: boolean
-  operation: (context: BrowserToolRunContext<z.output<TSchema> & BrowserToolParams>) => Promise<JsonObject>
+  operation: (context: BrowserToolRunContext<z.output<TSchema> & BrowserToolParams>) => Promise<JSONObject>
 }
 
 /**
@@ -199,7 +199,7 @@ function browserToolSpecs(schemas: BrowserSchemas) {
         'Open a URL in the persistent browser session. Returns a text snapshot with stable element refs like e1; use those refs with browser_click/browser_type/etc. Cookies and page state persist for this execution scope while the CDP backend is alive.',
       schema: schemas.navigate,
       operation: async ({ session, params, options }) =>
-        browserNavigate({ session, url: params.url, taskId: params.taskId }, options)
+        browserNavigate({ session, url: params.url, taskID: params.taskID }, options)
     }),
     browserToolSpec({
       name: 'browser_snapshot',
@@ -292,7 +292,7 @@ function browserToolSpecs(schemas: BrowserSchemas) {
         'Capture a real PNG screenshot of the current persistent browser viewport. The image is saved under /workspace/user-files by default and may be attached for image-capable models.',
       schema: schemas.screenshot,
       operation: async ({ session, params, options }) =>
-        browserScreenshot({ session, path: params.path, taskId: params.taskId }, options)
+        browserScreenshot({ session, path: params.path, taskID: params.taskID }, options)
     }),
     browserToolSpec({
       name: 'browser_open',
@@ -300,7 +300,7 @@ function browserToolSpecs(schemas: BrowserSchemas) {
         'Compatibility alias for browser_navigate that opens a URL in the persistent browser session and captures a screenshot artifact when the backend supports screenshots. Prefer browser_navigate for new multi-step browser work.',
       schema: schemas.open,
       operation: async ({ session, params, options }) =>
-        browserNavigate({ session, url: params.url, taskId: params.taskId, screenshot: true }, options)
+        browserNavigate({ session, url: params.url, taskID: params.taskID, screenshot: true }, options)
     }),
     browserToolSpec({
       name: 'browser_extract',
@@ -309,7 +309,7 @@ function browserToolSpecs(schemas: BrowserSchemas) {
       schema: schemas.extract,
       operation: async ({ session, params, options }) => {
         const extracted = await browserExtractFromSession(
-          { session, url: params.url, pattern: params.pattern, taskId: params.taskId },
+          { session, url: params.url, pattern: params.pattern, taskID: params.taskID },
           options
         )
         if (!extracted) throw new Error('No active browser session; run browser_navigate first.')
@@ -335,7 +335,7 @@ function defineBrowserTool<TSchema extends z.ZodType>(
       const session = sessionFor(context, toolParams.session)
       const options = browserRuntimeOptions(context)
       if (signal?.aborted) throw new Error('browser command aborted')
-      await ensureCdpBrowserSession({ session }, options)
+      await ensureCDPBrowserSession({ session }, options)
       const result = await spec.operation({ params: toolParams, session, options, signal })
       return browserToolResult(context, result, signal)
     }
@@ -366,14 +366,14 @@ function createBrowserRunTool(
       // clobber each other's script file.
       const computer = await context.getComputer(signal)
       const session = sessionFor(context, params.session)
-      const taskId = sanitizeTaskId(params.taskId)
-      const scriptPath = `user-files/browser/tasks/${session}/${taskId}/input_script.py`
+      const taskID = sanitizeTaskID(params.taskID)
+      const scriptPath = `user-files/browser/tasks/${session}/${taskID}/input_script.py`
       await computer.fs.writeFiles([{ path: scriptPath, content: params.script }], { cwd: '/workspace', signal })
       const result = (await computer.runCommand({
         cmd: 'python3',
         args: [`/workspace/${scriptPath}`],
         cwd: '/workspace',
-        env: params.startUrl ? { ANKOLE_BROWSER_START_URL: params.startUrl } : undefined,
+        env: params.startURL ? { ANKOLE_BROWSER_START_URL: params.startURL } : undefined,
         signal
       })) as CommandFinished
       const [stdout, stderr] = await Promise.all([
@@ -436,7 +436,7 @@ function screenshotPathFromResult(value: unknown): string | undefined {
 function browserRuntimeOptions(context: ComputerToolContext): BrowserRuntimeOptions {
   return {
     workspaceRoot: context.workspaceRoot,
-    remoteCdpConfig: context.browserRemoteCdpConfig ?? null,
+    remoteCDPConfig: context.browserRemoteCDPConfig ?? null,
     localBrowserIdleTtlMs: context.localBrowserIdleTtlMs
   }
 }
@@ -446,13 +446,13 @@ function browserRuntimeOptions(context: ComputerToolContext): BrowserRuntimeOpti
  * are scoped per conversation. An explicit session id opts out of that scoping.
  */
 function sessionFor(context: ComputerToolContext, value: string | undefined): string {
-  if (value) return sanitizeId(value, 'browser-session')
-  return sanitizeId(`${context.agentUid}--s-${executionScopeTag(context)}`, 'browser-session')
+  if (value) return sanitizeID(value, 'browser-session')
+  return sanitizeID(`${context.agentUID}--s-${executionScopeTag(context)}`, 'browser-session')
 }
 
 /**
  * Builds a safe task id for browser artifact paths.
  */
-function sanitizeTaskId(value: string | undefined): string {
-  return sanitizeId(value ?? `task-${Date.now()}`, 'browser-task')
+function sanitizeTaskID(value: string | undefined): string {
+  return sanitizeID(value ?? `task-${Date.now()}`, 'browser-task')
 }

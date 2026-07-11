@@ -49,7 +49,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn = bearer_conn(conn)
 
     conn = get(conn, ~p"/api/v1/ai-gateway/provider-kinds")
-    assert %{"data" => sources} = json_response(conn, 200)
+    assert %{"provider_kinds" => sources} = json_response(conn, 200)
     openrouter = Enum.find(sources, &(&1["provider_kind"] == "openrouter"))
     openai_compatible = Enum.find(sources, &(&1["provider_kind"] == "openai_compatible"))
     azure_openai = Enum.find(sources, &(&1["provider_kind"] == "azure_openai"))
@@ -81,7 +81,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
       })
 
     assert %{
-             "data" => %{
+             "ai_gateway_provider" => %{
                "provider_id" => "openrouter-main",
                "provider_kind" => "openrouter",
                "encrypted_options" => %{
@@ -97,7 +97,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
       |> recycle_api()
       |> get(~p"/api/v1/ai-gateway/providers")
 
-    assert %{"data" => providers} = json_response(conn, 200)
+    assert %{"ai_gateway_providers" => providers} = json_response(conn, 200)
     assert Enum.any?(providers, &(&1["provider_id"] == "openrouter-main"))
 
     conn =
@@ -111,7 +111,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
       })
 
     assert %{
-             "data" => %{
+             "model_profile" => %{
                "profile" => "primary",
                "configured" => true,
                "provider_id" => "openrouter-main",
@@ -126,7 +126,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
       |> get(~p"/api/v1/agents/#{agent.uid}/model-profiles")
 
     assert %{
-             "data" => %{
+             "model_profiles" => %{
                "primary" => %{
                  "provider_id" => "openrouter-main",
                  "model" => "z-ai/glm-5.2",
@@ -174,7 +174,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
       })
 
     assert %{
-             "data" => %{
+             "codex_account" => %{
                "account_id" => "chatgpt-account-1",
                "name" => "Primary ChatGPT",
                "auth_hash" => auth_hash
@@ -192,7 +192,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
       })
 
     assert %{
-             "data" => %{
+             "model_profile" => %{
                "profile" => "coding",
                "configured" => true,
                "codex_account_id" => "chatgpt-account-1"
@@ -207,8 +207,12 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
         "auth_json" => codex_auth_json("chatgpt-account-1", "refreshed-token")
       })
 
-    assert %{"data" => %{"name" => "Primary subscription", "auth_hash" => refreshed_hash}} =
-             json_response(conn, 200)
+    assert %{
+             "codex_account" => %{
+               "name" => "Primary subscription",
+               "auth_hash" => refreshed_hash
+             }
+           } = json_response(conn, 200)
 
     refute refreshed_hash == auth_hash
     refute conn.resp_body =~ "refreshed-token"

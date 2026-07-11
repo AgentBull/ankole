@@ -430,7 +430,7 @@ impl AnthropicState {
     }
 }
 
-impl ApiProtocol for AnthropicState {
+impl APIProtocol for AnthropicState {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
         Ok(build_anthropic_body(context))
     }

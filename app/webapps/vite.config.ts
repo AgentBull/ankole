@@ -16,29 +16,29 @@ const entries = {
   setup: path.resolve(dirname, 'entrypoints/setup.tsx')
 }
 
-function manualChunks(moduleId: string): string | undefined {
-  if (!moduleId.includes('/node_modules/')) return undefined
-  if (moduleId.includes('/react/') || moduleId.includes('/react-dom/') || moduleId.includes('/scheduler/')) {
+function manualChunks(moduleID: string): string | undefined {
+  if (!moduleID.includes('/node_modules/')) return undefined
+  if (moduleID.includes('/react/') || moduleID.includes('/react-dom/') || moduleID.includes('/scheduler/')) {
     return 'vendor-react'
   }
-  if (moduleId.includes('/react-router/')) return 'vendor-router'
+  if (moduleID.includes('/react-router/')) return 'vendor-router'
 
   if (
-    moduleId.includes('/@tanstack/query-core/') ||
-    moduleId.includes('/@tanstack/react-query/') ||
-    moduleId.includes('/i18next/') ||
-    moduleId.includes('/react-i18next/') ||
-    moduleId.includes('/html-parse-stringify/')
+    moduleID.includes('/@tanstack/query-core/') ||
+    moduleID.includes('/@tanstack/react-query/') ||
+    moduleID.includes('/i18next/') ||
+    moduleID.includes('/react-i18next/') ||
+    moduleID.includes('/html-parse-stringify/')
   ) {
     return 'vendor-data'
   }
 
   if (
-    moduleId.includes('/@base-ui/') ||
-    moduleId.includes('/@floating-ui/') ||
-    moduleId.includes('/@formisch/react/') ||
-    moduleId.includes('/@remixicon/react/') ||
-    moduleId.includes('/valibot/')
+    moduleID.includes('/@base-ui/') ||
+    moduleID.includes('/@floating-ui/') ||
+    moduleID.includes('/@formisch/react/') ||
+    moduleID.includes('/@remixicon/react/') ||
+    moduleID.includes('/valibot/')
   ) {
     return 'vendor-setup-ui'
   }

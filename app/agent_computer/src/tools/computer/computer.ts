@@ -44,12 +44,12 @@ interface ContainerComputerOptions {
  */
 export function createContainerComputer(
   workspaceRoot: string,
-  executionScopeId: string,
+  executionScopeID: string,
   options: ContainerComputerOptions = {}
 ): ContainerComputer {
   const root = resolve(workspaceRoot)
   const backgroundCommandRegistry = options.backgroundCommandRegistry ?? defaultBackgroundCommandRegistry
-  const backgroundScope = { workspaceRoot: root, executionScopeId }
+  const backgroundScope = { workspaceRoot: root, executionScopeID }
 
   const safePath = (path: string, cwd?: string): string => resolveWorkspacePath(root, path, { cwd })
 

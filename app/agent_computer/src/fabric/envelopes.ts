@@ -1,12 +1,12 @@
 import type { ActorTurnRef } from '../lanes/actor_lane'
 import type { RuntimeFabricEnvelope } from './fabric'
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 
 /**
  * Builds the acceptance fence for a received turn revision.
  * Active mailbox updates are identified by the same turn fence plus a newer revision.
  */
-export function turnAcceptedEnvelope(turn: ActorTurnRef, correlationId?: string): RuntimeFabricEnvelope {
+export function turnAcceptedEnvelope(turn: ActorTurnRef, correlationID?: string): RuntimeFabricEnvelope {
   return baseEnvelope(
     'turn-accepted',
     'LANE_TURN',
@@ -17,7 +17,7 @@ export function turnAcceptedEnvelope(turn: ActorTurnRef, correlationId?: string)
         turn
       }
     },
-    correlationId
+    correlationID
   )
 }
 
@@ -31,8 +31,8 @@ export function turnErrorEnvelope(
   turn: ActorTurnRef,
   code: string,
   message: string,
-  correlationId?: string,
-  details: JsonObject = { runtime: 'bun' }
+  correlationID?: string,
+  details: JSONObject = { runtime: 'bun' }
 ): RuntimeFabricEnvelope {
   return baseEnvelope(
     'turn-error',
@@ -47,7 +47,7 @@ export function turnErrorEnvelope(
         details_json: details
       }
     },
-    correlationId
+    correlationID
   )
 }
 
@@ -61,7 +61,7 @@ export function turnErrorEnvelope(
 export function turnNoopCompletedEnvelope(
   turn: ActorTurnRef,
   reason = 'noop_completed',
-  correlationId?: string
+  correlationID?: string
 ): RuntimeFabricEnvelope {
   return baseEnvelope(
     'turn-noop-completed',
@@ -74,7 +74,7 @@ export function turnNoopCompletedEnvelope(
         reason
       }
     },
-    correlationId
+    correlationID
   )
 }
 
@@ -87,9 +87,9 @@ export function turnNoopCompletedEnvelope(
  */
 export function turnCompletedEnvelope(
   turn: ActorTurnRef,
-  finalResponseId: string,
+  finalResponseID: string,
   outcome: 'loop_finished' | 'iteration_exhausted',
-  correlationId?: string
+  correlationID?: string
 ): RuntimeFabricEnvelope {
   return baseEnvelope(
     'turn-completed',
@@ -99,11 +99,11 @@ export function turnCompletedEnvelope(
       type: 'turn_completed',
       turn_completed: {
         turn,
-        final_response_id: finalResponseId,
+        final_response_id: finalResponseID,
         outcome
       }
     },
-    correlationId
+    correlationID
   )
 }
 
@@ -117,10 +117,10 @@ export function workerProgressEnvelope(
   turn: ActorTurnRef,
   kind = 'checkpoint',
   summary = 'turn in progress',
-  correlationId?: string,
-  refs?: JsonObject
+  correlationID?: string,
+  refs?: JSONObject
 ): RuntimeFabricEnvelope {
-  const workerProgress: JsonObject = {
+  const workerProgress: JSONObject = {
     turn,
     kind,
     summary
@@ -135,7 +135,7 @@ export function workerProgressEnvelope(
       type: 'worker_progress',
       worker_progress: workerProgress
     },
-    correlationId
+    correlationID
   )
 }
 
@@ -147,14 +147,14 @@ function baseEnvelope(
   lane: string,
   durability: string,
   body: RuntimeFabricEnvelope['body'],
-  correlationId?: string
+  correlationID?: string
 ): RuntimeFabricEnvelope {
-  const messageId = `${messagePrefix}-${crypto.randomUUID()}`
+  const messageID = `${messagePrefix}-${crypto.randomUUID()}`
 
   return {
     protocol_version: 1,
-    message_id: messageId,
-    correlation_id: correlationId ?? messageId,
+    message_id: messageID,
+    correlation_id: correlationID ?? messageID,
     lane,
     durability,
     body

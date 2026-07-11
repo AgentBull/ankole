@@ -8,7 +8,7 @@ defmodule Ankole.AuthZ.Grant do
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
 
-  alias Ankole.Ecto.JsonPayload
+  alias Ankole.Ecto.JSONPayload
   alias Ankole.AuthZ.Group
   alias Ankole.Principals.Principal
 
@@ -59,7 +59,7 @@ defmodule Ankole.AuthZ.Grant do
     |> default_condition()
     |> validate_required([:resource_pattern, :action, :condition, :metadata])
     |> validate_no_colon(:action)
-    |> JsonPayload.validate_map(:metadata)
+    |> JSONPayload.validate_map(:metadata)
     |> validate_owner_shape()
     |> validate_resource_pattern(:resource_pattern)
     |> validate_condition(:condition)

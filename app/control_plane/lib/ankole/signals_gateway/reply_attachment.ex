@@ -3,7 +3,7 @@ defmodule Ankole.SignalsGateway.ReplyAttachment do
   Shared contract for `reply_attachment` tool outputs and outbound outbox payloads.
   """
 
-  alias Ankole.Ecto.JsonPayload
+  alias Ankole.Ecto.JSONPayload
   alias Ankole.SignalsGateway.ToolOutput
 
   @tool_name "reply_attachment"
@@ -32,7 +32,7 @@ defmodule Ankole.SignalsGateway.ReplyAttachment do
   @doc "Normalizes one reply attachment into the durable provider-outbox shape."
   @spec normalize_attachment(term()) :: {:ok, attachment()} | {:error, term()}
   def normalize_attachment(attachment) do
-    with {:ok, attachment} <- JsonPayload.normalize_map(attachment),
+    with {:ok, attachment} <- JSONPayload.normalize_map(attachment),
          {:ok, agent_computer_path} <- required_text(attachment, "agent_computer_path"),
          {:ok, user_files_relative_path} <- required_text(attachment, "user_files_relative_path"),
          :ok <- validate_user_files_path(agent_computer_path, user_files_relative_path),

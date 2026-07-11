@@ -1,4 +1,4 @@
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 
 export type BrowserBackend = 'chromium' | 'remote_cdp'
 export type BrowserAdapterKind = 'chromium' | 'cdp_endpoint' | 'cdp_session_request'
@@ -20,7 +20,7 @@ export interface BrowserSessionMeta {
   started_at_unix_ms: number
 }
 
-export type RemoteBrowserCdpConfig =
+export type RemoteBrowserCDPConfig =
   | {
       adapter: 'cdp_endpoint'
       endpoint_url: string
@@ -33,7 +33,7 @@ export type RemoteBrowserCdpConfig =
         url: string
         method?: 'GET' | 'POST'
         headers?: Record<string, string>
-        body?: JsonObject
+        body?: JSONObject
         response?: RemoteSessionResponse
       }
       headers?: Record<string, string>
@@ -42,15 +42,15 @@ export type RemoteBrowserCdpConfig =
 
 export interface BrowserRuntimeOptions {
   workspaceRoot?: string
-  remoteCdpConfig?: JsonObject | RemoteBrowserCdpConfig | null
+  remoteCDPConfig?: JSONObject | RemoteBrowserCDPConfig | null
   localBrowserIdleTtlMs?: number
 }
 
 export interface BrowserConnection {
   backend: BrowserBackend
   adapter: BrowserAdapterKind
-  connectUrl: string
-  redactedConnectUrl: string
+  connectURL: string
+  redactedConnectURL: string
   headers?: Record<string, string>
 }
 
@@ -78,22 +78,22 @@ export interface BrowserFindMatch {
 }
 
 export interface PageSession {
-  targetId: string
-  sessionId: string
-  mainFrameId?: string
-  mainContextId?: number
+  targetID: string
+  sessionID: string
+  mainFrameID?: string
+  mainContextID?: number
   domContentEventAtUnixMs?: number
   loadEventAtUnixMs?: number
   mainFrameStoppedLoadingAtUnixMs?: number
 }
 
 export interface TargetInfo {
-  targetId: string
+  targetID: string
   type: string
   url: string
   title?: string
   attached?: boolean
-  browserContextId?: string
+  browserContextID?: string
 }
 
 export interface RuntimeEvaluateResult {
@@ -109,8 +109,8 @@ export interface RuntimeEvaluateResult {
 }
 
 export interface PageNavigateResult {
-  frameId: string
-  loaderId?: string
+  frameID: string
+  loaderID?: string
   errorText?: string
 }
 
@@ -127,7 +127,7 @@ export interface RuntimeExecutionContextCreatedEvent {
     auxData?: {
       isDefault?: boolean
       type?: string
-      frameId?: string
+      frameID?: string
     }
   }
 }
@@ -140,8 +140,8 @@ export interface LocalChromiumSidecar {
   key: string
   port: number
   proc: Bun.Subprocess<'ignore', 'pipe', 'pipe'>
-  connectUrl: string
-  cdpHttpUrl: string
+  connectURL: string
+  cdpHTTPURL: string
   profileDir: string
   startedAtUnixMs: number
   lastUsedAtUnixMs: number

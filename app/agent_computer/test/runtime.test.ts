@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { runtimeFabricEncodeEnvelope, zstdCompressBlock, zstdDecompressBlock } from '@ankole/kernel'
 import { tmpdir } from 'node:os'
@@ -7,12 +7,12 @@ import { join } from 'node:path'
 import { createFileTransferLane } from '../src/lanes/file'
 import { runtimeFabricFileProtocol } from '../src/fabric/fabric'
 import {
-  parseRuntimeFabricUrl,
+  parseRuntimeFabricURL,
   workerCapacityEnvelope,
   workerHeartbeatEnvelope,
   workerReadyEnvelope
 } from '../src/worker/config'
-import { handleWorkerRpcRequest, type RpcRequest } from '../src/lanes/rpc_lane'
+import { handleWorkerRPCRequest, type RPCRequest } from '../src/lanes/rpc_lane'
 import { turnCompletedEnvelope, workerProgressEnvelope } from '../src/fabric/envelopes'
 import type { WorkerConfig } from '../src/worker/config'
 import { prepareTurnWorkspace } from '../src/worker/workspace'
@@ -23,15 +23,15 @@ import { SubagentAuditPersistenceError } from '../src/tools/subagent/audit'
 
 describe('@ankole/agent-computer runtime', () => {
   it('parses RuntimeFabric URL auth without embedding worker identity', () => {
-    expect(parseRuntimeFabricUrl('tcp://:secret@127.0.0.1:6010')).toMatchObject({
+    expect(parseRuntimeFabricURL('tcp://:secret@127.0.0.1:6010')).toMatchObject({
       workerAuthKey: 'secret',
       endpoint: 'tcp://127.0.0.1:6010'
     })
 
-    expect(() => parseRuntimeFabricUrl('tcp://worker-a:secret@127.0.0.1:6010')).toThrow(/username/)
-    expect(() => parseRuntimeFabricUrl('tcp://127.0.0.1:6010')).toThrow(/worker auth key/)
+    expect(() => parseRuntimeFabricURL('tcp://worker-a:secret@127.0.0.1:6010')).toThrow(/username/)
+    expect(() => parseRuntimeFabricURL('tcp://127.0.0.1:6010')).toThrow(/worker auth key/)
 
-    expect(() => parseRuntimeFabricUrl('http://:secret@127.0.0.1:6010')).toThrow(/tcp/)
+    expect(() => parseRuntimeFabricURL('http://:secret@127.0.0.1:6010')).toThrow(/tcp/)
   })
 
   it('emits worker.ready without actor authority fields', () => {
@@ -123,7 +123,7 @@ describe('@ankole/agent-computer runtime', () => {
     const sent: unknown[] = []
     const active = {
       turnStart: { turn: actorTurnRef() } as TurnStart,
-      correlationId: 'turn-start-1',
+      correlationID: 'turn-start-1',
       steeringUpdates: [],
       abortController: new AbortController(),
       controlledStopRequested: false
@@ -150,7 +150,7 @@ describe('@ankole/agent-computer runtime', () => {
 
   it('prepares session workspace without projecting enabled skills', () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-workspace-'))
-    const actorEventId = '00000000-0000-0000-0000-000000000101'
+    const actorEventID = '00000000-0000-0000-0000-000000000101'
 
     try {
       const config = workerConfigForRoot(root)
@@ -161,11 +161,11 @@ describe('@ankole/agent-computer runtime', () => {
           actor: { agent_uid: 'agent-1', session_id: 'session-1' },
           activation_uid: 'activation-1',
           actor_epoch: 1,
-          actor_event_id: actorEventId,
+          actor_event_id: actorEventID,
           revision: 0
         },
         actor_event: {
-          actor_event_id: actorEventId,
+          actor_event_id: actorEventID,
           queue_sequence: 1,
           type: 'im.message.addressed',
           source_event_id: 'signal-entry-1',
@@ -231,13 +231,13 @@ describe('@ankole/agent-computer runtime', () => {
 
   it('rejects unknown control-plane-initiated worker RPC requests', async () => {
     const sent: ReturnType<typeof workerReadyEnvelope>[] = []
-    const request: RpcRequest = {
+    const request: RPCRequest = {
       request_id: 'worker-rpc-1',
       method: 'test.probe',
       payload_json: { probe: true }
     }
 
-    await handleWorkerRpcRequest(async envelope => {
+    await handleWorkerRPCRequest(async envelope => {
       sent.push(envelope)
     }, request)
 
@@ -256,7 +256,7 @@ describe('@ankole/agent-computer runtime', () => {
   it('returns RPC errors for unknown worker methods', async () => {
     const sent: ReturnType<typeof workerReadyEnvelope>[] = []
 
-    await handleWorkerRpcRequest(
+    await handleWorkerRPCRequest(
       async envelope => {
         sent.push(envelope)
       },
@@ -300,58 +300,58 @@ describe('@ankole/agent-computer runtime', () => {
       writeFileSync(sourcePath, plainText)
       const compressed = await zstdCompressBlock(Buffer.from(plainText), 3)
 
-      const transferId = 'transfer-1'
+      const transferID = 'transfer-1'
       await lane.handle([
         runtimeFabricFileProtocol,
         Buffer.from('WRITE_OPEN'),
-        Buffer.from(transferId),
+        Buffer.from(transferID),
         Buffer.from('/user_files/inbox/lark/message-1/hello.txt'),
         u64Frame(Buffer.byteLength(plainText))
       ])
-      expect(frameFor(sentFrames, transferId, 'WRITE_READY')[3]).toEqual(u64Frame(creditWindow))
+      expect(frameFor(sentFrames, transferID, 'WRITE_READY')[3]).toEqual(u64Frame(creditWindow))
 
       await lane.handle([
         runtimeFabricFileProtocol,
         Buffer.from('DATA'),
-        Buffer.from(transferId),
+        Buffer.from(transferID),
         u64Frame(0),
         u64Frame(0),
         boolFrame(true),
         compressed
       ])
-      expect(frameFor(sentFrames, transferId, 'CREDIT')[3]).toEqual(u64Frame(compressed.byteLength))
+      expect(frameFor(sentFrames, transferID, 'CREDIT')[3]).toEqual(u64Frame(compressed.byteLength))
 
-      await lane.handle([runtimeFabricFileProtocol, Buffer.from('WRITE_COMMIT'), Buffer.from(transferId)])
+      await lane.handle([runtimeFabricFileProtocol, Buffer.from('WRITE_COMMIT'), Buffer.from(transferID)])
 
       expect(readFileSync(join(config.userFilesRoot, 'inbox/lark/message-1/hello.txt'), 'utf8')).toBe(plainText)
-      const committed = frameFor(sentFrames, transferId, 'WRITE_COMMITTED')
+      const committed = frameFor(sentFrames, transferID, 'WRITE_COMMITTED')
       expect(committed[3]?.toString('utf8')).toBe('/user_files/inbox/lark/message-1/hello.txt')
       expect(readU64Frame(committed[4])).toBe(Buffer.byteLength(plainText))
       expect(committed[5]?.toString('utf8')).toMatch(/^[a-f0-9]{32}$/)
 
-      const getTransferId = 'transfer-2'
+      const getTransferID = 'transfer-2'
       await lane.handle([
         runtimeFabricFileProtocol,
         Buffer.from('READ_OPEN'),
-        Buffer.from(getTransferId),
+        Buffer.from(getTransferID),
         Buffer.from('/user_files/inbox/lark/message-1/hello.txt'),
         Buffer.from('xxh3_128')
       ])
-      const readReady = frameFor(sentFrames, getTransferId, 'READ_READY')
+      const readReady = frameFor(sentFrames, getTransferID, 'READ_READY')
       expect(readReady[3]?.toString('utf8')).toBe('/user_files/inbox/lark/message-1/hello.txt')
       expect(readU64Frame(readReady[4])).toBe(Buffer.byteLength(plainText))
       await Bun.sleep(25)
-      expect(dataChunks(sentFrames, getTransferId)).toHaveLength(0)
+      expect(dataChunks(sentFrames, getTransferID)).toHaveLength(0)
 
       await lane.handle([
         runtimeFabricFileProtocol,
         Buffer.from('CREDIT'),
-        Buffer.from(getTransferId),
+        Buffer.from(getTransferID),
         u64Frame(creditWindow)
       ])
 
-      const readDone = await waitForFrame(sentFrames, getTransferId, 'READ_DONE')
-      const getChunks = dataChunks(sentFrames, getTransferId)
+      const readDone = await waitForFrame(sentFrames, getTransferID, 'READ_DONE')
+      const getChunks = dataChunks(sentFrames, getTransferID)
       const decompressed = Buffer.concat(
         await Promise.all(getChunks.map(chunk => zstdDecompressBlock(chunk, 2 * 1024 * 1024)))
       )
@@ -359,20 +359,20 @@ describe('@ankole/agent-computer runtime', () => {
       expect(readU64Frame(readDone[3])).toBe(getChunks.length)
       expect(readU64Frame(readDone[4])).toBe(Buffer.concat(getChunks).byteLength)
 
-      const abortTransferId = 'transfer-read-abort'
+      const abortTransferID = 'transfer-read-abort'
       await lane.handle([
         runtimeFabricFileProtocol,
         Buffer.from('READ_OPEN'),
-        Buffer.from(abortTransferId),
+        Buffer.from(abortTransferID),
         Buffer.from('/user_files/inbox/lark/message-1/hello.txt'),
         Buffer.from('none')
       ])
-      expect(frameFor(sentFrames, abortTransferId, 'READ_READY')[3]?.toString('utf8')).toBe(
+      expect(frameFor(sentFrames, abortTransferID, 'READ_READY')[3]?.toString('utf8')).toBe(
         '/user_files/inbox/lark/message-1/hello.txt'
       )
-      await lane.handle([runtimeFabricFileProtocol, Buffer.from('READ_ABORT'), Buffer.from(abortTransferId)])
-      await lane.handle([runtimeFabricFileProtocol, Buffer.from('CREDIT'), Buffer.from(abortTransferId), u64Frame(1)])
-      expect(frameFor(sentFrames, abortTransferId, 'ERROR')[3]?.toString('utf8')).toBe('operation_failed')
+      await lane.handle([runtimeFabricFileProtocol, Buffer.from('READ_ABORT'), Buffer.from(abortTransferID)])
+      await lane.handle([runtimeFabricFileProtocol, Buffer.from('CREDIT'), Buffer.from(abortTransferID), u64Frame(1)])
+      expect(frameFor(sentFrames, abortTransferID, 'ERROR')[3]?.toString('utf8')).toBe('operation_failed')
       expect(JSON.stringify(sentFrames)).not.toContain('object_key')
       expect(JSON.stringify(sentFrames)).not.toContain('sha256')
     } finally {
@@ -569,7 +569,7 @@ function workerConfig(): WorkerConfig {
   return {
     endpoint: 'tcp://127.0.0.1:6010',
     workerAuthKey: 'secret',
-    workerId: 'worker-a',
+    workerID: 'worker-a',
     workspaceRoot: '/workspace',
     workspaceSessionsRoot: '/workspace/.sessions',
     sharedFsRoot: '/workspace/shared',
@@ -597,7 +597,7 @@ function workerConfigForRoot(root: string): WorkerConfig {
   return {
     endpoint: 'tcp://127.0.0.1:6010',
     workerAuthKey: 'secret',
-    workerId: 'worker-a',
+    workerID: 'worker-a',
     workspaceRoot: join(root, 'workspace'),
     workspaceSessionsRoot: join(root, 'workspace/.sessions'),
     sharedFsRoot: join(root, 'shared'),
@@ -610,21 +610,21 @@ function workerConfigForRoot(root: string): WorkerConfig {
 
 const creditWindow = 4 * 1024 * 1024
 
-function frameFor(frames: Buffer[][], transferId: string, command: string): Buffer[] {
+function frameFor(frames: Buffer[][], transferID: string, command: string): Buffer[] {
   const frameSet = frames.find(
-    frame => frame[1]?.toString('utf8') === command && frame[2]?.toString('utf8') === transferId
+    frame => frame[1]?.toString('utf8') === command && frame[2]?.toString('utf8') === transferID
   )
-  expect(frameSet, `missing ${command} for ${transferId}`).toBeTruthy()
+  expect(frameSet, `missing ${command} for ${transferID}`).toBeTruthy()
   return frameSet!
 }
 
-function errorMessageFor(frames: Buffer[][], transferId: string): string {
-  return frameFor(frames, transferId, 'ERROR')[4]?.toString('utf8') ?? ''
+function errorMessageFor(frames: Buffer[][], transferID: string): string {
+  return frameFor(frames, transferID, 'ERROR')[4]?.toString('utf8') ?? ''
 }
 
 async function waitForFrame(
   frames: Buffer[][],
-  transferId: string,
+  transferID: string,
   command: string,
   timeoutMs = 1000
 ): Promise<Buffer[]> {
@@ -632,18 +632,18 @@ async function waitForFrame(
 
   while (Date.now() < deadline) {
     const matches = frames.filter(
-      frame => frame[1]?.toString('utf8') === command && frame[2]?.toString('utf8') === transferId
+      frame => frame[1]?.toString('utf8') === command && frame[2]?.toString('utf8') === transferID
     )
     if (matches.length > 0) return matches.at(-1)!
     await Bun.sleep(5)
   }
 
-  throw new Error(`missing ${command} for ${transferId}`)
+  throw new Error(`missing ${command} for ${transferID}`)
 }
 
-function dataChunks(frames: Buffer[][], transferId: string): Buffer[] {
+function dataChunks(frames: Buffer[][], transferID: string): Buffer[] {
   return frames
-    .filter(frame => frame[1]?.toString('utf8') === 'DATA' && frame[2]?.toString('utf8') === transferId)
+    .filter(frame => frame[1]?.toString('utf8') === 'DATA' && frame[2]?.toString('utf8') === transferID)
     .map(frame => frame[6] ?? Buffer.alloc(0))
 }
 
@@ -662,11 +662,11 @@ function boolFrame(value: boolean): Buffer {
   return Buffer.from([value ? 1 : 0])
 }
 
-function decodeEntries(frame: Buffer): Array<JsonObject> {
+function decodeEntries(frame: Buffer): Array<JSONObject> {
   let offset = 0
   const count = frame.readUInt32BE(offset)
   offset += 4
-  const entries: Array<JsonObject> = []
+  const entries: Array<JSONObject> = []
 
   for (let index = 0; index < count; index += 1) {
     const relativePath = readSizedString(frame, offset)

@@ -3,7 +3,7 @@ defmodule Ankole.Plugins.Config do
   AppConfigure storage for the global plugin disable list.
 
   Plugins are installation-global and default-on, so the only operator knob is a
-  durable list of disabled plugin ids. It lives in AppConfigure (Postgres) rather
+  durable list of disabled plugin ids. It lives in AppConfigure (PostgreSQL) rather
   than in process state because the registry reads it once at startup; a change
   therefore takes effect on the next Ankole process start, not immediately. This
   is deliberate — activating/deactivating a plugin can add or remove supervised

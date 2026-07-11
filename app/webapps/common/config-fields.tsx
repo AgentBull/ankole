@@ -16,7 +16,7 @@ import {
   Textarea
 } from '@ankole/uikit'
 import { RiArrowDownSLine } from '@remixicon/react'
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import i18n from './i18n'
 
 export type LocalizedText = Record<string, string> | null | undefined
@@ -43,7 +43,7 @@ export function ConfigFields({
   onChange
 }: {
   advancedLabel?: string
-  config: JsonObject
+  config: JSONObject
   fieldGroupClassName?: string
   fields: ConfigFieldDefinition[]
   locale: string
@@ -182,8 +182,8 @@ export function localizedText(value: LocalizedText, locale: string): string | un
   return value[locale] ?? value.default
 }
 
-export function defaultConfig(fields: ConfigFieldDefinition[]): JsonObject {
-  return fields.reduce<JsonObject>((config, field) => setPath(config, field.path, defaultValue(field)), {})
+export function defaultConfig(fields: ConfigFieldDefinition[]): JSONObject {
+  return fields.reduce<JSONObject>((config, field) => setPath(config, field.path, defaultValue(field)), {})
 }
 
 export function defaultValue(field: ConfigFieldDefinition): unknown {
@@ -195,14 +195,14 @@ export function defaultValue(field: ConfigFieldDefinition): unknown {
   return ''
 }
 
-export function getPath(source: JsonObject, path: string): unknown {
+export function getPath(source: JSONObject, path: string): unknown {
   return path.split('.').reduce<unknown>((value, segment) => {
-    if (value && typeof value === 'object' && !Array.isArray(value)) return (value as JsonObject)[segment]
+    if (value && typeof value === 'object' && !Array.isArray(value)) return (value as JSONObject)[segment]
     return undefined
   }, source)
 }
 
-export function setPath(source: JsonObject, path: string, value: unknown): JsonObject {
+export function setPath(source: JSONObject, path: string, value: unknown): JSONObject {
   const segments = path.split('.')
   const [head, ...rest] = segments
 
@@ -210,7 +210,7 @@ export function setPath(source: JsonObject, path: string, value: unknown): JsonO
   if (rest.length === 0) return { ...source, [head]: value }
 
   const current = source[head]
-  const child = current && typeof current === 'object' && !Array.isArray(current) ? (current as JsonObject) : {}
+  const child = current && typeof current === 'object' && !Array.isArray(current) ? (current as JSONObject) : {}
 
   return {
     ...source,

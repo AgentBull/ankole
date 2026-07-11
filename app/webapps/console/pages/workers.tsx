@@ -49,7 +49,7 @@ type FileRoot = (typeof ROOTS)[number]
 export function WorkersListPage() {
   const { t } = useTranslation()
   const workers = useQuery(ankoleWebAgentComputerWorkerControllerIndexOptions())
-  const rows = workers.data?.data ?? []
+  const rows = workers.data?.workers ?? []
 
   return (
     <ResourceListPage
@@ -130,7 +130,7 @@ function integerField(map: { [key: string]: unknown } | undefined, key: string):
 export function WorkerFilesPage() {
   const { t } = useTranslation()
   const params = useParams()
-  const workerId = params.workerId ?? ''
+  const workerID = params.workerID ?? ''
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
 
@@ -139,13 +139,13 @@ export function WorkerFilesPage() {
 
   const files = useQuery(
     ankoleWebWorkerFileControllerIndexOptions({
-      path: { worker_id: workerId },
+      path: { worker_id: workerID },
       query: { root, path }
     })
   )
 
-  const entries = files.data?.data.entries ?? []
-  const truncated = files.data?.data.truncated === true
+  const entries = files.data?.file_listing.entries ?? []
+  const truncated = files.data?.file_listing.truncated === true
 
   const refresh = () => void queryClient.invalidateQueries()
 
@@ -192,7 +192,7 @@ export function WorkerFilesPage() {
             disabled={upload.isPending}
             onUpload={(body, workerPath) =>
               upload.mutate({
-                path: { worker_id: workerId },
+                path: { worker_id: workerID },
                 body: { root: body.root, path: workerPath, file: body.file }
               })
             }
@@ -206,7 +206,7 @@ export function WorkerFilesPage() {
 
   return (
     <ResourceListPage
-      title={workerId}
+      title={workerID}
       description={t('console.worker_files.description')}
       toolbar={toolbar}
       columns={[
@@ -223,20 +223,20 @@ export function WorkerFilesPage() {
       {entries.map(entry => (
         <FileRow
           key={entry.relative_path}
-          workerId={workerId}
+          workerID={workerID}
           root={root}
           entry={entry}
           pending={move.isPending || remove.isPending}
           onNavigate={enterPath}
           onRename={(from, to) =>
             move.mutate({
-              path: { worker_id: workerId },
+              path: { worker_id: workerID },
               body: { root, from_path: from, to_path: to, overwrite: false }
             })
           }
           onDelete={() =>
             remove.mutate({
-              path: { worker_id: workerId },
+              path: { worker_id: workerID },
               query: { root, path: entry.relative_path, recursive: entry.kind !== 'file' }
             })
           }
@@ -344,7 +344,7 @@ function rootLabel(root: FileRoot, t: (key: string) => string): string {
 }
 
 function FileRow({
-  workerId,
+  workerID,
   root,
   entry,
   pending,
@@ -352,7 +352,7 @@ function FileRow({
   onRename,
   onDelete
 }: {
-  workerId: string
+  workerID: string
   root: FileRoot
   entry: WorkerFileEntry
   pending: boolean
@@ -366,7 +366,7 @@ function FileRow({
 
   const handleDownload = async () => {
     const result = await ankoleWebWorkerFileControllerDownload({
-      path: { worker_id: workerId },
+      path: { worker_id: workerID },
       query: { root, path: entry.relative_path }
     })
     if (result.error !== undefined || !(result.data instanceof Blob)) {

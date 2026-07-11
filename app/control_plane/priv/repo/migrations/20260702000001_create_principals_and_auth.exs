@@ -12,7 +12,7 @@ defmodule Ankole.Repo.Migrations.CreatePrincipalsAndAuth do
   use Ecto.Migration
 
   def change do
-    # Native enum types keep policy and identity states constrained in Postgres.
+    # Native enum types keep policy and identity states constrained in PostgreSQL.
     execute(
       "CREATE TYPE principal_type AS ENUM ('human', 'agent')",
       "DROP TYPE principal_type"

@@ -113,7 +113,7 @@ BrowserEndpointResolver (Bun)
         -> Target.createBrowserContext per browser session
   |
   v
-CdpBrowserEngine (same implementation for local and remote)
+CDPBrowserEngine (same implementation for local and remote)
 ```
 
 The control plane owns configuration. The worker owns browser process/session

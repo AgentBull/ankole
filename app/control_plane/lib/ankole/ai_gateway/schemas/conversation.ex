@@ -13,7 +13,7 @@ defmodule Ankole.AIGateway.Schemas.Conversation do
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
 
   alias Ankole.Principals.Principal
-  alias Ankole.Ecto.JsonPayload
+  alias Ankole.Ecto.JSONPayload
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
@@ -42,7 +42,7 @@ defmodule Ankole.AIGateway.Schemas.Conversation do
     |> cast(attrs, [:subject_uid, :conversation_key, :ended_at, :metadata])
     |> normalize_blank([:subject_uid, :conversation_key])
     |> validate_required([:subject_uid, :conversation_key, :metadata])
-    |> JsonPayload.validate_map(:metadata, allow_datetime: true)
+    |> JSONPayload.validate_map(:metadata, allow_datetime: true)
     |> foreign_key_constraint(:subject_uid)
     # Only one *active* (not yet `ended_at`) conversation may exist per
     # (subject, conversation_key). The backing index is partial on `ended_at IS

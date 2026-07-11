@@ -8,7 +8,7 @@ defmodule Ankole.AppConfigure.AppConfig do
   import Ecto.Changeset
 
   @primary_key false
-  schema "app_configure" do
+  schema "app_configurations" do
     field :scope, :string
     field :key, :string
     field :value, :map
@@ -38,9 +38,9 @@ defmodule Ankole.AppConfigure.AppConfig do
     |> validate_required([:scope, :key, :value])
     |> validate_format(:scope, ~r/\A(?:global|agent:.+)\z/)
     |> validate_change(:value, &validate_envelope/2)
-    |> unique_constraint([:scope, :key], name: :app_configure_scope_key_unique)
-    |> check_constraint(:scope, name: :app_configure_scope_check)
-    |> check_constraint(:value, name: :app_configure_value_envelope_check)
+    |> unique_constraint([:scope, :key], name: :app_configurations_scope_key_unique)
+    |> check_constraint(:scope, name: :app_configurations_scope_check)
+    |> check_constraint(:value, name: :app_configurations_value_envelope_check)
   end
 
   # Tests and some Ecto paths may pass atom-key maps before JSONB round-trips

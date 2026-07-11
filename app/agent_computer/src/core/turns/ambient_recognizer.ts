@@ -4,10 +4,10 @@ import {
   firstString,
   isRecord,
   recordValue,
-  safeJsonParse,
-  safeJsonStringify,
+  safeJsonParse as safeJSONParse,
+  safeJsonStringify as safeJSONStringify,
   stringArg,
-  type JsonObject
+  type JsonObject as JSONObject
 } from '@pleisto/active-support'
 import type { TurnStart } from '../../lanes/actor_lane'
 import { buildAmbientRecognizerSystemPrompt, buildAmbientRecognizerUserPrompt } from '../../prompts/ambient_prompt'
@@ -156,18 +156,18 @@ function transcriptMessage(
   }
 }
 
-function transcriptMessageKey(value: JsonObject, index: number): string {
-  const channelId = firstString(value, ['signal_channel_id'])
-  const entryId = firstString(value, ['source_entry_id'])
-  if (channelId && entryId) return `${channelId}:${entryId}`
+function transcriptMessageKey(value: JSONObject, index: number): string {
+  const channelID = firstString(value, ['signal_channel_id'])
+  const entryID = firstString(value, ['source_entry_id'])
+  if (channelID && entryID) return `${channelID}:${entryID}`
   return firstString(value, ['id']) ?? `message:${index}`
 }
 
-function transcriptRole(value: JsonObject): 'agent' | 'human' {
+function transcriptRole(value: JSONObject): 'agent' | 'human' {
   return stringArg(value, 'role') === 'agent' ? 'agent' : 'human'
 }
 
-function speakerFromAuthor(value: JsonObject): string | undefined {
+function speakerFromAuthor(value: JSONObject): string | undefined {
   if (!isRecord(value.author)) return undefined
   return firstString(value.author, ['display_name', 'name', 'principal_uid', 'id'])
 }
@@ -240,7 +240,7 @@ function zonedDateTimeParts(
  * Parses the recognizer's structured JSON decision.
  */
 function parseAmbientDecision(text: string): { intervene: boolean; reason: string } {
-  const parsed = parseJsonObject(text)
+  const parsed = parseJSONObject(text)
   return {
     intervene: parsed.should_proactively_speak === true,
     reason: stringArg(parsed, 'reason') ?? ''
@@ -251,23 +251,23 @@ function parseAmbientDecision(text: string): { intervene: boolean; reason: strin
  * Recovers a JSON object from model output that may contain extra text despite
  * the structured-output request.
  */
-function parseJsonObject(text: string): JsonObject {
+function parseJSONObject(text: string): JSONObject {
   const trimmed = text.trim()
   if (!trimmed) return {}
 
-  const parsed = parseJsonRecord(trimmed)
+  const parsed = parseJSONRecord(trimmed)
   if (parsed) return parsed
 
   const start = trimmed.indexOf('{')
   const end = trimmed.lastIndexOf('}')
   if (start >= 0 && end > start) {
-    return parseJsonRecord(trimmed.slice(start, end + 1)) ?? { reason: safeJsonStringify({ invalid_json: trimmed }) }
+    return parseJSONRecord(trimmed.slice(start, end + 1)) ?? { reason: safeJSONStringify({ invalid_json: trimmed }) }
   }
-  return { reason: safeJsonStringify({ invalid_json: trimmed }) }
+  return { reason: safeJSONStringify({ invalid_json: trimmed }) }
 }
 
-function parseJsonRecord(text: string): JsonObject | undefined {
-  const parsed = safeJsonParse(text)
+function parseJSONRecord(text: string): JSONObject | undefined {
+  const parsed = safeJSONParse(text)
   return parsed.match(
     value => recordValue(value) ?? {},
     () => undefined

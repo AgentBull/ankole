@@ -1,19 +1,19 @@
-import { jsonObject, type JsonObject } from '@pleisto/active-support'
+import { jsonObject, type JsonObject as JSONObject } from '@pleisto/active-support'
 import { genericHash } from '@ankole/kernel'
 import { mkdirSync, readFileSync } from 'node:fs'
 import { errorMessage } from '../../common/errors'
 import type { TurnStart, TurnSteerUpdate } from '../../lanes/actor_lane'
 import {
-  assertRpcResponse,
-  type AIGatewayApiKeyResponse,
+  assertRPCResponse,
+  type AIGatewayAPIKeyResponse,
   type CodexAccountAuthUpdateResponse,
-  type MemoryRpcMethod,
-  type RpcSchemaByMethod,
+  type MemoryRPCMethod,
+  type RPCSchemaByMethod,
   type SubagentDelegationResponse,
   type SubagentDelegationStatus
 } from '../../lanes/rpc_lane'
 import { prepareActorWorkspace } from '../../worker/workspace'
-import { CodexAppServerClient, type JsonRpcMessage } from '../../tools/codex/app-server-client'
+import { CodexAppServerClient, type JSONRPCMessage } from '../../tools/codex/app-server-client'
 import { materializeCodexConfig } from '../../tools/codex/config'
 import {
   approvalRejection,
@@ -30,7 +30,7 @@ import type { DynamicToolCallParams } from '../../tools/subagent/generated/proto
 import { createSkillTools } from '../../tools/library/skill-tools'
 import { createMemoryTools } from '../../tools/memory/memory-tools'
 import { createWebTools } from '../../tools/web/web-tools'
-import { httpClientFromAIGatewayApiKey } from '../aigateway_transport'
+import { httpClientFromAIGatewayAPIKey } from '../ai_gateway_transport'
 import { resolveAgentConversationContext } from './turn_context'
 import type { TextTurnLoopOptions, TurnHandlerResult } from './turn_options'
 
@@ -38,15 +38,15 @@ const terminalStatuses = new Set<SubagentDelegationStatus>(['succeeded', 'failed
 const steerPollIntervalMs = 250
 
 export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOptions): Promise<TurnHandlerResult> {
-  const delegationId = delegationIdFromTurn(turnStart)
+  const delegationID = delegationIDFromTurn(turnStart)
   const getDelegation = required(opts.getSubagentDelegation, 'subagent get')
   const updateStatus = required(opts.updateSubagentDelegationStatus, 'subagent status update')
   const initial = await getDelegation({
     request_id: `subagent-get-${crypto.randomUUID()}`,
     turn: turnStart.turn,
-    delegation_id: delegationId
+    delegation_id: delegationID
   })
-  assertRpcResponse<SubagentDelegationResponse>(initial, 'subagent delegation get rejected')
+  assertRPCResponse<SubagentDelegationResponse>(initial, 'subagent delegation get rejected')
 
   if (terminalStatuses.has(initial.status)) {
     return { kind: 'noop_completed', reason: `subagent_${initial.status}` }
@@ -79,18 +79,18 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     materialized
   })
   const audit = new SubagentAuditBuffer({
-    delegationId,
+    delegationID,
     turn: turnStart.turn,
     append: opts.appendSubagentDelegationEvents,
     nextSeq: (initial.last_event_seq ?? -1) + 1,
     attempt: initial.attempts
   })
   let finalizing = false
-  const projectionApiKey =
+  const projectionAPIKey =
     runtimeConfig.mode === 'aigateway'
       ? runtimeConfig.aiGatewayKey
       : await requestProjectionAIGatewayKey(turnStart, opts)
-  const projectionAIGateway = httpClientFromAIGatewayApiKey(projectionApiKey, options =>
+  const projectionAIGateway = httpClientFromAIGatewayAPIKey(projectionAPIKey, options =>
     requestProjectionAIGatewayKey(turnStart, opts, options)
   )
   const projectedTools = [
@@ -111,17 +111,17 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     ...(await createWebTools({ aiGateway: projectionAIGateway, abortSignal: opts.abortSignal })),
     ...createMemoryTools({
       turnStart,
-      requestMemoryRpc: opts.requestMemoryRpc
-        ? <M extends MemoryRpcMethod>(method: M, payload: RpcSchemaByMethod[M]['request']) => {
+      requestMemoryRPC: opts.requestMemoryRPC
+        ? <M extends MemoryRPCMethod>(method: M, payload: RPCSchemaByMethod[M]['request']) => {
             const scoped = {
               ...payload,
-              delegation_id: delegationId,
+              delegation_id: delegationID,
               delegation_scope: {
                 session_id: initial.session_id,
                 signal_channel_id: stringValue(initial.reply_route.signal_channel_id)
               }
             }
-            return opts.requestMemoryRpc!(method, scoped)
+            return opts.requestMemoryRPC!(method, scoped)
           }
         : undefined
     })
@@ -137,10 +137,10 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
   })
 
   let client: CodexAppServerClient | undefined
-  let runtimeThreadId = initial.runtime_thread_id
-  let codexTurnId: string | undefined
+  let runtimeThreadID = initial.runtime_thread_id
+  let codexTurnID: string | undefined
   let outputText = ''
-  let latestTokenUsage: JsonObject = {}
+  let latestTokenUsage: JSONObject = {}
   let latestDiff = ''
   let waitingOnUserInput = false
   let recoveryInFlight = false
@@ -153,14 +153,14 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
   let thrownError: unknown
   let hasThrownError = false
   let turnResult: TurnHandlerResult | undefined
-  let authReconcilePromise: Promise<JsonObject> | undefined
+  let authReconcilePromise: Promise<JSONObject> | undefined
   let authFailureAudited = false
 
-  const reconcileCodexAuth = (): Promise<JsonObject> => {
+  const reconcileCodexAuth = (): Promise<JSONObject> => {
     if (runtimeConfig.mode !== 'official_subscription') return Promise.resolve({ changed: false })
     authReconcilePromise ??= writebackCodexAuth({
       turnStart,
-      delegationId,
+      delegationID,
       authPath: materialized.authPath,
       initialAuthHash: materialized.initialAuthHash,
       update: opts.updateCodexAccountAuth
@@ -177,9 +177,9 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
   let steerInFlight = false
   let resolveCompaction: (() => void) | undefined
   let rejectCompaction: ((error: Error) => void) | undefined
-  let compactingThreadId: string | undefined
-  let compactionTurnId: string | undefined
-  const completedCompactionTurnIds = new Set<string>()
+  let compactingThreadID: string | undefined
+  let compactionTurnID: string | undefined
+  const completedCompactionTurnIDs = new Set<string>()
   let resolveDone!: () => void
   let rejectDone!: (error: Error) => void
   const done = new Promise<void>((resolve, reject) => {
@@ -189,7 +189,7 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
 
   const commit = async (
     status: SubagentDelegationStatus,
-    details: { result?: JsonObject; error?: JsonObject; metadata?: JsonObject } = {}
+    details: { result?: JSONObject; error?: JSONObject; metadata?: JSONObject } = {}
   ): Promise<void> => {
     if (finalizing) return
     finalizing = true
@@ -204,7 +204,7 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
       }
       audit.enqueue('audit', `status_${status}`, {
         status,
-        ...(runtimeThreadId ? { runtime_thread_id: runtimeThreadId } : {}),
+        ...(runtimeThreadID ? { runtime_thread_id: runtimeThreadID } : {}),
         ...details
       })
       await audit.flush()
@@ -216,12 +216,12 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
       const response = await updateStatus({
         request_id: `subagent-status-${crypto.randomUUID()}`,
         turn: turnStart.turn,
-        delegation_id: delegationId,
+        delegation_id: delegationID,
         status,
-        ...(runtimeThreadId ? { runtime_thread_id: runtimeThreadId } : {}),
+        ...(runtimeThreadID ? { runtime_thread_id: runtimeThreadID } : {}),
         ...details
       })
-      assertRpcResponse<SubagentDelegationResponse>(response, 'subagent status update rejected')
+      assertRPCResponse<SubagentDelegationResponse>(response, 'subagent status update rejected')
       resolveDone()
     } catch (error) {
       const failure = /subagent_pending_steer/.test(errorMessage(error))
@@ -234,8 +234,8 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
   }
 
   const interrupt = async (): Promise<void> => {
-    if (!client || !runtimeThreadId || !codexTurnId) return
-    await client.request('turn/interrupt', { threadId: runtimeThreadId, turnId: codexTurnId })
+    if (!client || !runtimeThreadID || !codexTurnID) return
+    await client.request('turn/interrupt', { ['threadId']: runtimeThreadID, ['turnId']: codexTurnID })
   }
 
   const startNewThread = async (): Promise<void> => {
@@ -251,19 +251,19 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
         ...(runtimeConfig.mode === 'aigateway' ? { model: runtimeConfig.modelOverride } : {})
       })
     )
-    runtimeThreadId = stringValue(jsonObject(started.thread).id)
-    if (!runtimeThreadId) throw new Error('codex app-server did not return a thread id')
+    runtimeThreadID = stringValue(jsonObject(started.thread).id)
+    if (!runtimeThreadID) throw new Error('codex app-server did not return a thread id')
     opts.onTurnActivity?.('codex:thread_started')
-    audit.enqueue('process', 'thread_started', { thread_id: runtimeThreadId })
+    audit.enqueue('process', 'thread_started', { thread_id: runtimeThreadID })
   }
 
   const startCodexTurn = async (input: string): Promise<void> => {
-    if (!client || !runtimeThreadId) throw new Error('codex thread is not available')
-    const clientUserMessageId = turnClientUserMessageId(turnStart)
+    if (!client || !runtimeThreadID) throw new Error('codex thread is not available')
+    const clientUserMessageID = turnClientUserMessageID(turnStart)
     const startedTurn = jsonObject(
       await client.request('turn/start', {
-        threadId: runtimeThreadId,
-        ...(clientUserMessageId ? { clientUserMessageId } : {}),
+        ['threadId']: runtimeThreadID,
+        ...(clientUserMessageID ? { ['clientUserMessageId']: clientUserMessageID } : {}),
         input: textInput(input),
         cwd: sandbox.codexCwd,
         approvalPolicy: 'never',
@@ -274,46 +274,46 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
           : {})
       })
     )
-    codexTurnId = stringValue(jsonObject(startedTurn.turn).id)
-    if (!codexTurnId) throw new Error('codex app-server did not return a turn id')
+    codexTurnID = stringValue(jsonObject(startedTurn.turn).id)
+    if (!codexTurnID) throw new Error('codex app-server did not return a turn id')
     opts.onTurnActivity?.('codex:turn_started')
   }
 
   const compactThread = async (): Promise<void> => {
-    if (!client || !runtimeThreadId) throw new Error('codex thread is not available for compaction')
+    if (!client || !runtimeThreadID) throw new Error('codex thread is not available for compaction')
     const compacted = new Promise<void>((resolve, reject) => {
       resolveCompaction = resolve
       rejectCompaction = reject
-      compactingThreadId = runtimeThreadId
+      compactingThreadID = runtimeThreadID
     })
     try {
-      await client.request('thread/compact/start', { threadId: runtimeThreadId })
+      await client.request('thread/compact/start', { ['threadId']: runtimeThreadID })
       await compacted
     } finally {
       resolveCompaction = undefined
       rejectCompaction = undefined
-      compactingThreadId = undefined
-      compactionTurnId = undefined
+      compactingThreadID = undefined
+      compactionTurnID = undefined
     }
   }
 
   const persistRuntimeThreadAnchor = async (reason: string): Promise<void> => {
-    if (!runtimeThreadId) throw new Error('codex thread is not available for persistence')
+    if (!runtimeThreadID) throw new Error('codex thread is not available for persistence')
     const response = await updateStatus({
       request_id: `subagent-thread-anchor-${crypto.randomUUID()}`,
       turn: turnStart.turn,
-      delegation_id: delegationId,
+      delegation_id: delegationID,
       status: 'running',
-      runtime_thread_id: runtimeThreadId,
+      runtime_thread_id: runtimeThreadID,
       metadata: { runtime_thread_recreated_reason: reason }
     })
-    assertRpcResponse<SubagentDelegationResponse>(response, 'subagent thread anchor update rejected')
+    assertRPCResponse<SubagentDelegationResponse>(response, 'subagent thread anchor update rejected')
   }
 
   const handleTurnCompleted = async (
     status: SubagentDelegationStatus,
     codexTurnStatus: string,
-    error: JsonObject
+    error: JSONObject
   ): Promise<void> => {
     if (finalizing || waitingOnUserInput || recoveryInFlight) return
 
@@ -344,7 +344,7 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
           report: outputText,
           attempt: initial.attempts,
           workdir: initial.workdir ?? workdir,
-          ...(runtimeThreadId ? { runtime_thread_id: runtimeThreadId } : {}),
+          ...(runtimeThreadID ? { runtime_thread_id: runtimeThreadID } : {}),
           codex_turn_status: codexTurnStatus,
           usage: latestTokenUsage,
           files_changed: filesChangedFromDiff(latestDiff)
@@ -373,7 +373,7 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
         return
       }
 
-      if (retryKind === 'context_overflow' && compactRetries < 1 && client && runtimeThreadId) {
+      if (retryKind === 'context_overflow' && compactRetries < 1 && client && runtimeThreadID) {
         compactRetries += 1
         audit.enqueue('process', 'turn_compact_retry', { retry_attempt: compactRetries, error })
         await compactThread()
@@ -407,7 +407,7 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     }
   }
 
-  const handleNotification = (message: JsonRpcMessage): void => {
+  const handleNotification = (message: JSONRPCMessage): void => {
     if (finalizing) return
     const projection = projectCodexNotification(message)
     opts.onTurnActivity?.(`codex:${projection.type}`)
@@ -416,16 +416,16 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     if (message.method === 'item/completed') {
       const params = jsonObject(message.params)
       const item = jsonObject(params.item)
-      if (item.type === 'contextCompaction' && stringValue(params.threadId) === compactingThreadId) {
-        const completedTurnId = stringValue(params.turnId) ?? compactionTurnId
-        if (completedTurnId) completedCompactionTurnIds.add(completedTurnId)
+      if (item.type === 'contextCompaction' && stringValue(params['threadId']) === compactingThreadID) {
+        const completedTurnID = stringValue(params['turnId']) ?? compactionTurnID
+        if (completedTurnID) completedCompactionTurnIDs.add(completedTurnID)
         resolveCompaction?.()
       }
     }
 
     if (projection.type === 'turn_started') {
-      codexTurnId = projection.turnId ?? codexTurnId
-      if (resolveCompaction && projection.turnId) compactionTurnId = projection.turnId
+      codexTurnID = projection.turnID ?? codexTurnID
+      if (resolveCompaction && projection.turnID) compactionTurnID = projection.turnID
     } else if (projection.type === 'agent_completed') {
       outputText = projection.text
     } else if (projection.type === 'token_usage') {
@@ -433,9 +433,9 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     } else if (projection.type === 'turn_diff') {
       latestDiff = projection.diff
     } else if (projection.type === 'turn_completed' && !finalizing && !waitingOnUserInput) {
-      const completedTurnId = stringValue(jsonObject(jsonObject(message.params).turn).id)
-      if (completedTurnId && completedCompactionTurnIds.delete(completedTurnId)) return
-      if (rejectCompaction && (!compactionTurnId || completedTurnId === compactionTurnId)) {
+      const completedTurnID = stringValue(jsonObject(jsonObject(message.params).turn).id)
+      if (completedTurnID && completedCompactionTurnIDs.delete(completedTurnID)) return
+      if (rejectCompaction && (!compactionTurnID || completedTurnID === compactionTurnID)) {
         rejectCompaction(
           new Error(
             stringValue(projection.error.message) ??
@@ -448,7 +448,7 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     }
   }
 
-  const handleServerRequest = async (message: JsonRpcMessage, appServer: CodexAppServerClient): Promise<void> => {
+  const handleServerRequest = async (message: JSONRPCMessage, appServer: CodexAppServerClient): Promise<void> => {
     if (finalizing) return
     const method = typeof message.method === 'string' ? message.method : ''
     if (message.id === undefined) return
@@ -530,17 +530,17 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     opts.abortSignal?.addEventListener('abort', onAbort, { once: true })
     const initializeResponse = await client.initialize()
 
-    if (runtimeThreadId) {
+    if (runtimeThreadID) {
       try {
         await client.request('thread/resume', {
-          threadId: runtimeThreadId,
+          ['threadId']: runtimeThreadID,
           cwd: sandbox.codexCwd,
           approvalPolicy: 'never',
           sandbox: 'danger-full-access',
           developerInstructions: projection.developerInstructions
         })
         opts.onTurnActivity?.('codex:thread_resumed')
-        audit.enqueue('process', 'thread_resumed', { thread_id: runtimeThreadId })
+        audit.enqueue('process', 'thread_resumed', { thread_id: runtimeThreadID })
       } catch (error) {
         if (codexRetryKind({ message: errorMessage(error) }) !== 'unknown_session' || newThreadRetries >= 1) {
           throw error
@@ -549,20 +549,20 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
         recreatedThreadDuringSetup = true
         audit.enqueue('process', 'thread_recreated', {
           reason: 'unknown_session',
-          previous_thread_id: runtimeThreadId
+          previous_thread_id: runtimeThreadID
         })
-        runtimeThreadId = undefined
+        runtimeThreadID = undefined
       }
     }
 
-    if (!runtimeThreadId) await startNewThread()
+    if (!runtimeThreadID) await startNewThread()
 
     const running = await updateStatus({
       request_id: `subagent-running-${crypto.randomUUID()}`,
       turn: turnStart.turn,
-      delegation_id: delegationId,
+      delegation_id: delegationID,
       status: 'running',
-      runtime_thread_id: runtimeThreadId,
+      runtime_thread_id: runtimeThreadID,
       metadata: {
         codex_account_id: initial.codex_account_id,
         codex_user_agent: stringValue(initializeResponse.userAgent),
@@ -571,7 +571,7 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
         projected_skill_count: projection.projectedSkillCount
       }
     })
-    assertRpcResponse<SubagentDelegationResponse>(running, 'subagent running status rejected')
+    assertRPCResponse<SubagentDelegationResponse>(running, 'subagent running status rejected')
 
     const initialTurnInput = turnInput(turnStart, initial)
     await startCodexTurn(
@@ -579,14 +579,14 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     )
 
     steerTimer = setInterval(() => {
-      if (steerInFlight || finalizing || recoveryInFlight || !client || !runtimeThreadId || !codexTurnId) return
+      if (steerInFlight || finalizing || recoveryInFlight || !client || !runtimeThreadID || !codexTurnID) return
       const updates = opts.pollSteering?.() ?? []
       if (updates.length === 0) return
       steerInFlight = true
       void steerActiveTurn(
         client,
-        runtimeThreadId,
-        codexTurnId,
+        runtimeThreadID,
+        codexTurnID,
         updates,
         audit,
         () => !finalizing,
@@ -655,14 +655,14 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
 
 async function writebackCodexAuth(input: {
   turnStart: TurnStart
-  delegationId: string
+  delegationID: string
   authPath?: string
   initialAuthHash?: string
   update: TextTurnLoopOptions['updateCodexAccountAuth']
-}): Promise<JsonObject> {
+}): Promise<JSONObject> {
   if (!input.authPath || !input.initialAuthHash) throw new Error('Codex account auth was not materialized')
-  const authJson = readFileSync(input.authPath, 'utf8')
-  const finalHash = genericHash(Buffer.from(authJson))
+  const authJSON = readFileSync(input.authPath, 'utf8')
+  const finalHash = genericHash(Buffer.from(authJSON))
   if (finalHash === input.initialAuthHash) return { changed: false, auth_hash: finalHash }
 
   const update = required(input.update, 'Codex account auth update')
@@ -672,10 +672,10 @@ async function writebackCodexAuth(input: {
       const response = await update({
         request_id: `codex-account-auth-update-${crypto.randomUUID()}`,
         turn: input.turnStart.turn,
-        delegation_id: input.delegationId,
-        auth_json: authJson
+        delegation_id: input.delegationID,
+        auth_json: authJSON
       })
-      assertRpcResponse<CodexAccountAuthUpdateResponse>(response, 'Codex account auth update rejected')
+      assertRPCResponse<CodexAccountAuthUpdateResponse>(response, 'Codex account auth update rejected')
       return { changed: true, auth_hash: finalHash }
     } catch (error) {
       lastError = error
@@ -685,12 +685,12 @@ async function writebackCodexAuth(input: {
   throw lastError instanceof Error ? lastError : new Error(errorMessage(lastError))
 }
 
-function delegationIdFromTurn(turnStart: TurnStart): string {
+function delegationIDFromTurn(turnStart: TurnStart): string {
   const fromContext = turnStart.request_context?.delegation_id
   if (typeof fromContext === 'string' && fromContext) return fromContext
-  const sessionId = turnStart.turn.actor.session_id
-  if (sessionId.startsWith('subagent:') && sessionId.length > 'subagent:'.length) {
-    return sessionId.slice('subagent:'.length)
+  const sessionID = turnStart.turn.actor.session_id
+  if (sessionID.startsWith('subagent:') && sessionID.length > 'subagent:'.length) {
+    return sessionID.slice('subagent:'.length)
   }
   throw new Error('subagent turn is missing delegation id')
 }
@@ -722,7 +722,7 @@ function turnInput(turnStart: TurnStart, delegation: SubagentDelegationResponse)
   return pendingSteering ? `${input}\n\nPending instructions from the parent agent:\n${pendingSteering}`.trim() : input
 }
 
-function turnClientUserMessageId(turnStart: TurnStart): string | undefined {
+function turnClientUserMessageID(turnStart: TurnStart): string | undefined {
   if (turnStart.actor_event.type === 'command.steer') return turnStart.actor_event.actor_event_id
   const pending = turnStart.request_context?.pending_steering
   if (!Array.isArray(pending)) return undefined
@@ -744,8 +744,8 @@ function pendingSteeringInput(turnStart: TurnStart): string {
       const instruction = [text, answerText ? `Answers:\n${answerText}` : undefined]
         .filter((line): line is string => Boolean(line))
         .join('\n')
-      const eventId = stringValue(item.actor_event_id)
-      return instruction ? `${eventId ? `[steer ${eventId}]\n` : ''}${instruction}` : ''
+      const eventID = stringValue(item.actor_event_id)
+      return instruction ? `${eventID ? `[steer ${eventID}]\n` : ''}${instruction}` : ''
     })
     .filter(Boolean)
     .join('\n\n')
@@ -753,7 +753,7 @@ function pendingSteeringInput(turnStart: TurnStart): string {
 
 type CodexRetryKind = 'transient' | 'context_overflow' | 'unknown_session' | 'terminal'
 
-function codexRetryKind(error: JsonObject): CodexRetryKind {
+function codexRetryKind(error: JSONObject): CodexRetryKind {
   const info = error.codexErrorInfo
   const infoName =
     typeof info === 'string'
@@ -807,8 +807,8 @@ function filesChangedFromDiff(diff: string): string[] {
 
 async function steerActiveTurn(
   client: CodexAppServerClient,
-  threadId: string,
-  turnId: string,
+  threadID: string,
+  turnID: string,
   updates: TurnSteerUpdate[],
   audit: SubagentAuditBuffer,
   acceptsOutcome: () => boolean,
@@ -822,9 +822,9 @@ async function steerActiveTurn(
     if (!text) continue
     try {
       await client.request('turn/steer', {
-        threadId,
-        expectedTurnId: turnId,
-        clientUserMessageId: event.actor_event_id,
+        ['threadId']: threadID,
+        ['expectedTurnId']: turnID,
+        ['clientUserMessageId']: event.actor_event_id,
         input: textInput(text)
       })
       if (!acceptsOutcome()) continue
@@ -884,14 +884,14 @@ async function requestProjectionAIGatewayKey(
   turnStart: TurnStart,
   opts: TextTurnLoopOptions,
   options?: { forceRefresh?: boolean }
-): Promise<AIGatewayApiKeyResponse> {
-  const response = await opts.requestAIGatewayApiKey(
+): Promise<AIGatewayAPIKeyResponse> {
+  const response = await opts.requestAIGatewayAPIKey(
     {
       request_id: `subagent-projection-key-${crypto.randomUUID()}`,
       agent_uid: turnStart.turn.actor.agent_uid
     },
     options
   )
-  assertRpcResponse<AIGatewayApiKeyResponse>(response, 'subagent projection AIGateway key rejected')
+  assertRPCResponse<AIGatewayAPIKeyResponse>(response, 'subagent projection AIGateway key rejected')
   return response
 }

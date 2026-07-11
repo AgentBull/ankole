@@ -7,7 +7,7 @@ defmodule Ankole.SignalsGateway.IngressFact do
   this struct before routing, mirroring, or actor event planning.
   """
 
-  alias Ankole.Ecto.JsonPayload
+  alias Ankole.Ecto.JSONPayload
 
   # Every accepted signal shape is represented by this one struct. Only the
   # routing identity that all shapes share is enforced; the rest of the fields
@@ -83,7 +83,7 @@ defmodule Ankole.SignalsGateway.IngressFact do
 
   # Durability check runs before struct construction: if any map/list field
   # can't be made JSON-safe, the fact never forms and the signal is rejected
-  # before any mirror or actor event is written (see JsonPayload's "fail before
+  # before any mirror or actor event is written (see JSONPayload's "fail before
   # provider ack" rule).
   defp new(kind, attrs) when is_map(attrs) do
     with {:ok, normalized_attrs} <- normalize_durable_fields(kind, attrs),
@@ -141,7 +141,7 @@ defmodule Ankole.SignalsGateway.IngressFact do
         {:ok, attrs}
 
       {:ok, value} ->
-        case JsonPayload.normalize_map(value, allow_datetime: true) do
+        case JSONPayload.normalize_map(value, allow_datetime: true) do
           {:ok, normalized} -> {:ok, Map.put(attrs, field, normalized)}
           {:error, reason} -> {:error, {:invalid_json_payload, field, reason}}
         end
@@ -161,7 +161,7 @@ defmodule Ankole.SignalsGateway.IngressFact do
         {:ok, attrs}
 
       {:ok, value} ->
-        case JsonPayload.normalize_list(value, allow_datetime: true) do
+        case JSONPayload.normalize_list(value, allow_datetime: true) do
           {:ok, normalized} -> {:ok, Map.put(attrs, field, normalized)}
           {:error, reason} -> {:error, {:invalid_json_payload, field, reason}}
         end

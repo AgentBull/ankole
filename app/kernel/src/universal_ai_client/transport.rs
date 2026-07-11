@@ -5,21 +5,21 @@ use std::time::{Duration, Instant};
 use bytes::Bytes;
 use futures_util::{StreamExt, stream::BoxStream};
 use reqwest::Method;
-use reqwest::Url;
+use reqwest::Url as URL;
 use reqwest::header::HeaderMap;
-use tokio::net::TcpStream;
+use tokio::net::TcpStream as TCPStream;
 use tokio::time::timeout;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::http::header::HeaderName;
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
+use tokio_tungstenite::{MaybeTlsStream as MaybeTLSStream, WebSocketStream, connect_async};
 
 use super::error::StreamError;
 use super::spec::{
-    CompressionPreference, HttpVersionPreference, StreamSpec, TransportSpec, UpstreamSpec,
+    CompressionPreference, HTTPVersionPreference, StreamSpec, TransportSpec, UpstreamSpec,
 };
 
-pub type UpstreamWebSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+pub type UpstreamWebSocket = WebSocketStream<MaybeTLSStream<TCPStream>>;
 
 static HTTP_CLIENTS: OnceLock<Mutex<HashMap<ClientKey, reqwest::Client>>> = OnceLock::new();
 static ALT_SVC_CACHE: OnceLock<Mutex<HashMap<String, AltSvcEntry>>> = OnceLock::new();
@@ -27,7 +27,7 @@ static ALT_SVC_CACHE: OnceLock<Mutex<HashMap<String, AltSvcEntry>>> = OnceLock::
 const MAX_HTTP_CLIENT_CACHE_ENTRIES: usize = 64;
 const MAX_ALT_SVC_CACHE_ENTRIES: usize = 256;
 
-pub struct HttpStream {
+pub struct HTTPStream {
     pub status: u16,
     pub version: String,
     pub negotiation: String,
@@ -35,7 +35,7 @@ pub struct HttpStream {
     pub body: BoxStream<'static, Result<Bytes, reqwest::Error>>,
 }
 
-pub struct HttpResponse {
+pub struct HTTPResponse {
     pub status: u16,
     pub version: String,
     pub negotiation: String,
@@ -43,14 +43,14 @@ pub struct HttpResponse {
     pub body: Vec<u8>,
 }
 
-pub async fn open_http_stream(spec: &StreamSpec) -> Result<HttpStream, StreamError> {
+pub async fn open_http_stream(spec: &StreamSpec) -> Result<HTTPStream, StreamError> {
     open_http_stream_for_upstream(&spec.upstream).await
 }
 
 pub async fn send_http_request(
     upstream: &UpstreamSpec,
     max_response_bytes: usize,
-) -> Result<HttpResponse, StreamError> {
+) -> Result<HTTPResponse, StreamError> {
     let mut stream = open_http_stream_for_upstream(upstream).await?;
     let body = collect_http_body(
         &mut stream.body,
@@ -60,7 +60,7 @@ pub async fn send_http_request(
     )
     .await?;
 
-    Ok(HttpResponse {
+    Ok(HTTPResponse {
         status: stream.status,
         version: stream.version,
         negotiation: stream.negotiation,
@@ -69,12 +69,12 @@ pub async fn send_http_request(
     })
 }
 
-async fn open_http_stream_for_upstream(upstream: &UpstreamSpec) -> Result<HttpStream, StreamError> {
+async fn open_http_stream_for_upstream(upstream: &UpstreamSpec) -> Result<HTTPStream, StreamError> {
     let preferences = if upstream.transport.http_versions.is_empty() {
         vec![
-            HttpVersionPreference::H3,
-            HttpVersionPreference::H2,
-            HttpVersionPreference::H1,
+            HTTPVersionPreference::H3,
+            HTTPVersionPreference::H2,
+            HTTPVersionPreference::H1,
         ]
     } else {
         upstream.transport.http_versions.clone()
@@ -103,8 +103,8 @@ async fn open_http_stream_for_upstream(upstream: &UpstreamSpec) -> Result<HttpSt
 
 async fn open_http_stream_with_mode(
     upstream: &UpstreamSpec,
-    attempt: HttpAttempt,
-) -> Result<HttpStream, TransportAttemptError> {
+    attempt: HTTPAttempt,
+) -> Result<HTTPStream, TransportAttemptError> {
     let client = client_for(upstream, attempt.mode).map_err(TransportAttemptError::retryable)?;
     let mut request = client.request(
         method_from_spec(&upstream.method).map_err(TransportAttemptError::terminal)?,
@@ -159,7 +159,7 @@ async fn open_http_stream_with_mode(
         .collect();
     let body = response.bytes_stream().boxed();
 
-    Ok(HttpStream {
+    Ok(HTTPStream {
         status,
         version,
         negotiation: attempt.negotiation.to_string(),
@@ -370,7 +370,7 @@ fn build_client(upstream: &UpstreamSpec, mode: ClientMode) -> Result<reqwest::Cl
 
     builder = match mode {
         ClientMode::H3PriorKnowledge => builder.http3_prior_knowledge(),
-        ClientMode::AutoAlpn => builder,
+        ClientMode::AutoALPN => builder,
         ClientMode::H1Only => builder.http1_only(),
     };
 
@@ -400,7 +400,7 @@ fn has_compression(transport: &TransportSpec, preference: CompressionPreference)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum ClientMode {
     H3PriorKnowledge,
-    AutoAlpn,
+    AutoALPN,
     H1Only,
 }
 
@@ -408,22 +408,22 @@ impl ClientMode {
     fn as_str(self) -> &'static str {
         match self {
             Self::H3PriorKnowledge => "h3_prior_knowledge",
-            Self::AutoAlpn => "h2_h1_alpn",
+            Self::AutoALPN => "h2_h1_alpn",
             Self::H1Only => "h1_only",
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct HttpAttempt {
+struct HTTPAttempt {
     mode: ClientMode,
     negotiation: &'static str,
 }
 
-fn http_attempt_modes(preferences: &[HttpVersionPreference], alt_svc_h3: bool) -> Vec<HttpAttempt> {
-    let has_h1 = preferences.contains(&HttpVersionPreference::H1);
-    let has_h2 = preferences.contains(&HttpVersionPreference::H2);
-    let has_h3 = preferences.contains(&HttpVersionPreference::H3);
+fn http_attempt_modes(preferences: &[HTTPVersionPreference], alt_svc_h3: bool) -> Vec<HTTPAttempt> {
+    let has_h1 = preferences.contains(&HTTPVersionPreference::H1);
+    let has_h2 = preferences.contains(&HTTPVersionPreference::H2);
+    let has_h3 = preferences.contains(&HTTPVersionPreference::H3);
     let h3_only = has_h3 && !has_h2 && !has_h1;
     let mut modes = Vec::new();
     let mut added_auto = false;
@@ -431,7 +431,7 @@ fn http_attempt_modes(preferences: &[HttpVersionPreference], alt_svc_h3: bool) -
     let mut added_h3 = false;
 
     if alt_svc_h3 && has_h3 {
-        modes.push(HttpAttempt {
+        modes.push(HTTPAttempt {
             mode: ClientMode::H3PriorKnowledge,
             negotiation: "alt_svc_h3",
         });
@@ -440,35 +440,35 @@ fn http_attempt_modes(preferences: &[HttpVersionPreference], alt_svc_h3: bool) -
 
     for preference in preferences {
         match preference {
-            HttpVersionPreference::H3 => {
+            HTTPVersionPreference::H3 => {
                 if h3_only && !added_h3 {
-                    modes.push(HttpAttempt {
+                    modes.push(HTTPAttempt {
                         mode: ClientMode::H3PriorKnowledge,
                         negotiation: "h3_prior_knowledge",
                     });
                     added_h3 = true;
                 }
             }
-            HttpVersionPreference::H2 => {
+            HTTPVersionPreference::H2 => {
                 if !added_auto {
-                    modes.push(HttpAttempt {
-                        mode: ClientMode::AutoAlpn,
+                    modes.push(HTTPAttempt {
+                        mode: ClientMode::AutoALPN,
                         negotiation: "alpn_h2_h1",
                     });
                     added_auto = true;
                 }
             }
-            HttpVersionPreference::H1 => {
+            HTTPVersionPreference::H1 => {
                 if has_h2 {
                     if !added_auto {
-                        modes.push(HttpAttempt {
-                            mode: ClientMode::AutoAlpn,
+                        modes.push(HTTPAttempt {
+                            mode: ClientMode::AutoALPN,
                             negotiation: "alpn_h2_h1",
                         });
                         added_auto = true;
                     }
                 } else if !added_h1 {
-                    modes.push(HttpAttempt {
+                    modes.push(HTTPAttempt {
                         mode: ClientMode::H1Only,
                         negotiation: "h1_only",
                     });
@@ -479,7 +479,7 @@ fn http_attempt_modes(preferences: &[HttpVersionPreference], alt_svc_h3: bool) -
     }
 
     if has_h3 && !h3_only && !added_h3 {
-        modes.push(HttpAttempt {
+        modes.push(HTTPAttempt {
             mode: ClientMode::H3PriorKnowledge,
             negotiation: "h3_prior_knowledge",
         });
@@ -487,13 +487,13 @@ fn http_attempt_modes(preferences: &[HttpVersionPreference], alt_svc_h3: bool) -
 
     if modes.is_empty() {
         if has_h1 && !has_h2 {
-            modes.push(HttpAttempt {
+            modes.push(HTTPAttempt {
                 mode: ClientMode::H1Only,
                 negotiation: "h1_only",
             });
         } else {
-            modes.push(HttpAttempt {
-                mode: ClientMode::AutoAlpn,
+            modes.push(HTTPAttempt {
+                mode: ClientMode::AutoALPN,
                 negotiation: "alpn_h2_h1",
             });
         }
@@ -556,7 +556,7 @@ fn record_alt_svc(url: &str, headers: &HeaderMap) {
 }
 
 fn origin_key(url: &str) -> Option<String> {
-    let url = Url::parse(url).ok()?;
+    let url = URL::parse(url).ok()?;
     let scheme = url.scheme();
     if scheme != "http" && scheme != "https" {
         return None;
@@ -624,9 +624,9 @@ mod tests {
     fn http_attempts_prefer_cached_alt_svc_h3_when_available() {
         let attempts = http_attempt_modes(
             &[
-                HttpVersionPreference::H3,
-                HttpVersionPreference::H2,
-                HttpVersionPreference::H1,
+                HTTPVersionPreference::H3,
+                HTTPVersionPreference::H2,
+                HTTPVersionPreference::H1,
             ],
             true,
         );
@@ -644,14 +644,14 @@ mod tests {
     fn http_attempts_use_alpn_before_h3_prior_knowledge_without_alt_svc() {
         let attempts = http_attempt_modes(
             &[
-                HttpVersionPreference::H3,
-                HttpVersionPreference::H2,
-                HttpVersionPreference::H1,
+                HTTPVersionPreference::H3,
+                HTTPVersionPreference::H2,
+                HTTPVersionPreference::H1,
             ],
             false,
         );
 
-        assert_eq!(attempts[0].mode, ClientMode::AutoAlpn);
+        assert_eq!(attempts[0].mode, ClientMode::AutoALPN);
         assert_eq!(attempts[0].negotiation, "alpn_h2_h1");
         assert_eq!(attempts[1].mode, ClientMode::H3PriorKnowledge);
         assert_eq!(attempts[1].negotiation, "h3_prior_knowledge");
@@ -659,7 +659,7 @@ mod tests {
 
     #[test]
     fn http_attempts_allow_explicit_h3_only_prior_knowledge() {
-        let attempts = http_attempt_modes(&[HttpVersionPreference::H3], false);
+        let attempts = http_attempt_modes(&[HTTPVersionPreference::H3], false);
 
         assert_eq!(attempts.len(), 1);
         assert_eq!(attempts[0].mode, ClientMode::H3PriorKnowledge);

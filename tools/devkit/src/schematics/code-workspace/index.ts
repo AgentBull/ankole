@@ -13,7 +13,7 @@ type CodeWorkspace = {
   [key: string]: unknown
 }
 
-type RootPackageJson = {
+type RootPackageJSON = {
   workspaces?:
     | string[]
     | {
@@ -62,7 +62,7 @@ function readCodeWorkspace(tree: Tree, path: string): CodeWorkspace {
 }
 
 function currentBunWorkspaces(tree: Tree): string[] {
-  const rootPackage = readJson<RootPackageJson>(tree, 'package.json')
+  const rootPackage = readJSON<RootPackageJSON>(tree, 'package.json')
   const patterns = Array.isArray(rootPackage.workspaces)
     ? rootPackage.workspaces
     : (rootPackage.workspaces?.packages ?? [])
@@ -89,7 +89,7 @@ function expandWorkspacePattern(tree: Tree, pattern: string): string[] {
   return locations
 }
 
-function readJson<TValue>(tree: Tree, path: string): TValue {
+function readJSON<TValue>(tree: Tree, path: string): TValue {
   const content = tree.read(path)
   if (!content) throw new Error(`Expected ${path} to exist`)
 

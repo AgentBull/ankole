@@ -328,7 +328,7 @@ defmodule Ankole.SignalsGateway.Projection do
   defp stale_provider_time?(_stored_time, _incoming_time), do: false
 
   # Serialize all gateway work for a single entry without a row to lock (the entry
-  # row may not exist yet on first receive). A transaction-scoped Postgres
+  # row may not exist yet on first receive). A transaction-scoped PostgreSQL
   # advisory lock keyed by hash of `channel|entry` makes concurrent
   # receive/reaction/lifecycle handlers for the same message take turns, and it
   # releases automatically at commit/rollback. `hashtext` is acceptable here:

@@ -1,6 +1,6 @@
 import { SNAPSHOT_TEXT_MAX } from './constants'
 import { redactText } from './utils'
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import type { BrowserFindMatch, BrowserSnapshot } from './types'
 
 /**
@@ -203,7 +203,7 @@ export function snapshotScript(maxElements: number): BrowserSnapshot {
 /**
  * Maps a user-friendly key name to the CDP keyboard event fields.
  */
-export function keyDefinition(key: string): JsonObject {
+export function keyDefinition(key: string): JSONObject {
   const normalized = key.length === 1 ? key : key.toLowerCase()
   const special: Record<string, { key: string; code: string; windowsVirtualKeyCode: number }> = {
     enter: { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 },

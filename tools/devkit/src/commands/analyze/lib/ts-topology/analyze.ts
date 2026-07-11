@@ -119,7 +119,7 @@ function bucketConsumer(record: TopologyRecord, event: ReferenceEvent) {
   record.productionImportCount += event.importCount
   record.productionRefCount += event.usageCount
   pushUnique(record.productionConsumers, event.consumerPath)
-  pushUnique(record.productionExtensions, event.extensionId)
+  pushUnique(record.productionExtensions, event.extensionID)
   pushUnique(record.productionPackages, event.packageOwner)
   pushUnique(record.productionOwners, event.owner)
 }
@@ -248,7 +248,7 @@ function applyReachablePublicDeclarationDependencies(
         importCount: 1,
         importSpecifier: sourceRecord.publicSpecifiers[0] ?? '',
         owner: null,
-        extensionId: null,
+        extensionID: null,
         packageOwner: null
       })
       if (!reached.has(dependencyKey)) {
@@ -342,7 +342,7 @@ function collectReferenceEvents(
             importCount: 1,
             importSpecifier,
             owner: bucket === 'production' ? scope.ownerForPath(relPath) : null,
-            extensionId: bucket === 'production' ? scope.extensionForPath(relPath) : null,
+            extensionID: bucket === 'production' ? scope.extensionForPath(relPath) : null,
             packageOwner: bucket === 'production' ? scope.packageOwnerForPath(relPath) : null
           })
         }
@@ -367,7 +367,7 @@ function collectReferenceEvents(
             importCount: 1,
             importSpecifier,
             owner: bucket === 'production' ? scope.ownerForPath(relPath) : null,
-            extensionId: bucket === 'production' ? scope.extensionForPath(relPath) : null,
+            extensionID: bucket === 'production' ? scope.extensionForPath(relPath) : null,
             packageOwner: bucket === 'production' ? scope.packageOwnerForPath(relPath) : null
           })
         }

@@ -119,23 +119,23 @@ defmodule Ankole.AIGateway.CredentialTest do
 
   defp put_ai_gateway_broker_env!(config) do
     old_env =
-      Application.fetch_env(:ankole, Ankole.SignalsGateway.ActorRuntime.AIGatewayApiKeyBroker)
+      Application.fetch_env(:ankole, Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker)
 
-    Application.put_env(:ankole, Ankole.SignalsGateway.ActorRuntime.AIGatewayApiKeyBroker, config)
+    Application.put_env(:ankole, Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker, config)
 
     on_exit(fn ->
       case old_env do
         {:ok, value} ->
           Application.put_env(
             :ankole,
-            Ankole.SignalsGateway.ActorRuntime.AIGatewayApiKeyBroker,
+            Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker,
             value
           )
 
         :error ->
           Application.delete_env(
             :ankole,
-            Ankole.SignalsGateway.ActorRuntime.AIGatewayApiKeyBroker
+            Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker
           )
       end
     end)

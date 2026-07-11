@@ -62,13 +62,13 @@ defmodule Ankole.E2E.FakeOpenAIScenariosTest do
   end
 
   describe "background lifecycle tool routing" do
-    test "extracts backgroundId from structured tool output JSON" do
+    test "extracts backgroundID from structured tool output JSON" do
       request = %{
         "messages" => [
           %{
             "role" => "tool",
             "content" =>
-              ~s({"result":{"details":{"backgroundId":"bg_lifecycle_123","status":"running"}}})
+              ~s({"result":{"details":{"backgroundID":"bg_lifecycle_123","status":"running"}}})
           }
         ]
       }
@@ -78,12 +78,12 @@ defmodule Ankole.E2E.FakeOpenAIScenariosTest do
                 name: "command",
                 arguments: %{
                   "action" => "status",
-                  "backgroundId" => "bg_lifecycle_123"
+                  "backgroundID" => "bg_lifecycle_123"
                 }
               }} = FakeOpenAIScenarios.action_for(:background_lifecycle_tool, 2, request)
     end
 
-    test "fails closed when a lifecycle follow-up is missing backgroundId" do
+    test "fails closed when a lifecycle follow-up is missing backgroundID" do
       assert {:completion, "CHAOS_BACKGROUND_LIFECYCLE_MISSING_BACKGROUND_ID", []} =
                FakeOpenAIScenarios.action_for(:background_lifecycle_tool, 2, %{
                  "messages" => [%{"role" => "tool", "content" => ~s({"ok":true})}]
@@ -282,7 +282,7 @@ defmodule Ankole.E2E.FakeOpenAIScenariosTest do
       assert {:tool_call,
               %{
                 name: "command",
-                arguments: %{"action" => "status", "backgroundId" => "bg_e2e_123"}
+                arguments: %{"action" => "status", "backgroundID" => "bg_e2e_123"}
               }} = FakeOpenAIScenarios.action_for(:background_lifecycle_tool, 2, request)
     end
   end

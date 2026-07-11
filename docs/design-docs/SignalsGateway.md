@@ -67,7 +67,7 @@ explainable from these surfaces:
   transport send failures remain retryable delivery failures.
 - `actor_event_deliveries`: per-session delivery attempts. A live delivery row
   is what "this session is running something" means.
-- `signal_gateway_outbox`: durable provider-visible side-effect execution
+- `signal_gateway_outbox_entries`: durable provider-visible side-effect execution
   state.
 - live AI-reply preview: conversation-scoped subscription to generic AIGateway
   events, filtered by opaque metadata. Best-effort and transient; never durable
@@ -676,7 +676,7 @@ Explicit side effects — attachments, cards, dividers, reactions, command
 feedback, schedule-delivered output — go through the durable outbox:
 
 ```text
-control plane commits a signal_gateway_outbox row by outbox_key
+control plane commits a signal_gateway_outbox_entries row by outbox_key
   -> dispatcher normalizes adapter contract and capability allowlist
   -> dispatcher checks reply_mode and adapter capability
   -> adapter send / reconcile
@@ -692,7 +692,7 @@ Gateway acceptance means the IngressFact has been durably processed by
 SignalsGateway. If the route writes an actor event, it also means the event has
 been durably accepted into `actor_events`. It does not mean the actor fabric
 delivered it, a worker accepted a turn, or the agent finished the work.
-Provider send failure stays on `signal_gateway_outbox`; it does not revoke the
+Provider send failure stays on `signal_gateway_outbox_entries`; it does not revoke the
 accepted or completed ActorEvent.
 
 SignalsGateway owns execution scheduling. One-active-turn fencing, Actor
@@ -702,7 +702,7 @@ live actor fabric between the Elixir control plane and agent computer workers.
 It may carry journal-backed event delivery and nudge/progress traffic, but
 durable signal recovery, fencing, and provider-visible side-effect truth remain
 in `actor_events`, `actor_event_deliveries`, `ai_gateway_messages`, and
-`signal_gateway_outbox`.
+`signal_gateway_outbox_entries`.
 
 ## Provider Mirror Contract
 
@@ -1035,7 +1035,7 @@ Stored state:
 - `actor_events` rows: durable lifecycle work items. A row stays after its work
   completes; `completed_at` records the completion, and there is no separate
   consumption table;
-- `signal_gateway_outbox` rows until provider-visible side effects resolve;
+- `signal_gateway_outbox_entries` rows until provider-visible side effects resolve;
 - route-level binding config such as adapter id, credential reference, filters,
   and `unaddressed_group_message_policy`.
 
@@ -1100,7 +1100,7 @@ future work will need persisted enqueue, retries, uniqueness/idempotency,
 scheduled jobs, cron-like recurring jobs, operational visibility, and
 Postgres-backed coordination. This choice does not make Oban part of
 SignalsGateway's data model. Oban jobs may operate on SignalsGateway tables,
-but they do not replace `actor_events`, `signal_gateway_outbox`, or provider
+but they do not replace `actor_events`, `signal_gateway_outbox_entries`, or provider
 mirror rows.
 
 Use one Oban queue for v1 background work, including SignalsGateway jobs. Do not
@@ -1486,7 +1486,7 @@ and schedule/checkback visible output. Only live preview deltas bypass the
 outbox; every adopted final Agent Turn projection is durable (see Streamed AI
 Reply Delivery below). SignalsGateway does not infer that a removed user entry
 should remove prior agent output. The committed intent is the
-`signal_gateway_outbox` row itself; there is no second actor-outbox table that
+`signal_gateway_outbox_entries` row itself; there is no second actor-outbox table that
 the gateway later copies from.
 
 Outbox rows name their origins with the standard identity layers:
@@ -1495,7 +1495,7 @@ effect, and `ai_message_id` points at the `ai_gateway_messages` row when the
 effect delivers or references model output. Both are traceable joins, not part
 of the outbox key.
 
-`signal_gateway_outbox` uses `(agent_uid, binding_name, outbound_key)` as its
+`signal_gateway_outbox_entries` uses `(agent_uid, binding_name, outbound_key)` as its
 primary key. `outbound_key` is the agent-supplied idempotency key for one
 provider-visible side effect.
 
@@ -1858,7 +1858,7 @@ The gateway user-story surface includes these contract cases:
   mirror/search projection; stored AI output changes only through the deletion
   mapping, and provider-visible agent output is never removed by inference.
 - Explicit provider-visible side effects and adopted final replies execute only
-  through `signal_gateway_outbox` rows. `AIReplyPreview` carries transient
+  through `signal_gateway_outbox_entries` rows. `AIReplyPreview` carries transient
   deltas only; confirmed final outbox delivery mirrors
   `signal_gateway_entries.ai_message_id`.
 - Provider send failure belongs to the outbox row; it does not revoke the

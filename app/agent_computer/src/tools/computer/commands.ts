@@ -92,8 +92,8 @@ async function runCommandProcess(input: {
   try {
     const [exitCode, stdout, stderr] = await Promise.all([
       proc.exited,
-      readableToUtf8(proc.stdout),
-      readableToUtf8(proc.stderr)
+      readableToUTF8(proc.stdout),
+      readableToUTF8(proc.stderr)
     ])
 
     return finishedCommand(exitCode ?? 124, stdout, aborted && stderr.length === 0 ? 'command aborted' : stderr)
@@ -105,7 +105,7 @@ async function runCommandProcess(input: {
 /**
  * Reads a stream fully as UTF-8 text.
  */
-async function readableToUtf8(stream: ReadableStream<Uint8Array> | null): Promise<string> {
+async function readableToUTF8(stream: ReadableStream<Uint8Array> | null): Promise<string> {
   if (!stream) return ''
   return Buffer.from(await new Response(stream).arrayBuffer()).toString('utf8')
 }

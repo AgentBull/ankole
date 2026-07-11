@@ -9,7 +9,7 @@ defmodule Ankole.Memory.ChannelCursor do
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
 
   alias Ankole.SignalsGateway.Channel
-  alias Ankole.Ecto.JsonPayload
+  alias Ankole.Ecto.JSONPayload
 
   @primary_key false
   @foreign_key_type :string
@@ -45,7 +45,7 @@ defmodule Ankole.Memory.ChannelCursor do
     |> normalize_blank([:signal_channel_id, :cursor_source_entry_id, :unavailable_reason])
     |> validate_required([:signal_channel_id, :metadata])
     |> foreign_key_constraint(:signal_channel_id)
-    |> JsonPayload.validate_map(:metadata)
+    |> JSONPayload.validate_map(:metadata)
     |> check_constraint(:metadata, name: :memory_channel_cursors_metadata_object)
   end
 end

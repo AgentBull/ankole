@@ -1,4 +1,4 @@
-import { match, type JsonObject } from '@pleisto/active-support'
+import { match, type JsonObject as JSONObject } from '@pleisto/active-support'
 import { mailboxUpdatedFromEnvelope, turnControlFromEnvelope, turnStartFromEnvelope } from './lanes/actor_lane'
 import { runTurnHandlers } from './core'
 import {
@@ -7,8 +7,8 @@ import {
   turnErrorEnvelope,
   turnNoopCompletedEnvelope
 } from './fabric/envelopes'
-import type { RpcError, RpcRequest, RpcResponse } from './lanes/rpc_lane'
-import { RuntimeRpcClient, handleWorkerRpcRequest, rpcMethods } from './lanes/rpc_lane'
+import type { RPCError, RPCRequest, RPCResponse } from './lanes/rpc_lane'
+import { RuntimeRPCClient, handleWorkerRPCRequest, rpcMethods } from './lanes/rpc_lane'
 import { parseWorkerEnv, workerCapacityEnvelope, workerHeartbeatEnvelope, workerReadyEnvelope } from './worker/config'
 import type { WorkerConfig } from './worker/config'
 import {
@@ -32,11 +32,11 @@ import { workerLogger } from './worker/logging'
 import {
   replaceSkillOverlay,
   requestAgentConversationContext,
-  requestAIGatewayApiKey,
+  requestAIGatewayAPIKey,
   requestSkillOverlay,
   replaceInstalledSkillObservations,
   stringFromDetails,
-  throwingRpcRequester
+  throwingRPCRequester
 } from './worker/rpc_requests'
 
 const heartbeatIntervalMs = 15_000
@@ -63,7 +63,7 @@ async function runWorker(): Promise<void> {
   const fabric = connectRuntimeFabric(config)
   const sendEnvelope = fabric.sendEnvelope
   const sendFileFrame = fabric.sendFileFrame
-  const rpcClient = new RuntimeRpcClient(sendEnvelope)
+  const rpcClient = new RuntimeRPCClient(sendEnvelope)
   const activeTurns = new Map<string, ActiveTurn>()
   const fileLane = createFileTransferLane(config, sendFileFrame)
   let stopping = false
@@ -79,7 +79,7 @@ async function runWorker(): Promise<void> {
     await sendEnvelope(workerCapacityEnvelope(config, availableTurnSlots(config, activeTurns), activeTurns.size))
     workerLogger.notice('worker.ready_sent', 'worker ready sent', {
       endpoint: config.endpoint,
-      worker_id: config.workerId
+      worker_id: config.workerID
     })
 
     let nextHeartbeatAt = Date.now() + heartbeatIntervalMs
@@ -167,18 +167,18 @@ async function sendHeartbeat(sendEnvelope: EnvelopeSender, heartbeat: RuntimeFab
 async function handleEnvelope(
   config: WorkerConfig,
   sendEnvelope: EnvelopeSender,
-  rpcClient: RuntimeRpcClient,
+  rpcClient: RuntimeRPCClient,
   activeTurns: Map<string, ActiveTurn>,
   envelope: RuntimeFabricEnvelope
 ): Promise<void> {
   return match(envelope.body.type)
     .with('rpc_response', () => {
-      rpcClient.resolve(envelope.body.rpc_response as RpcResponse)
+      rpcClient.resolve(envelope.body.rpc_response as RPCResponse)
     })
     .with('rpc_error', () => {
-      rpcClient.resolve(envelope.body.rpc_error as RpcError)
+      rpcClient.resolve(envelope.body.rpc_error as RPCError)
     })
-    .with('rpc_request', () => handleWorkerRpcRequest(sendEnvelope, envelope.body.rpc_request as RpcRequest))
+    .with('rpc_request', () => handleWorkerRPCRequest(sendEnvelope, envelope.body.rpc_request as RPCRequest))
     .with('turn_start', () => startTurn(config, sendEnvelope, rpcClient, activeTurns, envelope))
     .with('mailbox_updated', () => handleMailboxUpdated(sendEnvelope, activeTurns, envelope))
     .with('turn_control', () => handleTurnControl(activeTurns, envelope))
@@ -195,12 +195,12 @@ async function handleEnvelope(
 async function startTurn(
   config: WorkerConfig,
   sendEnvelope: EnvelopeSender,
-  rpcClient: RuntimeRpcClient,
+  rpcClient: RuntimeRPCClient,
   activeTurns: Map<string, ActiveTurn>,
   envelope: RuntimeFabricEnvelope
 ): Promise<void> {
   const turnStart = turnStartFromEnvelope(envelope)
-  const correlationId = envelope.message_id
+  const correlationID = envelope.message_id
   workerLogger.info('worker.turn_start_received', 'worker turn start received', {
     actor_event_id: turnStart.turn.actor_event_id,
     input_count: 1,
@@ -211,7 +211,7 @@ async function startTurn(
 
   if (activeTurns.has(activeKey)) {
     await sendEnvelope(
-      turnErrorEnvelope(turnStart.turn, 'worker_busy', 'conversation already has an active turn', correlationId, {
+      turnErrorEnvelope(turnStart.turn, 'worker_busy', 'conversation already has an active turn', correlationID, {
         runtime: 'bun',
         retryable: true
       })
@@ -221,7 +221,7 @@ async function startTurn(
 
   if (activeTurns.size >= config.maxConcurrentTurns) {
     await sendEnvelope(
-      turnErrorEnvelope(turnStart.turn, 'worker_busy', 'worker has no available turn slots', correlationId, {
+      turnErrorEnvelope(turnStart.turn, 'worker_busy', 'worker has no available turn slots', correlationID, {
         runtime: 'bun',
         retryable: true,
         active_turns: activeTurns.size,
@@ -233,14 +233,14 @@ async function startTurn(
 
   const active: ActiveTurn = {
     turnStart,
-    correlationId,
+    correlationID,
     steeringUpdates: [],
     abortController: new AbortController(),
     controlledStopRequested: false
   }
   activeTurns.set(activeKey, active)
 
-  await sendEnvelope(turnAcceptedEnvelope(turnStart.turn, correlationId))
+  await sendEnvelope(turnAcceptedEnvelope(turnStart.turn, correlationID))
   await sendEnvelope(workerCapacityEnvelope(config, availableTurnSlots(config, activeTurns), activeTurns.size))
 
   void runActiveTurnTask(config, sendEnvelope, rpcClient, active, activeTurns).catch(error => {
@@ -261,7 +261,7 @@ async function startTurn(
 async function runActiveTurnTask(
   config: WorkerConfig,
   sendEnvelope: EnvelopeSender,
-  rpcClient: RuntimeRpcClient,
+  rpcClient: RuntimeRPCClient,
   active: ActiveTurn,
   activeTurns: Map<string, ActiveTurn>
 ): Promise<void> {
@@ -301,7 +301,7 @@ async function runActiveTurnTask(
     const message = error instanceof Error ? error.message : String(error)
 
     await sendEnvelope(
-      turnErrorEnvelope(turnStart.turn, 'worker_turn_failed', message, active.correlationId, turnFailureDetails(error))
+      turnErrorEnvelope(turnStart.turn, 'worker_turn_failed', message, active.correlationID, turnFailureDetails(error))
     )
     workerLogger.error('worker.turn_failed', 'worker turn failed', {
       actor_event_id: turnStart.turn.actor_event_id,
@@ -324,7 +324,7 @@ async function runActiveTurnTask(
 async function runActiveTurn(
   config: WorkerConfig,
   sendEnvelope: EnvelopeSender,
-  rpcClient: RuntimeRpcClient,
+  rpcClient: RuntimeRPCClient,
   active: ActiveTurn,
   onTurnActivity: (description?: string) => void
 ): Promise<void> {
@@ -348,7 +348,7 @@ async function runActiveTurn(
     builtinSkillsRoot: config.builtinSkillsRoot,
     agentInstalledSkillsRoot: config.agentInstalledSkillsRoot,
     internalSkillsRoot: config.internalSkillsRoot,
-    requestAIGatewayApiKey: (request, options) => requestAIGatewayApiKey(rpcClient, request, options),
+    requestAIGatewayAPIKey: (request, options) => requestAIGatewayAPIKey(rpcClient, request, options),
     requestAppConfigure: request => rpcClient.request(rpcMethods.appConfigureResolve, request),
     resolveCodexAccount: request => rpcClient.request(rpcMethods.codexAccountResolve, request),
     updateCodexAccountAuth: request => rpcClient.request(rpcMethods.codexAccountAuthUpdate, request),
@@ -360,13 +360,13 @@ async function runActiveTurn(
     appendSubagentDelegationEvents: request => rpcClient.request(rpcMethods.subagentDelegationEventAppend, request),
     updateSubagentDelegationStatus: request => rpcClient.request(rpcMethods.subagentDelegationStatusUpdate, request),
     requestAgentConversationContext: request => requestAgentConversationContext(rpcClient, request),
-    requestScheduleRpc: throwingRpcRequester(rpcClient, 'schedule RPC failed'),
-    requestMemoryRpc: throwingRpcRequester(rpcClient, 'memory RPC failed'),
+    requestScheduleRPC: throwingRPCRequester(rpcClient, 'schedule RPC failed'),
+    requestMemoryRPC: throwingRPCRequester(rpcClient, 'memory RPC failed'),
     requestSkillOverlay: request => requestSkillOverlay(rpcClient, request),
     replaceSkillOverlay: request => replaceSkillOverlay(rpcClient, request),
     pollSteering: () => active.steeringUpdates.splice(0),
     onSteeringApplied: update =>
-      sendEnvelope(turnAcceptedEnvelope(update.turn, update.correlationId ?? active.correlationId)),
+      sendEnvelope(turnAcceptedEnvelope(update.turn, update.correlationID ?? active.correlationID)),
     onTurnActivity,
     abortSignal: active.abortController.signal
   })
@@ -374,12 +374,12 @@ async function runActiveTurn(
   if (active.controlledStopRequested) return
 
   if (result.kind === 'noop_completed') {
-    await sendEnvelope(turnNoopCompletedEnvelope(turnStart.turn, result.reason, active.correlationId))
+    await sendEnvelope(turnNoopCompletedEnvelope(turnStart.turn, result.reason, active.correlationID))
     return
   }
 
   await sendEnvelope(
-    turnCompletedEnvelope(turnStart.turn, result.finalResponseId, result.outcome, active.correlationId)
+    turnCompletedEnvelope(turnStart.turn, result.finalResponseID, result.outcome, active.correlationID)
   )
 }
 
@@ -387,9 +387,9 @@ function errorValue(error: unknown): unknown {
   return error instanceof Error ? error : new Error(String(error))
 }
 
-function turnOperation(actorEventId: string, flags: { first?: boolean; last?: boolean } = {}): JsonObject {
+function turnOperation(actorEventID: string, flags: { first?: boolean; last?: boolean } = {}): JSONObject {
   return {
-    id: actorEventId,
+    id: actorEventID,
     producer: 'ankole-worker/turn',
     ...flags
   }
@@ -417,7 +417,7 @@ async function handleMailboxUpdated(
   active.steeringUpdates.push({
     turn: update.turn,
     actorEvent: update.actor_event,
-    correlationId: envelope.message_id
+    correlationID: envelope.message_id
   })
 
   // Normal text turns consume steering from the next model-loop boundary, so

@@ -235,7 +235,7 @@ If no failure boundary changed, avoid changing the supervision tree.
 - Keep bootstrap configuration and runtime-owned storage separate. Environment variables are for process startup and infrastructure facts; operator-managed runtime settings, generated worker auth keys, plugin settings, and similar process-independent values belong in declared `Ankole.AppConfigure` keys or the owning subsystem's declared encrypted storage.
 - Match the existing persistence shape before adding schema. Principals use text `uid` keys, and provider mirrors/outbox rows may use domain or composite keys. When a row needs an opaque PostgreSQL UUID id, generate it in application code with `Ankole.Ecto.UUIDv7` for Ecto schemas or `Ankole.Kernel.gen_uuid_v7/0` for explicit row ids outside Ecto schema inserts; do not rely on PostgreSQL defaults such as `gen_random_uuid()`.
 - Prefer PostgreSQL-native modeling when it clarifies the domain: native enums mapped through `Ecto.Enum`, `jsonb` for declared payloads, range/interval/numeric types where they fit, and database constraints for invariants that must survive process crashes.
-- Keep SignalsGateway as the provider-ingress boundary: adapters produce ingress facts, provider mirror rows record observed external state, `actor_events` are the actor-facing handoff, and `signal_gateway_outbox` is the durable provider-visible side-effect path. Provider raw event names must not leak into runtime semantics when an `ActorEvent.type` contract is needed.
+- Keep SignalsGateway as the provider-ingress boundary: adapters produce ingress facts, provider mirror rows record observed external state, `actor_events` are the actor-facing handoff, and `signal_gateway_outbox_entries` is the durable provider-visible side-effect path. Provider raw event names must not leak into runtime semantics when an `ActorEvent.type` contract is needed.
 - Keep RuntimeFabric as live transport, not durable truth. ZeroMQ carries actor, RPC, and worker-file traffic with bounded routing/backpressure; PostgreSQL owns replay, fences, reconciliation, and final commits. If a fact matters after process death, journal or commit it in PostgreSQL.
 - Respect runtime ownership boundaries. Elixir owns PostgreSQL semantics, setup, supervision, AppConfigure, Principal/AuthZ facades, and actor commit authority. Rust kernel owns crypto, shared identifier helpers, AuthZ rule evaluation, protobuf validation, and ZeroMQ mechanics. Bun Agent Computer owns LLM loops, tools, MCP servers, terminal state, and worker-local filesystem behavior.
 - Worker code must not invent control-plane state. Reads or writes that affect PG-owned semantics go through RuntimeFabric RPC or an explicit control-plane API; process-local worker state must be rebuildable after restart.
@@ -260,3 +260,7 @@ The repository uses the five default triage labels without overrides. See `docs/
 ### Domain docs
 
 This repository uses a single-context domain documentation layout. See `docs/agents/domain.md`.
+
+### Naming
+
+Initialism casing, collection cardinality, and compatibility exceptions are defined in `docs/agents/naming.md`.

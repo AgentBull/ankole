@@ -1,4 +1,4 @@
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import { DEFAULT_BROWSER_COMMAND_TIMEOUT_MS, DEFAULT_CDP_CONNECT_TIMEOUT_MS } from './constants'
 
 /**
@@ -8,11 +8,11 @@ import { DEFAULT_BROWSER_COMMAND_TIMEOUT_MS, DEFAULT_CDP_CONNECT_TIMEOUT_MS } fr
  * in a full browser automation framework while still preserving request ids,
  * session ids, events, and command timeouts.
  */
-export class CdpClient {
-  private nextId = 1
+export class CDPClient {
+  private nextID = 1
   readonly closed: Promise<void>
   private resolveClosed!: () => void
-  private eventListeners = new Map<string, Set<(params: JsonObject) => void>>()
+  private eventListeners = new Map<string, Set<(params: JSONObject) => void>>()
   private pending = new Map<
     number,
     {
@@ -30,16 +30,16 @@ export class CdpClient {
       try {
         this.handleMessage(event.data)
       } catch (error) {
-        debugCdp(`message handler failed: ${error instanceof Error ? error.stack || error.message : String(error)}`)
+        debugCDP(`message handler failed: ${error instanceof Error ? error.stack || error.message : String(error)}`)
       }
     })
     socket.addEventListener('close', event => {
-      debugCdp(`socket closed code=${event.code} reason=${event.reason || ''}`)
+      debugCDP(`socket closed code=${event.code} reason=${event.reason || ''}`)
       this.rejectAll(new Error('CDP socket closed'))
       this.resolveClosed()
     })
     socket.addEventListener('error', () => {
-      debugCdp('socket error')
+      debugCDP('socket error')
       this.rejectAll(new Error('CDP socket error'))
     })
   }
@@ -47,7 +47,7 @@ export class CdpClient {
   /**
    * Connects to a CDP WebSocket and resolves only after the socket is open.
    */
-  static connect(url: string, opts: { headers?: Record<string, string>; timeoutMs?: number } = {}): Promise<CdpClient> {
+  static connect(url: string, opts: { headers?: Record<string, string>; timeoutMs?: number } = {}): Promise<CDPClient> {
     return new Promise((resolveConnect, rejectConnect) => {
       const socket = opts.headers ? new WebSocket(url, { headers: opts.headers } as never) : new WebSocket(url)
       const timeout = setTimeout(() => {
@@ -59,7 +59,7 @@ export class CdpClient {
         'open',
         () => {
           clearTimeout(timeout)
-          resolveConnect(new CdpClient(socket))
+          resolveConnect(new CDPClient(socket))
         },
         { once: true }
       )
@@ -79,16 +79,16 @@ export class CdpClient {
    */
   send<T>(
     method: string,
-    params: JsonObject = {},
-    sessionId?: string,
+    params: JSONObject = {},
+    sessionID?: string,
     timeoutMs = DEFAULT_BROWSER_COMMAND_TIMEOUT_MS
   ): Promise<T> {
     if (this.socket.readyState !== WebSocket.OPEN) throw new Error('CDP socket is not open')
 
-    const id = this.nextId++
-    const message: JsonObject = { id, method, params }
-    if (sessionId) message['sessionId'] = sessionId
-    debugCdp(`send id=${id} method=${method} session=${sessionId ?? '-'}`)
+    const id = this.nextID++
+    const message: JSONObject = { id, method, params }
+    if (sessionID) message['sessionId'] = sessionID
+    debugCDP(`send id=${id} method=${method} session=${sessionID ?? '-'}`)
 
     const promise = new Promise<T>((resolveSend, rejectSend) => {
       const timeout = setTimeout(() => {
@@ -125,8 +125,8 @@ export class CdpClient {
   /**
    * Subscribes to CDP events, optionally scoped to an attached target session.
    */
-  on(method: string, sessionId: string | undefined, listener: (params: JsonObject) => void): () => void {
-    const key = eventListenerKey(method, sessionId)
+  on(method: string, sessionID: string | undefined, listener: (params: JSONObject) => void): () => void {
+    const key = eventListenerKey(method, sessionID)
     let listeners = this.eventListeners.get(key)
     if (!listeners) {
       listeners = new Set()
@@ -150,13 +150,13 @@ export class CdpClient {
     const message = JSON.parse(text) as {
       id?: number
       method?: string
-      params?: JsonObject
-      sessionId?: string
+      params?: JSONObject
+      sessionID?: string
       result?: unknown
       error?: { message?: string; data?: string }
     }
     if (message.id === undefined) {
-      if (message.method) this.emitEvent(message.method, message.sessionId, message.params ?? {})
+      if (message.method) this.emitEvent(message.method, message.sessionID, message.params ?? {})
       return
     }
 
@@ -168,7 +168,7 @@ export class CdpClient {
     if (message.error) {
       pending.reject(new Error([message.error.message, message.error.data].filter(Boolean).join(': ')))
     } else {
-      debugCdp(`recv id=${message.id}`)
+      debugCDP(`recv id=${message.id}`)
       pending.resolve(message.result)
     }
   }
@@ -187,8 +187,8 @@ export class CdpClient {
   /**
    * Emits an event to both session-specific listeners and wildcard listeners.
    */
-  private emitEvent(method: string, sessionId: string | undefined, params: JsonObject): void {
-    for (const key of [eventListenerKey(method, sessionId), eventListenerKey(method, undefined)]) {
+  private emitEvent(method: string, sessionID: string | undefined, params: JSONObject): void {
+    for (const key of [eventListenerKey(method, sessionID), eventListenerKey(method, undefined)]) {
       const listeners = this.eventListeners.get(key)
       if (!listeners) continue
       for (const listener of listeners) {
@@ -205,14 +205,14 @@ export class CdpClient {
 /**
  * Builds the listener map key for a CDP event and optional target session.
  */
-function eventListenerKey(method: string, sessionId: string | undefined): string {
-  return `${sessionId ?? '*'}:${method}`
+function eventListenerKey(method: string, sessionID: string | undefined): string {
+  return `${sessionID ?? '*'}:${method}`
 }
 
 /**
  * Writes CDP debug logs only when explicitly enabled.
  */
-function debugCdp(message: string): void {
+function debugCDP(message: string): void {
   if (process.env.ANKOLE_BROWSER_CDP_DEBUG !== '1') return
   process.stderr.write(`[browser-cdp] ${message}\n`)
 }

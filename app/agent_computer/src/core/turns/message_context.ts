@@ -1,4 +1,4 @@
-import { recordValue, type JsonObject } from '@pleisto/active-support'
+import { recordValue, type JsonObject as JSONObject } from '@pleisto/active-support'
 import type { TextContent, UserMessage } from '../llm'
 
 const AGENT_ENVIRONMENT_INFO_OPEN = '<agent_environment_info>'
@@ -22,7 +22,7 @@ export function prependEnvironmentInfoLinesToUserMessage(message: UserMessage, l
  * current actor event.
  */
 export function actorEventEnvironmentInfoLines(
-  payload: JsonObject | undefined,
+  payload: JSONObject | undefined,
   opts: { timezone?: string | null } = {}
 ): string[] {
   const data = recordValue(payload?.data) ?? {}
@@ -101,7 +101,7 @@ function isAgentEnvironmentInfoBlock(text: string): boolean {
 /**
  * Chooses a compact room label from channel metadata.
  */
-function roomLabel(channel: JsonObject): string | undefined {
+function roomLabel(channel: JSONObject): string | undefined {
   const name = stringValue(channel.name) ?? stringValue(channel.title)
   if (name) return name
 
@@ -114,7 +114,7 @@ function roomLabel(channel: JsonObject): string | undefined {
 /**
  * Chooses the best available speaker label from author metadata.
  */
-function speakerLabel(author: JsonObject): string | undefined {
+function speakerLabel(author: JSONObject): string | undefined {
   return (
     stringValue(author.display_name) ??
     stringValue(author.name) ??

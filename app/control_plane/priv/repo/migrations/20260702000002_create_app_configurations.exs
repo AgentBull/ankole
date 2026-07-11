@@ -1,10 +1,10 @@
-defmodule Ankole.Repo.Migrations.CreateAppConfigure do
+defmodule Ankole.Repo.Migrations.CreateAppConfigurations do
   # AppConfigure stores operator-managed runtime settings, not bootstrap infrastructure facts.
   # scope keeps installation defaults separate from agent-local overrides, while value is typed.
   use Ecto.Migration
 
   def change do
-    create table(:app_configure, primary_key: false) do
+    create table(:app_configurations, primary_key: false) do
       add :scope, :text, null: false
       add :key, :text, null: false
       add :value, :map, null: false
@@ -12,21 +12,23 @@ defmodule Ankole.Repo.Migrations.CreateAppConfigure do
       timestamps(type: :utc_datetime)
     end
 
-    create unique_index(:app_configure, [:scope, :key], name: :app_configure_scope_key_unique)
+    create unique_index(:app_configurations, [:scope, :key],
+             name: :app_configurations_scope_key_unique
+           )
 
     # Only installation-wide and concrete agent scopes are valid runtime configuration owners.
-    create constraint(:app_configure, :app_configure_scope_check,
+    create constraint(:app_configurations, :app_configurations_scope_check,
              check: "scope = 'global' OR scope ~ '^agent:.+$'"
            )
 
     # Configuration values must stay typed so callers can validate payload semantics at the edge.
-    create constraint(:app_configure, :app_configure_value_envelope_check,
+    create constraint(:app_configurations, :app_configurations_value_envelope_check,
              check: "jsonb_typeof(value) = 'object' AND value ? 'type' AND value ? 'value'"
            )
 
-    comment_table(:app_configure, "Typed installation and agent configuration values.")
+    comment_table(:app_configurations, "Typed installation and agent configuration values.")
 
-    comment_columns(:app_configure, %{
+    comment_columns(:app_configurations, %{
       scope: "Configuration owner, either global or a concrete agent scope.",
       key: "Registered configuration key within the scope.",
       value: "Typed configuration envelope with type and value members."

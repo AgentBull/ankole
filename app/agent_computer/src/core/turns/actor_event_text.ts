@@ -9,7 +9,7 @@ import {
   P,
   stringArg
 } from '@pleisto/active-support'
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import type { TurnStart } from '../../lanes/actor_lane'
 import type { CurrentChannelContext } from '../../prompts/system_prompt'
 
@@ -20,7 +20,7 @@ import type { CurrentChannelContext } from '../../prompts/system_prompt'
  * of the contract: commands prefer command args, normal entries prefer entry
  * text, and specialized wakeups get purpose-built text.
  */
-export function actorEventText(payload: JsonObject | undefined, fallbackType: string): string {
+export function actorEventText(payload: JSONObject | undefined, fallbackType: string): string {
   if (fallbackType === 'check_back_later.wakeup') {
     return checkBackLaterInputText(payload)
   }
@@ -44,7 +44,7 @@ export function actorEventText(payload: JsonObject | undefined, fallbackType: st
   return attachments ? `${base}\n\nAttachments:\n${attachments}` : base
 }
 
-function subagentWakeupInputText(payload: JsonObject | undefined, type: string): string {
+function subagentWakeupInputText(payload: JSONObject | undefined, type: string): string {
   const data = objectPath(payload, ['data'])
   const title = stringArg(data, 'title')
   const summary = stringArg(data, 'result_summary')
@@ -90,7 +90,7 @@ function subagentWakeupInputText(payload: JsonObject | undefined, type: string):
 /**
  * Enables AIGateway truncation only for the overflow-retry path.
  */
-export function statefulTruncationFromActorEventPayload(payload: JsonObject | undefined): 'auto' | undefined {
+export function statefulTruncationFromActorEventPayload(payload: JSONObject | undefined): 'auto' | undefined {
   const retryReason =
     deepString(payload, ['data', 'entry', 'retry_reason']) || deepString(payload, ['data', 'internal', 'retry_reason'])
 
@@ -129,7 +129,7 @@ export function currentChannelFromTurnStart(turnStart: TurnStart): CurrentChanne
 /**
  * Renders a delayed self-wakeup into concise model input.
  */
-function checkBackLaterInputText(payload: JsonObject | undefined): string {
+function checkBackLaterInputText(payload: JSONObject | undefined): string {
   const wakePayload = objectPath(payload, ['data', 'wake_payload'])
   const reason = stringArg(wakePayload, 'reason')
   const check = stringArg(wakePayload, 'check')
@@ -148,7 +148,7 @@ function checkBackLaterInputText(payload: JsonObject | undefined): string {
 /**
  * Renders a recurring schedule fire into concise model input.
  */
-function cronFireInputText(payload: JsonObject | undefined): string {
+function cronFireInputText(payload: JSONObject | undefined): string {
   const wakePayload = objectPath(payload, ['data', 'wake_payload'])
   const scheduleName = stringArg(wakePayload, 'cron_schedule_name')
   const trigger = stringArg(wakePayload, 'trigger')
@@ -178,7 +178,7 @@ function channelKind(kind: string | undefined): CurrentChannelContext['kind'] | 
 /**
  * Extracts the provider/platform name from a signal URI.
  */
-function sourcePlatform(payload: JsonObject | undefined): string | undefined {
+function sourcePlatform(payload: JSONObject | undefined): string | undefined {
   const source = deepString(payload, ['source'])
   if (!source?.startsWith('signal://')) return undefined
   const withoutScheme = source.slice('signal://'.length)
@@ -190,7 +190,7 @@ function sourcePlatform(payload: JsonObject | undefined): string | undefined {
  * Renders attachment metadata into text when the model cannot directly inspect
  * the file bytes.
  */
-function attachmentText(payload: JsonObject | undefined): string | undefined {
+function attachmentText(payload: JSONObject | undefined): string | undefined {
   const attachments = arrayPath(payload, ['data', 'entry', 'attachments'])
   if (attachments.length === 0) return undefined
 

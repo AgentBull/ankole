@@ -107,7 +107,7 @@ not a wall-clock turn cap, and it is not a promise that every running tool has a
 hidden timeout. Tool calls own their runtime lifecycle while they are active.
 
 The model-facing `command` tool follows the Hermes terminal shape: foreground
-commands default to `180s`; background commands return a `backgroundId`
+commands default to `180s`; background commands return a `backgroundID`
 immediately and have no default command timeout. Passing `timeout` to a
 background command opts into an explicit shell-level budget for that command.
 Background commands are scoped by workspace and execution scope, expose

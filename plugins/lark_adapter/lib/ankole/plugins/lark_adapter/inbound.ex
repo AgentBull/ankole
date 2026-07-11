@@ -152,7 +152,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
                  "chat_id" => chat_id,
                  "chat_type" => optional_text(message, "chat_type"),
                  "domain" => Map.fetch!(config, "domain"),
-                 "app_id" => event.app_id || Map.fetch!(config, "appId")
+                 "app_id" => event.app_id || Map.fetch!(config, "appID")
                },
                raw_payload: compact_map(message)
              },
@@ -867,7 +867,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   defp bot_identity_configured?(config) when is_map(config),
     do:
       present_text?(configured_bot_open_id(config)) or
-        present_text?(Map.get(config, "botUserId"))
+        present_text?(Map.get(config, "botUserID"))
 
   defp bot_identity_configured?(_config), do: false
 
@@ -876,15 +876,15 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
 
     matches_optional_id?(mention["open_id"], bot_open_id) or
       matches_optional_id?(mention["id"], bot_open_id) or
-      matches_optional_id?(mention["user_id"], Map.get(config, "botUserId")) or
-      matches_optional_id?(mention["id"], Map.get(config, "botUserId"))
+      matches_optional_id?(mention["user_id"], Map.get(config, "botUserID")) or
+      matches_optional_id?(mention["id"], Map.get(config, "botUserID"))
   end
 
   defp mention_targets_configured_bot?(_mention, _config), do: false
 
   defp configured_bot_open_id(config) when is_map(config) do
-    case optional_text(config, "botOpenId") do
-      nil -> optional_text(config, "runtimeBotOpenId")
+    case optional_text(config, "botOpenID") do
+      nil -> optional_text(config, "runtimeBotOpenID")
       open_id -> open_id
     end
   end

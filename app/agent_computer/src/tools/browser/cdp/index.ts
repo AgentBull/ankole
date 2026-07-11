@@ -1,5 +1,5 @@
 export * from './types'
 export { findChromium } from './chromium'
-export { remoteBrowserCdpConfigFromEnv } from './config'
-export { assertSafeBrowserUrl, redactBrowserJson } from './utils'
+export { remoteBrowserCDPConfigFromEnv } from './config'
+export { assertSafeBrowserURL, redactBrowserJSON } from './utils'
 export * from './public'

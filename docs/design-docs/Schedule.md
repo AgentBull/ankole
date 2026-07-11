@@ -595,7 +595,7 @@ The worker must not express silent success by staying silent. The turn still
 needs a fenced, committable, auditable terminal result — either
 `turn_completed` naming the adopted final Response or the explicit noop marker.
 
-Provider-visible output uses normal `signal_gateway_outbox` rows. The scheduler
+Provider-visible output uses normal `signal_gateway_outbox_entries` rows. The scheduler
 does not send messages directly from the fire worker, and the worker should not
 call messaging tools for the same configured target.
 

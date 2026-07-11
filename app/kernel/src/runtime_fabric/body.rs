@@ -1,6 +1,10 @@
 use crate::common::{KernelError, KernelResult};
 
 use super::{json::normalized_name, proto};
+use proto::Lane::Rpc as RPCLane;
+use proto::envelope::Body::{
+    RpcError as RPCErrorBody, RpcRequest as RPCRequestBody, RpcResponse as RPCResponseBody,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum BodyKind {
@@ -16,9 +20,9 @@ pub(super) enum BodyKind {
     TurnNoopCompleted,
     TurnCompleted,
     ControlShutdown,
-    RpcRequest,
-    RpcResponse,
-    RpcError,
+    RPCRequest,
+    RPCResponse,
+    RPCError,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -44,9 +48,9 @@ impl BodyKind {
             "turn_noop_completed" => Ok(Self::TurnNoopCompleted),
             "turn_completed" => Ok(Self::TurnCompleted),
             "control_shutdown" => Ok(Self::ControlShutdown),
-            "rpc_request" => Ok(Self::RpcRequest),
-            "rpc_response" => Ok(Self::RpcResponse),
-            "rpc_error" => Ok(Self::RpcError),
+            "rpc_request" => Ok(Self::RPCRequest),
+            "rpc_response" => Ok(Self::RPCResponse),
+            "rpc_error" => Ok(Self::RPCError),
             other => Err(KernelError::new(format!(
                 "unsupported runtime fabric body: {other}"
             ))),
@@ -131,21 +135,21 @@ impl BodyKind {
                 durability: proto::DurabilityClass::ControlEphemeral,
                 requires_correlation_id: false,
             },
-            Self::RpcRequest => BodySpec {
+            Self::RPCRequest => BodySpec {
                 name: "rpc_request",
-                lane: proto::Lane::Rpc,
+                lane: RPCLane,
                 durability: proto::DurabilityClass::ControlEphemeral,
                 requires_correlation_id: true,
             },
-            Self::RpcResponse => BodySpec {
+            Self::RPCResponse => BodySpec {
                 name: "rpc_response",
-                lane: proto::Lane::Rpc,
+                lane: RPCLane,
                 durability: proto::DurabilityClass::ControlEphemeral,
                 requires_correlation_id: true,
             },
-            Self::RpcError => BodySpec {
+            Self::RPCError => BodySpec {
                 name: "rpc_error",
-                lane: proto::Lane::Rpc,
+                lane: RPCLane,
                 durability: proto::DurabilityClass::ControlEphemeral,
                 requires_correlation_id: true,
             },
@@ -167,9 +171,9 @@ pub(super) fn body_kind(body: &proto::envelope::Body) -> BodyKind {
         proto::envelope::Body::TurnNoopCompleted(_) => BodyKind::TurnNoopCompleted,
         proto::envelope::Body::TurnCompleted(_) => BodyKind::TurnCompleted,
         proto::envelope::Body::ControlShutdown(_) => BodyKind::ControlShutdown,
-        proto::envelope::Body::RpcRequest(_) => BodyKind::RpcRequest,
-        proto::envelope::Body::RpcResponse(_) => BodyKind::RpcResponse,
-        proto::envelope::Body::RpcError(_) => BodyKind::RpcError,
+        RPCRequestBody(_) => BodyKind::RPCRequest,
+        RPCResponseBody(_) => BodyKind::RPCResponse,
+        RPCErrorBody(_) => BodyKind::RPCError,
     }
 }
 

@@ -8,12 +8,12 @@ defmodule Ankole.AIAgent.Library.Schemas.LibraryBuiltinSyncState do
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
 
-  alias Ankole.Ecto.JsonPayload
+  alias Ankole.Ecto.JSONPayload
 
   @primary_key false
   @timestamps_opts [type: :utc_datetime_usec]
 
-  schema "library_builtin_sync_state" do
+  schema "library_builtin_sync_states" do
     field :name, :string, primary_key: true
     field :content_hash, :string
     field :synced_at, :utc_datetime_usec
@@ -31,10 +31,10 @@ defmodule Ankole.AIAgent.Library.Schemas.LibraryBuiltinSyncState do
     |> cast(attrs, [:name, :content_hash, :synced_at, :metadata])
     |> normalize_blank([:name, :content_hash])
     |> validate_required([:name, :content_hash, :metadata])
-    |> JsonPayload.validate_map(:metadata, allow_datetime: true)
-    |> unique_constraint(:name, name: :library_builtin_sync_state_pkey)
-    |> check_constraint(:name, name: :library_builtin_sync_state_name_present)
-    |> check_constraint(:content_hash, name: :library_builtin_sync_state_content_hash_present)
-    |> check_constraint(:metadata, name: :library_builtin_sync_state_metadata_object)
+    |> JSONPayload.validate_map(:metadata, allow_datetime: true)
+    |> unique_constraint(:name, name: :library_builtin_sync_states_pkey)
+    |> check_constraint(:name, name: :library_builtin_sync_states_name_present)
+    |> check_constraint(:content_hash, name: :library_builtin_sync_states_content_hash_present)
+    |> check_constraint(:metadata, name: :library_builtin_sync_states_metadata_object)
   end
 end

@@ -401,6 +401,7 @@ export type {
   ScheduleCronWriteRequest,
   ScheduleEventListResponse,
   ScheduleEventResponse,
+  ScheduleRunListResponse,
   SignalAdapterField,
   SignalAdapterFieldOption,
   SignalAdapterItem,

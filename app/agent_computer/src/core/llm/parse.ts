@@ -1,4 +1,4 @@
-import { recordValue, type JsonObject } from '@pleisto/active-support'
+import { recordValue, type JsonObject as JSONObject } from '@pleisto/active-support'
 import type {
   ResponseFunctionToolCall,
   ResponseOutputItem,
@@ -25,7 +25,7 @@ export function parseResponse(response: OpenAIResponse, modelName: string): Mode
   const output = response.output ?? []
   const usage = usageFromResponse(response.usage)
   const result = parseOutputItems(output, modelName, usage, response.status === 'failed' ? 'error' : undefined)
-  result.responseId = response.id
+  result.responseID = response.id
   return result
 }
 
@@ -39,7 +39,7 @@ export function parseOutputItems(
   fallbackFunctionCalls: ResponseFunctionToolCall[] = []
 ): ModelCallResult {
   const functionCalls: ResponseFunctionToolCall[] = [...fallbackFunctionCalls]
-  const seenFunctionCallIds = new Set(functionCalls.map(responseFunctionCallKey).filter(Boolean))
+  const seenFunctionCallIDs = new Set(functionCalls.map(responseFunctionCallKey).filter(Boolean))
   const textParts: string[] = []
 
   for (const item of output) {
@@ -56,9 +56,9 @@ export function parseOutputItems(
     if (item.type === 'function_call') {
       const call = item as ResponseFunctionToolCall
       const id = responseFunctionCallKey(call)
-      if (id && !seenFunctionCallIds.has(id)) {
+      if (id && !seenFunctionCallIDs.has(id)) {
         functionCalls.push(call)
-        seenFunctionCallIds.add(id)
+        seenFunctionCallIDs.add(id)
       }
     }
   }
@@ -86,11 +86,11 @@ export function parseOutputItems(
   return { message, functionCalls, hasToolCalls: functionCalls.length > 0 }
 }
 
-export function rememberFunctionCall(calls: Map<string, ResponseFunctionToolCall>, item: JsonObject): void {
+export function rememberFunctionCall(calls: Map<string, ResponseFunctionToolCall>, item: JSONObject): void {
   if (item.type !== 'function_call') return
   const call = item as unknown as ResponseFunctionToolCall
-  const callId = responseFunctionCallKey(call)
-  if (callId) calls.set(callId, call)
+  const callID = responseFunctionCallKey(call)
+  if (callID) calls.set(callID, call)
 }
 
 export function responseFunctionCallKey(call: Pick<ResponseFunctionToolCall, 'call_id' | 'id'>): string | undefined {
@@ -112,7 +112,7 @@ export function usageFromResponse(usage: unknown): ModelUsage | undefined {
   }
 }
 
-export function terminalErrorMessage(response: JsonObject | undefined, frame: JsonObject): string | undefined {
+export function terminalErrorMessage(response: JSONObject | undefined, frame: JSONObject): string | undefined {
   const error = recordValue(response?.error) ?? recordValue(frame.error)
   const status =
     numberValue(error?.status) ??
@@ -138,7 +138,7 @@ export function terminalErrorMessage(response: JsonObject | undefined, frame: Js
   return undefined
 }
 
-export function aigatewayErrorFromFrame(frame: JsonObject): AIGatewayWebSocketError {
+export function aigatewayErrorFromFrame(frame: JSONObject): AIGatewayWebSocketError {
   const error = recordValue(frame.error)
 
   return new AIGatewayWebSocketError(errorFrameMessage(frame), {
@@ -174,7 +174,7 @@ export function shouldRefreshAuthorizationAfterWebSocketOpenFailure(error: unkno
   return details?.local_retryable === true && stage !== undefined && stage.endsWith('_before_open')
 }
 
-function errorFrameMessage(frame: JsonObject): string {
+function errorFrameMessage(frame: JSONObject): string {
   const error = recordValue(frame.error)
   if (typeof error?.message === 'string') return error.message
   if (typeof frame.message === 'string') return frame.message

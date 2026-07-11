@@ -2,8 +2,8 @@ import { describe, expect, it } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { JsonObject } from '@pleisto/active-support'
-import { CodexAppServerClient, type JsonRpcMessage } from '../../src/tools/codex/app-server-client'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import { CodexAppServerClient, type JSONRPCMessage } from '../../src/tools/codex/app-server-client'
 import type { DynamicToolCallParams } from '../../src/tools/subagent/generated/protocol/v2/DynamicToolCallParams'
 import type { DynamicToolCallResponse } from '../../src/tools/subagent/generated/protocol/v2/DynamicToolCallResponse'
 import type { ThreadResumeParams } from '../../src/tools/subagent/generated/protocol/v2/ThreadResumeParams'
@@ -19,7 +19,7 @@ describe('@ankole/agent-computer Codex durable resume contract', () => {
     const root = mkdtempSync(join(sharedRoot, 'ankole-codex-resume-contract-'))
     const workspace = join(root, 'workspace')
     const codexHome = join(root, 'shared-codex-home')
-    const requests: JsonObject[] = []
+    const requests: JSONObject[] = []
     const toolCalls: DynamicToolCallParams[] = []
     const provider = createFakeResponsesProvider(requests)
     if (typeof provider.port !== 'number') throw new Error('fake Responses provider did not bind a TCP port')
@@ -31,7 +31,7 @@ describe('@ankole/agent-computer Codex durable resume contract', () => {
       mkdirSync(codexHome, { recursive: true })
       writeCodexConfig(codexHome, provider.port)
 
-      const firstNotifications: JsonRpcMessage[] = []
+      const firstNotifications: JSONRPCMessage[] = []
       firstClient = codexClient({
         workspace,
         codexHome,
@@ -60,10 +60,10 @@ describe('@ankole/agent-computer Codex durable resume contract', () => {
           }
         ]
       } satisfies ThreadStartParams)) as ThreadStartResponse
-      const threadId = started.thread.id
+      const threadID = started.thread.id
 
       const firstTurn = (await firstClient.request('turn/start', {
-        threadId,
+        ['threadId']: threadID,
         input: textInput('FIRST_DYNAMIC'),
         cwd: workspace,
         approvalPolicy: 'never',
@@ -73,26 +73,29 @@ describe('@ankole/agent-computer Codex durable resume contract', () => {
 
       expect(toolCalls.map(call => call.callId)).toEqual(['call_first'])
       expect(requests[0]?.include).toEqual(['reasoning.encrypted_content'])
-      expect(requests[0]?.prompt_cache_key).toBe(threadId)
+      expect(requests[0]?.prompt_cache_key).toBe(threadID)
       const firstToolFollowup = requests.find(request => JSON.stringify(request).includes('call_first'))
       expect(JSON.stringify(firstToolFollowup)).toContain('ENCRYPTED_FIRST')
 
       const interruptedTurn = (await firstClient.request('turn/start', {
-        threadId,
+        ['threadId']: threadID,
         input: textInput('WAIT_UNTIL_INTERRUPTED'),
         cwd: workspace,
         approvalPolicy: 'never',
         sandboxPolicy: { type: 'dangerFullAccess' }
       } satisfies TurnStartParams)) as TurnStartResponse
       await waitFor(() => requestContains(requests, 'WAIT_UNTIL_INTERRUPTED'))
-      await firstClient.request('turn/interrupt', { threadId, turnId: interruptedTurn.turn.id })
+      await firstClient.request('turn/interrupt', {
+        ['threadId']: threadID,
+        ['turnId']: interruptedTurn.turn.id
+      })
       await waitFor(() => turnCompleted(firstNotifications, interruptedTurn.turn.id, 'interrupted'))
 
       await firstClient.close()
       firstClient = undefined
       await sleep(200)
 
-      const resumedNotifications: JsonRpcMessage[] = []
+      const resumedNotifications: JSONRPCMessage[] = []
       resumedClient = codexClient({
         workspace,
         codexHome,
@@ -102,17 +105,17 @@ describe('@ankole/agent-computer Codex durable resume contract', () => {
       await resumedClient.initialize()
 
       const resumed = (await resumedClient.request('thread/resume', {
-        threadId,
+        ['threadId']: threadID,
         cwd: workspace,
         approvalPolicy: 'never',
         sandbox: 'danger-full-access',
         developerInstructions: 'For marker prompts, call ankole_echo exactly once before replying.'
       } satisfies ThreadResumeParams)) as ThreadResumeResponse
-      expect(resumed.thread.id).toBe(threadId)
+      expect(resumed.thread.id).toBe(threadID)
 
       const resumedTurn = (await resumedClient.request('turn/start', {
-        threadId,
-        clientUserMessageId: 'steer-event-after-resume',
+        ['threadId']: threadID,
+        ['clientUserMessageId']: 'steer-event-after-resume',
         input: textInput('AFTER_RESUME'),
         cwd: workspace,
         approvalPolicy: 'never',
@@ -140,7 +143,7 @@ describe('@ankole/agent-computer Codex durable resume contract', () => {
 function codexClient(input: {
   workspace: string
   codexHome: string
-  notifications: JsonRpcMessage[]
+  notifications: JSONRPCMessage[]
   toolCalls: DynamicToolCallParams[]
 }): CodexAppServerClient {
   return new CodexAppServerClient({
@@ -172,7 +175,7 @@ function codexClient(input: {
   })
 }
 
-function createFakeResponsesProvider(requests: JsonObject[]) {
+function createFakeResponsesProvider(requests: JSONObject[]) {
   return Bun.serve({
     hostname: '127.0.0.1',
     port: 0,
@@ -182,7 +185,7 @@ function createFakeResponsesProvider(requests: JsonObject[]) {
         return Response.json({ error: { message: 'not found' } }, { status: 404 })
       }
 
-      const body = (await request.json()) as JsonObject
+      const body = (await request.json()) as JSONObject
       requests.push(body)
       const bodyText = JSON.stringify(body)
       const model = typeof body.model === 'string' ? body.model : 'gpt-5.4'
@@ -209,17 +212,17 @@ function createFakeResponsesProvider(requests: JsonObject[]) {
 }
 
 function functionCallResponse(
-  responseId: string,
+  responseID: string,
   model: string,
-  callId: string,
+  callID: string,
   text: string,
   encryptedReasoning?: string
 ): Response {
-  const response = responseEnvelope(responseId, model)
+  const response = responseEnvelope(responseID, model)
   const argumentsText = JSON.stringify({ text })
   const reasoningItem = encryptedReasoning
     ? {
-        id: `rs_${callId}`,
+        id: `rs_${callID}`,
         type: 'reasoning',
         summary: [],
         encrypted_content: encryptedReasoning
@@ -227,15 +230,15 @@ function functionCallResponse(
     : undefined
   const outputIndex = reasoningItem ? 1 : 0
   const item = {
-    id: `fc_${callId}`,
+    id: `fc_${callID}`,
     type: 'function_call',
     status: 'completed',
     name: 'ankole_echo',
-    call_id: callId,
+    call_id: callID,
     arguments: argumentsText
   }
 
-  const events: JsonObject[] = [{ type: 'response.created', sequence_number: 0, response }]
+  const events: JSONObject[] = [{ type: 'response.created', sequence_number: 0, response }]
   if (reasoningItem) {
     events.push(
       {
@@ -288,10 +291,10 @@ function functionCallResponse(
   return sseResponse(events)
 }
 
-function messageResponse(responseId: string, model: string, text: string): Response {
-  const response = responseEnvelope(responseId, model)
+function messageResponse(responseID: string, model: string, text: string): Response {
+  const response = responseEnvelope(responseID, model)
   const item = {
-    id: `msg_${responseId}`,
+    id: `msg_${responseID}`,
     type: 'message',
     status: 'completed',
     role: 'assistant',
@@ -343,9 +346,9 @@ function messageResponse(responseId: string, model: string, text: string): Respo
   ])
 }
 
-function heldResponse(request: Request, responseId: string, model: string): Response {
+function heldResponse(request: Request, responseID: string, model: string): Response {
   const encoder = new TextEncoder()
-  const response = responseEnvelope(responseId, model)
+  const response = responseEnvelope(responseID, model)
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       controller.enqueue(encoder.encode(sseEvent({ type: 'response.created', sequence_number: 0, response })))
@@ -355,7 +358,7 @@ function heldResponse(request: Request, responseId: string, model: string): Resp
   return new Response(stream, { headers: sseHeaders() })
 }
 
-function responseEnvelope(id: string, model: string): JsonObject {
+function responseEnvelope(id: string, model: string): JSONObject {
   return {
     id,
     object: 'response',
@@ -369,7 +372,7 @@ function responseEnvelope(id: string, model: string): JsonObject {
   }
 }
 
-function completedResponse(response: JsonObject, output: unknown[]): JsonObject {
+function completedResponse(response: JSONObject, output: unknown[]): JSONObject {
   return {
     ...response,
     completed_at: 1_764_967_972,
@@ -385,11 +388,11 @@ function completedResponse(response: JsonObject, output: unknown[]): JsonObject 
   }
 }
 
-function sseResponse(events: JsonObject[]): Response {
+function sseResponse(events: JSONObject[]): Response {
   return new Response(events.map(sseEvent).join(''), { headers: sseHeaders() })
 }
 
-function sseEvent(event: JsonObject): string {
+function sseEvent(event: JSONObject): string {
   return `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`
 }
 
@@ -426,15 +429,15 @@ function textInput(text: string): TurnStartParams['input'] {
   return [{ type: 'text', text, text_elements: [] }]
 }
 
-function turnCompleted(notifications: JsonRpcMessage[], turnId: string, status: string): boolean {
+function turnCompleted(notifications: JSONRPCMessage[], turnID: string, status: string): boolean {
   return notifications.some(notification => {
     if (notification.method !== 'turn/completed' || !isObject(notification.params)) return false
     const turn = notification.params.turn
-    return isObject(turn) && turn.id === turnId && turn.status === status
+    return isObject(turn) && turn.id === turnID && turn.status === status
   })
 }
 
-function requestContains(requests: JsonObject[], marker: string): boolean {
+function requestContains(requests: JSONObject[], marker: string): boolean {
   return requests.some(request => JSON.stringify(request).includes(marker))
 }
 

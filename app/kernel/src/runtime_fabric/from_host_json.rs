@@ -9,6 +9,9 @@ use super::{
     json::*,
     proto,
 };
+use proto::envelope::Body::{
+    RpcError as RPCErrorBody, RpcRequest as RPCRequestBody, RpcResponse as RPCResponseBody,
+};
 
 pub(super) fn envelope_from_json(value: &Value) -> KernelResult<proto::Envelope> {
     let object = object(value, "envelope")?;
@@ -79,15 +82,9 @@ fn named_body_from_json(name: &str, payload: &Value) -> KernelResult<proto::enve
         BodyKind::ControlShutdown => Ok(proto::envelope::Body::ControlShutdown(
             control_shutdown_from_json(payload)?,
         )),
-        BodyKind::RpcRequest => Ok(proto::envelope::Body::RpcRequest(rpc_request_from_json(
-            payload,
-        )?)),
-        BodyKind::RpcResponse => Ok(proto::envelope::Body::RpcResponse(rpc_response_from_json(
-            payload,
-        )?)),
-        BodyKind::RpcError => Ok(proto::envelope::Body::RpcError(rpc_error_from_json(
-            payload,
-        )?)),
+        BodyKind::RPCRequest => Ok(RPCRequestBody(rpc_request_from_json(payload)?)),
+        BodyKind::RPCResponse => Ok(RPCResponseBody(rpc_response_from_json(payload)?)),
+        BodyKind::RPCError => Ok(RPCErrorBody(rpc_error_from_json(payload)?)),
     }
 }
 
@@ -215,10 +212,10 @@ fn control_shutdown_from_json(value: &Value) -> KernelResult<proto::ControlShutd
     })
 }
 
-fn rpc_request_from_json(value: &Value) -> KernelResult<proto::RpcRequest> {
+fn rpc_request_from_json(value: &Value) -> KernelResult<proto::RPCRequest> {
     let object = object(value, "rpc_request")?;
 
-    Ok(proto::RpcRequest {
+    Ok(proto::RPCRequest {
         request_id: required_string(object, "request_id")?,
         method: required_string(object, "method")?,
         deadline_unix_ms: optional_i64(object, "deadline_unix_ms")?.unwrap_or_default(),
@@ -226,19 +223,19 @@ fn rpc_request_from_json(value: &Value) -> KernelResult<proto::RpcRequest> {
     })
 }
 
-fn rpc_response_from_json(value: &Value) -> KernelResult<proto::RpcResponse> {
+fn rpc_response_from_json(value: &Value) -> KernelResult<proto::RPCResponse> {
     let object = object(value, "rpc_response")?;
 
-    Ok(proto::RpcResponse {
+    Ok(proto::RPCResponse {
         request_id: required_string(object, "request_id")?,
         payload_json: json_bytes(object.get("payload_json"))?.unwrap_or_default(),
     })
 }
 
-fn rpc_error_from_json(value: &Value) -> KernelResult<proto::RpcError> {
+fn rpc_error_from_json(value: &Value) -> KernelResult<proto::RPCError> {
     let object = object(value, "rpc_error")?;
 
-    Ok(proto::RpcError {
+    Ok(proto::RPCError {
         request_id: required_string(object, "request_id")?,
         code: required_string(object, "code")?,
         message: optional_string(object, "message")?.unwrap_or_default(),

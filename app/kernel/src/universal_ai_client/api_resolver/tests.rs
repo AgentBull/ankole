@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn openai_responses_passthrough_adds_zero_based_sequence() {
     let mut resolver =
-        ApiResolver::new(ApiResolverKind::OpenaiResponses, ResponseContext::default());
+        APIResolver::new(APIResolverKind::OpenAIResponses, ResponseContext::default());
 
     let events = resolver
         .ingest(json!({"type": "response.created"}))
@@ -18,7 +18,7 @@ fn openai_responses_passthrough_adds_zero_based_sequence() {
 #[test]
 fn openai_responses_requires_terminal_event_on_finish() {
     let mut resolver =
-        ApiResolver::new(ApiResolverKind::OpenaiResponses, ResponseContext::default());
+        APIResolver::new(APIResolverKind::OpenAIResponses, ResponseContext::default());
 
     let error = resolver.finish().unwrap_err();
 
@@ -28,7 +28,7 @@ fn openai_responses_requires_terminal_event_on_finish() {
 #[test]
 fn openai_responses_error_event_is_not_terminal_by_itself() {
     let mut resolver =
-        ApiResolver::new(ApiResolverKind::OpenaiResponses, ResponseContext::default());
+        APIResolver::new(APIResolverKind::OpenAIResponses, ResponseContext::default());
 
     resolver
         .ingest(json!({"type": "error", "error": {"code": "boom"}}))
@@ -40,8 +40,8 @@ fn openai_responses_error_event_is_not_terminal_by_itself() {
 
 #[test]
 fn openai_responses_preserves_encrypted_reasoning_output_item() {
-    let mut resolver = ApiResolver::new(
-        ApiResolverKind::OpenaiResponses,
+    let mut resolver = APIResolver::new(
+        APIResolverKind::OpenAIResponses,
         ResponseContext {
             model: "gpt-test".to_string(),
             request: json!({"input": "continue"}),
@@ -78,8 +78,8 @@ fn openai_responses_preserves_encrypted_reasoning_output_item() {
 
 #[test]
 fn openai_chat_accumulates_text_usage_and_terminal_response() {
-    let mut resolver = ApiResolver::new(
-        ApiResolverKind::OpenaiChatCompletions,
+    let mut resolver = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
         ResponseContext {
             model: "gpt-test".to_string(),
             request: json!({"input": "hi"}),
@@ -128,8 +128,8 @@ fn openai_chat_accumulates_text_usage_and_terminal_response() {
 
 #[test]
 fn openai_chat_top_level_error_chunk_becomes_provider_failure() {
-    let mut resolver = ApiResolver::new(
-        ApiResolverKind::OpenaiChatCompletions,
+    let mut resolver = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
         ResponseContext {
             model: "openrouter-test".to_string(),
             request: json!({"input": "hi"}),
@@ -167,8 +167,8 @@ fn openai_chat_top_level_error_chunk_becomes_provider_failure() {
 
 #[test]
 fn openai_chat_waits_for_late_openrouter_usage_before_terminal_response() {
-    let mut resolver = ApiResolver::new(
-        ApiResolverKind::OpenaiChatCompletions,
+    let mut resolver = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
         ResponseContext {
             model: "openrouter-test".to_string(),
             request: json!({"input": "hi"}),
@@ -223,8 +223,8 @@ fn openai_chat_waits_for_late_openrouter_usage_before_terminal_response() {
 
 #[test]
 fn openai_chat_non_streaming_flattens_assistant_content_parts() {
-    let mut resolver = ApiResolver::new(
-        ApiResolverKind::OpenaiChatCompletions,
+    let mut resolver = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
         ResponseContext {
             model: "openrouter-test".to_string(),
             request: json!({"input": "hi"}),
@@ -267,8 +267,8 @@ fn openai_chat_non_streaming_flattens_assistant_content_parts() {
 
 #[test]
 fn openai_chat_accumulates_tool_calls() {
-    let mut resolver = ApiResolver::new(
-        ApiResolverKind::OpenaiChatCompletions,
+    let mut resolver = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
         ResponseContext::default(),
     );
 
@@ -311,8 +311,8 @@ fn openai_chat_accumulates_tool_calls() {
 #[test]
 fn openai_chat_build_body_keeps_png_data_url_as_chat_image_url() {
     let image_data_url = "data:image/png;base64,iVBORw0KGgo=";
-    let resolver = ApiResolver::new(
-        ApiResolverKind::OpenaiChatCompletions,
+    let resolver = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
         ResponseContext {
             model: "openrouter-vision-test".to_string(),
             request: json!({
@@ -342,8 +342,8 @@ fn openai_chat_build_body_keeps_png_data_url_as_chat_image_url() {
 
 #[test]
 fn openai_chat_build_body_flattens_assistant_content_parts() {
-    let resolver = ApiResolver::new(
-        ApiResolverKind::OpenaiChatCompletions,
+    let resolver = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
         ResponseContext {
             model: "openrouter-test".to_string(),
             request: json!({
@@ -369,8 +369,8 @@ fn openai_chat_build_body_flattens_assistant_content_parts() {
 
 #[test]
 fn openai_chat_build_body_maps_function_call_history_to_tool_messages() {
-    let resolver = ApiResolver::new(
-        ApiResolverKind::OpenaiChatCompletions,
+    let resolver = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
         ResponseContext {
             model: "openrouter-test".to_string(),
             request: json!({
@@ -440,8 +440,8 @@ fn openai_chat_build_body_maps_function_call_history_to_tool_messages() {
 
 #[test]
 fn jina_embeddings_preserves_multivector_items() {
-    let mut resolver = ApiResolver::new(
-        ApiResolverKind::JinaEmbeddings,
+    let mut resolver = APIResolver::new(
+        APIResolverKind::JinaEmbeddings,
         ResponseContext {
             model: "jina-embeddings-v4".to_string(),
             request: json!({}),
@@ -476,8 +476,8 @@ fn jina_embeddings_preserves_multivector_items() {
 
 #[test]
 fn jina_embeddings_preserves_string_embedding_and_multimodal_usage() {
-    let mut resolver = ApiResolver::new(
-        ApiResolverKind::JinaEmbeddings,
+    let mut resolver = APIResolver::new(
+        APIResolverKind::JinaEmbeddings,
         ResponseContext {
             model: "jina-embeddings-v4".to_string(),
             request: json!({}),
@@ -518,8 +518,8 @@ fn jina_embeddings_preserves_string_embedding_and_multimodal_usage() {
 
 #[test]
 fn anthropic_text_stream_accumulates_response_body() {
-    let mut resolver = ApiResolver::new(
-        ApiResolverKind::AnthropicMessages,
+    let mut resolver = APIResolver::new(
+        APIResolverKind::AnthropicMessages,
         ResponseContext {
             model: "claude-test".to_string(),
             request: json!({}),
@@ -569,8 +569,8 @@ fn anthropic_text_stream_accumulates_response_body() {
 
 #[test]
 fn anthropic_message_stop_closes_open_text_block() {
-    let mut resolver = ApiResolver::new(
-        ApiResolverKind::AnthropicMessages,
+    let mut resolver = APIResolver::new(
+        APIResolverKind::AnthropicMessages,
         ResponseContext {
             model: "claude-test".to_string(),
             request: json!({}),
@@ -622,8 +622,8 @@ fn anthropic_message_stop_closes_open_text_block() {
 
 #[test]
 fn anthropic_build_body_maps_openresponses_images_to_image_blocks() {
-    let resolver = ApiResolver::new(
-        ApiResolverKind::AnthropicMessages,
+    let resolver = APIResolver::new(
+        APIResolverKind::AnthropicMessages,
         ResponseContext {
             model: "claude-test".to_string(),
             request: json!({
@@ -670,8 +670,8 @@ fn anthropic_build_body_maps_openresponses_images_to_image_blocks() {
 
 #[test]
 fn gemini_generate_content_accumulates_text_tool_and_usage() {
-    let mut resolver = ApiResolver::new(
-        ApiResolverKind::GeminiGenerateContent,
+    let mut resolver = APIResolver::new(
+        APIResolverKind::GeminiGenerateContent,
         ResponseContext {
             model: "gemini-test".to_string(),
             request: json!({}),
@@ -714,8 +714,8 @@ fn gemini_generate_content_accumulates_text_tool_and_usage() {
 
 #[test]
 fn gemini_terminal_reasons_map_to_incomplete_or_failed() {
-    let mut resolver = ApiResolver::new(
-        ApiResolverKind::GeminiGenerateContent,
+    let mut resolver = APIResolver::new(
+        APIResolverKind::GeminiGenerateContent,
         ResponseContext {
             model: "gemini-test".to_string(),
             request: json!({}),
@@ -735,8 +735,8 @@ fn gemini_terminal_reasons_map_to_incomplete_or_failed() {
         "max_output_tokens"
     );
 
-    let mut resolver = ApiResolver::new(
-        ApiResolverKind::GeminiGenerateContent,
+    let mut resolver = APIResolver::new(
+        APIResolverKind::GeminiGenerateContent,
         ResponseContext::default(),
     );
     let events = resolver
@@ -752,8 +752,8 @@ fn gemini_terminal_reasons_map_to_incomplete_or_failed() {
 
 #[test]
 fn bedrock_converse_accumulates_eventstream_text_and_usage() {
-    let mut resolver = ApiResolver::new(
-        ApiResolverKind::BedrockConverse,
+    let mut resolver = APIResolver::new(
+        APIResolverKind::BedrockConverse,
         ResponseContext {
             model: "bedrock-test".to_string(),
             request: json!({}),
@@ -789,7 +789,7 @@ fn bedrock_converse_accumulates_eventstream_text_and_usage() {
 #[test]
 fn bedrock_stop_reasons_map_to_incomplete_or_failed() {
     let mut resolver =
-        ApiResolver::new(ApiResolverKind::BedrockConverse, ResponseContext::default());
+        APIResolver::new(APIResolverKind::BedrockConverse, ResponseContext::default());
     let events = resolver
         .ingest(json!({"messageStop": {"stopReason": "max_tokens"}}))
         .unwrap();
@@ -801,7 +801,7 @@ fn bedrock_stop_reasons_map_to_incomplete_or_failed() {
     );
 
     let mut resolver =
-        ApiResolver::new(ApiResolverKind::BedrockConverse, ResponseContext::default());
+        APIResolver::new(APIResolverKind::BedrockConverse, ResponseContext::default());
     let events = resolver
         .ingest(json!({"messageStop": {"stopReason": "content_filtered"}}))
         .unwrap();
@@ -815,8 +815,8 @@ fn bedrock_stop_reasons_map_to_incomplete_or_failed() {
 
 #[test]
 fn openrouter_embeddings_normalizes_openrouter_body() {
-    let mut resolver = ApiResolver::new(
-        ApiResolverKind::OpenrouterEmbeddings,
+    let mut resolver = APIResolver::new(
+        APIResolverKind::OpenrouterEmbeddings,
         ResponseContext {
             model: "openai/text-embedding-3-small".to_string(),
             request: json!({}),
@@ -848,8 +848,8 @@ fn openrouter_embeddings_normalizes_openrouter_body() {
 
 #[test]
 fn google_embeddings_normalizes_native_embed_content_body() {
-    let mut resolver = ApiResolver::new(
-        ApiResolverKind::GoogleEmbeddings,
+    let mut resolver = APIResolver::new(
+        APIResolverKind::GoogleEmbeddings,
         ResponseContext {
             model: "gemini-embedding-001".to_string(),
             request: json!({}),
@@ -872,8 +872,8 @@ fn google_embeddings_normalizes_native_embed_content_body() {
 
 #[test]
 fn google_embeddings_normalizes_native_batch_body() {
-    let mut resolver = ApiResolver::new(
-        ApiResolverKind::GoogleEmbeddings,
+    let mut resolver = APIResolver::new(
+        APIResolverKind::GoogleEmbeddings,
         ResponseContext {
             model: "gemini-embedding-001".to_string(),
             request: json!({}),
@@ -898,8 +898,8 @@ fn google_embeddings_normalizes_native_batch_body() {
 
 #[test]
 fn openrouter_rerank_preserves_provider_and_results() {
-    let mut resolver = ApiResolver::new(
-        ApiResolverKind::OpenrouterRerank,
+    let mut resolver = APIResolver::new(
+        APIResolverKind::OpenrouterRerank,
         ResponseContext {
             model: "cohere/rerank-v3.5".to_string(),
             request: json!({"documents": ["Paris", "Berlin"]}),
@@ -934,8 +934,8 @@ fn openrouter_rerank_preserves_provider_and_results() {
 
 #[test]
 fn jina_rerank_reconstructs_document_when_omitted() {
-    let mut resolver = ApiResolver::new(
-        ApiResolverKind::JinaRerank,
+    let mut resolver = APIResolver::new(
+        APIResolverKind::JinaRerank,
         ResponseContext {
             model: "jina-reranker-v3".to_string(),
             request: json!({"documents": ["Paris", {"text": "Berlin"}]}),
@@ -963,8 +963,8 @@ fn jina_rerank_reconstructs_document_when_omitted() {
 
 #[test]
 fn jina_rerank_normalizes_string_document_and_preserves_embedding() {
-    let mut resolver = ApiResolver::new(
-        ApiResolverKind::JinaRerank,
+    let mut resolver = APIResolver::new(
+        APIResolverKind::JinaRerank,
         ResponseContext {
             model: "jina-reranker-v3".to_string(),
             request: json!({"documents": ["Paris"]}),
@@ -1002,8 +1002,8 @@ fn jina_rerank_normalizes_string_document_and_preserves_embedding() {
 
 #[test]
 fn parallel_web_search_builds_search_body() {
-    let resolver = ApiResolver::new(
-        ApiResolverKind::ParallelWebSearch,
+    let resolver = APIResolver::new(
+        APIResolverKind::ParallelWebSearch,
         ResponseContext {
             model: "default".to_string(),
             request: json!({"query": "ankole web search", "limit": 3}),
@@ -1023,8 +1023,8 @@ fn parallel_web_search_builds_search_body() {
 
 #[test]
 fn bright_data_serp_web_search_builds_direct_request_body() {
-    let resolver = ApiResolver::new(
-        ApiResolverKind::BrightDataSerpWebSearch,
+    let resolver = APIResolver::new(
+        APIResolverKind::BrightDataSerpWebSearch,
         ResponseContext {
             model: "default".to_string(),
             request: json!({"query": "agent operating system", "limit": 7}),
@@ -1050,8 +1050,8 @@ fn bright_data_serp_web_search_builds_direct_request_body() {
 
 #[test]
 fn jina_search_builds_search_body() {
-    let resolver = ApiResolver::new(
-        ApiResolverKind::JinaSearchWebSearch,
+    let resolver = APIResolver::new(
+        APIResolverKind::JinaSearchWebSearch,
         ResponseContext {
             model: "default".to_string(),
             request: json!({"query": "ankole web search", "limit": 4}),
@@ -1072,8 +1072,8 @@ fn jina_search_builds_search_body() {
 
 #[test]
 fn web_search_normalizes_parallel_results() {
-    let mut resolver = ApiResolver::new(
-        ApiResolverKind::ParallelWebSearch,
+    let mut resolver = APIResolver::new(
+        APIResolverKind::ParallelWebSearch,
         ResponseContext {
             model: "default".to_string(),
             request: json!({"query": "Ankole"}),
@@ -1106,8 +1106,8 @@ fn web_search_normalizes_parallel_results() {
 
 #[test]
 fn web_search_normalizes_jina_results() {
-    let mut resolver = ApiResolver::new(
-        ApiResolverKind::JinaSearchWebSearch,
+    let mut resolver = APIResolver::new(
+        APIResolverKind::JinaSearchWebSearch,
         ResponseContext {
             model: "default".to_string(),
             request: json!({"query": "Ankole"}),
@@ -1140,8 +1140,8 @@ fn web_search_normalizes_jina_results() {
 
 #[test]
 fn jina_reader_web_fetch_normalizes_data_content() {
-    let mut resolver = ApiResolver::new(
-        ApiResolverKind::JinaReaderWebFetch,
+    let mut resolver = APIResolver::new(
+        APIResolverKind::JinaReaderWebFetch,
         ResponseContext {
             model: "default".to_string(),
             request: json!({"urls": ["https://example.com/page"]}),
@@ -1175,8 +1175,8 @@ fn jina_reader_web_fetch_normalizes_data_content() {
 
 #[test]
 fn native_error_events_use_openresponses_error_then_failed() {
-    let mut resolver = ApiResolver::new(
-        ApiResolverKind::OpenaiChatCompletions,
+    let mut resolver = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
         ResponseContext::default(),
     );
 

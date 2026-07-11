@@ -1,4 +1,4 @@
-defmodule Ankole.Types.JsonValue do
+defmodule Ankole.Types.JSONValue do
   @moduledoc """
   Ecto type for a JSONB column whose value may be any JSON shape.
 
@@ -12,7 +12,7 @@ defmodule Ankole.Types.JsonValue do
 
   use Ecto.Type
 
-  # Postgres column type stays JSONB; only the Elixir-side validation differs
+  # PostgreSQL column type stays JSONB; only the Elixir-side validation differs
   # from the built-in `:map` type.
   def type, do: :map
 
@@ -40,7 +40,7 @@ defmodule Ankole.Types.JsonValue do
   # Structs are rejected even though they are maps: a `DateTime`, `Decimal`, or
   # schema struct has no faithful JSONB round-trip here, so it must be converted
   # to plain JSON terms by the caller before it reaches this column. Object keys
-  # must be strings (JSON has no atom keys, and that is the form Postgres returns
+  # must be strings (JSON has no atom keys, and that is the form PostgreSQL returns
   # on load), so atom-keyed maps are rejected on the way in too.
   defp json_value?(value) when is_map(value) do
     not is_struct(value) and

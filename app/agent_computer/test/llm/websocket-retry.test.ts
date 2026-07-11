@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'bun:test'
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import { runAgentLoop } from '../../src/core/agent-loop'
 import { callModel, createModel } from '../../src/core/llm'
-import { classifyLlmError, isLocallyRetryableLlmError } from '../../src/core/llm-error-classifier'
+import { classifyLLMError, isLocallyRetryableLLMError } from '../../src/core/llm-error-classifier'
 import { statefulTruncationFromActorEventPayload } from '../../src/core/turns/actor_event_text'
 import { FakeResponseSocket, fakeResponseSocket, testResponseSocket } from '../support/llm'
 
 describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and overflow', () => {
   it('retries AIGateway WebSocket close before open without sending a duplicate request', async () => {
-    const sentPayloads: JsonObject[] = []
+    const sentPayloads: JSONObject[] = []
     let attempts = 0
     const model = createModel({
       apiKey: 'unused',
@@ -29,7 +29,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
           }
 
           return fakeResponseSocket(init, data => {
-            sentPayloads.push(JSON.parse(data) as JsonObject)
+            sentPayloads.push(JSON.parse(data) as JSONObject)
             return [
               {
                 type: 'response.completed',
@@ -55,8 +55,8 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
       model,
       messages: [{ role: 'user', content: 'retry after websocket close before open' }],
       stateful: {
-        actorEventId: '00000000-0000-0000-0000-000000000010',
-        conversationId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+        actorEventID: '00000000-0000-0000-0000-000000000010',
+        conversationID: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
       },
       maxModelIterations: 1
     })
@@ -68,7 +68,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
   })
 
   it('does not locally retry AIGateway WebSocket close after response.create was sent', async () => {
-    const sentPayloads: JsonObject[] = []
+    const sentPayloads: JSONObject[] = []
     let caught: unknown
     const model = createModel({
       apiKey: 'unused',
@@ -80,7 +80,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
         authorization: () => 'Bearer agent-key',
         createWebSocket: (_url, init) =>
           fakeResponseSocket(init, (data, socket) => {
-            sentPayloads.push(JSON.parse(data) as JsonObject)
+            sentPayloads.push(JSON.parse(data) as JSONObject)
             queueMicrotask(() => socket.emitClose('gateway restart after response.create'))
             return []
           })
@@ -93,8 +93,8 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
         maxModelIterations: 90,
         messages: [{ role: 'user', content: 'do not duplicate after send' }],
         stateful: {
-          actorEventId: '00000000-0000-0000-0000-000000000011',
-          conversationId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+          actorEventID: '00000000-0000-0000-0000-000000000011',
+          conversationID: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
         }
       })
     } catch (error) {
@@ -103,13 +103,13 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
 
     expect(caught).toBeInstanceOf(Error)
     expect((caught as Error).message).toContain('AIGateway WebSocket closed before response.completed')
-    expect(classifyLlmError(caught)).toMatchObject({ kind: 'timeout', retryable: true })
-    expect(isLocallyRetryableLlmError(caught)).toBe(false)
+    expect(classifyLLMError(caught)).toMatchObject({ kind: 'timeout', retryable: true })
+    expect(isLocallyRetryableLLMError(caught)).toBe(false)
     expect(sentPayloads).toHaveLength(1)
   })
 
   it('does not locally retry AIGateway WebSocket error after response.create was sent', async () => {
-    const sentPayloads: JsonObject[] = []
+    const sentPayloads: JSONObject[] = []
     let caught: unknown
     const model = createModel({
       apiKey: 'unused',
@@ -121,7 +121,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
         authorization: () => 'Bearer agent-key',
         createWebSocket: (_url, init) =>
           fakeResponseSocket(init, (data, socket) => {
-            sentPayloads.push(JSON.parse(data) as JsonObject)
+            sentPayloads.push(JSON.parse(data) as JSONObject)
             queueMicrotask(() => socket.emitError())
             return []
           })
@@ -134,8 +134,8 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
         maxModelIterations: 90,
         messages: [{ role: 'user', content: 'do not duplicate after send error' }],
         stateful: {
-          actorEventId: '00000000-0000-0000-0000-000000000015',
-          conversationId: 'ffffffff-ffff-ffff-ffff-ffffffffffff'
+          actorEventID: '00000000-0000-0000-0000-000000000015',
+          conversationID: 'ffffffff-ffff-ffff-ffff-ffffffffffff'
         }
       })
     } catch (error) {
@@ -144,13 +144,13 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
 
     expect(caught).toBeInstanceOf(Error)
     expect((caught as Error).message).toContain('AIGateway WebSocket transport error')
-    expect(classifyLlmError(caught)).toMatchObject({ kind: 'timeout', retryable: true })
-    expect(isLocallyRetryableLlmError(caught)).toBe(false)
+    expect(classifyLLMError(caught)).toMatchObject({ kind: 'timeout', retryable: true })
+    expect(isLocallyRetryableLLMError(caught)).toBe(false)
     expect(sentPayloads).toHaveLength(1)
   })
 
   it('retries retryable AIGateway WebSocket open errors in the agent loop', async () => {
-    const sentPayloads: JsonObject[] = []
+    const sentPayloads: JSONObject[] = []
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
@@ -161,7 +161,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
         authorization: () => 'Bearer agent-key',
         createWebSocket: (_url, init) =>
           fakeResponseSocket(init, data => {
-            sentPayloads.push(JSON.parse(data) as JsonObject)
+            sentPayloads.push(JSON.parse(data) as JSONObject)
 
             if (sentPayloads.length === 1) {
               return [
@@ -206,8 +206,8 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
       maxModelIterations: 1,
       messages: [{ role: 'user', content: 'retry rate limit' }],
       stateful: {
-        actorEventId: '00000000-0000-0000-0000-000000000006',
-        conversationId: '66666666-6666-6666-6666-666666666666'
+        actorEventID: '00000000-0000-0000-0000-000000000006',
+        conversationID: '66666666-6666-6666-6666-666666666666'
       }
     })
 
@@ -225,7 +225,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
   })
 
   it('retries retryable terminal response.failed results in the agent loop', async () => {
-    const sentPayloads: JsonObject[] = []
+    const sentPayloads: JSONObject[] = []
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
@@ -236,7 +236,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
         authorization: () => 'Bearer agent-key',
         createWebSocket: (_url, init) =>
           fakeResponseSocket(init, data => {
-            sentPayloads.push(JSON.parse(data) as JsonObject)
+            sentPayloads.push(JSON.parse(data) as JSONObject)
 
             if (sentPayloads.length === 1) {
               return [
@@ -281,8 +281,8 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
       maxModelIterations: 90,
       messages: [{ role: 'user', content: 'retry terminal rate limit' }],
       stateful: {
-        actorEventId: '00000000-0000-0000-0000-000000000007',
-        conversationId: '77777777-7777-7777-7777-777777777777'
+        actorEventID: '00000000-0000-0000-0000-000000000007',
+        conversationID: '77777777-7777-7777-7777-777777777777'
       }
     })
 
@@ -325,8 +325,8 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
       await callModel(model, {
         messages: [{ role: 'user', content: 'hi' }],
         stateful: {
-          actorEventId: '00000000-0000-0000-0000-000000000003',
-          conversationId: '33333333-3333-3333-3333-333333333333'
+          actorEventID: '00000000-0000-0000-0000-000000000003',
+          conversationID: '33333333-3333-3333-3333-333333333333'
         }
       })
       throw new Error('expected callModel to reject')
@@ -339,13 +339,13 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
           truncation: 'disabled'
         }
       })
-      expect(classifyLlmError(error).kind).toBe('overflow')
-      expect(classifyLlmError(error).shouldCompress).toBe(true)
+      expect(classifyLLMError(error).kind).toBe('overflow')
+      expect(classifyLLMError(error).shouldCompress).toBe(true)
     }
   })
 
   it('sends truncation auto for overflow retry actor events', async () => {
-    const sentPayloads: JsonObject[] = []
+    const sentPayloads: JSONObject[] = []
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
@@ -356,7 +356,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
         authorization: () => 'Bearer agent-key',
         createWebSocket: (_url, init) =>
           fakeResponseSocket(init, data => {
-            sentPayloads.push(JSON.parse(data) as JsonObject)
+            sentPayloads.push(JSON.parse(data) as JSONObject)
             return [
               {
                 type: 'response.completed',
@@ -389,8 +389,8 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
     await callModel(model, {
       messages: [{ role: 'user', content: 'retry me' }],
       stateful: {
-        actorEventId: '00000000-0000-0000-0000-000000000004',
-        conversationId: '44444444-4444-4444-4444-444444444444',
+        actorEventID: '00000000-0000-0000-0000-000000000004',
+        conversationID: '44444444-4444-4444-4444-444444444444',
         truncation
       }
     })

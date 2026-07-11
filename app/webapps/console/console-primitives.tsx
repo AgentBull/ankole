@@ -1,4 +1,4 @@
-import { recordValue, type JsonObject } from '@pleisto/active-support'
+import { recordValue, type JsonObject as JSONObject } from '@pleisto/active-support'
 import i18n from '../common/i18n'
 import { requestErrorMessage } from '../common/request-errors'
 
@@ -24,7 +24,7 @@ export function blankToNull(value: string): string | null {
   return text ? text : null
 }
 
-export function parseJson(text: string, field: string): { ok: true; value: unknown } | { ok: false; error: string } {
+export function parseJSON(text: string, field: string): { ok: true; value: unknown } | { ok: false; error: string } {
   try {
     return { ok: true, value: JSON.parse(text) }
   } catch (error) {
@@ -35,14 +35,14 @@ export function parseJson(text: string, field: string): { ok: true; value: unkno
 export function parseObjectDraft(
   text: string,
   field: string
-): { ok: true; value: JsonObject } | { ok: false; error: string } {
-  const parsed = parseJson(text, field)
+): { ok: true; value: JSONObject } | { ok: false; error: string } {
+  const parsed = parseJSON(text, field)
   if (!parsed.ok) return parsed
   const value = recordValue(parsed.value)
   if (value) return { ok: true, value }
   return { ok: false, error: i18n.t('common.must_be_json_object', { field }) }
 }
 
-export function formatJson(value: unknown): string {
+export function formatJSON(value: unknown): string {
   return JSON.stringify(value, null, 2)
 }

@@ -5,7 +5,7 @@ pub(super) struct OpenrouterRerank;
 #[derive(Debug)]
 pub(super) struct JinaRerank;
 
-impl ApiProtocol for OpenrouterRerank {
+impl APIProtocol for OpenrouterRerank {
     fn on_provider_body(
         &mut self,
         context: &ResponseContext,
@@ -16,7 +16,7 @@ impl ApiProtocol for OpenrouterRerank {
     }
 }
 
-impl ApiProtocol for JinaRerank {
+impl APIProtocol for JinaRerank {
     fn on_provider_body(
         &mut self,
         context: &ResponseContext,

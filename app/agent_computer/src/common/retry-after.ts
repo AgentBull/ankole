@@ -1,4 +1,4 @@
-import type { JsonObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 
 /**
  * Extracts a server-requested backoff delay (in milliseconds) from a thrown
@@ -61,7 +61,7 @@ function retryAfterMsFromUnknown(value: unknown, seen: WeakSet<object>): number 
   if (seen.has(value)) return undefined
   seen.add(value)
 
-  const record = value as JsonObject
+  const record = value as JSONObject
   const fromHeaders = parseRetryAfterHeaders(record.headers)
   if (fromHeaders !== undefined) return fromHeaders
 
@@ -85,7 +85,7 @@ function headerValue(headers: unknown, key: string): string | undefined {
   if (!headers) return undefined
   if (typeof Headers !== 'undefined' && headers instanceof Headers) return headers.get(key) ?? undefined
   if (typeof headers === 'object') {
-    const record = headers as JsonObject
+    const record = headers as JSONObject
     const direct =
       record[key] ?? record[key.toLowerCase()] ?? record[key.toUpperCase()] ?? findCaseInsensitive(record, key)
     if (typeof direct === 'string') return direct
@@ -101,7 +101,7 @@ function headerValue(headers: unknown, key: string): string | undefined {
 /**
  * Finds a plain-object header by case-insensitive name.
  */
-function findCaseInsensitive(record: JsonObject, key: string): unknown {
+function findCaseInsensitive(record: JSONObject, key: string): unknown {
   const lowerKey = key.toLowerCase()
   const entry = Object.entries(record).find(([candidate]) => candidate.toLowerCase() === lowerKey)
   return entry?.[1]

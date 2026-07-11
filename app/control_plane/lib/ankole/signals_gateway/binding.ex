@@ -18,7 +18,7 @@ defmodule Ankole.SignalsGateway.Binding do
 
   alias Ankole.Principals.Principal
   alias Ankole.SignalsGateway.BindingFilters
-  alias Ankole.Ecto.JsonPayload
+  alias Ankole.Ecto.JSONPayload
 
   @primary_key false
   @foreign_key_type :string
@@ -82,7 +82,7 @@ defmodule Ankole.SignalsGateway.Binding do
       :unaddressed_group_message_policy,
       :enabled
     ])
-    |> JsonPayload.validate_map(:filters)
+    |> JSONPayload.validate_map(:filters)
     |> validate_filters(:filters)
     |> foreign_key_constraint(:agent_uid)
     |> unique_constraint([:agent_uid, :name], name: :signal_gateway_bindings_pkey)

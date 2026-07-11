@@ -1,24 +1,26 @@
-defmodule AnkoleWeb.Schemas.ConsoleApi do
+defmodule AnkoleWeb.Schemas.ConsoleAPI do
+  alias OpenApiSpex, as: OpenAPISpex
+
   @moduledoc """
   OpenAPI schemas for the console REST API.
   """
 
-  alias OpenApiSpex.Schema
+  alias OpenAPISpex.Schema
 
-  defmodule JsonValue do
+  defmodule JSONValue do
     @moduledoc """
     Any JSON-compatible value.
     """
 
-    @behaviour OpenApiSpex.Schema
+    @behaviour OpenAPISpex.Schema
 
     # Deliberately untyped: each AppConfigure key has its own value schema, which
     # the context enforces. Constraining the type here would force a single shape
     # across every key, so the wire schema stays open and validation lives downstream.
-    @impl OpenApiSpex.Schema
+    @impl OpenAPISpex.Schema
     def schema do
       %Schema{
-        title: "JsonValue",
+        title: "JSONValue",
         nullable: true,
         description: "Any JSON-compatible value. AppConfigure validates the concrete key schema."
       }
@@ -30,9 +32,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
     Locale-keyed operator-facing text with a required default fallback.
     """
 
-    @behaviour OpenApiSpex.Schema
+    @behaviour OpenAPISpex.Schema
 
-    @impl OpenApiSpex.Schema
+    @impl OpenAPISpex.Schema
     def schema do
       %Schema{
         title: "LocalizedText",
@@ -49,9 +51,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule ErrorDetail do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "ConsoleApiErrorDetail",
         type: :object,
@@ -69,9 +71,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule ErrorObject do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "ConsoleApiError",
         type: :object,
@@ -90,9 +92,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule ErrorEnvelope do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "ConsoleApiErrorEnvelope",
         type: :object,
@@ -109,9 +111,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule AuthSessionDeleteResponse do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "AuthSessionDeleteResponse",
         type: :object,
@@ -128,9 +130,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule ConsoleTokenRequest do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "ConsoleTokenRequest",
         type: :object,
@@ -148,9 +150,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule ConsoleTokenResponse do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "ConsoleTokenResponse",
         type: :object,
@@ -179,9 +181,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule OAuthErrorResponse do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "OAuthErrorResponse",
         type: :object,
@@ -199,9 +201,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule AgentItem do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "AgentItem",
         type: :object,
@@ -235,16 +237,16 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule AgentListResponse do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "AgentListResponse",
         type: :object,
         properties: %{
-          data: %Schema{type: :array, items: AgentItem}
+          agents: %Schema{type: :array, items: AgentItem}
         },
-        required: [:data],
+        required: [:agents],
         additionalProperties: false
       },
       struct?: false
@@ -254,16 +256,16 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule AgentResponse do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "AgentResponse",
         type: :object,
         properties: %{
-          data: AgentItem
+          agent: AgentItem
         },
-        required: [:data],
+        required: [:agent],
         additionalProperties: false
       },
       struct?: false
@@ -273,9 +275,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule AgentCreateRequest do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "AgentCreateRequest",
         type: :object,
@@ -296,9 +298,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule AgentUpdateRequest do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "AgentUpdateRequest",
         type: :object,
@@ -317,14 +319,14 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule AppConfigurationItem do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
     # One AppConfigure entry as the console sees it. The shape reflects the
     # registry model: `kind` distinguishes exact keys from pattern keys and their
     # materialized instances; `source`/`overridden`/`default_present` describe
     # whether the effective value comes from the compiled default or a global
     # override; `encrypted`/`editable` drive what the UI may show or change.
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "AppConfigurationItem",
         type: :object,
@@ -347,7 +349,7 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
             type: :string,
             enum: ["default", "global", "missing", "pattern", "error"]
           },
-          value: JsonValue,
+          value: JSONValue,
           error: %Schema{type: :string, nullable: true}
         },
         required: [
@@ -370,16 +372,16 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule AppConfigurationListResponse do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "AppConfigurationListResponse",
         type: :object,
         properties: %{
-          data: %Schema{type: :array, items: AppConfigurationItem}
+          app_configurations: %Schema{type: :array, items: AppConfigurationItem}
         },
-        required: [:data],
+        required: [:app_configurations],
         additionalProperties: false
       },
       struct?: false
@@ -389,16 +391,16 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule AppConfigurationResponse do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "AppConfigurationResponse",
         type: :object,
         properties: %{
-          data: AppConfigurationItem
+          app_configuration: AppConfigurationItem
         },
-        required: [:data],
+        required: [:app_configuration],
         additionalProperties: false
       },
       struct?: false
@@ -408,14 +410,14 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule AppConfigurationUpdateRequest do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "AppConfigurationUpdateRequest",
         type: :object,
         properties: %{
-          value: JsonValue
+          value: JSONValue
         },
         required: [:value],
         additionalProperties: false
@@ -427,15 +429,15 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule AppConfigurationDecryptionValue do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "AppConfigurationDecryptionValue",
         type: :object,
         properties: %{
           key: %Schema{type: :string},
-          value: JsonValue
+          value: JSONValue
         },
         required: [:key, :value],
         additionalProperties: false
@@ -447,16 +449,16 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule AppConfigurationDecryptionResponse do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "AppConfigurationDecryptionResponse",
         type: :object,
         properties: %{
-          data: AppConfigurationDecryptionValue
+          decrypted_value: AppConfigurationDecryptionValue
         },
-        required: [:data],
+        required: [:decrypted_value],
         additionalProperties: false
       },
       struct?: false
@@ -466,9 +468,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule SignalAdapterFieldOption do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "SignalAdapterFieldOption",
         type: :object,
@@ -487,9 +489,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule SignalAdapterField do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "SignalAdapterField",
         type: :object,
@@ -498,7 +500,7 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
           type: %Schema{type: :string},
           label: LocalizedText,
           description: LocalizedText,
-          default: JsonValue,
+          default: JSONValue,
           advanced: %Schema{type: :boolean},
           required: %Schema{type: :boolean, nullable: true},
           encrypted: %Schema{type: :boolean, nullable: true},
@@ -516,9 +518,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule SignalAdapterItem do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "SignalAdapterItem",
         type: :object,
@@ -539,16 +541,16 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule SignalAdapterListResponse do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "SignalAdapterListResponse",
         type: :object,
         properties: %{
-          data: %Schema{type: :array, items: SignalAdapterItem}
+          signal_adapters: %Schema{type: :array, items: SignalAdapterItem}
         },
-        required: [:data],
+        required: [:signal_adapters],
         additionalProperties: false
       },
       struct?: false
@@ -558,9 +560,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule IdentityProviderAdapterItem do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "IdentityProviderAdapterItem",
         type: :object,
@@ -582,16 +584,16 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule IdentityProviderAdapterListResponse do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "IdentityProviderAdapterListResponse",
         type: :object,
         properties: %{
-          data: %Schema{type: :array, items: IdentityProviderAdapterItem}
+          identity_provider_adapters: %Schema{type: :array, items: IdentityProviderAdapterItem}
         },
-        required: [:data],
+        required: [:identity_provider_adapters],
         additionalProperties: false
       },
       struct?: false
@@ -601,9 +603,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule IdentityProviderItem do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "IdentityProviderItem",
         type: :object,
@@ -613,7 +615,7 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
           plugin_id: %Schema{type: :string},
           config_key: %Schema{type: :string},
           enabled: %Schema{type: :boolean},
-          config: JsonValue
+          config: JSONValue
         },
         required: [:provider_id, :adapter_id, :plugin_id, :config_key, :enabled, :config],
         additionalProperties: false
@@ -625,16 +627,16 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule IdentityProviderListResponse do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "IdentityProviderListResponse",
         type: :object,
         properties: %{
-          data: %Schema{type: :array, items: IdentityProviderItem}
+          identity_providers: %Schema{type: :array, items: IdentityProviderItem}
         },
-        required: [:data],
+        required: [:identity_providers],
         additionalProperties: false
       },
       struct?: false
@@ -644,16 +646,16 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule IdentityProviderResponse do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "IdentityProviderResponse",
         type: :object,
         properties: %{
-          data: IdentityProviderItem
+          identity_provider: IdentityProviderItem
         },
-        required: [:data],
+        required: [:identity_provider],
         additionalProperties: false
       },
       struct?: false
@@ -663,15 +665,15 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule IdentityProviderWriteRequest do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "IdentityProviderWriteRequest",
         type: :object,
         properties: %{
           adapter_id: %Schema{type: :string},
-          config: JsonValue,
+          config: JSONValue,
           enabled: %Schema{type: :boolean}
         },
         required: [:adapter_id, :config],
@@ -684,9 +686,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule IdentityProviderSyncRunItem do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "IdentityProviderSyncRunItem",
         type: :object,
@@ -705,16 +707,16 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule IdentityProviderSyncRunResponse do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "IdentityProviderSyncRunResponse",
         type: :object,
         properties: %{
-          data: IdentityProviderSyncRunItem
+          sync_run: IdentityProviderSyncRunItem
         },
-        required: [:data],
+        required: [:sync_run],
         additionalProperties: false
       },
       struct?: false
@@ -724,14 +726,14 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule SignalBindingWriteRequest do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "SignalBindingWriteRequest",
         type: :object,
         properties: %{
-          config: JsonValue,
+          config: JSONValue,
           group_message_mode: %Schema{
             type: :string,
             enum: ["addressed_only", "observe_all", "may_intervene"],
@@ -748,9 +750,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule SignalBindingItem do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "SignalBindingItem",
         type: :object,
@@ -785,16 +787,16 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule SignalBindingResponse do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "SignalBindingResponse",
         type: :object,
         properties: %{
-          data: SignalBindingItem
+          signal_binding: SignalBindingItem
         },
-        required: [:data],
+        required: [:signal_binding],
         additionalProperties: false
       },
       struct?: false
@@ -804,16 +806,16 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule SignalBindingListResponse do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "SignalBindingListResponse",
         type: :object,
         properties: %{
-          data: %Schema{type: :array, items: SignalBindingItem}
+          signal_bindings: %Schema{type: :array, items: SignalBindingItem}
         },
-        required: [:data],
+        required: [:signal_bindings],
         additionalProperties: false
       },
       struct?: false
@@ -823,9 +825,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule ScheduleCronWriteRequest do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "ScheduleCronWriteRequest",
         type: :object,
@@ -833,12 +835,12 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
           binding_name: %Schema{type: :string},
           name: %Schema{type: :string, nullable: true},
           status: %Schema{type: :string, enum: ["active", "paused"], nullable: true},
-          schedule: JsonValue,
+          schedule: JSONValue,
           timezone: %Schema{type: :string, nullable: true},
-          payload: JsonValue,
-          delivery: JsonValue,
+          payload: JSONValue,
+          delivery: JSONValue,
           idempotency_key: %Schema{type: :string},
-          failure_policy: JsonValue
+          failure_policy: JSONValue
         },
         required: [:binding_name, :schedule, :delivery, :idempotency_key],
         additionalProperties: false
@@ -850,19 +852,19 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule ScheduleCronUpdateRequest do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "ScheduleCronUpdateRequest",
         type: :object,
         properties: %{
           name: %Schema{type: :string, nullable: true},
-          schedule: JsonValue,
+          schedule: JSONValue,
           timezone: %Schema{type: :string, nullable: true},
-          payload: JsonValue,
-          delivery: JsonValue,
-          failure_policy: JsonValue
+          payload: JSONValue,
+          delivery: JSONValue,
+          failure_policy: JSONValue
         },
         additionalProperties: false
       },
@@ -873,14 +875,14 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule ScheduleCronScheduleResponse do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "ScheduleCronScheduleResponse",
         type: :object,
-        properties: %{data: JsonValue},
-        required: [:data],
+        properties: %{cron_schedule: JSONValue},
+        required: [:cron_schedule],
         additionalProperties: false
       },
       struct?: false
@@ -890,14 +892,14 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule ScheduleCronScheduleListResponse do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "ScheduleCronScheduleListResponse",
         type: :object,
-        properties: %{data: %Schema{type: :array, items: JsonValue}},
-        required: [:data],
+        properties: %{cron_schedules: %Schema{type: :array, items: JSONValue}},
+        required: [:cron_schedules],
         additionalProperties: false
       },
       struct?: false
@@ -907,14 +909,14 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule ScheduleEventResponse do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "ScheduleEventResponse",
         type: :object,
-        properties: %{data: JsonValue},
-        required: [:data],
+        properties: %{schedule_event: JSONValue},
+        required: [:schedule_event],
         additionalProperties: false
       },
       struct?: false
@@ -924,14 +926,31 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule ScheduleEventListResponse do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "ScheduleEventListResponse",
         type: :object,
-        properties: %{data: %Schema{type: :array, items: JsonValue}},
-        required: [:data],
+        properties: %{schedule_events: %Schema{type: :array, items: JSONValue}},
+        required: [:schedule_events],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ScheduleRunListResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "ScheduleRunListResponse",
+        type: :object,
+        properties: %{schedule_runs: %Schema{type: :array, items: JSONValue}},
+        required: [:schedule_runs],
         additionalProperties: false
       },
       struct?: false
@@ -941,9 +960,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule AIGatewayProviderEncryptedOptionProjection do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "AIGatewayProviderEncryptedOptionProjection",
         type: :object,
@@ -961,9 +980,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule AIGatewayProviderEncryptedOptionsProjection do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "AIGatewayProviderEncryptedOptionsProjection",
         type: :object,
@@ -976,9 +995,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule AIGatewayProviderItem do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "AIGatewayProviderItem",
         type: :object,
@@ -1009,16 +1028,16 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule AIGatewayProviderListResponse do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "AIGatewayProviderListResponse",
         type: :object,
         properties: %{
-          data: %Schema{type: :array, items: AIGatewayProviderItem}
+          ai_gateway_providers: %Schema{type: :array, items: AIGatewayProviderItem}
         },
-        required: [:data],
+        required: [:ai_gateway_providers],
         additionalProperties: false
       },
       struct?: false
@@ -1028,16 +1047,16 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule AIGatewayProviderResponse do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "AIGatewayProviderResponse",
         type: :object,
         properties: %{
-          data: AIGatewayProviderItem
+          ai_gateway_provider: AIGatewayProviderItem
         },
-        required: [:data],
+        required: [:ai_gateway_provider],
         additionalProperties: false
       },
       struct?: false
@@ -1047,9 +1066,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule AIGatewayProviderWriteRequest do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "AIGatewayProviderWriteRequest",
         type: :object,
@@ -1068,9 +1087,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule AIGatewayProviderKindItem do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "AIGatewayProviderKindItem",
         type: :object,
@@ -1109,16 +1128,16 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule AIGatewayProviderKindListResponse do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "AIGatewayProviderKindListResponse",
         type: :object,
         properties: %{
-          data: %Schema{type: :array, items: AIGatewayProviderKindItem}
+          provider_kinds: %Schema{type: :array, items: AIGatewayProviderKindItem}
         },
-        required: [:data],
+        required: [:provider_kinds],
         additionalProperties: false
       },
       struct?: false
@@ -1128,16 +1147,16 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule ModelProfilesResponse do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "ModelProfilesResponse",
         type: :object,
         properties: %{
-          data: %Schema{type: :object, additionalProperties: true}
+          model_profiles: %Schema{type: :object, additionalProperties: true}
         },
-        required: [:data],
+        required: [:model_profiles],
         additionalProperties: false
       },
       struct?: false
@@ -1147,16 +1166,16 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule ModelProfileResponse do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "ModelProfileResponse",
         type: :object,
         properties: %{
-          data: %Schema{type: :object, additionalProperties: true}
+          model_profile: %Schema{type: :object, additionalProperties: true}
         },
-        required: [:data],
+        required: [:model_profile],
         additionalProperties: false
       },
       struct?: false
@@ -1166,9 +1185,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule ModelProfileWriteRequest do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "ModelProfileWriteRequest",
         type: :object,
@@ -1188,9 +1207,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule AgentComputerWorkerItem do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "AgentComputerWorkerItem",
         type: :object,
@@ -1228,16 +1247,16 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule AgentComputerWorkerListResponse do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "AgentComputerWorkerListResponse",
         type: :object,
         properties: %{
-          data: %Schema{type: :array, items: AgentComputerWorkerItem}
+          workers: %Schema{type: :array, items: AgentComputerWorkerItem}
         },
-        required: [:data],
+        required: [:workers],
         additionalProperties: false
       },
       struct?: false
@@ -1247,9 +1266,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule WorkerFileEntry do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "WorkerFileEntry",
         type: :object,
@@ -1269,9 +1288,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule WorkerFileListData do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "WorkerFileListData",
         type: :object,
@@ -1294,16 +1313,16 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule WorkerFileListResponse do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "WorkerFileListResponse",
         type: :object,
         properties: %{
-          data: WorkerFileListData
+          file_listing: WorkerFileListData
         },
-        required: [:data],
+        required: [:file_listing],
         additionalProperties: false
       },
       struct?: false
@@ -1313,9 +1332,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule WorkerFileUploadRequest do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "WorkerFileUploadRequest",
         type: :object,
@@ -1337,14 +1356,14 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule WorkerFileUploadResponse do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "WorkerFileUploadResponse",
         type: :object,
         properties: %{
-          data: %Schema{
+          uploaded_file: %Schema{
             type: :object,
             properties: %{
               root: %Schema{
@@ -1359,7 +1378,7 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
             additionalProperties: false
           }
         },
-        required: [:data],
+        required: [:uploaded_file],
         additionalProperties: false
       },
       struct?: false
@@ -1369,9 +1388,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule WorkerFileMoveRequest do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "WorkerFileMoveRequest",
         type: :object,
@@ -1394,14 +1413,14 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule WorkerFileMoveResponse do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "WorkerFileMoveResponse",
         type: :object,
         properties: %{
-          data: %Schema{
+          moved_file: %Schema{
             type: :object,
             properties: %{
               root: %Schema{
@@ -1416,7 +1435,7 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
             additionalProperties: false
           }
         },
-        required: [:data],
+        required: [:moved_file],
         additionalProperties: false
       },
       struct?: false
@@ -1426,14 +1445,14 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule WorkerFileDeleteResponse do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "WorkerFileDeleteResponse",
         type: :object,
         properties: %{
-          data: %Schema{
+          deleted_file: %Schema{
             type: :object,
             properties: %{
               root: %Schema{
@@ -1447,7 +1466,7 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
             additionalProperties: false
           }
         },
-        required: [:data],
+        required: [:deleted_file],
         additionalProperties: false
       },
       struct?: false
@@ -1456,9 +1475,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
 
   defmodule CodexAccountItem do
     @moduledoc false
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "CodexAccountItem",
         type: :object,
@@ -1478,14 +1497,14 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
 
   defmodule CodexAccountListResponse do
     @moduledoc false
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "CodexAccountListResponse",
         type: :object,
-        properties: %{data: %Schema{type: :array, items: CodexAccountItem}},
-        required: [:data],
+        properties: %{codex_accounts: %Schema{type: :array, items: CodexAccountItem}},
+        required: [:codex_accounts],
         additionalProperties: false
       },
       struct?: false
@@ -1494,14 +1513,14 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
 
   defmodule CodexAccountResponse do
     @moduledoc false
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "CodexAccountResponse",
         type: :object,
-        properties: %{data: CodexAccountItem},
-        required: [:data],
+        properties: %{codex_account: CodexAccountItem},
+        required: [:codex_account],
         additionalProperties: false
       },
       struct?: false
@@ -1510,9 +1529,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
 
   defmodule CodexAccountCreateRequest do
     @moduledoc false
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "CodexAccountCreateRequest",
         type: :object,
@@ -1529,9 +1548,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
 
   defmodule CodexAccountUpdateRequest do
     @moduledoc false
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "CodexAccountUpdateRequest",
         type: :object,
@@ -1549,9 +1568,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule SubagentDelegationEventItem do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "SubagentDelegationEventItem",
         type: :object,
@@ -1574,11 +1593,11 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule SubagentDelegationItem do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
     @statuses Ankole.SubagentDelegations.Schemas.Delegation.statuses()
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "SubagentDelegationItem",
         type: :object,
@@ -1634,17 +1653,17 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule SubagentDelegationListResponse do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "SubagentDelegationListResponse",
         type: :object,
         properties: %{
-          data: %Schema{type: :array, items: SubagentDelegationItem},
+          delegations: %Schema{type: :array, items: SubagentDelegationItem},
           next_cursor: %Schema{type: :string, nullable: true}
         },
-        required: [:data, :next_cursor],
+        required: [:delegations, :next_cursor],
         additionalProperties: false
       },
       struct?: false
@@ -1654,16 +1673,16 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
   defmodule SubagentDelegationResponse do
     @moduledoc false
 
-    require OpenApiSpex
+    require OpenAPISpex
 
-    OpenApiSpex.schema(
+    OpenAPISpex.schema(
       %{
         title: "SubagentDelegationResponse",
         type: :object,
         properties: %{
-          data: SubagentDelegationItem
+          delegation: SubagentDelegationItem
         },
-        required: [:data],
+        required: [:delegation],
         additionalProperties: false
       },
       struct?: false

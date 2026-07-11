@@ -9,7 +9,7 @@ import type { TurnStart } from '../../lanes/actor_lane'
 import { createCombinedAbortSignal } from '../../common/async'
 import { arrayPath } from '@pleisto/active-support'
 import { recognizeAmbientIntervention } from './ambient_recognizer'
-import { acquireTurnAIGatewayAccess } from './turn_aigateway_access'
+import { acquireTurnAIGatewayAccess } from './turn_ai_gateway_access'
 import { runTextTurnLoop } from './text_turn'
 import { resolveAgentConversationContext } from './turn_context'
 import type { TextTurnLoopOptions, TurnHandlerResult } from './turn_options'
@@ -33,8 +33,8 @@ export async function runAmbientMayInterveneHandler(
   }
 
   const { model } = await acquireTurnAIGatewayAccess(turnStart, {
-    requestAIGatewayApiKey: opts.requestAIGatewayApiKey,
-    requestIdPrefix: 'ambient-ai-gateway-key'
+    requestAIGatewayAPIKey: opts.requestAIGatewayAPIKey,
+    requestIDPrefix: 'ambient-ai-gateway-key'
   })
   const agentConversationContext = await resolveAgentConversationContext(turnStart, opts)
 

@@ -21,8 +21,8 @@ impl DownstreamEncoder {
 
     pub fn encode_event(self, event: &Value) -> DownstreamChunk {
         let bytes = match self.kind {
-            DownstreamKind::Sse => encode_sse_event(event),
-            DownstreamKind::WebsocketText => {
+            DownstreamKind::SSE => encode_sse_event(event),
+            DownstreamKind::WebSocketText => {
                 sonic_rs::to_vec(event).unwrap_or_else(|_| b"{}".to_vec())
             }
         };
@@ -43,11 +43,11 @@ impl DownstreamEncoder {
 
     pub fn encode_done_sentinel(self) -> Option<DownstreamChunk> {
         match self.kind {
-            DownstreamKind::Sse => Some(DownstreamChunk {
+            DownstreamKind::SSE => Some(DownstreamChunk {
                 kind: self.kind,
                 bytes: b"data: [DONE]\n\n".to_vec(),
             }),
-            DownstreamKind::WebsocketText => None,
+            DownstreamKind::WebSocketText => None,
         }
     }
 }
@@ -76,12 +76,12 @@ mod tests {
 
     #[test]
     fn sse_encoder_returns_complete_sse_bytes() {
-        let chunk = DownstreamEncoder::new(DownstreamKind::Sse).encode_event(&json!({
+        let chunk = DownstreamEncoder::new(DownstreamKind::SSE).encode_event(&json!({
             "type": "response.output_text.delta",
             "delta": "hello"
         }));
 
-        assert_eq!(chunk.kind, DownstreamKind::Sse);
+        assert_eq!(chunk.kind, DownstreamKind::SSE);
         assert!(
             String::from_utf8(chunk.bytes)
                 .unwrap()
@@ -91,11 +91,11 @@ mod tests {
 
     #[test]
     fn websocket_encoder_returns_text_payload_bytes() {
-        let chunk = DownstreamEncoder::new(DownstreamKind::WebsocketText).encode_event(&json!({
+        let chunk = DownstreamEncoder::new(DownstreamKind::WebSocketText).encode_event(&json!({
             "type": "response.completed"
         }));
 
-        assert_eq!(chunk.kind, DownstreamKind::WebsocketText);
+        assert_eq!(chunk.kind, DownstreamKind::WebSocketText);
         assert_eq!(
             sonic_rs::from_slice::<Value>(&chunk.bytes).unwrap()["type"],
             "response.completed"
@@ -104,11 +104,11 @@ mod tests {
 
     #[test]
     fn sse_done_sentinel_is_a_complete_sse_chunk() {
-        let chunk = DownstreamEncoder::new(DownstreamKind::Sse)
+        let chunk = DownstreamEncoder::new(DownstreamKind::SSE)
             .encode_done_sentinel()
             .unwrap();
 
-        assert_eq!(chunk.kind, DownstreamKind::Sse);
+        assert_eq!(chunk.kind, DownstreamKind::SSE);
         assert_eq!(chunk.bytes, b"data: [DONE]\n\n");
     }
 }

@@ -170,7 +170,7 @@ export function SelectListInput({
 }
 
 /** Edits an array of arbitrary JSON-ish values as individual text blocks. */
-export function JsonListInput({
+export function JSONListInput({
   value,
   onValueChange,
   addLabel = 'Add item',
@@ -183,7 +183,7 @@ export function JsonListInput({
 }) {
   function update(index: number, raw: string) {
     const next = [...value]
-    next[index] = parseJson(raw)
+    next[index] = parseJSON(raw)
     onValueChange(next)
   }
 
@@ -225,7 +225,7 @@ function jsonText(value: unknown) {
   return JSON.stringify(value, null, 2)
 }
 
-function parseJson(value: string) {
+function parseJSON(value: string) {
   const trimmed = value.trim()
   if (!trimmed) return {}
 

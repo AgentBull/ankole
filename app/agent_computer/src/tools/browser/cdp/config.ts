@@ -1,51 +1,51 @@
-import { isRecord, match, safeJsonParse } from '@pleisto/active-support'
-import type { JsonObject } from '@pleisto/active-support'
+import { isRecord, match, safeJsonParse as safeJSONParse } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import { DEFAULT_CDP_CONNECT_TIMEOUT_MS, REMOTE_CONFIG_ENV } from './constants'
-import type { BrowserRuntimeOptions, RemoteBrowserCdpConfig, RemoteSessionResponse } from './types'
+import type { BrowserRuntimeOptions, RemoteBrowserCDPConfig, RemoteSessionResponse } from './types'
 
 /**
  * Parses remote CDP configuration from the operator-provided environment value.
  */
-export function remoteBrowserCdpConfigFromEnv(
+export function remoteBrowserCDPConfigFromEnv(
   env: Record<string, string | undefined> = process.env
-): RemoteBrowserCdpConfig | null {
+): RemoteBrowserCDPConfig | null {
   const raw = env[REMOTE_CONFIG_ENV]
   if (!raw || raw.trim() === '' || raw.trim() === 'null') return null
 
-  const parsed = safeJsonParse(raw).match(
+  const parsed = safeJSONParse(raw).match(
     value => value,
     error => {
       throw new Error(`invalid ${REMOTE_CONFIG_ENV}: ${error instanceof Error ? error.message : String(error)}`)
     }
   )
 
-  return normalizeRemoteBrowserCdpConfig(parsed)
+  return normalizeRemoteBrowserCDPConfig(parsed)
 }
 
 /**
  * Resolves remote CDP configuration from per-call options, falling back to env.
  */
-export function remoteBrowserCdpConfigFromOptions(options?: BrowserRuntimeOptions): RemoteBrowserCdpConfig | null {
-  if (options && 'remoteCdpConfig' in options) {
-    const value = options.remoteCdpConfig
+export function remoteBrowserCDPConfigFromOptions(options?: BrowserRuntimeOptions): RemoteBrowserCDPConfig | null {
+  if (options && 'remoteCDPConfig' in options) {
+    const value = options.remoteCDPConfig
     if (value === null || value === undefined) return null
-    return normalizeRemoteBrowserCdpConfig(value)
+    return normalizeRemoteBrowserCDPConfig(value)
   }
 
-  return remoteBrowserCdpConfigFromEnv()
+  return remoteBrowserCDPConfigFromEnv()
 }
 
 /**
  * Validates the two supported remote CDP adapter shapes.
  */
-function normalizeRemoteBrowserCdpConfig(value: unknown): RemoteBrowserCdpConfig {
+function normalizeRemoteBrowserCDPConfig(value: unknown): RemoteBrowserCDPConfig {
   const record = objectRecord(value, 'remote browser CDP config')
   const adapter = stringField(record, 'adapter')
 
   return match(adapter)
     .with('cdp_endpoint', () => ({
       adapter: 'cdp_endpoint' as const,
-      endpoint_url: validateUrl(stringField(record, 'endpoint_url'), ['ws:', 'wss:', 'http:', 'https:']),
+      endpoint_url: validateURL(stringField(record, 'endpoint_url'), ['ws:', 'wss:', 'http:', 'https:']),
       ...optionalHeaders(record, 'headers'),
       ...optionalTimeout(record)
     }))
@@ -55,7 +55,7 @@ function normalizeRemoteBrowserCdpConfig(value: unknown): RemoteBrowserCdpConfig
       return {
         adapter: 'cdp_session_request' as const,
         request: {
-          url: validateUrl(stringField(request, 'url'), ['http:', 'https:']),
+          url: validateURL(stringField(request, 'url'), ['http:', 'https:']),
           method: optionalMethod(request),
           ...optionalHeaders(request, 'headers'),
           ...(request['body'] === undefined
@@ -97,7 +97,7 @@ function normalizeSessionResponse(value: unknown): RemoteSessionResponse | undef
 /**
  * Parses the optional HTTP method for session-request adapters.
  */
-function optionalMethod(record: JsonObject): 'GET' | 'POST' | undefined {
+function optionalMethod(record: JSONObject): 'GET' | 'POST' | undefined {
   const value = record['method']
   if (value === undefined) return undefined
   return match(value)
@@ -110,7 +110,7 @@ function optionalMethod(record: JsonObject): 'GET' | 'POST' | undefined {
 /**
  * Parses string headers from a config object.
  */
-function optionalHeaders(record: JsonObject, field: string): { headers?: Record<string, string> } {
+function optionalHeaders(record: JSONObject, field: string): { headers?: Record<string, string> } {
   const value = record[field]
   if (value === undefined) return {}
   const headers = objectRecord(value, `remote browser CDP ${field}`)
@@ -127,7 +127,7 @@ function optionalHeaders(record: JsonObject, field: string): { headers?: Record<
 /**
  * Parses and bounds the remote CDP connection timeout.
  */
-function optionalTimeout(record: JsonObject): { connect_timeout_ms?: number } {
+function optionalTimeout(record: JSONObject): { connect_timeout_ms?: number } {
   const value = record['connect_timeout_ms']
   if (value === undefined) return {}
   if (!Number.isInteger(value) || (value as number) < 1_000 || (value as number) > 120_000) {
@@ -139,22 +139,22 @@ function optionalTimeout(record: JsonObject): { connect_timeout_ms?: number } {
 /**
  * Returns the configured CDP connection timeout.
  */
-export function connectTimeoutMs(config: RemoteBrowserCdpConfig): number {
+export function connectTimeoutMs(config: RemoteBrowserCDPConfig): number {
   return config.connect_timeout_ms ?? DEFAULT_CDP_CONNECT_TIMEOUT_MS
 }
 
 /**
  * Requires a JSON object and labels validation failures.
  */
-function objectRecord(value: unknown, label: string): JsonObject {
+function objectRecord(value: unknown, label: string): JSONObject {
   if (!isRecord(value)) throw new Error(`${label} must be a JSON object`)
-  return value as JsonObject
+  return value as JSONObject
 }
 
 /**
  * Reads a required non-empty string field from a config object.
  */
-function stringField(record: JsonObject, field: string): string {
+function stringField(record: JSONObject, field: string): string {
   const value = record[field]
   if (typeof value !== 'string' || value.trim() === '') throw new Error(`${field} must be a non-empty string`)
   return value
@@ -163,8 +163,8 @@ function stringField(record: JsonObject, field: string): string {
 /**
  * Validates a URL and restricts it to the allowed protocols.
  */
-function validateUrl(rawUrl: string, protocols: string[]): string {
-  const url = new URL(rawUrl)
+function validateURL(rawURL: string, protocols: string[]): string {
+  const url = new URL(rawURL)
   if (!protocols.includes(url.protocol)) {
     throw new Error(`unsupported remote browser CDP URL protocol: ${url.protocol}`)
   }
@@ -174,7 +174,7 @@ function validateUrl(rawUrl: string, protocols: string[]): string {
 /**
  * Reads a nested value using the JSON path declared by a remote session adapter.
  */
-export function valueAtJsonPath(value: unknown, path: string[]): unknown {
+export function valueAtJSONPath(value: unknown, path: string[]): unknown {
   return path.reduce((current, segment) => {
     if (!isRecord(current)) return undefined
     return current[segment]

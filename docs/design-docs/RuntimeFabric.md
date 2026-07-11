@@ -629,7 +629,7 @@ The current outbound path is:
    result is a durable `function_call_output` item in the run row's `content`.
 3. Agent Computer sends `turn_completed` with the final Response id.
 4. SignalsGateway projects attachment outputs from the validated Response chain
-   and inserts explicit `signal_gateway_outbox` intents in the same transaction
+   and inserts explicit `signal_gateway_outbox_entries` intents in the same transaction
    as Actor completion, referencing `source_actor_event_id` and `ai_message_id`.
 5. The provider adapter reads the file through `Ankole.WorkerFiles.get`,
    uploads bytes to the provider, and sends the provider-native file message.

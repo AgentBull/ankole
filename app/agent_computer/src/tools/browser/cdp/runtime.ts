@@ -1,4 +1,4 @@
-import { CdpClient } from './client'
+import { CDPClient } from './client'
 import {
   ensureLocalChromiumSidecar,
   createLocalBrowserContext,
@@ -10,13 +10,13 @@ import {
 import { resolveConnectionForSession } from './connection'
 import { attachPage } from './page'
 import { readRefs, readSessionMeta, writeSessionMeta } from './session-store'
-import { isRecoverableCdpConnectionError, redactUrl, sanitizeId, stableHeadersKey } from './utils'
+import { isRecoverableCDPConnectionError, redactURL, sanitizeID, stableHeadersKey } from './utils'
 import type { BrowserConnection, BrowserRef, BrowserRuntimeOptions, BrowserSessionMeta, PageSession } from './types'
 
 interface ActiveBrowserSession {
-  cdp: CdpClient
+  cdp: CDPClient
   page: PageSession
-  connectUrl: string
+  connectURL: string
   headersKey: string
 }
 
@@ -32,10 +32,10 @@ const activeBrowserSessions = new Map<string, ActiveBrowserSession>()
 export async function withPage<T>(
   rawSession: string | undefined,
   options: BrowserRuntimeOptions | undefined,
-  fn: (cdp: CdpClient, page: PageSession, session: string, connection: BrowserConnection) => Promise<T>,
+  fn: (cdp: CDPClient, page: PageSession, session: string, connection: BrowserConnection) => Promise<T>,
   opts: { retryLocalDisconnect?: boolean } = {}
 ): Promise<T> {
-  const session = sanitizeId(rawSession || 'default')
+  const session = sanitizeID(rawSession || 'default')
   const meta = readSessionMeta(session, options)
   if (!meta) throw new Error('No active browser session; run browser_navigate first.')
 
@@ -45,7 +45,7 @@ export async function withPage<T>(
     return await fn(active.cdp, active.page, session, connection)
   } catch (error) {
     forgetActiveBrowserSession(session)
-    if (!opts.retryLocalDisconnect || connection.backend !== 'chromium' || !isRecoverableCdpConnectionError(error)) {
+    if (!opts.retryLocalDisconnect || connection.backend !== 'chromium' || !isRecoverableCDPConnectionError(error)) {
       throw error
     }
 
@@ -87,26 +87,26 @@ export async function recoverLocalChromiumConnection(
 
   const idleTtlMs = localBrowserIdleTtlMs(options)
   const recovered = await ensureLocalChromiumSidecar(sidecarKey, idleTtlMs, options?.workspaceRoot)
-  const context = await createLocalBrowserContext(recovered.connectUrl)
+  const context = await createLocalBrowserContext(recovered.connectURL)
   writeSessionMeta(
     session,
     {
       ...meta,
       local_sidecar_key: recovered.key,
       pid: recovered.proc.pid,
-      connect_url: recovered.connectUrl,
-      connect_url_redacted: redactUrl(recovered.connectUrl),
+      connect_url: recovered.connectURL,
+      connect_url_redacted: redactURL(recovered.connectURL),
       connect_url_source: 'session',
-      browser_context_id: context.browserContextId,
-      target_id: context.targetId
+      browser_context_id: context.browserContextID,
+      target_id: context.targetID
     },
     options
   )
   return {
     backend: 'chromium',
     adapter: 'chromium',
-    connectUrl: recovered.connectUrl,
-    redactedConnectUrl: redactUrl(recovered.connectUrl)
+    connectURL: recovered.connectURL,
+    redactedConnectURL: redactURL(recovered.connectURL)
   }
 }
 
@@ -127,7 +127,7 @@ export async function activePageForSession(
   if (
     existing &&
     existing.cdp.isOpen() &&
-    existing.connectUrl === connection.connectUrl &&
+    existing.connectURL === connection.connectURL &&
     existing.headersKey === headersKey
   ) {
     return existing
@@ -135,16 +135,16 @@ export async function activePageForSession(
 
   existing?.cdp.close()
 
-  const cdp = await CdpClient.connect(connection.connectUrl, { headers: connection.headers })
+  const cdp = await CDPClient.connect(connection.connectURL, { headers: connection.headers })
   const page = await attachPage(cdp, meta.target_id, meta.browser_context_id)
-  if (meta.target_id !== page.targetId) {
-    writeSessionMeta(session, { ...(readSessionMeta(session, options) ?? meta), target_id: page.targetId }, options)
+  if (meta.target_id !== page.targetID) {
+    writeSessionMeta(session, { ...(readSessionMeta(session, options) ?? meta), target_id: page.targetID }, options)
   }
 
   const active: ActiveBrowserSession = {
     cdp,
     page,
-    connectUrl: connection.connectUrl,
+    connectURL: connection.connectURL,
     headersKey
   }
   activeBrowserSessions.set(session, active)
@@ -164,7 +164,7 @@ export async function actOnRef<T>(
   rawSession: string | undefined,
   refName: string,
   options: BrowserRuntimeOptions | undefined,
-  fn: (cdp: CdpClient, page: PageSession, ref: BrowserRef, session: string, connection: BrowserConnection) => Promise<T>
+  fn: (cdp: CDPClient, page: PageSession, ref: BrowserRef, session: string, connection: BrowserConnection) => Promise<T>
 ): Promise<T> {
   return withPage(rawSession, options, async (cdp, page, session, connection) => {
     const ref = readRefs(session, options).find(item => item.ref === refName)
@@ -176,13 +176,13 @@ export async function actOnRef<T>(
 /**
  * Closes cached CDP clients attached to a browser endpoint that is going away.
  */
-export function closeActiveSessionsForConnectUrl(connectUrl: string): void {
+export function closeActiveSessionsForConnectURL(connectURL: string): void {
   for (const [session, active] of activeBrowserSessions) {
-    if (active.connectUrl === connectUrl) {
+    if (active.connectURL === connectURL) {
       active.cdp.close()
       activeBrowserSessions.delete(session)
     }
   }
 }
 
-setLocalChromiumSessionCloser(closeActiveSessionsForConnectUrl)
+setLocalChromiumSessionCloser(closeActiveSessionsForConnectURL)

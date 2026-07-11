@@ -5,7 +5,7 @@
       "SubagentDelegationListResponse": {
         "additionalProperties": false,
         "properties": {
-          "data": {
+          "delegations": {
             "items": {
               "$ref": "#/components/schemas/SubagentDelegationItem"
             },
@@ -16,21 +16,21 @@
             "type": "string"
           }
         },
-        "required": ["data", "next_cursor"],
+        "required": ["delegations", "next_cursor"],
         "title": "SubagentDelegationListResponse",
         "type": "object"
       },
       "AIGatewayProviderListResponse": {
         "additionalProperties": false,
         "properties": {
-          "data": {
+          "ai_gateway_providers": {
             "items": {
               "$ref": "#/components/schemas/AIGatewayProviderItem"
             },
             "type": "array"
           }
         },
-        "required": ["data"],
+        "required": ["ai_gateway_providers"],
         "title": "AIGatewayProviderListResponse",
         "type": "object"
       },
@@ -61,11 +61,11 @@
       "AppConfigurationResponse": {
         "additionalProperties": false,
         "properties": {
-          "data": {
+          "app_configuration": {
             "$ref": "#/components/schemas/AppConfigurationItem"
           }
         },
-        "required": ["data"],
+        "required": ["app_configuration"],
         "title": "AppConfigurationResponse",
         "type": "object"
       },
@@ -96,13 +96,18 @@
       "SubagentDelegationResponse": {
         "additionalProperties": false,
         "properties": {
-          "data": {
+          "delegation": {
             "$ref": "#/components/schemas/SubagentDelegationItem"
           }
         },
-        "required": ["data"],
+        "required": ["delegation"],
         "title": "SubagentDelegationResponse",
         "type": "object"
+      },
+      "JSONValue": {
+        "description": "Any JSON-compatible value. AppConfigure validates the concrete key schema.",
+        "nullable": true,
+        "title": "JSONValue"
       },
       "AgentUpdateRequest": {
         "additionalProperties": false,
@@ -161,7 +166,7 @@
       "WorkerFileDeleteResponse": {
         "additionalProperties": false,
         "properties": {
-          "data": {
+          "deleted_file": {
             "additionalProperties": false,
             "properties": {
               "deleted": {
@@ -179,7 +184,7 @@
             "type": "object"
           }
         },
-        "required": ["data"],
+        "required": ["deleted_file"],
         "title": "WorkerFileDeleteResponse",
         "type": "object"
       },
@@ -205,31 +210,26 @@
       "ModelProfileResponse": {
         "additionalProperties": false,
         "properties": {
-          "data": {
+          "model_profile": {
             "additionalProperties": true,
             "type": "object"
           }
         },
-        "required": ["data"],
+        "required": ["model_profile"],
         "title": "ModelProfileResponse",
         "type": "object"
-      },
-      "JsonValue": {
-        "description": "Any JSON-compatible value. AppConfigure validates the concrete key schema.",
-        "nullable": true,
-        "title": "JsonValue"
       },
       "IdentityProviderListResponse": {
         "additionalProperties": false,
         "properties": {
-          "data": {
+          "identity_providers": {
             "items": {
               "$ref": "#/components/schemas/IdentityProviderItem"
             },
             "type": "array"
           }
         },
-        "required": ["data"],
+        "required": ["identity_providers"],
         "title": "IdentityProviderListResponse",
         "type": "object"
       },
@@ -279,22 +279,22 @@
       "ScheduleCronScheduleResponse": {
         "additionalProperties": false,
         "properties": {
-          "data": {
-            "$ref": "#/components/schemas/JsonValue"
+          "cron_schedule": {
+            "$ref": "#/components/schemas/JSONValue"
           }
         },
-        "required": ["data"],
+        "required": ["cron_schedule"],
         "title": "ScheduleCronScheduleResponse",
         "type": "object"
       },
       "AgentResponse": {
         "additionalProperties": false,
         "properties": {
-          "data": {
+          "agent": {
             "$ref": "#/components/schemas/AgentItem"
           }
         },
-        "required": ["data"],
+        "required": ["agent"],
         "title": "AgentResponse",
         "type": "object"
       },
@@ -305,7 +305,7 @@
             "type": "string"
           },
           "config": {
-            "$ref": "#/components/schemas/JsonValue"
+            "$ref": "#/components/schemas/JSONValue"
           },
           "config_key": {
             "type": "string"
@@ -342,11 +342,11 @@
       "IdentityProviderResponse": {
         "additionalProperties": false,
         "properties": {
-          "data": {
+          "identity_provider": {
             "$ref": "#/components/schemas/IdentityProviderItem"
           }
         },
-        "required": ["data"],
+        "required": ["identity_provider"],
         "title": "IdentityProviderResponse",
         "type": "object"
       },
@@ -400,7 +400,7 @@
             "type": "string"
           },
           "value": {
-            "$ref": "#/components/schemas/JsonValue"
+            "$ref": "#/components/schemas/JSONValue"
           }
         },
         "required": [
@@ -420,25 +420,25 @@
       "SignalAdapterListResponse": {
         "additionalProperties": false,
         "properties": {
-          "data": {
+          "signal_adapters": {
             "items": {
               "$ref": "#/components/schemas/SignalAdapterItem"
             },
             "type": "array"
           }
         },
-        "required": ["data"],
+        "required": ["signal_adapters"],
         "title": "SignalAdapterListResponse",
         "type": "object"
       },
       "SignalBindingResponse": {
         "additionalProperties": false,
         "properties": {
-          "data": {
+          "signal_binding": {
             "$ref": "#/components/schemas/SignalBindingItem"
           }
         },
-        "required": ["data"],
+        "required": ["signal_binding"],
         "title": "SignalBindingResponse",
         "type": "object"
       },
@@ -446,20 +446,20 @@
         "additionalProperties": false,
         "properties": {
           "delivery": {
-            "$ref": "#/components/schemas/JsonValue"
+            "$ref": "#/components/schemas/JSONValue"
           },
           "failure_policy": {
-            "$ref": "#/components/schemas/JsonValue"
+            "$ref": "#/components/schemas/JSONValue"
           },
           "name": {
             "nullable": true,
             "type": "string"
           },
           "payload": {
-            "$ref": "#/components/schemas/JsonValue"
+            "$ref": "#/components/schemas/JSONValue"
           },
           "schedule": {
-            "$ref": "#/components/schemas/JsonValue"
+            "$ref": "#/components/schemas/JSONValue"
           },
           "timezone": {
             "nullable": true,
@@ -472,12 +472,12 @@
       "ModelProfilesResponse": {
         "additionalProperties": false,
         "properties": {
-          "data": {
+          "model_profiles": {
             "additionalProperties": true,
             "type": "object"
           }
         },
-        "required": ["data"],
+        "required": ["model_profiles"],
         "title": "ModelProfilesResponse",
         "type": "object"
       },
@@ -515,7 +515,7 @@
             "type": "boolean"
           },
           "default": {
-            "$ref": "#/components/schemas/JsonValue"
+            "$ref": "#/components/schemas/JSONValue"
           },
           "description": {
             "$ref": "#/components/schemas/LocalizedText"
@@ -574,14 +574,14 @@
       "ScheduleEventListResponse": {
         "additionalProperties": false,
         "properties": {
-          "data": {
+          "schedule_events": {
             "items": {
-              "$ref": "#/components/schemas/JsonValue"
+              "$ref": "#/components/schemas/JSONValue"
             },
             "type": "array"
           }
         },
-        "required": ["data"],
+        "required": ["schedule_events"],
         "title": "ScheduleEventListResponse",
         "type": "object"
       },
@@ -605,7 +605,7 @@
       "WorkerFileUploadResponse": {
         "additionalProperties": false,
         "properties": {
-          "data": {
+          "uploaded_file": {
             "additionalProperties": false,
             "properties": {
               "relative_path": {
@@ -627,7 +627,7 @@
             "type": "object"
           }
         },
-        "required": ["data"],
+        "required": ["uploaded_file"],
         "title": "WorkerFileUploadResponse",
         "type": "object"
       },
@@ -726,25 +726,25 @@
       "CodexAccountResponse": {
         "additionalProperties": false,
         "properties": {
-          "data": {
+          "codex_account": {
             "$ref": "#/components/schemas/CodexAccountItem"
           }
         },
-        "required": ["data"],
+        "required": ["codex_account"],
         "title": "CodexAccountResponse",
         "type": "object"
       },
       "SignalBindingListResponse": {
         "additionalProperties": false,
         "properties": {
-          "data": {
+          "signal_bindings": {
             "items": {
               "$ref": "#/components/schemas/SignalBindingItem"
             },
             "type": "array"
           }
         },
-        "required": ["data"],
+        "required": ["signal_bindings"],
         "title": "SignalBindingListResponse",
         "type": "object"
       },
@@ -888,7 +888,7 @@
         "additionalProperties": false,
         "properties": {
           "config": {
-            "$ref": "#/components/schemas/JsonValue"
+            "$ref": "#/components/schemas/JSONValue"
           },
           "group_message_mode": {
             "enum": ["addressed_only", "observe_all", "may_intervene"],
@@ -903,11 +903,11 @@
       "WorkerFileListResponse": {
         "additionalProperties": false,
         "properties": {
-          "data": {
+          "file_listing": {
             "$ref": "#/components/schemas/WorkerFileListData"
           }
         },
-        "required": ["data"],
+        "required": ["file_listing"],
         "title": "WorkerFileListResponse",
         "type": "object"
       },
@@ -956,14 +956,14 @@
       "ScheduleCronScheduleListResponse": {
         "additionalProperties": false,
         "properties": {
-          "data": {
+          "cron_schedules": {
             "items": {
-              "$ref": "#/components/schemas/JsonValue"
+              "$ref": "#/components/schemas/JSONValue"
             },
             "type": "array"
           }
         },
-        "required": ["data"],
+        "required": ["cron_schedules"],
         "title": "ScheduleCronScheduleListResponse",
         "type": "object"
       },
@@ -998,10 +998,10 @@
             "type": "string"
           },
           "delivery": {
-            "$ref": "#/components/schemas/JsonValue"
+            "$ref": "#/components/schemas/JSONValue"
           },
           "failure_policy": {
-            "$ref": "#/components/schemas/JsonValue"
+            "$ref": "#/components/schemas/JSONValue"
           },
           "idempotency_key": {
             "type": "string"
@@ -1011,10 +1011,10 @@
             "type": "string"
           },
           "payload": {
-            "$ref": "#/components/schemas/JsonValue"
+            "$ref": "#/components/schemas/JSONValue"
           },
           "schedule": {
-            "$ref": "#/components/schemas/JsonValue"
+            "$ref": "#/components/schemas/JSONValue"
           },
           "status": {
             "enum": ["active", "paused"],
@@ -1048,14 +1048,14 @@
       "AgentComputerWorkerListResponse": {
         "additionalProperties": false,
         "properties": {
-          "data": {
+          "workers": {
             "items": {
               "$ref": "#/components/schemas/AgentComputerWorkerItem"
             },
             "type": "array"
           }
         },
-        "required": ["data"],
+        "required": ["workers"],
         "title": "AgentComputerWorkerListResponse",
         "type": "object"
       },
@@ -1077,7 +1077,7 @@
         "additionalProperties": false,
         "properties": {
           "value": {
-            "$ref": "#/components/schemas/JsonValue"
+            "$ref": "#/components/schemas/JSONValue"
           }
         },
         "required": ["value"],
@@ -1149,22 +1149,22 @@
       "ScheduleEventResponse": {
         "additionalProperties": false,
         "properties": {
-          "data": {
-            "$ref": "#/components/schemas/JsonValue"
+          "schedule_event": {
+            "$ref": "#/components/schemas/JSONValue"
           }
         },
-        "required": ["data"],
+        "required": ["schedule_event"],
         "title": "ScheduleEventResponse",
         "type": "object"
       },
       "IdentityProviderSyncRunResponse": {
         "additionalProperties": false,
         "properties": {
-          "data": {
+          "sync_run": {
             "$ref": "#/components/schemas/IdentityProviderSyncRunItem"
           }
         },
-        "required": ["data"],
+        "required": ["sync_run"],
         "title": "IdentityProviderSyncRunResponse",
         "type": "object"
       },
@@ -1194,28 +1194,28 @@
       "AgentListResponse": {
         "additionalProperties": false,
         "properties": {
-          "data": {
+          "agents": {
             "items": {
               "$ref": "#/components/schemas/AgentItem"
             },
             "type": "array"
           }
         },
-        "required": ["data"],
+        "required": ["agents"],
         "title": "AgentListResponse",
         "type": "object"
       },
       "IdentityProviderAdapterListResponse": {
         "additionalProperties": false,
         "properties": {
-          "data": {
+          "identity_provider_adapters": {
             "items": {
               "$ref": "#/components/schemas/IdentityProviderAdapterItem"
             },
             "type": "array"
           }
         },
-        "required": ["data"],
+        "required": ["identity_provider_adapters"],
         "title": "IdentityProviderAdapterListResponse",
         "type": "object"
       },
@@ -1248,49 +1248,49 @@
       "CodexAccountListResponse": {
         "additionalProperties": false,
         "properties": {
-          "data": {
+          "codex_accounts": {
             "items": {
               "$ref": "#/components/schemas/CodexAccountItem"
             },
             "type": "array"
           }
         },
-        "required": ["data"],
+        "required": ["codex_accounts"],
         "title": "CodexAccountListResponse",
         "type": "object"
       },
       "AppConfigurationListResponse": {
         "additionalProperties": false,
         "properties": {
-          "data": {
+          "app_configurations": {
             "items": {
               "$ref": "#/components/schemas/AppConfigurationItem"
             },
             "type": "array"
           }
         },
-        "required": ["data"],
+        "required": ["app_configurations"],
         "title": "AppConfigurationListResponse",
         "type": "object"
       },
       "AIGatewayProviderKindListResponse": {
         "additionalProperties": false,
         "properties": {
-          "data": {
+          "provider_kinds": {
             "items": {
               "$ref": "#/components/schemas/AIGatewayProviderKindItem"
             },
             "type": "array"
           }
         },
-        "required": ["data"],
+        "required": ["provider_kinds"],
         "title": "AIGatewayProviderKindListResponse",
         "type": "object"
       },
       "WorkerFileMoveResponse": {
         "additionalProperties": false,
         "properties": {
-          "data": {
+          "moved_file": {
             "additionalProperties": false,
             "properties": {
               "from_relative_path": {
@@ -1311,19 +1311,33 @@
             "type": "object"
           }
         },
-        "required": ["data"],
+        "required": ["moved_file"],
         "title": "WorkerFileMoveResponse",
         "type": "object"
       },
       "AIGatewayProviderResponse": {
         "additionalProperties": false,
         "properties": {
-          "data": {
+          "ai_gateway_provider": {
             "$ref": "#/components/schemas/AIGatewayProviderItem"
           }
         },
-        "required": ["data"],
+        "required": ["ai_gateway_provider"],
         "title": "AIGatewayProviderResponse",
+        "type": "object"
+      },
+      "ScheduleRunListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "schedule_runs": {
+            "items": {
+              "$ref": "#/components/schemas/JSONValue"
+            },
+            "type": "array"
+          }
+        },
+        "required": ["schedule_runs"],
+        "title": "ScheduleRunListResponse",
         "type": "object"
       },
       "IdentityProviderAdapterItem": {
@@ -1486,11 +1500,11 @@
       "AppConfigurationDecryptionResponse": {
         "additionalProperties": false,
         "properties": {
-          "data": {
+          "decrypted_value": {
             "$ref": "#/components/schemas/AppConfigurationDecryptionValue"
           }
         },
-        "required": ["data"],
+        "required": ["decrypted_value"],
         "title": "AppConfigurationDecryptionResponse",
         "type": "object"
       },
@@ -1501,7 +1515,7 @@
             "type": "string"
           },
           "config": {
-            "$ref": "#/components/schemas/JsonValue"
+            "$ref": "#/components/schemas/JSONValue"
           },
           "enabled": {
             "type": "boolean"
@@ -1518,7 +1532,7 @@
             "type": "string"
           },
           "value": {
-            "$ref": "#/components/schemas/JsonValue"
+            "$ref": "#/components/schemas/JSONValue"
           }
         },
         "required": ["key", "value"],
@@ -4249,11 +4263,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ScheduleEventListResponse"
+                  "$ref": "#/components/schemas/ScheduleRunListResponse"
                 }
               }
             },
-            "description": "Scheduled events"
+            "description": "Schedule runs"
           }
         },
         "security": [
