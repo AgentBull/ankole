@@ -26,24 +26,14 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
     safety_identifier user
   )
 
-  @internal_response_metadata_keys ~w(
-    actor_event_id auto_compaction auto_truncation error usage model request_model
-    provider_model model_ref provider provider_id provider_kind instructions tools
-    tool_choice truncation parallel_tool_calls text top_p presence_penalty
-    frequency_penalty top_logprobs temperature reasoning max_output_tokens
-    max_tool_calls service_tier prompt_cache_key safety_identifier user
-    max_tool_calls_used max_tool_calls_exhausted provider_metadata tool_results
-    stop_reason response incomplete_details tool_result_journal tool_result_idempotency_key
-  )
-
   @tool_result_record_db_retry_delays_ms [50, 100, 200, 400, 800, 1_600]
 
   @doc false
   @spec retrieve_response(String.t(), binary()) :: {:ok, %{body: map()}} | {:error, term()}
-  def retrieve_response(agent_uid, response_id) do
+  def retrieve_response(subject_uid, response_id) do
     with :ok <- validate_external_response_id(response_id),
          {:ok, %Message{} = message} <-
-           StatefulResponses.get_message_for_agent(agent_uid, response_id) do
+           StatefulResponses.get_response_for_subject(subject_uid, response_id) do
       {:ok, %{body: response_resource(message)}}
     else
       _not_found_or_invalid ->
@@ -53,29 +43,27 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
 
   @doc false
   @spec compact_response(String.t(), map()) :: {:ok, %{body: map()}} | {:error, term()}
-  def compact_response(agent_uid, request) when is_map(request) do
+  def compact_response(subject_uid, request) when is_map(request) do
     request = normalize_request_keys(request)
 
-    with {:ok, body} <- Compaction.compact_response(agent_uid, request) do
+    with {:ok, body} <- Compaction.compact_response(subject_uid, request) do
       {:ok, %{body: body}}
     end
   end
 
-  def compact_response(_agent_uid, _request), do: {:error, :invalid_request_body}
+  def compact_response(_subject_uid, _request), do: {:error, :invalid_request_body}
 
   @doc false
   @spec record_tool_results(String.t(), map()) :: {:ok, %{body: map()}} | {:error, term()}
-  def record_tool_results(agent_uid, request) when is_map(request) do
+  def record_tool_results(subject_uid, request) when is_map(request) do
     request = normalize_request_keys(request)
     previous_response_id = request["previous_response_id"]
-    actor_event_id = get_in(request, ["metadata", "actor_event_id"])
 
     with :ok <- validate_tool_results_record_shape(request),
          {:ok, current_input} <- normalize_stateful_input(Map.get(request, "input")),
          {:ok, %Message{} = message} <-
            record_tool_results_with_transient_db_retry(%{
-             agent_uid: agent_uid,
-             actor_event_id: actor_event_id,
+             subject_uid: subject_uid,
              previous_response_id: previous_response_id,
              request_items: current_input,
              metadata: stateful_run_metadata(request, %{})
@@ -84,17 +72,17 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
     end
   end
 
-  def record_tool_results(_agent_uid, _request), do: {:error, :invalid_request_body}
+  def record_tool_results(_subject_uid, _request), do: {:error, :invalid_request_body}
 
   @doc false
   @spec prepare_websocket_provider_request(String.t(), map()) ::
           {:ok, UniversalAIRequest.t(), map() | nil} | {:error, term()}
-  def prepare_websocket_provider_request(agent_uid, request) do
+  def prepare_websocket_provider_request(subject_uid, request) do
     with :ok <- validate_websocket_stateful_shape(request),
          {:ok, runtime} <-
-           Resolver.resolve_request_model(agent_uid, "llm", normalize_request_keys(request)),
+           Resolver.resolve_request_model(subject_uid, "llm", normalize_request_keys(request)),
          {:ok, request_for_provider, run_attrs} <-
-           provider_websocket_request(agent_uid, request, runtime),
+           provider_websocket_request(subject_uid, request, runtime),
          {:ok, prepared_request} <-
            Providers.build_response_request(runtime, request_for_provider, stream?: true) do
       {:ok, prepared_request, run_attrs}
@@ -107,10 +95,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   def start_websocket_run(%{} = run_attrs) do
     attrs =
       %{
-        agent_uid: run_attrs.agent_uid,
-        # Source table: run_attrs.actor_event_id comes from request metadata and
-        # must remain an actor_events.id correlation key.
-        actor_event_id: run_attrs.actor_event_id,
+        subject_uid: run_attrs.subject_uid,
         previous_response_id: run_attrs.previous_response_id,
         request_items: run_attrs.request_items,
         metadata: run_attrs.metadata
@@ -126,7 +111,8 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
         {:ok,
          %{
            message_id: message.id,
-           actor_event_id: run_attrs.actor_event_id,
+           message: message,
+           subject_uid: message.subject_uid,
            conversation_id: message.conversation_id
          }}
 
@@ -139,9 +125,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   def commit_socket_open_error(nil, _reason), do: :ok
 
   def commit_socket_open_error(%{message_id: message_id}, reason) do
-    StatefulResponses.commit_error(message_id, [], socket_open_error_details(reason),
-      complete_actor_event?: false
-    )
+    StatefulResponses.commit_error(message_id, [], socket_open_error_details(reason))
 
     :ok
   end
@@ -157,27 +141,30 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   #   - previous_response_id (Ankole UUID, would 404 on OpenAI)
   #   - store (Ankole stateful switch; provider dispatch disables upstream storage)
   #   - conversation (internal correlation)
-  #   - metadata.actor_event_id (internal correlation)
-  defp provider_websocket_request(agent_uid, request, runtime) do
+  defp provider_websocket_request(subject_uid, request, runtime) do
     request = normalize_request_keys(request)
 
     if request["store"] == true do
-      expand_and_inject_history(agent_uid, request, runtime)
+      expand_and_inject_history(subject_uid, request, runtime)
     else
-      with {:ok, request} <- CompactionArtifacts.resolve_request_input_handles(agent_uid, request) do
+      with {:ok, request} <-
+             CompactionArtifacts.resolve_request_input_handles(subject_uid, request) do
         {:ok, strip_stateful_provider_fields(request), nil}
       end
     end
   end
 
-  defp expand_and_inject_history(agent_uid, request, runtime) do
+  defp expand_and_inject_history(subject_uid, request, runtime) do
     conversation_id = request["conversation"]
-    actor_event_id = get_in(request, ["metadata", "actor_event_id"])
     previous_response_id = request["previous_response_id"]
 
     with :ok <- validate_external_optional_response_id(previous_response_id),
          {:ok, conversation} <-
-           resolve_stateful_request_conversation(agent_uid, conversation_id, previous_response_id),
+           resolve_stateful_request_conversation(
+             subject_uid,
+             conversation_id,
+             previous_response_id
+           ),
          :ok <- StatefulResponses.validate_response_anchor(conversation.id, previous_response_id),
          effective_previous_response_id <-
            effective_previous_response_id(conversation.id, previous_response_id),
@@ -191,7 +178,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
            request_with_effective_previous_response_id(request, effective_previous_response_id),
          {:ok, compaction} <-
            Compaction.maybe_compact_history(
-             agent_uid,
+             subject_uid,
              conversation.id,
              history,
              current_input,
@@ -208,101 +195,58 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
         )
 
       with {:ok, history_items} <-
-             messages_to_response_items(agent_uid, history, runtime_input_modalities(runtime)),
+             messages_to_response_items(subject_uid, history, runtime_input_modalities(runtime)),
            {:ok, expanded_input} <-
-             CompactionArtifacts.resolve_input_handles(agent_uid, history_items ++ current_input) do
-        {provider_request, max_tool_calls_metadata} =
+             CompactionArtifacts.resolve_input_handles(
+               subject_uid,
+               history_items ++ current_input
+             ) do
+        provider_request =
           request
           |> Map.put("input", expanded_input)
-          |> apply_max_tool_calls_strategy(conversation.id, previous_response_id, actor_event_id)
-
-        provider_request = strip_stateful_provider_fields(provider_request)
+          |> strip_stateful_provider_fields()
 
         {:ok, provider_request,
          %{
-           agent_uid: agent_uid,
+           subject_uid: subject_uid,
            conversation_id: conversation.id,
-           # Source table: metadata.actor_event_id is actor_events.id supplied by
-           # the actor turn; it is stored only as AIGateway correlation metadata.
-           actor_event_id: actor_event_id,
            previous_response_id: previous_response_id,
            request_items: current_input,
            metadata:
              stateful_run_metadata(
                request,
-               Map.merge(compaction.run_metadata, max_tool_calls_metadata)
+               compaction.run_metadata
              )
          }}
       end
     end
   end
 
-  defp apply_max_tool_calls_strategy(
-         request,
-         conversation_id,
-         previous_response_id,
-         actor_event_id
-       ) do
-    case Map.get(request, "max_tool_calls") do
-      limit when is_integer(limit) and limit >= 0 ->
-        used =
-          StatefulResponses.count_function_calls_for_actor_event(
-            conversation_id,
-            previous_response_id,
-            actor_event_id
-          )
-
-        metadata = %{"max_tool_calls_used" => used}
-
-        if used >= limit do
-          {
-            disable_provider_tools(request),
-            Map.put(metadata, "max_tool_calls_exhausted", true)
-          }
-        else
-          {request, metadata}
-        end
-
-      _missing ->
-        {request, %{}}
-    end
-  end
-
-  defp disable_provider_tools(request) do
-    request
-    |> Map.delete("tools")
-    |> Map.delete("tool_choice")
-    |> Map.delete("parallel_tool_calls")
-  end
-
   defp stateful_run_metadata(request, compaction_metadata) do
-    request
-    |> public_request_metadata()
+    %{"request_metadata" => public_request_metadata(request)}
     |> Map.merge(Map.take(request, @stateful_request_metadata_fields))
     |> maybe_put("request_model", Map.get(request, "model"), true)
     |> Map.merge(compaction_metadata)
   end
 
-  defp public_request_metadata(%{"metadata" => %{} = metadata}) do
-    Map.delete(metadata, "actor_event_id")
-  end
+  defp public_request_metadata(%{"metadata" => %{} = metadata}), do: metadata
 
   defp public_request_metadata(_request), do: %{}
 
-  defp resolve_stateful_request_conversation(agent_uid, conversation_id, _previous_response_id)
+  defp resolve_stateful_request_conversation(subject_uid, conversation_id, _previous_response_id)
        when not is_nil(conversation_id) do
     with :ok <- validate_external_conversation_id(conversation_id) do
-      StatefulResponses.get_conversation_for_agent(agent_uid, decode_conv_id(conversation_id))
+      StatefulResponses.get_conversation_for_subject(subject_uid, decode_conv_id(conversation_id))
     end
   end
 
-  defp resolve_stateful_request_conversation(agent_uid, nil, nil),
-    do: StatefulResponses.create_managed_stateful_responses_conversation(agent_uid)
+  defp resolve_stateful_request_conversation(subject_uid, nil, nil),
+    do: StatefulResponses.create_managed_stateful_responses_conversation(subject_uid)
 
-  defp resolve_stateful_request_conversation(agent_uid, nil, previous_response_id) do
+  defp resolve_stateful_request_conversation(subject_uid, nil, previous_response_id) do
     case StatefulResponses.get_message(previous_response_id) do
       %{status: "complete", conversation_id: conversation_id} ->
-        case StatefulResponses.get_conversation_for_agent(agent_uid, conversation_id) do
+        case StatefulResponses.get_conversation_for_subject(subject_uid, conversation_id) do
           {:ok, conversation} -> {:ok, conversation}
           {:error, :invalid_conversation} -> {:error, :invalid_anchor}
         end
@@ -319,20 +263,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
     |> Map.delete("previous_response_id")
     |> Map.delete("store")
     |> Map.delete("conversation")
-    |> Map.delete("max_tool_calls")
     |> Map.delete("service_tier")
-    |> strip_internal_metadata()
-  end
-
-  defp strip_internal_metadata(request) do
-    case Map.get(request, "metadata") do
-      %{} = metadata ->
-        cleaned = metadata |> Map.delete("actor_event_id")
-        Map.put(request, "metadata", cleaned)
-
-      _ ->
-        request
-    end
   end
 
   defp decode_conv_id("conv_" <> uuid), do: uuid
@@ -445,11 +376,11 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   # history from the legacy row-level role hint. Provider-facing replay strips
   # opaque upstream item ids because this gateway uses store=false upstream and
   # owns continuation through its local `resp_*` chain.
-  defp messages_to_response_items(agent_uid, messages, input_modalities) do
+  defp messages_to_response_items(subject_uid, messages, input_modalities) do
     supports_image? = "image" in input_modalities
 
     Enum.reduce_while(messages, {:ok, []}, fn message, {:ok, acc} ->
-      case message_response_items(agent_uid, message) do
+      case message_response_items(subject_uid, message) do
         {:ok, items} ->
           replay_items = Enum.map(items, &provider_replay_item(&1, supports_image?))
           {:cont, {:ok, acc ++ replay_items}}
@@ -460,13 +391,13 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
     end)
   end
 
-  defp message_response_items(agent_uid, %Message{type: "checkpoint"} = message),
-    do: CompactionArtifacts.output_for_checkpoint(agent_uid, message)
+  defp message_response_items(subject_uid, %Message{type: "checkpoint"} = message),
+    do: CompactionArtifacts.output_for_checkpoint(subject_uid, message)
 
-  defp message_response_items(_agent_uid, %{content: content}) when is_list(content),
+  defp message_response_items(_subject_uid, %{content: content}) when is_list(content),
     do: {:ok, content}
 
-  defp message_response_items(_agent_uid, _message), do: {:ok, []}
+  defp message_response_items(_subject_uid, _message), do: {:ok, []}
 
   defp provider_replay_item(%{} = item, true), do: Map.delete(item, "id")
 
@@ -551,7 +482,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   end
 
   defp response_content(%Message{type: "checkpoint"} = message) do
-    case CompactionArtifacts.output_for_checkpoint(message.agent_uid, message) do
+    case CompactionArtifacts.output_for_checkpoint(message.subject_uid, message) do
       {:ok, content} -> content
       {:error, _reason} -> []
     end
@@ -582,6 +513,9 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   defp response_completed_at(_message), do: nil
 
   defp response_status("generating", _metadata), do: "in_progress"
+
+  defp response_status("complete", %{"response" => %{"status" => "incomplete"}}),
+    do: "incomplete"
 
   defp response_status("complete", %{"incomplete_details" => %{} = _details}),
     do: "incomplete"
@@ -667,7 +601,10 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   end
 
   defp public_response_metadata(metadata) do
-    Map.drop(metadata, @internal_response_metadata_keys)
+    case Map.get(metadata, "request_metadata") do
+      %{} = request_metadata -> request_metadata
+      _missing -> %{}
+    end
   end
 
   defp list_or_empty(value) when is_list(value), do: value
@@ -760,9 +697,6 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
       validate_external_response_id(previous_response_id) != :ok ->
         {:error, :invalid_anchor}
 
-      missing_stateful_actor_event_id?(request) ->
-        {:error, :missing_actor_event_id}
-
       not valid_stateful_input?(Map.get(request, "input")) ->
         {:error, :invalid_input}
 
@@ -795,13 +729,6 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   end
 
   defp normalize_stateful_input(_input), do: {:error, :invalid_input}
-
-  defp missing_stateful_actor_event_id?(request) do
-    case get_in(request, ["metadata", "actor_event_id"]) do
-      actor_event_id when is_binary(actor_event_id) -> String.trim(actor_event_id) == ""
-      _missing_or_invalid -> true
-    end
-  end
 
   defp record_tool_results_with_transient_db_retry(attrs) do
     with_transient_db_checkout_retry(@tool_result_record_db_retry_delays_ms, fn ->

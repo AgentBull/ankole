@@ -6,14 +6,19 @@ callers and external AI providers, and it owns two things:
 - the provider boundary: provider credentials, provider kinds, model bindings,
   endpoint selection, and prepared request construction live in Elixir. Workers
   never receive external provider credentials.
-- the stateful Responses log: for agent-computer executions, AIGateway stores
-  every model call as a row in PostgreSQL and owns all state of the agentic
-  tool loop — history, continuation, stop policy, compaction, and the terminal
-  commit.
+- the stateful Responses log: AIGateway stores every model call as a row in
+  PostgreSQL and owns Response history, continuation, compaction, and Response
+  terminal persistence. It does not own an agent loop or an Actor turn.
 
 Workers receive only an agent-scoped AIGateway API key, keep it in memory, and
 call AIGateway over HTTP and WebSocket. Streaming response normalization runs
 in the Rust kernel data plane once Elixir has built the upstream request.
+
+AIGateway is actor-agnostic. Its durable owner is a Principal `subject_uid`;
+it does not import or query Actor, ActorRuntime, SignalsGateway, delivery, or
+outbox state. A completed Response means only that one model request completed.
+The Agent Computer owns loop termination, and SignalsGateway owns Actor turn
+completion and provider-visible reply projection.
 
 This boundary makes provider choice a control-plane concern. It gives the
 worker one local AI surface instead of a growing set of provider-specific
@@ -164,6 +169,13 @@ are first-class profile slots named `embedding`, `rerank`, `web_search`, and
 as the LLM profiles. Their public selectors are `embedding.default`,
 `rerank.default`, `web_search.default`, and `web_fetch.default`.
 
+The binding map is owned by `Ankole.AIAgent.ModelProfiles`, because profiles
+configure worker behavior rather than the gateway itself. A `coding` profile
+may instead select a named Codex subscription account. That account-shaped
+profile is consumed by Subagent Delegation and does not become an AIGateway
+model alias; provider/model-shaped coding profiles continue to resolve through
+AIGateway normally.
+
 The worker may also send an explicit provider/model selector in the form
 `provider_id/raw-model-id`. That selector bypasses an agent alias but still
 requires an active configured provider and the caller's agent-scoped AIGateway
@@ -192,30 +204,28 @@ model, send a request, get a response. Rules:
   `tmp_resp_0198f00d-31aa-7cde-9f00-3c9b52ab01aa`. A `tmp_resp_*` id can never
   be retrieved, chained, or stored. `GET /responses/:id` on it returns `404`.
 
-**The stateful Responses surface** serves the Bun worker running an actor
-event, and may also serve generic Codex-compatible clients through the same
-provider-facing contract. Those clients use the same stateful Responses rules
-without knowing Ankole actor-event metadata. Rules:
+**The stateful Responses surface** serves both the Bun worker and other
+Responses-compatible internal clients. The persistence contract is the same
+for every Principal subject and has no Actor-specific branch. Rules:
 
 - The transport is WebSocket `response.create` messages, plus an explicit
-  `store=true` field, plus a valid agent token.
+  `store=true` field, plus an authenticated Principal subject.
 - A request may pass `conversation` to attach to an existing
   `ai_gateway_conversations` row, or pass `previous_response_id` to continue
   from a stored response. Sending both is a `400`.
 - If `store=true` names neither `conversation` nor `previous_response_id`,
   AIGateway creates a new conversation internally and marks it with
   `metadata.managed_by_stateful_responses_api = true`.
-- The request `metadata` may carry the `actor_event_id` of the actor event the
-  worker is executing. AIGateway uses it for ActorRuntime correlation,
-  duplicate in-flight protection, preview/finalization, and tool-result
-  journaling. It is not a generic stateful Responses anchor and is not required
-  for ordinary `response.create`.
+- Request `metadata` is opaque caller data. AIGateway persists, returns, and
+  publishes the complete map without recognizing, validating, or indexing
+  individual keys. An Agent Computer may put an `actor_event_id` string there,
+  but only SignalsGateway interprets it.
 - The worker opens one WebSocket connection per actor-event run, reuses it for
   tool-loop continuation `response.create` messages, and runs at most one
   in-flight response on that connection at a time.
 - `background=true` does not enable an Ankole background response mode.
-  Cancelling a running generation goes through ActorRuntime actor event
-  control, not through the AIGateway API.
+  AIGateway exposes only Response-scoped fail and suffix-removal primitives;
+  Actor stop, retry, and retraction policy chooses targets in SignalsGateway.
 
 The gate is intentionally explicit. AIGateway never guesses from headers or
 `User-Agent` whether a request should be stateful. Only
@@ -226,7 +236,7 @@ continuation without `store=true`, `conversation` and `previous_response_id`
 both present) is a `400`. A missing or invalid token is a
 standard Bearer-auth failure: `401`. An authenticated subject that is explicitly
 refused is a `403`. A `conversation` or `previous_response_id` that does not
-resolve inside the token's agent scope is a `400` (unknown conversation /
+resolve inside the authenticated subject's scope is a `400` (unknown conversation /
 invalid anchor).
 
 ## HTTP API
@@ -325,7 +335,7 @@ The accepted body is intentionally compatible with Codex/OpenAI
 fields before provider dispatch when they are not upstream request semantics.
 
 A WebSocket `response.create` without `store=true` is a stateless request. With
-`store=true` and a valid agent token it enters the stateful path described in
+`store=true` and a valid Principal credential it enters the stateful path described in
 the sections below. For stateful runs, every server frame — including
 non-terminal frames such as `response.created` — carries
 `response.id = "resp_" <> row id`. A worker reading the id from any frame, the
@@ -399,8 +409,8 @@ Taken from the OpenAI Responses API, with Ankole-scoped semantics:
 - `store`: opt into stored state;
 - `GET /responses/:id`: retrieve one stored response.
 
-These four exist only to serve the Ankole worker state model. They are not a
-public multi-tenant conversation service.
+These four form the internal stateful Responses service for any authenticated
+Principal subject. They are not a public multi-tenant conversation service.
 
 Deliberately not implemented:
 
@@ -408,8 +418,9 @@ Deliberately not implemented:
 - `DELETE /responses/:id` — IM message deletion has its own mapping (see
   `docs/design-docs/SignalsGateway.md`), and nothing else needs response
   deletion;
-- `POST /responses/:id/cancel` — Ankole has no background response mode, so a
-  running generation is cancelled through ActorRuntime actor event control;
+- `POST /responses/:id/cancel` — Ankole has no public background Response mode;
+  internal callers may mark a known generating Response failed through the
+  narrow subject/Response API;
 
 Field rules:
 
@@ -423,6 +434,13 @@ Field rules:
   before the provider call so upstream providers do not reject it. It does not
   affect scheduling, routing, billing, or priority. Responses may echo it or
   omit it.
+- `max_tool_calls` is an optional per-Response limit for provider-executed
+  built-in tools. Omitted and `null` mean no numeric default. Native OpenAI
+  Responses resolvers pass it through. Other resolvers count only built-in
+  calls and stop best-effort at a safe event boundary; already-started parallel
+  calls may overshoot. Function/custom tool calls and earlier Responses never
+  count. A fallback late stop yields `response.incomplete` and records the
+  limit, observed count, and overshoot only in provider metadata.
 - WebSocket `store=false` `previous_response_id` is connection-local
   compatibility only. It can refer to a response completed earlier on the same
   WebSocket and is expanded into input items before provider dispatch. It never
@@ -430,7 +448,7 @@ Field rules:
 
 ## Stateful Message Log
 
-Two PostgreSQL tables carry all stateful Responses state. AIGateway is the only
+Three PostgreSQL tables carry all stateful Responses state. AIGateway is the only
 writer.
 
 `ai_gateway_messages` is the message log. One row records one stateful
@@ -440,14 +458,14 @@ one `response.create` call.
 | Column | Meaning |
 | --- | --- |
 | `id` (uuid) | The row id. The API id `resp_#{id}` is this uuid with a prefix. |
-| `agent_uid` | Owning agent. Every query filters on it. |
+| `subject_uid` | Owning Principal subject. Every query filters on it. |
 | `conversation_id` | The `ai_gateway_conversations` row this run belongs to. |
 | `type` | `message` (a Responses run) or `checkpoint` (a compaction continuation anchor). |
 | `role` | Display hint for transcript projections only. Not authoritative. |
 | `status` | `generating`, `complete`, `error`, or `retracted`. |
 | `previous_message_id` | Self-reference to the anchor row. Rendered as `previous_response_id` at the API edge. |
 | `content` (jsonb) | The OpenResponses `ResponseItem[]` array for message rows, or exactly one `compaction_artifact` ref for checkpoint rows. |
-| `metadata` (jsonb) | model/provider facts, usage, provider raw ids, `actor_event_id`, request refs, error details. |
+| `metadata` (jsonb) | Opaque caller metadata plus generic model/provider, usage, request, and error facts. |
 
 Compaction bodies live in `ai_gateway_compaction_artifacts`, not in
 `ai_gateway_messages`:
@@ -455,7 +473,7 @@ Compaction bodies live in `ai_gateway_compaction_artifacts`, not in
 | Column | Meaning |
 | --- | --- |
 | `id` (uuid) | The artifact id. When a checkpoint is written, the checkpoint row uses the same raw UUID. |
-| `agent_uid` | Owning agent. Every lookup filters on it. |
+| `subject_uid` | Owning Principal subject. Every lookup filters on it. |
 | `conversation_id` | Nullable. Filled for stateful/checkpoint compaction; null for standalone artifacts. |
 | `content` (jsonb) | Versioned artifact body: summary, canonical `response.compaction.output`, retained tail, and usage. |
 
@@ -503,31 +521,16 @@ value, but v1 IM deletion does not write it: tail deletion hard-deletes, and
 historical or compaction-covered deletion is a no-op. Row type states what the
 row is; status states where it is in its lifecycle.
 
-One partial unique index protects the in-flight invariant:
-
-```sql
-((metadata->>'actor_event_id')) WHERE status = 'generating' AND type = 'message'
-```
-
-Each actor event has at most one `generating` run row at any moment when
-`metadata.actor_event_id` is present — the current `response.create`. Earlier
-rounds of the same loop are already `complete`, so they never occupy the
-index. Reconnect logic uses this index to find the current in-flight row for
-an actor event deterministically. Generic stateful Responses runs may omit
-`actor_event_id`; PostgreSQL unique-index null semantics allow those runs to
-coexist because they are not ActorRuntime delivery facts.
-
-When present, `metadata.actor_event_id` values always come from
-`actor_events.id`.
 `previous_message_id` values always come from `ai_gateway_messages.id`. The two
-id spaces never mix (see Response Identity).
+id spaces never mix (see Response Identity). AIGateway has no Actor-keyed
+generating index and does not use metadata as a lifecycle key.
 
 `ai_gateway_conversations` stores conversation identity only:
 
 | Column | Meaning |
 | --- | --- |
 | `id` (uuid) | The API id `conv_#{id}` is this uuid with a prefix. |
-| `agent_uid` | Owning agent. |
+| `subject_uid` | Owning Principal subject. |
 | `conversation_key` | Stable external key for the session scope. |
 | `ended_at` | Set when the session window is closed. |
 | `metadata` (jsonb) | Auxiliary facts. |
@@ -535,8 +538,7 @@ id spaces never mix (see Response Identity).
 Conversations created implicitly by `response.create store=true` with no
 `conversation` and no `previous_response_id` use an internal
 `conversation_key` and carry
-`metadata.managed_by_stateful_responses_api = true`. Actor-session
-conversations created through ActorRuntime do not need that marker.
+`metadata.managed_by_stateful_responses_api = true`.
 
 The conversation row deliberately stores no active-generation lease and no
 "current position" pointer. The continuation base is always derived from the
@@ -544,8 +546,8 @@ message graph (see Status And Projection). A stored pointer would be a second
 source of truth, and it would drift from the graph on compaction, retraction,
 branching, and worker reconnect. Keeping only the graph means there is nothing
 to repair. Concurrency control — "one run at a time per session" — is not a
-conversation lease either; ActorRuntime enforces it by not handing out a second
-actor event while a live delivery exists for the session.
+conversation lease either. Each caller owns serialization of its logical loop;
+AIGateway rejects only conflicting Response-level state it can observe itself.
 
 ## Response Identity
 
@@ -578,8 +580,8 @@ actor event id, AI message id). The canonical definition of all four lives in
 
 A message-log row is always in one of four statuses:
 
-- `generating`: the row is in the durable log, but it is still the in-flight
-  candidate output of an active actor event. Normal cross-event history cannot
+- `generating`: the row is in the durable log, but its provider request is
+  still in flight. Normal history cannot
   read it, and it cannot be a continuation anchor. Even inside the same actor
   event, the next loop round anchors on the previous round's already-committed
   `complete` row, never on a `generating` row.
@@ -634,13 +636,14 @@ If you have written a tool-calling agent with the OpenAI SDK or ai-sdk, the
 wire shape here is the loop you already know: send a request, get output, run
 the `function_call`, send the result back, repeat. The difference is where the
 state lives. In a client-side loop, the client owns the growing message list.
-Here AIGateway owns history, anchors, stop policy, and persistence; the worker
-owns only tool execution.
+Here AIGateway owns history, anchors, and Response persistence. A loop-capable
+client owns tool execution, iteration policy, and its own decision to stop.
 
 One `response.create` runs this pipeline:
 
 1. Gate: transport is WebSocket, `store=true` is present, the token is valid.
-2. Scope: all queries from here on filter by the token's `agent_uid`.
+2. Scope: all queries from here on filter by the authenticated
+   `subject_uid`.
 3. Resolve the anchor from `previous_response_id` or `conversation`; if neither
    is present, create a managed conversation and start from empty history.
 4. Expand history along the chain. If the estimated provider-facing input is
@@ -648,12 +651,10 @@ One `response.create` runs this pipeline:
    artifact and checkpoint row are written before the run row, so the run row's
    `previous_message_id` points at the checkpoint from the start.
 5. Merge the request-side input items.
-6. Create the run row: `status = "generating"`, optional
-   `metadata.actor_event_id`, and the initial `content` holding the
-   request-side items.
-7. Strip internal fields — `previous_response_id`, `conversation`,
-   `store`, `max_tool_calls`, `service_tier`, and
-   `metadata.actor_event_id` — and build the provider request. The upstream
+6. Create the run row: `status = "generating"`, the caller's complete opaque
+   `metadata`, and the initial `content` holding the request-side items.
+7. Strip AIGateway continuation fields such as `previous_response_id`,
+   `conversation`, and `store`, then build the provider request. The upstream
    provider sees plain input items, never Ankole continuation fields.
 8. Call the provider. While it streams, AIGateway publishes live chunk events
    as process messages (see Live Delivery). Chunks are not written to the row.
@@ -688,26 +689,23 @@ response.create                          create run row 2 (generating)
 (stop; the loop is done)
 ```
 
-The main Ankole worker supplies `conversation` and `metadata.actor_event_id`
-because it is executing a durable actor event. Codex-compatible callers that
-only need the stateful Responses API may omit `actor_event_id`; if they also
-omit `conversation` and `previous_response_id`, AIGateway creates the managed
-conversation described above.
+The main Ankole worker supplies `conversation` and opaque metadata because it is
+executing a durable Actor event. Other clients use the same API without that
+metadata. If they omit both `conversation` and `previous_response_id`,
+AIGateway creates the managed conversation described above.
 
-The worker's rule is mechanical: response contains a `function_call` → execute
-it and send the next `response.create`; response contains no `function_call` →
-stop. All stop policy lives in AIGateway. When `max_tool_calls` is reached, the
-provider fails, or the actor event is stopped, AIGateway converges by not
-emitting another `function_call` or by returning a terminal failure. The worker
-never counts rounds and never decides to stop on its own. If one output round
-contains both an assistant message and a `function_call`, the loop continues —
-the stop test is "no tool call", not "has a message".
+The Agent Computer owns the loop rule and its per-execution iteration budget.
+Every logical model call counts once; provider retries of that same call do not.
+If the final budgeted call still requires continuation, the worker makes one
+budget-exempt, tool-free summary Response and declares the turn outcome
+`iteration_exhausted`. AIGateway neither counts these iterations nor infers
+turn completion from `function_call` output.
 
-One actor event therefore produces a chain of rows linked by
-`previous_message_id`. The final AI output of the actor event is the chain-tail
-`complete` row whose content has no `function_call`. The first human input of
-the event travels inside the first `response.create`'s `input`; there is no
-separate stored user-message row.
+One Agent turn normally produces a chain of rows linked by
+`previous_message_id`. The worker explicitly identifies the final adopted
+Response in `turn_completed`; Response shape alone does not make a row an Actor
+terminal. The first human input travels inside the first `response.create`'s
+`input`; there is no separate stored user-message row.
 
 The worker side stays thin:
 
@@ -716,8 +714,7 @@ The worker side stays thin:
   transport adapter for the stateful path;
 - it keeps only short-lived execution state: the WebSocket connection, the
   current actor event id, current tool-call ids, and tool-local state;
-- it never selects anchors, never expands history, never compacts, never
-  decides the final output, and never writes `ai_gateway_messages`,
+- it never expands history, never compacts, and never writes `ai_gateway_messages`,
   `ai_gateway_conversations`, or `signal_gateway_outbox`.
 
 ## Compaction
@@ -770,10 +767,9 @@ Auto-compaction runs inside the write path, at history expansion:
 Truncation is the fallback ladder:
 
 - `truncation = disabled` (default): an over-budget request that cannot be
-  compacted returns a structured `context_overflow` error. ActorRuntime may
-  then record an overflow retry on the same open actor event
-  (`retry_reason = overflow_retry`); the worker's next call for that event
-  sets `truncation = auto`.
+  compacted returns a structured `context_overflow` error. The owning client
+  may choose a later request with `truncation = auto`; AIGateway does not decide
+  an Actor retry policy.
 - `truncation = auto`: AIGateway drops history from the head of the
   provider-facing input. It never crosses a valid compaction anchor and never
   mixes covered original rows back in. The durable `previous_message_id` still
@@ -805,35 +801,32 @@ Two consumers subscribe:
 
 - the worker's WebSocket connection receives the chunks as OpenResponses event
   frames;
-- SignalsGateway's `AIReplyPreview` process uses them to send and edit the
-  provider-visible preview message (the streaming IM card), and to finalize on
-  the terminal event.
+- SignalsGateway's `AIReplyPreview` process filters conversation-scoped events
+  by opaque metadata and uses deltas to send and edit the provider-visible
+  preview message. A Response terminal event does not terminate the preview or
+  complete an Actor turn.
 
 Durable content truth stays in the message log; delivery state stays in
 SignalsGateway. The provider-side preview message id is never written back
-into a message-log row, and streamed replies never pass through
-`signal_gateway_outbox` — the outbox carries only explicit side effects. The
-full provider-visible delivery and recovery story lives in
+into a message-log row. Live preview deltas bypass `signal_gateway_outbox`,
+but SignalsGateway always commits the adopted final reply through that durable
+outbox. The full provider-visible delivery and recovery story lives in
 `docs/design-docs/SignalsGateway.md` under Streamed AI Reply Delivery.
 
 ## Recovery And Reconnect
 
 Nothing in the stateful path assumes a long-lived process. Recovery rules:
 
-- An orphaned `generating` row — its worker or connection died — is detected by
-  `updated_at` staleness. The start path sets it to `error` and the caller
-  re-sends the round from the last `complete` anchor. If the row still has a
-  live delivery fence, the new call gets `409 response_in_progress` instead;
-  there is no lease to steal.
+- A stateful WebSocket touches its `generating` row every 60 seconds. An orphaned
+  row is detected after the 300-second grace solely from Response status and
+  `updated_at`; no Actor activation or delivery is consulted. The caller then
+  re-sends the round from the last complete anchor.
 - There is no half-stream recovery. The current version keeps no stable item
   snapshots and no content version counter. A broken stream costs one round:
   the stale row goes to `error`, and the round is re-sent.
 - A worker reconnect restores tool-execution context only. The worker does not
-  repair history and does not re-read the log; it continues the loop from the
-  ids it holds, or the actor event is retried.
-- An actor event retry is a new actor event: a new `actor_event_id` whose
-  payload carries `retry_of_actor_event_id`. Failed rows keep their audit
-  content under `status = "error"`.
+  repair history; it continues from ids it holds or its owning runtime starts a
+  new execution. Failed rows keep their audit content under `status = "error"`.
 
 `GET /responses/:id` is the read-side recovery and debug surface:
 
@@ -869,8 +862,8 @@ a later ACL design adds an explicit agent-on-behalf-of contract.
 The security model for stateful data is exactly two rules:
 
 1. the 30-day agent token proves which agent is calling;
-2. every conversation, message, and anchor query filters by that agent's
-   `agent_uid`, so agents are isolated from each other.
+2. every conversation, message, and anchor query filters by the authenticated
+   Principal's `subject_uid`, so subjects are isolated from each other.
 
 There is deliberately nothing else: no per-actor-event tokens, no claims, no
 actor-event liveness checks in AIGateway, and no generation lease acting as a
@@ -992,8 +985,7 @@ Stateful contract tests must cover:
   response id;
 - one run row per `response.create`, with request input items and output items
   in the same `content` array;
-- the in-flight partial unique index: a second `generating` row for the same
-  actor event is impossible;
+- opaque metadata round-tripping without key-specific validation or indexing;
 - commit-before-terminal-frame ordering, `already_terminal` idempotency, and
   `response.id` rewriting to `resp_*` on every frame;
 - `GET /responses/:id` single-row synthesis, `in_progress` for `generating`
@@ -1001,8 +993,8 @@ Stateful contract tests must cover:
 - `/responses/compact` always returning `response.compaction`, artifact
   persistence for compact output, and `store=true` compact creating a
   checkpoint whose id matches the artifact id;
-- orphaned `generating` reclaim by staleness and `409 response_in_progress`
-  for live generations;
+- 60-second WebSocket touches, orphaned `generating` reclaim after the
+  300-second grace, and no Actor/delivery lookup in either path;
 - `instructions` non-inheritance, `prompt_cache_key` no-op, and `service_tier`
   stripping.
 
@@ -1022,26 +1014,24 @@ defined place in the current design:
   touching the log schema, because the graph is the only truth.
 - Multi-instance recovery coordination and richer multimodal compaction
   summaries are future work; see `docs/TradeoffsAndKnownLimits.md`.
-- Other actor-event executors. `actor_events` is a generic work item. Only
-  events routed to the AIGateway/agent-computer handler enter the Responses
-  API, write `ai_gateway_messages`, and participate in chaining, compaction,
-  and retraction. A future executor (for example a DAG workflow runtime) must
-  own its own durable tables instead of writing its run log into
-  `ai_gateway_messages`.
+- Other stateful clients. Enterprise systems may use the same Principal-owned
+  Responses log without routing through ActorRuntime. They share AIGateway's
+  Response semantics but own their own workflow lifecycle and side effects.
 
 ## Ownership
 
 Elixir owns provider credentials, provider configuration, provider execution,
 model binding resolution, AIGateway authentication, normalized HTTP responses,
-and the whole stateful layer: the message log, history expansion, continuation
-anchors, stop policy, compaction, the terminal commit, and live chunk
-publication.
+and the whole stateful Response layer: the message log, history expansion,
+continuation anchors, compaction, Response terminal commit, generating-row
+liveness, and generic event publication.
 
 RuntimeFabric owns the worker-to-control-plane API-key request path.
 
-Bun workers own prompt construction, local tools, and environment capabilities.
+Bun workers own prompt construction, local tools, environment capabilities,
+loop iteration policy, and explicit Agent turn completion.
 If Ankole later exposes MCP servers to model runs, that bridge belongs in the
 worker boundary as another local tool source. A worker drives loop iterations
-through the official `openai` client over WebSocket, but it owns no loop state:
-no history, no anchors, no stop policy, and no writes to `ai_gateway_messages`,
-`ai_gateway_conversations`, or `signal_gateway_outbox`.
+through the official `openai` client over WebSocket. It owns no durable Response
+history or anchors and writes none of `ai_gateway_messages`,
+`ai_gateway_conversations`, and `signal_gateway_outbox` directly.

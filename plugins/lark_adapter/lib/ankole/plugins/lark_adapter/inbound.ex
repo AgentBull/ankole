@@ -3,7 +3,6 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   Feishu/Lark inbound normalization into SignalsGateway adapter APIs.
   """
 
-  alias Ankole.ActorRuntime
   alias Ankole.JSON
   alias Ankole.Logging
   alias Ankole.Plugins.LarkAdapter.Config
@@ -13,6 +12,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.AdapterContext
   alias Ankole.SignalsGateway.Ingress
+  alias Ankole.WorkerFiles
   alias FeishuOpenAPI.CardAction
   alias FeishuOpenAPI.Event
 
@@ -761,7 +761,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
              query: [type: download_type]
            ),
          relative_path <- materialized_relative_path(source_message_id, attachment, download),
-         {:ok, result} <- ActorRuntime.put_worker_file("user_files", relative_path, download.body) do
+         {:ok, result} <- WorkerFiles.put("user_files", relative_path, download.body) do
       attachment
       |> Map.put("agent_computer_path", "/workspace/user-files/#{relative_path}")
       |> Map.put("user_files_relative_path", relative_path)

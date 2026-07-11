@@ -1,161 +1,164 @@
 defmodule Ankole.Schedule.RPCBroker do
   @moduledoc """
   RuntimeFabric RPC entry point for worker-originated schedule requests.
+
+  One public function per operation, dispatched by `Ankole.SignalsGateway.ActorRuntime.RPCLane`
+  after turn authorization.
   """
 
-  import Ecto.Query, warn: false
-
-  alias Ankole.AIGateway.Schemas.Message
-  alias Ankole.Actors.ActorEvent
-  alias Ankole.ActorRuntime.RPCWire
-  alias Ankole.ActorRuntime.TurnRef
+  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.SignalsGateway.AIGatewayLink
+  alias Ankole.SignalsGateway.ActorRuntime.RPCWire
+  alias Ankole.SignalsGateway.ActorRuntime.TurnRef
   alias Ankole.Repo
   alias Ankole.Schedule
 
-  @type action :: String.t()
-
-  @spec handle_request(action(), TurnRef.t(), map(), String.t()) ::
+  @spec handle_check_back_later_create(TurnRef.t(), map(), String.t()) ::
           {:ok, map()} | {:error, map()}
-  def handle_request(action, %TurnRef{} = turn_ref, request, route)
-      when is_binary(action) and is_map(request) and is_binary(route) do
+  def handle_check_back_later_create(%TurnRef{} = turn_ref, request, route) do
+    respond(request, fn ->
+      with {:ok, source} <- validate_reply_route(turn_ref, RPCWire.value(request, "reply_route")),
+           {:ok, attrs} <- checkback_attrs(request, turn_ref, source, route),
+           {:ok, %{status: status, scheduled_event: event}} <-
+             Schedule.create_check_back_later(attrs) do
+        {:ok,
+         %{
+           "status" => rpc_status(status),
+           "scheduled_event_id" => event.id,
+           "due_at" => DateTime.to_iso8601(event.due_at),
+           "timezone" => event.timezone
+         }}
+      end
+    end)
+  end
+
+  @spec handle_cron_list(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
+  def handle_cron_list(%TurnRef{} = turn_ref, request, _route) do
+    respond(request, fn ->
+      {:ok,
+       %{
+         "status" => "ok",
+         "schedules" =>
+           turn_ref.agent_uid
+           |> Schedule.list_cron_schedules(turn_ref.session_id)
+           |> Enum.map(&Schedule.cron_projection/1)
+       }}
+    end)
+  end
+
+  @spec handle_cron_get(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
+  def handle_cron_get(%TurnRef{} = turn_ref, request, _route) do
+    respond(request, fn ->
+      with {:ok, schedule} <- cron_schedule_from_turn(request, turn_ref) do
+        {:ok, %{"status" => "ok", "schedule" => Schedule.cron_projection(schedule)}}
+      end
+    end)
+  end
+
+  @spec handle_cron_runs(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
+  def handle_cron_runs(%TurnRef{} = turn_ref, request, _route) do
+    respond(request, fn ->
+      with {:ok, schedule} <- cron_schedule_from_turn(request, turn_ref) do
+        {:ok,
+         %{
+           "status" => "ok",
+           "runs" =>
+             schedule.id
+             |> Schedule.list_cron_runs(list_limit(request, "limit", 25))
+             |> Enum.map(&Schedule.event_model_projection/1)
+         }}
+      end
+    end)
+  end
+
+  @spec handle_cron_add(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
+  def handle_cron_add(%TurnRef{} = turn_ref, request, _route) do
+    respond(request, fn ->
+      with :ok <- reject_cron_origin_broad_mutation(turn_ref),
+           {:ok, attrs} <- cron_attrs(request, turn_ref),
+           created_by <- turn_created_by(turn_ref),
+           {:ok, %{status: status, cron_schedule: schedule}} <-
+             Schedule.create_cron_schedule(attrs, created_by: created_by) do
+        {:ok,
+         %{
+           "status" => cron_create_status(status),
+           "schedule" => Schedule.cron_projection(schedule)
+         }}
+      end
+    end)
+  end
+
+  @spec handle_cron_update(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
+  def handle_cron_update(%TurnRef{} = turn_ref, request, _route) do
+    respond(request, fn ->
+      with :ok <- reject_cron_origin_broad_mutation(turn_ref),
+           {:ok, schedule} <- cron_schedule_from_turn(request, turn_ref),
+           updates <- RPCWire.value(request, "updates") || %{},
+           :ok <- validate_cron_update_delivery_route(turn_ref, schedule.binding_name, updates),
+           {:ok, updated} <- Schedule.update_cron_schedule(schedule.id, updates) do
+        {:ok, %{"status" => "updated", "schedule" => Schedule.cron_projection(updated)}}
+      end
+    end)
+  end
+
+  @spec handle_cron_pause(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
+  def handle_cron_pause(%TurnRef{} = turn_ref, request, _route) do
+    respond(request, fn ->
+      mutate_cron_from_turn(request, turn_ref, "paused", &Schedule.pause_cron_schedule/1)
+    end)
+  end
+
+  @spec handle_cron_resume(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
+  def handle_cron_resume(%TurnRef{} = turn_ref, request, _route) do
+    respond(request, fn ->
+      mutate_cron_from_turn(request, turn_ref, "resumed", &Schedule.resume_cron_schedule/1)
+    end)
+  end
+
+  @spec handle_cron_remove(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
+  def handle_cron_remove(%TurnRef{} = turn_ref, request, _route) do
+    respond(request, fn ->
+      mutate_cron_from_turn(request, turn_ref, "removed", &Schedule.remove_cron_schedule/1)
+    end)
+  end
+
+  @spec handle_cron_run(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
+  def handle_cron_run(%TurnRef{} = turn_ref, request, _route) do
+    respond(request, fn ->
+      with :ok <- reject_cron_origin_broad_mutation(turn_ref),
+           {:ok, schedule} <- cron_schedule_from_turn(request, turn_ref),
+           {:ok, %{status: status, scheduled_event: event}} <-
+             Schedule.run_cron_schedule(schedule.id) do
+        {:ok,
+         %{
+           "status" => rpc_status(status),
+           "scheduled_event" => Schedule.event_model_projection(event)
+         }}
+      end
+    end)
+  end
+
+  defp respond(request, fun) do
     request_id = RPCWire.text(request, "request_id") || "schedule-rpc-#{Ecto.UUID.generate()}"
 
-    request
-    |> dispatch(action, route, request_id, turn_ref)
-    |> case do
+    case fun.() do
       {:ok, payload} -> {:ok, Map.put_new(payload, "request_id", request_id)}
       {:error, reason} -> {:error, error_payload(request_id, reason)}
     end
   end
 
-  def handle_request(action, _turn_ref, _request, _route),
-    do: {:error, error_payload("", {:invalid_schedule_rpc_request, action})}
-
-  defp dispatch(request, "check_back_later.create", route, _request_id, turn_ref) do
-    with {:ok, source} <- validate_reply_route(turn_ref, RPCWire.value(request, "reply_route")),
-         {:ok, attrs} <- checkback_attrs(request, turn_ref, source, route),
-         {:ok, %{status: status, scheduled_event: event}} <-
-           Schedule.create_check_back_later(attrs) do
-      {:ok,
-       %{
-         "status" => rpc_status(status),
-         "scheduled_event_id" => event.id,
-         "due_at" => DateTime.to_iso8601(event.due_at),
-         "timezone" => event.timezone
-       }}
-    end
-  end
-
-  defp dispatch(_request, "cron.list", _route, _request_id, %TurnRef{} = turn_ref) do
-    {:ok,
-     %{
-       "status" => "ok",
-       "schedules" =>
-         turn_ref.agent_uid
-         |> Schedule.list_cron_schedules(turn_ref.session_id)
-         |> Enum.map(&Schedule.cron_projection/1)
-     }}
-  end
-
-  defp dispatch(request, "cron.get", _route, _request_id, %TurnRef{} = turn_ref) do
+  defp cron_schedule_from_turn(request, %TurnRef{} = turn_ref) do
     with {:ok, cron_schedule_id} <- required_text(request, "cron_schedule_id"),
          {:ok, schedule} <- Schedule.get_cron_schedule(cron_schedule_id),
          :ok <- cron_belongs_to_turn(schedule, turn_ref) do
-      {:ok, %{"status" => "ok", "schedule" => Schedule.cron_projection(schedule)}}
+      {:ok, schedule}
     end
   end
-
-  defp dispatch(request, "cron.runs", _route, _request_id, %TurnRef{} = turn_ref) do
-    with {:ok, cron_schedule_id} <- required_text(request, "cron_schedule_id"),
-         {:ok, schedule} <- Schedule.get_cron_schedule(cron_schedule_id),
-         :ok <- cron_belongs_to_turn(schedule, turn_ref) do
-      {:ok,
-       %{
-         "status" => "ok",
-         "runs" =>
-           cron_schedule_id
-           |> Schedule.list_cron_runs(list_limit(request, "limit", 25))
-           |> Enum.map(&Schedule.event_model_projection/1)
-       }}
-    end
-  end
-
-  defp dispatch(request, "cron.add", _route, _request_id, %TurnRef{} = turn_ref) do
-    with :ok <- reject_cron_origin_broad_mutation(turn_ref),
-         {:ok, attrs} <- cron_attrs(request, turn_ref),
-         created_by <- turn_created_by(turn_ref),
-         {:ok, %{status: status, cron_schedule: schedule}} <-
-           Schedule.create_cron_schedule(attrs, created_by: created_by) do
-      {:ok,
-       %{"status" => cron_create_status(status), "schedule" => Schedule.cron_projection(schedule)}}
-    end
-  end
-
-  defp dispatch(request, "cron.update", _route, _request_id, %TurnRef{} = turn_ref) do
-    with :ok <- reject_cron_origin_broad_mutation(turn_ref),
-         {:ok, cron_schedule_id} <- required_text(request, "cron_schedule_id"),
-         {:ok, schedule} <- Schedule.get_cron_schedule(cron_schedule_id),
-         :ok <- cron_belongs_to_turn(schedule, turn_ref),
-         updates <- RPCWire.value(request, "updates") || %{},
-         :ok <- validate_cron_update_delivery_route(turn_ref, schedule.binding_name, updates),
-         {:ok, updated} <-
-           Schedule.update_cron_schedule(cron_schedule_id, updates) do
-      {:ok, %{"status" => "updated", "schedule" => Schedule.cron_projection(updated)}}
-    end
-  end
-
-  defp dispatch(request, "cron.pause", _route, _request_id, %TurnRef{} = turn_ref) do
-    mutate_cron_from_turn(
-      request,
-      turn_ref,
-      "paused",
-      &Schedule.pause_cron_schedule/1
-    )
-  end
-
-  defp dispatch(request, "cron.resume", _route, _request_id, %TurnRef{} = turn_ref) do
-    with :ok <- reject_cron_origin_broad_mutation(turn_ref),
-         {:ok, cron_schedule_id} <- required_text(request, "cron_schedule_id"),
-         {:ok, schedule} <- Schedule.get_cron_schedule(cron_schedule_id),
-         :ok <- cron_belongs_to_turn(schedule, turn_ref),
-         {:ok, updated} <- Schedule.resume_cron_schedule(cron_schedule_id) do
-      {:ok, %{"status" => "resumed", "schedule" => Schedule.cron_projection(updated)}}
-    end
-  end
-
-  defp dispatch(request, "cron.remove", _route, _request_id, %TurnRef{} = turn_ref) do
-    mutate_cron_from_turn(
-      request,
-      turn_ref,
-      "removed",
-      &Schedule.remove_cron_schedule/1
-    )
-  end
-
-  defp dispatch(request, "cron.run", _route, _request_id, %TurnRef{} = turn_ref) do
-    with :ok <- reject_cron_origin_broad_mutation(turn_ref),
-         {:ok, cron_schedule_id} <- required_text(request, "cron_schedule_id"),
-         {:ok, schedule} <- Schedule.get_cron_schedule(cron_schedule_id),
-         :ok <- cron_belongs_to_turn(schedule, turn_ref),
-         {:ok, %{status: status, scheduled_event: event}} <-
-           Schedule.run_cron_schedule(cron_schedule_id) do
-      {:ok,
-       %{
-         "status" => rpc_status(status),
-         "scheduled_event" => Schedule.event_model_projection(event)
-       }}
-    end
-  end
-
-  defp dispatch(_request, action, _route, _request_id, _turn_ref),
-    do: {:error, {:unknown_schedule_action, action}}
 
   defp mutate_cron_from_turn(request, %TurnRef{} = turn_ref, status, fun) do
     with :ok <- reject_cron_origin_broad_mutation(turn_ref),
-         {:ok, cron_schedule_id} <- required_text(request, "cron_schedule_id"),
-         {:ok, schedule} <- Schedule.get_cron_schedule(cron_schedule_id),
-         :ok <- cron_belongs_to_turn(schedule, turn_ref),
-         {:ok, updated} <- fun.(cron_schedule_id) do
+         {:ok, schedule} <- cron_schedule_from_turn(request, turn_ref),
+         {:ok, updated} <- fun.(schedule.id) do
       {:ok, %{"status" => status, "schedule" => Schedule.cron_projection(updated)}}
     end
   end
@@ -331,18 +334,7 @@ defmodule Ankole.Schedule.RPCBroker do
   end
 
   defp current_ai_message_id(%TurnRef{} = turn_ref) do
-    Message
-    |> where([message], message.agent_uid == ^turn_ref.agent_uid)
-    |> where([message], message.type == "message")
-    |> where([message], message.status in ["generating", "complete"])
-    |> where(
-      [message],
-      fragment("?->>'actor_event_id'", message.metadata) == ^turn_ref.actor_event_id
-    )
-    |> order_by([message], desc: message.inserted_at, desc: message.id)
-    |> limit(1)
-    |> select([message], message.id)
-    |> Repo.one()
+    AIGatewayLink.current_response_row_id(turn_ref)
   end
 
   defp rpc_status(:scheduled), do: "scheduled"

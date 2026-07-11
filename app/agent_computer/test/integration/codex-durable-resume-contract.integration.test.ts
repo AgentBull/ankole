@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { JsonObject } from '@pleisto/active-support'
@@ -14,7 +14,7 @@ import type { TurnStartParams } from '../../src/tools/subagent/generated/protoco
 import type { TurnStartResponse } from '../../src/tools/subagent/generated/protocol/v2/TurnStartResponse'
 
 describe('@ankole/agent-computer Codex durable resume contract', () => {
-  it('keeps dynamic tools callable after interrupt and cross-process thread/resume on shared storage', async () => {
+  it('keeps tools and stable user-message identity across interrupt and cross-process resume', async () => {
     const sharedRoot = process.env.ANKOLE_CODEX_CONTRACT_SHARED_ROOT ?? tmpdir()
     const root = mkdtempSync(join(sharedRoot, 'ankole-codex-resume-contract-'))
     const workspace = join(root, 'workspace')
@@ -112,6 +112,7 @@ describe('@ankole/agent-computer Codex durable resume contract', () => {
 
       const resumedTurn = (await resumedClient.request('turn/start', {
         threadId,
+        clientUserMessageId: 'steer-event-after-resume',
         input: textInput('AFTER_RESUME'),
         cwd: workspace,
         approvalPolicy: 'never',

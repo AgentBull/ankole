@@ -136,7 +136,12 @@ defmodule AnkoleWeb.Router do
     get "/ai-gateway/providers", AIGatewayProviderController, :index
     put "/ai-gateway/providers/:provider_id", AIGatewayProviderController, :put_provider
     delete "/ai-gateway/providers/:provider_id", AIGatewayProviderController, :delete_provider
-    get "/agents/:agent_uid/model-profiles", AIGatewayProviderController, :index_model_profiles
+
+    get "/codex-accounts", CodexAccountController, :index
+    post "/codex-accounts", CodexAccountController, :create
+    put "/codex-accounts/:account_id", CodexAccountController, :update
+    delete "/codex-accounts/:account_id", CodexAccountController, :delete
+    get "/agents/:agent_uid/model-profiles", AgentController, :index_model_profiles
 
     get "/identity-provider-adapters", IdentityProviderController, :adapters
     get "/identity-providers", IdentityProviderController, :index
@@ -144,11 +149,11 @@ defmodule AnkoleWeb.Router do
     post "/identity-providers/:provider_id/sync-runs", IdentityProviderController, :run_sync
 
     put "/agents/:agent_uid/model-profiles/:profile",
-        AIGatewayProviderController,
+        AgentController,
         :put_model_profile
 
     delete "/agents/:agent_uid/model-profiles/:profile",
-           AIGatewayProviderController,
+           AgentController,
            :delete_model_profile
 
     get "/signal-adapters", SignalBindingController, :adapters

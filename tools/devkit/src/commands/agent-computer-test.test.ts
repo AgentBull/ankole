@@ -31,6 +31,12 @@ describe('buildAgentComputerTestDockerArgs', () => {
     expect(args).toContain(
       `type=bind,src=${path.join(repoRoot, 'app', 'agent_computer', 'test')},dst=/repo/app/agent_computer/test,readonly`
     )
+    expect(args).toContain(
+      `type=bind,src=${path.join(repoRoot, 'app', 'agent_computer', 'scripts')},dst=/repo/app/agent_computer/scripts,readonly`
+    )
+    expect(args).toContain(
+      `type=bind,src=${path.join(repoRoot, 'app', 'kernel', 'proto')},dst=/repo/app/kernel/proto,readonly`
+    )
     expect(args.slice(-3)).toEqual(['bun', 'test', '--path-ignore-patterns=test/integration/**'])
   })
 

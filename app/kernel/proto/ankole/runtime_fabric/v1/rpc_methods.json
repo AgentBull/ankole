@@ -1,0 +1,155 @@
+[
+  {
+    "method": "agent_conversation.context.resolve",
+    "scope": "turn",
+    "effect": "read"
+  },
+  {
+    "method": "ai_gateway.api_key_for.create_or_find_by_agent",
+    "scope": "worker_agent"
+  },
+  {
+    "method": "app_configure.resolve",
+    "scope": "worker_agent"
+  },
+  {
+    "method": "codex.account.auth.update",
+    "scope": "turn",
+    "effect": "write"
+  },
+  {
+    "method": "codex.account.resolve",
+    "scope": "turn",
+    "effect": "read"
+  },
+  {
+    "method": "memory_browse",
+    "scope": "turn",
+    "effect": "read"
+  },
+  {
+    "method": "memory_note.forget",
+    "scope": "turn",
+    "effect": "write"
+  },
+  {
+    "method": "memory_note.list",
+    "scope": "turn",
+    "effect": "read"
+  },
+  {
+    "method": "memory_note.save",
+    "scope": "turn",
+    "effect": "write"
+  },
+  {
+    "method": "memory_note.update",
+    "scope": "turn",
+    "effect": "write"
+  },
+  {
+    "method": "memory_search",
+    "scope": "turn",
+    "effect": "read"
+  },
+  {
+    "method": "schedule.check_back_later.create",
+    "scope": "turn",
+    "effect": "write"
+  },
+  {
+    "method": "schedule.cron.add",
+    "scope": "turn",
+    "effect": "write"
+  },
+  {
+    "method": "schedule.cron.get",
+    "scope": "turn",
+    "effect": "read"
+  },
+  {
+    "method": "schedule.cron.list",
+    "scope": "turn",
+    "effect": "read"
+  },
+  {
+    "method": "schedule.cron.pause",
+    "scope": "turn",
+    "effect": "write"
+  },
+  {
+    "method": "schedule.cron.remove",
+    "scope": "turn",
+    "effect": "write"
+  },
+  {
+    "method": "schedule.cron.resume",
+    "scope": "turn",
+    "effect": "write"
+  },
+  {
+    "method": "schedule.cron.run",
+    "scope": "turn",
+    "effect": "write"
+  },
+  {
+    "method": "schedule.cron.runs",
+    "scope": "turn",
+    "effect": "read"
+  },
+  {
+    "method": "schedule.cron.update",
+    "scope": "turn",
+    "effect": "write"
+  },
+  {
+    "method": "skills.installed.replace",
+    "scope": "turn",
+    "effect": "write"
+  },
+  {
+    "method": "skills.overlay.replace",
+    "scope": "turn",
+    "effect": "write"
+  },
+  {
+    "method": "skills.overlay.resolve",
+    "scope": "turn",
+    "effect": "read"
+  },
+  {
+    "method": "subagent.delegation.create",
+    "scope": "turn",
+    "effect": "write"
+  },
+  {
+    "method": "subagent.delegation.event.append",
+    "scope": "turn",
+    "effect": "write"
+  },
+  {
+    "method": "subagent.delegation.get",
+    "scope": "turn",
+    "effect": "read"
+  },
+  {
+    "method": "subagent.delegation.list",
+    "scope": "turn",
+    "effect": "read"
+  },
+  {
+    "method": "subagent.delegation.status.update",
+    "scope": "turn",
+    "effect": "write"
+  },
+  {
+    "method": "subagent.delegation.steer",
+    "scope": "turn",
+    "effect": "write"
+  },
+  {
+    "method": "subagent.delegation.stop",
+    "scope": "turn",
+    "effect": "write"
+  }
+]

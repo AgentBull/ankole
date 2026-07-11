@@ -10,7 +10,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AIGateway.Schemas.CompactionArtifact
   alias Ankole.AIGateway.Schemas.Message
-  alias Ankole.Actors.ActorEvent
+  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.Kernel.UniversalAIClient
   alias Ankole.Repo
 
@@ -237,7 +237,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     conversation =
       Repo.one!(
         from(conversation in Conversation,
-          where: conversation.agent_uid == ^agent.uid,
+          where: conversation.subject_uid == ^agent.uid,
           where:
             fragment("?->>'managed_by_stateful_responses_api'", conversation.metadata) == "true"
         )
@@ -351,7 +351,11 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     refute Map.has_key?(provider_request, "previous_response_id")
     assert provider_request["store"] == false
     refute Map.has_key?(provider_request, "conversation")
-    assert provider_request["metadata"] == %{"kept" => "public"}
+
+    assert provider_request["metadata"] == %{
+             "actor_event_id" => "internal-event-id",
+             "kept" => "public"
+           }
 
     assert {:ok, no_event_request} =
              AIGateway.prepare_websocket_request(agent.uid, %{
@@ -412,11 +416,13 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     {:ok, first} =
       StatefulResponses.start_response_run(%{
-        agent_uid: agent.uid,
+        subject_uid: agent.uid,
         conversation_id: conversation.id,
-        actor_event_id: actor_event.id,
         request_items: [text_message("user", "first user")],
-        metadata: %{"instructions" => "old instruction"}
+        metadata: %{
+          "request_metadata" => %{"actor_event_id" => actor_event.id},
+          "instructions" => "old instruction"
+        }
       })
 
     {:ok, first} =
@@ -437,258 +443,6 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     assert provider_request["input"] == first.content ++ current_input
     refute Map.has_key?(provider_request, "instructions")
-  end
-
-  test "websocket stateful max_tool_calls is enforced by durable actor-event history" do
-    %{principal: agent} = agent_fixture()
-
-    assert {:ok, _provider} =
-             ProviderConfigs.create_provider(%{
-               provider_id: "openai-stateful-max-tool-calls",
-               provider_kind: "openai",
-               base_url: "https://api.openai.test/v1",
-               connection_options: %{
-                 "api_key" => "sk-openai",
-                 "upstream_transport" => "websocket"
-               }
-             })
-
-    assert {:ok, _profile} =
-             ModelProfiles.put_model_profile(agent.uid, "primary", %{
-               provider_id: "openai-stateful-max-tool-calls",
-               model: "gpt-5.5"
-             })
-
-    {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "dispatch-max-tool-calls")
-
-    actor_event =
-      actor_event_fixture(agent.uid, conversation.conversation_key, "max-tool-calls-event")
-
-    {:ok, first} =
-      StatefulResponses.start_response_run(%{
-        agent_uid: agent.uid,
-        conversation_id: conversation.id,
-        actor_event_id: actor_event.id,
-        request_items: [text_message("user", "use the tool once")]
-      })
-
-    function_call = %{
-      "type" => "function_call",
-      "call_id" => "call_lookup",
-      "name" => "lookup",
-      "arguments" => ~s({"query":"one"})
-    }
-
-    {:ok, first} = StatefulResponses.commit_complete(first, [function_call])
-
-    current_input = [
-      %{
-        "type" => "function_call_output",
-        "call_id" => "call_lookup",
-        "output" => ~s({"ok":true})
-      }
-    ]
-
-    tools = [
-      %{
-        "type" => "function",
-        "name" => "lookup",
-        "parameters" => %{"type" => "object", "properties" => %{}}
-      }
-    ]
-
-    base_request = %{
-      "model" => "primary",
-      "input" => current_input,
-      "store" => true,
-      "previous_response_id" => "resp_#{first.id}",
-      "tools" => tools,
-      "tool_choice" => "auto",
-      "parallel_tool_calls" => true,
-      "metadata" => %{"actor_event_id" => actor_event.id}
-    }
-
-    assert {:ok, allowed_request} =
-             AIGateway.prepare_websocket_request(
-               agent.uid,
-               Map.put(base_request, "max_tool_calls", 2)
-             )
-
-    allowed_provider_request = allowed_request.response_context.request
-    assert allowed_provider_request["tools"] == tools
-    assert allowed_provider_request["tool_choice"] == "auto"
-    assert allowed_provider_request["parallel_tool_calls"] == true
-    refute Map.has_key?(allowed_provider_request, "max_tool_calls")
-
-    assert {:ok, capped_request} =
-             AIGateway.prepare_websocket_request(
-               agent.uid,
-               Map.put(base_request, "max_tool_calls", 1)
-             )
-
-    capped_provider_request = capped_request.response_context.request
-    assert capped_provider_request["input"] == first.content ++ current_input
-    refute Map.has_key?(capped_provider_request, "tools")
-    refute Map.has_key?(capped_provider_request, "tool_choice")
-    refute Map.has_key?(capped_provider_request, "parallel_tool_calls")
-    refute Map.has_key?(capped_provider_request, "max_tool_calls")
-  end
-
-  test "websocket stateful max_tool_calls zero disables first-turn tools" do
-    %{principal: agent} = agent_fixture()
-
-    assert {:ok, _provider} =
-             ProviderConfigs.create_provider(%{
-               provider_id: "openai-stateful-max-tool-calls-zero",
-               provider_kind: "openai",
-               base_url: "https://api.openai.test/v1",
-               connection_options: %{
-                 "api_key" => "sk-openai",
-                 "upstream_transport" => "websocket"
-               }
-             })
-
-    assert {:ok, _profile} =
-             ModelProfiles.put_model_profile(agent.uid, "primary", %{
-               provider_id: "openai-stateful-max-tool-calls-zero",
-               model: "gpt-5.5"
-             })
-
-    {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "dispatch-max-tool-calls-zero")
-
-    actor_event =
-      actor_event_fixture(agent.uid, conversation.conversation_key, "max-tool-calls-zero-event")
-
-    tools = [
-      %{
-        "type" => "function",
-        "name" => "lookup",
-        "parameters" => %{"type" => "object", "properties" => %{}}
-      }
-    ]
-
-    assert {:ok, request} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
-               "model" => "primary",
-               "input" => [text_message("user", "do not call tools")],
-               "store" => true,
-               "conversation" => "conv_#{conversation.id}",
-               "tools" => tools,
-               "tool_choice" => "auto",
-               "parallel_tool_calls" => true,
-               "max_tool_calls" => 0,
-               "metadata" => %{"actor_event_id" => actor_event.id}
-             })
-
-    provider_request = request.response_context.request
-    refute Map.has_key?(provider_request, "tools")
-    refute Map.has_key?(provider_request, "tool_choice")
-    refute Map.has_key?(provider_request, "parallel_tool_calls")
-    refute Map.has_key?(provider_request, "max_tool_calls")
-  end
-
-  test "websocket stateful max_tool_calls count is not reset by compaction coverage" do
-    %{principal: agent} = agent_fixture()
-
-    assert {:ok, _provider} =
-             ProviderConfigs.create_provider(%{
-               provider_id: "openai-stateful-max-tool-calls-compaction",
-               provider_kind: "openai",
-               base_url: "https://api.openai.test/v1",
-               connection_options: %{
-                 "api_key" => "sk-openai",
-                 "upstream_transport" => "websocket"
-               }
-             })
-
-    assert {:ok, _profile} =
-             ModelProfiles.put_model_profile(agent.uid, "primary", %{
-               provider_id: "openai-stateful-max-tool-calls-compaction",
-               model: "gpt-5.5"
-             })
-
-    {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "dispatch-max-tool-calls-compaction")
-
-    actor_event =
-      actor_event_fixture(
-        agent.uid,
-        conversation.conversation_key,
-        "max-tool-calls-compaction-event"
-      )
-
-    function_call = %{
-      "type" => "function_call",
-      "call_id" => "call_lookup_1",
-      "name" => "lookup",
-      "arguments" => ~s({"query":"one"})
-    }
-
-    {:ok, first} =
-      StatefulResponses.start_response_run(%{
-        agent_uid: agent.uid,
-        conversation_id: conversation.id,
-        actor_event_id: actor_event.id,
-        request_items: [text_message("user", "use the tool")]
-      })
-
-    {:ok, first} = StatefulResponses.commit_complete(first, [function_call])
-
-    {:ok, second} =
-      StatefulResponses.start_response_run(%{
-        agent_uid: agent.uid,
-        previous_response_id: "resp_#{first.id}",
-        actor_event_id: actor_event.id,
-        request_items: [
-          %{"type" => "function_call_output", "call_id" => "call_lookup_1", "output" => "ok"}
-        ]
-      })
-
-    {:ok, second} = StatefulResponses.commit_complete(second, [text_message("assistant", "tail")])
-
-    {:ok, compaction} =
-      insert_compaction_checkpoint(
-        agent.uid,
-        conversation,
-        second,
-        "first tool round summarized",
-        [],
-        %{"auto" => true}
-      )
-
-    tools = [
-      %{
-        "type" => "function",
-        "name" => "lookup",
-        "parameters" => %{"type" => "object", "properties" => %{}}
-      }
-    ]
-
-    assert {:ok, request} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
-               "model" => "primary",
-               "input" => [
-                 %{
-                   "type" => "function_call_output",
-                   "call_id" => "call_lookup_2",
-                   "output" => "ok"
-                 }
-               ],
-               "store" => true,
-               "previous_response_id" => "resp_#{compaction.id}",
-               "tools" => tools,
-               "tool_choice" => "auto",
-               "parallel_tool_calls" => true,
-               "max_tool_calls" => 1,
-               "metadata" => %{"actor_event_id" => actor_event.id}
-             })
-
-    provider_request = request.response_context.request
-    refute Map.has_key?(provider_request, "tools")
-    refute Map.has_key?(provider_request, "tool_choice")
-    refute Map.has_key?(provider_request, "parallel_tool_calls")
   end
 
   test "websocket stateful max_tool_calls rejects invalid values" do
@@ -757,7 +511,9 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     [run] =
       Repo.all(Message)
-      |> Enum.filter(&(get_in(&1.metadata, ["actor_event_id"]) == actor_event.id))
+      |> Enum.filter(
+        &(get_in(&1.metadata, ["request_metadata", "actor_event_id"]) == actor_event.id)
+      )
 
     assert run.previous_message_id == first.id
     assert run.status == "error"
@@ -842,7 +598,9 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     [run] =
       Repo.all(Message)
-      |> Enum.filter(&(get_in(&1.metadata, ["actor_event_id"]) == actor_event.id))
+      |> Enum.filter(
+        &(get_in(&1.metadata, ["request_metadata", "actor_event_id"]) == actor_event.id)
+      )
 
     assert run.previous_message_id == compaction.id
     assert run.status == "error"
@@ -1539,7 +1297,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       Repo.one!(
         from(message in Message,
           where:
-            fragment("?->>'actor_event_id'", message.metadata) ==
+            fragment("?#>>'{request_metadata,actor_event_id}'", message.metadata) ==
               ^actor_event.id
         )
       )
@@ -2878,10 +2636,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     actor_event = actor_event_fixture(agent_uid, conversation.conversation_key, source_event_id)
 
     StatefulResponses.start_response_run(%{
-      agent_uid: agent_uid,
+      subject_uid: agent_uid,
       conversation_id: conversation.id,
-      actor_event_id: actor_event.id,
-      request_items: request_items
+      request_items: request_items,
+      metadata: %{"request_metadata" => %{"actor_event_id" => actor_event.id}}
     })
   end
 
@@ -2895,10 +2653,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     actor_event = actor_event_fixture(agent_uid, conversation.conversation_key, source_event_id)
 
     StatefulResponses.start_response_run(%{
-      agent_uid: agent_uid,
+      subject_uid: agent_uid,
       previous_response_id: "resp_#{previous.id}",
-      actor_event_id: actor_event.id,
-      request_items: request_items
+      request_items: request_items,
+      metadata: %{"request_metadata" => %{"actor_event_id" => actor_event.id}}
     })
   end
 
@@ -2959,7 +2717,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
        ) do
     with {:ok, artifact} <-
            CompactionArtifacts.insert_artifact(%{
-             agent_uid: agent_uid,
+             subject_uid: agent_uid,
              conversation_id: conversation.id,
              summary_text: summary_text,
              retained_items: retained_items,
@@ -2971,7 +2729,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              usage: %{}
            }) do
       StatefulResponses.create_compaction_checkpoint(%{
-        agent_uid: agent_uid,
+        subject_uid: agent_uid,
         previous_response_id: "resp_#{previous_message.id}",
         artifact: artifact,
         metadata: metadata

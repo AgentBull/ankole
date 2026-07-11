@@ -3,8 +3,8 @@ defmodule Ankole.SubagentDelegations.Control do
 
   import Ecto.Query
 
-  alias Ankole.Actors
-  alias Ankole.Actors.ActorEvent
+  alias Ankole.SignalsGateway
+  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.Principals
   alias Ankole.Repo
   alias Ankole.SubagentDelegations.Attrs
@@ -99,7 +99,7 @@ defmodule Ankole.SubagentDelegations.Control do
     |> lock("FOR UPDATE")
     |> repo.all()
     |> Enum.reduce_while(:ok, fn event, :ok ->
-      case Actors.mark_event_completed_in_tx(repo, event, now) do
+      case SignalsGateway.mark_actor_event_completed_in_tx(repo, event, now) do
         {:ok, %ActorEvent{}} -> {:cont, :ok}
         {:error, reason} -> {:halt, {:error, reason}}
       end
@@ -129,7 +129,7 @@ defmodule Ankole.SubagentDelegations.Control do
         "cancel_requested_by" => Attrs.text(attrs, "cancel_requested_by")
       })
 
-    Actors.append_actor_event_in_tx(repo, %{
+    SignalsGateway.append_actor_event_in_tx(repo, %{
       agent_uid: delegation.agent_uid,
       binding_name: Map.fetch!(reply_route, "binding_name"),
       session_id: "subagent:#{delegation.id}",

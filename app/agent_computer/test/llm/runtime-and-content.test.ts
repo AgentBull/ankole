@@ -254,6 +254,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
 
     const final = await runAgentLoop({
       model,
+      maxModelIterations: 90,
       messages: [{ role: 'user', content: 'retry websocket auth' }],
       stateful: {
         actorEventId: '00000000-0000-0000-0000-000000000401',
@@ -261,7 +262,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       }
     })
 
-    expect(final.content).toEqual([{ type: 'text', text: 'retried with refreshed key' }])
+    expect(final.message.content).toEqual([{ type: 'text', text: 'retried with refreshed key' }])
     expect(attempts).toBe(2)
     expect(sentPayloads).toHaveLength(1)
     expect(seenAuthorization).toEqual(['Bearer old-key', 'Bearer new-key'])
@@ -463,16 +464,34 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       request_context: { silent_success_allowed: true }
     }
 
-    expect(textTurnResultFromAssistantReply(scheduledTurnStart, '<silent_success/>')).toEqual({
+    expect(
+      textTurnResultFromAssistantReply(scheduledTurnStart, '<silent_success/>', 'resp_silent', 'loop_finished')
+    ).toEqual({
       kind: 'noop_completed',
       reason: 'schedule_silent_success'
     })
-    expect(textTurnResultFromAssistantReply(scheduledTurnStart, '   ')).toEqual({
+    expect(textTurnResultFromAssistantReply(scheduledTurnStart, '   ', 'resp_silent', 'loop_finished')).toEqual({
       kind: 'noop_completed',
       reason: 'schedule_silent_success'
     })
-    expect(textTurnResultFromAssistantReply(turnStartForTest(), '<silent_success/>')).toEqual({
-      kind: 'aigateway_response'
+    expect(
+      textTurnResultFromAssistantReply(turnStartForTest(), '<silent_success/>', 'resp_final', 'loop_finished')
+    ).toEqual({
+      kind: 'turn_completed',
+      finalResponseId: 'resp_final',
+      outcome: 'loop_finished'
+    })
+    expect(textTurnResultFromAssistantReply(turnStartForTest(), '', 'resp_projection', 'loop_finished')).toEqual({
+      kind: 'turn_completed',
+      finalResponseId: 'resp_projection',
+      outcome: 'loop_finished'
+    })
+    expect(
+      textTurnResultFromAssistantReply(scheduledTurnStart, '<silent_success/>', 'resp_exhausted', 'iteration_exhausted')
+    ).toEqual({
+      kind: 'turn_completed',
+      finalResponseId: 'resp_exhausted',
+      outcome: 'iteration_exhausted'
     })
   })
 

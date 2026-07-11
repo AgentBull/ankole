@@ -1,8 +1,7 @@
 defmodule Ankole.RuntimeEvents.Handlers do
   @moduledoc false
 
-  alias Ankole.ActorRuntime
-  alias Ankole.ActorRuntime.SessionController
+  alias Ankole.AIGateway
   alias Ankole.Logging
   alias Ankole.RuntimeEvents.Event
   alias Ankole.SignalsGateway
@@ -10,14 +9,14 @@ defmodule Ankole.RuntimeEvents.Handlers do
   @spec snapshot_events() :: [{String.t(), map()}]
   def snapshot_events do
     []
-    |> Kernel.++(ActorRuntime.runtime_event_snapshot())
     |> Kernel.++(SignalsGateway.runtime_event_snapshot())
+    |> Kernel.++(AIGateway.runtime_event_snapshot())
   end
 
   @spec handle(Event.t()) :: :ok
   def handle(%Event{kind: :actor_session_ready, channel: channel, payload: payload}) do
     with {:ok, actor_key} <- actor_key(payload) do
-      case SessionController.process_ready(actor_key) do
+      case SignalsGateway.process_actor_session_ready(actor_key) do
         {:ok, _result} -> :ok
         {:error, :no_ready_actor_event} -> :ok
         {:error, reason} -> log_handler_error(channel, payload, reason)
@@ -63,7 +62,7 @@ defmodule Ankole.RuntimeEvents.Handlers do
 
   def handle(%Event{kind: :worker_stale_deadline, channel: channel, payload: payload}) do
     with {:ok, worker_id} <- fetch_text(payload, "worker_id") do
-      case ActorRuntime.mark_worker_stale_if_due(worker_id) do
+      case SignalsGateway.mark_worker_stale_if_due(worker_id) do
         {:ok, _result} -> :ok
         {:error, :worker_not_due} -> :ok
         {:error, :worker_not_found} -> :ok
@@ -76,7 +75,7 @@ defmodule Ankole.RuntimeEvents.Handlers do
 
   def handle(%Event{kind: :worker_delete_deadline, channel: channel, payload: payload}) do
     with {:ok, worker_id} <- fetch_text(payload, "worker_id") do
-      case ActorRuntime.delete_worker_if_due(worker_id) do
+      case SignalsGateway.delete_worker_if_due(worker_id) do
         {:ok, _result} -> :ok
         {:error, :worker_not_due} -> :ok
         {:error, :worker_not_found} -> :ok
@@ -89,7 +88,7 @@ defmodule Ankole.RuntimeEvents.Handlers do
 
   def handle(%Event{kind: :activation_deadline, channel: channel, payload: payload}) do
     with {:ok, activation_uid} <- fetch_text(payload, "activation_uid") do
-      case ActorRuntime.fail_activation_if_expired(activation_uid) do
+      case SignalsGateway.fail_activation_if_expired(activation_uid) do
         {:ok, _result} -> :ok
         {:error, :activation_not_due} -> :ok
         {:error, :activation_not_found} -> :ok
@@ -102,10 +101,9 @@ defmodule Ankole.RuntimeEvents.Handlers do
 
   def handle(%Event{kind: :ai_message_deadline, channel: channel, payload: payload}) do
     with {:ok, message_id} <- fetch_text(payload, "message_id") do
-      case ActorRuntime.reconcile_projection_lost_started_turn(message_id) do
+      case AIGateway.reconcile_orphaned_response(message_id) do
         {:ok, _result} -> :ok
-        {:error, :message_not_due} -> :ok
-        {:error, :message_not_found} -> :ok
+        {:error, :not_found} -> :ok
         {:error, reason} -> log_handler_error(channel, payload, reason)
       end
     else

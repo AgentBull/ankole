@@ -20,8 +20,8 @@ defmodule Ankole.AIGateway.Schemas.CompactionArtifact do
   @timestamps_opts [type: :utc_datetime_usec]
 
   schema "ai_gateway_compaction_artifacts" do
-    belongs_to(:agent, Principal,
-      foreign_key: :agent_uid,
+    belongs_to(:subject, Principal,
+      foreign_key: :subject_uid,
       references: :uid,
       type: Ankole.Ecto.PrincipalKey
     )
@@ -39,11 +39,11 @@ defmodule Ankole.AIGateway.Schemas.CompactionArtifact do
   @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(artifact, attrs) do
     artifact
-    |> cast(attrs, [:agent_uid, :conversation_id, :content])
-    |> validate_required([:agent_uid, :content])
+    |> cast(attrs, [:subject_uid, :conversation_id, :content])
+    |> validate_required([:subject_uid, :content])
     |> JsonPayload.validate_map(:content, allow_datetime: true)
     |> validate_content_contract()
-    |> foreign_key_constraint(:agent_uid)
+    |> foreign_key_constraint(:subject_uid)
     |> foreign_key_constraint(:conversation_id)
     |> check_constraint(:content, name: :ai_gateway_compaction_artifacts_content_object)
   end

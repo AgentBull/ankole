@@ -1,7 +1,7 @@
 defmodule Ankole.SignalsGateway.ReplyAttachmentTest do
   use ExUnit.Case, async: true
 
-  alias Ankole.Actors.ActorEvent
+  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.Outbox
   alias Ankole.SignalsGateway.ReplyAttachment
 

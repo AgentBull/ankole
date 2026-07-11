@@ -9,7 +9,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   alias Ankole.AuthZ.Grant
   alias Ankole.AuthZ.Group
   alias Ankole.AuthZ.Membership
-  alias Ankole.Actors.ActorEvent
+  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.Plugins.LarkAdapter
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.IdentityProviders

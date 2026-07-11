@@ -55,6 +55,10 @@ defmodule AnkoleWeb.ApiSpec do
           description: "Operator-managed agent principals"
         },
         %Tag{
+          name: "Codex Accounts",
+          description: "Operator-managed ChatGPT subscription accounts used by coding profiles"
+        },
+        %Tag{
           name: "LLM Runtime",
           description: "Operator-managed LLM provider and agent model profile configuration"
         },

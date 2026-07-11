@@ -10,7 +10,7 @@
     "main.js",
     "index.d.ts"
   ],
-  "main": "./main.js",
+  "main": "./index.js",
   "types": "./index.d.ts",
   "scripts": {
     "build": "bun run build:bun",

@@ -47,7 +47,8 @@ export function turnStartForTest() {
       source_event_id: 'schedule-1',
       payload_json: {}
     },
-    model_ref: { profile: 'primary', provider_id: 'openrouter', model: 'z-ai/glm-5.2' }
+    model_ref: { profile: 'primary', provider_id: 'openrouter', model: 'z-ai/glm-5.2' },
+    request_context: { ai_agent: { max_iterations: 90 } }
   }
 }
 

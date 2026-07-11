@@ -1,7 +1,7 @@
 defmodule Ankole.SignalsGateway.AIReplyText do
   @moduledoc false
 
-  alias Ankole.Actors.ActorEvent
+  alias Ankole.SignalsGateway.ActorEvent
 
   @silent_success_marker "<silent_success/>"
 

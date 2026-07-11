@@ -36,6 +36,18 @@ export function buildAgentComputerTestDockerArgs(
         source: path.join(packageRoot, 'test'),
         target: `${agentComputerRoot}/test`,
         readonly: true
+      },
+      {
+        source: path.join(packageRoot, 'scripts'),
+        target: `${agentComputerRoot}/scripts`,
+        readonly: true
+      },
+      // The RPC contract parity test reads the committed cross-language
+      // rpc_methods.json, which lives with the RuntimeFabric protobuf contract.
+      {
+        source: path.join(path.resolve(repoRoot), 'app', 'kernel', 'proto'),
+        target: '/repo/app/kernel/proto',
+        readonly: true
       }
     ],
     command: testCommand(suite)

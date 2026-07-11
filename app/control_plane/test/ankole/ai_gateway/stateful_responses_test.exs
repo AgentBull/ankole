@@ -6,30 +6,9 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
 
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.StatefulResponses
-  alias Ankole.Actors.ActorEvent
-  alias Ankole.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.AIGateway.Schemas.Message
-  alias Ankole.SignalsGateway.InputTombstone
-  alias Ankole.SignalsGateway.Channel
 
   describe "start_response_run/1" do
-    test "creates a generating message row with metadata.actor_event_id" do
-      agent = agent_fixture()
-
-      {:ok, conversation} =
-        StatefulResponses.ensure_conversation(agent.principal.uid, "test-conv-1")
-
-      {:ok, message} = start_run(agent, conversation, "event-123")
-
-      assert message.status == "generating"
-      assert message.type == "message"
-
-      assert Repo.get!(ActorEvent, message.metadata["actor_event_id"]).source_event_id ==
-               "event-123"
-
-      assert is_nil(message.previous_message_id)
-    end
-
     test "records request-side tool result metadata when creating a run" do
       agent = agent_fixture()
 
@@ -93,14 +72,10 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       {:ok, first} = start_run(agent, conversation, "event-xor-a")
       {:ok, first_complete} = StatefulResponses.commit_complete(first, [%{"type" => "message"}])
 
-      actor_event =
-        actor_event_fixture(agent.principal.uid, conversation.conversation_key, "event-xor-b")
-
       assert {:error, :stateful_anchor_conflict} =
                StatefulResponses.start_response_run(%{
-                 agent_uid: agent.principal.uid,
+                 subject_uid: agent.principal.uid,
                  conversation_id: conversation.id,
-                 actor_event_id: actor_event.id,
                  previous_response_id: "resp_#{first_complete.id}"
                })
     end
@@ -139,190 +114,11 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       {:ok, conversation} =
         StatefulResponses.ensure_conversation(owner.principal.uid, "test-conv-cross-agent")
 
-      actor_event =
-        actor_event_fixture(
-          caller.principal.uid,
-          conversation.conversation_key,
-          "event-cross-agent"
-        )
-
       assert {:error, :invalid_conversation} =
                StatefulResponses.start_response_run(%{
-                 agent_uid: caller.principal.uid,
-                 conversation_id: conversation.id,
-                 actor_event_id: actor_event.id
-               })
-    end
-
-    test "stores actor_event_id as correlation metadata without session-scope authorization" do
-      agent = agent_fixture()
-
-      {:ok, conversation} =
-        StatefulResponses.ensure_conversation(agent.principal.uid, "test-conv-actor-scope")
-
-      wrong_session_event =
-        actor_event_fixture(agent.principal.uid, "other-session", "event-wrong-session")
-
-      assert {:ok, message} =
-               StatefulResponses.start_response_run(%{
-                 agent_uid: agent.principal.uid,
-                 conversation_id: conversation.id,
-                 actor_event_id: wrong_session_event.id
-               })
-
-      assert message.metadata["actor_event_id"] == wrong_session_event.id
-    end
-
-    test "does not use actor_event_id as an authorization claim" do
-      owner = agent_fixture()
-      caller = agent_fixture()
-
-      {:ok, conversation} =
-        StatefulResponses.ensure_conversation(caller.principal.uid, "test-conv-actor-owner")
-
-      other_agent_event =
-        actor_event_fixture(
-          owner.principal.uid,
-          conversation.conversation_key,
-          "event-other-agent"
-        )
-
-      assert {:ok, message} =
-               StatefulResponses.start_response_run(%{
-                 agent_uid: caller.principal.uid,
-                 conversation_id: conversation.id,
-                 actor_event_id: other_agent_event.id
-               })
-
-      assert message.metadata["actor_event_id"] == other_agent_event.id
-    end
-
-    test "allows stateful run without actor_event_id when conversation is agent-scoped" do
-      agent = agent_fixture()
-
-      {:ok, conversation} =
-        StatefulResponses.ensure_conversation(agent.principal.uid, "test-conv-without-event")
-
-      assert {:ok, message} =
-               StatefulResponses.start_response_run(%{
-                 agent_uid: agent.principal.uid,
+                 subject_uid: caller.principal.uid,
                  conversation_id: conversation.id
                })
-
-      refute Map.has_key?(message.metadata, "actor_event_id")
-    end
-
-    test "rejects a second active response run for the same actor event" do
-      agent = agent_fixture()
-
-      {:ok, conversation} =
-        StatefulResponses.ensure_conversation(agent.principal.uid, "test-conv-active-run")
-
-      {:ok, message} = start_run(agent, conversation, "event-active-run")
-      actor_event_id = message.metadata["actor_event_id"]
-
-      assert {:error, :response_run_in_progress} =
-               StatefulResponses.start_response_run(%{
-                 agent_uid: agent.principal.uid,
-                 conversation_id: conversation.id,
-                 actor_event_id: actor_event_id
-               })
-
-      assert Repo.get!(Message, message.id).status == "generating"
-    end
-
-    test "maps generating actor event unique index violations into changeset errors" do
-      agent = agent_fixture()
-
-      {:ok, conversation} =
-        StatefulResponses.ensure_conversation(agent.principal.uid, "test-conv-active-run-index")
-
-      {:ok, message} = start_run(agent, conversation, "event-active-run-index")
-      actor_event_id = message.metadata["actor_event_id"]
-
-      duplicate_changeset =
-        Message.changeset(%Message{}, %{
-          agent_uid: agent.principal.uid,
-          conversation_id: conversation.id,
-          type: "message",
-          status: "generating",
-          content: [],
-          metadata: %{"actor_event_id" => actor_event_id}
-        })
-
-      assert {:error, changeset} = Repo.insert(duplicate_changeset)
-
-      assert Enum.any?(changeset.errors, fn
-               {:metadata, {_message, opts}} ->
-                 opts[:constraint] == :unique and
-                   opts[:constraint_name] ==
-                     "ai_gateway_messages_generating_actor_event_index"
-
-               _error ->
-                 false
-             end)
-    end
-
-    test "fails a stale orphaned generating run before retrying from the same complete anchor" do
-      agent = agent_fixture()
-
-      {:ok, conversation} =
-        StatefulResponses.ensure_conversation(agent.principal.uid, "test-conv-stale-run")
-
-      {:ok, anchor} = start_run(agent, conversation, "event-stale-anchor")
-      {:ok, anchor} = StatefulResponses.commit_complete(anchor, [%{"type" => "message"}])
-
-      {:ok, stale} =
-        start_run(agent, conversation, "event-stale-run", %{
-          previous_response_id: "resp_#{anchor.id}"
-        })
-
-      actor_event_id = stale.metadata["actor_event_id"]
-      mark_message_stale!(stale)
-
-      request_items = [
-        %{"type" => "function_call_output", "call_id" => "call_1", "output" => "ok"}
-      ]
-
-      assert {:ok, retried} =
-               StatefulResponses.start_response_run(%{
-                 agent_uid: agent.principal.uid,
-                 actor_event_id: actor_event_id,
-                 previous_response_id: "resp_#{anchor.id}",
-                 request_items: request_items
-               })
-
-      assert retried.id != stale.id
-      assert retried.previous_message_id == anchor.id
-      assert retried.content == request_items
-
-      stale = Repo.get!(Message, stale.id)
-      assert stale.status == "error"
-      assert stale.metadata["error"]["code"] == "stale_generating_response"
-      assert stale.metadata["error"]["stage"] == "stateful_response_start"
-      assert is_nil(Repo.get!(ActorEvent, actor_event_id).completed_at)
-    end
-
-    test "does not reclaim a stale generating run while a live delivery fence exists" do
-      agent = agent_fixture()
-
-      {:ok, conversation} =
-        StatefulResponses.ensure_conversation(agent.principal.uid, "test-conv-stale-live-run")
-
-      {:ok, message} = start_run(agent, conversation, "event-stale-live-run")
-      actor_event = Repo.get!(ActorEvent, message.metadata["actor_event_id"])
-      insert_live_delivery!(actor_event)
-      mark_message_stale!(message)
-
-      assert {:error, :response_run_in_progress} =
-               StatefulResponses.start_response_run(%{
-                 agent_uid: agent.principal.uid,
-                 conversation_id: conversation.id,
-                 actor_event_id: actor_event.id
-               })
-
-      assert Repo.get!(Message, message.id).status == "generating"
-      assert live_delivery_count(actor_event.id) == 1
     end
   end
 
@@ -345,13 +141,6 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
           }
         ])
 
-      actor_event =
-        actor_event_fixture(
-          agent.principal.uid,
-          conversation.conversation_key,
-          "event-tool-journal"
-        )
-
       request_items = [
         %{"type" => "function_call_output", "call_id" => "call_1", "output" => "sunny"},
         %{
@@ -362,10 +151,10 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       ]
 
       attrs = %{
-        agent_uid: agent.principal.uid,
-        actor_event_id: actor_event.id,
+        subject_uid: agent.principal.uid,
         previous_response_id: "resp_#{anchor.id}",
-        request_items: request_items
+        request_items: request_items,
+        metadata: %{"request_metadata" => %{"opaque" => "kept"}}
       }
 
       assert {:ok, journal} = StatefulResponses.record_tool_results(attrs)
@@ -373,7 +162,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       assert journal.type == "message"
       assert journal.previous_message_id == anchor.id
       assert journal.content == request_items
-      assert journal.metadata["actor_event_id"] == actor_event.id
+      assert StatefulResponses.response_metadata(journal) == %{"opaque" => "kept"}
       assert journal.metadata["tool_result_journal"] == true
 
       assert journal.metadata["tool_results"] == [
@@ -412,17 +201,9 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       {:ok, anchor} = start_run(agent, conversation, "event-invalid-tool-journal-anchor")
       {:ok, anchor} = StatefulResponses.commit_complete(anchor, [%{"type" => "message"}])
 
-      actor_event =
-        actor_event_fixture(
-          agent.principal.uid,
-          conversation.conversation_key,
-          "event-invalid-tool-journal"
-        )
-
       assert {:error, :invalid_tool_results} =
                StatefulResponses.record_tool_results(%{
-                 agent_uid: agent.principal.uid,
-                 actor_event_id: actor_event.id,
+                 subject_uid: agent.principal.uid,
                  previous_response_id: "resp_#{anchor.id}",
                  request_items: [%{"type" => "message", "role" => "user", "content" => "steer"}]
                })
@@ -459,182 +240,6 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       assert committed.status == "complete"
       assert committed.content == request_items ++ output_items
       assert committed.metadata["usage"] == %{}
-    end
-
-    test "marks the actor event completed and removes live delivery when no function call remains" do
-      agent = agent_fixture()
-
-      {:ok, conversation} =
-        StatefulResponses.ensure_conversation(agent.principal.uid, "test-conv-complete-event")
-
-      {:ok, message} = start_run(agent, conversation, "event-complete-event")
-      actor_event = Repo.get!(ActorEvent, message.metadata["actor_event_id"])
-      insert_live_delivery!(actor_event)
-
-      output_items = [
-        %{"type" => "message", "content" => [%{"type" => "output_text", "text" => "done"}]}
-      ]
-
-      assert {:ok, committed} = StatefulResponses.commit_complete(message, output_items)
-      assert committed.status == "complete"
-      assert %DateTime{} = Repo.get!(ActorEvent, actor_event.id).completed_at
-      assert live_delivery_count(actor_event.id) == 0
-    end
-
-    test "rejects completion when the source provider entry was tombstoned" do
-      agent = agent_fixture()
-
-      {:ok, conversation} =
-        StatefulResponses.ensure_conversation(agent.principal.uid, "test-conv-tombstoned-event")
-
-      actor_event =
-        actor_event_fixture(
-          agent.principal.uid,
-          conversation.conversation_key,
-          "event-tombstoned-complete",
-          %{
-            binding_name: "bot",
-            signal_channel_id: "lark:chat:group-a",
-            source_entry_id: "msg-tombstoned-complete"
-          }
-        )
-
-      {:ok, message} =
-        StatefulResponses.start_response_run(%{
-          agent_uid: agent.principal.uid,
-          conversation_id: conversation.id,
-          actor_event_id: actor_event.id
-        })
-
-      insert_live_delivery!(actor_event)
-
-      %Channel{}
-      |> Channel.changeset(%{
-        id: "lark:chat:group-a",
-        kind: :im_group,
-        reply_mode: :entry,
-        metadata: %{},
-        raw_payload: %{},
-        first_seen_at: DateTime.utc_now(:microsecond),
-        last_seen_at: DateTime.utc_now(:microsecond)
-      })
-      |> Repo.insert!()
-
-      %InputTombstone{}
-      |> InputTombstone.changeset(%{
-        agent_uid: agent.principal.uid,
-        binding_name: "bot",
-        signal_channel_id: "lark:chat:group-a",
-        source_entry_id: "msg-tombstoned-complete",
-        tombstoned_until: DateTime.add(DateTime.utc_now(:microsecond), 1, :day)
-      })
-      |> Repo.insert!()
-
-      output_items = [
-        %{"type" => "message", "content" => [%{"type" => "output_text", "text" => "done"}]}
-      ]
-
-      assert {:error, :actor_event_canceled} =
-               StatefulResponses.commit_complete(message, output_items)
-
-      assert %Message{status: "generating"} = Repo.get!(Message, message.id)
-      assert is_nil(Repo.get!(ActorEvent, actor_event.id).completed_at)
-      assert live_delivery_count(actor_event.id) == 1
-    end
-
-    test "keeps the actor event live when the provider returns a function call" do
-      agent = agent_fixture()
-
-      {:ok, conversation} =
-        StatefulResponses.ensure_conversation(
-          agent.principal.uid,
-          "test-conv-function-call-event"
-        )
-
-      {:ok, message} = start_run(agent, conversation, "event-function-call-event")
-      actor_event = Repo.get!(ActorEvent, message.metadata["actor_event_id"])
-      insert_live_delivery!(actor_event)
-
-      output_items = [
-        %{
-          "type" => "function_call",
-          "call_id" => "call_1",
-          "name" => "lookup",
-          "arguments" => "{}"
-        }
-      ]
-
-      assert {:ok, committed} = StatefulResponses.commit_complete(message, output_items)
-      assert committed.status == "complete"
-      assert is_nil(Repo.get!(ActorEvent, actor_event.id).completed_at)
-      assert live_delivery_count(actor_event.id) == 1
-    end
-
-    test "keeps the actor event live when provider output mixes message and function call" do
-      agent = agent_fixture()
-
-      {:ok, conversation} =
-        StatefulResponses.ensure_conversation(
-          agent.principal.uid,
-          "test-conv-message-and-function-call-event"
-        )
-
-      {:ok, message} = start_run(agent, conversation, "event-message-and-function-call")
-      actor_event = Repo.get!(ActorEvent, message.metadata["actor_event_id"])
-      insert_live_delivery!(actor_event)
-
-      output_items = [
-        %{
-          "type" => "message",
-          "role" => "assistant",
-          "content" => [%{"type" => "output_text", "text" => "I will check that."}]
-        },
-        %{
-          "type" => "function_call",
-          "call_id" => "call_mixed",
-          "name" => "lookup",
-          "arguments" => "{}"
-        }
-      ]
-
-      assert {:ok, committed} = StatefulResponses.commit_complete(message, output_items)
-      assert committed.status == "complete"
-      assert is_nil(Repo.get!(ActorEvent, actor_event.id).completed_at)
-      assert live_delivery_count(actor_event.id) == 1
-    end
-
-    test "completes the actor event when provider output is completed assistant text" do
-      agent = agent_fixture()
-
-      {:ok, conversation} =
-        StatefulResponses.ensure_conversation(
-          agent.principal.uid,
-          "test-conv-assistant-text-completion-event"
-        )
-
-      {:ok, message} = start_run(agent, conversation, "event-assistant-text-completion")
-      actor_event = Repo.get!(ActorEvent, message.metadata["actor_event_id"])
-      insert_live_delivery!(actor_event)
-
-      assistant_text = "文件已创建并验证。正在将其作为附件发送。"
-
-      output_items = [
-        %{
-          "type" => "message",
-          "role" => "assistant",
-          "content" => [
-            %{
-              "type" => "output_text",
-              "text" => assistant_text
-            }
-          ]
-        }
-      ]
-
-      assert {:ok, committed} = StatefulResponses.commit_complete(message, output_items)
-      assert committed.status == "complete"
-      assert Repo.get!(ActorEvent, actor_event.id).completed_at
-      assert live_delivery_count(actor_event.id) == 0
     end
 
     test "returns already_terminal when another terminal transition won first" do
@@ -681,28 +286,6 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       assert failed.status == "error"
       assert failed.content == request_items ++ partial_output
       assert failed.metadata["error"]["code"] == "rate_limit"
-      assert %DateTime{} = Repo.get!(ActorEvent, message.metadata["actor_event_id"]).completed_at
-    end
-
-    test "can keep the actor event open for socket-open retryable failures" do
-      agent = agent_fixture()
-
-      {:ok, conversation} =
-        StatefulResponses.ensure_conversation(agent.principal.uid, "test-conv-socket-open-retry")
-
-      {:ok, message} = start_run(agent, conversation, "event-socket-open-retry")
-
-      {:ok, failed} =
-        StatefulResponses.commit_error(
-          message,
-          [],
-          %{"code" => "upstream_response_failed", "stage" => "socket_open"},
-          complete_actor_event?: false
-        )
-
-      assert failed.status == "error"
-      assert failed.metadata["error"]["stage"] == "socket_open"
-      assert is_nil(Repo.get!(ActorEvent, message.metadata["actor_event_id"]).completed_at)
     end
   end
 
@@ -841,7 +424,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
 
       {:ok, checkpoint} =
         StatefulResponses.create_compaction_checkpoint(%{
-          agent_uid: agent.principal.uid,
+          subject_uid: agent.principal.uid,
           previous_response_id: "resp_#{m5.id}",
           artifact: artifact
         })
@@ -928,7 +511,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
 
       {:ok, checkpoint} =
         StatefulResponses.create_compaction_checkpoint(%{
-          agent_uid: agent.principal.uid,
+          subject_uid: agent.principal.uid,
           previous_response_id: "resp_#{m4.id}",
           artifact: artifact
         })
@@ -977,7 +560,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
 
       {:ok, checkpoint} =
         StatefulResponses.create_compaction_checkpoint(%{
-          agent_uid: agent.principal.uid,
+          subject_uid: agent.principal.uid,
           previous_response_id: "resp_#{m2.id}",
           artifact: artifact
         })
@@ -1073,12 +656,9 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
   end
 
   defp start_run(agent, conversation, source_event_id, attrs \\ %{}) do
-    actor_event =
-      actor_event_fixture(agent.principal.uid, conversation.conversation_key, source_event_id)
-
     base = %{
-      agent_uid: agent.principal.uid,
-      actor_event_id: actor_event.id
+      subject_uid: agent.principal.uid,
+      metadata: %{"request_metadata" => %{"test_correlation" => source_event_id}}
     }
 
     base =
@@ -1093,7 +673,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
 
   defp insert_compaction_artifact(agent, conversation, summary_text, retained_items) do
     CompactionArtifacts.insert_artifact(%{
-      agent_uid: agent.principal.uid,
+      subject_uid: agent.principal.uid,
       conversation_id: conversation.id,
       summary_text: summary_text,
       retained_items: retained_items,
@@ -1104,62 +684,5 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       },
       usage: %{}
     })
-  end
-
-  defp actor_event_fixture(agent_uid, session_id, source_event_id, attrs \\ %{}) do
-    attrs =
-      %{
-        agent_uid: agent_uid,
-        binding_name: "test-binding",
-        session_id: session_id,
-        source_event_id: source_event_id,
-        type: "im.message.addressed",
-        available_at: DateTime.utc_now(:microsecond),
-        queue_sequence: System.unique_integer([:positive]),
-        input_state: "open",
-        payload: %{"text" => source_event_id}
-      }
-      |> Map.merge(attrs)
-
-    %ActorEvent{}
-    |> ActorEvent.changeset(attrs)
-    |> Repo.insert!()
-  end
-
-  defp mark_message_stale!(%Message{} = message) do
-    stale_at = DateTime.add(DateTime.utc_now(:microsecond), -600, :second)
-
-    {1, _rows} =
-      Message
-      |> where([stored], stored.id == ^message.id)
-      |> Repo.update_all(set: [updated_at: stale_at])
-
-    :ok
-  end
-
-  defp insert_live_delivery!(%ActorEvent{} = actor_event) do
-    %ActorEventDelivery{}
-    |> ActorEventDelivery.changeset(%{
-      actor_event_id: actor_event.id,
-      agent_uid: actor_event.agent_uid,
-      session_id: actor_event.session_id,
-      queue_sequence: actor_event.queue_sequence,
-      attempt_no: 1,
-      actor_lane_message_id: "lane-#{actor_event.id}",
-      activation_uid: "activation-#{actor_event.id}",
-      actor_epoch: 1,
-      actor_event_id_fence: actor_event.id,
-      revision: 0,
-      state: "accepted",
-      error: %{}
-    })
-    |> Repo.insert!()
-  end
-
-  defp live_delivery_count(actor_event_id) do
-    ActorEventDelivery
-    |> where([delivery], delivery.actor_event_id_fence == ^actor_event_id)
-    |> where([delivery], delivery.state in ^ActorEventDelivery.live_states())
-    |> Repo.aggregate(:count)
   end
 end

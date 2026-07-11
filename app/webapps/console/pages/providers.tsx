@@ -11,6 +11,7 @@ import {
   SelectValue,
   TableCell,
   TableRow,
+  Textarea,
   toast
 } from '@ankole/uikit'
 import { RiArrowDownSLine } from '@remixicon/react'
@@ -22,7 +23,11 @@ import {
   ankoleWebAiGatewayProviderControllerDeleteProviderMutation,
   ankoleWebAiGatewayProviderControllerIndexOptions,
   ankoleWebAiGatewayProviderControllerProviderKindsOptions,
-  ankoleWebAiGatewayProviderControllerPutProviderMutation
+  ankoleWebAiGatewayProviderControllerPutProviderMutation,
+  ankoleWebCodexAccountControllerCreateMutation,
+  ankoleWebCodexAccountControllerDeleteMutation,
+  ankoleWebCodexAccountControllerIndexOptions,
+  ankoleWebCodexAccountControllerUpdateMutation
 } from '../api/generated/@tanstack/react-query.gen'
 import type { AiGatewayProviderItem, AiGatewayProviderKindItem } from '../api/generated/types.gen'
 import i18n from '../../common/i18n'
@@ -49,7 +54,9 @@ export function ProvidersListPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const providers = useQuery(ankoleWebAiGatewayProviderControllerIndexOptions())
+  const codexAccounts = useQuery(ankoleWebCodexAccountControllerIndexOptions())
   const rows = providers.data?.data ?? []
+  const accounts = codexAccounts.data?.data ?? []
   const deleteProvider = useMutation({
     ...ankoleWebAiGatewayProviderControllerDeleteProviderMutation(),
     onSuccess: (_data, variables) => {
@@ -58,59 +65,202 @@ export function ProvidersListPage() {
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
+  const deleteCodexAccount = useMutation({
+    ...ankoleWebCodexAccountControllerDeleteMutation(),
+    onSuccess: (_data, variables) => {
+      toast.success(t('console.codex_accounts.deleted', { id: variables.path.account_id }))
+      void queryClient.invalidateQueries()
+    },
+    onError: error => toast.error(requestErrorMessage(error))
+  })
 
   return (
-    <ResourceListPage
-      title={t('console.providers.title')}
-      description={t('console.providers.description')}
-      createTo="new"
-      createLabel={t('console.providers.new')}
-      columns={[
-        t('console.providers.provider'),
-        t('console.providers.kind'),
-        t('console.providers.credentials'),
-        t('console.providers.state')
-      ]}
-      isLoading={providers.isLoading}
-      isEmpty={rows.length === 0}
-      emptyTitle={t('console.providers.empty_title')}
-      emptyDescription={t('console.providers.empty_description')}
-      error={providers.error}>
-      {rows.map(provider => (
-        <TableRow
-          key={provider.provider_id}
-          className="cursor-pointer"
-          onClick={() => navigate(encodeURIComponent(provider.provider_id))}>
-          <TableCell className="font-mono text-xs">{provider.provider_id}</TableCell>
-          <TableCell>{provider.provider_kind}</TableCell>
-          <TableCell>
-            <div className="flex flex-wrap gap-1.5">
-              {Object.entries(provider.encrypted_options).map(([key, option]) => (
-                <Badge key={key} variant={option.present ? 'default' : 'outline'}>
-                  {key}
-                </Badge>
-              ))}
-            </div>
-          </TableCell>
-          <TableCell>
-            <Badge variant={provider.disabled_at ? 'secondary' : 'default'}>
-              {provider.disabled_at ? t('console.status.disabled') : t('console.status.enabled')}
-            </Badge>
-          </TableCell>
-          <RowActions
-            editTo={encodeURIComponent(provider.provider_id)}
-            editLabel={t('common.edit')}
-            deletePending={deleteProvider.isPending}
-            deleteConfirm={{
-              title: t('console.providers.delete_title'),
-              description: t('console.providers.delete_description', { id: provider.provider_id }),
-              confirmLabel: t('common.disable')
-            }}
-            onDelete={() => deleteProvider.mutate({ path: { provider_id: provider.provider_id } })}
-          />
-        </TableRow>
-      ))}
-    </ResourceListPage>
+    <div className="grid gap-10">
+      <ResourceListPage
+        title={t('console.codex_accounts.title')}
+        description={t('console.codex_accounts.description')}
+        createTo="codex/new"
+        createLabel={t('console.codex_accounts.new')}
+        columns={[
+          t('console.codex_accounts.name'),
+          t('console.codex_accounts.account_id'),
+          t('console.codex_accounts.auth_hash')
+        ]}
+        isLoading={codexAccounts.isLoading}
+        isEmpty={accounts.length === 0}
+        emptyTitle={t('console.codex_accounts.empty_title')}
+        emptyDescription={t('console.codex_accounts.empty_description')}
+        error={codexAccounts.error}>
+        {accounts.map(account => (
+          <TableRow
+            key={account.account_id}
+            className="cursor-pointer"
+            onClick={() => navigate(`codex/${encodeURIComponent(account.account_id)}`)}>
+            <TableCell>{account.name}</TableCell>
+            <TableCell className="font-mono text-xs">{account.account_id}</TableCell>
+            <TableCell className="max-w-48 truncate font-mono text-xs">{account.auth_hash}</TableCell>
+            <RowActions
+              editTo={`codex/${encodeURIComponent(account.account_id)}`}
+              editLabel={t('common.edit')}
+              deletePending={deleteCodexAccount.isPending}
+              deleteConfirm={{
+                title: t('console.codex_accounts.delete_title'),
+                description: t('console.codex_accounts.delete_description', { name: account.name }),
+                confirmLabel: t('common.delete')
+              }}
+              onDelete={() => deleteCodexAccount.mutate({ path: { account_id: account.account_id } })}
+            />
+          </TableRow>
+        ))}
+      </ResourceListPage>
+
+      <ResourceListPage
+        title={t('console.providers.title')}
+        description={t('console.providers.description')}
+        createTo="new"
+        createLabel={t('console.providers.new')}
+        columns={[
+          t('console.providers.provider'),
+          t('console.providers.kind'),
+          t('console.providers.credentials'),
+          t('console.providers.state')
+        ]}
+        isLoading={providers.isLoading}
+        isEmpty={rows.length === 0}
+        emptyTitle={t('console.providers.empty_title')}
+        emptyDescription={t('console.providers.empty_description')}
+        error={providers.error}>
+        {rows.map(provider => (
+          <TableRow
+            key={provider.provider_id}
+            className="cursor-pointer"
+            onClick={() => navigate(encodeURIComponent(provider.provider_id))}>
+            <TableCell className="font-mono text-xs">{provider.provider_id}</TableCell>
+            <TableCell>{provider.provider_kind}</TableCell>
+            <TableCell>
+              <div className="flex flex-wrap gap-1.5">
+                {Object.entries(provider.encrypted_options).map(([key, option]) => (
+                  <Badge key={key} variant={option.present ? 'default' : 'outline'}>
+                    {key}
+                  </Badge>
+                ))}
+              </div>
+            </TableCell>
+            <TableCell>
+              <Badge variant={provider.disabled_at ? 'secondary' : 'default'}>
+                {provider.disabled_at ? t('console.status.disabled') : t('console.status.enabled')}
+              </Badge>
+            </TableCell>
+            <RowActions
+              editTo={encodeURIComponent(provider.provider_id)}
+              editLabel={t('common.edit')}
+              deletePending={deleteProvider.isPending}
+              deleteConfirm={{
+                title: t('console.providers.delete_title'),
+                description: t('console.providers.delete_description', { id: provider.provider_id }),
+                confirmLabel: t('common.disable')
+              }}
+              onDelete={() => deleteProvider.mutate({ path: { provider_id: provider.provider_id } })}
+            />
+          </TableRow>
+        ))}
+      </ResourceListPage>
+    </div>
+  )
+}
+
+type CodexAccountForm = {
+  name: string
+  authJson: string
+}
+
+export function CodexAccountEditorPage() {
+  const { t } = useTranslation()
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const params = useParams()
+  const accountId = params.accountId ? decodeURIComponent(params.accountId) : undefined
+  const mode = accountId ? 'edit' : 'new'
+  const accounts = useQuery(ankoleWebCodexAccountControllerIndexOptions())
+  const selected = accounts.data?.data.find(account => account.account_id === accountId)
+  const [form, setForm] = useState<CodexAccountForm>({ name: '', authJson: '' })
+  const [error, setError] = useState<string>()
+
+  useEffect(() => {
+    setForm({ name: selected?.name ?? '', authJson: '' })
+  }, [selected?.account_id, selected?.name])
+
+  const createAccount = useMutation({
+    ...ankoleWebCodexAccountControllerCreateMutation(),
+    onSuccess: response => {
+      toast.success(t('console.codex_accounts.saved', { name: response.data.name }))
+      void queryClient.invalidateQueries()
+      navigate('../..')
+    },
+    onError: mutationError => setError(requestErrorMessage(mutationError))
+  })
+  const updateAccount = useMutation({
+    ...ankoleWebCodexAccountControllerUpdateMutation(),
+    onSuccess: response => {
+      toast.success(t('console.codex_accounts.saved', { name: response.data.name }))
+      void queryClient.invalidateQueries()
+      navigate('../..')
+    },
+    onError: mutationError => setError(requestErrorMessage(mutationError))
+  })
+
+  const submit = () => {
+    setError(undefined)
+    if (!form.name.trim()) {
+      setError(t('console.codex_accounts.name_required'))
+      return
+    }
+    if (mode === 'new') {
+      if (!form.authJson.trim()) {
+        setError(t('console.codex_accounts.auth_required'))
+        return
+      }
+      createAccount.mutate({ body: { name: form.name.trim(), auth_json: form.authJson } })
+      return
+    }
+    if (accountId) {
+      updateAccount.mutate({
+        body: { name: form.name.trim(), auth_json: form.authJson.trim() ? form.authJson : undefined },
+        path: { account_id: accountId }
+      })
+    }
+  }
+
+  return (
+    <ResourceEditorPage
+      title={mode === 'new' ? t('console.codex_accounts.new') : (selected?.name ?? accountId ?? '')}
+      description={t('console.codex_accounts.editor_description')}
+      backTo={mode === 'new' ? '../..' : '../..'}
+      error={error ?? createAccount.error ?? updateAccount.error}
+      submitting={createAccount.isPending || updateAccount.isPending}
+      onSubmit={submit}>
+      {accountId ? (
+        <LabeledField label={t('console.codex_accounts.account_id')}>
+          <Input disabled value={accountId} />
+        </LabeledField>
+      ) : null}
+      <LabeledField label={t('console.codex_accounts.name')} required>
+        <Input value={form.name} onChange={event => setForm(current => ({ ...current, name: event.target.value }))} />
+      </LabeledField>
+      <LabeledField
+        label={t('console.codex_accounts.auth_json')}
+        description={
+          mode === 'edit' ? t('console.codex_accounts.auth_json_keep') : t('console.codex_accounts.auth_json_hint')
+        }
+        required={mode === 'new'}>
+        <Textarea
+          className="min-h-48 font-mono text-xs"
+          spellCheck={false}
+          value={form.authJson}
+          onChange={event => setForm(current => ({ ...current, authJson: event.target.value }))}
+        />
+      </LabeledField>
+    </ResourceEditorPage>
   )
 }
 

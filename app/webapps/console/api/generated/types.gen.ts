@@ -25,7 +25,7 @@ export type AiGatewayProviderListResponse = {
 export type WorkerFileListData = {
   entries: Array<WorkerFileEntry>
   path: string
-  root: 'workspace_sessions' | 'user_files' | 'agent_installed_skills'
+  root: 'user_files' | 'agent_installed_skills' | 'workspace_sessions'
   truncated: boolean
 }
 
@@ -94,7 +94,7 @@ export type WorkerFileDeleteResponse = {
   data: {
     deleted: boolean
     relative_path: string
-    root: 'workspace_sessions' | 'user_files' | 'agent_installed_skills'
+    root: 'user_files' | 'agent_installed_skills' | 'workspace_sessions'
   }
 }
 
@@ -304,7 +304,7 @@ export type SignalAdapterFieldOption = {
 export type WorkerFileUploadResponse = {
   data: {
     relative_path: string
-    root: 'workspace_sessions' | 'user_files' | 'agent_installed_skills'
+    root: 'user_files' | 'agent_installed_skills' | 'workspace_sessions'
     size: number
     xxh3_128?: string | null
   }
@@ -350,6 +350,13 @@ export type AgentItem = {
 }
 
 /**
+ * CodexAccountResponse
+ */
+export type CodexAccountResponse = {
+  data: CodexAccountItem
+}
+
+/**
  * SignalBindingListResponse
  */
 export type SignalBindingListResponse = {
@@ -379,6 +386,7 @@ export type SubagentDelegationEventItem = {
 export type SubagentDelegationItem = {
   agent_uid: string
   attempts: number
+  codex_account_id: string
   completed_at?: string | null
   duration_seconds: number
   error: {
@@ -429,7 +437,7 @@ export type WorkerFileListResponse = {
 export type WorkerFileMoveRequest = {
   from_path: string
   overwrite?: boolean
-  root: 'workspace_sessions' | 'user_files' | 'agent_installed_skills'
+  root: 'user_files' | 'agent_installed_skills' | 'workspace_sessions'
   to_path: string
 }
 
@@ -453,9 +461,10 @@ export type ScheduleCronScheduleListResponse = {
  * ModelProfileWriteRequest
  */
 export type ModelProfileWriteRequest = {
+  codex_account_id?: string
   context_length?: number
-  model: string
-  provider_id: string
+  model?: string
+  provider_id?: string
   provider_options?: {
     [key: string]: unknown
   }
@@ -474,6 +483,14 @@ export type ScheduleCronWriteRequest = {
   schedule: JsonValue
   status?: 'active' | 'paused'
   timezone?: string | null
+}
+
+/**
+ * CodexAccountUpdateRequest
+ */
+export type CodexAccountUpdateRequest = {
+  auth_json?: string | null
+  name: string
 }
 
 /**
@@ -533,6 +550,17 @@ export type IdentityProviderSyncRunResponse = {
 }
 
 /**
+ * CodexAccountItem
+ */
+export type CodexAccountItem = {
+  account_id: string
+  auth_hash: string
+  inserted_at: string
+  name: string
+  updated_at: string
+}
+
+/**
  * AgentListResponse
  */
 export type AgentListResponse = {
@@ -560,6 +588,13 @@ export type AgentCreateRequest = {
 }
 
 /**
+ * CodexAccountListResponse
+ */
+export type CodexAccountListResponse = {
+  data: Array<CodexAccountItem>
+}
+
+/**
  * AppConfigurationListResponse
  */
 export type AppConfigurationListResponse = {
@@ -580,7 +615,7 @@ export type WorkerFileMoveResponse = {
   data: {
     from_relative_path: string
     moved: boolean
-    root: 'workspace_sessions' | 'user_files' | 'agent_installed_skills'
+    root: 'user_files' | 'agent_installed_skills' | 'workspace_sessions'
     to_relative_path: string
   }
 }
@@ -619,7 +654,7 @@ export type ConsoleApiErrorDetail = {
 export type WorkerFileUploadRequest = {
   file: Blob | File
   path: string
-  root: 'workspace_sessions' | 'user_files' | 'agent_installed_skills'
+  root: 'user_files' | 'agent_installed_skills' | 'workspace_sessions'
 }
 
 /**
@@ -685,6 +720,14 @@ export type AppConfigurationDecryptionValue = {
 }
 
 /**
+ * CodexAccountCreateRequest
+ */
+export type CodexAccountCreateRequest = {
+  auth_json: string
+  name: string
+}
+
+/**
  * AIGatewayProviderEncryptedOptionsProjection
  */
 export type AiGatewayProviderEncryptedOptionsProjection = {
@@ -700,7 +743,7 @@ export type AnkoleWebWorkerFileControllerDownloadData = {
     /**
      * Worker filesystem root
      */
-    root: 'workspace_sessions' | 'user_files' | 'agent_installed_skills'
+    root: 'user_files' | 'agent_installed_skills' | 'workspace_sessions'
     /**
      * File path relative to the root
      */
@@ -949,7 +992,7 @@ export type AnkoleWebWorkerFileControllerDeleteData = {
     /**
      * Worker filesystem root
      */
-    root: 'workspace_sessions' | 'user_files' | 'agent_installed_skills'
+    root: 'user_files' | 'agent_installed_skills' | 'workspace_sessions'
     /**
      * Path relative to the root
      */
@@ -1007,7 +1050,7 @@ export type AnkoleWebWorkerFileControllerIndexData = {
     /**
      * Worker filesystem root
      */
-    root: 'workspace_sessions' | 'user_files' | 'agent_installed_skills'
+    root: 'user_files' | 'agent_installed_skills' | 'workspace_sessions'
     /**
      * Directory path relative to the root
      */
@@ -1456,7 +1499,7 @@ export type AnkoleWebSignalBindingControllerIndexResponses = {
 export type AnkoleWebSignalBindingControllerIndexResponse =
   AnkoleWebSignalBindingControllerIndexResponses[keyof AnkoleWebSignalBindingControllerIndexResponses]
 
-export type AnkoleWebAiGatewayProviderControllerDeleteModelProfileData = {
+export type AnkoleWebAgentControllerDeleteModelProfileData = {
   body?: never
   path: {
     agent_uid: string
@@ -1466,39 +1509,27 @@ export type AnkoleWebAiGatewayProviderControllerDeleteModelProfileData = {
   url: '/api/v1/agents/{agent_uid}/model-profiles/{profile}'
 }
 
-export type AnkoleWebAiGatewayProviderControllerDeleteModelProfileErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
+export type AnkoleWebAgentControllerDeleteModelProfileErrors = {
   /**
    * Profile cannot be cleared
    */
   422: ConsoleApiErrorEnvelope
 }
 
-export type AnkoleWebAiGatewayProviderControllerDeleteModelProfileError =
-  AnkoleWebAiGatewayProviderControllerDeleteModelProfileErrors[keyof AnkoleWebAiGatewayProviderControllerDeleteModelProfileErrors]
+export type AnkoleWebAgentControllerDeleteModelProfileError =
+  AnkoleWebAgentControllerDeleteModelProfileErrors[keyof AnkoleWebAgentControllerDeleteModelProfileErrors]
 
-export type AnkoleWebAiGatewayProviderControllerDeleteModelProfileResponses = {
+export type AnkoleWebAgentControllerDeleteModelProfileResponses = {
   /**
    * Model profile
    */
   200: ModelProfileResponse
 }
 
-export type AnkoleWebAiGatewayProviderControllerDeleteModelProfileResponse =
-  AnkoleWebAiGatewayProviderControllerDeleteModelProfileResponses[keyof AnkoleWebAiGatewayProviderControllerDeleteModelProfileResponses]
+export type AnkoleWebAgentControllerDeleteModelProfileResponse =
+  AnkoleWebAgentControllerDeleteModelProfileResponses[keyof AnkoleWebAgentControllerDeleteModelProfileResponses]
 
-export type AnkoleWebAiGatewayProviderControllerPutModelProfileData = {
+export type AnkoleWebAgentControllerPutModelProfileData = {
   /**
    * Model profile
    */
@@ -1511,37 +1542,25 @@ export type AnkoleWebAiGatewayProviderControllerPutModelProfileData = {
   url: '/api/v1/agents/{agent_uid}/model-profiles/{profile}'
 }
 
-export type AnkoleWebAiGatewayProviderControllerPutModelProfileErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
+export type AnkoleWebAgentControllerPutModelProfileErrors = {
   /**
    * Invalid model profile
    */
   422: ConsoleApiErrorEnvelope
 }
 
-export type AnkoleWebAiGatewayProviderControllerPutModelProfileError =
-  AnkoleWebAiGatewayProviderControllerPutModelProfileErrors[keyof AnkoleWebAiGatewayProviderControllerPutModelProfileErrors]
+export type AnkoleWebAgentControllerPutModelProfileError =
+  AnkoleWebAgentControllerPutModelProfileErrors[keyof AnkoleWebAgentControllerPutModelProfileErrors]
 
-export type AnkoleWebAiGatewayProviderControllerPutModelProfileResponses = {
+export type AnkoleWebAgentControllerPutModelProfileResponses = {
   /**
    * Model profile
    */
   200: ModelProfileResponse
 }
 
-export type AnkoleWebAiGatewayProviderControllerPutModelProfileResponse =
-  AnkoleWebAiGatewayProviderControllerPutModelProfileResponses[keyof AnkoleWebAiGatewayProviderControllerPutModelProfileResponses]
+export type AnkoleWebAgentControllerPutModelProfileResponse =
+  AnkoleWebAgentControllerPutModelProfileResponses[keyof AnkoleWebAgentControllerPutModelProfileResponses]
 
 export type AnkoleWebWorkerFileControllerMoveData = {
   /**
@@ -1985,7 +2004,7 @@ export type AnkoleWebScheduleControllerIndexCheckbacksResponses = {
 export type AnkoleWebScheduleControllerIndexCheckbacksResponse =
   AnkoleWebScheduleControllerIndexCheckbacksResponses[keyof AnkoleWebScheduleControllerIndexCheckbacksResponses]
 
-export type AnkoleWebAiGatewayProviderControllerIndexModelProfilesData = {
+export type AnkoleWebAgentControllerIndexModelProfilesData = {
   body?: never
   path: {
     agent_uid: string
@@ -1994,33 +2013,25 @@ export type AnkoleWebAiGatewayProviderControllerIndexModelProfilesData = {
   url: '/api/v1/agents/{agent_uid}/model-profiles'
 }
 
-export type AnkoleWebAiGatewayProviderControllerIndexModelProfilesErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
+export type AnkoleWebAgentControllerIndexModelProfilesErrors = {
   /**
    * Not found
    */
   404: ConsoleApiErrorEnvelope
 }
 
-export type AnkoleWebAiGatewayProviderControllerIndexModelProfilesError =
-  AnkoleWebAiGatewayProviderControllerIndexModelProfilesErrors[keyof AnkoleWebAiGatewayProviderControllerIndexModelProfilesErrors]
+export type AnkoleWebAgentControllerIndexModelProfilesError =
+  AnkoleWebAgentControllerIndexModelProfilesErrors[keyof AnkoleWebAgentControllerIndexModelProfilesErrors]
 
-export type AnkoleWebAiGatewayProviderControllerIndexModelProfilesResponses = {
+export type AnkoleWebAgentControllerIndexModelProfilesResponses = {
   /**
    * Model profiles
    */
   200: ModelProfilesResponse
 }
 
-export type AnkoleWebAiGatewayProviderControllerIndexModelProfilesResponse =
-  AnkoleWebAiGatewayProviderControllerIndexModelProfilesResponses[keyof AnkoleWebAiGatewayProviderControllerIndexModelProfilesResponses]
+export type AnkoleWebAgentControllerIndexModelProfilesResponse =
+  AnkoleWebAgentControllerIndexModelProfilesResponses[keyof AnkoleWebAgentControllerIndexModelProfilesResponses]
 
 export type AnkoleWebSignalBindingControllerAdaptersData = {
   body?: never
@@ -2266,6 +2277,67 @@ export type AnkoleWebScheduleControllerCancelCheckbackResponses = {
 export type AnkoleWebScheduleControllerCancelCheckbackResponse =
   AnkoleWebScheduleControllerCancelCheckbackResponses[keyof AnkoleWebScheduleControllerCancelCheckbackResponses]
 
+export type AnkoleWebCodexAccountControllerIndexData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v1/codex-accounts'
+}
+
+export type AnkoleWebCodexAccountControllerIndexErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebCodexAccountControllerIndexError =
+  AnkoleWebCodexAccountControllerIndexErrors[keyof AnkoleWebCodexAccountControllerIndexErrors]
+
+export type AnkoleWebCodexAccountControllerIndexResponses = {
+  /**
+   * Codex accounts
+   */
+  200: CodexAccountListResponse
+}
+
+export type AnkoleWebCodexAccountControllerIndexResponse =
+  AnkoleWebCodexAccountControllerIndexResponses[keyof AnkoleWebCodexAccountControllerIndexResponses]
+
+export type AnkoleWebCodexAccountControllerCreateData = {
+  /**
+   * Codex account
+   */
+  body: CodexAccountCreateRequest
+  path?: never
+  query?: never
+  url: '/api/v1/codex-accounts'
+}
+
+export type AnkoleWebCodexAccountControllerCreateErrors = {
+  /**
+   * Invalid Codex account
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebCodexAccountControllerCreateError =
+  AnkoleWebCodexAccountControllerCreateErrors[keyof AnkoleWebCodexAccountControllerCreateErrors]
+
+export type AnkoleWebCodexAccountControllerCreateResponses = {
+  /**
+   * Codex account
+   */
+  200: CodexAccountResponse
+}
+
+export type AnkoleWebCodexAccountControllerCreateResponse =
+  AnkoleWebCodexAccountControllerCreateResponses[keyof AnkoleWebCodexAccountControllerCreateResponses]
+
 export type AnkoleWebAiGatewayControllerWebSearchData = {
   /**
    * Web search request
@@ -2388,6 +2460,75 @@ export type AnkoleWebSignalBindingControllerPutBindingResponses = {
 
 export type AnkoleWebSignalBindingControllerPutBindingResponse =
   AnkoleWebSignalBindingControllerPutBindingResponses[keyof AnkoleWebSignalBindingControllerPutBindingResponses]
+
+export type AnkoleWebCodexAccountControllerDeleteData = {
+  body?: never
+  path: {
+    account_id: string
+  }
+  query?: never
+  url: '/api/v1/codex-accounts/{account_id}'
+}
+
+export type AnkoleWebCodexAccountControllerDeleteErrors = {
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Codex account in use
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebCodexAccountControllerDeleteError =
+  AnkoleWebCodexAccountControllerDeleteErrors[keyof AnkoleWebCodexAccountControllerDeleteErrors]
+
+export type AnkoleWebCodexAccountControllerDeleteResponses = {
+  /**
+   * Codex account
+   */
+  200: CodexAccountResponse
+}
+
+export type AnkoleWebCodexAccountControllerDeleteResponse =
+  AnkoleWebCodexAccountControllerDeleteResponses[keyof AnkoleWebCodexAccountControllerDeleteResponses]
+
+export type AnkoleWebCodexAccountControllerUpdateData = {
+  /**
+   * Codex account
+   */
+  body: CodexAccountUpdateRequest
+  path: {
+    account_id: string
+  }
+  query?: never
+  url: '/api/v1/codex-accounts/{account_id}'
+}
+
+export type AnkoleWebCodexAccountControllerUpdateErrors = {
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Invalid Codex account
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebCodexAccountControllerUpdateError =
+  AnkoleWebCodexAccountControllerUpdateErrors[keyof AnkoleWebCodexAccountControllerUpdateErrors]
+
+export type AnkoleWebCodexAccountControllerUpdateResponses = {
+  /**
+   * Codex account
+   */
+  200: CodexAccountResponse
+}
+
+export type AnkoleWebCodexAccountControllerUpdateResponse =
+  AnkoleWebCodexAccountControllerUpdateResponses[keyof AnkoleWebCodexAccountControllerUpdateResponses]
 
 export type AnkoleWebAuthControllerDeleteSessionData = {
   body?: never

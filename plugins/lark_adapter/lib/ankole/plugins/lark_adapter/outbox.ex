@@ -5,13 +5,13 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
 
   @behaviour Ankole.SignalsGateway.OutboxAdapter
 
-  alias Ankole.ActorRuntime
   alias Ankole.Plugins.LarkAdapter.Card
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.Emoji
   alias Ankole.Plugins.LarkAdapter.MapHelpers
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.OutboxEntry
+  alias Ankole.WorkerFiles
   alias FeishuOpenAPI.Error
 
   import MapHelpers,
@@ -447,7 +447,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
   defp upload_worker_file_attachment(attachment, client) do
     with relative_path when is_binary(relative_path) <- attachment_relative_path(attachment),
          {:ok, %{"content" => content}} <-
-           ActorRuntime.get_worker_file("user_files", relative_path),
+           WorkerFiles.get("user_files", relative_path),
          name <- attachment_name(attachment, relative_path),
          {:ok, %{"data" => data}} <-
            FeishuOpenAPI.upload(client, "im/v1/files",

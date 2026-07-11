@@ -1,0 +1,616 @@
+defmodule Ankole.SignalsGateway.Actors do
+  @moduledoc """
+  The actor event journal: durable inbox shared by SignalsGateway and ActorRuntime.
+
+  SignalsGateway appends normalized events for an actor session. ActorRuntime
+  leases and delivers one executable event at a time; durable response facts live
+  in AIGateway-owned tables.
+
+  Append is idempotent on the source ingress key. `queue_sequence` is allocated
+  under a Postgres advisory lock only for ordering currently open events in one
+  actor session.
+
+  Several `*_in_tx` functions take a `repo` and run inside a caller-owned
+  transaction so actor completion and provider-visible side effects can share
+  one database boundary where needed.
+  """
+
+  import Ecto.Query, warn: false
+
+  alias Ecto.Adapters.SQL
+  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.Repo
+  alias Ankole.RuntimeEvents
+  alias Ankole.SignalsGateway.ActorEventTypes
+  alias Ankole.SignalsGateway.InputTombstone
+  alias Ankole.SignalsGateway.Outbox
+
+  @type append_result ::
+          {:ok, ActorEvent.t()}
+          | {:error, term()}
+  @type actor_commit_result :: {:ok, ActorEvent.t()} | {:error, term()}
+
+  @doc """
+  Appends an actor event, preserving route-scoped idempotency.
+
+  The unique ingress key covers open events. Provider redelivery after
+  completion is a SignalsGateway ingress concern because adapters own the
+  provider event id used as `source_event_id`.
+  """
+  @spec append_actor_event(map()) :: append_result()
+  def append_actor_event(attrs) when is_map(attrs) do
+    Repo.transact(fn repo ->
+      append_actor_event_in_tx(repo, attrs)
+    end)
+  end
+
+  @doc """
+  Appends an actor event inside the caller-owned transaction.
+  """
+  @spec append_actor_event_in_tx(module(), map()) :: append_result()
+  def append_actor_event_in_tx(repo, attrs) when is_map(attrs) do
+    attrs = put_queue_sequence(repo, attrs)
+
+    with {:ok, %ActorEvent{} = event} <-
+           %ActorEvent{}
+           |> ActorEvent.changeset(attrs)
+           |> repo.insert(
+             on_conflict: :nothing,
+             conflict_target: [:agent_uid, :binding_name, :source_event_id],
+             returning: true
+           )
+           |> inserted_or_existing(repo, attrs),
+         :ok <-
+           RuntimeEvents.notify_actor_session_ready(
+             repo,
+             event.agent_uid,
+             event.session_id,
+             event.available_at
+           ) do
+      {:ok, event}
+    end
+  end
+
+  @doc """
+  Locks one actor event inside the caller-owned transaction.
+  """
+  @spec lock_actor_event_in_tx(module(), Ecto.UUID.t()) :: ActorEvent.t() | nil
+  def lock_actor_event_in_tx(repo, actor_event_id) do
+    ActorEvent
+    |> where([event], event.id == ^actor_event_id)
+    |> lock("FOR UPDATE")
+    |> repo.one()
+  end
+
+  @doc """
+  Records the provider entry created for one live AI reply preview.
+
+  The preview is a SignalsGateway side effect, so its provider identity belongs
+  to the ActorEvent rather than to AIGateway Response metadata. The first
+  successful provider send wins; repeating the same value is idempotent.
+  """
+  @spec record_reply_preview_source_entry(Ecto.UUID.t(), String.t()) ::
+          :ok | {:error, term()}
+  def record_reply_preview_source_entry(actor_event_id, source_entry_id)
+      when is_binary(actor_event_id) and is_binary(source_entry_id) and source_entry_id != "" do
+    case Repo.transact(fn repo ->
+           case lock_actor_event_in_tx(repo, actor_event_id) do
+             %ActorEvent{reply_preview_source_entry_id: nil} = event ->
+               event
+               |> ActorEvent.changeset(%{reply_preview_source_entry_id: source_entry_id})
+               |> repo.update()
+               |> case do
+                 {:ok, _event} -> {:ok, :recorded}
+                 {:error, _changeset} = error -> error
+               end
+
+             %ActorEvent{reply_preview_source_entry_id: ^source_entry_id} ->
+               {:ok, :already_recorded}
+
+             %ActorEvent{} ->
+               {:error, :reply_preview_source_entry_already_recorded}
+
+             nil ->
+               {:error, :actor_event_not_found}
+           end
+         end) do
+      {:ok, _result} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def record_reply_preview_source_entry(_actor_event_id, _source_entry_id),
+    do: {:error, :invalid_reply_preview_source_entry}
+
+  @doc """
+  Completes a locked actor event inside a caller-owned transaction.
+
+  The caller owns any immutable Response reads and projection. This primitive
+  owns the source tombstone check, optional outbox insert, and completion
+  timestamp.
+  """
+  @spec complete_actor_event_in_tx(module(), ActorEvent.t(), keyword()) ::
+          actor_commit_result()
+  def complete_actor_event_in_tx(repo, %ActorEvent{} = actor_event, opts) do
+    completed_at = Keyword.get(opts, :completed_at, DateTime.utc_now(:microsecond))
+
+    with :ok <- reject_tombstoned_event_source(repo, actor_event, completed_at),
+         {:ok, completed_event} <-
+           persist_actor_event_completion_in_tx(
+             repo,
+             actor_event,
+             Keyword.put(opts, :completed_at, completed_at)
+           ),
+         :ok <-
+           RuntimeEvents.notify_actor_session_ready(
+             repo,
+             completed_event.agent_uid,
+             completed_event.session_id,
+             completed_at
+           ) do
+      {:ok, completed_event}
+    end
+  end
+
+  @doc """
+  Completes a provider-entry lifecycle event without treating its tombstone as cancelation.
+
+  `signal.entry.removed` rows exist because the provider entry was tombstoned
+  after earlier actor state already completed it. Re-applying the source-entry
+  tombstone guard here would cancel the lifecycle notice itself.
+  """
+  @spec complete_entry_lifecycle_event_in_tx(module(), ActorEvent.t(), keyword()) ::
+          actor_commit_result()
+  def complete_entry_lifecycle_event_in_tx(
+        repo,
+        %ActorEvent{type: "signal.entry.removed"} = actor_event,
+        opts
+      ) do
+    persist_actor_event_completion_in_tx(repo, actor_event, opts)
+  end
+
+  @doc """
+  Verifies that an actor event's provider source has not been tombstoned.
+
+  Explicit Agent Turn completion uses this before committing provider-visible
+  output. Individual Response terminals intentionally leave the ActorEvent
+  open and never pass through `complete_actor_event_in_tx/3`.
+  """
+  @spec ensure_event_source_live_in_tx(module(), ActorEvent.t(), DateTime.t()) ::
+          :ok | {:error, :actor_event_canceled}
+  def ensure_event_source_live_in_tx(repo, %ActorEvent{} = actor_event, %DateTime{} = now) do
+    reject_tombstoned_event_source(repo, actor_event, now)
+  end
+
+  @doc """
+  Completes a durable command event without requiring a worker turn fence.
+
+  Command feedback is a provider-visible control response, not transcript or
+  model output, so it deliberately has no AI message id.
+  """
+  @spec complete_command_event_in_tx(module(), ActorEvent.t(), keyword()) ::
+          actor_commit_result()
+  def complete_command_event_in_tx(
+        repo,
+        %ActorEvent{type: "command." <> _name} = actor_event,
+        opts
+      ) do
+    complete_actor_event_in_tx(repo, actor_event, opts)
+  end
+
+  @doc """
+  Completes a session-lifecycle event without requiring a worker turn fence.
+  """
+  @spec complete_session_lifecycle_event_in_tx(module(), ActorEvent.t(), keyword()) ::
+          actor_commit_result()
+  def complete_session_lifecycle_event_in_tx(
+        repo,
+        %ActorEvent{type: "session." <> _name} = actor_event,
+        opts
+      ) do
+    complete_actor_event_in_tx(repo, actor_event, opts)
+  end
+
+  defp persist_actor_event_completion_in_tx(repo, %ActorEvent{} = actor_event, opts) do
+    with {:ok, _outbox_entries} <-
+           insert_outbox_intents(repo, actor_event, Keyword.get(opts, :outbox_intents, [])),
+         {:ok, _updated} <-
+           mark_event_completed(repo, actor_event, Keyword.fetch!(opts, :completed_at)) do
+      {:ok, actor_event}
+    end
+  end
+
+  def mark_event_completed_in_tx(repo, %ActorEvent{} = actor_event, completed_at) do
+    with {:ok, %ActorEvent{} = event} <- mark_event_completed(repo, actor_event, completed_at),
+         :ok <-
+           RuntimeEvents.notify_actor_session_ready(
+             repo,
+             event.agent_uid,
+             event.session_id,
+             completed_at
+           ) do
+      {:ok, event}
+    end
+  end
+
+  @doc """
+  Moves an actor event into the terminal dead-letter bucket.
+
+  Dead-letter is reserved for real poison inputs after worker execution has
+  repeatedly failed. Normal completion still uses `completed_at`.
+  """
+  @spec mark_event_dead_letter_in_tx(module(), ActorEvent.t(), DateTime.t()) ::
+          actor_commit_result()
+  def mark_event_dead_letter_in_tx(
+        _repo,
+        %ActorEvent{completed_at: %DateTime{}} = actor_event,
+        _dead_letter_at
+      ),
+      do: {:ok, actor_event}
+
+  def mark_event_dead_letter_in_tx(repo, %ActorEvent{} = actor_event, dead_letter_at) do
+    with {:ok, %ActorEvent{} = event} <-
+           actor_event
+           |> ActorEvent.changeset(%{
+             input_state: "dead_letter",
+             dead_letter_at: dead_letter_at
+           })
+           |> repo.update(),
+         :ok <-
+           RuntimeEvents.notify_actor_session_ready(
+             repo,
+             event.agent_uid,
+             event.session_id,
+             dead_letter_at
+           ) do
+      {:ok, event}
+    end
+  end
+
+  defp mark_event_completed(repo, %ActorEvent{} = actor_event, completed_at) do
+    actor_event
+    |> ActorEvent.changeset(%{
+      completed_at: completed_at
+    })
+    |> repo.update()
+  end
+
+  @doc """
+  Returns actor events for a provider entry.
+  """
+  @spec actor_events_for_entry(String.t(), String.t(), String.t(), String.t()) :: [
+          ActorEvent.t()
+        ]
+  def actor_events_for_entry(agent_uid, binding_name, signal_channel_id, source_entry_id) do
+    actor_events_for_entry_in_tx(
+      Repo,
+      agent_uid,
+      binding_name,
+      signal_channel_id,
+      source_entry_id
+    )
+  end
+
+  @doc """
+  Returns completed actor events for a provider entry inside a caller-owned transaction.
+  """
+  @spec actor_events_for_entry_in_tx(
+          module(),
+          String.t(),
+          String.t(),
+          String.t(),
+          String.t()
+        ) :: [ActorEvent.t()]
+  def actor_events_for_entry_in_tx(
+        repo,
+        agent_uid,
+        binding_name,
+        signal_channel_id,
+        source_entry_id
+      )
+      when is_binary(source_entry_id) and source_entry_id != "" do
+    ActorEvent
+    |> where([input], input.agent_uid == ^agent_uid)
+    |> where([input], input.binding_name == ^binding_name)
+    |> where([input], input.signal_channel_id == ^signal_channel_id)
+    |> where([input], not is_nil(input.completed_at))
+    |> where(
+      [input],
+      input.source_entry_id == ^source_entry_id or
+        fragment(
+          """
+          jsonb_typeof(?->'data'->'entries') = 'array'
+          AND EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(?->'data'->'entries') AS entry
+            WHERE entry->>'source_entry_id' = ?
+          )
+          """,
+          input.payload,
+          input.payload,
+          ^source_entry_id
+        )
+    )
+    |> order_by([input], asc: input.available_at)
+    |> repo.all()
+  end
+
+  def actor_events_for_entry_in_tx(
+        _repo,
+        _agent_uid,
+        _binding_name,
+        _signal_channel_id,
+        _source_entry_id
+      ),
+      do: []
+
+  @doc """
+  Reads the next executable actor event for one actor session.
+  """
+  @spec next_ready_event(String.t(), String.t(), DateTime.t(), keyword()) :: ActorEvent.t() | nil
+  def next_ready_event(agent_uid, session_id, now \\ DateTime.utc_now(:microsecond), opts \\ []) do
+    candidate_limit = Keyword.get(opts, :candidate_limit, 100)
+    live_delivery? = Keyword.get(opts, :live_delivery?, false)
+
+    if live_delivery? do
+      next_live_turn_command_event(agent_uid, session_id, now) ||
+        next_ready_queue_barrier(agent_uid, session_id, now)
+    else
+      agent_uid
+      |> ready_event_candidates(session_id, now)
+      |> limit(^candidate_limit)
+      |> Repo.all()
+      |> select_next_ready_event(false)
+    end
+  end
+
+  defp ready_event_candidates(agent_uid, session_id, now) do
+    delivery_states = ["created", "sent", "accepted"]
+
+    ActorEvent
+    |> where([input], input.agent_uid == ^agent_uid)
+    |> where([input], input.session_id == ^session_id)
+    |> where([input], input.input_state == "open")
+    |> where([input], is_nil(input.completed_at))
+    |> where([input], input.available_at <= ^now)
+    |> join(:left, [input], delivery in "actor_event_deliveries",
+      on: delivery.actor_event_id == input.id and delivery.state in ^delivery_states
+    )
+    |> where([_input, delivery], is_nil(delivery.id))
+    |> order_by([input], asc: input.queue_sequence)
+  end
+
+  defp select_next_ready_event([], _live_delivery?), do: nil
+
+  defp select_next_ready_event([first_event | _rest], false), do: first_event
+
+  defp hard_queue_barrier?(%ActorEvent{type: "session.reset_due"}), do: true
+  defp hard_queue_barrier?(_event), do: false
+
+  defp next_live_turn_command_event(agent_uid, session_id, now) do
+    command_types = ActorEventTypes.live_turn_command_types()
+
+    agent_uid
+    |> ready_event_candidates(session_id, now)
+    |> where([input, _delivery], input.type in ^command_types)
+    |> exclude(:order_by)
+    |> order_by([input, _delivery],
+      asc:
+        fragment(
+          "CASE ? WHEN 'command.stop' THEN 0 WHEN 'command.retry' THEN 1 WHEN 'command.new' THEN 2 WHEN 'command.steer' THEN 3 WHEN 'command.compress' THEN 4 ELSE 5 END",
+          input.type
+        ),
+      asc: input.queue_sequence
+    )
+    |> limit(1)
+    |> Repo.one()
+  end
+
+  defp next_ready_queue_barrier(agent_uid, session_id, now) do
+    agent_uid
+    |> ready_event_candidates(session_id, now)
+    |> limit(1)
+    |> Repo.one()
+    |> case do
+      %ActorEvent{} = event ->
+        if hard_queue_barrier?(event), do: event
+
+      nil ->
+        nil
+    end
+  end
+
+  @doc false
+  @spec runtime_event_snapshot() :: [{String.t(), map()}]
+  def runtime_event_snapshot do
+    ActorEvent
+    |> where([input], input.input_state == "open")
+    |> where([input], is_nil(input.completed_at))
+    |> group_by([input], [input.agent_uid, input.session_id])
+    |> select([input], %{
+      agent_uid: input.agent_uid,
+      session_id: input.session_id,
+      due_at: min(input.available_at)
+    })
+    |> Repo.all()
+    |> Enum.map(fn %{agent_uid: agent_uid, session_id: session_id, due_at: due_at} ->
+      {RuntimeEvents.actor_session_ready_channel(),
+       %{
+         "agent_uid" => agent_uid,
+         "session_id" => session_id,
+         "due_at" => RuntimeEvents.encode_datetime(due_at)
+       }}
+    end)
+  end
+
+  # Accepts an explicit queue sequence for fixtures and replay tools.
+  # Normal ingress assigns the next value in the durable session event stream.
+  defp put_queue_sequence(_repo, %{queue_sequence: queue_sequence} = attrs)
+       when is_integer(queue_sequence),
+       do: attrs
+
+  # Serializes queue ordering per actor session using a transaction-scoped
+  # advisory lock. Completion is recorded separately; queue_sequence remains the
+  # durable ordering fact for the session's event stream.
+  defp put_queue_sequence(repo, attrs) do
+    agent_uid = Map.fetch!(attrs, :agent_uid)
+    session_id = Map.fetch!(attrs, :session_id)
+
+    SQL.query!(
+      repo,
+      "SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))",
+      [agent_uid, session_id]
+    )
+
+    next =
+      ActorEvent
+      |> where([input], input.agent_uid == ^agent_uid)
+      |> where([input], input.session_id == ^session_id)
+      |> select([input], coalesce(max(input.queue_sequence), 0) + 1)
+      |> repo.one()
+
+    Map.put(attrs, :queue_sequence, next)
+  end
+
+  # The primary key is generated before insert, so an `on_conflict: :nothing`
+  # placeholder can still have an id. Always re-read the unique key; callers need
+  # the durable row, not a client-side insert attempt.
+  defp inserted_or_existing({:ok, %ActorEvent{}}, repo, attrs), do: fetch_actor_event(repo, attrs)
+  defp inserted_or_existing({:error, _changeset} = error, _repo, _attrs), do: error
+
+  defp fetch_actor_event(repo, attrs) do
+    case idempotency_key(attrs) do
+      %{agent_uid: agent_uid, binding_name: binding_name, source_event_id: source_event_id} ->
+        case repo.get_by(ActorEvent,
+               agent_uid: agent_uid,
+               binding_name: binding_name,
+               source_event_id: source_event_id
+             ) do
+          %ActorEvent{} = event -> {:ok, event}
+          nil -> {:error, :actor_event_not_found}
+        end
+
+      nil ->
+        {:error, :actor_event_not_found}
+    end
+  end
+
+  defp idempotency_key(attrs) do
+    with agent_uid when is_binary(agent_uid) <- text_attr(attrs, :agent_uid),
+         binding_name when is_binary(binding_name) <- text_attr(attrs, :binding_name),
+         source_event_id when is_binary(source_event_id) <- text_attr(attrs, :source_event_id) do
+      %{
+        agent_uid: String.downcase(agent_uid),
+        binding_name: binding_name,
+        source_event_id: source_event_id
+      }
+    else
+      _value -> nil
+    end
+  end
+
+  defp text_attr(attrs, key) when is_map(attrs) do
+    value = Map.get(attrs, key) || Map.get(attrs, Atom.to_string(key))
+
+    case value do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> nil
+          trimmed -> trimmed
+        end
+
+      _value ->
+        nil
+    end
+  end
+
+  # Events without provider entry identity cannot be matched to a deletion
+  # tombstone, so they remain completable.
+  defp reject_tombstoned_event_source(
+         _repo,
+         %ActorEvent{signal_channel_id: nil},
+         _now
+       ),
+       do: :ok
+
+  # Rejects completion if the source provider entry was tombstoned after the
+  # actor event was queued. This keeps local generation from replying to content
+  # that has already been withdrawn.
+  defp reject_tombstoned_event_source(repo, %ActorEvent{} = event, now) do
+    source_entry_ids = source_entry_ids(event)
+
+    case source_entry_ids do
+      [] ->
+        :ok
+
+      [_entry_id | _rest] ->
+        InputTombstone
+        |> where([tombstone], tombstone.agent_uid == ^event.agent_uid)
+        |> where([tombstone], tombstone.binding_name == ^event.binding_name)
+        |> where([tombstone], tombstone.signal_channel_id == ^event.signal_channel_id)
+        |> where([tombstone], tombstone.source_entry_id in ^source_entry_ids)
+        |> where([tombstone], tombstone.tombstoned_until > ^now)
+        |> repo.exists?()
+        |> case do
+          true -> {:error, :actor_event_canceled}
+          false -> :ok
+        end
+    end
+  end
+
+  defp source_entry_ids(%ActorEvent{} = event) do
+    [event.source_entry_id | source_entry_ids(event.payload)]
+    |> Enum.filter(&is_binary/1)
+    |> Enum.uniq()
+  end
+
+  defp source_entry_ids(%{"data" => %{"entries" => entries}}) when is_list(entries) do
+    Enum.map(entries, fn
+      %{"source_entry_id" => source_entry_id} -> source_entry_id
+      _entry -> nil
+    end)
+  end
+
+  defp source_entry_ids(_payload), do: []
+
+  defp insert_outbox_intents(_repo, _actor_event, []), do: {:ok, []}
+
+  # Writes provider outbox intents in the same transaction as event completion.
+  # That makes "message committed" and "reply scheduled" one durable decision.
+  defp insert_outbox_intents(repo, actor_event, outbox_intents) when is_list(outbox_intents) do
+    outbox_intents
+    |> Enum.map(&insert_outbox_intent(repo, actor_event, &1))
+    |> collect_results()
+  end
+
+  defp insert_outbox_intents(_repo, _actor_event, _outbox_intents),
+    do: {:error, :invalid_outbox_intents}
+
+  defp insert_outbox_intent(repo, actor_event, attrs) when is_map(attrs) do
+    attrs =
+      attrs
+      |> Map.put_new(:agent_uid, actor_event.agent_uid)
+      |> Map.put_new(:binding_name, actor_event.binding_name)
+      |> Map.put_new(:signal_channel_id, actor_event.signal_channel_id)
+      |> Map.put_new(:provider_thread_id, actor_event.provider_thread_id)
+      |> Map.put_new(:reply_to_source_entry_id, actor_event.source_entry_id)
+      # Source table: source_actor_event_id stores the actor_events.id whose
+      # completion is committing these provider outbox intents.
+      |> Map.put_new(:source_actor_event_id, actor_event.id)
+
+    Outbox.commit_outbox_in_tx(repo, attrs)
+  end
+
+  defp insert_outbox_intent(_repo, _actor_event, _attrs), do: {:error, :invalid_outbox_intent}
+
+  defp collect_results(results) do
+    Enum.reduce_while(results, {:ok, []}, fn
+      {:ok, value}, {:ok, acc} -> {:cont, {:ok, [value | acc]}}
+      {:error, _reason} = error, _acc -> {:halt, error}
+    end)
+    |> case do
+      {:ok, values} -> {:ok, Enum.reverse(values)}
+      {:error, _reason} = error -> error
+    end
+  end
+end

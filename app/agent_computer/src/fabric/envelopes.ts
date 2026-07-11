@@ -79,6 +79,35 @@ export function turnNoopCompletedEnvelope(
 }
 
 /**
+ * Reports the final response selected by the worker-owned Agent loop.
+ *
+ * A completed model response is not itself an Actor turn terminal. Only the
+ * loop driver can emit this envelope after it has decided no further model or
+ * tool iteration is needed.
+ */
+export function turnCompletedEnvelope(
+  turn: ActorTurnRef,
+  finalResponseId: string,
+  outcome: 'loop_finished' | 'iteration_exhausted',
+  correlationId?: string
+): RuntimeFabricEnvelope {
+  return baseEnvelope(
+    'turn-completed',
+    'LANE_TURN',
+    'CONTROL_REPLAYABLE',
+    {
+      type: 'turn_completed',
+      turn_completed: {
+        turn,
+        final_response_id: finalResponseId,
+        outcome
+      }
+    },
+    correlationId
+  )
+}
+
+/**
  * Builds an ephemeral progress envelope for an already accepted turn.
  *
  * Progress messages are useful for observability but are not replayed as turn

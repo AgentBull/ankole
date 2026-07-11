@@ -8,12 +8,11 @@ defmodule Ankole.SignalsGateway.Ingress do
   actor-facing events when the accepted fact should wake an actor.
   """
 
-  alias Ankole.ActorRuntime.TurnRetry
-  alias Ankole.Actors
-  alias Ankole.Actors.ActorEvent
+  alias Ankole.SignalsGateway.ActorRuntime.TurnRetry
+  alias Ankole.SignalsGateway.Actors
+  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.Repo
   alias Ankole.SignalsGateway.ActorEventEnvelope
-  alias Ankole.SignalsGateway.AIReplyPreview
   alias Ankole.SignalsGateway.Bindings
   alias Ankole.SignalsGateway.Commands
   alias Ankole.SignalsGateway.FactNormalizer
@@ -50,7 +49,6 @@ defmodule Ankole.SignalsGateway.Ingress do
          :match <- IngressPipeline.filter(binding, fact) do
       binding
       |> accept_entry(fact, now)
-      |> maybe_start_preview_handlers()
     else
       :no_match -> {:ok, %{status: :filtered}}
       {:error, _reason} = error -> error
@@ -144,19 +142,11 @@ defmodule Ankole.SignalsGateway.Ingress do
           {:ok, actor_event_append_result(append_result, %{signal_channel: channel})}
         end
       end)
-      |> maybe_start_preview_handlers()
     else
       :no_match -> {:ok, %{status: :filtered}}
       {:error, _reason} = error -> error
     end
   end
-
-  defp maybe_start_preview_handlers({:ok, result} = wrapped) when is_map(result) do
-    _preview_started? = AIReplyPreview.maybe_start_result_handlers(result)
-    wrapped
-  end
-
-  defp maybe_start_preview_handlers(result), do: result
 
   defp emit_lifecycle(agent_uid, binding_name, input, provider_lifecycle_kind, options) do
     now = Keyword.get(options, :now, DateTime.utc_now(:microsecond))
@@ -168,7 +158,6 @@ defmodule Ankole.SignalsGateway.Ingress do
       binding
       |> accept_lifecycle(fact, now)
       |> TurnRetry.dispatch_retry_controls()
-      |> maybe_start_preview_handlers()
     else
       :no_match -> {:ok, %{status: :filtered}}
       {:error, _reason} = error -> error

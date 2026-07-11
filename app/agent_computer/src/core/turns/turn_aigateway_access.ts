@@ -1,5 +1,5 @@
 import type { TurnStart } from '../../lanes/actor_lane'
-import { assertRpcResponse, type AIGatewayApiKeyRejected, type AIGatewayApiKeyResponse } from '../../lanes/rpc_lane'
+import { assertRpcResponse, type AIGatewayApiKeyResponse, type RpcError } from '../../lanes/rpc_lane'
 import {
   httpClientFromAIGatewayApiKey,
   modelConfigFromAIGatewayApiKey,
@@ -9,7 +9,7 @@ import {
 import type { ModelConfig } from '../llm'
 import type { AIGatewayApiKeyRequester } from './turn_options'
 
-type AIGatewayApiKeyResult = AIGatewayApiKeyResponse | AIGatewayApiKeyRejected
+type AIGatewayApiKeyResult = AIGatewayApiKeyResponse | RpcError
 
 export type TurnAIGatewayAccess = {
   model: ModelConfig

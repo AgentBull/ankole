@@ -3,7 +3,7 @@ import { configureConsoleApiClient } from './api/tokens'
 import { ConsoleLayout } from './console-shell'
 import { AgentEditorPage, AgentsListPage } from './pages/agents'
 import { IdentityProviderEditorPage, IdentityProvidersListPage } from './pages/identity'
-import { ProviderEditorPage, ProvidersListPage } from './pages/providers'
+import { CodexAccountEditorPage, ProviderEditorPage, ProvidersListPage } from './pages/providers'
 import { SettingEditorPage, SettingsListPage } from './pages/settings'
 import { SignalBindingEditorPage, SignalsListPage } from './pages/signals'
 import { WorkerFilesPage, WorkersListPage } from './pages/workers'
@@ -31,6 +31,8 @@ const router = createBrowserRouter(
         { path: 'agents/new', element: <AgentEditorPage /> },
         { path: 'agents/:uid', element: <AgentEditorPage /> },
         { path: 'providers', element: <ProvidersListPage /> },
+        { path: 'providers/codex/new', element: <CodexAccountEditorPage /> },
+        { path: 'providers/codex/:accountId', element: <CodexAccountEditorPage /> },
         { path: 'providers/new', element: <ProviderEditorPage /> },
         { path: 'providers/:providerId', element: <ProviderEditorPage /> },
         { path: 'identity', element: <IdentityProvidersListPage /> },

@@ -3,7 +3,7 @@ defmodule Ankole.SignalsGatewayFixtures do
 
   import ExUnit.Assertions
 
-  alias Ankole.Actors.ActorEvent
+  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.RuntimeEvents
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.Ingress

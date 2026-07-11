@@ -24,8 +24,8 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
   import Ankole.E2E.WaitHelpers,
     only: [deadline: 1, wait_for_worker_projection: 3]
 
-  alias Ankole.ActorRuntime.Schemas.AgentComputerWorker
-  alias Ankole.ActorRuntime.Transport.Broker
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
+  alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
   alias Ankole.E2E.FakeOpenAIState
   alias Ankole.Repo
 

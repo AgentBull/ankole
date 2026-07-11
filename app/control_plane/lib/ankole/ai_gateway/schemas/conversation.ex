@@ -1,6 +1,6 @@
 defmodule Ankole.AIGateway.Schemas.Conversation do
   @moduledoc """
-  Durable conversation spine for one agent session, owned by AIGateway.
+  Durable conversation spine for one principal subject, owned by AIGateway.
 
   The conversation row owns only identity, scope, and metadata. It does not store
   a run lease or continuation pointer: the authoritative base for an in-flight
@@ -20,8 +20,8 @@ defmodule Ankole.AIGateway.Schemas.Conversation do
   @timestamps_opts [type: :utc_datetime_usec]
 
   schema "ai_gateway_conversations" do
-    belongs_to(:agent, Principal,
-      foreign_key: :agent_uid,
+    belongs_to(:subject, Principal,
+      foreign_key: :subject_uid,
       references: :uid,
       type: Ankole.Ecto.PrincipalKey
     )
@@ -39,18 +39,18 @@ defmodule Ankole.AIGateway.Schemas.Conversation do
   @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(conversation, attrs) do
     conversation
-    |> cast(attrs, [:agent_uid, :conversation_key, :ended_at, :metadata])
-    |> normalize_blank([:agent_uid, :conversation_key])
-    |> validate_required([:agent_uid, :conversation_key, :metadata])
+    |> cast(attrs, [:subject_uid, :conversation_key, :ended_at, :metadata])
+    |> normalize_blank([:subject_uid, :conversation_key])
+    |> validate_required([:subject_uid, :conversation_key, :metadata])
     |> JsonPayload.validate_map(:metadata, allow_datetime: true)
-    |> foreign_key_constraint(:agent_uid)
+    |> foreign_key_constraint(:subject_uid)
     # Only one *active* (not yet `ended_at`) conversation may exist per
-    # (agent, conversation_key). The backing index is partial on `ended_at IS
+    # (subject, conversation_key). The backing index is partial on `ended_at IS
     # NULL`, so an ended session can be superseded by a new one under the same
     # key. This collision is what `Conversations.ensure_conversation_in_tx/3` relies on
     # to make concurrent first-input safe: it inserts, and on conflict refetches
     # the row the racing writer created.
-    |> unique_constraint([:agent_uid, :conversation_key],
+    |> unique_constraint([:subject_uid, :conversation_key],
       name: :ai_gateway_conversations_active_key_index
     )
     |> check_constraint(:metadata, name: :ai_gateway_conversations_metadata_object)

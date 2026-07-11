@@ -246,3 +246,17 @@ If no failure boundary changed, avoid changing the supervision tree.
 - Keep runtime and worker integration tests out of the default fast test path. Use package-local checks by default and dedicated Mix/Bun commands for Docker-backed Agent Computer or real-provider e2e flows.
 - Multiple coding agents may work in parallel on the same branch. Unrelated files or diffs in Git status are normal; do not revert or touch them unless your task explicitly requires it.
 - Verify outcomes before final claims. Do not say a bug is fixed, a feature works, or a migration is safe unless you ran the relevant command or clearly state what remains unverified.
+
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in GitHub Issues; external pull requests are not a triage surface. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The repository uses the five default triage labels without overrides. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This repository uses a single-context domain documentation layout. See `docs/agents/domain.md`.

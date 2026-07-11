@@ -8,8 +8,10 @@ defmodule Ankole.SignalsGateway do
   and actor-event handoff.
   """
 
-  alias Ankole.Actors.ActorEvent
-  alias Ankole.SignalsGateway.AIReplyPreview
+  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.SignalsGateway.ActorRuntime
+  alias Ankole.SignalsGateway.ActorRuntime.SessionController
+  alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.Bindings
   alias Ankole.SignalsGateway.InboundBatches
   alias Ankole.SignalsGateway.Outbox
@@ -18,6 +20,31 @@ defmodule Ankole.SignalsGateway do
   alias Ankole.SignalsGateway.Binding
   alias Ankole.SignalsGateway.StateCleanup
   alias Ankole.SignalsGateway.Utils
+
+  @doc """
+  Appends one durable Actor event inside a caller-owned transaction.
+  """
+  defdelegate append_actor_event_in_tx(repo, attrs), to: Actors
+
+  @doc false
+  defdelegate mark_actor_event_completed_in_tx(repo, event, completed_at),
+    to: Actors,
+    as: :mark_event_completed_in_tx
+
+  @doc false
+  defdelegate process_actor_session_ready(actor_key), to: SessionController, as: :process_ready
+
+  @doc false
+  defdelegate list_workers(), to: ActorRuntime
+
+  @doc false
+  defdelegate mark_worker_stale_if_due(worker_id, opts \\ []), to: ActorRuntime
+
+  @doc false
+  defdelegate delete_worker_if_due(worker_id, opts \\ []), to: ActorRuntime
+
+  @doc false
+  defdelegate fail_activation_if_expired(activation_uid, opts \\ []), to: ActorRuntime
 
   @doc """
   Creates or updates a per-agent signal binding.
@@ -132,16 +159,13 @@ defmodule Ankole.SignalsGateway do
   @spec finalize_inbound_batch_by_id(String.t(), non_neg_integer(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def finalize_inbound_batch_by_id(batch_id, batch_revision, opts \\ []) do
-    with {:ok, result} <-
-           InboundBatches.finalize_inbound_batch_by_id(batch_id, batch_revision, opts) do
-      AIReplyPreview.maybe_start_result_handlers(result)
-      {:ok, result}
-    end
+    InboundBatches.finalize_inbound_batch_by_id(batch_id, batch_revision, opts)
   end
 
   @doc false
   @spec runtime_event_snapshot() :: [{String.t(), map()}]
   def runtime_event_snapshot do
-    InboundBatches.runtime_event_snapshot() ++ Outbox.runtime_event_snapshot()
+    ActorRuntime.runtime_event_snapshot() ++
+      InboundBatches.runtime_event_snapshot() ++ Outbox.runtime_event_snapshot()
   end
 end

@@ -5,7 +5,7 @@ use crate::common::{KernelError, KernelResult};
 use super::{
     PROTOCOL_VERSION,
     body::BodyKind,
-    enums::{durability_from_json, lane_from_json},
+    enums::{durability_from_json, lane_from_json, turn_completion_outcome_from_json},
     json::*,
     proto,
 };
@@ -72,6 +72,9 @@ fn named_body_from_json(name: &str, payload: &Value) -> KernelResult<proto::enve
         )?)),
         BodyKind::TurnNoopCompleted => Ok(proto::envelope::Body::TurnNoopCompleted(
             turn_noop_completed_from_json(payload)?,
+        )),
+        BodyKind::TurnCompleted => Ok(proto::envelope::Body::TurnCompleted(
+            turn_completed_from_json(payload)?,
         )),
         BodyKind::ControlShutdown => Ok(proto::envelope::Body::ControlShutdown(
             control_shutdown_from_json(payload)?,
@@ -191,6 +194,16 @@ fn turn_noop_completed_from_json(value: &Value) -> KernelResult<proto::TurnNoopC
     Ok(proto::TurnNoopCompleted {
         turn: Some(turn_ref_from_json(required_value(object, "turn")?)?),
         reason: optional_string(object, "reason")?.unwrap_or_default(),
+    })
+}
+
+fn turn_completed_from_json(value: &Value) -> KernelResult<proto::TurnCompleted> {
+    let object = object(value, "turn_completed")?;
+
+    Ok(proto::TurnCompleted {
+        turn: Some(turn_ref_from_json(required_value(object, "turn")?)?),
+        final_response_id: required_string(object, "final_response_id")?,
+        outcome: turn_completion_outcome_from_json(required_value(object, "outcome")?)? as i32,
     })
 }
 

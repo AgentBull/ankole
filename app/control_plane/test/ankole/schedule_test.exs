@@ -3,21 +3,20 @@ defmodule Ankole.ScheduleTest do
 
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.StatefulResponses
-  alias Ankole.AIGateway.ModelProfiles
+  alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.Schemas.Message
-  alias Ankole.Actors
-  alias Ankole.Actors.ActorEvent
-  alias Ankole.ActorRuntime
-  alias Ankole.ActorRuntime.TurnRef
-  alias Ankole.ActorRuntime.WorkerRouteAuth
-  alias Ankole.ActorRuntime.Schemas.ActorEventDelivery
-  alias Ankole.ActorRuntime.Transport.Broker
+  alias Ankole.SignalsGateway.Actors
+  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.SignalsGateway.ActorRuntime
+  alias Ankole.SignalsGateway.ActorRuntime.TurnRef
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerRouteAuth
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
+  alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
   alias Ankole.PluginFixtures.MockSignalProviderPlugin
   alias Ankole.PluginFixtures.MockSignalProvider.Inbound, as: MockInbound
   alias Ankole.Plugins.Spec
   alias Ankole.Repo
   alias Ankole.Schedule
-  alias Ankole.Schedule.RPCBroker
   alias Ankole.Schedule.Schemas.ScheduledEvent
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.AdapterContext
@@ -26,7 +25,8 @@ defmodule Ankole.ScheduleTest do
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Entry
 
-  import Ankole.ActorRuntimeCase, only: [complete_actor_event: 4, process_ready_events_once: 1]
+  import Ankole.SignalsGateway.ActorRuntimeCase,
+    only: [complete_actor_event: 4, process_ready_events_once: 1]
 
   @base_time DateTime.utc_now(:microsecond)
   @long_lease_seconds 604_800
@@ -112,7 +112,7 @@ defmodule Ankole.ScheduleTest do
                )
 
       assert :ok =
-               perform_job(Ankole.ActorRuntime.Jobs.FireScheduledEvent, %{
+               perform_job(Ankole.SignalsGateway.ActorRuntime.Jobs.FireScheduledEvent, %{
                  "scheduled_event_id" => event.id
                })
 
@@ -365,9 +365,11 @@ defmodule Ankole.ScheduleTest do
 
       assert {:ok, generating_message} =
                StatefulResponses.start_response_run(%{
-                 agent_uid: agent.uid,
+                 subject_uid: agent.uid,
                  conversation_id: conversation.id,
-                 actor_event_id: turn_ref["actor_event_id"]
+                 metadata: %{
+                   "request_metadata" => %{"actor_event_id" => turn_ref["actor_event_id"]}
+                 }
                })
 
       reply_route = %{
@@ -379,7 +381,7 @@ defmodule Ankole.ScheduleTest do
 
       request = %{
         "request_id" => "schedule-rpc-ok",
-        "turn_ref" => turn_ref,
+        "turn" => turn_ref,
         "tool_call_id" => "checkback-call-1",
         "idempotency_key" => "schedule-rpc-checkback-1",
         "schedule" => %{"after" => %{"value" => 5, "unit" => "minute"}, "timezone" => "Etc/UTC"},
@@ -414,7 +416,7 @@ defmodule Ankole.ScheduleTest do
 
       cron_request = %{
         "request_id" => "schedule-rpc-cron-ok",
-        "turn_ref" => turn_ref,
+        "turn" => turn_ref,
         "binding_name" => source_event.binding_name,
         "name" => "dashboard-route-cron",
         "schedule" => %{
@@ -455,7 +457,7 @@ defmodule Ankole.ScheduleTest do
                  "cron.update",
                  %{
                    "request_id" => "schedule-rpc-cron-update-bad-route",
-                   "turn_ref" => turn_ref,
+                   "turn" => turn_ref,
                    "cron_schedule_id" => cron_schedule_id,
                    "updates" => %{"delivery" => bad_cron_delivery}
                  },
@@ -619,7 +621,7 @@ defmodule Ankole.ScheduleTest do
                  "cron.add",
                  %{
                    "request_id" => "dashboard-cron-add",
-                   "turn_ref" => turn_ref,
+                   "turn" => turn_ref,
                    "binding_name" => "mock-provider",
                    "name" => "dashboard-morning-check",
                    "schedule" => %{
@@ -660,7 +662,7 @@ defmodule Ankole.ScheduleTest do
       |> Repo.update!()
 
       assert :ok =
-               perform_job(Ankole.ActorRuntime.Jobs.FireScheduledEvent, %{
+               perform_job(Ankole.SignalsGateway.ActorRuntime.Jobs.FireScheduledEvent, %{
                  "scheduled_event_id" => scheduled_event.id
                })
 
@@ -882,7 +884,7 @@ defmodule Ankole.ScheduleTest do
                  "cron.runs",
                  %{
                    "request_id" => "cron-runs-model-projection",
-                   "turn_ref" => turn_ref,
+                   "turn" => turn_ref,
                    "cron_schedule_id" => schedule.id
                  },
                  route
@@ -900,7 +902,7 @@ defmodule Ankole.ScheduleTest do
                  "cron.pause",
                  %{
                    "request_id" => "cron-origin-pause-denied",
-                   "turn_ref" => turn_ref,
+                   "turn" => turn_ref,
                    "cron_schedule_id" => schedule.id
                  },
                  route
@@ -1039,7 +1041,7 @@ defmodule Ankole.ScheduleTest do
                }
              })
 
-    :ok = Ankole.ActorRuntimeCase.cache_actor_runtime_models(provider_id)
+    :ok = Ankole.SignalsGateway.ActorRuntimeCase.cache_actor_runtime_models(provider_id)
 
     assert {:ok, _profile} =
              ModelProfiles.put_model_profile(agent.uid, "primary", %{
@@ -1103,9 +1105,9 @@ defmodule Ankole.ScheduleTest do
 
     {:ok, run} =
       StatefulResponses.start_response_run(%{
-        agent_uid: agent_uid,
+        subject_uid: agent_uid,
         conversation_id: conversation.id,
-        actor_event_id: actor_event_id
+        metadata: %{"request_metadata" => %{"actor_event_id" => actor_event_id}}
       })
 
     {:ok, committed} =
@@ -1116,6 +1118,15 @@ defmodule Ankole.ScheduleTest do
           "content" => [%{"type" => "output_text", "text" => text}]
         }
       ])
+
+    assert {:ok, %{status: :turn_completed}} =
+             ActorRuntime.handle_turn_completed(%{
+               "turn_completed" => %{
+                 "turn" => turn_ref,
+                 "final_response_id" => "resp_#{committed.id}",
+                 "outcome" => "loop_finished"
+               }
+             })
 
     committed
   end
@@ -1216,7 +1227,7 @@ defmodule Ankole.ScheduleTest do
     {:ok, conversation} = StatefulResponses.ensure_conversation(agent_uid, session_id)
 
     Repo.insert!(%Message{
-      agent_uid: agent_uid,
+      subject_uid: agent_uid,
       conversation_id: conversation.id,
       type: "message",
       role: "assistant",
@@ -1376,18 +1387,18 @@ defmodule Ankole.ScheduleTest do
   end
 
   defp schedule_rpc(action, request, route) do
-    with {:ok, turn_ref} <- TurnRef.from_request(request, :turn_ref),
-         :ok <- WorkerRouteAuth.authorize_turn_route(turn_ref, route, schedule_rpc_effect(action)) do
-      RPCBroker.handle_request(action, turn_ref, request, route)
+    {module, function, scope} =
+      Map.fetch!(Ankole.SignalsGateway.ActorRuntime.RPCLane.operations(), "schedule." <> action)
+
+    effect = if scope == :turn_read, do: :read, else: :write
+
+    with {:ok, turn_ref} <- TurnRef.from_request(request),
+         :ok <- WorkerRouteAuth.authorize_turn_route(turn_ref, route, effect) do
+      apply(module, function, [turn_ref, request, route])
     else
       {:error, reason} -> {:error, schedule_rpc_error(reason)}
     end
   end
-
-  defp schedule_rpc_effect(action) when action in ["cron.list", "cron.get", "cron.runs"],
-    do: :read
-
-  defp schedule_rpc_effect(_action), do: :write
 
   defp schedule_rpc_error(reason) do
     %{

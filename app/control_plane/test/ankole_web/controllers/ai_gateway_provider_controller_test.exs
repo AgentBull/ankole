@@ -3,7 +3,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
 
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.AIGateway.ModelProfiles
+  alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AuthZ
@@ -30,8 +30,16 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     assert Map.has_key?(paths, "/api/v1/ai-gateway/provider-kinds")
     assert Map.has_key?(paths, "/api/v1/ai-gateway/providers")
     assert Map.has_key?(paths, "/api/v1/ai-gateway/providers/{provider_id}")
+    assert Map.has_key?(paths, "/api/v1/codex-accounts")
+    assert Map.has_key?(paths, "/api/v1/codex-accounts/{account_id}")
     assert Map.has_key?(paths, "/api/v1/agents/{agent_uid}/model-profiles")
     assert Map.has_key?(paths, "/api/v1/agents/{agent_uid}/model-profiles/{profile}")
+
+    assert get_in(paths, [
+             "/api/v1/agents/{agent_uid}/model-profiles",
+             "get",
+             "operationId"
+           ]) == "AnkoleWeb.AgentController.index_model_profiles"
   end
 
   test "admin configures provider rows and agent model profiles through the console API", %{
@@ -152,6 +160,67 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     assert %{"error" => %{"code" => "provider_id_mismatch"}} = json_response(conn, 422)
   end
 
+  test "admin manages named Codex accounts and assigns one through the coding model profile", %{
+    conn: conn
+  } do
+    %{principal: agent} = agent_fixture()
+    conn = bearer_conn(conn)
+    auth_json = codex_auth_json("chatgpt-account-1", "initial-token")
+
+    conn =
+      post(conn, ~p"/api/v1/codex-accounts", %{
+        "name" => "Primary ChatGPT",
+        "auth_json" => auth_json
+      })
+
+    assert %{
+             "data" => %{
+               "account_id" => "chatgpt-account-1",
+               "name" => "Primary ChatGPT",
+               "auth_hash" => auth_hash
+             }
+           } = json_response(conn, 200)
+
+    assert is_binary(auth_hash)
+    refute conn.resp_body =~ "initial-token"
+
+    conn =
+      conn
+      |> recycle_api()
+      |> put(~p"/api/v1/agents/#{agent.uid}/model-profiles/coding", %{
+        "codex_account_id" => "chatgpt-account-1"
+      })
+
+    assert %{
+             "data" => %{
+               "profile" => "coding",
+               "configured" => true,
+               "codex_account_id" => "chatgpt-account-1"
+             }
+           } = json_response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> put(~p"/api/v1/codex-accounts/chatgpt-account-1", %{
+        "name" => "Primary subscription",
+        "auth_json" => codex_auth_json("chatgpt-account-1", "refreshed-token")
+      })
+
+    assert %{"data" => %{"name" => "Primary subscription", "auth_hash" => refreshed_hash}} =
+             json_response(conn, 200)
+
+    refute refreshed_hash == auth_hash
+    refute conn.resp_body =~ "refreshed-token"
+
+    conn =
+      conn
+      |> recycle_api()
+      |> delete(~p"/api/v1/codex-accounts/chatgpt-account-1")
+
+    assert %{"error" => %{"code" => "codex_account_in_use"}} = json_response(conn, 422)
+  end
+
   defp bearer_conn(conn) do
     conn
     |> active_admin_conn()
@@ -186,6 +255,17 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
       principal_uid: human.principal.uid,
       provider_id: "lark-main",
       external_id: "external-1"
+    })
+  end
+
+  defp codex_auth_json(account_id, access_token) do
+    Ankole.JSON.encode!(%{
+      "tokens" => %{
+        "access_token" => access_token,
+        "account_id" => account_id,
+        "id_token" => "id-token",
+        "refresh_token" => "refresh-token"
+      }
     })
   end
 

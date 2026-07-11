@@ -4,9 +4,9 @@ defmodule Ankole.MemoryTest do
   import Ankole.AIGatewayCase, only: [start_upstream_server: 1, chat_completion_body: 2]
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.AIGateway.ModelProfiles
+  alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.ProviderConfigs
-  alias Ankole.Actors.ActorEvent
+  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.AppConfigure
   alias Ankole.AuthZ.Group
   alias Ankole.AuthZ.Membership

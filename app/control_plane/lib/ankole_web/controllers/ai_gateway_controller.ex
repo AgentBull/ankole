@@ -1,6 +1,6 @@
 defmodule AnkoleWeb.AIGatewayController do
   @moduledoc """
-  Agent-authenticated AIGateway runtime API.
+  Principal-authenticated AIGateway runtime API.
   """
 
   use AnkoleWeb, :controller
@@ -8,6 +8,7 @@ defmodule AnkoleWeb.AIGatewayController do
 
   alias Ankole.AIGateway
   alias Ankole.Kernel.UniversalAIClient
+  alias AnkoleWeb.AIGatewaySSELimit
   alias OpenApiSpex.Schema
 
   @json_object %Schema{type: :object, additionalProperties: true}
@@ -248,28 +249,30 @@ defmodule AnkoleWeb.AIGatewayController do
 
   defp stream_response(conn, subject_uid, request) do
     case AIGateway.open_sse_stream(subject_uid, request) do
-      {:ok, stream, _meta} ->
+      {:ok, stream, meta} ->
         conn =
           conn
           |> put_resp_header("content-type", "text/event-stream")
           |> put_resp_header("cache-control", "no-cache")
           |> send_chunked(200)
 
-        stream_native_sse_chunks(conn, stream)
+        stream_native_sse_chunks(conn, stream, AIGatewaySSELimit.new(request, meta))
 
       {:error, reason} ->
         error(conn, reason)
     end
   end
 
-  defp stream_native_sse_chunks(conn, stream) do
+  defp stream_native_sse_chunks(conn, stream, limit_state) do
     case UniversalAIClient.read(stream, 1) do
       :ok ->
         receive do
           {:universal_ai_client, ref, :chunk, _seq, :sse, chunk} when ref == stream.ref ->
+            {limit_state, limit_action} = AIGatewaySSELimit.observe(limit_state, chunk)
+
             case Plug.Conn.chunk(conn, chunk) do
               {:ok, conn} ->
-                stream_native_sse_chunks(conn, stream)
+                continue_or_stop_sse(conn, stream, limit_state, limit_action)
 
               {:error, _reason} ->
                 _ = UniversalAIClient.cancel(stream)
@@ -292,6 +295,20 @@ defmodule AnkoleWeb.AIGatewayController do
 
       {:error, _reason} ->
         conn
+    end
+  end
+
+  defp continue_or_stop_sse(conn, stream, limit_state, :continue),
+    do: stream_native_sse_chunks(conn, stream, limit_state)
+
+  defp continue_or_stop_sse(conn, stream, _limit_state, {:stop, incomplete_chunk}) do
+    _ = UniversalAIClient.cancel(stream)
+
+    with {:ok, conn} <- Plug.Conn.chunk(conn, incomplete_chunk),
+         {:ok, conn} <- Plug.Conn.chunk(conn, AIGatewaySSELimit.done_chunk()) do
+      conn
+    else
+      {:error, _reason} -> conn
     end
   end
 

@@ -7,6 +7,7 @@ defmodule Ankole.SubagentDelegations do
   control actions, queries, and audit persistence as separate responsibilities.
   """
 
+  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SubagentDelegations.Audit
   alias Ankole.SubagentDelegations.Control
   alias Ankole.SubagentDelegations.Dispatch
@@ -16,8 +17,13 @@ defmodule Ankole.SubagentDelegations do
   @doc "Creates one durable work item and its isolated dispatch event atomically."
   defdelegate create_with_dispatch(attrs), to: Dispatch
 
-  @doc "Claims one bounded execution attempt and its per-agent running slot."
-  defdelegate prepare_attempt(delegation_id, agent_uid), to: Lifecycle
+  @doc false
+  defdelegate claim_attempt_in_tx(repo, delegation_id, agent_uid, expected_attempt),
+    to: Lifecycle
+
+  @doc false
+  defdelegate requeue_unstarted_attempt(delegation_id, agent_uid, expected_attempt),
+    to: Lifecycle
 
   @doc "Delays one still-open delegation actor event without consuming it."
   defdelegate defer_actor_event(actor_event, available_at), to: Dispatch
@@ -28,16 +34,58 @@ defmodule Ankole.SubagentDelegations do
   @doc "Consumes a superseded initial dispatch before a queued steer starts work."
   defdelegate complete_open_dispatch(delegation_id, agent_uid), to: Dispatch
 
-  @doc false
-  def cleanup_candidates(now \\ DateTime.utc_now(:microsecond), limit \\ 100),
-    do: Dispatch.cleanup_candidates(now, limit)
-
-  @doc false
-  def mark_codex_home_cleaned(delegation_id, cleaned_at \\ DateTime.utc_now(:microsecond)),
-    do: Dispatch.mark_codex_home_cleaned(delegation_id, cleaned_at)
-
   @doc "Commits one lifecycle transition and its parent wakeup atomically."
-  defdelegate commit_status_with_wakeup(delegation_id, agent_uid, attrs), to: Lifecycle
+  def commit_status_with_wakeup(delegation_id, agent_uid, attrs, opts \\ []),
+    do: Lifecycle.commit_status_with_wakeup(delegation_id, agent_uid, attrs, opts)
+
+  defp fail_audit_rejection_in_tx(repo, delegation_id, agent_uid, %DateTime{} = now) do
+    with {:ok, result} <-
+           Lifecycle.commit_status_after_runtime_prefix_in_tx(
+             repo,
+             delegation_id,
+             agent_uid,
+             %{
+               "status" => "failed",
+               "error" => %{
+                 "code" => "audit_persistence_rejected",
+                 "summary" => "Delegation audit persistence was rejected by the control plane."
+               }
+             },
+             now,
+             nil
+           ),
+         {:ok, :ok} <-
+           Dispatch.complete_all_open_events_in_tx(repo, delegation_id, agent_uid, now) do
+      {:ok, result}
+    end
+  end
+
+  @doc false
+  def compensate_turn_error_in_tx(
+        repo,
+        %ActorEvent{agent_uid: agent_uid, session_id: "subagent:" <> delegation_id},
+        %{"details_json" => %{"error_code" => "subagent_audit_persistence_rejected"}},
+        %DateTime{} = now
+      ) do
+    fail_audit_rejection_in_tx(repo, delegation_id, agent_uid, now)
+  end
+
+  def compensate_turn_error_in_tx(_repo, %ActorEvent{}, _reason, %DateTime{}),
+    do: {:ok, nil}
+
+  @doc false
+  def finalize_turn_error({:ok, %{turn_error_compensation: compensation} = result}) do
+    {:ok,
+     result
+     |> Map.delete(:turn_error_compensation)
+     |> Map.put(:status, :subagent_failed)
+     |> Map.put(:subagent_failure, compensation)}
+  end
+
+  def finalize_turn_error(result), do: result
+
+  @doc false
+  defdelegate pending_steer_events(delegation_id, agent_uid, excluded_event_id), to: Dispatch
 
   @doc "Lists work visible from the parent session and channel."
   defdelegate list_for_channel(agent_uid, session_id, signal_channel_id), to: Queries
@@ -65,6 +113,10 @@ defmodule Ankole.SubagentDelegations do
 
   @doc "Appends one ordered trajectory event batch atomically."
   defdelegate append_events(delegation_id, agent_uid, events), to: Audit
+
+  @doc false
+  defdelegate append_worker_events(delegation_id, agent_uid, events, turn_ref, route),
+    to: Audit
 
   @doc "Fetches one delegation for an agent."
   defdelegate get_delegation_for_agent(delegation_id, agent_uid), to: Queries, as: :get_for_agent

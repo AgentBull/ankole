@@ -10,7 +10,7 @@ defmodule Ankole.AIGateway.Schemas.Message do
     - `type = "message"`: an ordinary response/message fact.
     - `type = "checkpoint"`: a response-chain checkpoint that points at one
       compaction artifact.
-    - `status = "generating"`: row is in an active actor-event Responses loop.
+    - `status = "generating"`: a provider response is still in progress.
     - `status = "complete"`: row can enter normal model-chain projection.
     - `status = "error"`: terminal failure; content/metadata.error preserves audit facts.
     - `status = "retracted"`: reserved for future audit/recovery facts and
@@ -42,8 +42,8 @@ defmodule Ankole.AIGateway.Schemas.Message do
   @statuses ~w(generating complete error retracted)
 
   schema "ai_gateway_messages" do
-    belongs_to(:agent, Principal,
-      foreign_key: :agent_uid,
+    belongs_to(:subject, Principal,
+      foreign_key: :subject_uid,
       references: :uid,
       type: Ankole.Ecto.PrincipalKey
     )
@@ -57,8 +57,8 @@ defmodule Ankole.AIGateway.Schemas.Message do
     # `resp_#{id}` always equals `resp_#{ai_gateway_messages.id}` (see plan §1.4).
     field(:previous_message_id, Ecto.UUID)
     field(:content, Ankole.Types.JsonValue, default: [])
-    # Auxiliary facts only: model/provider, usage, provider raw ids, renderer hints,
-    # actor_event_id (AIGateway/ActorRuntime correlation key), request refs.
+    # Caller metadata is opaque to AIGateway. AIGateway-owned response facts such
+    # as model/provider, usage, and provider raw ids also live here.
     # Must NOT carry a second item list.
     field(:metadata, :map, default: %{})
 
@@ -72,7 +72,7 @@ defmodule Ankole.AIGateway.Schemas.Message do
   def changeset(message, attrs) do
     message
     |> cast(attrs, [
-      :agent_uid,
+      :subject_uid,
       :conversation_id,
       :type,
       :role,
@@ -81,9 +81,9 @@ defmodule Ankole.AIGateway.Schemas.Message do
       :content,
       :metadata
     ])
-    |> normalize_blank([:agent_uid, :type, :status, :role])
+    |> normalize_blank([:subject_uid, :type, :status, :role])
     |> validate_required([
-      :agent_uid,
+      :subject_uid,
       :conversation_id,
       :type,
       :status,
@@ -96,14 +96,13 @@ defmodule Ankole.AIGateway.Schemas.Message do
     |> validate_json_array(:content)
     |> JsonPayload.validate_map(:metadata, allow_datetime: true)
     |> validate_type_content_contract()
-    |> foreign_key_constraint(:agent_uid)
+    |> foreign_key_constraint(:subject_uid)
     |> foreign_key_constraint(:conversation_id)
     |> check_constraint(:role, name: :ai_gateway_messages_role_check)
     |> check_constraint(:type, name: :ai_gateway_messages_type_check)
     |> check_constraint(:status, name: :ai_gateway_messages_status_check)
     |> check_constraint(:content, name: :ai_gateway_messages_content_array)
     |> check_constraint(:metadata, name: :ai_gateway_messages_metadata_object)
-    |> unique_constraint(:metadata, name: :ai_gateway_messages_generating_actor_event_index)
     |> unique_constraint(:metadata, name: :ai_gateway_messages_tool_result_journal_key_index)
   end
 

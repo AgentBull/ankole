@@ -7,6 +7,7 @@ defmodule AnkoleWeb.AgentController do
   use OpenApiSpex.ControllerSpecs
 
   alias Ankole.Principals
+  alias Ankole.AIAgent.ModelProfiles
   alias Ankole.Principals.Agent
   alias Ankole.Principals.Principal
   alias AnkoleWeb.ConsoleErrors
@@ -16,6 +17,9 @@ defmodule AnkoleWeb.AgentController do
   alias AnkoleWeb.Schemas.ConsoleApi.AgentResponse
   alias AnkoleWeb.Schemas.ConsoleApi.AgentUpdateRequest
   alias AnkoleWeb.Schemas.ConsoleApi.ErrorEnvelope
+  alias AnkoleWeb.Schemas.ConsoleApi.ModelProfileResponse
+  alias AnkoleWeb.Schemas.ConsoleApi.ModelProfileWriteRequest
+  alias AnkoleWeb.Schemas.ConsoleApi.ModelProfilesResponse
 
   tags(["Agents"])
   security([%{"consoleBearer" => []}])
@@ -78,6 +82,40 @@ defmodule AnkoleWeb.AgentController do
     ]
   )
 
+  operation(:index_model_profiles,
+    summary: "Read all model profiles for one agent",
+    parameters: [agent_uid: [in: :path, type: :string, required: true]],
+    responses: [
+      ok: {"Model profiles", "application/json", ModelProfilesResponse},
+      not_found: {"Not found", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  operation(:put_model_profile,
+    summary: "Create or update one model profile for an agent",
+    parameters: [
+      agent_uid: [in: :path, type: :string, required: true],
+      profile: [in: :path, type: :string, required: true]
+    ],
+    request_body: {"Model profile", "application/json", ModelProfileWriteRequest, required: true},
+    responses: [
+      ok: {"Model profile", "application/json", ModelProfileResponse},
+      unprocessable_entity: {"Invalid model profile", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  operation(:delete_model_profile,
+    summary: "Clear one optional model profile for an agent",
+    parameters: [
+      agent_uid: [in: :path, type: :string, required: true],
+      profile: [in: :path, type: :string, required: true]
+    ],
+    responses: [
+      ok: {"Model profile", "application/json", ModelProfileResponse},
+      unprocessable_entity: {"Profile cannot be cleared", "application/json", ErrorEnvelope}
+    ]
+  )
+
   def index(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "agents", "read") do
       json(conn, %{data: Enum.map(Principals.list_active_agents(), &agent_json/1)})
@@ -128,6 +166,42 @@ defmodule AnkoleWeb.AgentController do
     end
   end
 
+  def index_model_profiles(conn, params) do
+    with {:ok, agent_uid} <- agent_uid_param(params),
+         :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}:model_profiles", "read"),
+         {:ok, profiles} <- ModelProfiles.get_model_profiles(agent_uid) do
+      json(conn, %{data: profiles})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def put_model_profile(conn, params) do
+    with {:ok, agent_uid} <- agent_uid_param(params),
+         {:ok, profile} <- profile_param(params),
+         :ok <-
+           ConsolePolicy.authorize(conn, "agent:#{agent_uid}:model_profile:#{profile}", "update"),
+         {:ok, %{profile: profile_attrs}} <-
+           ModelProfiles.put_model_profile(agent_uid, profile, conn.body_params) do
+      json(conn, %{data: model_profile_payload(profile, profile_attrs)})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def delete_model_profile(conn, params) do
+    with {:ok, agent_uid} <- agent_uid_param(params),
+         {:ok, profile} <- profile_param(params),
+         :ok <-
+           ConsolePolicy.authorize(conn, "agent:#{agent_uid}:model_profile:#{profile}", "delete"),
+         {:ok, %{profile: profile_attrs}} <-
+           ModelProfiles.put_model_profile(agent_uid, profile, nil) do
+      json(conn, %{data: model_profile_payload(profile, profile_attrs)})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
   defp create_attrs(attrs, current_principal_uid) when is_map(attrs) do
     {:ok,
      attrs
@@ -159,6 +233,22 @@ defmodule AnkoleWeb.AgentController do
       _value ->
         {:error, {:missing, "agent_uid"}}
     end
+  end
+
+  defp profile_param(params) do
+    case Map.get(params, :profile, Map.get(params, "profile")) do
+      value when is_binary(value) and value != "" -> {:ok, value}
+      _value -> {:error, {:missing, "profile"}}
+    end
+  end
+
+  defp model_profile_payload(profile, nil), do: %{"profile" => profile, "configured" => false}
+
+  defp model_profile_payload(profile, attrs) do
+    attrs
+    |> normalize_external_attrs()
+    |> Map.put("profile", profile)
+    |> Map.put("configured", true)
   end
 
   defp agent_json(%{principal: %Principal{} = principal, agent: %Agent{} = agent}) do

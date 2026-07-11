@@ -1,8 +1,5 @@
 defmodule Ankole.RuntimeEvents.SchedulerTest do
-  use Ankole.DataCase, async: false
-
-  import Ankole.PrincipalsFixtures
-  import Ankole.SignalsGatewayFixtures
+  use Ankole.SignalsGateway.ActorRuntimeCase
 
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.PluginFixtures.MockSignalProvider.Outbox, as: MockOutbox
@@ -20,10 +17,12 @@ defmodule Ankole.RuntimeEvents.SchedulerTest do
   describe "steady-state sweep" do
     test "dispatches a due outbox that missed its notification" do
       capture_mock_outbox()
-      %{message: message} = start_im_visible_response_run()
+      %{message: message, turn_ref: turn_ref} = start_im_visible_response_run()
 
       assert {:ok, completed} =
                StatefulResponses.commit_complete(message, assistant_content("sweep final"))
+
+      assert_turn_completed(turn_ref, completed)
 
       outbox = Repo.get_by!(OutboxEntry, outbound_key: "ai-reply:#{message.id}")
       _scheduler = start_scheduler!(sweep_interval_ms: 50)
@@ -40,10 +39,12 @@ defmodule Ankole.RuntimeEvents.SchedulerTest do
     test "keeps existing deadline timers alive when sweep snapshot fails" do
       capture_mock_outbox()
       parent = self()
-      %{message: message} = start_im_visible_response_run()
+      %{message: message, turn_ref: turn_ref} = start_im_visible_response_run()
 
       assert {:ok, _completed} =
                StatefulResponses.commit_complete(message, assistant_content("deadline final"))
+
+      assert_turn_completed(turn_ref, message)
 
       outbox = Repo.get_by!(OutboxEntry, outbound_key: "ai-reply:#{message.id}")
       scheduler = start_scheduler!(sweep_interval_ms: 40)
@@ -76,10 +77,12 @@ defmodule Ankole.RuntimeEvents.SchedulerTest do
 
     test "does not redeliver an outbox already dispatched by notification" do
       capture_mock_outbox()
-      %{message: message} = start_im_visible_response_run()
+      %{message: message, turn_ref: turn_ref} = start_im_visible_response_run()
 
       assert {:ok, _completed} =
                StatefulResponses.commit_complete(message, assistant_content("single delivery"))
+
+      assert_turn_completed(turn_ref, message)
 
       outbox = Repo.get_by!(OutboxEntry, outbound_key: "ai-reply:#{message.id}")
       scheduler = start_scheduler!(sweep_interval_ms: 300)
@@ -162,29 +165,59 @@ defmodule Ankole.RuntimeEvents.SchedulerTest do
   defp start_im_visible_response_run do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "mock", :ignore, adapter: "mock-provider")
+    route = unique_route()
+    :ok = Broker.register_local_worker(route, self())
+    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    assert {:ok, _worker} = admit_worker(route)
 
-    %{actor_event: event} =
-      emit_addressed_actor_event(
-        agent.uid,
-        "mock",
-        group_entry(%{
-          explicit: true,
-          source_event_id: "evt-#{System.unique_integer([:positive])}",
-          source_entry_id: "msg-#{System.unique_integer([:positive])}"
-        })
-      )
+    assert {:ok, %{actor_event: event}} =
+             emit_entry(
+               agent.uid,
+               "mock",
+               group_entry(%{
+                 explicit: true,
+                 source_event_id: "evt-#{System.unique_integer([:positive])}",
+                 source_entry_id: "msg-#{System.unique_integer([:positive])}"
+               }),
+               now: @base_time
+             )
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             process_ready_events_once(
+               now: DateTime.add(@base_time, 1, :second),
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert_receive {:actor_lane, envelope}
+    turn_ref = envelope["body"]["turn_start"]["turn"]
+
+    assert {:ok, [_delivery]} =
+             ActorRuntime.handle_turn_accepted(%{
+               "turn_accepted" => %{"turn" => turn_ref}
+             })
 
     assert {:ok, conversation} =
              StatefulResponses.ensure_conversation(agent.uid, event.session_id)
 
     assert {:ok, message} =
              StatefulResponses.start_response_run(%{
-               agent_uid: agent.uid,
+               subject_uid: agent.uid,
                conversation_id: conversation.id,
-               actor_event_id: event.id
+               metadata: %{"request_metadata" => %{"actor_event_id" => event.id}}
              })
 
-    %{agent: agent, event: event, message: message}
+    %{agent: agent, event: event, message: message, turn_ref: turn_ref}
+  end
+
+  defp assert_turn_completed(turn_ref, message) do
+    assert {:ok, %{status: :turn_completed}} =
+             ActorRuntime.handle_turn_completed(%{
+               "turn_completed" => %{
+                 "turn" => turn_ref,
+                 "final_response_id" => "resp_#{message.id}",
+                 "outcome" => "loop_finished"
+               }
+             })
   end
 
   defp assistant_content(text) do

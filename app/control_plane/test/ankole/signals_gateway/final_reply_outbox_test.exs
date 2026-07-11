@@ -1,8 +1,5 @@
 defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
-  use Ankole.DataCase, async: false
-
-  import Ankole.PrincipalsFixtures
-  import Ankole.SignalsGatewayFixtures
+  use Ankole.SignalsGateway.ActorRuntimeCase
 
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.PluginFixtures.MockSignalProvider.Outbox, as: MockOutbox
@@ -18,12 +15,13 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
   setup :use_mock_signal_provider_plugin
 
   describe "durable final reply outbox" do
-    test "terminal commit without preview writes a durable reply outbox and mirrors after success" do
-      %{message: message, event: event} = start_im_visible_response_run()
+    test "turn completion without preview writes a durable reply outbox and mirrors after success" do
+      %{message: message, event: event, turn_ref: turn_ref} = start_im_visible_response_run()
       content = assistant_content("final answer")
 
       assert {:ok, completed} = StatefulResponses.commit_complete(message, content)
       assert completed.status == "complete"
+      assert_turn_completed(turn_ref, completed)
 
       outbox = Repo.get_by!(OutboxEntry, outbound_key: "ai-reply:#{message.id}")
       assert outbox.operation == :reply
@@ -45,12 +43,17 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
       assert ai_message_id == message.id
     end
 
-    test "terminal commit with preview writes a durable edit outbox and upserts final marker" do
-      %{message: message, event: event} = start_im_visible_response_run()
-      assert :ok = StatefulResponses.record_preview_source_entry(event.id, "provider-preview")
+    test "turn completion with preview writes a durable edit outbox and upserts final marker" do
+      %{message: message, event: event, turn_ref: turn_ref} = start_im_visible_response_run()
 
-      assert {:ok, _completed} =
+      event
+      |> ActorEvent.changeset(%{reply_preview_source_entry_id: "provider-preview"})
+      |> Repo.update!()
+
+      assert {:ok, completed} =
                StatefulResponses.commit_complete(message, assistant_content("edited final"))
+
+      assert_turn_completed(turn_ref, completed)
 
       outbox = Repo.get_by!(OutboxEntry, outbound_key: "ai-reply:#{message.id}")
       assert outbox.operation == :edit
@@ -81,10 +84,12 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
         MockOutbox.delete_recipient()
       end)
 
-      %{message: message} = start_im_visible_response_run()
+      %{message: message, turn_ref: turn_ref} = start_im_visible_response_run()
 
       assert {:ok, completed} =
                StatefulResponses.commit_complete(message, assistant_content("scheduled final"))
+
+      assert_turn_completed(turn_ref, completed)
 
       outbox = Repo.get_by!(OutboxEntry, outbound_key: "ai-reply:#{message.id}")
       scheduler = start_runtime_events_scheduler!()
@@ -109,29 +114,59 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
   defp start_im_visible_response_run do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "mock", :ignore, adapter: "mock-provider")
+    route = unique_route()
+    :ok = Broker.register_local_worker(route, self())
+    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    assert {:ok, _worker} = admit_worker(route)
 
-    %{actor_event: event} =
-      emit_addressed_actor_event(
-        agent.uid,
-        "mock",
-        group_entry(%{
-          explicit: true,
-          source_event_id: "evt-#{System.unique_integer([:positive])}",
-          source_entry_id: "msg-#{System.unique_integer([:positive])}"
-        })
-      )
+    assert {:ok, %{actor_event: event}} =
+             emit_entry(
+               agent.uid,
+               "mock",
+               group_entry(%{
+                 explicit: true,
+                 source_event_id: "evt-#{System.unique_integer([:positive])}",
+                 source_entry_id: "msg-#{System.unique_integer([:positive])}"
+               }),
+               now: @base_time
+             )
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             process_ready_events_once(
+               now: DateTime.add(@base_time, 1, :second),
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert_receive {:actor_lane, envelope}
+    turn_ref = envelope["body"]["turn_start"]["turn"]
+
+    assert {:ok, [_delivery]} =
+             ActorRuntime.handle_turn_accepted(%{
+               "turn_accepted" => %{"turn" => turn_ref}
+             })
 
     assert {:ok, conversation} =
              StatefulResponses.ensure_conversation(agent.uid, event.session_id)
 
     assert {:ok, message} =
              StatefulResponses.start_response_run(%{
-               agent_uid: agent.uid,
+               subject_uid: agent.uid,
                conversation_id: conversation.id,
-               actor_event_id: event.id
+               metadata: %{"request_metadata" => %{"actor_event_id" => event.id}}
              })
 
-    %{agent: agent, event: event, message: message}
+    %{agent: agent, event: event, message: message, turn_ref: turn_ref}
+  end
+
+  defp assert_turn_completed(turn_ref, message) do
+    assert {:ok, %{status: :turn_completed}} =
+             ActorRuntime.handle_turn_completed(%{
+               "turn_completed" => %{
+                 "turn" => turn_ref,
+                 "final_response_id" => "resp_#{message.id}",
+                 "outcome" => "loop_finished"
+               }
+             })
   end
 
   defp assistant_content(text) do

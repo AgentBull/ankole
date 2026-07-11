@@ -83,33 +83,30 @@ describe('@ankole/agent-computer subagent tool', () => {
     expect('status' in stopped.details ? stopped.details.status : undefined).toBe('stopped')
   })
 
-  it('copies official subscription config and credentials byte-for-byte into durable CODEX_HOME', () => {
+  it('writes fixed official config and credentials into account-scoped CODEX_HOME', () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-subagent-home-'))
     try {
-      const configToml = [
-        'model = "gpt-5.5"',
-        'web_search = "live"',
-        '',
-        '[mcp_servers.context7.http_headers]',
-        'CONTEXT7_API_KEY = "sensitive-config-credential"'
-      ].join('\n')
       const authJson = '{"tokens":{"access_token":"sensitive-subscription-token"}}'
       const materialized = materializeCodexConfig({
-        workspaceRoot: root,
-        delegationId: '019f0000-0000-7000-8000-000000000001',
-        override: {
+        sharedFsRoot: root,
+        runtime: {
           mode: 'official_subscription',
-          config_toml: configToml,
-          auth_json: authJson
+          accountId: 'account-1',
+          authJson,
+          authHash: 'hash-1'
         }
       })
 
-      expect(materialized.codexHome).toBe(
-        join(root, '.ankole', 'subagent', '019f0000-0000-7000-8000-000000000001', 'home')
-      )
+      expect(materialized.codexHome).toBe(join(root, '.ankole', 'codex', 'account-1'))
       const configPath = join(materialized.codexHome, 'config.toml')
       const authPath = join(materialized.codexHome, 'auth.json')
-      expect(readFileSync(configPath, 'utf8')).toBe(configToml)
+      const config = readFileSync(configPath, 'utf8')
+      expect(config).toContain('web_search = "disabled"')
+      expect(config).toContain('multi_agent = false')
+      expect(config).toContain('apps = false')
+      expect(config).toContain('plugins = false')
+      expect(config).not.toContain('base_url')
+      expect(config).not.toContain('model_provider')
       expect(readFileSync(authPath, 'utf8')).toBe(authJson)
       expect(statSync(configPath).mode & 0o777).toBe(0o600)
       expect(statSync(authPath).mode & 0o777).toBe(0o600)
@@ -122,34 +119,32 @@ describe('@ankole/agent-computer subagent tool', () => {
   it('disables Codex native web search in the generated AIGateway config', () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-subagent-aigateway-config-'))
     try {
-      materializeCodexConfig({
-        workspaceRoot: root,
-        delegationId: '019f0000-0000-7000-8000-000000000002',
-        override: {
-          mode: 'official_subscription',
-          auth_json: { tokens: { access_token: 'stale-subscription-token' } }
-        }
-      })
-
       const materialized = materializeCodexConfig({
-        workspaceRoot: root,
-        delegationId: '019f0000-0000-7000-8000-000000000002',
-        override: null,
-        aiGatewayKey: {
-          request_id: 'key-1',
-          agent_uid: 'agent-1',
-          api_key: 'test-key',
-          token_type: 'Bearer',
-          expires_at: Math.floor(Date.now() / 1000) + 3600,
-          expires_in: 3600,
-          scope: 'ai_gateway',
-          base_url: 'http://control.test/api/v1/ai-gateway'
+        sharedFsRoot: root,
+        runtime: {
+          mode: 'aigateway',
+          accountId: 'aigateway',
+          modelOverride: 'coding',
+          aiGatewayKey: {
+            request_id: 'key-1',
+            agent_uid: 'agent-1',
+            api_key: 'test-key',
+            token_type: 'Bearer',
+            expires_at: Math.floor(Date.now() / 1000) + 3600,
+            expires_in: 3600,
+            scope: 'ai_gateway',
+            base_url: 'http://control.test/api/v1/ai-gateway'
+          }
         }
       })
 
       const config = readFileSync(join(materialized.codexHome, 'config.toml'), 'utf8')
       expect(config).toContain('web_search = "disabled"')
       expect(config).toContain('name = "Ankole AIGateway"')
+      expect(config).toContain('model_provider = "ankole_aigateway"')
+      expect(config).toContain('[model_providers.ankole_aigateway]')
+      expect(config).not.toContain('[model_providers.openai]')
+      expect(config).toContain('base_url = "http://control.test/api/v1/ai-gateway"')
       expect(existsSync(join(materialized.codexHome, 'auth.json'))).toBe(false)
     } finally {
       rmSync(root, { recursive: true, force: true })
@@ -182,6 +177,7 @@ function response(): SubagentDelegationResponse {
     session_id: 'session-1',
     status: 'queued',
     runtime: 'codex',
+    codex_account_id: 'aigateway',
     title: 'Launch brief',
     prompt: 'Write the brief.',
     reply_route: { binding_name: 'lark', signal_channel_id: 'chat-1' },

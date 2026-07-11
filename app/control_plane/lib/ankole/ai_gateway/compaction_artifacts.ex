@@ -18,7 +18,7 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
   @handle_prefix "ankole:compact:v1:"
 
   @type artifact_attrs :: %{
-          required(:agent_uid) => String.t(),
+          required(:subject_uid) => String.t(),
           optional(:id) => Ecto.UUID.t(),
           optional(:conversation_id) => Ecto.UUID.t() | nil,
           required(:summary_text) => String.t(),
@@ -63,31 +63,31 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
   @spec insert_artifact_in_tx(module(), artifact_attrs()) ::
           {:ok, CompactionArtifact.t()} | {:error, term()}
   def insert_artifact_in_tx(repo, attrs) when is_map(attrs) do
-    with {:ok, agent_uid} <- Principals.normalize_uid(Map.fetch!(attrs, :agent_uid)),
+    with {:ok, subject_uid} <- Principals.normalize_uid(Map.fetch!(attrs, :subject_uid)),
          {:ok, id} <- artifact_id(attrs),
          {:ok, content} <- artifact_content(id, attrs) do
       %CompactionArtifact{id: id}
       |> CompactionArtifact.changeset(%{
-        agent_uid: agent_uid,
+        subject_uid: subject_uid,
         conversation_id: Map.get(attrs, :conversation_id),
         content: content
       })
       |> repo.insert()
     else
-      {:error, :invalid_uid} -> {:error, :invalid_agent}
+      {:error, :invalid_uid} -> {:error, :invalid_subject}
       {:error, _reason} = error -> error
     end
   end
 
-  @spec get_for_agent(String.t(), String.t()) ::
+  @spec get_for_subject(String.t(), String.t()) ::
           {:ok, CompactionArtifact.t()} | {:error, :invalid_compaction_handle}
-  def get_for_agent(agent_uid, public_or_handle) when is_binary(public_or_handle) do
-    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
+  def get_for_subject(subject_uid, public_or_handle) when is_binary(public_or_handle) do
+    with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid),
          {:ok, id} <- artifact_uuid(public_or_handle),
          %CompactionArtifact{} = artifact <-
            Repo.one(
              from(artifact in CompactionArtifact,
-               where: artifact.id == ^id and artifact.agent_uid == ^agent_uid
+               where: artifact.id == ^id and artifact.subject_uid == ^subject_uid
              )
            ) do
       {:ok, artifact}
@@ -130,10 +130,10 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
   """
   @spec output_for_checkpoint(String.t(), Message.t()) ::
           {:ok, [map()]} | {:error, :invalid_compaction_handle}
-  def output_for_checkpoint(agent_uid, %Message{type: "checkpoint", content: [ref]}) do
+  def output_for_checkpoint(subject_uid, %Message{type: "checkpoint", content: [ref]}) do
     case ref do
       %{"type" => "compaction_artifact", "id" => public_id} ->
-        with {:ok, artifact} <- get_for_agent(agent_uid, public_id) do
+        with {:ok, artifact} <- get_for_subject(subject_uid, public_id) do
           {:ok, output(artifact)}
         end
 
@@ -142,14 +142,14 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
     end
   end
 
-  def output_for_checkpoint(_agent_uid, _message), do: {:ok, []}
+  def output_for_checkpoint(_subject_uid, _message), do: {:ok, []}
 
   @spec summary_for_checkpoint(String.t(), Message.t()) ::
           {:ok, String.t() | nil} | {:error, :invalid_compaction_handle}
-  def summary_for_checkpoint(agent_uid, %Message{type: "checkpoint", content: [ref]}) do
+  def summary_for_checkpoint(subject_uid, %Message{type: "checkpoint", content: [ref]}) do
     case ref do
       %{"type" => "compaction_artifact", "id" => public_id} ->
-        with {:ok, artifact} <- get_for_agent(agent_uid, public_id) do
+        with {:ok, artifact} <- get_for_subject(subject_uid, public_id) do
           {:ok, summary_text(artifact)}
         end
 
@@ -158,7 +158,7 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
     end
   end
 
-  def summary_for_checkpoint(_agent_uid, _message), do: {:ok, nil}
+  def summary_for_checkpoint(_subject_uid, _message), do: {:ok, nil}
 
   @doc """
   Replaces Ankole compaction handles in Response input items with summary text.
@@ -169,9 +169,9 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
   """
   @spec resolve_input_handles(String.t(), [map()]) ::
           {:ok, [map()]} | {:error, :invalid_compaction_handle}
-  def resolve_input_handles(agent_uid, items) when is_list(items) do
+  def resolve_input_handles(subject_uid, items) when is_list(items) do
     Enum.reduce_while(items, {:ok, []}, fn item, {:ok, acc} ->
-      case resolve_input_item_handle(agent_uid, item) do
+      case resolve_input_item_handle(subject_uid, item) do
         {:ok, resolved} -> {:cont, {:ok, [resolved | acc]}}
         {:error, _reason} = error -> {:halt, error}
       end
@@ -182,23 +182,24 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
     end
   end
 
-  def resolve_input_handles(_agent_uid, items), do: {:ok, items}
+  def resolve_input_handles(_subject_uid, items), do: {:ok, items}
 
   @spec resolve_request_input_handles(String.t(), map()) ::
           {:ok, map()} | {:error, :invalid_compaction_handle}
-  def resolve_request_input_handles(agent_uid, %{"input" => input} = request)
+  def resolve_request_input_handles(subject_uid, %{"input" => input} = request)
       when is_list(input) do
-    with {:ok, resolved} <- resolve_input_handles(agent_uid, input) do
+    with {:ok, resolved} <- resolve_input_handles(subject_uid, input) do
       {:ok, Map.put(request, "input", resolved)}
     end
   end
 
-  def resolve_request_input_handles(_agent_uid, request) when is_map(request), do: {:ok, request}
+  def resolve_request_input_handles(_subject_uid, request) when is_map(request),
+    do: {:ok, request}
 
-  defp resolve_input_item_handle(agent_uid, %{"type" => "compaction"} = item) do
+  defp resolve_input_item_handle(subject_uid, %{"type" => "compaction"} = item) do
     case Map.get(item, "encrypted_content") do
       @handle_prefix <> _rest = handle ->
-        with {:ok, artifact} <- get_for_agent(agent_uid, handle),
+        with {:ok, artifact} <- get_for_subject(subject_uid, handle),
              summary when is_binary(summary) <- summary_text(artifact) do
           {:ok, Map.put(item, "encrypted_content", summary)}
         else
@@ -210,7 +211,7 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
     end
   end
 
-  defp resolve_input_item_handle(_agent_uid, item), do: {:ok, item}
+  defp resolve_input_item_handle(_subject_uid, item), do: {:ok, item}
 
   defp artifact_id(%{id: id}) when is_binary(id), do: UUIDv7.cast(id)
   defp artifact_id(_attrs), do: {:ok, new_id()}

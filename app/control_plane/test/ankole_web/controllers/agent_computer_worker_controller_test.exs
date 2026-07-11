@@ -3,7 +3,7 @@ defmodule AnkoleWeb.AgentComputerWorkerControllerTest do
 
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.ActorRuntime.Schemas.AgentComputerWorker
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AuthZ

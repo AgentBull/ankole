@@ -4,12 +4,8 @@ import { z } from 'zod'
 import type { ActorTurnRef } from '../../lanes/actor_lane'
 import type { AgentTool, AgentToolResult } from '../../core'
 import { jsonToolResult } from '../../core/tool-result'
-import type {
-  RuntimeSkillSummary,
-  SkillOverlayReplaceRequest,
-  SkillOverlayRequest,
-  SkillOverlayResponse
-} from '../../lanes/rpc_lane'
+import type { RuntimeSkillSummary } from '../../lanes/rpc_lane'
+import type { SkillOverlayReplaceRequester, SkillOverlayRequester } from '../../core/turns/turn_options'
 
 // `name` is the enabled skill name from RuntimeFabric. `filePath` lets the model
 // follow references out of SKILL.md without a second tool, but resolution always
@@ -39,9 +35,6 @@ export const LONG_RUNNING_SKILL_ADDITION = [
   'Completion, failure, and questions wake the parent automatically; do not poll. Use check_back_later only for an intentional mid-task inspection of unusually long work.',
   'When awakened, personally verify the artifacts and checks, then deliver files with reply_attachment. The delegation id can always be recovered with subagent(list).'
 ].join('\n')
-
-export type SkillOverlayRequester = (request: SkillOverlayRequest) => Promise<SkillOverlayResponse>
-export type SkillOverlayReplaceRequester = (request: SkillOverlayReplaceRequest) => Promise<SkillOverlayResponse>
 
 export interface SkillFileRoots {
   builtinSkillsRoot: string

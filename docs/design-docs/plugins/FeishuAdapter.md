@@ -85,8 +85,11 @@ A human sends the agent a DM or a structured group mention. The adapter
 normalizes the provider message into a SignalsGateway entry receive fact.
 SignalsGateway mirrors the visible message and appends `im.message.addressed`.
 The agent's streamed answer is delivered live through the gateway's AI-reply
-preview (a streaming card when the adapter supports it) and, on the confirmed
-final send or edit, mirrored into `signal_gateway_entries` with `ai_message_id`.
+preview (a streaming card when the adapter supports it). That preview is only
+transient progress. When Agent Computer explicitly reports `turn_completed`,
+SignalsGateway writes the adopted final send or edit as a durable outbox
+operation; provider success is then mirrored into `signal_gateway_entries` with
+the final Response backref.
 Explicit side effects — attachments, reactions, dividers, command feedback —
 still execute through `signal_gateway_outbox` rows.
 
@@ -586,8 +589,10 @@ The SignalsGateway outbox capability allowlist for this adapter is:
 `outbound_idempotency` and `streaming` are not capability names. Idempotency is
 the `signal_gateway_outbox.idempotency_key` row value that the adapter passes to
 Feishu/Lark when the provider API supports it. Streaming preview policy is owned
-by SignalsGateway/AIGateway runtime code; the provider-visible surface is still
-the `card` outbox operation when a preview card is committed.
+only by SignalsGateway; AIGateway publishes generic conversation-scoped
+Response events and does not interpret Actor metadata. Preview writes are
+transient adapter calls, while the adopted final card send or edit is a durable
+`card` outbox operation.
 
 `send/1` and `reconcile/1` must return only `{:ok, map}`, `{:error, reason}`, or
 `:unknown`. Other return values are adapter bugs and are normalized into
@@ -682,9 +687,12 @@ path before provider success is confirmed.
 
 When runtime preview streaming is enabled, the adapter streams an assistant answer through a
 Feishu/Lark CardKit card. The stream is driven by SignalsGateway's
-`AIReplyPreview` process, which subscribes to AIGateway's live chunk and
-terminal events and calls the adapter's streaming surface; the adapter owns
-only the provider mechanics. With `FeishuOpenAPI`, this is a REST flow:
+`AIReplyPreview` process, which subscribes to a conversation-scoped AIGateway
+event stream, filters by the opaque ActorEvent metadata, and calls the adapter's
+streaming surface; the adapter owns only the provider mechanics. Each
+`response_started` event resets the current-round buffer. Response terminal
+events never end the preview or decide that the Agent Turn finished. With
+`FeishuOpenAPI`, this is a REST flow:
 
 1. `POST cardkit/v1/cards` with `type = "card_json"` and the initial card JSON;
 2. send or reply an `im/v1/messages` interactive message whose content is
@@ -720,19 +728,21 @@ budget as Bun: 250ms, 750ms, 1500ms, 3000ms, and 5000ms. Other provider errors
 are not hidden behind that retry rule.
 
 Provider write failures during streaming are isolated. Preview writes may fail
-and later writes may recover. `finish` reports whether the final text was
-confirmed. Final content truth is the `ai_gateway_messages` row; a confirmed
-final send or edit mirrors into `signal_gateway_entries` with the `ai_message_id`
-backref. The outbox is not the streamed-reply path. Delivery is at-least-once:
-if the preview process dies before finalizing, `RecoveryScan` re-sends the
-completed final content later (see `docs/design-docs/SignalsGateway.md`,
-Streamed AI Reply Delivery).
+and later writes may recover. The first successful preview send stores its
+provider entry id on the ActorEvent; it is not stored in AIGateway metadata.
+After `turn_completed` passes SignalsGateway's Response-chain and fence checks,
+the same transaction writes the adopted final text, clarify, or attachment as a
+durable outbox operation and completes the ActorEvent. A known preview entry id
+selects an edit; otherwise the outbox sends a new entry. Provider success then
+mirrors into `signal_gateway_entries` with the final Response backref. A dead
+preview may leave a stale card temporarily, but no Response-terminal recovery
+scanner guesses that a completed Response ended an Agent Turn.
 
 The card finish surface supports three renderings: cancelled output displays
 `已停止`, failed output displays `出错了`, and empty final text displays
-`（无内容）`. Under the current control-plane policy, a failed or cancelled
-generation is handled silently — the preview handler stops without a finish
-edit, and no new provider message is posted for the error. The failure
+`（无内容）`. Under the current control-plane policy, a failed generation does
+not create a final outbox operation, while explicit stop terminates its preview;
+no new provider message is posted merely because a Response failed. The failure
 renderings remain adapter capability for callers that do close a stream with
 those outcomes. Failing to disable card streaming mode after final text is a
 visual blemish, not a state rollback.
@@ -846,9 +856,11 @@ provider. That is a provider limitation, not a SignalsGateway queue failure.
   output changes only through the deletion mapping.
 - Provider recall does not imply assistant-output delete.
 - Commands are typed actor events, including `command.steer`.
-- Streamed assistant replies mirror into `signal_gateway_entries` with `ai_message_id`
-  only after confirmed provider success; the adapter never synthesizes a
-  provider entry id.
+- The adopted final assistant reply is always a durable outbox operation and
+  mirrors into `signal_gateway_entries` with `ai_message_id` only after
+  confirmed provider success; the adapter never synthesizes a provider entry
+  id. Preview deltas are transient and prove neither final delivery nor Turn
+  completion.
 - Feishu/Lark OIDC is AuthN input to Principals and AuthZ, not a SignalsGateway
   routing rule.
 - Feishu/Lark reply-target-gone fallback is adapter behavior, not a generic

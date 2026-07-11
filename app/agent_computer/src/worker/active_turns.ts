@@ -105,13 +105,16 @@ async function sendTurnProgress(sendEnvelope: EnvelopeSender, active: ActiveTurn
  */
 export function turnFailureDetails(error: unknown): JsonObject {
   const classification = classifyLlmError(error)
+  const workerError = workerErrorDetails(error)
   const details: JsonObject = {
     runtime: 'bun',
     llm_error_kind: classification.kind,
-    retryable: classification.retryable,
+    retryable: workerError.retryable ?? classification.retryable,
     should_compress: classification.shouldCompress,
     should_fallback_provider: classification.shouldFallbackProvider
   }
+
+  if (workerError.code) details.error_code = workerError.code
 
   const gateway = aigatewayErrorDetails(error)
   if (gateway) details.aigateway = gateway
@@ -139,6 +142,15 @@ export function aigatewayErrorDetails(error: unknown): JsonObject | undefined {
   }
 
   return Object.keys(details).length > 0 ? details : undefined
+}
+
+function workerErrorDetails(error: unknown): { code?: string; retryable?: boolean } {
+  if (!error || typeof error !== 'object') return {}
+  const record = error as { code?: unknown; retryable?: unknown }
+  return {
+    ...(typeof record.code === 'string' ? { code: record.code } : {}),
+    ...(typeof record.retryable === 'boolean' ? { retryable: record.retryable } : {})
+  }
 }
 
 /**

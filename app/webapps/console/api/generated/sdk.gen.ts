@@ -18,10 +18,19 @@ import type {
   AnkoleWebAgentControllerCreateResponses,
   AnkoleWebAgentControllerDeleteData,
   AnkoleWebAgentControllerDeleteErrors,
+  AnkoleWebAgentControllerDeleteModelProfileData,
+  AnkoleWebAgentControllerDeleteModelProfileErrors,
+  AnkoleWebAgentControllerDeleteModelProfileResponses,
   AnkoleWebAgentControllerDeleteResponses,
   AnkoleWebAgentControllerIndexData,
   AnkoleWebAgentControllerIndexErrors,
+  AnkoleWebAgentControllerIndexModelProfilesData,
+  AnkoleWebAgentControllerIndexModelProfilesErrors,
+  AnkoleWebAgentControllerIndexModelProfilesResponses,
   AnkoleWebAgentControllerIndexResponses,
+  AnkoleWebAgentControllerPutModelProfileData,
+  AnkoleWebAgentControllerPutModelProfileErrors,
+  AnkoleWebAgentControllerPutModelProfileResponses,
   AnkoleWebAgentControllerShowData,
   AnkoleWebAgentControllerShowErrors,
   AnkoleWebAgentControllerShowResponses,
@@ -55,24 +64,15 @@ import type {
   AnkoleWebAiGatewayControllerWebToolsData,
   AnkoleWebAiGatewayControllerWebToolsErrors,
   AnkoleWebAiGatewayControllerWebToolsResponses,
-  AnkoleWebAiGatewayProviderControllerDeleteModelProfileData,
-  AnkoleWebAiGatewayProviderControllerDeleteModelProfileErrors,
-  AnkoleWebAiGatewayProviderControllerDeleteModelProfileResponses,
   AnkoleWebAiGatewayProviderControllerDeleteProviderData,
   AnkoleWebAiGatewayProviderControllerDeleteProviderErrors,
   AnkoleWebAiGatewayProviderControllerDeleteProviderResponses,
   AnkoleWebAiGatewayProviderControllerIndexData,
   AnkoleWebAiGatewayProviderControllerIndexErrors,
-  AnkoleWebAiGatewayProviderControllerIndexModelProfilesData,
-  AnkoleWebAiGatewayProviderControllerIndexModelProfilesErrors,
-  AnkoleWebAiGatewayProviderControllerIndexModelProfilesResponses,
   AnkoleWebAiGatewayProviderControllerIndexResponses,
   AnkoleWebAiGatewayProviderControllerProviderKindsData,
   AnkoleWebAiGatewayProviderControllerProviderKindsErrors,
   AnkoleWebAiGatewayProviderControllerProviderKindsResponses,
-  AnkoleWebAiGatewayProviderControllerPutModelProfileData,
-  AnkoleWebAiGatewayProviderControllerPutModelProfileErrors,
-  AnkoleWebAiGatewayProviderControllerPutModelProfileResponses,
   AnkoleWebAiGatewayProviderControllerPutProviderData,
   AnkoleWebAiGatewayProviderControllerPutProviderErrors,
   AnkoleWebAiGatewayProviderControllerPutProviderResponses,
@@ -96,6 +96,18 @@ import type {
   AnkoleWebAuthControllerOauthTokenData,
   AnkoleWebAuthControllerOauthTokenErrors,
   AnkoleWebAuthControllerOauthTokenResponses,
+  AnkoleWebCodexAccountControllerCreateData,
+  AnkoleWebCodexAccountControllerCreateErrors,
+  AnkoleWebCodexAccountControllerCreateResponses,
+  AnkoleWebCodexAccountControllerDeleteData,
+  AnkoleWebCodexAccountControllerDeleteErrors,
+  AnkoleWebCodexAccountControllerDeleteResponses,
+  AnkoleWebCodexAccountControllerIndexData,
+  AnkoleWebCodexAccountControllerIndexErrors,
+  AnkoleWebCodexAccountControllerIndexResponses,
+  AnkoleWebCodexAccountControllerUpdateData,
+  AnkoleWebCodexAccountControllerUpdateErrors,
+  AnkoleWebCodexAccountControllerUpdateResponses,
   AnkoleWebIdentityProviderControllerAdaptersData,
   AnkoleWebIdentityProviderControllerAdaptersErrors,
   AnkoleWebIdentityProviderControllerAdaptersResponses,
@@ -703,16 +715,16 @@ export const ankoleWebSignalBindingControllerIndex = <ThrowOnError extends boole
 /**
  * Clear one optional model profile for an agent
  */
-export const ankoleWebAiGatewayProviderControllerDeleteModelProfile = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayProviderControllerDeleteModelProfileData, ThrowOnError>
+export const ankoleWebAgentControllerDeleteModelProfile = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAgentControllerDeleteModelProfileData, ThrowOnError>
 ): RequestResult<
-  AnkoleWebAiGatewayProviderControllerDeleteModelProfileResponses,
-  AnkoleWebAiGatewayProviderControllerDeleteModelProfileErrors,
+  AnkoleWebAgentControllerDeleteModelProfileResponses,
+  AnkoleWebAgentControllerDeleteModelProfileErrors,
   ThrowOnError
 > =>
   (options.client ?? client).delete<
-    AnkoleWebAiGatewayProviderControllerDeleteModelProfileResponses,
-    AnkoleWebAiGatewayProviderControllerDeleteModelProfileErrors,
+    AnkoleWebAgentControllerDeleteModelProfileResponses,
+    AnkoleWebAgentControllerDeleteModelProfileErrors,
     ThrowOnError
   >({
     security: [
@@ -729,16 +741,16 @@ export const ankoleWebAiGatewayProviderControllerDeleteModelProfile = <ThrowOnEr
 /**
  * Create or update one model profile for an agent
  */
-export const ankoleWebAiGatewayProviderControllerPutModelProfile = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayProviderControllerPutModelProfileData, ThrowOnError>
+export const ankoleWebAgentControllerPutModelProfile = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAgentControllerPutModelProfileData, ThrowOnError>
 ): RequestResult<
-  AnkoleWebAiGatewayProviderControllerPutModelProfileResponses,
-  AnkoleWebAiGatewayProviderControllerPutModelProfileErrors,
+  AnkoleWebAgentControllerPutModelProfileResponses,
+  AnkoleWebAgentControllerPutModelProfileErrors,
   ThrowOnError
 > =>
   (options.client ?? client).put<
-    AnkoleWebAiGatewayProviderControllerPutModelProfileResponses,
-    AnkoleWebAiGatewayProviderControllerPutModelProfileErrors,
+    AnkoleWebAgentControllerPutModelProfileResponses,
+    AnkoleWebAgentControllerPutModelProfileErrors,
     ThrowOnError
   >({
     security: [
@@ -1065,16 +1077,16 @@ export const ankoleWebScheduleControllerIndexCheckbacks = <ThrowOnError extends 
 /**
  * Read all model profiles for one agent
  */
-export const ankoleWebAiGatewayProviderControllerIndexModelProfiles = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayProviderControllerIndexModelProfilesData, ThrowOnError>
+export const ankoleWebAgentControllerIndexModelProfiles = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAgentControllerIndexModelProfilesData, ThrowOnError>
 ): RequestResult<
-  AnkoleWebAiGatewayProviderControllerIndexModelProfilesResponses,
-  AnkoleWebAiGatewayProviderControllerIndexModelProfilesErrors,
+  AnkoleWebAgentControllerIndexModelProfilesResponses,
+  AnkoleWebAgentControllerIndexModelProfilesErrors,
   ThrowOnError
 > =>
   (options.client ?? client).get<
-    AnkoleWebAiGatewayProviderControllerIndexModelProfilesResponses,
-    AnkoleWebAiGatewayProviderControllerIndexModelProfilesErrors,
+    AnkoleWebAgentControllerIndexModelProfilesResponses,
+    AnkoleWebAgentControllerIndexModelProfilesErrors,
     ThrowOnError
   >({
     security: [
@@ -1269,6 +1281,62 @@ export const ankoleWebScheduleControllerCancelCheckback = <ThrowOnError extends 
   })
 
 /**
+ * List Codex accounts
+ */
+export const ankoleWebCodexAccountControllerIndex = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebCodexAccountControllerIndexData, ThrowOnError>
+): RequestResult<
+  AnkoleWebCodexAccountControllerIndexResponses,
+  AnkoleWebCodexAccountControllerIndexErrors,
+  ThrowOnError
+> =>
+  (options?.client ?? client).get<
+    AnkoleWebCodexAccountControllerIndexResponses,
+    AnkoleWebCodexAccountControllerIndexErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/codex-accounts',
+    ...options
+  })
+
+/**
+ * Create a Codex account
+ */
+export const ankoleWebCodexAccountControllerCreate = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebCodexAccountControllerCreateData, ThrowOnError>
+): RequestResult<
+  AnkoleWebCodexAccountControllerCreateResponses,
+  AnkoleWebCodexAccountControllerCreateErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebCodexAccountControllerCreateResponses,
+    AnkoleWebCodexAccountControllerCreateErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/codex-accounts',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
  * Search the web through AIGateway
  */
 export const ankoleWebAiGatewayControllerWebSearch = <ThrowOnError extends boolean = false>(
@@ -1357,6 +1425,62 @@ export const ankoleWebSignalBindingControllerPutBinding = <ThrowOnError extends 
       }
     ],
     url: '/api/v1/agents/{agent_uid}/signal-bindings/{adapter_id}/{binding_name}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Delete a Codex account
+ */
+export const ankoleWebCodexAccountControllerDelete = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebCodexAccountControllerDeleteData, ThrowOnError>
+): RequestResult<
+  AnkoleWebCodexAccountControllerDeleteResponses,
+  AnkoleWebCodexAccountControllerDeleteErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).delete<
+    AnkoleWebCodexAccountControllerDeleteResponses,
+    AnkoleWebCodexAccountControllerDeleteErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/codex-accounts/{account_id}',
+    ...options
+  })
+
+/**
+ * Update a Codex account
+ */
+export const ankoleWebCodexAccountControllerUpdate = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebCodexAccountControllerUpdateData, ThrowOnError>
+): RequestResult<
+  AnkoleWebCodexAccountControllerUpdateResponses,
+  AnkoleWebCodexAccountControllerUpdateErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).put<
+    AnkoleWebCodexAccountControllerUpdateResponses,
+    AnkoleWebCodexAccountControllerUpdateErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/codex-accounts/{account_id}',
     ...options,
     headers: {
       'Content-Type': 'application/json',

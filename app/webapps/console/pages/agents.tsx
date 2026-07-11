@@ -8,9 +8,10 @@ import {
   ankoleWebAgentControllerCreateMutation,
   ankoleWebAgentControllerDeleteMutation,
   ankoleWebAgentControllerIndexOptions,
+  ankoleWebAgentControllerIndexModelProfilesOptions,
   ankoleWebAgentControllerUpdateMutation,
-  ankoleWebAiGatewayProviderControllerIndexModelProfilesOptions,
-  ankoleWebAiGatewayProviderControllerIndexOptions
+  ankoleWebAiGatewayProviderControllerIndexOptions,
+  ankoleWebCodexAccountControllerIndexOptions
 } from '../api/generated/@tanstack/react-query.gen'
 import type { AgentItem } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
@@ -87,9 +88,10 @@ export function AgentEditorPage() {
 
   const agents = useQuery(ankoleWebAgentControllerIndexOptions())
   const providers = useQuery(ankoleWebAiGatewayProviderControllerIndexOptions())
+  const codexAccounts = useQuery(ankoleWebCodexAccountControllerIndexOptions())
   const selectedAgent = agents.data?.data.find(agent => agent.uid === uid)
   const modelProfiles = useQuery({
-    ...ankoleWebAiGatewayProviderControllerIndexModelProfilesOptions({ path: { agent_uid: selectedAgent?.uid ?? '' } }),
+    ...ankoleWebAgentControllerIndexModelProfilesOptions({ path: { agent_uid: selectedAgent?.uid ?? '' } }),
     enabled: Boolean(selectedAgent?.uid)
   })
 
@@ -193,6 +195,7 @@ export function AgentEditorPage() {
             loading={modelProfiles.isLoading}
             profiles={recordValue(modelProfiles.data?.data) ?? {}}
             providers={providers.data?.data ?? []}
+            codexAccounts={codexAccounts.data?.data ?? []}
             onChanged={refresh}
           />
         </>

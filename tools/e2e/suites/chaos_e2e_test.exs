@@ -14,11 +14,11 @@ defmodule Ankole.E2E.ChaosE2ETest do
   import Ankole.E2E.WaitHelpers,
     only: [deadline: 1, wait_until: 2, wait_for_completed_final_reply: 3]
 
-  alias Ankole.Actors.ActorEvent
-  alias Ankole.ActorRuntime
-  alias Ankole.ActorRuntime.ReadyEventProcessor
-  alias Ankole.ActorRuntime.Schemas.AgentComputerWorker
-  alias Ankole.ActorRuntime.Transport.Broker
+  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.SignalsGateway.ActorRuntime
+  alias Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
+  alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
   alias Ankole.E2E.DockerWorker
   alias Ankole.E2E.FakeFeishu
   alias Ankole.Repo
@@ -193,11 +193,14 @@ defmodule Ankole.E2E.ChaosE2ETest do
     wait_for_event_ack!(ctx.fake_feishu, "evt_chaos_redelivery_1")
     finalize_due_inbound_batch_events!()
 
-    assert 1 ==
-             ActorEvent
-             |> where([input], input.agent_uid == ^ctx.agent.uid)
-             |> where([input], input.source_entry_id == "om_chaos_redelivery_1")
-             |> Repo.aggregate(:count)
+    redelivered_events =
+      ActorEvent
+      |> where([input], input.agent_uid == ^ctx.agent.uid)
+      |> where([input], input.source_entry_id == "om_chaos_redelivery_1")
+      |> order_by([input], asc: input.inserted_at, asc: input.id)
+      |> Repo.all()
+
+    assert length(redelivered_events) == 1, inspect(redelivered_events, limit: :infinity)
 
     assert %{} = wait_for_signal_entry!("lark:oc_chaos_redelivery", "om_chaos_redelivery_1")
   end

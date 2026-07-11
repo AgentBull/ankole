@@ -7,10 +7,11 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.StatefulResponses
-  alias Ankole.AIGateway.ModelProfiles
+  alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.Schemas.CompactionArtifact
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Repo
+  alias AnkoleWeb.AIGatewaySSELimit
   alias AnkoleWeb.AIGatewayTokens
 
   defmodule NativeResponsesUpstreamPlug do
@@ -113,10 +114,13 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
     {:ok, first} =
       StatefulResponses.start_response_run(%{
-        agent_uid: agent.uid,
+        subject_uid: agent.uid,
         conversation_id: conversation.id,
         request_items: [input_item],
-        metadata: %{"model" => "gpt-test", "visible" => "yes"}
+        metadata: %{
+          "model" => "gpt-test",
+          "request_metadata" => %{"visible" => "yes"}
+        }
       })
 
     assert {:ok, first} =
@@ -142,10 +146,13 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
     {:ok, second} =
       StatefulResponses.start_response_run(%{
-        agent_uid: agent.uid,
+        subject_uid: agent.uid,
         previous_response_id: "resp_#{first.id}",
         request_items: [second_input_item],
-        metadata: %{"model" => "gpt-test", "visible" => "yes"}
+        metadata: %{
+          "model" => "gpt-test",
+          "request_metadata" => %{"visible" => "yes"}
+        }
       })
 
     assert {:ok, second} =
@@ -216,7 +223,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
     {:ok, message} =
       StatefulResponses.start_response_run(%{
-        agent_uid: agent.uid,
+        subject_uid: agent.uid,
         conversation_id: conversation.id,
         request_items: [input_item],
         metadata: %{"model" => "gpt-test"}
@@ -247,7 +254,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
     {:ok, message} =
       StatefulResponses.start_response_run(%{
-        agent_uid: owner.uid,
+        subject_uid: owner.uid,
         conversation_id: conversation.id,
         request_items: [
           %{
@@ -297,7 +304,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
     {:ok, generating} =
       StatefulResponses.start_response_run(%{
-        agent_uid: agent.uid,
+        subject_uid: agent.uid,
         conversation_id: conversation.id,
         request_items: [
           %{
@@ -840,6 +847,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
         "model" => "primary",
         "input" => "hello",
         "stream" => true,
+        "max_tool_calls" => 2,
         "stream_options" => %{"include_usage" => true},
         "service_tier" => "priority"
       })
@@ -870,6 +878,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert_receive {:gateway_request, request}
     assert request.path == "v1/responses"
     assert request.body["stream"] == true
+    assert request.body["max_tool_calls"] == 2
     assert request.body["stream_options"] == %{"include_usage" => true}
     assert request.body["store"] == false
     refute Map.has_key?(request.body, "service_tier")
@@ -877,6 +886,115 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert %{"type" => "response.completed", "response" => body} = List.last(events)
     assert_openresponses_response_resource(body)
     assert body["previous_response_id"] == nil
+  end
+
+  test "HTTP SSE fallback emits incomplete after already-started built-ins finish" do
+    state =
+      AIGatewaySSELimit.new(
+        %{"max_tool_calls" => 1},
+        %{"api_resolver" => "openai_chat_completions"}
+      )
+
+    {state, :continue} =
+      AIGatewaySSELimit.observe(
+        state,
+        sse_chunk(%{
+          "type" => "response.created",
+          "sequence_number" => 0,
+          "response" => %{"id" => "resp_http_limit", "status" => "in_progress"}
+        })
+      )
+
+    {state, :continue} =
+      AIGatewaySSELimit.observe(
+        state,
+        sse_chunk(output_item_event("response.output_item.added", "search_1", 0, 1))
+      )
+
+    {state, :continue} =
+      AIGatewaySSELimit.observe(
+        state,
+        sse_chunk(output_item_event("response.output_item.added", "search_2", 1, 2))
+      )
+
+    {state, :continue} =
+      AIGatewaySSELimit.observe(
+        state,
+        sse_chunk(output_item_event("response.output_item.done", "search_1", 0, 3))
+      )
+
+    {_state, {:stop, incomplete_chunk}} =
+      AIGatewaySSELimit.observe(
+        state,
+        sse_chunk(output_item_event("response.output_item.done", "search_2", 1, 4))
+      )
+
+    assert [
+             %{
+               "type" => "response.incomplete",
+               "sequence_number" => 5,
+               "response" => %{
+                 "id" => "resp_http_limit",
+                 "status" => "incomplete",
+                 "incomplete_details" => nil,
+                 "output" => [
+                   %{"id" => "search_1", "type" => "web_search_call"},
+                   %{"id" => "search_2", "type" => "web_search_call"}
+                 ],
+                 "provider_metadata" => %{
+                   "max_tool_calls" => %{
+                     "limit" => 1,
+                     "observed" => 2,
+                     "overshoot" => 1
+                   }
+                 }
+               }
+             }
+           ] = decode_sse_events(IO.iodata_to_binary(incomplete_chunk))
+
+    assert AIGatewaySSELimit.done_chunk() == "data: [DONE]\n\n"
+  end
+
+  test "HTTP SSE provider terminal in the current chunk wins over local fallback" do
+    state =
+      AIGatewaySSELimit.new(
+        %{"max_tool_calls" => 0},
+        %{"api_resolver" => "anthropic_messages"}
+      )
+
+    {state, :continue} =
+      AIGatewaySSELimit.observe(
+        state,
+        sse_chunk(output_item_event("response.output_item.added", "search_1", 0, 0))
+      )
+
+    {state, :continue} =
+      AIGatewaySSELimit.observe(
+        state,
+        sse_chunk(output_item_event("response.output_item.added", "search_2", 1, 1))
+      )
+
+    {state, :continue} =
+      AIGatewaySSELimit.observe(
+        state,
+        sse_chunk(output_item_event("response.output_item.done", "search_1", 0, 2))
+      )
+
+    {state, :continue} =
+      AIGatewaySSELimit.observe(
+        state,
+        sse_chunk(%{
+          "type" => "response.completed",
+          "sequence_number" => 3,
+          "response" => %{
+            "id" => "resp_provider_won",
+            "status" => "completed",
+            "output" => []
+          }
+        })
+      )
+
+    assert is_nil(state.max_tool_calls)
   end
 
   test "responses endpoint rejects stateful fields on HTTP and SSE", %{conn: conn} do
@@ -1679,7 +1797,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
     {:ok, anchor} =
       StatefulResponses.start_response_run(%{
-        agent_uid: agent.uid,
+        subject_uid: agent.uid,
         conversation_id: conversation.id,
         request_items: [
           %{
@@ -1765,7 +1883,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert row.status == "complete"
     assert row.previous_message_id == anchor.id
     assert row.content == [%{"id" => "cmp_#{artifact_id}", "type" => "compaction_artifact"}]
-    assert row.metadata == %{"visible" => "compact"}
+    assert row.metadata == %{"request_metadata" => %{"visible" => "compact"}}
 
     assert StatefulResponses.expand_history(conversation.id,
              previous_response_id: body["ankole"]["response_id"]
@@ -1780,6 +1898,23 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       send(test_pid, {:gateway_request, request})
       response_fun.(request)
     end)
+  end
+
+  defp sse_chunk(event) do
+    "event: #{event["type"]}\ndata: #{Ankole.JSON.encode!(event)}\n\n"
+  end
+
+  defp output_item_event(type, id, output_index, sequence_number) do
+    %{
+      "type" => type,
+      "sequence_number" => sequence_number,
+      "output_index" => output_index,
+      "item" => %{
+        "id" => id,
+        "type" => "web_search_call",
+        "status" => if(type == "response.output_item.done", do: "completed", else: "in_progress")
+      }
+    }
   end
 
   defp receive_summarizer_request do

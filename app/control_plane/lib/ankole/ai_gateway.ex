@@ -2,19 +2,22 @@ defmodule Ankole.AIGateway do
   @moduledoc """
   Control-plane owned AI provider gateway.
 
-  AIGateway keeps provider credentials and provider differences in Elixir. Worker
-  callers authenticate as an agent and send OpenResponses/OpenRouter-shaped
-  requests to this module through the Phoenix API.
+  AIGateway keeps provider credentials and provider differences in Elixir. It
+  serves Principal-scoped OpenResponses/OpenRouter-shaped requests without
+  depending on caller workflow lifecycle semantics.
   """
 
-  alias Ankole.AIGateway.MapUtils
   alias Ankole.AIGateway.CompactionArtifacts
+  alias Ankole.AIGateway.Conversations
+  alias Ankole.AIGateway.Events
+  alias Ankole.AIGateway.MapUtils
   alias Ankole.AIGateway.Models
-  alias Ankole.AIGateway.ModelProfiles
+  alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.ModelSelectors
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.Resolver
   alias Ankole.AIGateway.StatefulLifecycle
+  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIGateway.UniversalAIRequest
 
   @stateful_http_fields ~w(previous_response_id conversation store)
@@ -34,14 +37,14 @@ defmodule Ankole.AIGateway do
   """
   @spec create_response(String.t(), map(), keyword()) ::
           {:ok, gateway_response()} | {:error, term()}
-  def create_response(agent_uid, request, opts \\ [])
+  def create_response(subject_uid, request, opts \\ [])
 
-  def create_response(agent_uid, request, opts) when is_map(request) do
+  def create_response(subject_uid, request, opts) when is_map(request) do
     request = normalize_request_keys(request)
 
     with :ok <- reject_http_stateful_fields(request),
-         {:ok, request} <- CompactionArtifacts.resolve_request_input_handles(agent_uid, request),
-         {:ok, runtime} <- Resolver.resolve_request_model(agent_uid, "llm", request),
+         {:ok, request} <- CompactionArtifacts.resolve_request_input_handles(subject_uid, request),
+         {:ok, runtime} <- Resolver.resolve_request_model(subject_uid, "llm", request),
          {:ok, prepared_request} <-
            Providers.build_response_request(runtime, strip_noop_provider_fields(request),
              stream?: false
@@ -51,45 +54,145 @@ defmodule Ankole.AIGateway do
     end
   end
 
-  def create_response(_agent_uid, _request, _opts), do: {:error, :invalid_request_body}
+  def create_response(_subject_uid, _request, _opts), do: {:error, :invalid_request_body}
 
   @doc """
-  Retrieves one stored stateful response owned by the authenticated agent.
+  Retrieves one stored stateful response owned by the authenticated subject.
   """
   @spec retrieve_response(String.t(), binary()) :: {:ok, %{body: map()}} | {:error, term()}
-  def retrieve_response(agent_uid, response_id) do
-    StatefulLifecycle.retrieve_response(agent_uid, response_id)
+  def retrieve_response(subject_uid, response_id) do
+    StatefulLifecycle.retrieve_response(subject_uid, response_id)
   end
 
   @doc """
   Creates one manual stateful compaction response.
   """
   @spec compact_response(String.t(), map()) :: {:ok, %{body: map()}} | {:error, term()}
-  def compact_response(agent_uid, request) when is_map(request) do
-    StatefulLifecycle.compact_response(agent_uid, request)
+  def compact_response(subject_uid, request) when is_map(request) do
+    StatefulLifecycle.compact_response(subject_uid, request)
   end
 
-  def compact_response(_agent_uid, _request), do: {:error, :invalid_request_body}
+  def compact_response(_subject_uid, _request), do: {:error, :invalid_request_body}
 
   @doc false
   @spec record_tool_results(String.t(), map()) :: {:ok, %{body: map()}} | {:error, term()}
-  def record_tool_results(agent_uid, request) when is_map(request) do
-    StatefulLifecycle.record_tool_results(agent_uid, request)
+  def record_tool_results(subject_uid, request) when is_map(request) do
+    StatefulLifecycle.record_tool_results(subject_uid, request)
   end
 
-  def record_tool_results(_agent_uid, _request), do: {:error, :invalid_request_body}
+  def record_tool_results(_subject_uid, _request), do: {:error, :invalid_request_body}
+
+  @doc """
+  Reads one stored Response scoped to its owning Principal subject.
+  """
+  @spec get_response(String.t(), binary()) ::
+          {:ok, Ankole.AIGateway.Schemas.Message.t()} | {:error, :not_found}
+  defdelegate get_response(subject_uid, response_id),
+    to: StatefulResponses,
+    as: :get_response_for_subject
+
+  @doc """
+  Lists an immutable Response chain final-first, capped at 500 rows.
+  """
+  @spec list_response_chain(String.t(), binary(), pos_integer()) ::
+          {:ok, [Ankole.AIGateway.Schemas.Message.t()]} | {:error, :not_found}
+  defdelegate list_response_chain(subject_uid, response_id, max_depth \\ 500),
+    to: StatefulResponses
+
+  @doc """
+  Returns the exact caller-supplied opaque metadata map for a Response.
+  """
+  @spec response_metadata(Ankole.AIGateway.Schemas.Message.t()) :: map()
+  defdelegate response_metadata(response), to: StatefulResponses
+
+  @doc """
+  Reads an active conversation scoped to its owning Principal subject.
+  """
+  @spec get_conversation(String.t(), binary()) ::
+          {:ok, Ankole.AIGateway.Schemas.Conversation.t()} | {:error, :invalid_conversation}
+  defdelegate get_conversation(subject_uid, conversation_id),
+    to: StatefulResponses,
+    as: :get_conversation_for_subject
+
+  @doc false
+  defdelegate ensure_conversation_in_tx(repo, subject_uid, conversation_key), to: Conversations
+
+  @doc false
+  defdelegate active_conversation_for_update(repo, subject_uid, conversation_key),
+    to: Conversations
+
+  @doc false
+  defdelegate lock_conversation(repo, conversation_id), to: Conversations
+
+  @doc """
+  Lists active conversations using generic subject/conversation filters.
+  """
+  @spec list_active_conversations(module(), keyword()) :: [
+          Ankole.AIGateway.Schemas.Conversation.t()
+        ]
+  defdelegate list_active_conversations(repo, opts \\ []), to: Conversations
+
+  @doc false
+  defdelegate list_conversation_responses_in_tx(repo, subject_uid, conversation_id, opts \\ []),
+    to: StatefulResponses
+
+  @doc """
+  Marks an explicitly identified generating Response failed.
+  """
+  @spec fail_generating_response(String.t(), binary(), map()) ::
+          {:ok, Ankole.AIGateway.Schemas.Message.t() | :already_terminal} | {:error, term()}
+  defdelegate fail_generating_response(subject_uid, response_id, error_details),
+    to: StatefulResponses
+
+  @doc false
+  defdelegate fail_generating_response_in_tx(
+                repo,
+                subject_uid,
+                response_id,
+                error_details,
+                now
+              ),
+              to: StatefulResponses
+
+  @doc false
+  defdelegate hard_delete_visible_suffix_in_tx(
+                repo,
+                subject_uid,
+                conversation_id,
+                response_ids,
+                opts \\ []
+              ),
+              to: StatefulResponses
+
+  @doc """
+  Subscribes to generic live events after validating conversation ownership.
+  """
+  @spec subscribe(String.t(), binary()) :: :ok | {:error, :invalid_conversation}
+  defdelegate subscribe(subject_uid, conversation_id), to: Events
+
+  @spec unsubscribe(String.t(), binary()) :: :ok | {:error, :invalid_conversation}
+  defdelegate unsubscribe(subject_uid, conversation_id), to: Events
+
+  @doc false
+  defdelegate reconcile_orphaned_response(response_id, opts \\ []), to: StatefulResponses
+
+  @doc false
+  defdelegate publish_terminal_event(response, event_type, payload), to: StatefulResponses
+
+  @doc false
+  defdelegate runtime_event_snapshot(), to: StatefulResponses
 
   @doc false
   @spec open_sse_stream(String.t(), map(), keyword()) ::
           {:ok, Ankole.Kernel.UniversalAIClient.stream(), map()} | {:error, term()}
-  def open_sse_stream(agent_uid, request, opts \\ [])
+  def open_sse_stream(subject_uid, request, opts \\ [])
 
-  def open_sse_stream(agent_uid, request, opts) when is_map(request) do
+  def open_sse_stream(subject_uid, request, opts) when is_map(request) do
     request = normalize_request_keys(request)
 
     with :ok <- reject_http_stateful_fields(request),
-         {:ok, request} <- CompactionArtifacts.resolve_request_input_handles(agent_uid, request),
-         {:ok, runtime} <- Resolver.resolve_request_model(agent_uid, "llm", request),
+         {:ok, request} <- CompactionArtifacts.resolve_request_input_handles(subject_uid, request),
+         {:ok, runtime} <- Resolver.resolve_request_model(subject_uid, "llm", request),
          {:ok, prepared_request} <-
            Providers.build_response_request(runtime, strip_noop_provider_fields(request),
              stream?: true
@@ -101,16 +204,16 @@ defmodule Ankole.AIGateway do
     end
   end
 
-  def open_sse_stream(_agent_uid, _request, _opts), do: {:error, :invalid_request_body}
+  def open_sse_stream(_subject_uid, _request, _opts), do: {:error, :invalid_request_body}
 
   @doc false
   @spec open_websocket_stream(String.t(), map(), keyword()) ::
           {:ok, Ankole.Kernel.UniversalAIClient.stream(), map()} | {:error, term()}
-  def open_websocket_stream(agent_uid, request, opts \\ [])
+  def open_websocket_stream(subject_uid, request, opts \\ [])
 
-  def open_websocket_stream(agent_uid, request, opts) when is_map(request) do
+  def open_websocket_stream(subject_uid, request, opts) when is_map(request) do
     with {:ok, prepared_request, stateful_context} <-
-           prepare_websocket_stream_request(agent_uid, request) do
+           prepare_websocket_stream_request(subject_uid, request) do
       case UniversalAIRequest.open_stream(prepared_request, :websocket_text, opts) do
         {:ok, stream, meta} ->
           {:ok, stream, put_stateful_stream_meta(meta, stateful_context)}
@@ -122,30 +225,30 @@ defmodule Ankole.AIGateway do
     end
   end
 
-  def open_websocket_stream(_agent_uid, _request, _opts), do: {:error, :invalid_request_body}
+  def open_websocket_stream(_subject_uid, _request, _opts), do: {:error, :invalid_request_body}
 
   @doc false
   @spec prepare_websocket_request(String.t(), map()) ::
           {:ok, UniversalAIRequest.t()} | {:error, term()}
-  def prepare_websocket_request(agent_uid, request) when is_map(request) do
+  def prepare_websocket_request(subject_uid, request) when is_map(request) do
     with {:ok, prepared_request, _run_attrs} <-
-           prepare_websocket_provider_request(agent_uid, request) do
+           prepare_websocket_provider_request(subject_uid, request) do
       {:ok, prepared_request}
     end
   end
 
-  def prepare_websocket_request(_agent_uid, _request), do: {:error, :invalid_request_body}
+  def prepare_websocket_request(_subject_uid, _request), do: {:error, :invalid_request_body}
 
-  defp prepare_websocket_stream_request(agent_uid, request) do
+  defp prepare_websocket_stream_request(subject_uid, request) do
     with {:ok, prepared_request, run_attrs} <-
-           prepare_websocket_provider_request(agent_uid, request),
+           prepare_websocket_provider_request(subject_uid, request),
          {:ok, stateful_context} <- maybe_start_websocket_stateful_run(run_attrs) do
       {:ok, prepared_request, stateful_context}
     end
   end
 
-  defp prepare_websocket_provider_request(agent_uid, request) do
-    StatefulLifecycle.prepare_websocket_provider_request(agent_uid, request)
+  defp prepare_websocket_provider_request(subject_uid, request) do
+    StatefulLifecycle.prepare_websocket_provider_request(subject_uid, request)
   end
 
   defp strip_noop_provider_fields(request) do
@@ -208,10 +311,10 @@ defmodule Ankole.AIGateway do
   """
   @spec create_embeddings(String.t(), map(), keyword()) ::
           {:ok, gateway_response()} | {:error, term()}
-  def create_embeddings(agent_uid, request, opts \\ [])
+  def create_embeddings(subject_uid, request, opts \\ [])
 
-  def create_embeddings(agent_uid, request, opts) when is_map(request) do
-    with {:ok, runtime} <- Resolver.resolve_request_model(agent_uid, "embedding", request),
+  def create_embeddings(subject_uid, request, opts) when is_map(request) do
+    with {:ok, runtime} <- Resolver.resolve_request_model(subject_uid, "embedding", request),
          :ok <- validate_embeddings_request(request),
          {:ok, prepared_request} <- Providers.build_embeddings_request(runtime, request),
          {:ok, upstream_response} <- execute_prepared_request(runtime, prepared_request, opts) do
@@ -219,7 +322,7 @@ defmodule Ankole.AIGateway do
     end
   end
 
-  def create_embeddings(_agent_uid, _request, _opts), do: {:error, :invalid_request_body}
+  def create_embeddings(_subject_uid, _request, _opts), do: {:error, :invalid_request_body}
 
   @doc """
   Creates a rerank result with an OpenRouter-compatible public shape.
@@ -229,10 +332,10 @@ defmodule Ankole.AIGateway do
   """
   @spec create_rerank(String.t(), map(), keyword()) ::
           {:ok, gateway_response()} | {:error, term()}
-  def create_rerank(agent_uid, request, opts \\ [])
+  def create_rerank(subject_uid, request, opts \\ [])
 
-  def create_rerank(agent_uid, request, opts) when is_map(request) do
-    with {:ok, runtime} <- Resolver.resolve_request_model(agent_uid, "rerank", request),
+  def create_rerank(subject_uid, request, opts) when is_map(request) do
+    with {:ok, runtime} <- Resolver.resolve_request_model(subject_uid, "rerank", request),
          :ok <- validate_rerank_request(request),
          {:ok, prepared_request} <- Providers.build_rerank_request(runtime, request),
          {:ok, upstream_response} <- execute_prepared_request(runtime, prepared_request, opts) do
@@ -240,17 +343,17 @@ defmodule Ankole.AIGateway do
     end
   end
 
-  def create_rerank(_agent_uid, _request, _opts), do: {:error, :invalid_request_body}
+  def create_rerank(_subject_uid, _request, _opts), do: {:error, :invalid_request_body}
 
   @doc """
   Creates a normalized web search result through AIGateway.
   """
   @spec create_web_search(String.t(), map(), keyword()) ::
           {:ok, gateway_response()} | {:error, term()}
-  def create_web_search(agent_uid, request, opts \\ [])
+  def create_web_search(subject_uid, request, opts \\ [])
 
-  def create_web_search(agent_uid, request, opts) when is_map(request) do
-    with {:ok, runtime} <- Resolver.resolve_request_model(agent_uid, "web_search", request),
+  def create_web_search(subject_uid, request, opts) when is_map(request) do
+    with {:ok, runtime} <- Resolver.resolve_request_model(subject_uid, "web_search", request),
          :ok <- validate_web_search_request(request),
          {:ok, prepared_request} <- Providers.build_web_search_request(runtime, request),
          {:ok, upstream_response} <- execute_prepared_request(runtime, prepared_request, opts) do
@@ -258,17 +361,17 @@ defmodule Ankole.AIGateway do
     end
   end
 
-  def create_web_search(_agent_uid, _request, _opts), do: {:error, :invalid_request_body}
+  def create_web_search(_subject_uid, _request, _opts), do: {:error, :invalid_request_body}
 
   @doc """
   Creates normalized web fetch results through a provider-backed AIGateway path.
   """
   @spec create_web_fetch(String.t(), map(), keyword()) ::
           {:ok, gateway_response()} | {:error, term()}
-  def create_web_fetch(agent_uid, request, opts \\ [])
+  def create_web_fetch(subject_uid, request, opts \\ [])
 
-  def create_web_fetch(agent_uid, request, opts) when is_map(request) do
-    with {:ok, runtime} <- Resolver.resolve_request_model(agent_uid, "web_fetch", request),
+  def create_web_fetch(subject_uid, request, opts) when is_map(request) do
+    with {:ok, runtime} <- Resolver.resolve_request_model(subject_uid, "web_fetch", request),
          :ok <- validate_web_fetch_request(request),
          request = normalize_request_keys(request),
          {:ok, body} <- execute_web_fetch(runtime, request, opts) do
@@ -276,17 +379,17 @@ defmodule Ankole.AIGateway do
     end
   end
 
-  def create_web_fetch(_agent_uid, _request, _opts), do: {:error, :invalid_request_body}
+  def create_web_fetch(_subject_uid, _request, _opts), do: {:error, :invalid_request_body}
 
   @doc """
   Returns provider-backed web tool availability for an agent runtime.
   """
   @spec web_tools(String.t()) :: {:ok, map()}
-  def web_tools(agent_uid) when is_binary(agent_uid) do
+  def web_tools(subject_uid) when is_binary(subject_uid) do
     {:ok,
      %{
-       "web_search" => web_tool(agent_uid, "web_search"),
-       "web_fetch" => web_tool(agent_uid, "web_fetch")
+       "web_search" => web_tool(subject_uid, "web_search"),
+       "web_fetch" => web_tool(subject_uid, "web_fetch")
      }}
   end
 
@@ -498,10 +601,10 @@ defmodule Ankole.AIGateway do
     }
   end
 
-  defp web_tool(agent_uid, capability) do
+  defp web_tool(subject_uid, capability) do
     profile = capability
 
-    case ModelProfiles.resolve_runtime_profile(agent_uid, profile) do
+    case ModelProfiles.resolve_runtime_profile(subject_uid, profile) do
       {:ok, runtime} ->
         %{
           "available" => true,

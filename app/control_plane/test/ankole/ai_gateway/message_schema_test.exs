@@ -7,7 +7,7 @@ defmodule Ankole.AIGateway.MessageSchemaTest do
     test "message rows cannot contain compaction items" do
       changeset =
         Message.changeset(%Message{}, %{
-          agent_uid: "agent-x",
+          subject_uid: "agent-x",
           conversation_id: Ecto.UUID.generate(),
           role: "assistant",
           type: "message",
@@ -23,7 +23,7 @@ defmodule Ankole.AIGateway.MessageSchemaTest do
     test "message rows cannot contain compaction artifact refs" do
       changeset =
         Message.changeset(%Message{}, %{
-          agent_uid: "agent-x",
+          subject_uid: "agent-x",
           conversation_id: Ecto.UUID.generate(),
           role: "assistant",
           type: "message",
@@ -39,7 +39,7 @@ defmodule Ankole.AIGateway.MessageSchemaTest do
     test "checkpoint rows require exactly one compaction artifact ref" do
       invalid =
         Message.changeset(%Message{}, %{
-          agent_uid: "agent-x",
+          subject_uid: "agent-x",
           conversation_id: Ecto.UUID.generate(),
           role: "assistant",
           type: "checkpoint",
@@ -53,7 +53,7 @@ defmodule Ankole.AIGateway.MessageSchemaTest do
 
       duplicate =
         Message.changeset(%Message{}, %{
-          agent_uid: "agent-x",
+          subject_uid: "agent-x",
           conversation_id: Ecto.UUID.generate(),
           role: "assistant",
           type: "checkpoint",
@@ -71,7 +71,7 @@ defmodule Ankole.AIGateway.MessageSchemaTest do
 
       valid =
         Message.changeset(%Message{}, %{
-          agent_uid: "agent-x",
+          subject_uid: "agent-x",
           conversation_id: Ecto.UUID.generate(),
           role: "assistant",
           type: "checkpoint",
@@ -87,7 +87,7 @@ defmodule Ankole.AIGateway.MessageSchemaTest do
     test "compaction row type is invalid" do
       changeset =
         Message.changeset(%Message{}, %{
-          agent_uid: "agent-x",
+          subject_uid: "agent-x",
           conversation_id: Ecto.UUID.generate(),
           type: "compaction",
           status: "complete",

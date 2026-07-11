@@ -6,9 +6,12 @@ import { deepString } from '@pleisto/active-support'
 import type { ActorEventEnvelope, TurnStart } from '../../lanes/actor_lane'
 import type { AgentTool, AgentToolResult } from '../../core'
 import { jsonToolResult } from '../../core/tool-result'
-import { rpcMethods, type RpcMethod, type ScheduleRpcRequest } from '../../lanes/rpc_lane'
-
-export type ScheduleRpcRequester = (method: RpcMethod, request: ScheduleRpcRequest) => Promise<JsonObject>
+import {
+  rpcMethods,
+  type ScheduleCronAddRequest,
+  type ScheduleRpcRequester,
+  type TurnScopedRpcRequest
+} from '../../lanes/rpc_lane'
 
 export interface CreateScheduleToolsOptions {
   turnStart: TurnStart
@@ -115,7 +118,7 @@ function createCheckBackLaterTool(
 
       const response = await opts.requestScheduleRpc!(rpcMethods.scheduleCheckBackLaterCreate, {
         request_id: `schedule-checkback-${crypto.randomUUID()}`,
-        turn_ref: opts.turnStart.turn,
+        turn: opts.turnStart.turn,
         tool_call_id: toolCallId,
         idempotency_key: params.idempotency_key ?? defaultCheckBackIdempotencyKey(opts.turnStart, params),
         reason: params.reason,
@@ -169,16 +172,30 @@ function createCronTool(opts: CreateScheduleToolsOptions): AgentTool<typeof Cron
     isDestructive: false,
     async execute(_toolCallId, params): Promise<AgentToolResult<ScheduleToolDetails>> {
       rejectCronOriginMutation(params, opts.turnStart)
-      const method = cronMethod(params.action)
-      const baseRequest = {
+      const call = opts.requestScheduleRpc!
+      const base: TurnScopedRpcRequest = {
         request_id: `schedule-cron-${params.action}-${crypto.randomUUID()}`,
-        turn_ref: opts.turnStart.turn
+        turn: opts.turnStart.turn
       }
+      const target = () => ({ ...base, cron_schedule_id: requiredCronScheduleId(params) })
 
-      const response = await opts.requestScheduleRpc!(method, {
-        ...baseRequest,
-        ...cronPayload(params, opts.turnStart)
-      })
+      // Method and payload for one action stay in a single branch so the RPC
+      // contract types check each shape exactly.
+      const response = await match(params.action)
+        .with('list', () => call(rpcMethods.scheduleCronList, base))
+        .with('get', () => call(rpcMethods.scheduleCronGet, target()))
+        .with('pause', () => call(rpcMethods.scheduleCronPause, target()))
+        .with('resume', () => call(rpcMethods.scheduleCronResume, target()))
+        .with('remove', () => call(rpcMethods.scheduleCronRemove, target()))
+        .with('run', () => call(rpcMethods.scheduleCronRun, target()))
+        .with('runs', () =>
+          call(rpcMethods.scheduleCronRuns, { ...target(), ...(params.limit ? { limit: params.limit } : {}) })
+        )
+        .with('add', () => call(rpcMethods.scheduleCronAdd, { ...base, ...cronAddPayload(params, opts.turnStart) }))
+        .with('update', () =>
+          call(rpcMethods.scheduleCronUpdate, { ...target(), updates: cronUpdates(params, opts.turnStart) })
+        )
+        .exhaustive()
 
       return jsonToolResult(response)
     }
@@ -202,48 +219,15 @@ function isCronOriginTurn(turnStart: TurnStart): boolean {
 }
 
 /**
- * Maps the model-facing cron action to the control-plane RPC method.
- */
-function cronMethod(action: z.output<typeof CronParams>['action']): RpcMethod {
-  return match(action)
-    .with('list', () => rpcMethods.scheduleCronList)
-    .with('get', () => rpcMethods.scheduleCronGet)
-    .with('runs', () => rpcMethods.scheduleCronRuns)
-    .with('add', () => rpcMethods.scheduleCronAdd)
-    .with('update', () => rpcMethods.scheduleCronUpdate)
-    .with('pause', () => rpcMethods.scheduleCronPause)
-    .with('resume', () => rpcMethods.scheduleCronResume)
-    .with('remove', () => rpcMethods.scheduleCronRemove)
-    .with('run', () => rpcMethods.scheduleCronRun)
-    .exhaustive()
-}
-
-/**
- * Builds the action-specific cron RPC payload.
- */
-function cronPayload(params: z.output<typeof CronParams>, turnStart: TurnStart): JsonObject {
-  return match(params.action)
-    .with('list', () => ({}))
-    .with('get', 'pause', 'resume', 'remove', 'run', () => ({ cron_schedule_id: requiredCronScheduleId(params) }))
-    .with('runs', () => ({
-      cron_schedule_id: requiredCronScheduleId(params),
-      ...(params.limit ? { limit: params.limit } : {})
-    }))
-    .with('add', () => cronAddPayload(params, turnStart))
-    .with('update', () => ({
-      cron_schedule_id: requiredCronScheduleId(params),
-      updates: cronUpdates(params, turnStart)
-    }))
-    .exhaustive()
-}
-
-/**
  * Builds the payload for creating a recurring schedule.
  *
  * The current reply route is reused by default so scheduled fires know where to
  * reply without the model repeating provider routing fields.
  */
-function cronAddPayload(params: z.output<typeof CronParams>, turnStart: TurnStart): JsonObject {
+function cronAddPayload(
+  params: z.output<typeof CronParams>,
+  turnStart: TurnStart
+): Omit<ScheduleCronAddRequest, keyof TurnScopedRpcRequest> {
   if (!params.schedule) throw new Error('cron add requires schedule')
   const route = currentReplyRoute(turnStart)
   const bindingName = params.binding_name ?? route?.binding_name

@@ -1,14 +1,14 @@
 defmodule Ankole.SignalsGatewayOutboxCommitTest do
   use Ankole.DataCase, async: false
 
-  alias Ankole.Actors.ActorEvent
+  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.Ingress
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Entry
 
-  import Ankole.ActorRuntimeCase, only: [complete_actor_event: 4]
+  import Ankole.SignalsGateway.ActorRuntimeCase, only: [complete_actor_event: 4]
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsGatewayFixtures
 

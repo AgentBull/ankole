@@ -25,6 +25,12 @@ pub fn estimate_o200k_base_tokens(text: String) -> u32 {
     common::estimate_o200k_base_tokens(&text).min(u32::MAX.into()) as u32
 }
 
+/// Hashes binary data through the shared kernel `generic_hash` contract.
+#[napi(js_name = "genericHash")]
+pub fn generic_hash(data: Buffer) -> Result<String> {
+    common::generic_hash(data.as_ref(), None).map_err(napi_error)
+}
+
 fn runtime_fabric_error(error: TransportError) -> Error {
     Error::new(Status::GenericFailure, error.ffi_message())
 }

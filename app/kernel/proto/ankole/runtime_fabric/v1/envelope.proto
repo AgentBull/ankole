@@ -61,6 +61,7 @@ message Envelope {
     WorkerProgress worker_progress = 35;
     TurnError turn_error = 41;
     TurnNoopCompleted turn_noop_completed = 42;
+    TurnCompleted turn_completed = 43;
     ControlShutdown control_shutdown = 50;
     RpcRequest rpc_request = 70;
     RpcResponse rpc_response = 71;
@@ -162,6 +163,18 @@ message TurnError {
 message TurnNoopCompleted {
   ActorTurnRef turn = 1;
   string reason = 2;
+}
+
+enum TurnCompletionOutcome {
+  TURN_COMPLETION_OUTCOME_UNSPECIFIED = 0;
+  TURN_COMPLETION_OUTCOME_LOOP_FINISHED = 1;
+  TURN_COMPLETION_OUTCOME_ITERATION_EXHAUSTED = 2;
+}
+
+message TurnCompleted {
+  ActorTurnRef turn = 1;
+  string final_response_id = 2;
+  TurnCompletionOutcome outcome = 3;
 }
 
 message ControlShutdown {

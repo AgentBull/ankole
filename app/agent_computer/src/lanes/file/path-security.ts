@@ -43,6 +43,8 @@ export function rootPathFor(config: WorkerConfig, root: string): string {
       return config.agentInstalledSkillsRoot
     case 'workspace_sessions':
       return config.workspaceSessionsRoot
+    case 'codex_accounts':
+      return resolve(config.sharedFsRoot, '.ankole', 'codex')
     default:
       throw new Error(`unsupported file root: ${root}`)
   }
@@ -59,7 +61,12 @@ export function parseVirtualPathFrame(
   }
 
   const [root, ...segments] = virtualPath.slice(1).split('/')
-  if (root !== 'user_files' && root !== 'agent_installed_skills' && root !== 'workspace_sessions') {
+  if (
+    root !== 'user_files' &&
+    root !== 'agent_installed_skills' &&
+    root !== 'workspace_sessions' &&
+    root !== 'codex_accounts'
+  ) {
     throw new Error(`unsupported file root: ${root}`)
   }
 

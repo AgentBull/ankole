@@ -24,9 +24,10 @@ defmodule Ankole.Application do
     #     which plugin-contributed children to start (snapshot taken once at boot).
     #   - IdentityProviders.StartupSync after Oban + Plugins: full-sync enqueue
     #     needs the queue, active provider config, and adapter declarations.
-    #   - PubSub + SignalsGateway preview children before ActorRuntime:
-    #     finalized actor events can start preview handlers.
-    #   - RuntimeEvents after ActorRuntime: LISTEN is followed by a snapshot of
+    #   - PubSub before SignalsGateway: conversation-scoped preview uses PubSub.
+    #   - SignalsGateway owns both preview and ActorRuntime supervision, keeping
+    #     their restart escalation inside the SignalsGateway failure domain.
+    #   - RuntimeEvents after SignalsGateway: LISTEN is followed by a snapshot of
     #     durable rows into exact per-key timers.
     #   - Endpoint last: accept web traffic only after every subsystem it serves
     #     (auth, config, plugins, actors, i18n) is ready.
@@ -41,15 +42,8 @@ defmodule Ankole.Application do
         {Ankole.Plugins.Registry, name: Ankole.Plugins.Registry},
         {Ankole.Plugins.Supervisor, registry: Ankole.Plugins.Registry},
         {Phoenix.PubSub, name: Ankole.PubSub},
-        {Registry, keys: :unique, name: Ankole.SignalsGateway.PreviewRegistry},
-        {DynamicSupervisor, name: Ankole.SignalsGateway.PreviewSupervisor, strategy: :one_for_one}
+        Ankole.SignalsGateway.Supervisor
       ]
-
-    children =
-      children ++
-        [
-          Ankole.ActorRuntime.Supervisor
-        ]
 
     children =
       children

@@ -131,7 +131,7 @@ defmodule Ankole.AIGateway.Compaction do
   @spec maybe_compact_history(String.t(), binary(), [Message.t()], [map()], map(), map()) ::
           {:ok, result()} | {:error, term()}
   def maybe_compact_history(
-        agent_uid,
+        subject_uid,
         conversation_id,
         history,
         current_input,
@@ -151,7 +151,7 @@ defmodule Ankole.AIGateway.Compaction do
 
       true ->
         compact_history(
-          agent_uid,
+          subject_uid,
           conversation_id,
           history,
           current_input,
@@ -190,26 +190,23 @@ defmodule Ankole.AIGateway.Compaction do
           {:ok,
            %{compaction: Message.t(), previous_response_id: binary(), history: [Message.t()]}}
           | {:error, term()}
-  def compact_conversation(agent_uid, conversation_id, request \\ %{}) when is_map(request) do
+  def compact_conversation(subject_uid, conversation_id, request \\ %{}) when is_map(request) do
     history = StatefulResponses.expand_history(conversation_id)
     total_tokens = history_usage_tokens(history)
 
-    with {:ok, candidate} <- compaction_candidate(agent_uid, history, []),
-         {:ok, summary} <- summarize_candidate(agent_uid, candidate, request),
+    with {:ok, candidate} <- compaction_candidate(subject_uid, history, []),
+         {:ok, summary} <- summarize_candidate(subject_uid, candidate, request),
          {:ok, artifact} <-
-           create_artifact_for_candidate(agent_uid, conversation_id, candidate, summary),
+           create_artifact_for_candidate(subject_uid, conversation_id, candidate, summary),
          {:ok, checkpoint} <-
            StatefulResponses.create_compaction_checkpoint(%{
-             agent_uid: agent_uid,
+             subject_uid: subject_uid,
              previous_response_id: "resp_#{candidate.anchor.id}",
              artifact: artifact,
              metadata:
-               compaction_metadata(
-                 summary,
-                 candidate,
-                 total_tokens,
-                 request_metadata(request)
-                 |> Map.merge(%{
+               checkpoint_metadata(
+                 request,
+                 compaction_metadata(summary, candidate, total_tokens, %{
                    "auto" => false,
                    "manual" => true
                  })
@@ -236,27 +233,27 @@ defmodule Ankole.AIGateway.Compaction do
   checkpoint response row so clients may continue with `previous_response_id`.
   """
   @spec compact_response(String.t(), map()) :: {:ok, map()} | {:error, term()}
-  def compact_response(agent_uid, request) when is_map(request) do
+  def compact_response(subject_uid, request) when is_map(request) do
     request = MapUtils.normalize_request_keys(request)
 
     with {:ok, _model} <- standalone_model(request),
          {:ok, input} <- standalone_input(request),
-         {:ok, resolved_input} <- CompactionArtifacts.resolve_input_handles(agent_uid, input),
+         {:ok, resolved_input} <- CompactionArtifacts.resolve_input_handles(subject_uid, input),
          {:ok, candidate} <- standalone_compaction_candidate(input, resolved_input),
-         {:ok, store_context} <- compact_store_context(agent_uid, request),
-         {:ok, summary} <- summarize_standalone(agent_uid, candidate, request),
+         {:ok, store_context} <- compact_store_context(subject_uid, request),
+         {:ok, summary} <- summarize_standalone(subject_uid, candidate, request),
          {:ok, artifact} <-
-           create_standalone_artifact(agent_uid, store_context, candidate, summary),
+           create_standalone_artifact(subject_uid, store_context, candidate, summary),
          {:ok, ankole_extension} <-
-           maybe_store_compaction_checkpoint(agent_uid, request, store_context, artifact) do
+           maybe_store_compaction_checkpoint(subject_uid, request, store_context, artifact) do
       {:ok, CompactionArtifacts.response_body(artifact, ankole: ankole_extension)}
     end
   end
 
-  def compact_response(_agent_uid, _request), do: {:error, :invalid_request_body}
+  def compact_response(_subject_uid, _request), do: {:error, :invalid_request_body}
 
   defp compact_history(
-         agent_uid,
+         subject_uid,
          conversation_id,
          history,
          current_input,
@@ -264,16 +261,20 @@ defmodule Ankole.AIGateway.Compaction do
          total_tokens,
          threshold
        ) do
-    with {:ok, candidate} <- compaction_candidate(agent_uid, history, current_input),
-         {:ok, summary} <- summarize_candidate(agent_uid, candidate, request),
+    with {:ok, candidate} <- compaction_candidate(subject_uid, history, current_input),
+         {:ok, summary} <- summarize_candidate(subject_uid, candidate, request),
          {:ok, artifact} <-
-           create_artifact_for_candidate(agent_uid, conversation_id, candidate, summary),
+           create_artifact_for_candidate(subject_uid, conversation_id, candidate, summary),
          {:ok, checkpoint} <-
            StatefulResponses.create_compaction_checkpoint(%{
-             agent_uid: agent_uid,
+             subject_uid: subject_uid,
              previous_response_id: "resp_#{candidate.anchor.id}",
              artifact: artifact,
-             metadata: compaction_metadata(summary, candidate, total_tokens, %{"auto" => true})
+             metadata:
+               checkpoint_metadata(
+                 request,
+                 compaction_metadata(summary, candidate, total_tokens, %{"auto" => true})
+               )
            }) do
       previous_response_id = "resp_#{checkpoint.id}"
 
@@ -313,11 +314,11 @@ defmodule Ankole.AIGateway.Compaction do
     end
   end
 
-  defp create_artifact_for_candidate(agent_uid, conversation_id, candidate, summary) do
+  defp create_artifact_for_candidate(subject_uid, conversation_id, candidate, summary) do
     retained_items = messages_to_items(candidate.retained_tail)
 
     CompactionArtifacts.insert_artifact(%{
-      agent_uid: agent_uid,
+      subject_uid: subject_uid,
       conversation_id: conversation_id,
       summary_text: summary.text,
       retained_items: retained_items,
@@ -333,9 +334,9 @@ defmodule Ankole.AIGateway.Compaction do
     })
   end
 
-  defp create_standalone_artifact(agent_uid, store_context, candidate, summary) do
+  defp create_standalone_artifact(subject_uid, store_context, candidate, summary) do
     CompactionArtifacts.insert_artifact(%{
-      agent_uid: agent_uid,
+      subject_uid: subject_uid,
       conversation_id: store_context.conversation_id,
       summary_text: summary.text,
       retained_items: candidate.retained_tail,
@@ -357,18 +358,18 @@ defmodule Ankole.AIGateway.Compaction do
   end
 
   defp maybe_store_compaction_checkpoint(
-         agent_uid,
+         subject_uid,
          _request,
          %{store?: true} = store_context,
          artifact
        ) do
     with {:ok, checkpoint} <-
            StatefulResponses.create_compaction_checkpoint(%{
-             agent_uid: agent_uid,
+             subject_uid: subject_uid,
              conversation_id: store_context.conversation_id,
              previous_response_id: store_context.previous_response_id,
              artifact: artifact,
-             metadata: store_context.metadata
+             metadata: %{"request_metadata" => store_context.metadata}
            }) do
       {:ok,
        %{
@@ -379,10 +380,10 @@ defmodule Ankole.AIGateway.Compaction do
     end
   end
 
-  defp maybe_store_compaction_checkpoint(_agent_uid, _request, _store_context, _artifact),
+  defp maybe_store_compaction_checkpoint(_subject_uid, _request, _store_context, _artifact),
     do: {:ok, nil}
 
-  defp compact_store_context(agent_uid, %{"store" => true} = request) do
+  defp compact_store_context(subject_uid, %{"store" => true} = request) do
     previous_response_id = Map.get(request, "previous_response_id")
     conversation_id = Map.get(request, "conversation")
 
@@ -390,7 +391,7 @@ defmodule Ankole.AIGateway.Compaction do
          :ok <- validate_compact_conversation_id(conversation_id) do
       cond do
         nonempty_binary?(previous_response_id) ->
-          case StatefulResponses.get_message_for_agent(agent_uid, previous_response_id) do
+          case StatefulResponses.get_response_for_subject(subject_uid, previous_response_id) do
             {:ok, %Message{status: "complete"} = anchor} ->
               {:ok,
                %{
@@ -411,7 +412,7 @@ defmodule Ankole.AIGateway.Compaction do
           raw_conversation_id = decode_compact_conversation_id(conversation_id)
 
           with {:ok, conversation} <-
-                 StatefulResponses.get_conversation_for_agent(agent_uid, raw_conversation_id) do
+                 StatefulResponses.get_conversation_for_subject(subject_uid, raw_conversation_id) do
             {:ok,
              %{
                store?: true,
@@ -423,7 +424,7 @@ defmodule Ankole.AIGateway.Compaction do
 
         true ->
           with {:ok, conversation} <-
-                 StatefulResponses.create_managed_stateful_responses_conversation(agent_uid) do
+                 StatefulResponses.create_managed_stateful_responses_conversation(subject_uid) do
             {:ok,
              %{
                store?: true,
@@ -438,7 +439,7 @@ defmodule Ankole.AIGateway.Compaction do
     end
   end
 
-  defp compact_store_context(_agent_uid, request) do
+  defp compact_store_context(_subject_uid, request) do
     previous_response_id = Map.get(request, "previous_response_id")
     conversation_id = Map.get(request, "conversation")
 
@@ -764,7 +765,7 @@ defmodule Ankole.AIGateway.Compaction do
   defp overflow_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp overflow_reason(reason), do: inspect(reason)
 
-  defp compaction_candidate(agent_uid, history, current_input) do
+  defp compaction_candidate(subject_uid, history, current_input) do
     with %Message{} = anchor <- List.last(history),
          rows_after_compaction = rows_after_last_compaction(history),
          compressible_limit when compressible_limit > 0 <-
@@ -788,7 +789,7 @@ defmodule Ankole.AIGateway.Compaction do
          retained_tail: retained_tail,
          retained_user_originals: retained_user_originals,
          recent_items: messages_to_items(retained_tail) ++ input_items(current_input),
-         previous_chat_history: previous_compaction_summary(agent_uid, history),
+         previous_chat_history: previous_compaction_summary(subject_uid, history),
          tail_rows_requested: tail_rows()
        }}
     else
@@ -859,12 +860,12 @@ defmodule Ankole.AIGateway.Compaction do
     end
   end
 
-  defp previous_compaction_summary(agent_uid, history) do
+  defp previous_compaction_summary(subject_uid, history) do
     history
     |> Enum.reverse()
     |> Enum.find_value(fn
       %Message{type: "checkpoint"} = checkpoint ->
-        case CompactionArtifacts.summary_for_checkpoint(agent_uid, checkpoint) do
+        case CompactionArtifacts.summary_for_checkpoint(subject_uid, checkpoint) do
           {:ok, summary} when is_binary(summary) -> summary
           _missing_or_invalid -> nil
         end
@@ -874,17 +875,17 @@ defmodule Ankole.AIGateway.Compaction do
     end)
   end
 
-  defp summarize_candidate(agent_uid, candidate, request) do
+  defp summarize_candidate(subject_uid, candidate, request) do
     request_model = Map.get(request, "model")
     items = messages_to_items(candidate.prefix)
     recent_items = Map.get(candidate, :recent_items, [])
 
     summarizer_selectors(request_model, request)
     |> Enum.reduce_while({:error, :summarizer_model_unavailable}, fn selector, _last_error ->
-      with {:ok, runtime} <- resolve_summarizer_runtime(agent_uid, selector),
+      with {:ok, runtime} <- resolve_summarizer_runtime(subject_uid, selector),
            {:ok, summary} <-
              summarize_rendered(
-               agent_uid,
+               subject_uid,
                runtime,
                selector,
                items,
@@ -898,15 +899,15 @@ defmodule Ankole.AIGateway.Compaction do
     end)
   end
 
-  defp summarize_standalone(agent_uid, candidate, request) do
+  defp summarize_standalone(subject_uid, candidate, request) do
     request
     |> Map.fetch!("model")
     |> summarizer_selectors(request)
     |> Enum.reduce_while({:error, :summarizer_model_unavailable}, fn selector, _last_error ->
-      with {:ok, runtime} <- resolve_summarizer_runtime(agent_uid, selector),
+      with {:ok, runtime} <- resolve_summarizer_runtime(subject_uid, selector),
            {:ok, summary} <-
              summarize_rendered(
-               agent_uid,
+               subject_uid,
                runtime,
                selector,
                candidate.prefix_items,
@@ -920,7 +921,7 @@ defmodule Ankole.AIGateway.Compaction do
     end)
   end
 
-  defp summarize_rendered(agent_uid, runtime, selector, items, previous_chat_history, opts) do
+  defp summarize_rendered(subject_uid, runtime, selector, items, previous_chat_history, opts) do
     recent_context_verbatim = render_recent_context(Keyword.get(opts, :recent_items, []))
     budget = render_budget(runtime, previous_chat_history, recent_context_verbatim)
     caps = CompactionRender.default_caps()
@@ -928,7 +929,7 @@ defmodule Ankole.AIGateway.Compaction do
     prompt =
       build_summarizer_prompt(items, previous_chat_history, recent_context_verbatim, budget, caps)
 
-    case call_summarizer(agent_uid, runtime, selector, prompt) do
+    case call_summarizer(subject_uid, runtime, selector, prompt) do
       {:ok, summary} ->
         {:ok, summary}
 
@@ -946,7 +947,7 @@ defmodule Ankole.AIGateway.Compaction do
               tight_caps
             )
 
-          call_summarizer(agent_uid, runtime, selector, tight_prompt)
+          call_summarizer(subject_uid, runtime, selector, tight_prompt)
         else
           error
         end
@@ -991,11 +992,11 @@ defmodule Ankole.AIGateway.Compaction do
     max(budget, CompactionRender.min_render_budget_tokens())
   end
 
-  defp resolve_summarizer_runtime(agent_uid, selector) do
-    Resolver.resolve_request_model(agent_uid, "llm", %{"model" => selector})
+  defp resolve_summarizer_runtime(subject_uid, selector) do
+    Resolver.resolve_request_model(subject_uid, "llm", %{"model" => selector})
   end
 
-  defp call_summarizer(_agent_uid, runtime, selector, prompt) do
+  defp call_summarizer(_subject_uid, runtime, selector, prompt) do
     request = %{
       "model" => selector,
       "instructions" => CompactionPrompt.system_prompt(),
@@ -1244,6 +1245,10 @@ defmodule Ankole.AIGateway.Compaction do
 
   defp request_metadata(%{"metadata" => metadata}) when is_map(metadata), do: metadata
   defp request_metadata(_request), do: %{}
+
+  defp checkpoint_metadata(request, internal_metadata) do
+    Map.put(internal_metadata, "request_metadata", request_metadata(request))
+  end
 
   defp message_content_text(%Message{content: content}) when is_list(content) do
     content

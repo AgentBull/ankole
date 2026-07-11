@@ -4,9 +4,7 @@ import type { TurnStart } from '../../lanes/actor_lane'
 import type { JsonObject } from '@pleisto/active-support'
 import type { AgentTool, AgentToolResult } from '../../core'
 import { jsonToolResult } from '../../core/tool-result'
-import { rpcMethods, type MemoryRpcRequest, type RpcMethod } from '../../lanes/rpc_lane'
-
-export type MemoryRpcRequester = (method: RpcMethod, request: MemoryRpcRequest) => Promise<JsonObject>
+import { rpcMethods, type MemoryRpcRequestBase, type MemoryRpcRequester } from '../../lanes/rpc_lane'
 
 export interface CreateMemoryToolsOptions {
   turnStart: TurnStart
@@ -65,19 +63,23 @@ function createMemoryNoteTool(opts: CreateMemoryToolsOptions): AgentTool<typeof 
     isReadOnly: false,
     isDestructive: false,
     async execute(toolCallId, params): Promise<AgentToolResult<MemoryToolDetails>> {
-      const method = memoryNoteMethod(params.action)
-      const payload: JsonObject = { tool_call_id: toolCallId }
+      const call = opts.requestMemoryRpc!
+      const base = { ...memoryRequest(opts.turnStart), tool_call_id: toolCallId }
 
-      if (params.action === 'save' || params.action === 'update') {
-        if (!params.content?.trim()) throw new Error(`${params.action} requires content`)
-        payload.content = params.content
-      }
-      if (params.action === 'update' || params.action === 'forget') {
-        if (!params.note_id?.trim()) throw new Error(`${params.action} requires note_id`)
-        payload.note_id = params.note_id
-      }
-
-      const response = await opts.requestMemoryRpc!(method, memoryRequest(opts.turnStart, payload))
+      // Method and payload for one action stay in a single branch so the RPC
+      // contract types check each shape exactly.
+      const response = await match(params.action)
+        .with('save', () => call(rpcMethods.memoryNoteSave, { ...base, content: requiredContent(params) }))
+        .with('update', () =>
+          call(rpcMethods.memoryNoteUpdate, {
+            ...base,
+            note_id: requiredNoteId(params),
+            content: requiredContent(params)
+          })
+        )
+        .with('forget', () => call(rpcMethods.memoryNoteForget, { ...base, note_id: requiredNoteId(params) }))
+        .with('list', () => call(rpcMethods.memoryNoteList, base))
+        .exhaustive()
       return memoryToolResult(response)
     }
   }
@@ -95,10 +97,10 @@ function createMemorySearchTool(
     isReadOnly: true,
     isDestructive: false,
     async execute(_toolCallId, params): Promise<AgentToolResult<MemoryToolDetails>> {
-      const response = await opts.requestMemoryRpc!(
-        rpcMethods.memorySearch,
-        memoryRequest(opts.turnStart, compactRecord(params))
-      )
+      const response = await opts.requestMemoryRpc!(rpcMethods.memorySearch, {
+        ...memoryRequest(opts.turnStart),
+        ...compactRecord(params)
+      })
       return memoryToolResult(response)
     }
   }
@@ -116,30 +118,30 @@ function createMemoryBrowseTool(
     isReadOnly: true,
     isDestructive: false,
     async execute(_toolCallId, params): Promise<AgentToolResult<MemoryToolDetails>> {
-      const response = await opts.requestMemoryRpc!(
-        rpcMethods.memoryBrowse,
-        memoryRequest(opts.turnStart, compactRecord(params))
-      )
+      const response = await opts.requestMemoryRpc!(rpcMethods.memoryBrowse, {
+        ...memoryRequest(opts.turnStart),
+        ...compactRecord(params)
+      })
       return memoryToolResult(response)
     }
   }
 }
 
-function memoryNoteMethod(action: z.output<typeof MemoryNoteParams>['action']): RpcMethod {
-  return match(action)
-    .with('save', () => rpcMethods.memoryNoteSave)
-    .with('update', () => rpcMethods.memoryNoteUpdate)
-    .with('forget', () => rpcMethods.memoryNoteForget)
-    .with('list', () => rpcMethods.memoryNoteList)
-    .exhaustive()
+function requiredContent(params: z.output<typeof MemoryNoteParams>): string {
+  if (!params.content?.trim()) throw new Error(`${params.action} requires content`)
+  return params.content
 }
 
-function memoryRequest(turnStart: TurnStart, payload: JsonObject): MemoryRpcRequest {
+function requiredNoteId(params: z.output<typeof MemoryNoteParams>): string {
+  if (!params.note_id?.trim()) throw new Error(`${params.action} requires note_id`)
+  return params.note_id
+}
+
+function memoryRequest(turnStart: TurnStart): MemoryRpcRequestBase {
   return {
     request_id: `memory-${crypto.randomUUID()}`,
-    turn_ref: turnStart.turn,
-    actor_event: turnStart.actor_event,
-    ...payload
+    turn: turnStart.turn,
+    actor_event: turnStart.actor_event
   }
 }
 

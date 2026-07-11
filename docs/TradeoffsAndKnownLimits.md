@@ -37,8 +37,9 @@ distinction is deliberate:
 - live secrets may exist in worker memory while a turn is running;
 - secrets must not be persisted into PostgreSQL payloads, workspace files,
   skill overlays, progress rows, AI gateway requests, or debug artifacts;
-- the control plane still owns final commit authority, turn fencing, provider
-  outbox truth, and the durable AI message log.
+- the control plane still owns both commit authorities: AIGateway commits each
+  Response, while SignalsGateway owns turn fencing, ActorEvent completion, and
+  provider outbox truth.
 
 This means a worker compromise is serious, but it is not the same failure mode
 as code escaping a single `bubblewrap` command sandbox. The worker is part of
@@ -150,11 +151,21 @@ The control plane owns durable semantic state:
 - skill registry, enablement, and overlay metadata.
 
 Workers execute tools, request semantic state, and transfer files, but they
-never write the AI message log, the conversations table, or the outbox. Final
-AI output lands through AIGateway's terminal commit: one control-plane
-transaction that checks the delivery fence, marks the final message row
-`complete`, sets `actor_events.completed_at`, and clears the live delivery —
-committed before the terminal frame reaches the worker.
+never write the AI message log, the conversations table, or the outbox.
+AIGateway's terminal commit has one responsibility: persist one Response's
+content, usage, and status, then publish generic events. It never completes an
+ActorEvent or touches a delivery or outbox row.
+
+When the local agent loop finishes, the worker sends a replayable, one-way
+`turn_completed` envelope with its fence, adopted final Response id, and
+`loop_finished` or `iteration_exhausted`. SignalsGateway reads and validates
+that immutable Response chain outside the transaction, then atomically writes
+the final/clarify/attachment outbox rows, completes the main and accepted steer
+ActorEvents, and cleans up deliveries. `iteration_exhausted` is terminal and
+non-retryable at this boundary; the budget-exempt summary Response remains an
+ordinary completed Response. There is no completion ACK. A lost
+completion leaves the ActorEvent open for ordinary lease redelivery; a terminal
+Response alone is never evidence that the Agent Turn ended.
 
 This is why `mailbox_updated`, worker progress, and live fabric delivery are not
 durable ownership signals by themselves. They are runtime signals around
@@ -262,10 +273,11 @@ compaction, retraction, branching, and reconnect. Deriving costs a query;
 repairing a drifted pointer costs correctness.
 
 There is no half-stream recovery. The log keeps no stable item snapshots and no
-content version counter. A broken provider stream costs one round: the stale
-`generating` row goes to `error` by `updated_at` staleness, and the round is
-re-sent from the last `complete` anchor. Retry is a new `actor_event_id` with
-`retry_of_actor_event_id`, not a resurrected stream.
+content version counter. A broken provider stream costs one Response: a live
+stateful WebSocket touches its `generating` row every 60 seconds, while an
+orphan that remains stale past the 300-second grace goes to `error`. A later
+execution starts from the last usable anchor; AIGateway does not inspect Actor
+activation or delivery state when deciding that a Response is orphaned.
 
 Token budgeting for automatic compaction uses upstream provider usage metadata
 already recorded on history messages. AIGateway does not estimate these counts
@@ -282,12 +294,14 @@ Retracted rows are skipped without replacement. Projection omits a retracted
 row's content and generates no note for the model. The audit fact stays on the
 row; the model simply no longer sees it.
 
-The security model is two rules: the 30-day per-agent token proves agent
-identity, and every query filters by that agent's `agent_uid`. There are no
-per-event tokens, no claims, no actor-event liveness checks, and no generation
-lease. Finer-grained permission layers here are treated as harmful complexity,
-not as missing features — the worker fleet is first-party and already inside
-the trusted fabric.
+The security model is two rules: the existing per-agent token or administrator
+authentication proves a Principal subject, and every conversation, message,
+and compaction query filters by `subject_uid`. There are no per-event tokens,
+no ActorEvent liveness checks, and no generation lease. Metadata is opaque to
+AIGateway: Agent Computer may carry `actor_event_id`, but only SignalsGateway
+interprets it. Finer-grained permission layers here are treated as harmful
+complexity, not as missing features — the worker fleet is first-party and
+already inside the trusted fabric.
 
 There is no `DELETE /responses/:id` and no cancel endpoint. IM deletion has its
 own mapping in SignalsGateway, and a running generation is cancelled through
@@ -298,6 +312,24 @@ One WebSocket connection runs one in-flight response, and `background=true` is
 unsupported. The worker loop is strictly sequential per actor event; parallel
 generations for one session are excluded at the ActorRuntime layer, not by an
 AIGateway lock.
+
+`max_tool_calls` and the Agent Turn iteration budget are different contracts.
+`max_tool_calls` is an optional limit for provider-executed built-in tools in
+one Response. Omitted or `null` means no numeric default. Function calls,
+custom-tool calls, and earlier Responses do not count. Native OpenAI Responses
+providers receive the field unchanged; non-native resolvers enforce a
+best-effort late stop at a safe event boundary and may overshoot for parallel
+calls that already started. A provider terminal that arrives first wins.
+
+The Agent Turn budget belongs to the loop in Agent Computer and is snapshotted
+from SignalsGateway's `ai_agent.max_iterations` policy (default 90). Each
+logical model call counts once, including an empty-response nudge; transport or
+provider retry of the same call, tool-result journal writes, and parallel tool
+execution do not add iterations. A natural no-tool result on the last allowed
+call is `loop_finished`. Only a loop that still needs another call after
+exhaustion gets one budget-exempt, tool-disabled summary Response and reports
+`iteration_exhausted`. Crash/redelivery starts a fresh local counter; the
+counter is not a durable TurnExecution checkpoint.
 
 ## Rust Kernel Boundary
 
@@ -432,9 +464,10 @@ shows the timers map or one scheduler mailbox is the bottleneck.
 
 ## SignalsGateway Scope
 
-SignalsGateway is the provider ingress and provider-visible outbox boundary. It
-is not the worker runtime, not the actor scheduler, and not a universal audit
-system.
+SignalsGateway is the provider ingress, Actor journal/runtime, and
+provider-visible outbox boundary. Agent Computer owns the local model/tool loop;
+AIGateway owns generic Responses. SignalsGateway owns the seam between them,
+not a universal audit system.
 
 It owns:
 
@@ -442,15 +475,15 @@ It owns:
 - binding admission and group-message policy;
 - provider mirror updates;
 - actor event construction;
-- live streamed-reply preview delivery (`AIReplyPreview`) and final-reply
-  mirror recovery (`RecoveryScan`);
+- session ActorRuntime scheduling, fences, and turn policy;
+- conversation-scoped live preview delivery (`AIReplyPreview`);
+- `turn_completed` validation and atomic ActorEvent/delivery/outbox commit;
 - provider-visible outbox execution.
 
 It does not own:
 
-- the AIGateway Responses loop, message log, or compaction;
-- session actor scheduling;
-- final AI output commit;
+- AIGateway provider execution, stateful Responses log, or compaction;
+- the Agent Computer model/tool loop or its iteration counter;
 - arbitrary rule routing;
 - plugin discovery or provider setup persistence;
 - universal raw-provider audit logging.
@@ -459,25 +492,26 @@ Provider ack and provider-visible reply must stay separate. A webhook HTTP 200
 means transport acknowledgement after the gateway has accepted or rejected the
 fact; it is not an agent reply.
 
-Streamed IM delivery is at-least-once and best-effort, not exactly-once.
-Preview continuity is transient: the provider-side preview message id is never
-persisted into message rows, and a dead preview process leaves a stale card
-until recovery delivers the final content. A reply can be re-sent in rare crash
-windows. Error terminals are not rendered to IM at all in the current policy —
-a failed generation posts no new provider message.
+Preview delivery is transient and best-effort. The first successful preview
+write stores its provider entry id on the ActorEvent, so the eventual outbox can
+choose an edit instead of a new send. `response.completed`,
+`response.incomplete`, and tool-call output are only Response facts; none ends
+the preview or the Agent Turn. Completion, noop, dead-letter, or explicit stop
+does. A dead preview process may leave a stale card temporarily, and error
+terminals are not rendered to IM by themselves.
 
-Streamed AI reply recovery is best-effort in v1. The `RecoveryScan` process is a
-single control-plane GenServer, and it only scans terminal AI messages older than
-the configured grace window. That window is the accepted protection against
-racing the live preview/finalize path. Do not add a database or advisory-lock
-mutex around recovery resend in the current single-instance deployment; it would
-not turn the provider-visible path into exactly-once delivery and would add a
-second coordination layer. If Ankole later runs multiple recovery scanners, add
-an explicit resend mutex as part of that multi-instance deployment design.
+The adopted final is never a best-effort preview continuation. Final text,
+clarify-only output, and attachment-only output always become durable outbox
+rows in the same SignalsGateway transaction that completes the ActorEvent and
+cleans up deliveries. Provider execution remains at-least-once rather than
+exactly-once, using the outbox's existing idempotency and reconciliation model.
+There is no Response-terminal recovery scanner because AIGateway cannot infer
+whether an Agent Turn has ended.
 
-The e2e assertion for a normal streamed reply is the terminal
-`ai_gateway_messages` row plus the `signal_gateway_entries.ai_message_id` final mirror.
-It is not an outbox row; only explicit side effects assert the outbox.
+The e2e assertion for a normal streamed reply is a valid terminal Response, one
+committed final outbox operation, completed ActorEvent/delivery cleanup, and the
+resulting `signal_gateway_entries` mirror. Preview events alone prove none of
+those facts.
 
 See `docs/design-docs/SignalsGateway.md` for the detailed ingress/outbox model.
 

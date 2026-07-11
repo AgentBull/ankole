@@ -117,7 +117,7 @@ into the native socket thread and receive decoded events back through the host
 binding:
 
 - Elixir uses `Ankole.Kernel.RuntimeFabric` and
-  `Ankole.ActorRuntime.Transport.Broker`;
+  `Ankole.SignalsGateway.ActorRuntime.Transport.Broker`;
 - Bun uses one RuntimeFabric host adapter over the native
   `RuntimeFabricDealer`; the adapter owns bounded send retry, native-error
   translation, protobuf decode, raw envelope-versus-worker-file
@@ -251,8 +251,8 @@ RuntimeFabric connection. They are lower-level than the product lane names and
 are not subsections of the actor lane:
 
 - `LANE_CONTROL`: worker lifecycle, turn control, shutdown;
-- `LANE_TURN`: turn start, mailbox update, turn accepted, noop completion, turn
-  error;
+- `LANE_TURN`: turn start, mailbox update, turn accepted, explicit completion,
+  noop completion, turn error;
 - `LANE_PROGRESS`: worker progress observations;
 - `LANE_RPC`: request/response/error RPC envelopes handled by the RPC lane.
 
@@ -273,6 +273,7 @@ Typical actor lane messages:
 - `mailbox_updated`;
 - `turn_control`;
 - `worker_progress`;
+- `turn_completed`;
 - `turn_noop_completed`;
 - `turn_error`.
 
@@ -285,8 +286,9 @@ Typical actor lane messages:
   `provider_thread_id`). There is no events list;
 - `model_ref`: the control-plane-selected runtime model profile for ordinary
   generation (`profile`, `provider_id`, `model`, `provider_kind`);
-- `request_context`: current-turn facts such as schedule origin, turn mode, and
-  `silent_success_allowed`.
+- `request_context`: current-turn facts such as schedule origin, turn mode,
+  `silent_success_allowed`, and the snapshotted `ai_agent` runtime policy,
+  including `max_iterations`.
 
 `mailbox_updated` carries exactly one already-journaled actor event; it is how a
 `/steer` event is injected into a running turn at a checkpoint. There is no batch
@@ -336,15 +338,26 @@ The fence is deliberately not a separate permission system. It is the minimum
 runtime equality check that prevents old workers or old turn attempts from
 committing into a newer actor state.
 
-The actor lane carries no final-output message. The final AI output of a turn
-commits inside AIGateway: the terminal commit transaction marks the last
-`ai_gateway_messages` row `complete`, sets `actor_events.completed_at`, and
-clears the live delivery — before the terminal frame reaches the worker. The
-worker's success path simply ends with the AIGateway response; it proposes
-nothing back over the fabric. A turn whose event needs no output completes
-through the explicit `turn_noop_completed` marker; silence is never a
-completion signal. `turn_error` remains the worker execution-failure path that
-makes the event retryable.
+The actor lane carries explicit final-output adoption through
+`turn_completed`. It is `LANE_TURN + CONTROL_REPLAYABLE` and contains:
+
+- the complete `ActorTurnRef` fence;
+- `final_response_id`, a stored `resp_*` chosen by the Agent Computer loop;
+- `outcome = loop_finished | iteration_exhausted`.
+
+`loop_finished` means the loop exited normally; it does not assert that the
+user's broader task succeeded. `iteration_exhausted` is terminal and
+non-retryable; its final Response is the budget-exempt no-tools summary and may
+itself have `status = completed`.
+
+SignalsGateway validates the immutable Response chain, then atomically commits
+ActorEvent completion, final/clarify/attachment outbox intents, and delivery
+cleanup. AIGateway's terminal commit closes only one Response and never changes
+Actor state. There is no completion ACK: if completion handling fails, the
+ActorEvent remains open and ordinary lease/redelivery starts a fresh worker
+execution with a fresh local budget. A turn whose event needs no output still
+uses `turn_noop_completed`; silence is never completion. `turn_error` remains
+the retryable worker execution-failure path.
 
 ## RPC Lane
 
@@ -356,7 +369,7 @@ The rpc lane is request/response traffic for semantic methods. It is not tied
 to worker-owned files or actor-lane facts. Either side may initiate a bounded
 RPC call when it needs a method owned by the other side.
 
-The current worker-to-control-plane methods are mostly for PG semantic state:
+Worker-to-control-plane methods are grouped by the PG-owned domain they expose:
 
 - `agent_conversation.context.resolve`: returns the current
   `ai_gateway_conversations` context: agent display facts, conversation id/key,
@@ -364,8 +377,20 @@ The current worker-to-control-plane methods are mostly for PG semantic state:
   It does not return request context or model history;
 - `skills.overlay.resolve`: returns one agent/skill overlay;
 - `skills.overlay.replace`: replaces one overlay;
+- `skills.installed.replace`: replaces the worker's observed installed-skill set;
 - `ai_gateway.api_key_for.create_or_find_by_agent`: returns an agent-scoped
-  AIGateway API key for the request's explicit `agent_uid`.
+  AIGateway API key for the request's explicit `agent_uid`;
+- `app_configure.resolve`: resolves declared worker runtime settings;
+- `subagent.delegation.*`: creates, reads, steers, stops, journals, and commits
+  durable delegation work;
+- `codex.account.resolve` and `codex.account.auth.update`: resolve and persist
+  the frozen ChatGPT subscription account for an active delegation turn;
+- `memory_*` and `schedule.*`: operate the declared memory and scheduling
+  surfaces.
+
+The cross-language method/scope list is generated into
+`app/kernel/proto/ankole/runtime_fabric/v1/rpc_methods.json` and checked by
+both the Elixir and Bun test suites.
 
 There is deliberately no conversation-history RPC and no summary-commit RPC.
 Model history is AIGateway state: each `response.create` expands it
@@ -467,7 +492,24 @@ boundaries. File content is always a `DATA` binary chunk frame. A `WRITE_OPEN`,
 Supported roots are worker filesystem roots, not S3 buckets:
 
 - `user_files`: worker-visible user files;
-- `agent_installed_skills`: worker-visible installed skill files.
+- `agent_installed_skills`: worker-visible installed skill files;
+- `workspace_sessions`: worker-visible durable session homes.
+
+The control plane also has one non-Console root, `codex_accounts`, mapped to
+`/workspace/shared/.ankole/codex`. It exists only so Codex account deletion can
+remove the corresponding account-scoped home through the same bounded file
+lane. It is not part of `WorkerFiles.roots/0` and cannot be selected by the
+operator file browser.
+
+On the control plane, `Ankole.WorkerFiles` is the single owner of this root
+list, of route choice (any ready worker by default, or one pinned worker for
+operator-facing reachability), and of the authoritative transfer byte bound
+(100 MiB per file in either direction). Writes are rejected before any frame
+is sent. Reads are rejected at `READ_READY`: the worker reports the
+authoritative file size there, and an oversize file is answered with
+`READ_ABORT` before any byte credit is granted, so the bound holds atomically
+without a separate `STAT` round trip. Workers still validate their own
+configured roots at the process boundary.
 
 File-lane writes only move bytes. They do not make an installed skill visible by
 themselves. Before resolving `agent_conversation.context.resolve` for a turn,
@@ -492,7 +534,11 @@ The supported roots are:
 
 - `ANKOLE_USER_FILES_ROOT`, defaulting to `/workspace/shared/user-files`;
 - `ANKOLE_AGENT_INSTALLED_SKILLS_ROOT`, defaulting to
-  `/workspace/shared/skills/agents`.
+  `/workspace/shared/skills/agents`;
+- `ANKOLE_WORKSPACE_SESSIONS_ROOT`, defaulting to `/workspace/.sessions`.
+
+The internal `codex_accounts` root resolves from `ANKOLE_SHARED_FS_ROOT`,
+defaulting to `/workspace/shared/.ankole/codex`.
 
 Inbound `WRITE_OPEN` writes into a scratch directory under:
 
@@ -512,9 +558,12 @@ verification.
 
 The control-plane `FileTransferLane` owns only in-memory request/response
 correlation for the active operation. It does not add a durable worker-file
-state machine. Files are durable once written under the worker root and
-referenced from PG semantic rows; transient chunk exchange does not need its own
-PG-backed broker unless retry/resume requirements become real.
+state machine, and it holds no policy: root membership, route choice, and the
+byte bound live in `Ankole.WorkerFiles`, which every control-plane caller
+(Console API, provider adapters, cleanup jobs) goes through. Files are durable
+once written under the worker root and referenced from PG semantic rows;
+transient chunk exchange does not need its own PG-backed broker unless
+retry/resume requirements become real.
 
 ## Worker File Encoding
 
@@ -563,7 +612,7 @@ The current inbound path is:
 4. PG stores the worker-visible path observation for later actor events.
 
 For Lark/Feishu resource messages, the production inbound consumer downloads
-the provider resource bytes and writes them through `ActorRuntime.put_worker_file`
+the provider resource bytes and writes them through `Ankole.WorkerFiles.put`
 to `user_files`. The signal attachment keeps the provider reference and gains a
 `/workspace/user-files/...` path plus XXH3 observation when materialization
 succeeds.
@@ -578,12 +627,13 @@ The current outbound path is:
 2. The model calls `reply_attachment` to register an existing
    `/workspace/user-files/...` file as a native provider attachment. The tool
    result is a durable `function_call_output` item in the run row's `content`.
-3. AIGateway's terminal commit reads those attachment outputs from the final
-   content and inserts explicit `signal_gateway_outbox` intents in the same
-   transaction, referencing `source_actor_event_id` and `ai_message_id`.
-4. The provider adapter reads the file through `ActorRuntime.get_worker_file`,
+3. Agent Computer sends `turn_completed` with the final Response id.
+4. SignalsGateway projects attachment outputs from the validated Response chain
+   and inserts explicit `signal_gateway_outbox` intents in the same transaction
+   as Actor completion, referencing `source_actor_event_id` and `ai_message_id`.
+5. The provider adapter reads the file through `Ankole.WorkerFiles.get`,
    uploads bytes to the provider, and sends the provider-native file message.
-5. On send success, SignalsGateway mirrors the outbound entry with the same
+6. On send success, SignalsGateway mirrors the outbound entry with the same
    worker-visible attachment observation.
 
 Do not infer outbound attachments by scraping text for `/workspace/...` paths.

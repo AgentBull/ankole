@@ -14,6 +14,7 @@ describe('@ankole/kernel', () => {
       'authzValidateCondition',
       'authzValidateResourcePattern',
       'estimateO200kBaseTokens',
+      'genericHash',
       'signalsGatewayFilterMatch',
       'signalsGatewayValidateFilter',
       'unifiedTextDiff',
@@ -40,6 +41,12 @@ describe('@ankole/kernel', () => {
 
   it('computes string XXH3 fingerprints through the Bun bridge', () => {
     expect(kernel.xxh3String128Hex('TestCase')).toBe('7b16fe7c3e492b87d9615265f0856cec')
+  })
+
+  it('hashes binary data through the shared generic hash contract', () => {
+    expect(kernel.genericHash(Buffer.from('bullx'))).toBe(
+      '7f31cabae40697f9404428671c582d3c1f80c8a13d0741f4be8c9b856fcc0706'
+    )
   })
 
   it('estimates model context with the shared o200k_base tokenizer', () => {

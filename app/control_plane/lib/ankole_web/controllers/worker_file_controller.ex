@@ -11,7 +11,7 @@ defmodule AnkoleWeb.WorkerFileController do
   use AnkoleWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
-  alias Ankole.ActorRuntime
+  alias Ankole.WorkerFiles
   alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.ConsoleApi.ErrorEnvelope
@@ -30,10 +30,9 @@ defmodule AnkoleWeb.WorkerFileController do
   plug OpenApiSpex.Plug.CastAndValidate,
     render_error: AnkoleWeb.OpenApiValidationErrorRenderer
 
-  @max_transfer_bytes 100 * 1024 * 1024
   @list_max_entries 1000
 
-  @file_roots ["workspace_sessions", "user_files", "agent_installed_skills"]
+  @file_roots Ankole.WorkerFiles.roots()
 
   operation(:index,
     summary: "List files in one worker filesystem root",
@@ -163,9 +162,7 @@ defmodule AnkoleWeb.WorkerFileController do
 
     with :ok <- authorize(conn, worker_id, "read"),
          {:ok, result} <-
-           ActorRuntime.list_files_on_worker(worker_id, root, path,
-             max_entries: @list_max_entries
-           ) do
+           WorkerFiles.list(root, path, worker_id: worker_id, max_entries: @list_max_entries) do
       json(conn, %{
         data: %{
           root: result["root"],
@@ -185,10 +182,7 @@ defmodule AnkoleWeb.WorkerFileController do
     path = params[:path] || params["path"]
 
     with :ok <- authorize(conn, worker_id, "read"),
-         {:ok, stat} <- ActorRuntime.stat_file_on_worker(worker_id, root, path),
-         :ok <- assert_downloadable(stat),
-         {:ok, %{"content" => content}} <-
-           ActorRuntime.get_file_from_worker(worker_id, root, path) do
+         {:ok, %{"content" => content}} <- WorkerFiles.get(root, path, worker_id: worker_id) do
       filename = Path.basename(path)
 
       conn
@@ -214,8 +208,7 @@ defmodule AnkoleWeb.WorkerFileController do
          {:ok, upload} <- upload_param(body),
          :ok <- assert_upload_size(upload),
          {:ok, content} <- File.read(upload.path),
-         {:ok, result} <-
-           ActorRuntime.put_file_on_worker(worker_id, root, path, content) do
+         {:ok, result} <- WorkerFiles.put(root, path, content, worker_id: worker_id) do
       json(conn, %{
         data: %{
           root: result["root"],
@@ -241,7 +234,8 @@ defmodule AnkoleWeb.WorkerFileController do
 
     with :ok <- authorize(conn, worker_id, "update"),
          {:ok, result} <-
-           ActorRuntime.move_file_on_worker(worker_id, root, from_path, to_path,
+           WorkerFiles.move(root, from_path, to_path,
+             worker_id: worker_id,
              overwrite: overwrite
            ) do
       json(conn, %{
@@ -265,7 +259,7 @@ defmodule AnkoleWeb.WorkerFileController do
 
     with :ok <- authorize(conn, worker_id, "delete"),
          {:ok, result} <-
-           ActorRuntime.delete_file_on_worker(worker_id, root, path, recursive: recursive) do
+           WorkerFiles.delete(root, path, worker_id: worker_id, recursive: recursive) do
       json(conn, %{
         data: %{
           root: result["root"],
@@ -296,22 +290,16 @@ defmodule AnkoleWeb.WorkerFileController do
     end
   end
 
+  # Rejecting before `File.read/1` keeps an oversize multipart temp file out of
+  # memory; the byte bound itself is owned and re-enforced by `WorkerFiles.put/4`.
   defp assert_upload_size(%Plug.Upload{path: path}) do
+    max_bytes = WorkerFiles.max_transfer_bytes()
+
     case File.stat!(path).size do
-      size when size > @max_transfer_bytes -> {:error, :file_too_large}
+      size when size > max_bytes -> {:error, {:file_too_large, size, max_bytes}}
       _size -> :ok
     end
   end
-
-  defp assert_downloadable(%{"kind" => kind}) when kind != "file" do
-    {:error, :not_a_file}
-  end
-
-  defp assert_downloadable(%{"size" => size}) when size > @max_transfer_bytes do
-    {:error, :file_too_large}
-  end
-
-  defp assert_downloadable(_stat), do: :ok
 
   defp present(value, _label) when is_binary(value) and value != "", do: {:ok, value}
   defp present(_value, label), do: {:error, {:missing, label}}
@@ -326,10 +314,7 @@ defmodule AnkoleWeb.WorkerFileController do
     render_error(conn, 422, "validation_failed", "file is required")
   end
 
-  defp error(conn, :not_a_file, _kind),
-    do: render_error(conn, 422, "not_a_file", "path is not a file")
-
-  defp error(conn, :file_too_large, _kind) do
+  defp error(conn, {:file_too_large, _size, _max_bytes}, _kind) do
     render_error(conn, 422, "file_too_large", "file exceeds the transfer limit")
   end
 

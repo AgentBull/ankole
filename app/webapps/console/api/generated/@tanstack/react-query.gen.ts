@@ -13,7 +13,10 @@ import {
   ankoleWebAgentComputerWorkerControllerIndex,
   ankoleWebAgentControllerCreate,
   ankoleWebAgentControllerDelete,
+  ankoleWebAgentControllerDeleteModelProfile,
   ankoleWebAgentControllerIndex,
+  ankoleWebAgentControllerIndexModelProfiles,
+  ankoleWebAgentControllerPutModelProfile,
   ankoleWebAgentControllerShow,
   ankoleWebAgentControllerUpdate,
   ankoleWebAiGatewayControllerCompactResponse,
@@ -25,12 +28,9 @@ import {
   ankoleWebAiGatewayControllerWebFetch,
   ankoleWebAiGatewayControllerWebSearch,
   ankoleWebAiGatewayControllerWebTools,
-  ankoleWebAiGatewayProviderControllerDeleteModelProfile,
   ankoleWebAiGatewayProviderControllerDeleteProvider,
   ankoleWebAiGatewayProviderControllerIndex,
-  ankoleWebAiGatewayProviderControllerIndexModelProfiles,
   ankoleWebAiGatewayProviderControllerProviderKinds,
-  ankoleWebAiGatewayProviderControllerPutModelProfile,
   ankoleWebAiGatewayProviderControllerPutProvider,
   ankoleWebAppConfigurationControllerDecrypt,
   ankoleWebAppConfigurationControllerDelete,
@@ -39,6 +39,10 @@ import {
   ankoleWebAppConfigurationControllerUpdate,
   ankoleWebAuthControllerDeleteSession,
   ankoleWebAuthControllerOauthToken,
+  ankoleWebCodexAccountControllerCreate,
+  ankoleWebCodexAccountControllerDelete,
+  ankoleWebCodexAccountControllerIndex,
+  ankoleWebCodexAccountControllerUpdate,
   ankoleWebIdentityProviderControllerAdapters,
   ankoleWebIdentityProviderControllerIndex,
   ankoleWebIdentityProviderControllerPutProvider,
@@ -77,10 +81,19 @@ import type {
   AnkoleWebAgentControllerCreateResponse,
   AnkoleWebAgentControllerDeleteData,
   AnkoleWebAgentControllerDeleteError,
+  AnkoleWebAgentControllerDeleteModelProfileData,
+  AnkoleWebAgentControllerDeleteModelProfileError,
+  AnkoleWebAgentControllerDeleteModelProfileResponse,
   AnkoleWebAgentControllerDeleteResponse,
   AnkoleWebAgentControllerIndexData,
   AnkoleWebAgentControllerIndexError,
+  AnkoleWebAgentControllerIndexModelProfilesData,
+  AnkoleWebAgentControllerIndexModelProfilesError,
+  AnkoleWebAgentControllerIndexModelProfilesResponse,
   AnkoleWebAgentControllerIndexResponse,
+  AnkoleWebAgentControllerPutModelProfileData,
+  AnkoleWebAgentControllerPutModelProfileError,
+  AnkoleWebAgentControllerPutModelProfileResponse,
   AnkoleWebAgentControllerShowData,
   AnkoleWebAgentControllerShowError,
   AnkoleWebAgentControllerShowResponse,
@@ -114,24 +127,15 @@ import type {
   AnkoleWebAiGatewayControllerWebToolsData,
   AnkoleWebAiGatewayControllerWebToolsError,
   AnkoleWebAiGatewayControllerWebToolsResponse,
-  AnkoleWebAiGatewayProviderControllerDeleteModelProfileData,
-  AnkoleWebAiGatewayProviderControllerDeleteModelProfileError,
-  AnkoleWebAiGatewayProviderControllerDeleteModelProfileResponse,
   AnkoleWebAiGatewayProviderControllerDeleteProviderData,
   AnkoleWebAiGatewayProviderControllerDeleteProviderError,
   AnkoleWebAiGatewayProviderControllerDeleteProviderResponse,
   AnkoleWebAiGatewayProviderControllerIndexData,
   AnkoleWebAiGatewayProviderControllerIndexError,
-  AnkoleWebAiGatewayProviderControllerIndexModelProfilesData,
-  AnkoleWebAiGatewayProviderControllerIndexModelProfilesError,
-  AnkoleWebAiGatewayProviderControllerIndexModelProfilesResponse,
   AnkoleWebAiGatewayProviderControllerIndexResponse,
   AnkoleWebAiGatewayProviderControllerProviderKindsData,
   AnkoleWebAiGatewayProviderControllerProviderKindsError,
   AnkoleWebAiGatewayProviderControllerProviderKindsResponse,
-  AnkoleWebAiGatewayProviderControllerPutModelProfileData,
-  AnkoleWebAiGatewayProviderControllerPutModelProfileError,
-  AnkoleWebAiGatewayProviderControllerPutModelProfileResponse,
   AnkoleWebAiGatewayProviderControllerPutProviderData,
   AnkoleWebAiGatewayProviderControllerPutProviderError,
   AnkoleWebAiGatewayProviderControllerPutProviderResponse,
@@ -155,6 +159,18 @@ import type {
   AnkoleWebAuthControllerOauthTokenData,
   AnkoleWebAuthControllerOauthTokenError,
   AnkoleWebAuthControllerOauthTokenResponse,
+  AnkoleWebCodexAccountControllerCreateData,
+  AnkoleWebCodexAccountControllerCreateError,
+  AnkoleWebCodexAccountControllerCreateResponse,
+  AnkoleWebCodexAccountControllerDeleteData,
+  AnkoleWebCodexAccountControllerDeleteError,
+  AnkoleWebCodexAccountControllerDeleteResponse,
+  AnkoleWebCodexAccountControllerIndexData,
+  AnkoleWebCodexAccountControllerIndexError,
+  AnkoleWebCodexAccountControllerIndexResponse,
+  AnkoleWebCodexAccountControllerUpdateData,
+  AnkoleWebCodexAccountControllerUpdateError,
+  AnkoleWebCodexAccountControllerUpdateResponse,
   AnkoleWebIdentityProviderControllerAdaptersData,
   AnkoleWebIdentityProviderControllerAdaptersError,
   AnkoleWebIdentityProviderControllerAdaptersResponse,
@@ -789,20 +805,20 @@ export const ankoleWebSignalBindingControllerIndexOptions = (
 /**
  * Clear one optional model profile for an agent
  */
-export const ankoleWebAiGatewayProviderControllerDeleteModelProfileMutation = (
-  options?: Partial<Options<AnkoleWebAiGatewayProviderControllerDeleteModelProfileData>>
+export const ankoleWebAgentControllerDeleteModelProfileMutation = (
+  options?: Partial<Options<AnkoleWebAgentControllerDeleteModelProfileData>>
 ): UseMutationOptions<
-  AnkoleWebAiGatewayProviderControllerDeleteModelProfileResponse,
-  AnkoleWebAiGatewayProviderControllerDeleteModelProfileError,
-  Options<AnkoleWebAiGatewayProviderControllerDeleteModelProfileData>
+  AnkoleWebAgentControllerDeleteModelProfileResponse,
+  AnkoleWebAgentControllerDeleteModelProfileError,
+  Options<AnkoleWebAgentControllerDeleteModelProfileData>
 > => {
   const mutationOptions: UseMutationOptions<
-    AnkoleWebAiGatewayProviderControllerDeleteModelProfileResponse,
-    AnkoleWebAiGatewayProviderControllerDeleteModelProfileError,
-    Options<AnkoleWebAiGatewayProviderControllerDeleteModelProfileData>
+    AnkoleWebAgentControllerDeleteModelProfileResponse,
+    AnkoleWebAgentControllerDeleteModelProfileError,
+    Options<AnkoleWebAgentControllerDeleteModelProfileData>
   > = {
     mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAiGatewayProviderControllerDeleteModelProfile({
+      const { data } = await ankoleWebAgentControllerDeleteModelProfile({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -816,20 +832,20 @@ export const ankoleWebAiGatewayProviderControllerDeleteModelProfileMutation = (
 /**
  * Create or update one model profile for an agent
  */
-export const ankoleWebAiGatewayProviderControllerPutModelProfileMutation = (
-  options?: Partial<Options<AnkoleWebAiGatewayProviderControllerPutModelProfileData>>
+export const ankoleWebAgentControllerPutModelProfileMutation = (
+  options?: Partial<Options<AnkoleWebAgentControllerPutModelProfileData>>
 ): UseMutationOptions<
-  AnkoleWebAiGatewayProviderControllerPutModelProfileResponse,
-  AnkoleWebAiGatewayProviderControllerPutModelProfileError,
-  Options<AnkoleWebAiGatewayProviderControllerPutModelProfileData>
+  AnkoleWebAgentControllerPutModelProfileResponse,
+  AnkoleWebAgentControllerPutModelProfileError,
+  Options<AnkoleWebAgentControllerPutModelProfileData>
 > => {
   const mutationOptions: UseMutationOptions<
-    AnkoleWebAiGatewayProviderControllerPutModelProfileResponse,
-    AnkoleWebAiGatewayProviderControllerPutModelProfileError,
-    Options<AnkoleWebAiGatewayProviderControllerPutModelProfileData>
+    AnkoleWebAgentControllerPutModelProfileResponse,
+    AnkoleWebAgentControllerPutModelProfileError,
+    Options<AnkoleWebAgentControllerPutModelProfileData>
   > = {
     mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAiGatewayProviderControllerPutModelProfile({
+      const { data } = await ankoleWebAgentControllerPutModelProfile({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -1164,24 +1180,24 @@ export const ankoleWebScheduleControllerIndexCheckbacksOptions = (
     queryKey: ankoleWebScheduleControllerIndexCheckbacksQueryKey(options)
   })
 
-export const ankoleWebAiGatewayProviderControllerIndexModelProfilesQueryKey = (
-  options: Options<AnkoleWebAiGatewayProviderControllerIndexModelProfilesData>
-) => createQueryKey('ankoleWebAiGatewayProviderControllerIndexModelProfiles', options)
+export const ankoleWebAgentControllerIndexModelProfilesQueryKey = (
+  options: Options<AnkoleWebAgentControllerIndexModelProfilesData>
+) => createQueryKey('ankoleWebAgentControllerIndexModelProfiles', options)
 
 /**
  * Read all model profiles for one agent
  */
-export const ankoleWebAiGatewayProviderControllerIndexModelProfilesOptions = (
-  options: Options<AnkoleWebAiGatewayProviderControllerIndexModelProfilesData>
+export const ankoleWebAgentControllerIndexModelProfilesOptions = (
+  options: Options<AnkoleWebAgentControllerIndexModelProfilesData>
 ) =>
   queryOptions<
-    AnkoleWebAiGatewayProviderControllerIndexModelProfilesResponse,
-    AnkoleWebAiGatewayProviderControllerIndexModelProfilesError,
-    AnkoleWebAiGatewayProviderControllerIndexModelProfilesResponse,
-    ReturnType<typeof ankoleWebAiGatewayProviderControllerIndexModelProfilesQueryKey>
+    AnkoleWebAgentControllerIndexModelProfilesResponse,
+    AnkoleWebAgentControllerIndexModelProfilesError,
+    AnkoleWebAgentControllerIndexModelProfilesResponse,
+    ReturnType<typeof ankoleWebAgentControllerIndexModelProfilesQueryKey>
   >({
     queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebAiGatewayProviderControllerIndexModelProfiles({
+      const { data } = await ankoleWebAgentControllerIndexModelProfiles({
         ...options,
         ...queryKey[0],
         signal,
@@ -1189,7 +1205,7 @@ export const ankoleWebAiGatewayProviderControllerIndexModelProfilesOptions = (
       })
       return data
     },
-    queryKey: ankoleWebAiGatewayProviderControllerIndexModelProfilesQueryKey(options)
+    queryKey: ankoleWebAgentControllerIndexModelProfilesQueryKey(options)
   })
 
 export const ankoleWebSignalBindingControllerAdaptersQueryKey = (
@@ -1407,6 +1423,61 @@ export const ankoleWebScheduleControllerCancelCheckbackMutation = (
   return mutationOptions
 }
 
+export const ankoleWebCodexAccountControllerIndexQueryKey = (
+  options?: Options<AnkoleWebCodexAccountControllerIndexData>
+) => createQueryKey('ankoleWebCodexAccountControllerIndex', options)
+
+/**
+ * List Codex accounts
+ */
+export const ankoleWebCodexAccountControllerIndexOptions = (
+  options?: Options<AnkoleWebCodexAccountControllerIndexData>
+) =>
+  queryOptions<
+    AnkoleWebCodexAccountControllerIndexResponse,
+    AnkoleWebCodexAccountControllerIndexError,
+    AnkoleWebCodexAccountControllerIndexResponse,
+    ReturnType<typeof ankoleWebCodexAccountControllerIndexQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebCodexAccountControllerIndex({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebCodexAccountControllerIndexQueryKey(options)
+  })
+
+/**
+ * Create a Codex account
+ */
+export const ankoleWebCodexAccountControllerCreateMutation = (
+  options?: Partial<Options<AnkoleWebCodexAccountControllerCreateData>>
+): UseMutationOptions<
+  AnkoleWebCodexAccountControllerCreateResponse,
+  AnkoleWebCodexAccountControllerCreateError,
+  Options<AnkoleWebCodexAccountControllerCreateData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebCodexAccountControllerCreateResponse,
+    AnkoleWebCodexAccountControllerCreateError,
+    Options<AnkoleWebCodexAccountControllerCreateData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebCodexAccountControllerCreate({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 /**
  * Search the web through AIGateway
  */
@@ -1479,6 +1550,60 @@ export const ankoleWebSignalBindingControllerPutBindingMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebSignalBindingControllerPutBinding({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Delete a Codex account
+ */
+export const ankoleWebCodexAccountControllerDeleteMutation = (
+  options?: Partial<Options<AnkoleWebCodexAccountControllerDeleteData>>
+): UseMutationOptions<
+  AnkoleWebCodexAccountControllerDeleteResponse,
+  AnkoleWebCodexAccountControllerDeleteError,
+  Options<AnkoleWebCodexAccountControllerDeleteData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebCodexAccountControllerDeleteResponse,
+    AnkoleWebCodexAccountControllerDeleteError,
+    Options<AnkoleWebCodexAccountControllerDeleteData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebCodexAccountControllerDelete({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Update a Codex account
+ */
+export const ankoleWebCodexAccountControllerUpdateMutation = (
+  options?: Partial<Options<AnkoleWebCodexAccountControllerUpdateData>>
+): UseMutationOptions<
+  AnkoleWebCodexAccountControllerUpdateResponse,
+  AnkoleWebCodexAccountControllerUpdateError,
+  Options<AnkoleWebCodexAccountControllerUpdateData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebCodexAccountControllerUpdateResponse,
+    AnkoleWebCodexAccountControllerUpdateError,
+    Options<AnkoleWebCodexAccountControllerUpdateData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebCodexAccountControllerUpdate({
         ...options,
         ...fnOptions,
         throwOnError: true

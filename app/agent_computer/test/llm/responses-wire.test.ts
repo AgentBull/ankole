@@ -680,6 +680,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
 
     const final = await runAgentLoop({
       model,
+      maxModelIterations: 90,
       messages: [{ role: 'user', content: 'write a long answer' }],
       stateful: {
         actorEventId: '00000000-0000-0000-0000-000000000017',
@@ -687,8 +688,8 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       }
     })
 
-    expect(final.content).toEqual([{ type: 'text', text: 'partial loop answer' }])
-    expect(final.stopReason).toBe('length')
-    expect(final.errorMessage).toBeUndefined()
+    expect(final.message.content).toEqual([{ type: 'text', text: 'partial loop answer' }])
+    expect(final.message.stopReason).toBe('length')
+    expect(final.message.errorMessage).toBeUndefined()
   })
 })

@@ -25,7 +25,7 @@ defmodule Ankole.E2E.Scenarios.Ingress do
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AIGateway.Schemas.CompactionArtifact
   alias Ankole.AIGateway.Schemas.Message
-  alias Ankole.Actors.ActorEvent
+  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.E2E.FakeFeishu
   alias Ankole.Repo
   alias Ankole.SignalsGateway.OutboxEntry
@@ -605,7 +605,7 @@ defmodule Ankole.E2E.Scenarios.Ingress do
   defp active_conversation_id_for_input!(agent_uid, session_id) do
     Repo.one!(
       from(conversation in Conversation,
-        where: conversation.agent_uid == ^String.downcase(agent_uid),
+        where: conversation.subject_uid == ^String.downcase(agent_uid),
         where: conversation.conversation_key == ^session_id,
         where: is_nil(conversation.ended_at),
         select: conversation.id

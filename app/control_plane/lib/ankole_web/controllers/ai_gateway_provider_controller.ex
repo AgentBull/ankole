@@ -1,12 +1,11 @@
 defmodule AnkoleWeb.AIGatewayProviderController do
   @moduledoc """
-  Console REST API for operator-managed AIGateway providers and agent model profiles.
+  Console REST API for operator-managed AIGateway providers.
   """
 
   use AnkoleWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
-  alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AIGateway.ProviderConfigs
   alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsolePolicy
@@ -15,9 +14,6 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   alias AnkoleWeb.Schemas.ConsoleApi.AIGatewayProviderResponse
   alias AnkoleWeb.Schemas.ConsoleApi.AIGatewayProviderWriteRequest
   alias AnkoleWeb.Schemas.ConsoleApi.ErrorEnvelope
-  alias AnkoleWeb.Schemas.ConsoleApi.ModelProfileResponse
-  alias AnkoleWeb.Schemas.ConsoleApi.ModelProfileWriteRequest
-  alias AnkoleWeb.Schemas.ConsoleApi.ModelProfilesResponse
 
   tags(["AIGateway"])
   security([%{"consoleBearer" => []}])
@@ -69,48 +65,6 @@ defmodule AnkoleWeb.AIGatewayProviderController do
     ]
   )
 
-  operation(:index_model_profiles,
-    summary: "Read all model profiles for one agent",
-    parameters: [agent_uid: [in: :path, type: :string, required: true]],
-    responses: [
-      ok: {"Model profiles", "application/json", ModelProfilesResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope}
-    ]
-  )
-
-  operation(:put_model_profile,
-    summary: "Create or update one model profile for an agent",
-    parameters: [
-      agent_uid: [in: :path, type: :string, required: true],
-      profile: [in: :path, type: :string, required: true]
-    ],
-    request_body: {"Model profile", "application/json", ModelProfileWriteRequest, required: true},
-    responses: [
-      ok: {"Model profile", "application/json", ModelProfileResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid model profile", "application/json", ErrorEnvelope}
-    ]
-  )
-
-  operation(:delete_model_profile,
-    summary: "Clear one optional model profile for an agent",
-    parameters: [
-      agent_uid: [in: :path, type: :string, required: true],
-      profile: [in: :path, type: :string, required: true]
-    ],
-    responses: [
-      ok: {"Model profile", "application/json", ModelProfileResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Profile cannot be cleared", "application/json", ErrorEnvelope}
-    ]
-  )
-
   def provider_kinds(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider_kinds", "read") do
       json(conn, %{data: ProviderConfigs.list_provider_kinds()})
@@ -143,45 +97,6 @@ defmodule AnkoleWeb.AIGatewayProviderController do
          :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "delete"),
          {:ok, provider} <- ProviderConfigs.delete_provider(provider_id) do
       json(conn, %{data: ProviderConfigs.projection(provider)})
-    else
-      {:error, reason} -> error(conn, reason)
-    end
-  end
-
-  def index_model_profiles(conn, params) do
-    with {:ok, agent_uid} <- text_param(params, "agent_uid"),
-         :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}:model_profiles", "read"),
-         {:ok, profiles} <- ModelProfiles.get_model_profiles(agent_uid) do
-      json(conn, %{data: profiles})
-    else
-      {:error, reason} -> error(conn, reason)
-    end
-  end
-
-  def put_model_profile(conn, params) do
-    with {:ok, agent_uid} <- text_param(params, "agent_uid"),
-         {:ok, profile} <- text_param(params, "profile"),
-         :ok <-
-           ConsolePolicy.authorize(conn, "agent:#{agent_uid}:model_profile:#{profile}", "update"),
-         {:ok, %{profile: profile_attrs}} <-
-           ModelProfiles.put_model_profile(agent_uid, profile, conn.body_params) do
-      json(conn, %{data: model_profile_payload(profile, profile_attrs)})
-    else
-      {:error, reason} -> error(conn, reason)
-    end
-  end
-
-  # Clearing an optional model profile is modeled as writing `nil` through the
-  # same put path, so the rules for which profiles may be cleared live in one
-  # place (ModelProfiles) instead of being duplicated here.
-  def delete_model_profile(conn, params) do
-    with {:ok, agent_uid} <- text_param(params, "agent_uid"),
-         {:ok, profile} <- text_param(params, "profile"),
-         :ok <-
-           ConsolePolicy.authorize(conn, "agent:#{agent_uid}:model_profile:#{profile}", "delete"),
-         {:ok, %{profile: profile_attrs}} <-
-           ModelProfiles.put_model_profile(agent_uid, profile, nil) do
-      json(conn, %{data: model_profile_payload(profile, profile_attrs)})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -227,12 +142,6 @@ defmodule AnkoleWeb.AIGatewayProviderController do
     end
   end
 
-  defp text_param(params, key) do
-    with {:ok, value} <- fetch_param(params, key) do
-      normalize_text(value)
-    end
-  end
-
   # Console params arrive with string keys from the raw request body, but with
   # atom keys once OpenApiSpex has cast the declared path parameters, so both
   # spellings of the same key are accepted.
@@ -250,8 +159,6 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   # (an attacker could otherwise exhaust the global atom table), so only these
   # known parameter names are allowed to become atoms.
   defp param_atom("provider_id"), do: :provider_id
-  defp param_atom("agent_uid"), do: :agent_uid
-  defp param_atom("profile"), do: :profile
 
   defp normalize_provider_id(value) when is_binary(value) do
     # Provider ids are treated as case- and whitespace-insensitive, so they are
@@ -265,31 +172,11 @@ defmodule AnkoleWeb.AIGatewayProviderController do
 
   defp normalize_provider_id(_value), do: {:error, :blank_id}
 
-  defp normalize_text(value) when is_binary(value) do
-    case String.trim(value) do
-      "" -> {:error, :blank_id}
-      value -> {:ok, value}
-    end
-  end
-
-  defp normalize_text(_value), do: {:error, :blank_id}
-
   defp normalize_external_attrs(attrs) do
     Map.new(attrs, fn
       {key, value} when is_atom(key) -> {Atom.to_string(key), value}
       {key, value} -> {key, value}
     end)
-  end
-
-  defp model_profile_payload(profile, nil) do
-    %{"profile" => profile, "configured" => false}
-  end
-
-  defp model_profile_payload(profile, attrs) when is_map(attrs) do
-    attrs
-    |> normalize_external_attrs()
-    |> Map.put("profile", profile)
-    |> Map.put("configured", true)
   end
 
   defp error(conn, :forbidden), do: error(conn, 403, "forbidden", "access denied")

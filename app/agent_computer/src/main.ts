@@ -1,9 +1,14 @@
 import { match, type JsonObject } from '@pleisto/active-support'
 import { mailboxUpdatedFromEnvelope, turnControlFromEnvelope, turnStartFromEnvelope } from './lanes/actor_lane'
 import { runTurnHandlers } from './core'
-import { turnAcceptedEnvelope, turnErrorEnvelope, turnNoopCompletedEnvelope } from './fabric/envelopes'
+import {
+  turnAcceptedEnvelope,
+  turnCompletedEnvelope,
+  turnErrorEnvelope,
+  turnNoopCompletedEnvelope
+} from './fabric/envelopes'
 import type { RpcError, RpcRequest, RpcResponse } from './lanes/rpc_lane'
-import { RuntimeRpcClient, handleWorkerRpcRequest } from './lanes/rpc_lane'
+import { RuntimeRpcClient, handleWorkerRpcRequest, rpcMethods } from './lanes/rpc_lane'
 import { parseWorkerEnv, workerCapacityEnvelope, workerHeartbeatEnvelope, workerReadyEnvelope } from './worker/config'
 import type { WorkerConfig } from './worker/config'
 import {
@@ -26,21 +31,12 @@ import {
 import { workerLogger } from './worker/logging'
 import {
   replaceSkillOverlay,
-  appendSubagentDelegationEvents,
-  createSubagentDelegation,
-  getSubagentDelegation,
-  listSubagentDelegations,
   requestAgentConversationContext,
   requestAIGatewayApiKey,
-  requestAppConfigure,
-  requestMemoryRpc,
-  requestScheduleRpc,
   requestSkillOverlay,
   replaceInstalledSkillObservations,
   stringFromDetails,
-  steerSubagentDelegation,
-  stopSubagentDelegation,
-  updateSubagentDelegationStatus
+  throwingRpcRequester
 } from './worker/rpc_requests'
 
 const heartbeatIntervalMs = 15_000
@@ -347,25 +343,30 @@ async function runActiveTurn(
   const result = await runTurnHandlers(turnStart, {
     workspaceRoot,
     workspaceSessionsRoot: config.workspaceSessionsRoot,
+    sharedFsRoot: config.sharedFsRoot,
     userFilesRoot: config.userFilesRoot,
     builtinSkillsRoot: config.builtinSkillsRoot,
     agentInstalledSkillsRoot: config.agentInstalledSkillsRoot,
     internalSkillsRoot: config.internalSkillsRoot,
     requestAIGatewayApiKey: (request, options) => requestAIGatewayApiKey(rpcClient, request, options),
-    requestAppConfigure: request => requestAppConfigure(rpcClient, request),
-    createSubagentDelegation: request => createSubagentDelegation(rpcClient, request),
-    getSubagentDelegation: request => getSubagentDelegation(rpcClient, request),
-    listSubagentDelegations: request => listSubagentDelegations(rpcClient, request),
-    steerSubagentDelegation: request => steerSubagentDelegation(rpcClient, request),
-    stopSubagentDelegation: request => stopSubagentDelegation(rpcClient, request),
-    appendSubagentDelegationEvents: request => appendSubagentDelegationEvents(rpcClient, request),
-    updateSubagentDelegationStatus: request => updateSubagentDelegationStatus(rpcClient, request),
+    requestAppConfigure: request => rpcClient.request(rpcMethods.appConfigureResolve, request),
+    resolveCodexAccount: request => rpcClient.request(rpcMethods.codexAccountResolve, request),
+    updateCodexAccountAuth: request => rpcClient.request(rpcMethods.codexAccountAuthUpdate, request),
+    createSubagentDelegation: request => rpcClient.request(rpcMethods.subagentDelegationCreate, request),
+    getSubagentDelegation: request => rpcClient.request(rpcMethods.subagentDelegationGet, request),
+    listSubagentDelegations: request => rpcClient.request(rpcMethods.subagentDelegationList, request),
+    steerSubagentDelegation: request => rpcClient.request(rpcMethods.subagentDelegationSteer, request),
+    stopSubagentDelegation: request => rpcClient.request(rpcMethods.subagentDelegationStop, request),
+    appendSubagentDelegationEvents: request => rpcClient.request(rpcMethods.subagentDelegationEventAppend, request),
+    updateSubagentDelegationStatus: request => rpcClient.request(rpcMethods.subagentDelegationStatusUpdate, request),
     requestAgentConversationContext: request => requestAgentConversationContext(rpcClient, request),
-    requestScheduleRpc: (method, request) => requestScheduleRpc(rpcClient, method, request),
-    requestMemoryRpc: (method, request) => requestMemoryRpc(rpcClient, method, request),
+    requestScheduleRpc: throwingRpcRequester(rpcClient, 'schedule RPC failed'),
+    requestMemoryRpc: throwingRpcRequester(rpcClient, 'memory RPC failed'),
     requestSkillOverlay: request => requestSkillOverlay(rpcClient, request),
     replaceSkillOverlay: request => replaceSkillOverlay(rpcClient, request),
     pollSteering: () => active.steeringUpdates.splice(0),
+    onSteeringApplied: update =>
+      sendEnvelope(turnAcceptedEnvelope(update.turn, update.correlationId ?? active.correlationId)),
     onTurnActivity,
     abortSignal: active.abortController.signal
   })
@@ -374,7 +375,12 @@ async function runActiveTurn(
 
   if (result.kind === 'noop_completed') {
     await sendEnvelope(turnNoopCompletedEnvelope(turnStart.turn, result.reason, active.correlationId))
+    return
   }
+
+  await sendEnvelope(
+    turnCompletedEnvelope(turnStart.turn, result.finalResponseId, result.outcome, active.correlationId)
+  )
 }
 
 function errorValue(error: unknown): unknown {
@@ -408,8 +414,18 @@ async function handleMailboxUpdated(
 
   // Active steer carries the single already-journaled actor event that caused
   // this revision bump.
-  active.steeringUpdates.push({ turn: update.turn, actorEvent: update.actor_event })
-  await sendEnvelope(turnAcceptedEnvelope(update.turn, envelope.message_id))
+  active.steeringUpdates.push({
+    turn: update.turn,
+    actorEvent: update.actor_event,
+    correlationId: envelope.message_id
+  })
+
+  // Normal text turns consume steering from the next model-loop boundary, so
+  // queue admission is the application boundary. Subagent turns call Codex
+  // turn/steer and acknowledge only after app-server accepts the instruction.
+  if (!active.turnStart.turn.actor.session_id.startsWith('subagent:')) {
+    await sendEnvelope(turnAcceptedEnvelope(update.turn, envelope.message_id))
+  }
 }
 
 /**

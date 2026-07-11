@@ -13,12 +13,12 @@ defmodule Ankole.E2E.Harness do
   import ExUnit.Callbacks
 
   alias Ankole.AIAgent.Library
-  alias Ankole.AIGateway.ModelProfiles
+  alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.Schemas.Message
-  alias Ankole.ActorRuntime.WorkerBrowserConfig
-  alias Ankole.Actors.ActorEvent
-  alias Ankole.ActorRuntime.ReadyEventProcessor
-  alias Ankole.ActorRuntime.Transport.Broker
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerBrowserConfig
+  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor
+  alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AppConfigure
   alias Ankole.E2E.FakeFeishu
@@ -135,21 +135,21 @@ defmodule Ankole.E2E.Harness do
       )
 
     {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
-    old_env = Application.fetch_env(:ankole, Ankole.ActorRuntime.AIGatewayApiKeyBroker)
+    old_env = Application.fetch_env(:ankole, Ankole.SignalsGateway.ActorRuntime.AIGatewayApiKeyBroker)
 
     # The Docker worker cannot reach the host's localhost; the broker setting
     # points it at the real Phoenix endpoint exposed on the Docker host gateway.
-    Application.put_env(:ankole, Ankole.ActorRuntime.AIGatewayApiKeyBroker,
+    Application.put_env(:ankole, Ankole.SignalsGateway.ActorRuntime.AIGatewayApiKeyBroker,
       worker_facing_base_url: "http://host.docker.internal:#{port}/api/v1/ai-gateway"
     )
 
     on_exit(fn ->
       case old_env do
         {:ok, value} ->
-          Application.put_env(:ankole, Ankole.ActorRuntime.AIGatewayApiKeyBroker, value)
+          Application.put_env(:ankole, Ankole.SignalsGateway.ActorRuntime.AIGatewayApiKeyBroker, value)
 
         :error ->
-          Application.delete_env(:ankole, Ankole.ActorRuntime.AIGatewayApiKeyBroker)
+          Application.delete_env(:ankole, Ankole.SignalsGateway.ActorRuntime.AIGatewayApiKeyBroker)
       end
     end)
   end

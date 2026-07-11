@@ -3,9 +3,9 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
 
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.ActorRuntime.FileTransferLane
-  alias Ankole.ActorRuntime.Schemas.AgentComputerWorker
-  alias Ankole.ActorRuntime.Transport.Broker
+  alias Ankole.SignalsGateway.ActorRuntime.FileTransferLane
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
+  alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AuthZ
@@ -132,7 +132,7 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
              "application/octet-stream"
   end
 
-  test "download rejects a directory path with not_a_file", %{
+  test "download maps a worker read error for a directory path to 404", %{
     conn: conn,
     route: route,
     route_auth: route_auth
@@ -141,7 +141,12 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
 
     :ok =
       Broker.register_local_worker(route, fn {:file_transfer_lane, frames} ->
-        respond_to_filesystem_command_dir(route_auth, frames)
+        respond_with_error(
+          route_auth,
+          frames,
+          "operation_failed",
+          "not a regular file: /workspace_sessions/agent-1"
+        )
       end)
 
     conn =
@@ -150,10 +155,10 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
         ~p"/api/v1/agent-computer-workers/#{worker_id}/files/content?root=workspace_sessions&path=agent-1"
       )
 
-    assert %{"error" => %{"code" => "not_a_file"}} = json_response(conn, 422)
+    assert %{"error" => %{"code" => "worker_file_error"}} = json_response(conn, 404)
   end
 
-  test "download surfaces file_too_large from stat", %{
+  test "download surfaces file_too_large from the READ_READY authoritative size", %{
     conn: conn,
     route: route,
     route_auth: route_auth
@@ -315,18 +320,6 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
 
   defp respond_to_filesystem_command(route_auth, [protocol, command, transfer_id | rest]) do
     case {command, rest} do
-      {"STAT", [path, _fingerprint]} ->
-        FileTransferLane.handle_worker_frame(route_auth, [
-          protocol,
-          "STAT_OK",
-          transfer_id,
-          path,
-          "file",
-          u64(4),
-          u64(1_772_000_000_000),
-          "7b16fe7c3e492b87d9615265f0856cec"
-        ])
-
       {"LIST", [path, recursive, _max_entries]} ->
         FileTransferLane.handle_worker_frame(route_auth, [
           protocol,
@@ -364,30 +357,21 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
     end
   end
 
-  defp respond_to_filesystem_command_dir(route_auth, [protocol, "STAT", transfer_id, path, _fp]) do
-    FileTransferLane.handle_worker_frame(route_auth, [
-      protocol,
-      "STAT_OK",
-      transfer_id,
-      path,
-      "directory",
-      u64(0),
-      u64(1_772_000_000_000),
-      ""
-    ])
-  end
+  defp respond_to_large_file(route_auth, [protocol, command, transfer_id | rest]) do
+    case {command, rest} do
+      {"READ_OPEN", [path, _fingerprint]} ->
+        FileTransferLane.handle_worker_frame(route_auth, [
+          protocol,
+          "READ_READY",
+          transfer_id,
+          path,
+          u64(200 * 1024 * 1024),
+          ""
+        ])
 
-  defp respond_to_large_file(route_auth, [protocol, "STAT", transfer_id, path, _fp]) do
-    FileTransferLane.handle_worker_frame(route_auth, [
-      protocol,
-      "STAT_OK",
-      transfer_id,
-      path,
-      "file",
-      u64(200 * 1024 * 1024),
-      u64(1_772_000_000_000),
-      ""
-    ])
+      {"READ_ABORT", []} ->
+        :ok
+    end
   end
 
   defp respond_with_error(route_auth, [protocol, _command, transfer_id | _rest], code, message) do
@@ -441,18 +425,6 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
 
   defp respond_to_get(route_auth, stored, [protocol, command, transfer_id | rest]) do
     case {command, rest} do
-      {"STAT", [path, _fingerprint]} ->
-        FileTransferLane.handle_worker_frame(route_auth, [
-          protocol,
-          "STAT_OK",
-          transfer_id,
-          path,
-          "file",
-          u64(11),
-          u64(1_772_000_000_000),
-          "8db84f6b892cfa6bdad930c907ecb808"
-        ])
-
       {"READ_OPEN", [path, _fingerprint]} ->
         content = zstd_encode!("hello world")
         Agent.update(stored, &%{&1 | read_wire: content})

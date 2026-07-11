@@ -4,7 +4,7 @@ use crate::common::{KernelError, KernelResult};
 
 use super::{
     body::body_kind,
-    enums::{durability_to_json, lane_to_json},
+    enums::{durability_to_json, lane_to_json, turn_completion_outcome_to_json},
     json::*,
     proto,
 };
@@ -53,6 +53,7 @@ fn body_to_json(body: Option<&proto::envelope::Body>) -> KernelResult<Value> {
         proto::envelope::Body::WorkerProgress(payload) => worker_progress_to_json(payload),
         proto::envelope::Body::TurnError(payload) => turn_error_to_json(payload),
         proto::envelope::Body::TurnNoopCompleted(payload) => turn_noop_completed_to_json(payload),
+        proto::envelope::Body::TurnCompleted(payload) => turn_completed_to_json(payload),
         proto::envelope::Body::ControlShutdown(payload) => control_shutdown_to_json(payload),
         proto::envelope::Body::RpcRequest(payload) => rpc_request_to_json(payload),
         proto::envelope::Body::RpcResponse(payload) => rpc_response_to_json(payload),
@@ -164,6 +165,20 @@ fn turn_noop_completed_to_json(payload: &proto::TurnNoopCompleted) -> KernelResu
     Ok(json_object([
         ("turn", turn_ref_to_json(payload.turn.as_ref())?),
         ("reason", Value::from(payload.reason.clone())),
+    ]))
+}
+
+fn turn_completed_to_json(payload: &proto::TurnCompleted) -> KernelResult<Value> {
+    Ok(json_object([
+        ("turn", turn_ref_to_json(payload.turn.as_ref())?),
+        (
+            "final_response_id",
+            Value::from(payload.final_response_id.clone()),
+        ),
+        (
+            "outcome",
+            Value::from(turn_completion_outcome_to_json(payload.outcome)?),
+        ),
     ]))
 }
 

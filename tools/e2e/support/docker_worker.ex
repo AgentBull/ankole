@@ -2,15 +2,15 @@ defmodule Ankole.E2E.DockerWorker do
   @moduledoc """
   Docker process adapter for the real Agent Computer worker e2e tests.
 
-  `Ankole.ActorRuntime.WorkerBootstrap` owns worker auth, security, connectivity,
+  `Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap` owns worker auth, security, connectivity,
   and workspace guarantees. This adapter adds only test container lifecycle,
   optional mounted source, and the development command override.
   """
 
   import ExUnit.Assertions
 
-  alias Ankole.ActorRuntime.WorkerBootstrap
-  alias Ankole.ActorRuntime.WorkerBootstrap.Docker
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap.Docker
 
   @docker_image "ankole-agent-computer:0.1.0"
 

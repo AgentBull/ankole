@@ -1,0 +1,755 @@
+defmodule Ankole.SignalsGateway.AIGatewayLink do
+  @moduledoc """
+  One-way adapter from SignalsGateway Actor semantics to generic AIGateway data.
+
+  `actor_event_id` is opaque client metadata to AIGateway. This module is the
+  only place that interprets it when correlating a completed worker turn with
+  its immutable Response chain.
+  """
+
+  import Ecto.Query, warn: false
+
+  alias Ankole.AIGateway
+  alias Ankole.AIGateway.Schemas.Conversation
+  alias Ankole.AIGateway.Schemas.Message
+  alias Ankole.Repo
+  alias Ankole.SignalsGateway.ActorRuntime.TurnRef
+  alias Ankole.SignalsGateway.AIReplyText
+  alias Ankole.SignalsGateway.ClarifyPrompt
+  alias Ankole.SignalsGateway.ReplyAttachment
+
+  @max_chain_depth 500
+
+  @type completion :: %{
+          conversation: Conversation.t(),
+          final_response: Message.t(),
+          response_chain: [Message.t()],
+          final_text: String.t() | nil,
+          clarify_prompt: map() | nil,
+          attachments: [map()]
+        }
+
+  @type actor_key :: %{required(:agent_uid) => String.t(), required(:session_id) => String.t()}
+
+  @type generating_turn :: %{
+          required(:response) => Message.t(),
+          required(:response_id) => String.t(),
+          required(:actor_event_id) => String.t(),
+          required(:request_ref_actor_event_ids) => [String.t()]
+        }
+
+  @doc false
+  @spec ensure_and_lock_conversation_in_tx(module(), String.t(), String.t()) ::
+          {:ok, Conversation.t()} | {:error, term()}
+  def ensure_and_lock_conversation_in_tx(repo, subject_uid, conversation_key) do
+    with {:ok, conversation} <-
+           AIGateway.ensure_conversation_in_tx(repo, subject_uid, conversation_key) do
+      case AIGateway.lock_conversation(repo, conversation.id) do
+        %Conversation{} = conversation -> {:ok, conversation}
+        nil -> {:error, :conversation_not_found}
+      end
+    end
+  end
+
+  @doc false
+  @spec ensure_conversation_in_tx(module(), String.t(), String.t()) ::
+          {:ok, Conversation.t()} | {:error, term()}
+  def ensure_conversation_in_tx(repo, subject_uid, conversation_key),
+    do: AIGateway.ensure_conversation_in_tx(repo, subject_uid, conversation_key)
+
+  @doc false
+  @spec active_conversation_for_update(module(), String.t(), String.t()) ::
+          Conversation.t() | nil
+  def active_conversation_for_update(repo, subject_uid, conversation_key),
+    do: AIGateway.active_conversation_for_update(repo, subject_uid, conversation_key)
+
+  @doc false
+  @spec active_conversation(String.t(), String.t()) :: Conversation.t() | nil
+  def active_conversation(subject_uid, conversation_key) do
+    Repo
+    |> AIGateway.list_active_conversations(
+      subject_uid: subject_uid,
+      conversation_key: conversation_key,
+      limit: 1
+    )
+    |> List.first()
+  end
+
+  @doc false
+  @spec daily_reset_candidates_in_tx(module(), DateTime.t(), keyword()) :: [Conversation.t()]
+  def daily_reset_candidates_in_tx(repo, %DateTime{} = boundary_at, opts \\ []) do
+    repo
+    |> AIGateway.list_active_conversations(
+      inserted_before: boundary_at,
+      exclude_conversation_key_prefixes: ["subagent:"],
+      limit: Keyword.get(opts, :limit, 1_000),
+      lock: true
+    )
+    |> maybe_exclude_provider_owned_cli_sessions(opts)
+  end
+
+  @doc false
+  @spec end_active_conversation_in_tx(module(), String.t(), String.t(), DateTime.t()) ::
+          {:ok, Conversation.t() | nil} | {:error, term()}
+  def end_active_conversation_in_tx(repo, subject_uid, conversation_key, %DateTime{} = now) do
+    case active_conversation_for_update(repo, subject_uid, conversation_key) do
+      %Conversation{} = conversation ->
+        conversation
+        |> Ecto.Changeset.change(ended_at: now)
+        |> repo.update()
+
+      nil ->
+        {:ok, nil}
+    end
+  end
+
+  @doc false
+  @spec session_has_generating_response?(module(), actor_key()) :: boolean()
+  def session_has_generating_response?(repo, actor_key) do
+    case active_conversation_for_update(repo, actor_key.agent_uid, actor_key.session_id) do
+      %Conversation{} = conversation ->
+        case AIGateway.list_conversation_responses_in_tx(
+               repo,
+               actor_key.agent_uid,
+               conversation.id,
+               statuses: ["generating"],
+               lock: true
+             ) do
+          {:ok, responses} -> Enum.any?(responses, &ordinary_response?/1)
+          {:error, _reason} -> false
+        end
+
+      nil ->
+        false
+    end
+  end
+
+  @doc false
+  @spec generating_turn_in_tx(module(), actor_key(), String.t() | nil) ::
+          generating_turn() | nil
+  def generating_turn_in_tx(_repo, _actor_key, actor_event_id)
+      when actor_event_id in [nil, ""],
+      do: nil
+
+  def generating_turn_in_tx(repo, actor_key, actor_event_id) do
+    repo
+    |> generating_responses_for_actor_event_in_tx(actor_key, actor_event_id)
+    |> List.first()
+    |> case do
+      %Message{} = response -> generating_turn(response)
+      nil -> nil
+    end
+  end
+
+  @doc false
+  @spec cancel_generating_turn_in_tx(
+          module(),
+          actor_key(),
+          String.t() | nil,
+          DateTime.t(),
+          term()
+        ) :: {:ok, Message.t() | nil} | {:error, term()}
+  def cancel_generating_turn_in_tx(repo, actor_key, actor_event_id, now, reason) do
+    fail_generating_turns_in_tx(
+      repo,
+      actor_key,
+      actor_event_id,
+      now,
+      runtime_error(reason, "actor_runtime_cancel")
+    )
+  end
+
+  @doc false
+  @spec fail_generating_turn_in_tx(
+          module(),
+          actor_key(),
+          String.t() | nil,
+          DateTime.t(),
+          term()
+        ) :: {:ok, Message.t() | nil} | {:error, term()}
+  def fail_generating_turn_in_tx(repo, actor_key, actor_event_id, now, reason) do
+    fail_generating_turns_in_tx(
+      repo,
+      actor_key,
+      actor_event_id,
+      now,
+      runtime_error(reason, "actor_runtime_cleanup")
+    )
+  end
+
+  @doc false
+  @spec publish_failed_response(Message.t() | nil) :: :ok | {:error, term()}
+  def publish_failed_response(nil), do: :ok
+
+  def publish_failed_response(%Message{} = response) do
+    error = Map.get(response.metadata || %{}, "error", %{"code" => "response_failed"})
+    AIGateway.publish_terminal_event(response, :response_failed, %{error: error})
+  end
+
+  @doc false
+  @spec actor_event_id(Message.t()) :: String.t() | nil
+  def actor_event_id(%Message{} = response), do: response_actor_event_id(response)
+
+  @doc false
+  @spec current_response_row_id(TurnRef.t()) :: Ecto.UUID.t() | nil
+  def current_response_row_id(%TurnRef{} = turn_ref) do
+    with %Conversation{} = conversation <-
+           active_conversation(turn_ref.agent_uid, turn_ref.session_id) do
+      Message
+      |> where([response], response.subject_uid == ^turn_ref.agent_uid)
+      |> where([response], response.conversation_id == ^conversation.id)
+      |> where([response], response.type == "message")
+      |> where([response], response.status in ["generating", "complete"])
+      |> order_by([response], desc: response.inserted_at, desc: response.id)
+      |> limit(@max_chain_depth)
+      |> Repo.all()
+      |> Enum.find(&(response_actor_event_id(&1) == turn_ref.actor_event_id))
+      |> case do
+        %Message{id: id} -> id
+        nil -> nil
+      end
+    else
+      nil -> nil
+    end
+  end
+
+  @doc false
+  @spec retry_source_in_tx(module(), String.t(), String.t()) ::
+          {:ok, map()} | {:error, :conversation_not_found | :retry_source_not_found}
+  def retry_source_in_tx(repo, subject_uid, conversation_key) do
+    with %Conversation{} = conversation <-
+           active_conversation_for_update(repo, subject_uid, conversation_key),
+         {:ok, responses} <-
+           AIGateway.list_conversation_responses_in_tx(
+             repo,
+             subject_uid,
+             conversation.id,
+             statuses: ["complete", "error"]
+           ) do
+      responses
+      |> Enum.take(20)
+      |> Enum.find_value(&retry_source_from_response/1)
+      |> case do
+        %{text: text} = source when is_binary(text) and text != "" -> {:ok, source}
+        _missing -> {:error, :retry_source_not_found}
+      end
+    else
+      nil -> {:error, :conversation_not_found}
+      {:error, _reason} -> {:error, :conversation_not_found}
+    end
+  end
+
+  @doc false
+  @spec delete_visible_turn_suffix_in_tx(
+          module(),
+          String.t(),
+          String.t(),
+          String.t(),
+          DateTime.t()
+        ) :: {:ok, map()} | {:error, term()}
+  def delete_visible_turn_suffix_in_tx(
+        repo,
+        subject_uid,
+        conversation_key,
+        actor_event_id,
+        %DateTime{} = now
+      ) do
+    case active_conversation_for_update(repo, subject_uid, conversation_key) do
+      %Conversation{} = conversation ->
+        delete_visible_turn_suffix(repo, conversation, actor_event_id, now)
+
+      nil ->
+        {:ok, suffix_delete_noop(:conversation_not_found)}
+    end
+  end
+
+  @doc """
+  Loads and validates the immutable Responses facts named by `turn_completed`.
+
+  The database read happens before the Actor transaction. Terminal AIGateway
+  rows are immutable, while the later Actor transaction owns all fence checks
+  and provider-visible side effects.
+  """
+  @spec load_turn_completion(TurnRef.t(), String.t()) ::
+          {:ok, completion()} | {:error, term()}
+  def load_turn_completion(%TurnRef{} = turn_ref, final_response_id)
+      when is_binary(final_response_id) do
+    with :ok <- validate_response_id(final_response_id),
+         {:ok, chain} <-
+           AIGateway.list_response_chain(
+             turn_ref.agent_uid,
+             final_response_id,
+             @max_chain_depth
+           ),
+         {:ok, final_response} <- final_response(chain, final_response_id),
+         {:ok, conversation} <-
+           AIGateway.get_conversation(
+             turn_ref.agent_uid,
+             final_response.conversation_id
+           ),
+         :ok <- validate_conversation(conversation, turn_ref),
+         {:ok, turn_chain} <- turn_response_chain(chain, turn_ref),
+         {:ok, projection} <- project_completion(turn_chain, final_response) do
+      {:ok,
+       Map.merge(projection, %{
+         conversation: conversation,
+         final_response: final_response,
+         response_chain: turn_chain
+       })}
+    end
+  end
+
+  def load_turn_completion(%TurnRef{}, _final_response_id),
+    do: {:error, :invalid_final_response_id}
+
+  defp maybe_exclude_provider_owned_cli_sessions(conversations, opts) do
+    case Keyword.get(opts, :include_provider_owned_cli_sessions?, false) do
+      true -> conversations
+      false -> Enum.reject(conversations, &provider_owned_cli_session?/1)
+    end
+  end
+
+  defp provider_owned_cli_session?(%Conversation{metadata: metadata}) when is_map(metadata) do
+    case Map.get(metadata, "provider_owned_cli_session") do
+      true -> true
+      %{"active" => true} -> true
+      %{"session_id" => session_id} when is_binary(session_id) and session_id != "" -> true
+      _value -> false
+    end
+  end
+
+  defp provider_owned_cli_session?(_conversation), do: false
+
+  defp generating_responses_for_actor_event_in_tx(repo, actor_key, actor_event_id) do
+    case active_conversation_for_update(repo, actor_key.agent_uid, actor_key.session_id) do
+      %Conversation{} = conversation ->
+        case AIGateway.list_conversation_responses_in_tx(
+               repo,
+               actor_key.agent_uid,
+               conversation.id,
+               statuses: ["generating"],
+               lock: true
+             ) do
+          {:ok, responses} ->
+            Enum.filter(responses, fn response ->
+              ordinary_response?(response) and
+                response_actor_event_id(response) == actor_event_id
+            end)
+
+          {:error, _reason} ->
+            []
+        end
+
+      nil ->
+        []
+    end
+  end
+
+  defp generating_turn(%Message{} = response) do
+    metadata = AIGateway.response_metadata(response)
+
+    %{
+      response: response,
+      response_id: response_id(response),
+      actor_event_id: metadata["actor_event_id"],
+      request_ref_actor_event_ids: request_ref_actor_event_ids(metadata["request_refs"])
+    }
+  end
+
+  defp request_ref_actor_event_ids(request_refs) when is_list(request_refs) do
+    Enum.flat_map(request_refs, fn
+      %{"actor_event_id" => actor_event_id} when is_binary(actor_event_id) -> [actor_event_id]
+      %{actor_event_id: actor_event_id} when is_binary(actor_event_id) -> [actor_event_id]
+      _ref -> []
+    end)
+  end
+
+  defp request_ref_actor_event_ids(_request_refs), do: []
+
+  defp fail_generating_turns_in_tx(repo, actor_key, actor_event_id, now, error) do
+    responses = generating_responses_for_actor_event_in_tx(repo, actor_key, actor_event_id)
+
+    responses
+    |> Enum.reduce_while({:ok, []}, fn response, {:ok, failed} ->
+      case AIGateway.fail_generating_response_in_tx(
+             repo,
+             actor_key.agent_uid,
+             response_id(response),
+             error,
+             now
+           ) do
+        {:ok, %Message{} = response} -> {:cont, {:ok, [response | failed]}}
+        {:ok, :already_terminal} -> {:cont, {:ok, failed}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, failed} -> {:ok, List.last(failed)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp runtime_error(reason, stage) do
+    %{
+      "code" => runtime_reason_code(reason),
+      "reason" => inspect(reason),
+      "stage" => stage
+    }
+  end
+
+  defp runtime_reason_code(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp runtime_reason_code(reason) when is_binary(reason), do: reason
+  defp runtime_reason_code(_reason), do: "actor_runtime_cleanup"
+
+  defp retry_source_from_response(%Message{} = response) do
+    with actor_event_id when is_binary(actor_event_id) <- response_actor_event_id(response),
+         text when is_binary(text) and text != "" <- request_user_text(response.content) do
+      %{
+        actor_event_id: actor_event_id,
+        message_id: response.id,
+        text: text
+      }
+    else
+      _missing -> nil
+    end
+  end
+
+  defp retry_source_from_response(_response), do: nil
+
+  defp request_user_text(content) when is_list(content) do
+    content
+    |> Enum.reverse()
+    |> Enum.find_value(&request_user_item_text/1)
+  end
+
+  defp request_user_text(_content), do: nil
+
+  defp request_user_item_text(%{"type" => "message", "role" => "user", "content" => content})
+       when is_list(content),
+       do: message_content_text(content)
+
+  defp request_user_item_text(%{"type" => "message", "role" => "user", "content" => content})
+       when is_binary(content),
+       do: content
+
+  defp request_user_item_text(%{"role" => "user", "content" => content})
+       when is_list(content),
+       do: message_content_text(content)
+
+  defp request_user_item_text(%{"role" => "user", "content" => content})
+       when is_binary(content),
+       do: content
+
+  defp request_user_item_text(_item), do: nil
+
+  defp message_content_text(content) do
+    content
+    |> Enum.map(fn
+      %{"text" => text} when is_binary(text) -> text
+      %{"type" => "text", "text" => text} when is_binary(text) -> text
+      %{"type" => "input_text", "text" => text} when is_binary(text) -> text
+      text when is_binary(text) -> text
+      _part -> nil
+    end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("\n")
+    |> case do
+      "" -> nil
+      text -> text
+    end
+  end
+
+  defp delete_visible_turn_suffix(repo, %Conversation{} = conversation, actor_event_id, now) do
+    with {:ok, responses} <-
+           AIGateway.list_conversation_responses_in_tx(
+             repo,
+             conversation.subject_uid,
+             conversation.id,
+             statuses: ["complete", "generating"],
+             lock: true
+           ) do
+      complete_responses = Enum.filter(responses, &(&1.status == "complete"))
+      suffix = visible_actor_suffix(complete_responses, actor_event_id)
+      visible_chain = current_visible_chain(complete_responses)
+
+      case suffix do
+        [] ->
+          reason =
+            if Enum.any?(visible_chain, &(response_actor_event_id(&1) == actor_event_id)) do
+              :not_visible_tail
+            else
+              :actor_event_not_visible
+            end
+
+          {:ok, suffix_delete_noop(reason)}
+
+        [_response | _rest] ->
+          generating_responses =
+            Enum.filter(responses, fn response ->
+              response.status == "generating" and
+                ordinary_response?(response) and
+                response_actor_event_id(response) == actor_event_id
+            end)
+
+          error = %{
+            "code" => "source_entry_removed",
+            "failed_at" => DateTime.to_iso8601(now),
+            "reason" => "source_entry_removed_before_terminal_commit",
+            "stage" => "entry_lifecycle",
+            "retryable" => false
+          }
+
+          with {:ok, failed_responses} <-
+                 fail_response_rows_in_tx(
+                   repo,
+                   conversation.subject_uid,
+                   generating_responses,
+                   error,
+                   now
+                 ),
+               {:ok, deletion} <-
+                 AIGateway.hard_delete_visible_suffix_in_tx(
+                   repo,
+                   conversation.subject_uid,
+                   conversation.id,
+                   Enum.map(suffix, &response_id/1)
+                 ) do
+            {:ok,
+             Map.merge(deletion, %{
+               failed_generating_message_ids: Enum.map(failed_responses, & &1.id),
+               failed_generating_count: length(failed_responses)
+             })}
+          end
+      end
+    end
+  end
+
+  defp visible_actor_suffix(complete_responses, actor_event_id) do
+    by_id = Map.new(complete_responses, &{&1.id, &1})
+    leaf = visible_leaf(complete_responses)
+
+    take_actor_suffix(leaf, by_id, actor_event_id, MapSet.new())
+  end
+
+  defp current_visible_chain(complete_responses) do
+    by_id = Map.new(complete_responses, &{&1.id, &1})
+    walk_visible_chain(visible_leaf(complete_responses), by_id, MapSet.new())
+  end
+
+  defp visible_leaf(complete_responses) do
+    parent_ids =
+      complete_responses
+      |> Enum.map(& &1.previous_message_id)
+      |> Enum.reject(&is_nil/1)
+      |> MapSet.new()
+
+    Enum.find(complete_responses, &(not MapSet.member?(parent_ids, &1.id)))
+  end
+
+  defp walk_visible_chain(nil, _by_id, _seen), do: []
+
+  defp walk_visible_chain(%Message{} = response, by_id, seen) do
+    cond do
+      MapSet.member?(seen, response.id) ->
+        []
+
+      response.type == "checkpoint" ->
+        [response]
+
+      true ->
+        parent = Map.get(by_id, response.previous_message_id)
+        [response | walk_visible_chain(parent, by_id, MapSet.put(seen, response.id))]
+    end
+  end
+
+  defp take_actor_suffix(nil, _by_id, _actor_event_id, _seen), do: []
+
+  defp take_actor_suffix(%Message{} = response, by_id, actor_event_id, seen) do
+    cond do
+      MapSet.member?(seen, response.id) ->
+        []
+
+      not ordinary_response?(response) ->
+        []
+
+      response_actor_event_id(response) != actor_event_id ->
+        []
+
+      true ->
+        parent = Map.get(by_id, response.previous_message_id)
+
+        [
+          response
+          | take_actor_suffix(parent, by_id, actor_event_id, MapSet.put(seen, response.id))
+        ]
+    end
+  end
+
+  defp fail_response_rows_in_tx(repo, subject_uid, responses, error, now) do
+    Enum.reduce_while(responses, {:ok, []}, fn response, {:ok, failed} ->
+      case AIGateway.fail_generating_response_in_tx(
+             repo,
+             subject_uid,
+             response_id(response),
+             error,
+             now
+           ) do
+        {:ok, %Message{} = response} -> {:cont, {:ok, [response | failed]}}
+        {:ok, :already_terminal} -> {:cont, {:ok, failed}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, failed} -> {:ok, Enum.reverse(failed)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp suffix_delete_noop(reason) do
+    %{
+      status: :noop,
+      reason: reason,
+      deleted_message_ids: [],
+      deleted_count: 0
+    }
+  end
+
+  defp response_actor_event_id(%Message{} = response),
+    do: AIGateway.response_metadata(response)["actor_event_id"]
+
+  defp ordinary_response?(%Message{type: "message"}), do: true
+  defp ordinary_response?(_response), do: false
+
+  defp validate_response_id("resp_" <> uuid) do
+    case Ecto.UUID.cast(uuid) do
+      {:ok, _uuid} -> :ok
+      :error -> {:error, :invalid_final_response_id}
+    end
+  end
+
+  defp validate_response_id(_response_id), do: {:error, :invalid_final_response_id}
+
+  defp final_response([%Message{} = final | _rest], final_response_id) do
+    cond do
+      response_id(final) != final_response_id ->
+        {:error, :final_response_mismatch}
+
+      final.type != "message" ->
+        {:error, :final_response_not_message}
+
+      final.status != "complete" ->
+        {:error, :final_response_not_terminal_success}
+
+      true ->
+        {:ok, final}
+    end
+  end
+
+  defp final_response(_chain, _final_response_id), do: {:error, :final_response_not_found}
+
+  defp validate_conversation(%Conversation{} = conversation, %TurnRef{} = turn_ref) do
+    cond do
+      conversation.subject_uid != turn_ref.agent_uid ->
+        {:error, :response_subject_mismatch}
+
+      conversation.conversation_key != turn_ref.session_id ->
+        {:error, :response_conversation_mismatch}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp turn_response_chain(chain, %TurnRef{} = turn_ref) when is_list(chain) do
+    turn_chain =
+      Enum.take_while(chain, fn
+        %Message{} = message ->
+          AIGateway.response_metadata(message)["actor_event_id"] ==
+            turn_ref.actor_event_id
+
+        _message ->
+          false
+      end)
+
+    cond do
+      turn_chain == [] ->
+        {:error, :response_actor_event_mismatch}
+
+      Enum.any?(turn_chain, &invalid_chain_row?(&1, turn_ref)) ->
+        {:error, :response_chain_scope_mismatch}
+
+      chain_depth_exceeded?(turn_chain) ->
+        {:error, :response_chain_too_deep}
+
+      true ->
+        {:ok, turn_chain}
+    end
+  end
+
+  defp invalid_chain_row?(%Message{} = message, %TurnRef{} = turn_ref) do
+    message.subject_uid != turn_ref.agent_uid or message.status != "complete"
+  end
+
+  defp chain_depth_exceeded?(turn_chain) do
+    length(turn_chain) == @max_chain_depth and
+      match?(
+        %Message{previous_message_id: previous} when not is_nil(previous),
+        List.last(turn_chain)
+      )
+  end
+
+  defp project_completion(turn_chain, final_response) do
+    source_items =
+      turn_chain
+      |> Enum.reverse()
+      |> Enum.flat_map(&message_items/1)
+      |> dedupe_function_call_outputs()
+
+    final_text = AIReplyText.visible_text(final_response.content)
+
+    with {:ok, clarify_prompt} <- ClarifyPrompt.from_response_items(source_items),
+         {:ok, attachments} <- ReplyAttachment.attachments_from_response_items(source_items),
+         :ok <- require_user_visible_projection(final_text, clarify_prompt, attachments) do
+      {:ok,
+       %{
+         final_text: final_text,
+         clarify_prompt: clarify_prompt,
+         attachments: attachments
+       }}
+    end
+  end
+
+  defp message_items(%Message{content: content}) when is_list(content), do: content
+  defp message_items(_message), do: []
+
+  defp dedupe_function_call_outputs(items) do
+    {deduped, _seen_call_ids} =
+      Enum.reduce(items, {[], MapSet.new()}, fn
+        %{"type" => "function_call_output", "call_id" => call_id} = item, {acc, seen}
+        when is_binary(call_id) ->
+          if MapSet.member?(seen, call_id) do
+            {acc, seen}
+          else
+            {[item | acc], MapSet.put(seen, call_id)}
+          end
+
+        item, {acc, seen} ->
+          {[item | acc], seen}
+      end)
+
+    Enum.reverse(deduped)
+  end
+
+  defp require_user_visible_projection(final_text, clarify_prompt, attachments) do
+    if present_text?(final_text) or is_map(clarify_prompt) or attachments != [] do
+      :ok
+    else
+      {:error, :turn_completion_has_no_user_visible_projection}
+    end
+  end
+
+  defp present_text?(text) when is_binary(text), do: String.trim(text) != ""
+  defp present_text?(_text), do: false
+
+  defp response_id(%Message{id: id}), do: "resp_#{id}"
+end

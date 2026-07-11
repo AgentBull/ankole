@@ -1,5 +1,5 @@
 defmodule Ankole.E2E.WaitHelpersTest do
-  use Ankole.ActorRuntimeCase
+  use Ankole.SignalsGateway.ActorRuntimeCase
 
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.AIGateway.StatefulResponses
@@ -8,42 +8,32 @@ defmodule Ankole.E2E.WaitHelpersTest do
   alias Ankole.SignalsGateway.Entry
   alias Ankole.SignalsGateway.OutboxEntry
 
-  setup {Ankole.ActorRuntimeCase, :use_mock_signal_provider_plugin}
+  setup {Ankole.SignalsGateway.ActorRuntimeCase, :use_mock_signal_provider_plugin}
 
   test "completed final reply waits for the latest final message mirror" do
-    %{principal: agent} = agent_fixture()
-
-    Ankole.SignalsGatewayFixtures.binding_fixture(agent.uid, "mock", :ignore,
-      adapter: "mock-provider"
-    )
-
-    %{actor_event: actor_event} =
-      Ankole.SignalsGatewayFixtures.emit_addressed_actor_event(
-        agent.uid,
-        "mock",
-        Ankole.SignalsGatewayFixtures.group_entry(%{
-          source_event_id: "wait-helper-latest-final",
-          signal_channel_id: "mock:chat:wait-helper-latest-final",
-          source_entry_id: "human-wait-helper-latest-final",
-          explicit: true,
-          text: "Need a final reply."
-        })
-      )
+    %{agent: agent, actor_event: actor_event, turn_ref: turn_ref} =
+      start_accepted_turn("latest-final", "Need a final reply.")
 
     {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, actor_event.session_id)
 
-    old_message =
-      insert_message!(agent.uid, conversation.id, actor_event.id, "old final", nil)
+    old_message = complete_response!(agent.uid, conversation.id, actor_event.id, "old final")
 
     latest_message =
-      insert_message!(agent.uid, conversation.id, actor_event.id, "latest final", old_message.id)
+      complete_response!(
+        agent.uid,
+        conversation.id,
+        actor_event.id,
+        "latest final",
+        "resp_#{old_message.id}"
+      )
 
-    actor_event
-    |> ActorEvent.changeset(%{completed_at: DateTime.utc_now(:microsecond)})
-    |> Repo.update!()
+    assert {:ok, %{status: :turn_completed}} = complete_turn(turn_ref, latest_message)
 
     latest_mirror = insert_mirror!(actor_event, latest_message, "latest-final-mirror")
     old_mirror = insert_mirror!(actor_event, old_message, "old-final-mirror")
+
+    _attachment_mirror =
+      insert_mirror!(actor_event, latest_message, "latest-attachment-mirror", %{})
 
     force_inserted_at!(old_mirror, DateTime.add(latest_mirror.inserted_at, 1, :second))
 
@@ -59,36 +49,15 @@ defmodule Ankole.E2E.WaitHelpersTest do
   end
 
   test "completed final reply advances due outbox runtime events from the durable snapshot" do
-    %{principal: agent} = agent_fixture()
-
-    Ankole.SignalsGatewayFixtures.binding_fixture(agent.uid, "mock", :ignore,
-      adapter: "mock-provider"
-    )
-
-    %{actor_event: actor_event} =
-      Ankole.SignalsGatewayFixtures.emit_addressed_actor_event(
-        agent.uid,
-        "mock",
-        Ankole.SignalsGatewayFixtures.group_entry(%{
-          source_event_id: "wait-helper-runtime-event-final",
-          signal_channel_id: "mock:chat:wait-helper-runtime-event-final",
-          source_entry_id: "human-wait-helper-runtime-event-final",
-          explicit: true,
-          text: "Need a dispatched final reply."
-        })
-      )
+    %{agent: agent, actor_event: actor_event, turn_ref: turn_ref} =
+      start_accepted_turn("runtime-event-final", "Need a dispatched final reply.")
 
     {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, actor_event.session_id)
 
-    {:ok, run} =
-      StatefulResponses.start_response_run(%{
-        agent_uid: agent.uid,
-        conversation_id: conversation.id,
-        actor_event_id: actor_event.id
-      })
+    committed =
+      complete_response!(agent.uid, conversation.id, actor_event.id, "runtime event final")
 
-    assert {:ok, committed} =
-             StatefulResponses.commit_complete(run, assistant_content("runtime event final"))
+    assert {:ok, %{status: :turn_completed}} = complete_turn(turn_ref, committed)
 
     assert %OutboxEntry{status: :created} =
              Repo.get_by!(OutboxEntry, outbound_key: "ai-reply:#{committed.id}")
@@ -107,31 +76,13 @@ defmodule Ankole.E2E.WaitHelpersTest do
   end
 
   test "completed outbox helper fails loudly when one input produced multiple side-effect rows" do
-    %{principal: agent} = agent_fixture()
-
-    Ankole.SignalsGatewayFixtures.binding_fixture(agent.uid, "mock", :ignore,
-      adapter: "mock-provider"
-    )
-
-    %{actor_event: actor_event} =
-      Ankole.SignalsGatewayFixtures.emit_addressed_actor_event(
-        agent.uid,
-        "mock",
-        Ankole.SignalsGatewayFixtures.group_entry(%{
-          source_event_id: "wait-helper-multiple-side-effects",
-          signal_channel_id: "mock:chat:wait-helper-multiple-side-effects",
-          source_entry_id: "human-wait-helper-multiple-side-effects",
-          explicit: true,
-          text: "Need multiple side effects."
-        })
-      )
+    %{agent: agent, actor_event: actor_event, turn_ref: turn_ref} =
+      start_accepted_turn("multiple-side-effects", "Need multiple side effects.")
 
     {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, actor_event.session_id)
-    message = insert_message!(agent.uid, conversation.id, actor_event.id, "done", nil)
+    message = complete_response!(agent.uid, conversation.id, actor_event.id, "done")
 
-    actor_event
-    |> ActorEvent.changeset(%{completed_at: DateTime.utc_now(:microsecond)})
-    |> Repo.update!()
+    assert {:ok, %{status: :turn_completed}} = complete_turn(turn_ref, message)
 
     insert_side_effect_outbox!(actor_event, message, "side-effect:one")
     insert_side_effect_outbox!(actor_event, message, "side-effect:two")
@@ -146,6 +97,48 @@ defmodule Ankole.E2E.WaitHelpersTest do
     end
   end
 
+  defp start_accepted_turn(suffix, text) do
+    %{principal: agent} = agent_fixture()
+
+    Ankole.SignalsGatewayFixtures.binding_fixture(agent.uid, "mock", :ignore,
+      adapter: "mock-provider"
+    )
+
+    route = unique_route()
+    :ok = Broker.register_local_worker(route, self())
+    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    assert {:ok, _worker} = admit_worker(route)
+
+    %{actor_event: actor_event} =
+      Ankole.SignalsGatewayFixtures.emit_addressed_actor_event(
+        agent.uid,
+        "mock",
+        Ankole.SignalsGatewayFixtures.group_entry(%{
+          source_event_id: "wait-helper-#{suffix}",
+          signal_channel_id: "mock:chat:wait-helper-#{suffix}",
+          source_entry_id: "human-wait-helper-#{suffix}",
+          explicit: true,
+          text: text
+        })
+      )
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             process_ready_events_once(
+               now: DateTime.add(@base_time, 1, :second),
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert_receive {:actor_lane, envelope}, 2_000
+    turn_ref = envelope["body"]["turn_start"]["turn"]
+
+    assert {:ok, [%ActorEventDelivery{state: "accepted"}]} =
+             ActorRuntime.handle_turn_accepted(%{
+               "turn_accepted" => %{"turn" => turn_ref}
+             })
+
+    %{agent: agent, actor_event: actor_event, turn_ref: turn_ref}
+  end
+
   defp assistant_content(text) do
     [
       %{
@@ -156,29 +149,46 @@ defmodule Ankole.E2E.WaitHelpersTest do
     ]
   end
 
-  defp insert_message!(agent_uid, conversation_id, actor_event_id, text, previous_message_id) do
-    %Message{}
-    |> Message.changeset(%{
-      agent_uid: agent_uid,
-      conversation_id: conversation_id,
-      previous_message_id: previous_message_id,
-      role: "assistant",
-      type: "message",
-      status: "complete",
-      content: [
-        %{
-          "type" => "message",
-          "role" => "assistant",
-          "content" => [%{"type" => "output_text", "text" => text}]
-        }
-      ],
-      metadata: %{"actor_event_id" => actor_event_id}
-    })
-    |> Repo.insert!()
+  defp complete_response!(subject_uid, conversation_id, actor_event_id, text) do
+    complete_response!(subject_uid, conversation_id, actor_event_id, text, nil)
   end
 
-  defp insert_mirror!(actor_event, message, source_entry_id) do
+  defp complete_response!(subject_uid, conversation_id, actor_event_id, text, previous) do
+    attrs = %{
+      subject_uid: subject_uid,
+      metadata: %{"request_metadata" => %{"actor_event_id" => actor_event_id}}
+    }
+
+    attrs =
+      case previous do
+        nil -> Map.put(attrs, :conversation_id, conversation_id)
+        previous_response_id -> Map.put(attrs, :previous_response_id, previous_response_id)
+      end
+
+    assert {:ok, run} = StatefulResponses.start_response_run(attrs)
+    assert {:ok, response} = StatefulResponses.commit_complete(run, assistant_content(text))
+    response
+  end
+
+  defp complete_turn(turn_ref, response) do
+    ActorRuntime.handle_turn_completed(%{
+      "turn_completed" => %{
+        "turn" => turn_ref,
+        "final_response_id" => "resp_#{response.id}",
+        "outcome" => "loop_finished"
+      }
+    })
+  end
+
+  defp insert_mirror!(actor_event, message, source_entry_id, metadata \\ nil) do
     now = DateTime.utc_now(:microsecond)
+
+    metadata =
+      metadata ||
+        %{
+          "actor_event_id" => actor_event.id,
+          "ai_message_id" => message.id
+        }
 
     %Entry{}
     |> Entry.changeset(%{
@@ -190,10 +200,7 @@ defmodule Ankole.E2E.WaitHelpersTest do
       links: [],
       author: %{"agent_uid" => actor_event.agent_uid},
       mentions: [],
-      metadata: %{
-        "actor_event_id" => actor_event.id,
-        "ai_message_id" => message.id
-      },
+      metadata: metadata,
       raw_payload: %{},
       provider_time: now,
       fallback_visible_text: source_entry_id,

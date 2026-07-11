@@ -3,7 +3,7 @@ defmodule Ankole.Schedule.Fire do
 
   import Ecto.Query, warn: false
 
-  alias Ankole.Actors
+  alias Ankole.SignalsGateway
   alias Ankole.Repo
   alias Ankole.Schedule.Attrs
   alias Ankole.Schedule.Cron
@@ -11,7 +11,6 @@ defmodule Ankole.Schedule.Fire do
   alias Ankole.Schedule.Schemas.CronSchedule
   alias Ankole.Schedule.Schemas.ScheduledEvent
   alias Ankole.Schedule.Store
-  alias Ankole.SignalsGateway.AIReplyPreview
 
   @spec fire_due_event(Ecto.UUID.t(), keyword()) ::
           {:ok, %{status: :fired | :noop | :cancelled, scheduled_event: ScheduledEvent.t() | nil}}
@@ -29,7 +28,6 @@ defmodule Ankole.Schedule.Fire do
       end
     end)
     |> persist_fire_error(scheduled_event_id, opts)
-    |> maybe_start_preview_handler()
   end
 
   defp claim_due_event_in_tx(repo, scheduled_event_id, now) do
@@ -78,7 +76,7 @@ defmodule Ankole.Schedule.Fire do
   end
 
   defp append_scheduled_actor_event(repo, %ScheduledEvent{} = event, now) do
-    Actors.append_actor_event_in_tx(repo, %{
+    SignalsGateway.append_actor_event_in_tx(repo, %{
       agent_uid: event.agent_uid,
       binding_name: event.binding_name,
       session_id: event.session_id,
@@ -200,13 +198,4 @@ defmodule Ankole.Schedule.Fire do
         false
     end
   end
-
-  defp maybe_start_preview_handler({:ok, %{status: :fired, actor_event: actor_event}} = result) do
-    case AIReplyPreview.maybe_start_for(actor_event) do
-      :ok -> result
-      {:error, _reason} -> result
-    end
-  end
-
-  defp maybe_start_preview_handler(result), do: result
 end

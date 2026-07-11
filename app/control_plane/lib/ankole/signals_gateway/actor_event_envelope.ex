@@ -1,7 +1,7 @@
 defmodule Ankole.SignalsGateway.ActorEventEnvelope do
   @moduledoc false
 
-  alias Ankole.Actors
+  alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.AmbientRecall
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.Entry

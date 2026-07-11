@@ -5,29 +5,18 @@ defmodule Ankole.AIGateway.Conversations do
 
   import Ecto.Query, warn: false
 
-  alias Ankole.AIGateway.AgentConfig
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.Ecto.UUIDv7
-  alias Ankole.AIGateway.ModelMetadata
-  alias Ankole.AIGateway.ModelProfiles
-  alias Ankole.AIGateway.ProviderConfigs
-  alias Ankole.AIGateway.ProviderConfigs.Provider
   alias Ankole.Repo
 
-  @type actor_key :: %{agent_uid: String.t(), session_id: String.t()}
-
   @doc """
-  Creates or reuses the active conversation for one actor session.
-
-  The conversation is the durable transcript owner. ActorRuntime owns worker
-  delivery and activation fences, but it should not create a separate transcript
-  model for the same user story.
+  Creates or reuses the active conversation for one subject-local key.
   """
   @spec ensure_conversation(String.t(), String.t(), keyword()) ::
           {:ok, Conversation.t()} | {:error, term()}
-  def ensure_conversation(agent_uid, session_id, opts \\ []) do
+  def ensure_conversation(subject_uid, conversation_key, opts \\ []) do
     repo = Keyword.get(opts, :repo, Repo)
-    ensure_conversation_in_tx(repo, normalize_uid(agent_uid), session_id)
+    ensure_conversation_in_tx(repo, normalize_uid(subject_uid), conversation_key)
   end
 
   @doc """
@@ -36,17 +25,17 @@ defmodule Ankole.AIGateway.Conversations do
 
   The generated conversation key is an implementation detail. The metadata flag
   lets operators and future cleanup distinguish conversations created implicitly
-  by the stateful Responses API from actor-session conversations.
+  by the stateful Responses API.
   """
   @spec create_managed_stateful_responses_conversation(String.t(), keyword()) ::
           {:ok, Conversation.t()} | {:error, term()}
-  def create_managed_stateful_responses_conversation(agent_uid, opts \\ []) do
+  def create_managed_stateful_responses_conversation(subject_uid, opts \\ []) do
     repo = Keyword.get(opts, :repo, Repo)
     metadata = managed_stateful_responses_metadata(Keyword.get(opts, :metadata, %{}))
 
     %Conversation{}
     |> Conversation.changeset(%{
-      agent_uid: normalize_uid(agent_uid),
+      subject_uid: normalize_uid(subject_uid),
       conversation_key: managed_stateful_responses_conversation_key(),
       metadata: metadata
     })
@@ -59,55 +48,29 @@ defmodule Ankole.AIGateway.Conversations do
   @spec ensure_conversation_in_tx(module(), String.t(), String.t()) ::
           {:ok, Conversation.t()} | {:error, term()}
   # Uses insert-then-refetch to tolerate concurrent first input for the same
-  # actor session without exposing unique-constraint details to callers.
-  def ensure_conversation_in_tx(repo, agent_uid, session_id) do
-    agent_uid = normalize_uid(agent_uid)
+  # conversation key without exposing unique-constraint details to callers.
+  def ensure_conversation_in_tx(repo, subject_uid, conversation_key) do
+    subject_uid = normalize_uid(subject_uid)
 
-    case active_conversation(repo, agent_uid, session_id) do
+    case active_conversation(repo, subject_uid, conversation_key) do
       %Conversation{} = conversation ->
         {:ok, conversation}
 
       nil ->
         %Conversation{}
         |> Conversation.changeset(%{
-          agent_uid: agent_uid,
-          conversation_key: session_id,
+          subject_uid: subject_uid,
+          conversation_key: conversation_key,
           metadata: %{}
         })
         |> repo.insert()
         |> case do
-          {:ok, %Conversation{} = conversation} -> {:ok, conversation}
-          {:error, _changeset} -> refetch_active_conversation(repo, agent_uid, session_id)
+          {:ok, %Conversation{} = conversation} ->
+            {:ok, conversation}
+
+          {:error, _changeset} ->
+            refetch_active_conversation(repo, subject_uid, conversation_key)
         end
-    end
-  end
-
-  @doc """
-  Builds the worker turn-start model/request context for one conversation.
-
-  AIGateway owns durable response rows. ActorRuntime only needs this
-  transport-facing spec before handing an actor event to the worker.
-  """
-  @spec build_turn_start_spec(Conversation.t(), keyword()) ::
-          {:ok, map()} | {:error, term()}
-  def build_turn_start_spec(%Conversation{} = conversation, opts \\ []) do
-    with {:ok, model_ref} <-
-           turn_model_ref(conversation.agent_uid, Keyword.get(opts, :profile, "primary")),
-         {:ok, agent_runtime_policy} <-
-           AgentConfig.runtime_policy(conversation.agent_uid,
-             max_completion_tokens: model_ref["max_completion_tokens"]
-           ) do
-      {:ok,
-       %{
-         model_ref: model_ref,
-         request_context:
-           request_context(
-             conversation,
-             model_ref,
-             agent_runtime_policy,
-             Keyword.get(opts, :request_context, %{})
-           )
-       }}
     end
   end
 
@@ -122,61 +85,96 @@ defmodule Ankole.AIGateway.Conversations do
     |> repo.one()
   end
 
-  defp active_conversation(repo, agent_uid, session_id) do
+  @doc """
+  Locks the active conversation for one subject-local key inside a caller-owned transaction.
+  """
+  @spec active_conversation_for_update(module(), String.t(), String.t()) ::
+          Conversation.t() | nil
+  def active_conversation_for_update(repo, subject_uid, conversation_key) do
     Conversation
-    |> where([conversation], conversation.agent_uid == ^agent_uid)
-    |> where([conversation], conversation.conversation_key == ^session_id)
+    |> where([conversation], conversation.subject_uid == ^normalize_uid(subject_uid))
+    |> where([conversation], conversation.conversation_key == ^conversation_key)
+    |> where([conversation], is_nil(conversation.ended_at))
+    |> lock("FOR UPDATE")
+    |> repo.one()
+  end
+
+  @doc """
+  Lists active conversations using only generic conversation attributes.
+
+  The caller may scope by `subject_uid`, `conversation_key`, or an insertion
+  cutoff. Results are deterministic and may be locked when the caller owns a
+  wider transaction.
+  """
+  @spec list_active_conversations(module(), keyword()) :: [Conversation.t()]
+  def list_active_conversations(repo, opts \\ []) when is_list(opts) do
+    limit = normalize_limit(Keyword.get(opts, :limit, 1_000))
+
+    Conversation
+    |> where([conversation], is_nil(conversation.ended_at))
+    |> maybe_filter_subject_uid(Keyword.get(opts, :subject_uid))
+    |> maybe_filter_conversation_key(Keyword.get(opts, :conversation_key))
+    |> maybe_filter_inserted_before(Keyword.get(opts, :inserted_before))
+    |> maybe_exclude_conversation_key_prefixes(
+      Keyword.get(opts, :exclude_conversation_key_prefixes, [])
+    )
+    |> order_by(
+      [conversation],
+      asc: conversation.subject_uid,
+      asc: conversation.conversation_key
+    )
+    |> limit(^limit)
+    |> maybe_lock(Keyword.get(opts, :lock, false))
+    |> repo.all()
+  end
+
+  defp active_conversation(repo, subject_uid, conversation_key) do
+    Conversation
+    |> where([conversation], conversation.subject_uid == ^subject_uid)
+    |> where([conversation], conversation.conversation_key == ^conversation_key)
     |> where([conversation], is_nil(conversation.ended_at))
     |> repo.one()
   end
 
-  defp refetch_active_conversation(repo, agent_uid, session_id) do
-    case active_conversation(repo, agent_uid, session_id) do
+  defp refetch_active_conversation(repo, subject_uid, conversation_key) do
+    case active_conversation(repo, subject_uid, conversation_key) do
       %Conversation{} = conversation -> {:ok, conversation}
       nil -> {:error, :conversation_not_found}
     end
   end
 
-  defp request_context(
-         %Conversation{} = conversation,
-         model_ref,
-         agent_runtime_policy,
-         extra_context
-       )
-       when is_map(extra_context) do
-    %{
-      "actor_key" => %{
-        "agent_uid" => conversation.agent_uid,
-        "session_id" => conversation.conversation_key
-      },
-      "model_ref" => model_ref
-    }
-    |> Map.merge(extra_context)
-    |> Map.put("ai_agent", agent_runtime_policy)
+  defp maybe_filter_subject_uid(query, subject_uid) when is_binary(subject_uid),
+    do: where(query, [conversation], conversation.subject_uid == ^normalize_uid(subject_uid))
+
+  defp maybe_filter_subject_uid(query, _subject_uid), do: query
+
+  defp maybe_filter_conversation_key(query, conversation_key) when is_binary(conversation_key),
+    do: where(query, [conversation], conversation.conversation_key == ^conversation_key)
+
+  defp maybe_filter_conversation_key(query, _conversation_key), do: query
+
+  defp maybe_filter_inserted_before(query, %DateTime{} = inserted_before),
+    do: where(query, [conversation], conversation.inserted_at < ^inserted_before)
+
+  defp maybe_filter_inserted_before(query, _inserted_before), do: query
+
+  defp maybe_exclude_conversation_key_prefixes(query, prefixes) when is_list(prefixes) do
+    Enum.reduce(prefixes, query, fn
+      prefix, query when is_binary(prefix) and prefix != "" ->
+        where(query, [conversation], not like(conversation.conversation_key, ^"#{prefix}%"))
+
+      _prefix, query ->
+        query
+    end)
   end
 
-  defp request_context(
-         %Conversation{} = conversation,
-         model_ref,
-         agent_runtime_policy,
-         _extra_context
-       ) do
-    request_context(conversation, model_ref, agent_runtime_policy, %{})
-  end
+  defp maybe_exclude_conversation_key_prefixes(query, _prefixes), do: query
 
-  defp turn_model_ref(agent_uid, profile) do
-    case ModelProfiles.resolve_runtime_profile(agent_uid, profile) do
-      {:ok, runtime_profile} ->
-        model_ref = model_ref_from_runtime_profile(runtime_profile)
+  defp maybe_lock(query, true), do: lock(query, "FOR UPDATE")
+  defp maybe_lock(query, false), do: query
 
-        {:ok,
-         model_ref
-         |> maybe_put_vision_fallback_model_ref(agent_uid)}
-
-      {:error, reason} ->
-        {:error, {:model_profile_unavailable, profile, reason}}
-    end
-  end
+  defp normalize_limit(limit) when is_integer(limit) and limit > 0, do: limit
+  defp normalize_limit(_limit), do: 1_000
 
   defp normalize_uid(value) when is_binary(value), do: String.downcase(value)
 
@@ -191,104 +189,4 @@ defmodule Ankole.AIGateway.Conversations do
   defp managed_stateful_responses_conversation_key do
     "stateful-responses-api:#{UUIDv7.autogenerate()}"
   end
-
-  defp model_ref_from_runtime_profile(runtime_profile) when is_map(runtime_profile) do
-    %{
-      "profile" => runtime_profile["profile"],
-      "provider_id" => runtime_profile["provider_id"],
-      "provider_kind" => runtime_profile["provider_kind"],
-      "model" => runtime_profile["model"],
-      "input_modalities" => input_modalities_for_runtime_profile(runtime_profile)
-    }
-    |> maybe_put(
-      "max_completion_tokens",
-      max_completion_tokens_for_runtime_profile(runtime_profile)
-    )
-  end
-
-  defp maybe_put_vision_fallback_model_ref(model_ref, agent_uid) do
-    if "image" in Map.get(model_ref, "input_modalities", []) do
-      model_ref
-    else
-      case ModelProfiles.resolve_runtime_profile(agent_uid, "vision_fallback") do
-        {:ok, fallback_runtime_profile} ->
-          fallback_ref = model_ref_from_runtime_profile(fallback_runtime_profile)
-
-          case "image" in fallback_ref["input_modalities"] do
-            true -> Map.put(model_ref, "vision_fallback_model_ref", fallback_ref)
-            false -> model_ref
-          end
-
-        {:error, _reason} ->
-          model_ref
-      end
-    end
-  end
-
-  defp input_modalities_for_runtime_profile(%{
-         "provider" => %Provider{} = provider,
-         "model" => model
-       }) do
-    input_modalities(provider, model)
-  end
-
-  defp input_modalities_for_runtime_profile(%{"provider_id" => provider_id, "model" => model})
-       when is_binary(provider_id) do
-    case ProviderConfigs.fetch_active_provider(provider_id) do
-      {:ok, provider} -> input_modalities(provider, model)
-      {:error, _reason} -> ["text"]
-    end
-  end
-
-  defp input_modalities_for_runtime_profile(_runtime_profile), do: ["text"]
-
-  defp input_modalities(%Provider{} = provider, model) when is_binary(model) do
-    case ModelMetadata.model_metadata(provider, model) do
-      {:ok, %{"architecture" => %{"input_modalities" => [_ | _] = modalities}}} ->
-        Enum.map(modalities, &to_string/1)
-
-      _metadata ->
-        ["text"]
-    end
-  end
-
-  defp input_modalities(_provider, _model), do: ["text"]
-
-  defp max_completion_tokens_for_runtime_profile(%{
-         "provider" => %Provider{} = provider,
-         "model" => model
-       }) do
-    max_completion_tokens(provider, model)
-  end
-
-  defp max_completion_tokens_for_runtime_profile(%{
-         "provider_id" => provider_id,
-         "model" => model
-       })
-       when is_binary(provider_id) do
-    case ProviderConfigs.fetch_active_provider(provider_id) do
-      {:ok, provider} -> max_completion_tokens(provider, model)
-      {:error, _reason} -> nil
-    end
-  end
-
-  defp max_completion_tokens_for_runtime_profile(_runtime_profile), do: nil
-
-  defp max_completion_tokens(%Provider{} = provider, model) when is_binary(model) do
-    case ModelMetadata.model_metadata(provider, model) do
-      {:ok, %{"top_provider" => %{"max_completion_tokens" => value}}} ->
-        positive_integer(value)
-
-      _metadata ->
-        nil
-    end
-  end
-
-  defp max_completion_tokens(_provider, _model), do: nil
-
-  defp positive_integer(value) when is_integer(value) and value > 0, do: value
-  defp positive_integer(_value), do: nil
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

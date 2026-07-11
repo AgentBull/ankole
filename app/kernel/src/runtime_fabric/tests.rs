@@ -190,6 +190,161 @@ fn round_trips_turn_noop_completed() {
 }
 
 #[test]
+fn round_trips_turn_completed() {
+    let envelope = json!({
+        "protocol_version": 1,
+        "message_id": "turn-completed-1",
+        "correlation_id": "turn-start-1",
+        "lane": "LANE_TURN",
+        "durability": "CONTROL_REPLAYABLE",
+        "body": {
+            "type": "turn_completed",
+            "turn_completed": {
+                "turn": turn_ref(),
+                "final_response_id": "resp_final_1",
+                "outcome": "TURN_COMPLETION_OUTCOME_ITERATION_EXHAUSTED"
+            }
+        }
+    });
+
+    let encoded = encode_envelope(envelope).unwrap();
+    let decoded = decode_envelope(&encoded).unwrap();
+
+    assert_eq!(decoded["body"]["type"], "turn_completed");
+    assert_eq!(
+        decoded["body"]["turn_completed"]["final_response_id"],
+        "resp_final_1"
+    );
+    assert_eq!(
+        decoded["body"]["turn_completed"]["outcome"],
+        "iteration_exhausted"
+    );
+}
+
+#[test]
+fn rejects_invalid_turn_completed_payloads() {
+    for (final_response_id, outcome, expected_error) in [
+        (
+            "response-final",
+            "loop_finished",
+            "final_response_id must start with resp_",
+        ),
+        (
+            "resp_final_1",
+            "unspecified",
+            "unsupported turn completion outcome",
+        ),
+    ] {
+        let envelope = json!({
+            "protocol_version": 1,
+            "message_id": "turn-completed-invalid",
+            "correlation_id": "turn-start-1",
+            "lane": "LANE_TURN",
+            "durability": "CONTROL_REPLAYABLE",
+            "body": {
+                "type": "turn_completed",
+                "turn_completed": {
+                    "turn": turn_ref(),
+                    "final_response_id": final_response_id,
+                    "outcome": outcome
+                }
+            }
+        });
+
+        let error = encode_envelope(envelope).unwrap_err().to_string();
+        assert!(error.contains(expected_error), "unexpected error: {error}");
+    }
+}
+
+#[test]
+fn rejects_turn_completed_without_required_fields() {
+    let payloads = [
+        (
+            json!({
+                "final_response_id": "resp_final_1",
+                "outcome": "loop_finished"
+            }),
+            "turn is required",
+        ),
+        (
+            json!({
+                "turn": turn_ref(),
+                "outcome": "loop_finished"
+            }),
+            "final_response_id is required",
+        ),
+        (
+            json!({
+                "turn": turn_ref(),
+                "final_response_id": "resp_final_1"
+            }),
+            "outcome is required",
+        ),
+    ];
+
+    for (payload, expected_error) in payloads {
+        let envelope = json!({
+            "protocol_version": 1,
+            "message_id": "turn-completed-missing-field",
+            "correlation_id": "turn-start-1",
+            "lane": "LANE_TURN",
+            "durability": "CONTROL_REPLAYABLE",
+            "body": {
+                "type": "turn_completed",
+                "turn_completed": payload
+            }
+        });
+
+        let error = encode_envelope(envelope).unwrap_err().to_string();
+        assert!(error.contains(expected_error), "unexpected error: {error}");
+    }
+}
+
+#[test]
+fn rejects_turn_completed_with_wrong_lane() {
+    let envelope = json!({
+        "protocol_version": 1,
+        "message_id": "turn-completed-wrong-lane",
+        "correlation_id": "turn-start-1",
+        "lane": "LANE_PROGRESS",
+        "durability": "CONTROL_EPHEMERAL",
+        "body": {
+            "type": "turn_completed",
+            "turn_completed": {
+                "turn": turn_ref(),
+                "final_response_id": "resp_final_1",
+                "outcome": "loop_finished"
+            }
+        }
+    });
+
+    let error = encode_envelope(envelope).unwrap_err().to_string();
+    assert!(error.contains("turn_completed must use lane LANE_TURN"));
+}
+
+#[test]
+fn rejects_turn_completed_with_wrong_durability_on_turn_lane() {
+    let envelope = json!({
+        "protocol_version": 1,
+        "message_id": "turn-completed-wrong-durability",
+        "correlation_id": "turn-start-1",
+        "lane": "LANE_TURN",
+        "durability": "CONTROL_EPHEMERAL",
+        "body": {
+            "type": "turn_completed",
+            "turn_completed": {
+                "turn": turn_ref(),
+                "final_response_id": "resp_final_1",
+                "outcome": "loop_finished"
+            }
+        }
+    });
+
+    let error = encode_envelope(envelope).unwrap_err().to_string();
+    assert!(error.contains("turn_completed must use durability CONTROL_REPLAYABLE"));
+}
+
+#[test]
 fn json_byte_fields_preserve_json_strings() {
     let envelope = json!({
         "protocol_version": 1,

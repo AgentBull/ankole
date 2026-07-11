@@ -90,7 +90,13 @@ defmodule Ankole.SubagentDelegations.Queries do
   end
 
   @spec get_summary_for_agent(String.t(), String.t()) ::
-          {:ok, %{delegation: Delegation.t(), last_event_seq: integer() | nil}} | {:error, term()}
+          {:ok,
+           %{
+             delegation: Delegation.t(),
+             last_event_seq: integer() | nil,
+             attempt_history: [map()]
+           }}
+          | {:error, term()}
   def get_summary_for_agent(delegation_id, agent_uid)
       when is_binary(delegation_id) and is_binary(agent_uid) do
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
@@ -102,12 +108,75 @@ defmodule Ankole.SubagentDelegations.Queries do
             select: max(event.seq)
         )
 
-      {:ok, %{delegation: delegation, last_event_seq: last_event_seq}}
+      {:ok,
+       %{
+         delegation: delegation,
+         last_event_seq: last_event_seq,
+         attempt_history: attempt_history(delegation)
+       }}
     else
       nil -> {:error, :delegation_not_found}
       {:error, _reason} = error -> error
     end
   end
+
+  defp attempt_history(%Delegation{attempts: attempts}) when attempts <= 1, do: []
+
+  defp attempt_history(%Delegation{} = delegation) do
+    Event
+    |> where([event], event.delegation_id == ^delegation.id)
+    |> order_by([event], desc: event.seq)
+    |> limit(80)
+    |> select([event], %{event_type: event.event_type, payload: event.payload})
+    |> Repo.all()
+    |> Enum.reduce(%{}, fn event, history ->
+      case event.payload["attempt"] do
+        attempt when is_integer(attempt) and attempt < delegation.attempts ->
+          Map.update(history, attempt, attempt_summary(attempt, event), fn summary ->
+            merge_attempt_event(summary, event)
+          end)
+
+        _value ->
+          history
+      end
+    end)
+    |> Map.values()
+    |> Enum.sort_by(& &1.attempt, :desc)
+    |> Enum.take(3)
+    |> Enum.reverse()
+  end
+
+  defp attempt_summary(attempt, event) do
+    %{
+      attempt: attempt,
+      event_types: [event.event_type]
+    }
+    |> maybe_put_attempt_summary(event_summary(event.payload))
+  end
+
+  defp merge_attempt_event(summary, event) do
+    summary
+    |> Map.update!(:event_types, fn event_types ->
+      if event.event_type in event_types or length(event_types) >= 8 do
+        event_types
+      else
+        event_types ++ [event.event_type]
+      end
+    end)
+    |> maybe_put_attempt_summary(event_summary(event.payload))
+  end
+
+  defp event_summary(payload) do
+    get_in(payload, ["result", "summary"]) ||
+      get_in(payload, ["error", "summary"]) ||
+      Map.get(payload, "summary")
+  end
+
+  defp maybe_put_attempt_summary(summary, value) when is_binary(value) do
+    Map.put_new(summary, :summary, String.slice(value, 0, 1_000))
+  end
+
+  defp maybe_put_attempt_summary(summary, _value), do: summary
 
   @spec list_events(String.t()) :: [Event.t()]
   def list_events(delegation_id) when is_binary(delegation_id) do
@@ -125,6 +194,7 @@ defmodule Ankole.SubagentDelegations.Queries do
       agent_uid: delegation.agent_uid,
       session_id: delegation.session_id,
       runtime: delegation.runtime,
+      codex_account_id: delegation.codex_account_id,
       runtime_thread_id: delegation.runtime_thread_id,
       title: delegation.title,
       prompt: delegation.prompt,

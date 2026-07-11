@@ -12,6 +12,9 @@ type AuditAppender = (request: SubagentDelegationEventAppendRequest) => Promise<
 
 const flushIntervalMs = 1_000
 const maxBatchSize = 20
+const appendMaxAttempts = 3
+const appendRetryInitialDelayMs = 50
+const appendRetryMaxDelayMs = 200
 
 export class SubagentAuditBuffer {
   private seq: number
@@ -26,6 +29,7 @@ export class SubagentAuditBuffer {
       turn: ActorTurnRef
       append?: AuditAppender
       nextSeq?: number
+      attempt: number
     }
   ) {
     this.seq = input.nextSeq ?? 0
@@ -36,11 +40,13 @@ export class SubagentAuditBuffer {
   }
 
   enqueue(direction: SubagentDelegationAuditEvent['direction'], eventType: string, payload: JsonObject): void {
+    if (this.failureError) return
+
     this.pending.push({
       seq: this.seq++,
       direction,
       event_type: eventType,
-      payload,
+      payload: { ...payload, attempt: this.input.attempt },
       occurred_at: new Date().toISOString()
     })
 
@@ -67,15 +73,25 @@ export class SubagentAuditBuffer {
       this.timer = undefined
     }
 
+    if (this.failureError) {
+      this.pending = []
+      return
+    }
+
     const batch = this.pending.splice(0, maxBatchSize)
     if (batch.length > 0) this.appendBatch(batch)
     await this.tail
+
+    if (this.failureError) {
+      this.pending = []
+      return
+    }
 
     if (this.pending.length > 0) await this.flush()
   }
 
   throwIfFailed(): void {
-    if (this.failureError) throw this.failureError
+    if (this.failureError) throw new SubagentAuditPersistenceError(this.failureError)
   }
 
   private scheduleFlush(delayMs: number): void {
@@ -94,22 +110,53 @@ export class SubagentAuditBuffer {
       return
     }
 
-    this.tail = this.tail
-      .then(async () => {
-        const response = await append({
-          request_id: `subagent-events-${crypto.randomUUID()}`,
-          turn: this.input.turn,
-          delegation_id: this.input.delegationId,
-          events
-        })
+    const request: SubagentDelegationEventAppendRequest = {
+      request_id: `subagent-events-${crypto.randomUUID()}`,
+      turn: this.input.turn,
+      delegation_id: this.input.delegationId,
+      events
+    }
+
+    this.tail = this.tail.then(() => this.appendBatchWithRetry(append, request)).catch(error => this.recordError(error))
+  }
+
+  private async appendBatchWithRetry(
+    append: AuditAppender,
+    request: SubagentDelegationEventAppendRequest
+  ): Promise<void> {
+    let delayMs = appendRetryInitialDelayMs
+
+    for (let attempt = 1; attempt <= appendMaxAttempts; attempt += 1) {
+      try {
+        const response = await append(request)
         if (isRpcRejected(response)) {
-          throw new Error(rpcRejectedMessage('subagent audit event batch rejected', response))
+          throw new AuditBatchRejectedError(rpcRejectedMessage('subagent audit event batch rejected', response))
         }
-      })
-      .catch(error => this.recordError(error))
+        return
+      } catch (error) {
+        if (error instanceof AuditBatchRejectedError || attempt === appendMaxAttempts) throw error
+        await Bun.sleep(delayMs)
+        delayMs = Math.min(appendRetryMaxDelayMs, delayMs * 2)
+      }
+    }
   }
 
   private recordError(error: unknown): void {
     this.failureError ??= toError(error)
+  }
+}
+
+class AuditBatchRejectedError extends Error {}
+
+export class SubagentAuditPersistenceError extends Error {
+  readonly code: 'subagent_audit_persistence_failed' | 'subagent_audit_persistence_rejected'
+  readonly retryable: boolean
+
+  constructor(cause: Error) {
+    super(`Subagent audit persistence failed: ${cause.message}`, { cause })
+    const rejected = cause instanceof AuditBatchRejectedError
+    this.code = rejected ? 'subagent_audit_persistence_rejected' : 'subagent_audit_persistence_failed'
+    this.retryable = !rejected
+    this.name = 'SubagentAuditPersistenceError'
   }
 }

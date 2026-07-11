@@ -33,8 +33,8 @@ processes:
 | --- | --- |
 | `streamText`/`generateText` with a `messages` array you assemble | The worker sends `response.create` over a WebSocket to AIGateway. History is server-side: rows in `ai_gateway_messages` chained by `previous_response_id`. Requests carry only new input items, never history. |
 | Provider packages (`@ai-sdk/openai`, …) in your app process | Elixir provider modules behind AIGateway (`Ankole.AIGateway.Providers.*` plus plugin providers). Upstream API keys never leave the control plane; workers hold only a 30-day agent-scoped AIGateway key. |
-| `tools:` + `maxSteps` loop in your server function | Tool registry and loop in the Bun worker (`app/agent_computer/src/tools/`, `src/core/agent-loop.ts`), executing next to a real sandboxed workspace. Stop policy is enforced server-side. |
-| `onFinish` callback that persists the result | AIGateway's terminal commit: one PostgreSQL transaction marks the final row `complete`, sets `actor_events.completed_at`, and clears the live delivery — before the worker even sees the terminal frame. |
+| `tools:` + `maxSteps` loop in your server function | Tool registry and loop in the Bun worker (`app/agent_computer/src/tools/`, `src/core/agent-loop.ts`), executing next to a real sandboxed workspace. SignalsGateway snapshots the policy; only the worker loop counts its turn-local model iterations. |
+| `onFinish` callback that persists the result | AIGateway commits each LLM Response independently. When the loop actually ends, the worker sends `turn_completed(final_response_id, outcome)`; SignalsGateway atomically commits the final outbox, ActorEvent completion, and delivery cleanup. |
 | An HTTP request from your own UI | A durable actor event produced by SignalsGateway from IM messages, webhooks, or schedules. It stays in `actor_events` forever; completion is a timestamp. |
 | Streaming tokens to the browser (`useChat`) | Streaming a provider-native preview (e.g. a Feishu card) that is edited as text grows and replaced by the final content. |
 | Serverless function lifetime | Long-running session actors with activation leases, delivery fences, retries, and crash recovery. |
@@ -46,47 +46,32 @@ is always "the PostgreSQL rows, nothing else".
 ## System Map
 
 ```text
-   Feishu / Slack / webhooks / schedules
-                  |
-                  v
-        +------------------+     writes      +--------------------------+
-        |  SignalsGateway  | --------------> |  PostgreSQL              |
-        |  ingress, mirror,|                 |  signal_gateway_channels |
-        |  delivery        |                 |  signal_gateway_entries  |
-        +------------------+                 |  actor_events            |
-                  |                          |  actor_event_deliveries  |
-                  |                          |  ai_gateway_messages     |
-                  | actor_events             |  ai_gateway_conversations|
-                  v                          |  signal_gateway_outbox   |
-        +------------------+                 |  actor_scheduled_events  |
-        |   ActorRuntime   |                 +--------------------------+
-        |  scheduling,     |                        ^
-        |  fences, retry   |                        | terminal commit
-        +------------------+                        |
-                  | turn_start (ZeroMQ,      +------------------+
-                  | RuntimeFabric)           |    AIGateway     |
-                  v                          |  providers, the  |
-        +------------------+  WebSocket      |  stateful message|
-        |  Agent Computer  | -------------> |  log, tool-loop  |
-        |  (Bun worker)    | response.create|  state, compaction|
-        |  tools, sandbox  |                +------------------+
-        +------------------+                        |
-                                                    v
-                                          upstream LLM providers
+Enterprise systems -----------------------> AIGateway ----> LLM providers
+                                                ^
+                                                | response.create
+Feishu / webhooks / schedules                   |
+        |                                Agent Computer
+        v                                tools + loop owner
+SignalsGateway -- turn_start (RuntimeFabric) -->|
+  ingress + mirror + ActorRuntime                |
+  preview + final outbox <---- turn_completed ---+
+        |
+        +---- PostgreSQL durable truth
 ```
 
 Seven pieces, one sentence each:
 
-- **SignalsGateway** (Elixir) receives provider events, mirrors what the
-  provider shows, decides what wakes an agent, and delivers replies back.
+- **SignalsGateway** (Elixir) receives provider events, owns ActorRuntime,
+  mirrors what the provider shows, decides what wakes an agent, previews live
+  work, and durably delivers final replies.
   Owns `signal_gateway_channels`, `signal_gateway_entries`, `actor_events`,
   `signal_gateway_outbox`. Read `design-docs/SignalsGateway.md`.
-- **ActorRuntime** (Elixir) schedules actor events onto workers, one event per
+- **ActorRuntime** (inside SignalsGateway) schedules actor events onto workers, one event per
   execution, with fences that stop stale workers from committing. Owns
   `actor_event_deliveries` and session activations.
-- **AIGateway** (Elixir) is the AI boundary: provider credentials and routing,
-  plus the stateful Responses log — model history, tool-loop state,
-  compaction, and the terminal commit. Owns `ai_gateway_messages` and
+- **AIGateway** (Elixir) is a Principal-scoped Responses service: provider
+  credentials and routing plus stateful model history and compaction. A
+  Response terminal has no Actor side effect. Owns `ai_gateway_messages` and
   `ai_gateway_conversations`. Read `design-docs/AIGateway.md`.
 - **Memory** (Elixir + Bun tools) owns curated channel notes and historical
   recall over provider mirrors. Owns `memory_notes`, `memory_episodes`, and
@@ -168,7 +153,7 @@ because one side is easier to edit or test.
 
 | Runtime | Owns | Must not |
 | --- | --- | --- |
-| **Elixir** (`app/control_plane`) | PostgreSQL semantics and migrations, supervision, setup/console/auth surfaces, Principal/AuthZ facades, AppConfigure, SignalsGateway, ActorRuntime scheduling and fences, AIGateway providers and the stateful message log, terminal commit authority, plugin registry | Push durable-state ownership into workers or the kernel |
+| **Elixir** (`app/control_plane`) | PostgreSQL semantics and migrations, supervision, setup/console/auth surfaces, Principal/AuthZ facades, AppConfigure, SignalsGateway-owned ActorRuntime scheduling, fences, and Agent Turn commit, AIGateway providers and the independent stateful Responses log, plugin registry | Push durable-state ownership into workers or the kernel |
 | **Rust kernel** (`app/kernel`) | Deterministic shared mechanisms where Elixir/Bun parity matters: crypto (AEAD, key derivation), UUIDv7, JWT, phone normalization, xxh3, zstd block codec, CEL evaluation for AuthZ and signal filters, protobuf envelope codec + validation, ZeroMQ socket ownership (ROUTER/DEALER/ZAP threads) | Touch PostgreSQL, own product lifecycle state, grow into a domain owner |
 | **Bun worker** (`app/agent_computer`) | The agent loop, tools, prompts, terminal/browser state, bubblewrap sandboxing, worker-local filesystem, the AIGateway client | Invent control-plane state; anything that must survive a restart goes through RPC or the AIGateway API and lands in PostgreSQL |
 
@@ -202,9 +187,8 @@ canonical examples.
 in order: Telemetry -> Repo -> `AppConfigure.Registry` ->
 `AppConfigure.Cache` -> `Setup.Bootstrap` -> Oban -> `Plugins.Registry`
 (discover + validate + activate) -> `Plugins.Supervisor` (children
-contributed by active plugins) -> PubSub -> SignalsGateway preview
-registry/supervisor -> `InboundBatchFinalizer` and `RecoveryScan`
-(config-gated) -> `ActorRuntime.Supervisor` ->
+contributed by active plugins) -> PubSub -> `SignalsGateway.Supervisor`
+(the preview and ActorRuntime subtrees) ->
 `AIGateway.ModelMetadata.Cache` -> `I18n.Catalog` -> DNSCluster -> Endpoint.
 
 The order is load-bearing, not decorative: configuration must exist before
@@ -221,12 +205,12 @@ the gateway checks the binding (`bindings.ex`), applies CEL filters (evaluated
 in the kernel), guards against tombstoned entries, upserts the provider mirror
 (`channel.ex`, `entry.ex`), and batches IM bursts
 (`inbound_batch*.ex`). Closing a batch writes one `actor_events` row in one
-transaction, then acks the provider. Outbound explicit side effects take a
+transaction, then acks the provider. Outbound provider-visible effects take a
 separate path: `outbox.ex` / `outbox_entry.ex`, executed by the binding's
-outbox adapter. Streamed replies are not outbox rows. Instead,
-`ai_reply_preview.ex` subscribes to AIGateway chunk events and drives the
-provider-native preview, and `recovery_scan.ex` re-sends completed finals
-whose mirror is missing.
+outbox adapter. Live preview deltas are transient:
+`ai_reply_preview.ex` subscribes to conversation-scoped AIGateway events and
+filters by opaque metadata. The adopted final reply is always a durable outbox
+row, optionally editing the preview entry recorded on the ActorEvent.
 
 Owns tables: `signal_gateway_bindings`, `signal_gateway_channels`, `signal_gateway_entries`,
 `signal_gateway_input_tombstones`, `signal_gateway_inbound_batches`,
@@ -234,7 +218,8 @@ Owns tables: `signal_gateway_bindings`, `signal_gateway_channels`, `signal_gatew
 
 ### ActorRuntime — scheduling turns onto workers, with fences
 
-`Ankole.ActorRuntime` (`lib/ankole/actor_runtime/`). It supervises session
+`Ankole.SignalsGateway.ActorRuntime`
+(`lib/ankole/signals_gateway/actor_runtime/`). It supervises session
 controllers, the `ActivationManager` (session activation leases), the
 `WorkerPool` (connected workers, capacity), a `Reconciler`, and a `Watchdog`.
 For each session, one ready actor event at a time becomes a `turn_start`
@@ -248,8 +233,8 @@ stream — they create a fresh actor event tagged
 Owns tables (UNLOGGED, rebuildable runtime projections):
 `actor_event_deliveries`, `actor_session_activations`,
 `actor_session_worker_assignments`, `agent_computer_workers`. The durable
-work journal `actor_events` itself is written by SignalsGateway/Schedule and
-completed by AIGateway's terminal commit.
+work journal `actor_events` itself is written and completed by SignalsGateway
+(Schedule only appends scheduled work).
 
 ### AIGateway — providers plus the stateful Responses log
 
@@ -276,21 +261,23 @@ completed by AIGateway's terminal commit.
   walking the `previous_message_id` graph (skipping `retracted`, stopping at
   compaction checkpoints whose artifacts carry the summary and retained tail),
   and auto-compacts when recorded
-  provider usage is over budget (`compaction.ex`, summarized with the agent's
-  `light` profile). It then writes the row `status = "generating"` with
-  optional `metadata.actor_event_id`, streams provider chunks to PubSub, and
-  commits terminally under an optimistic
-  `WHERE status = 'generating'` guard. A terminal commit at the chain tail
-  also sets `actor_events.completed_at` and clears the delivery. Orphaned
-  `generating` rows recover to `error` by `updated_at` staleness (300 s
-  grace).
+  provider usage is over budget (`compaction.ex`, summarized with the
+  subject's `light` profile). It then writes the row
+  `status = "generating"`, preserves the caller's metadata as an opaque map,
+  publishes conversation-scoped generic events, and commits only Response
+  content, usage, status, and generic terminal events under an optimistic
+  `WHERE status = 'generating'` guard. Stateful WebSockets touch the run row
+  every 60 seconds; a genuinely orphaned generating row becomes `error` after
+  the 300-second grace period. No AIGateway terminal path reads or mutates an
+  ActorEvent, delivery, or SignalsGateway outbox.
 
 The wire surface is the OpenAI Responses shape: workers connect to
 `GET /api/v1/ai-gateway/responses` (WebSocket,
 `AnkoleWeb.AIGatewayResponsesSocket`) and send `response.create` frames with
 `store=true`; `conversation` and `previous_response_id` are AIGateway state
-anchors, while `metadata.actor_event_id` is ActorRuntime correlation metadata,
-not a generic Responses requirement. Stateful ids are rewritten to
+anchors. AIGateway preserves metadata without interpreting its keys;
+SignalsGateway alone interprets `actor_event_id` for the Actor workflow.
+Stateful ids are rewritten to
 `resp_<message-row-uuid>`; HTTP routes exist for stateless calls, retrieval,
 manual compaction, embeddings, and rerank. Owns tables:
 `ai_gateway_messages`, `ai_gateway_conversations`, `ai_gateway_providers`.
@@ -300,7 +287,7 @@ manual compaction, embeddings, and rerank. Owns tables:
 Design in `docs/design-docs/RuntimeFabric.md`; mechanics in
 `app/kernel/src/runtime_fabric/`. One ROUTER socket on the control plane
 (owned by a dedicated Rust thread, commanded from
-`Ankole.ActorRuntime.Transport.Broker`), one DEALER per worker (owned by a
+`Ankole.SignalsGateway.ActorRuntime.Transport.Broker`), one DEALER per worker (owned by a
 Rust thread, driven from `src/runtime_fabric_sender.ts`). Workers
 authenticate with ZAP PLAIN: username `WORKER_ID`, password = the
 installation worker auth key (AppConfigure-owned, encrypted at rest).
@@ -309,17 +296,17 @@ Envelopes are protobuf
 (`app/kernel/proto/ankole/runtime_fabric/v1/envelope.proto`) and are
 validated in Rust before either host sees them. They travel over four lanes:
 CONTROL (`worker_ready`, heartbeat, capacity, `turn_control`, shutdown),
-TURN (`turn_start`, `mailbox_updated`, `turn_accepted`, `turn_error`,
-`turn_noop_completed`), PROGRESS (`worker_progress`, observability only),
+TURN (`turn_start`, `mailbox_updated`, `turn_accepted`, `turn_completed`,
+`turn_error`, `turn_noop_completed`), PROGRESS (`worker_progress`, observability only),
 and RPC (`rpc_request`/`rpc_response`/`rpc_error`). A separate raw-frame
 file lane (`ANKOLE_FILE/1`, 2 MiB zstd blocks, credit flow control) moves
 bytes between the control plane and the worker-visible roots `user_files`
 and `agent_installed_skills`
-(`lib/ankole/actor_runtime/file_transfer_lane.ex` <->
+(`lib/ankole/signals_gateway/actor_runtime/file_transfer_lane.ex` <->
 `src/lanes/file/`).
 
 Worker->control-plane RPC methods are registered in
-`lib/ankole/actor_runtime/rpc_lane.ex`:
+`lib/ankole/signals_gateway/actor_runtime/rpc_lane.ex`:
 `ai_gateway.api_key_for.create_or_find_by_agent`,
 `agent_conversation.context.resolve`, `skills.overlay.resolve` / `.replace`,
 `schedule.check_back_later.create`, the `schedule.cron.*` family,
@@ -340,6 +327,15 @@ tool calls locally, feeds `function_call_output` items back chained on
 `previous_response_id`, and stops when a response has no tool call. Steering
 arrives as `mailbox_updated` and is injected between rounds; `turn_control`
 aborts.
+
+SignalsGateway snapshots `ai_agent.max_iterations` into `TurnStart` (default
+90). A fresh worker execution owns a fresh counter: each logical model call,
+including an empty-response nudge, counts once; provider retries, tool-result
+journals, and parallel tool execution do not. If another iteration is needed
+after the budget is spent, the worker makes one budget-exempt no-tool summary
+call and reports `iteration_exhausted`; otherwise it reports
+`loop_finished`. The final `response_id` and outcome are sent exactly once in
+`turn_completed`, without waiting for an acknowledgement.
 
 The model-visible tool surface is deliberately narrow (see
 `docs/TradeoffsAndKnownLimits.md` before widening it): `todo`
@@ -499,10 +495,11 @@ answers after one shell command.
    agent-scoped AIGateway key over RPC, builds the system prompt, and
    assembles the tool set.
 5. **First model call.** `core/agent-loop.ts` sends `response.create`
-   (`store=true`, `conversation`, the user's text as input items, and
-   `metadata.actor_event_id`) over the AIGateway WebSocket. The conversation is
-   the Responses state anchor; `actor_event_id` is only ActorRuntime
-   correlation for this main-agent story.
+   (`store=true`, `conversation`, the user's text as input items, and opaque
+   metadata containing `actor_event_id`) over the AIGateway WebSocket. The same
+   metadata is carried by every model call, tool-result journal, and automatic
+   compaction checkpoint in this turn. AIGateway preserves it; SignalsGateway
+   is the only subsystem that interprets it.
    `AnkoleWeb.AIGatewayResponsesSocket` hands it to
    `StatefulResponses.start_response_run`, which expands history,
    auto-compacts if over budget, and writes the `generating` row. The
@@ -516,32 +513,35 @@ answers after one shell command.
    sends the terminal frame. The worker runs the shell command inside
    bubblewrap, then sends the next `response.create` with the
    `function_call_output`, chained via `previous_response_id`.
-8. **Terminal commit.** A round with no tool call is the chain tail — the
-   final AI output of this actor event. In one transaction AIGateway commits
-   it `complete`, sets `actor_events.completed_at`, and clears the delivery.
-   Only then does the worker see the terminal frame. The worker itself
-   reports nothing on success; `turn_error` and `turn_noop_completed` cover
-   the other endings.
-9. **Finalize.** `AIReplyPreview` replaces the card with the final content.
-   On confirmed provider success it upserts the final mirror: a
-   `signal_gateway_entries` row with `ai_message_id` pointing at the final message
-   row. That row is the proof of delivery.
-10. **Recovery.** If anything died between steps 8 and 9, `RecoveryScan`
-    finds the completed final without a mirror and re-sends it (at-least-once
-    by design). A worker that dies mid-turn surfaces as a fence-failed
-    delivery; the retry is a fresh actor event tagged
-    `retry_of_actor_event_id`. An orphaned `generating` row ages into
-    `error`, and the next run re-anchors on the last `complete` row.
+8. **Turn completion.** A Response with no remaining function call ends the
+   loop. The worker sends `turn_completed` with the adopted final Response ID
+   and `loop_finished` or `iteration_exhausted`; a provider failure still uses
+   `turn_error`, while an intentionally silent scheduled turn uses
+   `turn_noop_completed`.
+9. **Atomic Actor commit.** SignalsGateway reads the immutable Response chain
+   through the generic AIGateway facade and validates subject, conversation,
+   opaque correlation metadata, terminal status, and a user-visible final
+   projection. Under the existing ActorEvent/activation/delivery locks, one
+   transaction writes final, clarify, and attachment outbox rows, completes
+   the main and accepted steer ActorEvents, and cleans up deliveries. After
+   commit, the preview stops; the durable outbox may edit its provider entry.
+10. **Retry boundary.** A duplicate completion returns `already_completed`
+    without another outbox row. If the Response committed but
+    `turn_completed` was lost, SignalsGateway does not infer Agent Turn
+    completion: lease expiry/redelivery runs the whole turn again with a fresh
+    local iteration budget. AIGateway independently marks a truly orphaned
+    generating Response `error` after its heartbeat grace.
 
 Side chains reuse the same shapes:
 
 - **Scheduled wakeups**: `check_back_later` / `cron` tool -> `schedule.*` RPC
   -> `actor_scheduled_events` row + Oban job -> fire writes a new actor event
   -> same dispatch path.
-- **Explicit side effects** (attachments, reactions, command feedback):
-  `reply_attachment` and friends become `signal_gateway_outbox` rows at
-  terminal commit; the outbox executor calls the binding's outbox adapter and
-  records the provider outcome.
+- **Provider-visible effects** (final text, clarification, attachments,
+  reactions, command feedback): adopted Agent Turn output becomes
+  `signal_gateway_outbox` rows in the SignalsGateway completion transaction;
+  the outbox executor calls the binding's outbox adapter and records the
+  provider outcome.
 - **Steering**: a new message during a running turn becomes an actor event
   whose arrival is pushed as `mailbox_updated`; the worker injects it between
   model rounds. `/steer` is acknowledged when that nudge is sent or queued for
@@ -627,7 +627,7 @@ For E2E, run a fake provider server following
 `tools/e2e/support/fake_feishu/`.
 
 **Add a worker->control-plane RPC.** Handler on the Elixir side registered in
-`lib/ankole/actor_runtime/rpc_lane.ex`; validate the turn ref and the
+`lib/ankole/signals_gateway/actor_runtime/rpc_lane.ex`; validate the turn ref and the
 authenticated route like the existing brokers. Call it from the worker via
 `src/rpc_lane.ts`. If the payload matters after a crash, the handler writes
 PostgreSQL; the worker never does.
@@ -709,12 +709,13 @@ while the workspace moves quickly.
   continuation always picks the latest one.
 - **source mirror**: `signal_gateway_channels` + `signal_gateway_entries`, the current
   picture of what the provider shows. Not a queue, not model history.
-- **outbox**: `signal_gateway_outbox`, the durable table of explicit
-  provider-visible side effects (attachments, reactions, command feedback).
-  Streamed replies do not go through it.
-- **preview / finalize**: the streamed reply lifecycle — send a provider
-  message on the first chunk, edit it while streaming, replace it with the
-  final content at the terminal event.
+- **outbox**: `signal_gateway_outbox`, the durable table of provider-visible
+  effects, including adopted final text, clarification, attachments,
+  reactions, and command feedback. Only live preview deltas bypass it.
+- **preview / finalize**: preview is the transient lifecycle — send a provider
+  message on the first delta and edit it while the loop continues. A Response
+  terminal never finalizes it; explicit Actor Turn completion stops preview
+  and the durable outbox publishes or edits the adopted final content.
 - **final mirror**: the `signal_gateway_entries` row (with `ai_message_id`) written
   after a confirmed final send/edit. Proof of delivery.
 - **fence** (`ActorTurnRef`): the equality check (activation, epoch, actor
@@ -734,13 +735,15 @@ while the workspace moves quickly.
 `docs/TradeoffsAndKnownLimits.md` records the tradeoffs that look like gaps
 but are decided. The ones newcomers trip over:
 
-- Streamed IM delivery is at-least-once; a stale preview card left behind
-  until recovery is accepted; error terminals post no IM message.
+- Provider-visible delivery is outbox-backed and at-least-once. Preview
+  deltas remain transient; completion, noop, dead-letter, or explicit stop
+  ends the preview, while a Response terminal alone does not.
 - Continuation is derived from the message graph (latest visible leaf) —
   there is no stored cursor, no generation lease, and no half-stream
   recovery; a broken stream costs one round.
-- AIGateway security is two rules: the 30-day agent token proves identity,
-  and every query filters by `agent_uid`. Workers are trusted first-party
+- AIGateway security is two rules: the current agent/admin token proves a
+  Principal identity, and every conversation/Response query filters by
+  `subject_uid`. Workers are trusted first-party
   nodes; bubblewrap is the untrusted-process boundary, not the worker.
 - One WebSocket runs one in-flight response; sequencing is enforced by
   ActorRuntime, not an AIGateway lock.

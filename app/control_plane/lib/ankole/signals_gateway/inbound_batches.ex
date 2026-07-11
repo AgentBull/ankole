@@ -3,7 +3,7 @@ defmodule Ankole.SignalsGateway.InboundBatches do
 
   import Ecto.Query, warn: false
 
-  alias Ankole.Actors.ActorEvent
+  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.Repo
   alias Ankole.RuntimeEvents
   alias Ankole.SignalsGateway.ActorEventEnvelope
@@ -12,6 +12,7 @@ defmodule Ankole.SignalsGateway.InboundBatches do
   alias Ankole.SignalsGateway.Projection
   alias Ankole.SignalsGateway.Binding
   alias Ankole.SignalsGateway.Channel
+  alias Ankole.SignalsGateway.Entry
 
   import Ankole.SignalsGateway.Utils,
     only: [
@@ -71,31 +72,73 @@ defmodule Ankole.SignalsGateway.InboundBatches do
 
   def apply_im_entry_policy(repo, binding, fact, policy, type, now) do
     with :ok <- Projection.lock_inbound_batch(repo, fact),
-         {:ok, channel} <- Projection.upsert_channel(repo, fact, now),
-         {:ok, mirror_entry} <- maybe_mirror_im_entry(repo, fact, policy, type, now),
-         source_entry <- inbound_batch_entry(fact, mirror_entry, policy, type, now),
-         {:ok, result} <-
-           fact
-           |> open_inbound_batch(repo)
-           |> maybe_finalize_due_batch(repo, now)
-           |> route_inbound_batch_entry(
-             repo,
-             binding,
-             channel,
-             fact,
-             source_entry,
-             policy,
-             type,
-             now
-           ) do
-      result =
-        result
-        |> Map.put(:signal_channel, channel)
-        |> maybe_put_result(:signal_entry, mirror_entry)
+         {:ok, channel} <- Projection.upsert_channel(repo, fact, now) do
+      batch = open_inbound_batch(fact, repo)
 
-      {:ok, result}
+      case mirrored_outside_open_batch?(repo, fact, batch) do
+        true ->
+          with {:ok, mirror_entry} <- maybe_mirror_im_entry(repo, fact, policy, type, now) do
+            {:ok,
+             %{status: :duplicate, inbound_batch: batch, signal_channel: channel}
+             |> maybe_put_result(:signal_entry, mirror_entry)}
+          end
+
+        false ->
+          with {:ok, mirror_entry} <- maybe_mirror_im_entry(repo, fact, policy, type, now),
+               source_entry <- inbound_batch_entry(fact, mirror_entry, policy, type, now),
+               {:ok, result} <-
+                 batch
+                 |> maybe_finalize_due_batch(repo, now)
+                 |> route_inbound_batch_entry(
+                   repo,
+                   binding,
+                   channel,
+                   fact,
+                   source_entry,
+                   policy,
+                   type,
+                   now
+                 ) do
+            {:ok,
+             result
+             |> Map.put(:signal_channel, channel)
+             |> maybe_put_result(:signal_entry, mirror_entry)}
+          end
+      end
     end
   end
+
+  defp mirrored_outside_open_batch?(repo, fact, batch) do
+    not batch_contains_source_entry?(batch, fact.source_entry_id) and
+      Entry
+      |> where([entry], entry.signal_channel_id == ^fact.signal_channel_id)
+      |> where([entry], entry.source_entry_id == ^fact.source_entry_id)
+      |> repo.exists?() and
+      finalized_batch_contains_source_entry?(repo, fact)
+  end
+
+  defp finalized_batch_contains_source_entry?(repo, fact) do
+    InboundBatch
+    |> where([batch], batch.agent_uid == ^fact.agent_uid)
+    |> where([batch], batch.binding_name == ^fact.binding_name)
+    |> where([batch], batch.signal_channel_id == ^fact.signal_channel_id)
+    |> where([batch], batch.batch_state == "finalized")
+    |> where(
+      [batch],
+      fragment(
+        "EXISTS (SELECT 1 FROM jsonb_array_elements(?) AS entry WHERE entry->>'source_entry_id' = ?)",
+        batch.entries,
+        ^fact.source_entry_id
+      )
+    )
+    |> repo.exists?()
+  end
+
+  defp batch_contains_source_entry?(%InboundBatch{entries: entries}, source_entry_id) do
+    Enum.any?(entries, &(&1["source_entry_id"] == source_entry_id))
+  end
+
+  defp batch_contains_source_entry?(nil, _source_entry_id), do: false
 
   defp maybe_put_result(result, _key, nil), do: result
   defp maybe_put_result(result, key, value), do: Map.put(result, key, value)

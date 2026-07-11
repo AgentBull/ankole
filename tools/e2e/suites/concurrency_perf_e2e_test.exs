@@ -88,11 +88,11 @@ defmodule Ankole.E2E.ConcurrencyPerfE2ETest do
     end
 
     # Both containers stayed admitted for the whole run.
-    assert Repo.get_by!(Ankole.ActorRuntime.Schemas.AgentComputerWorker,
+    assert Repo.get_by!(Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker,
              worker_id: ctx.worker_id
            )
 
-    assert Repo.get_by!(Ankole.ActorRuntime.Schemas.AgentComputerWorker,
+    assert Repo.get_by!(Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker,
              worker_id: second_worker_id
            )
 

@@ -7,7 +7,7 @@ defmodule Ankole.AIGateway.Models do
   OpenRouter, but model ids use Ankole selectors.
   """
 
-  alias Ankole.AIGateway.ModelProfiles
+  alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.ModelMetadata
   alias Ankole.AIGateway.ModelSelectors
   alias Ankole.AIGateway.ProviderConfigs

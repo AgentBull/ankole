@@ -46,6 +46,7 @@ export type TurnStart = {
 export type TurnSteerUpdate = {
   turn: ActorTurnRef
   actorEvent?: ActorEventEnvelope
+  correlationId?: string
 }
 
 export type MailboxUpdated = {

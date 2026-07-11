@@ -18,10 +18,10 @@ Ankole 里的 agent 不是简单的 chat completion 封装，而是一个持久�
 | --- | --- |
 | 自己拼好 `messages` 数组后调用 `streamText`/`generateText` | Worker 通过 WebSocket 向 AIGateway 发送 `response.create`。历史在服务端：`ai_gateway_messages` 行用 `previous_response_id` 串起来。请求只带新的 input items，不带历史。 |
 | Provider packages（`@ai-sdk/openai` 等）跑在 app 进程内 | Provider module 在 AIGateway 后面（`Ankole.AIGateway.Providers.*` 加上 plugin providers）。上游 API key 不离开 control plane；worker 只拿到 30 天有效、agent 范围的 AIGateway key。 |
-| 服务端函数里的 `tools:` + `maxSteps` 循环 | Bun worker 里的 tool registry 和循环（`app/agent_computer/src/tools/`、`src/core/agent-loop.ts`），就在真实 sandboxed workspace 旁边执行。停止策略由服务端执行。 |
-| `onFinish` 回调持久化结果 | AIGateway 的 terminal commit：一个 PostgreSQL 事务把最终行标记为 `complete`、设置 `actor_events.completed_at`、清理 live delivery，而且这一切发生在 worker 看到 terminal frame 之前。 |
+| 服务端函数里的 `tools:` + `maxSteps` 循环 | Bun worker 里的 tool registry 和循环（`app/agent_computer/src/tools/`、`src/core/agent-loop.ts`），就在真实 sandboxed workspace 旁边执行。`ai_agent.max_iterations` 随 `turn_start` 快照到 worker，由这个 loop 自己计数和停止。 |
+| `onFinish` 回调持久化结果 | AIGateway 的 terminal commit 只持久化一条 Response。Agent loop 结束后，worker 显式发送 `turn_completed`；SignalsGateway 再用一个 PostgreSQL 事务提交最终 outbox、完成 ActorEvent 并清理 delivery。 |
 | 来自你自己 UI 的 HTTP 请求 | SignalsGateway 从 IM 消息、webhook 或定时任务生成的持久 actor event。它会永久留在 `actor_events` 里；完成只是一个时间戳。 |
-| 向浏览器流式输出 token（`useChat`） | Streaming 的 provider 原生预览，例如飞书卡片。文本增长时编辑它，最后再替换成最终内容。 |
+| 向浏览器流式输出 token（`useChat`） | Streaming 的 provider 原生预览，例如飞书卡片。Preview delta 是瞬态进度；最终采用的回复始终由 SignalsGateway 通过 durable outbox 发送或编辑。 |
 | Serverless function 的生命周期 | 带激活租约、delivery fence、重试和崩溃恢复的长期运行 session actor。 |
 
 最深层的差异是持久性。Ankole 的每一跳都围绕一个问题设计：“如果这个进程现在死掉，还有什么活着？”答案永远是：“PostgreSQL 里的行，其他都不是。”
@@ -29,40 +29,31 @@ Ankole 里的 agent 不是简单的 chat completion 封装，而是一个持久�
 ## 系统地图
 
 ```text
-   Feishu / Slack / webhooks / schedules
+ Feishu / Slack / webhooks / schedules
                   |
                   v
-        +------------------+     writes      +--------------------------+
-        |  SignalsGateway  | --------------> |  PostgreSQL              |
-        |  ingress, mirror,|                 |  signal_gateway_channels |
-        |  delivery        |                 |  signal_gateway_entries  |
-        +------------------+                 |  actor_events            |
-                  |                          |  actor_event_deliveries  |
-                  |                          |  ai_gateway_messages     |
-                  | actor_events             |  ai_gateway_conversations|
-                  v                          |  signal_gateway_outbox   |
-        +------------------+                 |  actor_scheduled_events  |
-        |   ActorRuntime   |                 +--------------------------+
-        |  scheduling,     |                        ^
-        |  fences, retry   |                        | terminal commit
-        +------------------+                        |
-                  | turn_start (ZeroMQ,      +------------------+
-                  | RuntimeFabric)           |    AIGateway     |
-                  v                          |  providers, the  |
-        +------------------+  WebSocket      |  stateful message|
-        |  Agent Computer  | -------------> |  log, tool-loop  |
-        |  (Bun worker)    | response.create|  state, compaction|
-        |  tools, sandbox  |                +------------------+
-        +------------------+                        |
-                                                    v
-                                          upstream LLM providers
+        +------------------------+   actor / mirror / outbox   +--------------------------+
+        | SignalsGateway         | --------------------------> | PostgreSQL               |
+        | ingress, ActorRuntime, |                             | actor_events, deliveries |
+        | preview, final commit  |                             | signal mirrors + outbox  |
+        +------------------------+                             | AI Responses log         |
+              |           ^                                   +--------------------------+
+   turn_start |           | turn_completed                               ^
+              v           |                                              | Response commit
+        +------------------------+   response.create             +------------------+
+        | Agent Computer         | ----------------------------> | AIGateway        | <--- enterprise systems
+        | loop, tools, sandbox   |                               | generic Responses |
+        +------------------------+                               +------------------+
+                                                                        |
+                                                                        v
+                                                              upstream LLM providers
 ```
 
 六个部分，各一句话：
 
-- **SignalsGateway**（Elixir）接收 provider event，镜像 provider 侧可见的状态，决定什么会唤醒 agent，并把回复送回 provider。它拥有 `signal_gateway_channels`、`signal_gateway_entries`、`actor_events`、`signal_gateway_outbox`。见 `design-docs/SignalsGateway.md`。
-- **ActorRuntime**（Elixir）把 actor event 调度到 worker 上，每个 event 执行一次，并用 fence 挡住 stale 的 worker commit。它拥有 `actor_event_deliveries` 和 session activation。
-- **AIGateway**（Elixir）是 AI 边界：管 provider 凭证和路由，外加有状态的 Responses 日志，包括 model 历史、tool-loop 状态、compaction 和 terminal commit。它拥有 `ai_gateway_messages` 和 `ai_gateway_conversations`。见 `design-docs/AIGateway.md`。
+- **SignalsGateway**（Elixir）接收 provider event，镜像 provider 侧可见的状态，拥有 Actor journal/runtime，并在 `turn_completed` 后原子提交最终回复、ActorEvent completion 和 delivery cleanup。它拥有 `signal_gateway_channels`、`signal_gateway_entries`、`actor_events`、`signal_gateway_outbox`。见 `design-docs/SignalsGateway.md`。
+- **ActorRuntime**（Elixir）是 SignalsGateway 的子系统：把 actor event 调度到 worker 上，每个 event 执行一次，并用 fence 挡住 stale 的 worker commit。它拥有 `actor_event_deliveries` 和 session activation。
+- **AIGateway**（Elixir）是通用 AI 边界：管 provider 凭证和路由，外加按 Principal subject 隔离的有状态 Responses 日志，包括 model 历史、compaction 和单条 Response 的 terminal commit。它不了解 Actor、delivery 或 outbox。它拥有 `ai_gateway_messages` 和 `ai_gateway_conversations`。见 `design-docs/AIGateway.md`。
 - **RuntimeFabric**（Rust + ZeroMQ）是 control plane 和 worker 之间的实时传输：turn envelope、RPC、文件字节。它永远不是持久事实来源。见 `design-docs/RuntimeFabric.md`。
 - **Agent Computer**（Bun worker）执行工具：shell、文件、浏览器，以及当前 turn 的 worker 本地状态。它通过 WebSocket 驱动 model loop，但不保存会话状态。
 - **PostgreSQL** 保存所有持久语义事实及持久文件的所有权引用。用户产物和可恢复运行时文件位于 worker 共享工作区；它们的生命周期与权威状态仍是由 Elixir 写入的 PostgreSQL 行。
@@ -114,7 +105,7 @@ Schedule（`design-docs/Schedule.md`）把时间变成 actor event。Principal �
 
 | Runtime | 负责 | 不应该 |
 | --- | --- | --- |
-| **Elixir**（`app/control_plane`） | PostgreSQL 语义和 migration、supervision、setup/console/auth 界面、Principal/AuthZ facade、AppConfigure、SignalsGateway、ActorRuntime 调度和 fence、AIGateway provider 和有状态消息日志、Memory、terminal commit 权威、plugin registry | 把持久状态的归属推给 worker 或 kernel |
+| **Elixir**（`app/control_plane`） | PostgreSQL 语义和 migration、supervision、setup/console/auth 界面、Principal/AuthZ facade、AppConfigure、SignalsGateway 的 ActorRuntime 调度/fence/最终提交、AIGateway provider 和有状态 Responses 日志、Memory、plugin registry | 把持久状态的归属推给 worker 或 kernel，或让 AIGateway 反向依赖 Actor |
 | **Rust kernel**（`app/kernel`） | Elixir/Bun 需要保持一致的确定性共享机制：crypto（AEAD、key derivation）、UUIDv7、JWT、phone normalization、xxh3、zstd block codec、AuthZ 和 signal filter 的 CEL 求值、protobuf envelope codec + 校验、ZeroMQ socket 所有权（ROUTER/DEALER/ZAP 线程） | 碰 PostgreSQL，持有产品生命周期状态，膨胀成领域 owner |
 | **Bun worker**（`app/agent_computer`） | Agent loop、tool、prompt、终端/浏览器状态、bubblewrap 沙箱、worker 本地文件系统、AIGateway client | 发明 control-plane 状态；任何必须跨重启存活的东西都要通过 RPC 或 AIGateway API 落到 PostgreSQL |
 
@@ -139,7 +130,7 @@ Kernel 从同一个 crate 编译两次：一次作为 Elixir 的 Rustler NIF（�
 
 ## Control Plane 启动顺序
 
-`Ankole.Application`（`app/control_plane/lib/ankole/application.ex`）按顺序启动：Telemetry -> Repo -> `AppConfigure.Registry` -> `AppConfigure.Cache` -> `Setup.Bootstrap` -> Oban -> `Plugins.Registry`（发现 + 校验 + 激活）-> `Plugins.Supervisor`（活跃 plugin 贡献的 children）-> PubSub -> SignalsGateway preview registry/supervisor -> `InboundBatchFinalizer` 和 `RecoveryScan`（受 config 开关控制）-> `ActorRuntime.Supervisor` -> `AIGateway.ModelMetadata.Cache` -> `I18n.Catalog` -> DNSCluster -> Endpoint。
+`Ankole.Application`（`app/control_plane/lib/ankole/application.ex`）按顺序启动：Telemetry -> Repo -> `AppConfigure.Registry` -> `AppConfigure.Cache` -> `Setup.Bootstrap` -> Oban -> `Plugins.Registry`（发现 + 校验 + 激活）-> `Plugins.Supervisor`（活跃 plugin 贡献的 children）-> PubSub -> `SignalsGateway.Supervisor`（内部管理 preview 和 ActorRuntime 子监督树）-> RuntimeEvents -> `AIGateway.ModelMetadata.Cache` -> `I18n.Catalog` -> DNSCluster -> Endpoint。
 
 这个顺序不是随便定的（load-bearing）：在 plugin 读配置之前，配置必须已经存在；在任何地方解析 plugin 配置之前，plugin 必须先注册自己的 AppConfigure 定义；HTTP endpoint 最后才启动。
 
@@ -147,7 +138,7 @@ Kernel 从同一个 crate 编译两次：一次作为 Elixir 的 Rustler NIF（�
 
 ### SignalsGateway：provider 入口和 provider 可见的副作用
 
-`Ankole.SignalsGateway`（`lib/ankole/signals_gateway/`）。Adapter 用归一化后的事实调 `emit_entry/emit_reaction/emit_action`；gateway 检查 binding（`bindings.ex`），应用 CEL filter（由 kernel 求值），挡住被 tombstone 的 entry，upsert provider 镜像（`channel.ex`、`entry.ex`），并把 IM 突发消息合并成 inbound batch（`inbound_batch*.ex`）。关闭 batch 时，在一个事务里写一条 `actor_events` 行，然后向 provider 确认。对外的显式副作用走 `outbox.ex` / `outbox_entry.ex`，由 binding 的 outbox adapter 执行。流式回复不是 outbox 行：`ai_reply_preview.ex` 订阅 AIGateway 的 chunk event，并驱动 provider 原生预览；`recovery_scan.ex` 会重发缺少镜像的 completed final。
+`Ankole.SignalsGateway`（`lib/ankole/signals_gateway/`）。Adapter 用归一化后的事实调 `emit_entry/emit_reaction/emit_action`；gateway 检查 binding（`bindings.ex`），应用 CEL filter（由 kernel 求值），挡住被 tombstone 的 entry，upsert provider 镜像（`channel.ex`、`entry.ex`），并把 IM 突发消息合并成 inbound batch（`inbound_batch*.ex`）。关闭 batch 时，在一个事务里写一条 `actor_events` 行，然后向 provider 确认。对外的 provider 可见副作用走 `outbox.ex` / `outbox_entry.ex`，由 binding 的 outbox adapter 执行。`ai_reply_preview.ex` 只驱动瞬态 provider 预览；worker 发送 `turn_completed` 后，SignalsGateway 根据最终 Response 投影 final、clarify 或 attachment，并在一个事务里写 durable outbox、完成 ActorEvent、清理 delivery。首次 preview 成功得到的 provider entry id 存在 ActorEvent 上，最终 outbox 据此选择 edit。
 
 拥有的表：`signal_gateway_bindings`、`signal_gateway_channels`、`signal_gateway_entries`、`signal_gateway_input_tombstones`、`signal_gateway_inbound_batches`、`signal_gateway_outbox`。
 
@@ -159,30 +150,30 @@ Kernel 从同一个 crate 编译两次：一次作为 Elixir 的 Rustler NIF（�
 
 ### ActorRuntime：带 fence 的 worker turn 调度
 
-`Ankole.ActorRuntime`（`lib/ankole/actor_runtime/`）。它监督 session controller、`ActivationManager`（session 激活租约）、`WorkerPool`（已连接的 worker、容量）、`Reconciler` 和 `Watchdog`。每个 session 同一时间只有一个 ready 的 actor event 会变成一个 `turn_start` envelope（`turn_envelope.ex`），由 `transport/broker.ex` 通过 fabric 发出。每次 delivery 都带 fence（`ActorTurnRef`）：activation uid、actor epoch、actor event id、revision。Stale 的 worker echo 如果过不了相等性检查，就不能 commit 到新的 actor 状态。重试会创建新的 actor event，并带上 `retry_of_actor_event_id`；恢复不会复活一条流。
+`Ankole.SignalsGateway.ActorRuntime`（`lib/ankole/signals_gateway/actor_runtime/`）。它监督 session controller、`ActivationManager`（session 激活租约）、`WorkerPool`（已连接的 worker、容量）、`Reconciler` 和 `Watchdog`。每个 session 同一时间只有一个 ready 的 actor event 会变成一个 `turn_start` envelope（`turn_envelope.ex`），由 `transport/broker.ex` 通过 fabric 发出。每次 delivery 都带 fence（`ActorTurnRef`）：activation uid、actor epoch、actor event id、revision。Stale 的 worker echo 如果过不了相等性检查，就不能 commit 到新的 actor 状态。重试会创建新的 actor event，并带上 `retry_of_actor_event_id`；恢复不会复活一条流。
 
-拥有的表（UNLOGGED、可重建的运行时投影）：`actor_event_deliveries`、`actor_session_activations`、`actor_session_worker_assignments`、`agent_computer_workers`。持久工作日志 `actor_events` 本身由 SignalsGateway/Schedule 写入，由 AIGateway 的 terminal commit 完成。
+拥有的表（UNLOGGED、可重建的运行时投影）：`actor_event_deliveries`、`actor_session_activations`、`actor_session_worker_assignments`、`agent_computer_workers`。持久工作日志 `actor_events` 由 SignalsGateway/Schedule 写入，也只由 SignalsGateway 在验证 `turn_completed` 的 Response chain 和 fence 后完成。
 
 ### AIGateway：provider 加有状态 Responses 日志
 
 `Ankole.AIGateway`（`lib/ankole/ai_gateway/`）。分成两半：
 
 - **Provider 边界。** `providers.ex` 注册内置 provider module（`providers/openai.ex`、`openai_compatible.ex`、`openrouter.ex`、`google_ai_studio_openai.ex`、`claude.ex`、`azure_openai.ex`、`jina.ex`），以及通过 `ai_gateway.provider` contract 发现的 plugin provider（目前包括 `plugins/china_market_ai_providers` 里的 `xiaomi_mimo`、`volcengine_ark`、`alibaba_cn`、`zai_coding_plan`）。Provider module 返回一个 `provider_definition()`（设置 schema、base URL、capability，以及用来构造 `UniversalAIRequest` 的 `prepare/1`）；真正发往上游的 HTTP/SSE 传输跑在 kernel 的 `universal_ai_client` 里（feature-gated 的 Rust、NIF 驱动）。Operator 实例存在 `ai_gateway_providers` 行里（加密凭证、base URL 覆盖）；agent 在 `agents.options["ai_agent"]["models"]` 里绑定 model alias（`primary`、`light`、`heavy`、`embedding`、`rerank`）。
-- **有状态 Responses 日志。** `stateful_responses.ex` 负责 run-row 生命周期：`start_response_run` 解析 `conversation` 或 `previous_response_id`；如果一个 `store=true` 请求两者都没有，就创建一个带 `metadata.managed_by_stateful_responses_api = true` 的 managed conversation。它通过 `previous_message_id` 图展开历史（跳过 `retracted`，折叠被 compaction 行覆盖的前缀），当历史消息记录的 provider usage 超预算时自动 compaction（`compaction.ex`，用 agent 的 `light` profile 总结），写入 `status = "generating"` 的行和可选的 `metadata.actor_event_id`，把 provider chunk 流式推到 PubSub，并用乐观的 `WHERE status = 'generating'` 守卫做 terminal commit。链尾的 terminal commit 还会设置 `actor_events.completed_at` 并清理 delivery。孤立的 `generating` 行会按 `updated_at` 的陈旧程度恢复成 `error`（300 秒宽限期）。
+- **有状态 Responses 日志。** `stateful_responses.ex` 负责 run-row 生命周期：`start_response_run` 解析 `conversation` 或 `previous_response_id`；如果一个 `store=true` 请求两者都没有，就创建一个带 `metadata.managed_by_stateful_responses_api = true` 的 managed conversation。它通过 `previous_message_id` 图展开历史（跳过 `retracted`，折叠被 compaction 行覆盖的前缀），当历史消息记录的 provider usage 超预算时自动 compaction（`compaction.ex`，用配置的 `light` profile 总结），写入 `status = "generating"` 的行，原样保存并发布整块 opaque metadata，再用乐观的 `WHERE status = 'generating'` 守卫提交单条 Response 的 content、usage 和状态，并发布通用事件。Stateful WebSocket 每 60 秒触碰 generating row 的 `updated_at`；只有超过 300 秒宽限期且没有心跳的 orphan 才会被标记为失败。AIGateway 不解释 `actor_event_id`，也不查询或更新 ActorEvent、delivery 或 outbox。
 
-Wire 接口是 OpenAI Responses 形状：worker 连接 `GET /api/v1/ai-gateway/responses`（WebSocket，`AnkoleWeb.AIGatewayResponsesSocket`），发送带 `store=true` 的 `response.create` frame；`conversation` 和 `previous_response_id` 是 AIGateway state anchor，`metadata.actor_event_id` 是 ActorRuntime correlation metadata，不是通用 Responses 的必填项；id 会被改写成 `resp_<message-row-uuid>`；HTTP 路由提供无状态调用、检索、手动 compaction、embedding 和 rerank。拥有的表：`ai_gateway_messages`、`ai_gateway_conversations`、`ai_gateway_providers`。
+Wire 接口是 OpenAI Responses 形状：任意已鉴权 subject 都可连接 `GET /api/v1/ai-gateway/responses`（WebSocket，`AnkoleWeb.AIGatewayResponsesSocket`）并发送带 `store=true` 的 `response.create` frame；`conversation` 和 `previous_response_id` 是 AIGateway state anchor，整块 `metadata` 对 AIGateway 都是不透明的。Agent Computer 会在每轮 Response、tool-result journal 和自动 compaction checkpoint 中写同一个 `actor_event_id`，但只有 SignalsGateway 解释它。可选 `max_tool_calls` 只约束单条 Response 内 provider 执行的 built-in tool；省略或 `null` 时没有数值默认，function/custom tool 和历史 Response 不计。原生 Responses provider 直接透传，其他 provider 在安全事件边界 best-effort late stop，允许已经启动的并行调用超调。id 会被改写成 `resp_<message-row-uuid>`；HTTP 路由提供无状态调用、检索、手动 compaction、embedding 和 rerank。conversation、message 和 compaction artifact 都按引用现有 `Principal.uid` 的 `subject_uid` 隔离。拥有的表：`ai_gateway_messages`、`ai_gateway_conversations`、`ai_gateway_providers`。
 
 ### RuntimeFabric：实时 ZeroMQ 传输
 
-设计见 `docs/design-docs/RuntimeFabric.md`；机制在 `app/kernel/src/runtime_fabric/`。Control plane 上有一个 ROUTER socket（由专用 Rust 线程持有，接受 `Ankole.ActorRuntime.Transport.Broker` 的命令），每个 worker 一个 DEALER（由 Rust 线程持有，从 `src/runtime_fabric_sender.ts` 驱动）。Worker 用 ZAP PLAIN 认证：username 是 `WORKER_ID`，password 是 installation 的 worker auth key（AppConfigure 持有，落盘加密）。
+设计见 `docs/design-docs/RuntimeFabric.md`；机制在 `app/kernel/src/runtime_fabric/`。Control plane 上有一个 ROUTER socket（由专用 Rust 线程持有，接受 `Ankole.SignalsGateway.ActorRuntime.Transport.Broker` 的命令），每个 worker 一个 DEALER（由 Rust 线程持有，从 `src/runtime_fabric_sender.ts` 驱动）。Worker 用 ZAP PLAIN 认证：username 是 `WORKER_ID`，password 是 installation 的 worker auth key（AppConfigure 持有，落盘加密）。
 
-Envelope 是 protobuf（`app/kernel/proto/ankole/runtime_fabric/v1/envelope.proto`），在任何 host 看到它们之前，先由 Rust 校验。四条 lane：CONTROL（`worker_ready`、心跳、容量、`turn_control`、关停）、TURN（`turn_start`、`mailbox_updated`、`turn_accepted`、`turn_error`、`turn_noop_completed`）、PROGRESS（`worker_progress`，只用于可观测性）、RPC（`rpc_request`/`rpc_response`/`rpc_error`）。另外还有一条 raw-frame 文件 lane（`ANKOLE_FILE/1`，2 MiB zstd 块、信用流控），在 control plane 和 worker 可见根 `user_files`、`agent_installed_skills` 之间搬运字节（`lib/ankole/actor_runtime/file_transfer_lane.ex` <-> `src/lanes/file/`）。
+Envelope 是 protobuf（`app/kernel/proto/ankole/runtime_fabric/v1/envelope.proto`），在任何 host 看到它们之前，先由 Rust 校验。四条 lane：CONTROL（`worker_ready`、心跳、容量、`turn_control`、关停）、TURN（`turn_start`、`mailbox_updated`、`turn_accepted`、`turn_completed`、`turn_error`、`turn_noop_completed`）、PROGRESS（`worker_progress`，只用于可观测性）、RPC（`rpc_request`/`rpc_response`/`rpc_error`）。`turn_completed` 是 replayable 的单向完成声明，携带 fence、最终 `resp_*` id 和 `loop_finished | iteration_exhausted` outcome，不增加 completion ACK。另外还有一条 raw-frame 文件 lane（`ANKOLE_FILE/1`，2 MiB zstd 块、信用流控），在 control plane 和 worker 可见根 `user_files`、`agent_installed_skills` 之间搬运字节（`lib/ankole/signals_gateway/actor_runtime/file_transfer_lane.ex` <-> `src/lanes/file/`）。
 
-Worker->control-plane 的 RPC 方法注册在 `lib/ankole/actor_runtime/rpc_lane.ex`：`ai_gateway.api_key_for.create_or_find_by_agent`、`agent_conversation.context.resolve`、`skills.overlay.resolve` / `.replace`、`schedule.check_back_later.create`、`schedule.cron.*` 系列、`memory_note.*`、`memory_search`、`memory_browse`。
+Worker->control-plane 的 RPC 方法注册在 `lib/ankole/signals_gateway/actor_runtime/rpc_lane.ex`：`ai_gateway.api_key_for.create_or_find_by_agent`、`agent_conversation.context.resolve`、`skills.overlay.resolve` / `.replace`、`schedule.check_back_later.create`、`schedule.cron.*` 系列、`memory_note.*`、`memory_search`、`memory_browse`。
 
 ### Agent Computer：Bun worker
 
-`app/agent_computer/src/`。`main.ts` 解析 env（`WORKER_ID`、形如 `tcp://:worker_auth_key@host:port` 的 `RUNTIME_FABRIC_URL`），启动 DEALER，宣告 `worker_ready`，每 15 秒发一次心跳，并分发 envelope。一个 `turn_start` 会跑 `core/turns/` 里的 turn pipeline（文本 turn 是 `text_turn.ts`）：通过 RPC 拿会话上下文和 AIGateway API key，构造 system prompt（`src/prompts/`），组装 tool，然后驱动 `core/agent-loop.ts`：通过官方 `openai` SDK 加自定义 WebSocket 传输，发起有状态路径的 `response.create`（`core/llm.ts`），在本地执行返回的 tool call，再用 `previous_response_id` 把 `function_call_output` item 链回去；没有 tool call 时停止。Steering 通过 `mailbox_updated` 到达，并在轮次之间注入；`turn_control` 会中止。
+`app/agent_computer/src/`。`main.ts` 解析 env（`WORKER_ID`、形如 `tcp://:worker_auth_key@host:port` 的 `RUNTIME_FABRIC_URL`），启动 DEALER，宣告 `worker_ready`，每 15 秒发一次心跳，并分发 envelope。一个 `turn_start` 会跑 `core/turns/` 里的 turn pipeline（文本 turn 是 `text_turn.ts`）：通过 RPC 拿会话上下文和 AIGateway API key，构造 system prompt，组装 tool，然后驱动 `core/agent-loop.ts`。每次 execution 都从 `request_context.ai_agent.max_iterations` 创建新的本地计数器（默认 90）；每次逻辑 model call 计一次，包括 empty-response nudge，但同一次调用的 provider/transport retry、tool-result journal 和并行 tool 都不额外计数。第 90 次调用自然无工具结束时返回 `loop_finished`；只有预算耗尽后仍需继续，才追加一次预算外、无工具的总结 Response，并返回 `iteration_exhausted`，不把最终 Response 的 stop reason 篡改成 `length`。Worker 随后发送一次带真实最终 Response id 的 `turn_completed`，不等待 ACK。Steering 通过 `mailbox_updated` 到达，并在轮次之间注入；`turn_control` 会中止。
 
 Model 可见的 tool 接口有意保持很窄（扩大前先看 `docs/TradeoffsAndKnownLimits.md`）：`todo`（`src/tools/todo/todo-tool.ts`）；computer tool `command`、`interactive_terminal`、`read_file`、`patch`、`reply_attachment`（`src/tools/computer/`）；异步委托工具 `subagent`（`src/tools/subagent/`）；结束当前 turn 的提问工具 `clarify`（`src/tools/clarify/`）；browser tool `browser_navigate`、`browser_snapshot`、`browser_find`、`browser_click`、`browser_open`、`browser_run`、`browser_extract`（`src/tools/browser/`）；schedule tool `check_back_later`、`cron`（`src/tools/schedule/schedule-tools.ts`）；memory tool `memory_note`、`memory_search`、`memory_browse`（`src/tools/memory/`）；skill tool `skill_view`、`skill_append`（`src/tools/library/`）。Shell 命令在 bubblewrap 里运行（优先 strong mode，启动时若为 weak mode 给警告，绝不无沙箱：`src/tools/computer/bubblewrap.ts`）。当前代码树没有 MCP 支持；如果以后加入，它应该作为另一个本地 tool 源，放在这个 worker 边界里。
 
@@ -228,17 +219,17 @@ Canonical 链路：用户在飞书群里 mention 一个 agent，agent 在跑了�
 2. **一个工作项。** `InboundBatchFinalizer` 关闭 batch；一个事务写入一条 `actor_events` 行，`type = "im.message.addressed"`，对 `(agent_uid, binding_name, source_event_id)` 唯一，然后向 provider 确认。这一行就是持久的工作项；它会永久保留，工作完成时设置 `completed_at`。
 3. **分发。** ActorRuntime 的 session controller 选择下一个 ready event（`input_state = 'open' AND completed_at IS NULL`，且没有 live delivery），`ActivationManager` 持有激活租约，`WorkerPool` 分配 worker，`TurnLifecycle.start_worker_turn` 写入 `actor_event_deliveries` 的 fence 行，`Transport.Broker` 通过 ZeroMQ 发送 `turn_start` envelope（由 `turn_envelope.ex` 构造）。这里不传历史，只有一个 fence、一个 actor event、一个 model 引用。
 4. **Worker turn 准备。** `src/main.ts` 分发到 `core/turns/text_turn.ts`，后者通过 RPC 拿会话上下文和 agent 范围的 AIGateway key，构造 system prompt，组装 tool set。
-5. **第一次 model 调用。** `core/agent-loop.ts` 通过 AIGateway WebSocket 发送 `response.create`（`store=true`、`conversation`、用户文本作为 input items，并带 `metadata.actor_event_id`）。`conversation` 是 Responses state anchor；`actor_event_id` 只是这个主 agent 用户故事里的 ActorRuntime correlation。`AnkoleWeb.AIGatewayResponsesSocket` 把它交给 `StatefulResponses.start_response_run`，后者展开历史、必要时自动 compaction、写入 `generating` 行；provider 的 `prepare/1` 加 kernel `universal_ai_client` 流式调用上游。Chunk 发到 PubSub，绝不进数据库。
-6. **实时预览。** `SignalsGateway.AIReplyPreview` 订阅这些 chunk，通过 lark adapter 的 CardKit 调用驱动流式飞书卡片：第一个 chunk 时发送，文本增长时编辑。
+5. **第一次 model 调用。** `core/agent-loop.ts` 通过 AIGateway WebSocket 发送 `response.create`（`store=true`、`conversation`、用户文本作为 input items，并带 opaque `metadata.actor_event_id`）。`conversation` 是 Responses state anchor；AIGateway 只原样保存和发布 metadata，不解释这个 key。`AnkoleWeb.AIGatewayResponsesSocket` 把请求交给 `StatefulResponses.start_response_run`，后者展开历史、必要时自动 compaction、写入 `generating` 行；provider 的 `prepare/1` 加 kernel `universal_ai_client` 流式调用上游。
+6. **实时预览。** 真正 dispatch `turn_start`、且 conversation 已确定后，`SignalsGateway.AIReplyPreview` 才订阅 conversation-scoped AIGateway event，按 opaque metadata 过滤本 ActorEvent，并通过 lark adapter 的 CardKit 调用驱动流式飞书卡片。每轮 `response_started` 重置当前 buffer；Response terminal event 不会结束 preview。
 7. **工具执行。** Model 返回 `function_call`；AIGateway 把行 commit 成 `complete`（input items + output items 在同一个 `content` 数组里）并发送 terminal frame。Worker 在 bubblewrap 里跑 shell 命令，然后用 `function_call_output` 发下一次 `response.create`，并通过 `previous_response_id` 链接。
-8. **Terminal commit。** 没有 tool call 的轮次是链尾，也就是这个 actor event 的最终 AI 输出。AIGateway 在一个事务里把它 commit 成 `complete`、设置 `actor_events.completed_at`、清理 delivery，然后 worker 才看到 terminal frame。Worker 成功时自己不报告任何东西；`turn_error` 和 `turn_noop_completed` 覆盖其他结束方式。
-9. **定稿。** `AIReplyPreview` 用最终内容替换卡片。Provider 确认成功之后，它 upsert 最终镜像：一条 `signal_gateway_entries` 行，其 `ai_message_id` 指向最终 message 行。那一行就是送达凭证。
-10. **恢复。** 如果 8 和 9 之间有任何东西死掉，`RecoveryScan` 会找到缺少镜像的 completed final 并重发（设计上是 at-least-once）。Worker 在 turn 中途死亡表现为 fence 失败的 delivery；重试是一条新的 actor event，带 `retry_of_actor_event_id`；孤立的 `generating` 行会老化成 `error`，下一次 run 会重新 anchor 到最后一条 `complete` 行。
+8. **Worker 声明完成。** 没有 tool call 时 loop 正常结束；若 iteration budget 已耗尽但仍需继续，worker 先生成一次预算外、无工具的总结。两种情况都只发送一次 `turn_completed`，携带最终 `resp_*` id 和 `loop_finished` 或 `iteration_exhausted`；普通 provider failure 仍发送 `turn_error`，schedule 的 silent success 仍发送 `turn_noop_completed`。
+9. **SignalsGateway 原子定稿。** `ActorTurnCompletion` 通过 AIGateway 的窄 facade 按 subject 和 Response id 读取最多 500 层的不可变链，验证 conversation、opaque `actor_event_id`、terminal status 和 fence，并投影 final text、clarify 或 attachment。随后在一个 SignalsGateway 事务里写 durable final/clarify/attachment outbox，完成主 ActorEvent 及已接受的 steer ActorEvents，清理或 supersede delivery。若 preview 已成功创建 provider entry，final outbox 选择 edit；事务成功后才终止 preview。Outbox 成功后写入带最终 Response backref 的 `signal_gateway_entries` mirror。
+10. **失败与恢复。** Completion 校验失败或 stale fence 时零修改；handler 失败时不回复 worker，ActorEvent 保持 open，由现有 lease/redelivery 重新执行并从新的本地 iteration budget 开始。Response 已提交但 `turn_completed` 丢失时也不会从 Response terminal 推断 Turn 完成。AIGateway 独立用 60 秒 heartbeat 和 300 秒 orphan grace 管理自己的 `generating` 行，不查询 Actor activation 或 delivery。
 
 Side chain 复用同样的形状：
 
 - **定时唤醒**：`check_back_later` / `cron` tool -> `schedule.*` RPC -> `actor_scheduled_events` 行 + Oban 作业 -> 触发时写入新的 actor event -> 走同样的分发路径。
-- **显式副作用**（附件、reaction、命令反馈）：`reply_attachment` 等在 terminal commit 时变成 `signal_gateway_outbox` 行；outbox executor 调 binding 的 outbox adapter 并记录 provider 结果。
+- **Provider 可见副作用**（最终回复、clarify、附件、reaction、命令反馈）：最终采用的 final/clarify/attachment 在 SignalsGateway completion 事务中变成 `signal_gateway_outbox` 行；其他副作用也由其 owner 写 outbox。Outbox executor 调 binding 的 outbox adapter 并记录 provider 结果。
 - **Steering**：running turn 期间来的新消息会变成 actor event，它的到达通过 `mailbox_updated` 推送；worker 在 model 轮次之间注入它。`/steer` 在这个 nudge 成功发送或排队给 active turn 时即 ack，不等待模型证明已经消费。
 - **`/compress`**：一个 IM 命令，通过 `POST /api/v1/ai-gateway/responses/compact` 写入 compaction 行。
 - **Recall**：被 recall 的 provider 消息会 tombstone 镜像；对于 completed 的工作，还会硬删除或 retract 消息链的尾部。
@@ -277,7 +268,7 @@ Canonical 定义在 `design-docs/SignalsGateway.md` 的 Identity Layers 部分�
 
 **新增聊天/signal provider adapter。** 在 `plugins/` 下新建 Elixir plugin，实现 `Ankole.Plugins.Plugin`，声明 `signals_gateway.adapter`，包含 inbound/outbox module、setup metadata、凭证的 config pattern。Inbound 代码把 provider event 归一化成 `SignalsGateway.Ingress.emit_*` 事实；outbox module 实现它能诚实支持的 operation。长连接作为 plugin 的 `children/0` 运行。`plugins/lark_adapter` 是参考；contract 在 `design-docs/SignalsGateway.md` 和 `design-docs/plugins/FeishuAdapter.md`。E2E 使用遵循 `tools/e2e/support/fake_feishu/` 的 fake provider server。
 
-**新增 worker->control-plane RPC。** Elixir 侧的 handler 注册在 `lib/ankole/actor_runtime/rpc_lane.ex`；像现有 broker 一样校验 turn ref 和已认证路由。Worker 侧从 `src/rpc_lane.ts` 调用。如果负载在崩溃之后仍然重要，handler 写 PostgreSQL；worker 永远不直接写。
+**新增 worker->control-plane RPC。** Elixir 侧的 handler 注册在 `lib/ankole/signals_gateway/actor_runtime/rpc_lane.ex`；像现有 broker 一样校验 turn ref 和已认证路由。Worker 侧从 `src/rpc_lane.ts` 调用。如果负载在崩溃之后仍然重要，handler 写 PostgreSQL；worker 永远不直接写。
 
 **新增运行时设置。** 在负责的子系统里声明 key（`AppConfigure.define/1`，或 plugin 的 `app_config_definitions/0`），标记 secret 需要加密，通过 `AppConfigure.get/2` 读取。不要为 operator 在运行时管理的东西新增环境变量。
 
@@ -327,9 +318,9 @@ E2E harness（`tools/e2e/`）跑一个 fake 飞书平台，它用真实 WS 协�
 - **anchor**：新 run 链接到的行（`previous_message_id`；在 API 边缘渲染成 `previous_response_id`）。
 - **visible leaf**：没有其他行链接到它的 `complete` 行。隐式续接总是选最新的 visible leaf。
 - **source mirror**：`signal_gateway_channels` + `signal_gateway_entries`，provider 侧当前显示内容的映像。不是队列，也不是 model 历史。
-- **outbox**：`signal_gateway_outbox`，显式 provider 可见副作用（附件、reaction、命令反馈）的持久表。流式回复不走这里。
-- **preview / finalize**：流式回复的生命周期：第一个 chunk 时发送 provider 消息，streaming 期间编辑它，在 terminal event 时替换成最终内容。
-- **final mirror**：确认最终发送/编辑之后写入的 `signal_gateway_entries` 行（带 `ai_message_id`）。它是送达凭证。
+- **outbox**：`signal_gateway_outbox`，所有需要 durable delivery 的 provider 可见副作用（包括最终回复、clarify、附件、reaction、命令反馈）的持久表。只有瞬态 preview delta 不走这里。
+- **preview / adopted final**：Preview 是 best-effort 流式进度；`response.completed` 不终止它。只有 completion/noop/dead-letter/显式 stop 终止 preview，最终采用的内容始终通过 durable outbox 发送或编辑。
+- **final mirror**：最终 outbox 确认发送/编辑之后写入的 `signal_gateway_entries` 行（带最终 Response backref）。它是送达凭证。
 - **fence**（`ActorTurnRef`）：一个相等性检查（activation、epoch、actor event id、revision），挡住 stale 的 worker commit 到更新的 actor 状态。
 - **turn**：一个 actor event 的一次 worker 执行；可能有多次 model 调用，但只有一次完成。
 - **dead letter**：被标记为不可送达的 actor event（`input_state = 'dead_letter'`）。它不同于 completed。
@@ -340,9 +331,9 @@ E2E harness（`tools/e2e/`）跑一个 fake 飞书平台，它用真实 WS 协�
 
 `docs/TradeoffsAndKnownLimits.md` 记录了一些看起来像 gap、但已经定下来的 tradeoff。新人最容易踩到的点：
 
-- 流式 IM 送达是 at-least-once；恢复之前出现 stale 的预览卡片是接受的；error terminal 不发 IM 消息。
+- Preview delta 是 best-effort，最终采用的回复是 durable outbox 的 at-least-once delivery；短暂 stale 预览卡片是接受的；error terminal 本身不发 IM 消息。
 - 续接从消息图派生（最新的 visible leaf）。没有存储游标，没有 generation 租约，也没有半流恢复；坏掉一条流的代价是一轮。
-- AIGateway 安全就两条规则：30 天 agent token 证明身份，每个查询都按 `agent_uid` 过滤。Worker 是可信的第一方节点；bubblewrap 才是不可信进程的边界，不是 worker。
+- AIGateway 安全就两条规则：现有 token 或管理员鉴权证明 Principal subject，每个 conversation/message/compaction 查询都按 `subject_uid` 过滤。Worker 是可信的第一方节点；bubblewrap 才是不可信进程的边界，不是 worker。
 - 一个 WebSocket 同一时间只有一个在途 response；排序由 ActorRuntime 保证，不靠 AIGateway 锁。
 - ZeroMQ 永远不是持久队列；UNLOGGED 运行时表是可重建的投影，不是事实来源。
 
@@ -351,8 +342,8 @@ E2E harness（`tools/e2e/`）跑一个 fake 飞书平台，它用真实 WS 协�
 ## 阅读顺序
 
 1. 本文。
-2. `design-docs/AIGateway.md`：如果你改 AI 侧，包括 provider、有状态消息日志、tool loop、compaction。
-3. `design-docs/SignalsGateway.md`：如果你改 IM/provider 侧，包括入口、batch、命令、流式送达、恢复。
+2. `design-docs/AIGateway.md`：如果你改 AI 侧，包括 provider、有状态 Responses 日志、通用事件、compaction。
+3. `design-docs/SignalsGateway.md`：如果你改 IM/provider 或 Actor 侧，包括入口、batch、ActorRuntime、completion、preview 和 outbox delivery。
 4. `design-docs/memory/Basic.md`：如果你改 channel 记忆、历史召回、BM25/vector 检索或 memory tools；详细 v1 设计见 `internals/docs/Memory.zh.md`。
 5. `design-docs/RuntimeFabric.md`、`design-docs/Schedule.md` 和 `design-docs/SubagentDelegation.md`：当你改传输、时间或持久后台工作。
 6. `design-docs/Principal.md`、`design-docs/AuthZ.md`、`design-docs/AppConfiguration.md`、`design-docs/Plugins.md`、`design-docs/I18n.md`、`design-docs/Logger.md`：按需查阅。
@@ -362,8 +353,8 @@ E2E harness（`tools/e2e/`）跑一个 fake 飞书平台，它用真实 WS 协�
 | Document | 修改这些内容时阅读 |
 | --- | --- |
 | `docs/README.md` | 任何内容：system map、code-level map、change guide、glossary |
-| `design-docs/AIGateway.md` | Provider、message log、tool loop、compaction |
-| `design-docs/SignalsGateway.md` | Ingress、mirror、outbox、delivery、命令 |
+| `design-docs/AIGateway.md` | Provider、Responses log、通用事件、compaction |
+| `design-docs/SignalsGateway.md` | Ingress、ActorRuntime、completion、preview、mirror、outbox |
 | `design-docs/memory/Basic.md` | Channel note、历史召回、BM25/vector search |
 | `design-docs/RuntimeFabric.md` | Envelope、lane、socket、文件传输 |
 | `design-docs/Schedule.md` | Checkback、cron、Oban 唤醒边 |

@@ -1,9 +1,12 @@
 defmodule Ankole.SubagentDelegations.Audit do
   @moduledoc false
 
+  alias Ankole.SignalsGateway.ActorRuntime.TurnRef
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerRouteAuth
   alias Ankole.Principals
   alias Ankole.Repo
   alias Ankole.SubagentDelegations.Attrs
+  alias Ankole.SubagentDelegations.Lifecycle
   alias Ankole.SubagentDelegations.Queries
   alias Ankole.SubagentDelegations.Schemas.Delegation
   alias Ankole.SubagentDelegations.Schemas.Event
@@ -46,20 +49,55 @@ defmodule Ankole.SubagentDelegations.Audit do
          {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
          %Delegation{} = delegation <- Queries.get_for_agent(delegation_id, agent_uid) do
       Repo.transact(fn repo ->
-        events
-        |> Enum.reduce_while({:ok, []}, fn attrs, {:ok, appended} ->
-          case append_event_in_tx(repo, delegation, Attrs.normalize(attrs), agent_uid) do
-            {:ok, %Event{} = event} -> {:cont, {:ok, [event | appended]}}
-            {:error, reason} -> {:halt, {:error, reason}}
-          end
-        end)
-        |> case do
-          {:ok, appended} -> {:ok, Enum.reverse(appended)}
-          {:error, _reason} = error -> error
-        end
+        append_events_in_tx(repo, delegation, agent_uid, events)
       end)
     else
       nil -> {:error, :delegation_not_found}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc false
+  @spec append_worker_events(String.t(), String.t(), [map()], TurnRef.t(), String.t()) ::
+          {:ok, [Event.t()]} | {:error, term()}
+  def append_worker_events(delegation_id, agent_uid, events, %TurnRef{} = turn_ref, route)
+      when is_binary(delegation_id) and is_binary(agent_uid) and is_list(events) and
+             is_binary(route) do
+    with :ok <- require_nonempty_events(events),
+         {:ok, agent_uid} <- Principals.normalize_uid(agent_uid) do
+      Repo.transact(fn repo ->
+        # Match placement's worker-row prefix before taking the shared
+        # agent/delegation locks; old-attempt audit cannot deadlock recovery.
+        with {:ok, :authorized} <-
+               WorkerRouteAuth.authorize_turn_route_in_tx(
+                 repo,
+                 turn_ref,
+                 route,
+                 :write,
+                 lock: true
+               ),
+             :ok <- Lifecycle.lock_agent_slots_in_tx(repo, agent_uid),
+             %Delegation{} = delegation <-
+               Queries.get_for_agent(repo, delegation_id, agent_uid, lock: "FOR UPDATE") do
+          append_events_in_tx(repo, delegation, agent_uid, events)
+        else
+          nil -> {:error, :delegation_not_found}
+          {:error, _reason} = error -> error
+        end
+      end)
+    end
+  end
+
+  defp append_events_in_tx(repo, delegation, agent_uid, events) do
+    events
+    |> Enum.reduce_while({:ok, []}, fn attrs, {:ok, appended} ->
+      case append_event_in_tx(repo, delegation, Attrs.normalize(attrs), agent_uid) do
+        {:ok, %Event{} = event} -> {:cont, {:ok, [event | appended]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, appended} -> {:ok, Enum.reverse(appended)}
       {:error, _reason} = error -> error
     end
   end

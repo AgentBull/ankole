@@ -3,7 +3,7 @@ defmodule Ankole.Schedule.Store do
 
   import Ecto.Query, warn: false
 
-  alias Ankole.ActorRuntime.Jobs.FireScheduledEvent
+  alias Ankole.SignalsGateway.ActorRuntime.Jobs.FireScheduledEvent
   alias Ankole.Schedule.Attrs
   alias Ankole.Schedule.Schemas.CronSchedule
   alias Ankole.Schedule.Schemas.ScheduledEvent

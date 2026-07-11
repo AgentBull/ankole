@@ -27,8 +27,11 @@ export async function handleReadOpen(
   const address = parseVirtualPathFrame(frames[3], 'read path')
   const fingerprint = fingerprintMode(requiredTextFrame(frames[4], 'fingerprint'))
   const filePath = resolveFileAddress(context.config, address)
-  if (!existsSync(filePath) || !statSync(filePath).isFile()) {
+  if (!existsSync(filePath)) {
     throw new Error(`file does not exist: ${address.virtualPath}`)
+  }
+  if (!statSync(filePath).isFile()) {
+    throw new Error(`not a regular file: ${address.virtualPath}`)
   }
 
   const stableStat = statSync(filePath)

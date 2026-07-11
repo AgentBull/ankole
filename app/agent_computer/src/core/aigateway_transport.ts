@@ -1,6 +1,6 @@
 import { match } from '@pleisto/active-support'
 import type { TurnModelRef } from '../lanes/actor_lane'
-import { assertRpcResponse, type AIGatewayApiKeyRejected, type AIGatewayApiKeyResponse } from '../lanes/rpc_lane'
+import { assertRpcResponse, type AIGatewayApiKeyResponse, type RpcError } from '../lanes/rpc_lane'
 import { createModel, type ModelConfig } from './llm'
 
 const aiGatewayApiKeyRefreshSkewMs = 60_000
@@ -11,7 +11,7 @@ export type AIGatewayApiKeyRefreshOptions = {
 
 export type AIGatewayApiKeyRefresher = (
   options?: AIGatewayApiKeyRefreshOptions
-) => Promise<AIGatewayApiKeyResponse | AIGatewayApiKeyRejected>
+) => Promise<AIGatewayApiKeyResponse | RpcError>
 
 export type AIGatewayFetch = (
   input: Parameters<typeof fetch>[0],

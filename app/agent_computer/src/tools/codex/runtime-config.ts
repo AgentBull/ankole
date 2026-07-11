@@ -1,52 +1,71 @@
-import { assertRpcResponse, type AIGatewayApiKeyResponse, type AppConfigureResolveResponse } from '../../lanes/rpc_lane'
-import { CodexConfigOverrideKey, parseCodexConfigOverride, type CodexConfigOverride } from './config'
-import type { AIGatewayApiKeyRequester, AppConfigureRequester } from '../../core/turns/turn_options'
+import {
+  assertRpcResponse,
+  type AIGatewayApiKeyResponse,
+  type CodexAccountResolveResponse,
+  type SubagentDelegationResponse
+} from '../../lanes/rpc_lane'
+import type { AIGatewayApiKeyRequester, CodexAccountResolveRequester } from '../../core/turns/turn_options'
+import type { ActorTurnRef } from '../../lanes/actor_lane'
 
 type CodexRuntimeRequesters = {
   requestAIGatewayApiKey: AIGatewayApiKeyRequester
-  requestAppConfigure?: AppConfigureRequester
+  resolveCodexAccount?: CodexAccountResolveRequester
 }
 
-export type CodexRuntimeConfig = {
-  override: CodexConfigOverride | null
-  aiGatewayKey?: AIGatewayApiKeyResponse
-  modelOverride?: 'coding'
-}
+export type CodexRuntimeConfig =
+  | {
+      mode: 'aigateway'
+      accountId: 'aigateway'
+      aiGatewayKey: AIGatewayApiKeyResponse
+      modelOverride: 'coding'
+    }
+  | {
+      mode: 'official_subscription'
+      accountId: string
+      authJson: string
+      authHash: string
+    }
 
 export async function resolveCodexRuntimeConfig(input: {
-  agentUid: string
+  turn: ActorTurnRef
+  delegation: SubagentDelegationResponse
   requesters: CodexRuntimeRequesters
 }): Promise<CodexRuntimeConfig> {
-  const override = await resolveConfigOverride(input)
-  const aiGatewayKey = override?.mode === 'official_subscription' ? undefined : await resolveAIGatewayKey(input)
-  const modelOverride = override?.mode === 'official_subscription' ? undefined : 'coding'
-  return { override, aiGatewayKey, modelOverride }
-}
+  if (input.delegation.codex_account_id === 'aigateway') {
+    return {
+      mode: 'aigateway',
+      accountId: 'aigateway',
+      aiGatewayKey: await resolveAIGatewayKey(input.delegation.agent_uid, input.requesters),
+      modelOverride: 'coding'
+    }
+  }
 
-async function resolveConfigOverride(input: {
-  agentUid: string
-  requesters: CodexRuntimeRequesters
-}): Promise<CodexConfigOverride | null> {
-  const requester = input.requesters.requestAppConfigure
-  if (!requester) return null
-
+  const requester = input.requesters.resolveCodexAccount
+  if (!requester) throw new Error('Codex account resolve RPC is not configured')
   const response = await requester({
-    request_id: `app-configure-codex-${crypto.randomUUID()}`,
-    agent_uid: input.agentUid,
-    keys: [CodexConfigOverrideKey]
+    request_id: `codex-account-resolve-${crypto.randomUUID()}`,
+    turn: input.turn,
+    delegation_id: input.delegation.delegation_id
   })
-  assertRpcResponse<AppConfigureResolveResponse>(response, 'Codex config override rejected')
-
-  return parseCodexConfigOverride(response.values[CodexConfigOverrideKey]?.value)
+  assertRpcResponse<CodexAccountResolveResponse>(response, 'Codex account resolve rejected')
+  if (response.account_id !== input.delegation.codex_account_id) {
+    throw new Error('Codex account resolve returned a different account')
+  }
+  return {
+    mode: 'official_subscription',
+    accountId: response.account_id,
+    authJson: response.auth_json,
+    authHash: response.auth_hash
+  }
 }
 
-async function resolveAIGatewayKey(input: {
-  agentUid: string
+async function resolveAIGatewayKey(
+  agentUid: string,
   requesters: CodexRuntimeRequesters
-}): Promise<AIGatewayApiKeyResponse> {
-  const response = await input.requesters.requestAIGatewayApiKey({
+): Promise<AIGatewayApiKeyResponse> {
+  const response = await requesters.requestAIGatewayApiKey({
     request_id: `codex-ai-gateway-key-${crypto.randomUUID()}`,
-    agent_uid: input.agentUid
+    agent_uid: agentUid
   })
   assertRpcResponse<AIGatewayApiKeyResponse>(response, 'AIGateway API key rejected for Codex')
   return response

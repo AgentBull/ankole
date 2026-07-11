@@ -56,7 +56,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   @xiaomi_mimo_llm_model "mimo-v2.5"
   @zai_coding_plan_llm_model "glm-4.7"
 
-  alias Ankole.AIGateway.ModelProfiles
+alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.Principals

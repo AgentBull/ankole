@@ -57,10 +57,12 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
       stateful: {
         actorEventId: '00000000-0000-0000-0000-000000000010',
         conversationId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
-      }
+      },
+      maxModelIterations: 1
     })
 
-    expect(final.content).toEqual([{ type: 'text', text: 'retried after open close' }])
+    expect(final.message.content).toEqual([{ type: 'text', text: 'retried after open close' }])
+    expect(final.outcome).toBe('loop_finished')
     expect(attempts).toBe(2)
     expect(sentPayloads).toHaveLength(1)
   })
@@ -88,6 +90,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
     try {
       await runAgentLoop({
         model,
+        maxModelIterations: 90,
         messages: [{ role: 'user', content: 'do not duplicate after send' }],
         stateful: {
           actorEventId: '00000000-0000-0000-0000-000000000011',
@@ -128,6 +131,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
     try {
       await runAgentLoop({
         model,
+        maxModelIterations: 90,
         messages: [{ role: 'user', content: 'do not duplicate after send error' }],
         stateful: {
           actorEventId: '00000000-0000-0000-0000-000000000015',
@@ -199,6 +203,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
 
     const final = await runAgentLoop({
       model,
+      maxModelIterations: 1,
       messages: [{ role: 'user', content: 'retry rate limit' }],
       stateful: {
         actorEventId: '00000000-0000-0000-0000-000000000006',
@@ -206,7 +211,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
       }
     })
 
-    expect(final.content).toEqual([{ type: 'text', text: 'retried after 429' }])
+    expect(final.message.content).toEqual([{ type: 'text', text: 'retried after 429' }])
     expect(sentPayloads).toHaveLength(2)
     expect(sentPayloads[0]).toMatchObject({
       store: true,
@@ -273,6 +278,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
 
     const final = await runAgentLoop({
       model,
+      maxModelIterations: 90,
       messages: [{ role: 'user', content: 'retry terminal rate limit' }],
       stateful: {
         actorEventId: '00000000-0000-0000-0000-000000000007',
@@ -280,7 +286,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
       }
     })
 
-    expect(final.content).toEqual([{ type: 'text', text: 'retried after terminal 429' }])
+    expect(final.message.content).toEqual([{ type: 'text', text: 'retried after terminal 429' }])
     expect(sentPayloads).toHaveLength(2)
     expect(sentPayloads[1]).toMatchObject({
       store: true,

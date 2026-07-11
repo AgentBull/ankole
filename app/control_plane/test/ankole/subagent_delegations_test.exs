@@ -3,7 +3,7 @@ defmodule Ankole.SubagentDelegationsTest do
 
   import Ecto.Query, warn: false
 
-  alias Ankole.Actors.ActorEvent
+  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SubagentDelegations
   alias Ankole.SubagentDelegations.Schemas.Delegation
   alias Ankole.Repo
@@ -315,43 +315,6 @@ defmodule Ankole.SubagentDelegationsTest do
     refute Enum.any?(listed, &(&1.id == other_channel.id))
   end
 
-  test "attempt admission moves work to running before placement and enforces the per-agent limit" do
-    %{principal: agent} = agent_fixture()
-
-    delegations =
-      for suffix <- ~w(one two three four) do
-        create_delegation!(agent.uid, "capacity-#{suffix}")
-      end
-
-    for delegation <- Enum.take(delegations, 3) do
-      assert {:ok, {:ready, admitted}} =
-               SubagentDelegations.prepare_attempt(delegation.id, agent.uid)
-
-      assert admitted.status == "running"
-      assert admitted.attempts == 1
-    end
-
-    fourth = List.last(delegations)
-    assert {:ok, :at_capacity} = SubagentDelegations.prepare_attempt(fourth.id, agent.uid)
-    assert Repo.get!(Delegation, fourth.id).status == "queued"
-    assert Repo.get!(Delegation, fourth.id).attempts == 0
-  end
-
-  test "execution attempts are capped at three" do
-    %{principal: agent} = agent_fixture()
-    delegation = create_delegation!(agent.uid, "attempt-cap")
-
-    for expected_attempt <- 1..3 do
-      assert {:ok, {:ready, admitted}} =
-               SubagentDelegations.prepare_attempt(delegation.id, agent.uid)
-
-      assert admitted.attempts == expected_attempt
-    end
-
-    assert {:error, :subagent_delegation_attempts_exhausted} =
-             SubagentDelegations.prepare_attempt(delegation.id, agent.uid)
-  end
-
   test "status commits reject missing status and lifecycle regression" do
     %{principal: agent} = agent_fixture()
     delegation = create_delegation!(agent.uid, "status-transition")
@@ -393,49 +356,6 @@ defmodule Ankole.SubagentDelegationsTest do
     assert String.valid?(summary)
     assert byte_size(summary) <= 16_384
     assert String.ends_with?(summary, "...[truncated]")
-  end
-
-  test "cleanup candidates include only expired terminal Codex homes and marking is idempotent" do
-    %{principal: agent} = agent_fixture()
-    now = ~U[2026-07-10 12:00:00.000000Z]
-    expired_at = DateTime.add(now, -8, :day)
-
-    expired = create_delegation!(agent.uid, "cleanup-expired")
-    recent = create_delegation!(agent.uid, "cleanup-recent")
-    no_home = create_delegation!(agent.uid, "cleanup-no-home")
-
-    from(row in Delegation, where: row.id == ^expired.id)
-    |> Repo.update_all(
-      set: [
-        status: "succeeded",
-        completed_at: expired_at,
-        metadata: %{"codex_home_relative_path" => "subagents/#{expired.id}"}
-      ]
-    )
-
-    from(row in Delegation, where: row.id == ^recent.id)
-    |> Repo.update_all(
-      set: [
-        status: "failed",
-        completed_at: DateTime.add(now, -6, :day),
-        metadata: %{"codex_home_relative_path" => "subagents/#{recent.id}"}
-      ]
-    )
-
-    from(row in Delegation, where: row.id == ^no_home.id)
-    |> Repo.update_all(set: [status: "stopped", completed_at: expired_at])
-
-    assert Enum.map(SubagentDelegations.cleanup_candidates(now), & &1.id) == [expired.id]
-
-    cleaned_at = DateTime.add(now, 1, :second)
-    assert {:ok, cleaned} = SubagentDelegations.mark_codex_home_cleaned(expired.id, cleaned_at)
-    assert cleaned.metadata["codex_home_cleaned_at"] == DateTime.to_iso8601(cleaned_at)
-    assert SubagentDelegations.cleanup_candidates(now) == []
-
-    assert {:ok, cleaned_again} =
-             SubagentDelegations.mark_codex_home_cleaned(expired.id, cleaned_at)
-
-    assert cleaned_again.metadata == cleaned.metadata
   end
 
   test "trajectory payloads are redacted before the durable 16KB bound is applied" do
@@ -509,6 +429,44 @@ defmodule Ankole.SubagentDelegationsTest do
 
     assert [%{id: id}] = SubagentDelegations.list_events(delegation.id)
     assert id == first.id
+  end
+
+  test "delegation summary derives bounded prior-attempt context from the audit journal" do
+    %{principal: agent} = agent_fixture()
+    delegation = create_delegation!(agent.uid, "attempt-history")
+
+    from(row in Delegation, where: row.id == ^delegation.id)
+    |> Repo.update_all(set: [attempts: 4])
+
+    for {seq, attempt, event_type, summary} <- [
+          {0, 1, "status_failed", "First attempt failed."},
+          {1, 2, "thread_started", nil},
+          {2, 2, "status_failed", "Second attempt failed."},
+          {3, 3, "status_failed", "Third attempt failed."}
+        ] do
+      payload =
+        %{"attempt" => attempt}
+        |> then(fn payload ->
+          if summary, do: Map.put(payload, "error", %{"summary" => summary}), else: payload
+        end)
+
+      assert {:ok, _event} =
+               SubagentDelegations.append_event(%{
+                 "agent_uid" => agent.uid,
+                 "delegation_id" => delegation.id,
+                 "seq" => seq,
+                 "direction" => "process",
+                 "event_type" => event_type,
+                 "payload" => payload
+               })
+    end
+
+    assert {:ok, %{last_event_seq: 3, attempt_history: history}} =
+             SubagentDelegations.get_delegation_summary_for_agent(delegation.id, agent.uid)
+
+    assert Enum.map(history, & &1.attempt) == [1, 2, 3]
+    assert Enum.at(history, 1).event_types == ["status_failed", "thread_started"]
+    assert Enum.at(history, 2).summary == "Third attempt failed."
   end
 
   defp create_delegation!(agent_uid, suffix) do

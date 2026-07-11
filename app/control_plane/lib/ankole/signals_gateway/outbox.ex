@@ -4,7 +4,7 @@ defmodule Ankole.SignalsGateway.Outbox do
   import Ecto.Query, warn: false
 
   alias Ankole.Logging
-  alias Ankole.Actors.ActorEvent
+  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Repo
   alias Ankole.RuntimeEvents
@@ -73,21 +73,23 @@ defmodule Ankole.SignalsGateway.Outbox do
   end
 
   @doc """
-  Commits reply-attachment side effects produced by an AIGateway terminal item.
+  Commits reply-attachment effects adopted by an explicit Agent Turn completion.
   """
   @spec commit_reply_attachment_outboxes_in_tx(
           module(),
           ActorEvent.t(),
           binary(),
           String.t(),
-          [map()]
+          [map()],
+          keyword()
         ) :: {:ok, [OutboxEntry.t()]} | {:error, term()}
   def commit_reply_attachment_outboxes_in_tx(
         repo,
         %ActorEvent{} = actor_event,
         ai_message_id,
         text,
-        attachments
+        attachments,
+        opts \\ []
       )
       when is_binary(ai_message_id) and is_list(attachments) do
     with {:ok, attachments} <- ReplyAttachment.normalize_attachments(attachments),
@@ -102,7 +104,8 @@ defmodule Ankole.SignalsGateway.Outbox do
           operation,
           attachment,
           text,
-          index
+          index,
+          opts
         )
       end)
       |> collect_results()
@@ -110,15 +113,22 @@ defmodule Ankole.SignalsGateway.Outbox do
   end
 
   @doc """
-  Commits the durable final IM reply for an AIGateway terminal message.
+  Commits the durable final IM reply adopted by an explicit Agent Turn completion.
   """
-  @spec commit_final_reply_outbox_in_tx(module(), ActorEvent.t(), Message.t(), String.t()) ::
+  @spec commit_final_reply_outbox_in_tx(
+          module(),
+          ActorEvent.t(),
+          Message.t(),
+          String.t(),
+          keyword()
+        ) ::
           {:ok, OutboxEntry.t() | nil} | {:error, term()}
   def commit_final_reply_outbox_in_tx(
         repo,
         %ActorEvent{} = actor_event,
         %Message{} = message,
-        text
+        text,
+        opts \\ []
       ) do
     case normalize_visible_text(text) do
       "" ->
@@ -146,7 +156,8 @@ defmodule Ankole.SignalsGateway.Outbox do
                   "metadata" => %{
                     "ai_message_id" => message.id,
                     "actor_event_id" => actor_event.id,
-                    "source" => "ai_gateway_final_reply"
+                    "source" => "ai_gateway_final_reply",
+                    "turn_completion_outcome" => Keyword.get(opts, :turn_completion_outcome)
                   }
                 },
                 fallback_visible_text: final_text,
@@ -160,12 +171,21 @@ defmodule Ankole.SignalsGateway.Outbox do
   end
 
   @doc false
+  @spec commit_clarify_reply_outbox_in_tx(
+          module(),
+          ActorEvent.t(),
+          Message.t(),
+          String.t(),
+          map(),
+          keyword()
+        ) :: {:ok, OutboxEntry.t()} | {:error, term()}
   def commit_clarify_reply_outbox_in_tx(
         repo,
         %ActorEvent{} = actor_event,
         %Message{} = message,
         text,
-        interactive_output
+        interactive_output,
+        opts \\ []
       )
       when is_binary(text) and is_map(interactive_output) do
     with {:ok, operation, operation_attrs} <-
@@ -190,7 +210,8 @@ defmodule Ankole.SignalsGateway.Outbox do
               "metadata" => %{
                 "ai_message_id" => message.id,
                 "actor_event_id" => actor_event.id,
-                "source" => "ai_gateway_clarify"
+                "source" => "ai_gateway_clarify",
+                "turn_completion_outcome" => Keyword.get(opts, :turn_completion_outcome)
               }
             },
             fallback_visible_text: text,
@@ -368,7 +389,8 @@ defmodule Ankole.SignalsGateway.Outbox do
          operation,
          attachment,
          text,
-         index
+         index,
+         opts
        ) do
     outbound_key = "ai-reply-attachment:#{ai_message_id}:#{index}"
 
@@ -384,14 +406,20 @@ defmodule Ankole.SignalsGateway.Outbox do
       # caused this provider-visible side effect.
       source_actor_event_id: actor_event.id,
       ai_message_id: ai_message_id,
-      payload: %{"text" => text, "attachments" => [attachment]},
+      payload: %{
+        "text" => text,
+        "attachments" => [attachment],
+        "metadata" => %{
+          "turn_completion_outcome" => Keyword.get(opts, :turn_completion_outcome)
+        }
+      },
       fallback_visible_text: text,
       idempotency_key: outbound_key
     })
   end
 
-  defp final_reply_operation(repo, %ActorEvent{} = actor_event, %Message{} = message) do
-    case preview_source_entry_id(message) do
+  defp final_reply_operation(repo, %ActorEvent{} = actor_event, %Message{}) do
+    case actor_event.reply_preview_source_entry_id do
       source_entry_id when is_binary(source_entry_id) ->
         {:ok, :edit, %{target_source_entry_id: source_entry_id}}
 
@@ -408,15 +436,6 @@ defmodule Ankole.SignalsGateway.Outbox do
         end
     end
   end
-
-  defp preview_source_entry_id(%Message{metadata: metadata}) when is_map(metadata) do
-    case metadata["preview_source_entry_id"] do
-      value when is_binary(value) and value != "" -> value
-      _value -> nil
-    end
-  end
-
-  defp preview_source_entry_id(_message), do: nil
 
   defp normalize_visible_text(text) when is_binary(text) do
     case String.trim(text) do

@@ -5,13 +5,17 @@ defmodule Ankole.SubagentDelegations.Lifecycle do
 
   alias Ecto.Adapters.SQL
 
-  alias Ankole.Actors
-  alias Ankole.Actors.ActorEvent
-  alias Ankole.ActorRuntime.WorkerPool
+  alias Ankole.AIAgent.CodexAccounts.Account
+  alias Ankole.SignalsGateway
+  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
+  alias Ankole.SignalsGateway.ActorRuntime.TurnRef
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerRouteAuth
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerPool
   alias Ankole.Principals
   alias Ankole.Repo
   alias Ankole.RuntimeEvents
-  alias Ankole.SignalsGateway.AIReplyPreview
   alias Ankole.SubagentDelegations.Attrs
   alias Ankole.SubagentDelegations.Queries
   alias Ankole.SubagentDelegations.Schemas.Delegation
@@ -23,110 +27,264 @@ defmodule Ankole.SubagentDelegations.Lifecycle do
   @terminal_statuses Delegation.terminal_statuses()
   @running_statuses Delegation.running_statuses()
 
-  @spec prepare_attempt(String.t(), String.t()) ::
-          {:ok, {:ready, Delegation.t()} | {:terminal, Delegation.t()} | :at_capacity}
-          | {:error, term()}
-  def prepare_attempt(delegation_id, agent_uid)
-      when is_binary(delegation_id) and is_binary(agent_uid) do
-    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid) do
-      now = now()
-
-      Repo.transact(fn repo ->
-        with :ok <- lock_agent_slots(repo, agent_uid),
-             %Delegation{} = delegation <-
-               Queries.get_for_agent(repo, delegation_id, agent_uid, lock: "FOR UPDATE") do
-          cond do
-            delegation.status in @terminal_statuses ->
-              {:ok, {:terminal, delegation}}
-
-            delegation.attempts >= 3 ->
-              {:error, :subagent_delegation_attempts_exhausted}
-
-            delegation.status not in @running_statuses and
-                running_count(repo, delegation.agent_uid, delegation.id) >=
-                  @max_running_per_agent ->
-              {:ok, :at_capacity}
-
-            true ->
-              delegation
-              |> Delegation.changeset(%{
-                status: "running",
-                attempts: delegation.attempts + 1,
-                started_at: delegation.started_at || now
-              })
-              |> repo.update()
-              |> case do
-                {:ok, delegation} -> {:ok, {:ready, delegation}}
-                {:error, reason} -> {:error, reason}
-              end
-          end
-        else
-          nil -> {:error, :delegation_not_found}
-          {:error, _reason} = error -> error
-        end
-      end)
+  @doc false
+  @spec claim_attempt_in_tx(module(), String.t(), String.t(), pos_integer()) ::
+          {:ok, Delegation.t()} | {:error, term()}
+  def claim_attempt_in_tx(repo, delegation_id, agent_uid, expected_attempt)
+      when is_binary(delegation_id) and is_binary(agent_uid) and expected_attempt > 0 do
+    with :ok <- lock_agent_slots(repo, agent_uid),
+         %Delegation{} = delegation <-
+           Queries.get_for_agent(repo, delegation_id, agent_uid, lock: "FOR UPDATE"),
+         :ok <- claim_codex_account_slot(repo, delegation) do
+      claim_attempt(repo, delegation, expected_attempt)
+    else
+      nil -> {:error, :delegation_not_found}
+      {:error, _reason} = error -> error
     end
   end
 
-  @spec commit_status_with_wakeup(String.t(), String.t(), map()) ::
+  @doc false
+  @spec requeue_unstarted_attempt(String.t(), String.t(), pos_integer()) ::
+          {:ok, Delegation.t()} | {:error, term()}
+  def requeue_unstarted_attempt(delegation_id, agent_uid, expected_attempt)
+      when is_binary(delegation_id) and is_binary(agent_uid) and expected_attempt > 0 do
+    Repo.transact(fn repo ->
+      with :ok <- lock_agent_slots(repo, agent_uid),
+           %Delegation{status: "running", attempts: ^expected_attempt} = delegation <-
+             Queries.get_for_agent(repo, delegation_id, agent_uid, lock: "FOR UPDATE") do
+        delegation
+        |> Delegation.changeset(%{
+          status: "queued",
+          attempts: expected_attempt - 1,
+          started_at: if(expected_attempt == 1, do: nil, else: delegation.started_at)
+        })
+        |> repo.update()
+      else
+        nil -> {:error, :delegation_not_found}
+        %Delegation{} -> {:error, :subagent_delegation_attempt_changed}
+        {:error, _reason} = error -> error
+      end
+    end)
+  end
+
+  @spec commit_status_with_wakeup(String.t(), String.t(), map(), keyword()) ::
           {:ok, %{delegation: Delegation.t(), wakeup_event: ActorEvent.t() | nil}}
           | {:error, term()}
-  def commit_status_with_wakeup(delegation_id, agent_uid, attrs)
-      when is_binary(delegation_id) and is_binary(agent_uid) and is_map(attrs) do
+  def commit_status_with_wakeup(delegation_id, agent_uid, attrs, opts \\ [])
+      when is_binary(delegation_id) and is_binary(agent_uid) and is_map(attrs) and
+             is_list(opts) do
     result =
       with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid) do
         now = now()
 
         Repo.transact(fn repo ->
-          with :ok <- lock_agent_slots(repo, agent_uid),
-               %Delegation{} = delegation <-
-                 Queries.get_for_agent(repo, delegation_id, agent_uid, lock: "FOR UPDATE"),
-               attrs <- Attrs.normalize(attrs),
-               :ok <- enforce_status_transition(delegation, attrs),
-               :ok <- enforce_running_limit(repo, delegation, attrs),
-               {:ok, delegation} <-
-                 delegation
-                 |> Delegation.changeset(
-                   attrs
-                   |> preserve_metadata(delegation)
-                   |> lifecycle_timestamps(delegation, now)
-                 )
-                 |> repo.update(),
-               :ok <- maybe_release_worker_assignment(repo, delegation),
-               {:ok, wakeup_event} <- append_wakeup_event(repo, delegation, now),
-               :ok <- nudge_queued_after_slot_release(repo, delegation, now) do
-            {:ok, %{delegation: delegation, wakeup_event: wakeup_event}}
-          else
-            nil -> {:error, :delegation_not_found}
-            {:error, _reason} = error -> error
-          end
+          turn_ref = Keyword.get(opts, :turn_ref)
+
+          commit_status_with_wakeup_in_tx(
+            repo,
+            delegation_id,
+            agent_uid,
+            attrs,
+            now,
+            turn_ref,
+            Keyword.get(opts, :worker_route)
+          )
         end)
       end
 
-    case result do
-      {:ok, %{wakeup_event: %ActorEvent{} = event}} = success ->
-        _ = AIReplyPreview.maybe_start_for(event)
-        success
+    result
+  end
 
-      other ->
-        other
+  @doc false
+  @spec commit_status_with_wakeup_in_tx(
+          module(),
+          String.t(),
+          String.t(),
+          map(),
+          DateTime.t(),
+          Ankole.SignalsGateway.ActorRuntime.TurnRef.t() | nil,
+          String.t() | nil
+        ) ::
+          {:ok, %{delegation: Delegation.t(), wakeup_event: ActorEvent.t() | nil}}
+          | {:error, term()}
+  def commit_status_with_wakeup_in_tx(
+        repo,
+        delegation_id,
+        agent_uid,
+        attrs,
+        %DateTime{} = now,
+        turn_ref \\ nil,
+        worker_route \\ nil
+      ) do
+    # Every transition locks any live worker/assignment prefix before taking the
+    # agent/delegation locks. Worker writes additionally validate activation and
+    # revision through their turn fence.
+    with :ok <- lock_runtime_prefix_in_tx(repo, delegation_id, agent_uid, turn_ref, worker_route),
+         {:ok, result} <-
+           commit_status_after_runtime_prefix_in_tx(
+             repo,
+             delegation_id,
+             agent_uid,
+             attrs,
+             now,
+             turn_ref
+           ) do
+      {:ok, result}
     end
+  end
+
+  @doc false
+  @spec commit_status_after_runtime_prefix_in_tx(
+          module(),
+          String.t(),
+          String.t(),
+          map(),
+          DateTime.t(),
+          Ankole.SignalsGateway.ActorRuntime.TurnRef.t() | nil
+        ) ::
+          {:ok, %{delegation: Delegation.t(), wakeup_event: ActorEvent.t() | nil}}
+          | {:error, term()}
+  def commit_status_after_runtime_prefix_in_tx(
+        repo,
+        delegation_id,
+        agent_uid,
+        attrs,
+        %DateTime{} = now,
+        turn_ref
+      ) do
+    with :ok <- lock_agent_slots(repo, agent_uid),
+         %Delegation{} = delegation <-
+           Queries.get_for_agent(repo, delegation_id, agent_uid, lock: "FOR UPDATE"),
+         attrs <- Attrs.normalize(attrs),
+         :ok <- enforce_status_transition(delegation, attrs),
+         :ok <- enforce_running_limit(repo, delegation, attrs),
+         :ok <- enforce_no_unapplied_terminal_steer(repo, delegation, attrs, turn_ref),
+         {:ok, delegation} <-
+           delegation
+           |> Delegation.changeset(
+             attrs
+             |> preserve_metadata(delegation)
+             |> lifecycle_timestamps(delegation, now)
+           )
+           |> repo.update(),
+         :ok <- maybe_release_worker_assignment(repo, delegation, turn_ref),
+         {:ok, wakeup_event} <- append_wakeup_event(repo, delegation, now),
+         :ok <- maybe_nudge_queued_after_status_commit(repo, delegation, now, turn_ref) do
+      {:ok, %{delegation: delegation, wakeup_event: wakeup_event}}
+    else
+      nil -> {:error, :delegation_not_found}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp enforce_no_unapplied_terminal_steer(
+         repo,
+         %Delegation{} = delegation,
+         %{"status" => status},
+         %Ankole.SignalsGateway.ActorRuntime.TurnRef{} = turn_ref
+       )
+       when status in ["succeeded", "failed"] do
+    unapplied? =
+      ActorEvent
+      |> where([event], event.agent_uid == ^delegation.agent_uid)
+      |> where([event], event.session_id == ^"subagent:#{delegation.id}")
+      |> where([event], event.type == "command.steer")
+      |> where([event], event.input_state == "open")
+      |> where([event], is_nil(event.completed_at))
+      |> join(
+        :left,
+        [event],
+        delivery in Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery,
+        on:
+          delivery.actor_event_id == event.id and delivery.state == "accepted" and
+            delivery.activation_uid == ^turn_ref.activation_uid and
+            delivery.actor_epoch == ^turn_ref.actor_epoch and
+            delivery.actor_event_id_fence == ^turn_ref.actor_event_id
+      )
+      |> where([_event, delivery], is_nil(delivery.id))
+      |> repo.exists?()
+
+    if unapplied?, do: {:error, :subagent_pending_steer}, else: :ok
+  end
+
+  defp enforce_no_unapplied_terminal_steer(_repo, %Delegation{}, _attrs, _turn_ref),
+    do: :ok
+
+  defp lock_runtime_prefix_in_tx(
+         repo,
+         _delegation_id,
+         _agent_uid,
+         %TurnRef{} = turn_ref,
+         route
+       )
+       when is_binary(route) do
+    case WorkerRouteAuth.authorize_turn_route_in_tx(repo, turn_ref, route, :write, lock: true) do
+      {:ok, :authorized} -> :ok
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp lock_runtime_prefix_in_tx(repo, delegation_id, agent_uid, _turn_ref, _route) do
+    actor_key = %{agent_uid: agent_uid, session_id: "subagent:#{delegation_id}"}
+
+    with :ok <- WorkerPool.lock_actor_assignment_in_tx(repo, actor_key) do
+      case live_assignment_snapshot(repo, actor_key) do
+        %ActorSessionWorkerAssignment{} = assignment ->
+          _worker = lock_assignment_worker(repo, assignment.worker_id)
+          _assignment = lock_live_assignment(repo, assignment, actor_key)
+          :ok
+
+        nil ->
+          :ok
+      end
+    end
+  end
+
+  defp live_assignment_snapshot(repo, actor_key) do
+    ActorSessionWorkerAssignment
+    |> where([assignment], assignment.agent_uid == ^actor_key.agent_uid)
+    |> where([assignment], assignment.session_id == ^actor_key.session_id)
+    |> where([assignment], assignment.status in ["assigned", "draining"])
+    |> repo.one()
+  end
+
+  defp lock_assignment_worker(repo, worker_id) do
+    AgentComputerWorker
+    |> where([worker], worker.worker_id == ^worker_id)
+    |> lock("FOR UPDATE")
+    |> repo.one()
+  end
+
+  defp lock_live_assignment(repo, assignment, actor_key) do
+    ActorSessionWorkerAssignment
+    |> where([stored], stored.id == ^assignment.id)
+    |> where([stored], stored.agent_uid == ^actor_key.agent_uid)
+    |> where([stored], stored.session_id == ^actor_key.session_id)
+    |> where([stored], stored.worker_id == ^assignment.worker_id)
+    |> where([stored], stored.status in ["assigned", "draining"])
+    |> lock("FOR UPDATE")
+    |> repo.one()
   end
 
   @doc false
   @spec nudge_queued_after_slot_release(module(), Delegation.t(), DateTime.t()) ::
           :ok | {:error, term()}
   def nudge_queued_after_slot_release(repo, %Delegation{status: status} = delegation, now)
-      when status in @terminal_statuses do
+      when status in @terminal_statuses or status == "waiting_on_user" do
     Delegation
-    |> where([row], row.agent_uid == ^delegation.agent_uid)
+    |> where(
+      [row],
+      row.agent_uid == ^delegation.agent_uid or
+        (^delegation.codex_account_id != "aigateway" and
+           row.codex_account_id == ^delegation.codex_account_id)
+    )
     |> where([row], row.status == "queued")
-    |> select([row], row.id)
+    |> select([row], {row.id, row.agent_uid})
     |> repo.all()
-    |> Enum.reduce_while(:ok, fn delegation_id, :ok ->
+    |> Enum.reduce_while(:ok, fn {delegation_id, agent_uid}, :ok ->
       case RuntimeEvents.notify_actor_session_ready(
              repo,
-             delegation.agent_uid,
+             agent_uid,
              "subagent:#{delegation_id}",
              now
            ) do
@@ -138,15 +296,132 @@ defmodule Ankole.SubagentDelegations.Lifecycle do
 
   def nudge_queued_after_slot_release(_repo, %Delegation{}, _now), do: :ok
 
-  defp maybe_release_worker_assignment(repo, %Delegation{status: status} = delegation)
+  @doc false
+  @spec finalize_worker_turn_in_tx(module(), TurnRef.t(), DateTime.t()) ::
+          :ok | {:error, term()}
+  def finalize_worker_turn_in_tx(
+        repo,
+        %TurnRef{agent_uid: agent_uid, session_id: "subagent:" <> delegation_id},
+        %DateTime{} = now
+      ) do
+    case Queries.get_for_agent(repo, delegation_id, agent_uid, []) do
+      %Delegation{status: status} = delegation
+      when status in @terminal_statuses or status == "waiting_on_user" ->
+        with :ok <- release_worker_assignment(repo, delegation),
+             :ok <- nudge_queued_after_slot_release(repo, delegation, now) do
+          :ok
+        end
+
+      %Delegation{} ->
+        :ok
+
+      nil ->
+        WorkerPool.release_assignment_for_actor_in_tx(repo, %{
+          agent_uid: agent_uid,
+          session_id: "subagent:#{delegation_id}"
+        })
+    end
+  end
+
+  def finalize_worker_turn_in_tx(_repo, %TurnRef{}, %DateTime{}), do: :ok
+
+  defp maybe_nudge_queued_after_status_commit(_repo, %Delegation{}, _now, %TurnRef{}),
+    do: :ok
+
+  defp maybe_nudge_queued_after_status_commit(repo, %Delegation{} = delegation, now, nil),
+    do: nudge_queued_after_slot_release(repo, delegation, now)
+
+  defp maybe_release_worker_assignment(_repo, %Delegation{}, %TurnRef{}), do: :ok
+
+  defp maybe_release_worker_assignment(repo, %Delegation{status: "stopped"} = delegation, nil) do
+    case live_worker_assignment?(repo, delegation) do
+      true -> :ok
+      false -> release_worker_assignment(repo, delegation)
+    end
+  end
+
+  defp maybe_release_worker_assignment(repo, %Delegation{status: status} = delegation, _turn_ref)
        when status in @terminal_statuses or status == "waiting_on_user" do
+    release_worker_assignment(repo, delegation)
+  end
+
+  defp maybe_release_worker_assignment(_repo, %Delegation{}, _turn_ref), do: :ok
+
+  defp release_worker_assignment(repo, delegation) do
     WorkerPool.release_assignment_for_actor_in_tx(repo, %{
       agent_uid: delegation.agent_uid,
       session_id: "subagent:#{delegation.id}"
     })
   end
 
-  defp maybe_release_worker_assignment(_repo, %Delegation{}), do: :ok
+  defp live_worker_assignment?(repo, delegation) do
+    ActorSessionWorkerAssignment
+    |> where([assignment], assignment.agent_uid == ^delegation.agent_uid)
+    |> where([assignment], assignment.session_id == ^"subagent:#{delegation.id}")
+    |> where([assignment], assignment.status in ["assigned", "draining"])
+    |> repo.exists?()
+  end
+
+  defp claim_attempt(_repo, %Delegation{status: status} = delegation, _expected_attempt)
+       when status in @terminal_statuses,
+       do: {:error, {:subagent_delegation_terminal, delegation}}
+
+  defp claim_attempt(_repo, %Delegation{attempts: attempts}, _expected_attempt)
+       when attempts >= 3,
+       do: {:error, :subagent_delegation_attempts_exhausted}
+
+  defp claim_attempt(_repo, %Delegation{attempts: attempts}, expected_attempt)
+       when attempts + 1 != expected_attempt,
+       do: {:error, :subagent_delegation_attempt_changed}
+
+  defp claim_attempt(repo, %Delegation{} = delegation, expected_attempt) do
+    if delegation.status not in @running_statuses and
+         running_count(repo, delegation.agent_uid, delegation.id) >= @max_running_per_agent do
+      {:error, :subagent_agent_at_capacity}
+    else
+      delegation
+      |> Delegation.changeset(%{
+        status: "running",
+        attempts: expected_attempt,
+        started_at: delegation.started_at || now()
+      })
+      |> repo.update()
+    end
+  end
+
+  defp claim_codex_account_slot(_repo, %Delegation{codex_account_id: "aigateway"}), do: :ok
+
+  defp claim_codex_account_slot(repo, %Delegation{codex_account_id: account_id, id: id}) do
+    account =
+      Account
+      |> where([row], row.account_id == ^account_id)
+      |> lock("FOR UPDATE")
+      |> repo.one()
+
+    cond do
+      is_nil(account) ->
+        {:error, :codex_account_not_found}
+
+      subscription_account_running?(repo, account_id, id) ->
+        {:error, :subagent_codex_account_at_capacity}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp subscription_account_running?(repo, account_id, delegation_id) do
+    Delegation
+    |> join(:inner, [row], assignment in ActorSessionWorkerAssignment,
+      on:
+        assignment.agent_uid == row.agent_uid and
+          assignment.session_id == fragment("'subagent:' || ?", row.id) and
+          assignment.status in ["assigned", "draining"]
+    )
+    |> where([row, _assignment], row.codex_account_id == ^account_id)
+    |> where([row, _assignment], row.id != ^delegation_id)
+    |> repo.exists?()
+  end
 
   defp append_wakeup_event(repo, %Delegation{} = delegation, now) do
     case wakeup_event_type(delegation.status) do
@@ -158,7 +433,7 @@ defmodule Ankole.SubagentDelegations.Lifecycle do
         reply_route = delegation.reply_route || %{}
 
         with binding_name when is_binary(binding_name) <- Attrs.text(reply_route, "binding_name") do
-          Actors.append_actor_event_in_tx(repo, %{
+          SignalsGateway.append_actor_event_in_tx(repo, %{
             agent_uid: delegation.agent_uid,
             binding_name: binding_name,
             session_id: delegation.session_id,
@@ -246,7 +521,9 @@ defmodule Ankole.SubagentDelegations.Lifecycle do
     end
   end
 
-  defp lock_agent_slots(repo, agent_uid) do
+  @doc false
+  @spec lock_agent_slots_in_tx(module(), String.t()) :: :ok | {:error, term()}
+  def lock_agent_slots_in_tx(repo, agent_uid) do
     lock_key = "subagent_delegations:running_slots:#{agent_uid}"
 
     case SQL.query(repo, "SELECT pg_advisory_xact_lock(hashtext($1::text))", [lock_key]) do
@@ -254,6 +531,8 @@ defmodule Ankole.SubagentDelegations.Lifecycle do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  defp lock_agent_slots(repo, agent_uid), do: lock_agent_slots_in_tx(repo, agent_uid)
 
   defp enforce_running_limit(repo, %Delegation{} = delegation, attrs) do
     status = Map.get(attrs, "status")

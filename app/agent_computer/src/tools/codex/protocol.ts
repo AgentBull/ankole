@@ -7,6 +7,7 @@ export type CodexNotificationProjection =
   | { type: 'stderr'; params: JsonObject }
   | { type: 'turn_started'; turnId?: string }
   | { type: 'agent_delta'; delta: string }
+  | { type: 'agent_completed'; text: string }
   | { type: 'token_usage'; usage: JsonObject }
   | { type: 'turn_diff'; diff: string }
   | {
@@ -30,6 +31,13 @@ export function projectCodexNotification(message: JsonRpcMessage): CodexNotifica
 
   if (method === 'item/agentMessage/delta' && typeof params.delta === 'string') {
     return { type: 'agent_delta', delta: params.delta }
+  }
+
+  if (method === 'item/completed') {
+    const item = jsonObject(params.item)
+    if (item.type === 'agentMessage' && typeof item.text === 'string') {
+      return { type: 'agent_completed', text: item.text }
+    }
   }
 
   if (method === 'thread/tokenUsage/updated') {

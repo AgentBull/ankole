@@ -69,6 +69,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
 
     const final = await runAgentLoop({
       model,
+      maxModelIterations: 90,
       messages: [{ role: 'user', content: 'look this up' }],
       stateful: {
         actorEventId: '00000000-0000-0000-0000-000000000005',
@@ -90,7 +91,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
       ]
     })
 
-    expect(final.content).toEqual([{ type: 'text', text: 'I corrected the tool input.' }])
+    expect(final.message.content).toEqual([{ type: 'text', text: 'I corrected the tool input.' }])
     expect(toolExecutions).toBe(0)
     expect(sentPayloads).toHaveLength(3)
     expect(sentPayloads[1]).toMatchObject({
@@ -154,6 +155,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
 
     const final = await runAgentLoop({
       model,
+      maxModelIterations: 90,
       messages: [{ role: 'user', content: 'look this up' }],
       stateful: {
         actorEventId: '00000000-0000-0000-0000-000000000021',
@@ -175,7 +177,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
       ]
     })
 
-    expect(final.content.length).toBeGreaterThan(0)
+    expect(final.message.content.length).toBeGreaterThan(0)
     expect(toolExecutions).toBe(0)
     expect(sentPayloads.map(payload => payload.type)).toEqual(['response.create'])
   })
@@ -243,6 +245,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
 
     await runAgentLoop({
       model,
+      maxModelIterations: 90,
       messages: [{ role: 'user', content: 'run a slow tool' }],
       stateful: {
         actorEventId: '00000000-0000-0000-0000-000000000022',
@@ -350,6 +353,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
 
     const final = await runAgentLoop({
       model,
+      maxModelIterations: 90,
       messages: [{ role: 'user', content: 'read both' }],
       stateful: {
         actorEventId: '00000000-0000-0000-0000-000000000017',
@@ -358,7 +362,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
       tools: [parallelReadTool('read_a', events, 20, 'A'), parallelReadTool('read_b', events, 1, 'B')]
     })
 
-    expect(final.content).toEqual([{ type: 'text', text: 'read results handled' }])
+    expect(final.message.content).toEqual([{ type: 'text', text: 'read results handled' }])
     expect(events.indexOf('read_b:start')).toBeLessThan(events.indexOf('read_a:end'))
     expect(sentPayloads[1]).toMatchObject({
       type: 'response.tool_results.record',
@@ -444,6 +448,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
 
     const final = await runAgentLoop({
       model,
+      maxModelIterations: 90,
       messages: [{ role: 'user', content: 'read then write' }],
       stateful: {
         actorEventId: '00000000-0000-0000-0000-000000000018',
@@ -467,7 +472,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
       ]
     })
 
-    expect(final.content).toEqual([{ type: 'text', text: 'mixed handled' }])
+    expect(final.message.content).toEqual([{ type: 'text', text: 'mixed handled' }])
     expect(events.indexOf('write_second:start')).toBeGreaterThan(events.indexOf('read_first:end'))
   })
 
@@ -481,6 +486,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
     await expect(
       runAgentLoop({
         model,
+        maxModelIterations: 90,
         messages: [{ role: 'user', content: 'hello' }],
         stateful: {
           actorEventId: '00000000-0000-0000-0000-000000000006',

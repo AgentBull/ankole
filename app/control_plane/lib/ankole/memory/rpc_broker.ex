@@ -1,101 +1,121 @@
 defmodule Ankole.Memory.RPCBroker do
   @moduledoc """
   RuntimeFabric RPC entry point for worker-originated Memory tools.
+
+  One public function per operation, dispatched by `Ankole.SignalsGateway.ActorRuntime.RPCLane`
+  after turn authorization. Note operations are denied to subagent sessions;
+  search and browse additionally pin subagent turns to their delegation scope.
   """
 
-  alias Ankole.ActorRuntime.RPCWire
-  alias Ankole.ActorRuntime.TurnRef
-  alias Ankole.Actors.ActorEvent
+  alias Ankole.SignalsGateway.ActorRuntime.RPCWire
+  alias Ankole.SignalsGateway.ActorRuntime.TurnRef
+  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.Memory
   alias Ankole.Repo
   alias Ankole.SubagentDelegations.Schemas.Delegation
 
-  @type action :: String.t()
+  @spec handle_note_save(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
+  def handle_note_save(%TurnRef{} = turn_ref, request, _route) do
+    respond(request, fn ->
+      with :ok <- reject_subagent(turn_ref),
+           {:ok, actor_event} <- actor_event(request),
+           {:ok, channel_id} <- current_channel(actor_event),
+           {:ok, content} <- required_text(request, "content"),
+           {:ok, note} <-
+             Memory.save_note(
+               turn_ref.agent_uid,
+               channel_id,
+               content,
+               note_source(actor_event, request)
+             ) do
+        {:ok, %{"status" => "saved", "note" => note_projection(note)}}
+      end
+    end)
+  end
 
-  @spec handle_request(action(), TurnRef.t(), map(), String.t()) ::
-          {:ok, map()} | {:error, map()}
-  def handle_request(action, %TurnRef{} = turn_ref, request, _route)
-      when is_binary(action) and is_map(request) do
+  @spec handle_note_update(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
+  def handle_note_update(%TurnRef{} = turn_ref, request, _route) do
+    respond(request, fn ->
+      with :ok <- reject_subagent(turn_ref),
+           {:ok, actor_event} <- actor_event(request),
+           {:ok, channel_id} <- current_channel(actor_event),
+           {:ok, note_id} <- required_text(request, "note_id"),
+           {:ok, content} <- required_text(request, "content"),
+           {:ok, note} <- Memory.update_note(turn_ref.agent_uid, channel_id, note_id, content) do
+        {:ok, %{"status" => "updated", "note" => note_projection(note)}}
+      end
+    end)
+  end
+
+  @spec handle_note_forget(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
+  def handle_note_forget(%TurnRef{} = turn_ref, request, _route) do
+    respond(request, fn ->
+      with :ok <- reject_subagent(turn_ref),
+           {:ok, actor_event} <- actor_event(request),
+           {:ok, channel_id} <- current_channel(actor_event),
+           {:ok, note_id} <- required_text(request, "note_id"),
+           {:ok, note} <- Memory.forget_note(turn_ref.agent_uid, channel_id, note_id) do
+        {:ok, %{"status" => "forgotten", "note" => note_projection(note)}}
+      end
+    end)
+  end
+
+  @spec handle_note_list(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
+  def handle_note_list(%TurnRef{} = turn_ref, request, _route) do
+    respond(request, fn ->
+      with :ok <- reject_subagent(turn_ref),
+           {:ok, actor_event} <- actor_event(request),
+           {:ok, channel_id} <- current_channel(actor_event) do
+        {:ok,
+         %{
+           "status" => "ok",
+           "channel_id" => channel_id,
+           "notes" => Memory.list_notes(turn_ref.agent_uid, channel_id)
+         }}
+      end
+    end)
+  end
+
+  @spec handle_search(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
+  def handle_search(%TurnRef{} = turn_ref, request, _route) do
+    respond(request, fn ->
+      with {:ok, request} <- delegation_scoped_request(turn_ref, request) do
+        request
+        |> Map.put("turn_ref", TurnRef.to_wire(turn_ref))
+        |> Memory.search()
+      end
+    end)
+  end
+
+  @spec handle_browse(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
+  def handle_browse(%TurnRef{} = turn_ref, request, _route) do
+    respond(request, fn ->
+      with {:ok, request} <- delegation_scoped_request(turn_ref, request) do
+        request
+        |> Map.put("turn_ref", TurnRef.to_wire(turn_ref))
+        |> Memory.browse()
+      end
+    end)
+  end
+
+  defp respond(request, fun) do
     request_id = RPCWire.text(request, "request_id") || "memory-rpc-#{Ecto.UUID.generate()}"
 
-    with {:ok, request} <- apply_delegation_scope(action, turn_ref, request),
-         {:ok, payload} <- dispatch(request, action, turn_ref) do
-      {:ok, Map.put_new(payload, "request_id", request_id)}
-    else
+    case fun.() do
+      {:ok, payload} -> {:ok, Map.put_new(payload, "request_id", request_id)}
       {:error, reason} -> {:error, error_payload(request_id, reason)}
     end
   end
 
-  def handle_request(action, _turn_ref, _request, _route),
-    do: {:error, error_payload("", {:invalid_memory_rpc_request, action})}
+  defp reject_subagent(%TurnRef{session_id: "subagent:" <> _id}),
+    do: {:error, :subagent_memory_action_not_allowed}
 
-  defp dispatch(request, "memory_note.save", %TurnRef{} = turn_ref) do
-    with {:ok, actor_event} <- actor_event(request),
-         {:ok, channel_id} <- current_channel(actor_event),
-         {:ok, content} <- required_text(request, "content"),
-         {:ok, note} <-
-           Memory.save_note(
-             turn_ref.agent_uid,
-             channel_id,
-             content,
-             note_source(actor_event, request)
-           ) do
-      {:ok, %{"status" => "saved", "note" => note_projection(note)}}
-    end
-  end
+  defp reject_subagent(%TurnRef{}), do: :ok
 
-  defp dispatch(request, "memory_note.update", %TurnRef{} = turn_ref) do
-    with {:ok, actor_event} <- actor_event(request),
-         {:ok, channel_id} <- current_channel(actor_event),
-         {:ok, note_id} <- required_text(request, "note_id"),
-         {:ok, content} <- required_text(request, "content"),
-         {:ok, note} <- Memory.update_note(turn_ref.agent_uid, channel_id, note_id, content) do
-      {:ok, %{"status" => "updated", "note" => note_projection(note)}}
-    end
-  end
-
-  defp dispatch(request, "memory_note.forget", %TurnRef{} = turn_ref) do
-    with {:ok, actor_event} <- actor_event(request),
-         {:ok, channel_id} <- current_channel(actor_event),
-         {:ok, note_id} <- required_text(request, "note_id"),
-         {:ok, note} <- Memory.forget_note(turn_ref.agent_uid, channel_id, note_id) do
-      {:ok, %{"status" => "forgotten", "note" => note_projection(note)}}
-    end
-  end
-
-  defp dispatch(request, "memory_note.list", %TurnRef{} = turn_ref) do
-    with {:ok, actor_event} <- actor_event(request),
-         {:ok, channel_id} <- current_channel(actor_event) do
-      {:ok,
-       %{
-         "status" => "ok",
-         "channel_id" => channel_id,
-         "notes" => Memory.list_notes(turn_ref.agent_uid, channel_id)
-       }}
-    end
-  end
-
-  defp dispatch(request, "memory_search", %TurnRef{} = turn_ref) do
-    request
-    |> Map.put("turn_ref", TurnRef.to_wire(turn_ref))
-    |> Memory.search()
-  end
-
-  defp dispatch(request, "memory_browse", %TurnRef{} = turn_ref) do
-    request
-    |> Map.put("turn_ref", TurnRef.to_wire(turn_ref))
-    |> Memory.browse()
-  end
-
-  defp dispatch(_request, action, _turn_ref),
-    do: {:error, {:unknown_memory_action, action}}
-
-  defp apply_delegation_scope(
-         action,
+  defp delegation_scoped_request(
          %TurnRef{session_id: "subagent:" <> delegation_id} = turn_ref,
          request
-       )
-       when action in ["memory_search", "memory_browse"] do
+       ) do
     requested_id = RPCWire.text(request, "delegation_id")
     scope = RPCWire.map_value(request, "delegation_scope", %{}) |> RPCWire.stringify_keys()
 
@@ -115,10 +135,7 @@ defmodule Ankole.Memory.RPCBroker do
     end
   end
 
-  defp apply_delegation_scope(_action, %TurnRef{session_id: "subagent:" <> _id}, _request),
-    do: {:error, :subagent_memory_action_not_allowed}
-
-  defp apply_delegation_scope(_action, %TurnRef{}, request), do: {:ok, request}
+  defp delegation_scoped_request(%TurnRef{}, request), do: {:ok, request}
 
   defp validate_scope_channel(scope, delegation) do
     expected = Map.get(delegation.reply_route || %{}, "signal_channel_id")

@@ -8,6 +8,7 @@
     "dev": "sh -c 'echo \"Agent Computer worker runs only inside the Docker image; mount TS source into the container for edit/run feedback.\" >&2; exit 1'",
     "start": "sh -c 'echo \"Agent Computer worker runs only inside the Docker image; use the control-plane Docker worker e2e or docker run.\" >&2; exit 1'",
     "build": "bun build src/main.ts --target bun --outdir dist",
+    "gen:rpc-contract": "bun scripts/gen-rpc-contract.ts",
     "type-check": "tsgo -p tsconfig.json --noEmit",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",

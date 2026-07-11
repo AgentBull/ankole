@@ -19,7 +19,14 @@ import {
   cn,
   toast
 } from '@ankole/uikit'
-import { RiUploadCloud2Line, RiFolder3Line, RiFileLine, RiLinksLine, RiDownloadLine, RiPencilLine } from '@remixicon/react'
+import {
+  RiUploadCloud2Line,
+  RiFolder3Line,
+  RiFileLine,
+  RiLinksLine,
+  RiDownloadLine,
+  RiPencilLine
+} from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -388,7 +395,10 @@ function FileRow({
             <RiLinksLine className="size-4 text-muted-foreground" aria-hidden />
           )}
           {isDir ? (
-            <button type="button" className="text-left hover:text-primary" onClick={() => onNavigate(entry.relative_path)}>
+            <button
+              type="button"
+              className="text-left hover:text-primary"
+              onClick={() => onNavigate(entry.relative_path)}>
               {name}
             </button>
           ) : (

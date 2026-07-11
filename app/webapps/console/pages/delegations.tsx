@@ -36,6 +36,8 @@ type Column = {
   statuses: SubagentDelegationItem['status'][]
 }
 
+type DelegationEvent = NonNullable<SubagentDelegationItem['events']>[number]
+
 const columns: Column[] = [
   { key: 'todo', statuses: ['queued'] },
   { key: 'active', statuses: ['running', 'waiting_on_user'] },
@@ -148,6 +150,7 @@ export function DelegationsPage() {
                 <dl className="grid grid-cols-2 gap-x-6 gap-y-3 border border-border bg-card p-4 text-sm">
                   <DetailField label={t('console.delegations.status')} value={selected.status} />
                   <DetailField label={t('console.delegations.runtime')} value={selected.runtime} />
+                  <DetailField label={t('console.delegations.codex_account')} value={selected.codex_account_id} />
                   <DetailField label={t('console.delegations.attempts')} value={String(selected.attempts)} />
                   <DetailField
                     label={t('console.delegations.duration')}
@@ -165,23 +168,32 @@ export function DelegationsPage() {
                 <section className="grid gap-3">
                   <h3 className="font-medium">{t('console.delegations.timeline')}</h3>
                   {selected.events?.length ? (
-                    <ol className="grid gap-3 border-l border-border pl-5">
-                      {selected.events.map(event => (
-                        <li key={event.id} className="relative grid gap-1 border border-border bg-card p-3">
-                          <span className="absolute top-4 -left-[1.43rem] size-2.5 rounded-full bg-primary" />
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <span className="font-mono text-xs">
-                              #{event.seq} · {event.event_type}
-                            </span>
-                            <span className="text-xs text-muted-foreground">{formatDate(event.occurred_at)}</span>
-                          </div>
-                          <span className="text-xs text-muted-foreground">{event.direction}</span>
-                          <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all bg-muted p-2 text-xs">
-                            {truncate(JSON.stringify(event.payload, null, 2), 2_000)}
-                          </pre>
-                        </li>
+                    <div className="grid gap-5">
+                      {groupEventsByAttempt(selected.events).map(group => (
+                        <section key={group.attempt} className="grid gap-2">
+                          <h4 className="text-xs font-medium text-muted-foreground">
+                            {t('console.delegations.attempt_label', { count: group.attempt })}
+                          </h4>
+                          <ol className="grid gap-3 border-l border-border pl-5">
+                            {group.events.map(event => (
+                              <li key={event.id} className="relative grid gap-1 border border-border bg-card p-3">
+                                <span className="absolute top-4 -left-[1.43rem] size-2.5 rounded-full bg-primary" />
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <span className="font-mono text-xs">
+                                    #{event.seq} · {event.event_type}
+                                  </span>
+                                  <span className="text-xs text-muted-foreground">{formatDate(event.occurred_at)}</span>
+                                </div>
+                                <span className="text-xs text-muted-foreground">{event.direction}</span>
+                                <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all bg-muted p-2 text-xs">
+                                  {truncate(JSON.stringify(event.payload, null, 2), 2_000)}
+                                </pre>
+                              </li>
+                            ))}
+                          </ol>
+                        </section>
                       ))}
-                    </ol>
+                    </div>
                   ) : (
                     <p className="text-sm text-muted-foreground">{t('console.delegations.no_events')}</p>
                   )}
@@ -277,6 +289,17 @@ function DetailField({ label, value, wide = false }: { label: string; value: str
       <dd className="whitespace-pre-wrap break-words">{value}</dd>
     </div>
   )
+}
+
+function groupEventsByAttempt(events: DelegationEvent[]) {
+  const groups = new Map<number, DelegationEvent[]>()
+  for (const event of events) {
+    const attempt = typeof event.payload.attempt === 'number' ? event.payload.attempt : 1
+    groups.set(attempt, [...(groups.get(attempt) ?? []), event])
+  }
+  return [...groups.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([attempt, attemptEvents]) => ({ attempt, events: attemptEvents }))
 }
 
 function cancellable(status: SubagentDelegationItem['status']): boolean {

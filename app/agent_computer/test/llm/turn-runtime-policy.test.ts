@@ -4,8 +4,9 @@ import { agentRuntimePolicyFromTurnStart } from '../../src/core/turns/turn_runti
 import { turnStartForTest } from '../support/llm'
 
 describe('@ankole/agent-computer turn runtime policy', () => {
-  it('uses the default inactivity timeout when no per-turn policy is present', () => {
+  it('uses the snapshotted iteration budget and default inactivity timeout', () => {
     expect(agentRuntimePolicyFromTurnStart(turnStartForTest())).toEqual({
+      maxIterations: 90,
       inactivityTimeoutMs: ms('30m')
     })
   })
@@ -16,29 +17,37 @@ describe('@ankole/agent-computer turn runtime policy', () => {
         ...turnStartForTest(),
         request_context: {
           ai_agent: {
+            max_iterations: 90,
             inactivity_timeout_ms: 0
           }
         }
       })
     ).toEqual({
+      maxIterations: 90,
       inactivityTimeoutMs: 0
     })
   })
 
-  it('ignores invalid runtime policy values', () => {
-    expect(
+  it('rejects a missing or invalid iteration-budget snapshot', () => {
+    expect(() =>
       agentRuntimePolicyFromTurnStart({
         ...turnStartForTest(),
         request_context: {
           ai_agent: {
             inactivity_timeout_ms: -1,
-            max_output_tokens: 12.5
+            max_output_tokens: 12.5,
+            max_iterations: 0
           }
         }
       })
-    ).toEqual({
-      inactivityTimeoutMs: ms('30m')
-    })
+    ).toThrow('request_context.ai_agent.max_iterations must be a positive integer')
+
+    expect(() =>
+      agentRuntimePolicyFromTurnStart({
+        ...turnStartForTest(),
+        request_context: { ai_agent: {} }
+      })
+    ).toThrow('request_context.ai_agent.max_iterations must be a positive integer')
   })
 
   it('clamps max output tokens to the model completion ceiling', () => {
@@ -54,12 +63,14 @@ describe('@ankole/agent-computer turn runtime policy', () => {
         request_context: {
           ai_agent: {
             inactivity_timeout_ms: 120_000,
-            max_output_tokens: 12_000
+            max_output_tokens: 12_000,
+            max_iterations: 42
           }
         }
       })
     ).toEqual({
       inactivityTimeoutMs: 120_000,
+      maxIterations: 42,
       maxOutputTokens: 8000
     })
   })

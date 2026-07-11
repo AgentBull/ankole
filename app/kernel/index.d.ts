@@ -27,6 +27,9 @@ export declare function authzValidateResourcePattern(pattern: string): boolean
 
 export declare function estimateO200kBaseTokens(text: string): number
 
+/** Hashes binary data through the shared kernel `generic_hash` contract. */
+export declare function genericHash(data: Buffer): string
+
 /** Decodes RuntimeFabric v1 protobuf bytes into a JSON-shaped envelope. */
 export declare function runtimeFabricDecodeEnvelope(bytes: Buffer): any
 

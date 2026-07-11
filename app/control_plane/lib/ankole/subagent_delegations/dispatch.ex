@@ -3,15 +3,15 @@ defmodule Ankole.SubagentDelegations.Dispatch do
 
   import Ecto.Query
 
-  alias Ankole.Actors
-  alias Ankole.Actors.ActorEvent
+  alias Ankole.SignalsGateway
+  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
+  alias Ankole.AIAgent.ModelProfiles
   alias Ankole.Principals
   alias Ankole.Repo
   alias Ankole.RuntimeEvents
   alias Ankole.SubagentDelegations.Attrs
   alias Ankole.SubagentDelegations.Schemas.Delegation
-
-  @terminal_statuses Delegation.terminal_statuses()
 
   @spec create_with_dispatch(map()) ::
           {:ok, %{delegation: Delegation.t(), dispatch_event: ActorEvent.t()}} | {:error, term()}
@@ -20,11 +20,13 @@ defmodule Ankole.SubagentDelegations.Dispatch do
 
     with attrs when is_map(attrs) <- Attrs.normalize(attrs),
          {:ok, agent_uid} <- Principals.normalize_uid(Attrs.text(attrs, "agent_uid")),
-         {:ok, reply_route} <- reply_route(attrs) do
+         {:ok, reply_route} <- reply_route(attrs),
+         {:ok, codex_account_id} <- codex_account_id(agent_uid) do
       attrs =
         attrs
         |> Map.put("agent_uid", agent_uid)
         |> Map.put("reply_route", reply_route)
+        |> Map.put("codex_account_id", codex_account_id)
         |> Map.put_new("runtime", "codex")
         |> Map.put_new("status", "queued")
         |> Map.put_new("attempts", 0)
@@ -39,6 +41,15 @@ defmodule Ankole.SubagentDelegations.Dispatch do
           {:ok, %{delegation: delegation, dispatch_event: dispatch_event}}
         end
       end)
+    end
+  end
+
+  defp codex_account_id(agent_uid) do
+    case ModelProfiles.get_model_profile(agent_uid, "coding") do
+      {:ok, %{"codex_account_id" => account_id}} -> {:ok, account_id}
+      {:ok, %{"provider_id" => _provider_id}} -> {:ok, "aigateway"}
+      {:error, :model_profile_not_configured} -> {:ok, "aigateway"}
+      {:error, _reason} = error -> error
     end
   end
 
@@ -70,8 +81,11 @@ defmodule Ankole.SubagentDelegations.Dispatch do
   def complete_actor_event(%ActorEvent{} = actor_event) do
     Repo.transact(fn repo ->
       case lock_open_actor_event(repo, actor_event.id) do
-        %ActorEvent{} = event -> Actors.mark_event_completed_in_tx(repo, event, now())
-        nil -> {:ok, actor_event}
+        %ActorEvent{} = event ->
+          SignalsGateway.mark_actor_event_completed_in_tx(repo, event, now())
+
+        nil ->
+          {:ok, actor_event}
       end
     end)
   end
@@ -79,19 +93,13 @@ defmodule Ankole.SubagentDelegations.Dispatch do
   @spec complete_open_dispatch(String.t(), String.t()) :: :ok | {:error, term()}
   def complete_open_dispatch(delegation_id, agent_uid) do
     Repo.transact(fn repo ->
-      ActorEvent
-      |> where([event], event.agent_uid == ^agent_uid)
-      |> where([event], event.session_id == ^"subagent:#{delegation_id}")
-      |> where([event], event.type == "subagent.delegation.dispatch")
-      |> where([event], is_nil(event.completed_at))
-      |> lock("FOR UPDATE")
-      |> repo.all()
-      |> Enum.reduce_while({:ok, :ok}, fn event, {:ok, :ok} ->
-        case Actors.mark_event_completed_in_tx(repo, event, now()) do
-          {:ok, %ActorEvent{}} -> {:cont, {:ok, :ok}}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      end)
+      complete_open_events_in_tx(
+        repo,
+        delegation_id,
+        agent_uid,
+        ["subagent.delegation.dispatch"],
+        now()
+      )
     end)
     |> case do
       {:ok, :ok} -> :ok
@@ -99,46 +107,57 @@ defmodule Ankole.SubagentDelegations.Dispatch do
     end
   end
 
-  @spec cleanup_candidates(DateTime.t(), pos_integer()) :: [Delegation.t()]
-  def cleanup_candidates(now \\ now(), limit \\ 100) do
-    cutoff = DateTime.add(now, -7, :day)
-
-    Delegation
-    |> where([delegation], delegation.status in ^@terminal_statuses)
-    |> where([delegation], delegation.completed_at <= ^cutoff)
-    |> where(
-      [delegation],
-      fragment("coalesce(?->>'codex_home_relative_path', '') <> ''", delegation.metadata)
+  @doc false
+  def complete_all_open_events_in_tx(repo, delegation_id, agent_uid, %DateTime{} = completed_at) do
+    complete_open_events_in_tx(
+      repo,
+      delegation_id,
+      agent_uid,
+      ["subagent.delegation.dispatch", "command.steer"],
+      completed_at
     )
-    |> where(
-      [delegation],
-      fragment("coalesce(?->>'codex_home_cleaned_at', '') = ''", delegation.metadata)
-    )
-    |> order_by([delegation], asc: delegation.completed_at)
-    |> limit(^limit)
-    |> Repo.all()
   end
 
-  @spec mark_codex_home_cleaned(String.t(), DateTime.t()) ::
-          {:ok, Delegation.t()} | {:error, term()}
-  def mark_codex_home_cleaned(delegation_id, cleaned_at \\ now()) do
+  @doc false
+  def pending_steer_events(delegation_id, agent_uid, excluded_event_id) do
     Repo.transact(fn repo ->
-      case Delegation
-           |> where([row], row.id == ^delegation_id)
-           |> lock("FOR UPDATE")
-           |> repo.one() do
-        %Delegation{} = delegation ->
-          metadata =
-            Map.put(
-              delegation.metadata || %{},
-              "codex_home_cleaned_at",
-              DateTime.to_iso8601(cleaned_at)
-            )
+      {:ok, pending_steer_events_in_tx(repo, delegation_id, agent_uid, excluded_event_id)}
+    end)
+  end
 
-          delegation |> Delegation.changeset(%{metadata: metadata}) |> repo.update()
+  defp pending_steer_events_in_tx(repo, delegation_id, agent_uid, excluded_event_id) do
+    ActorEvent
+    |> where([event], event.agent_uid == ^agent_uid)
+    |> where([event], event.session_id == ^"subagent:#{delegation_id}")
+    |> where([event], event.type == "command.steer")
+    |> where([event], event.input_state == "open")
+    |> where([event], is_nil(event.completed_at))
+    |> where([event], event.id != ^excluded_event_id)
+    |> order_by([event], asc: event.queue_sequence)
+    |> lock("FOR UPDATE")
+    |> repo.all()
+    |> Enum.reject(&live_delivery_for_event?(repo, &1.id))
+  end
 
-        nil ->
-          {:error, :delegation_not_found}
+  defp live_delivery_for_event?(repo, actor_event_id) do
+    ActorEventDelivery
+    |> where([delivery], delivery.actor_event_id == ^actor_event_id)
+    |> where([delivery], delivery.state in ^ActorEventDelivery.live_states())
+    |> repo.exists?()
+  end
+
+  defp complete_open_events_in_tx(repo, delegation_id, agent_uid, types, completed_at) do
+    ActorEvent
+    |> where([event], event.agent_uid == ^agent_uid)
+    |> where([event], event.session_id == ^"subagent:#{delegation_id}")
+    |> where([event], event.type in ^types)
+    |> where([event], is_nil(event.completed_at))
+    |> lock("FOR UPDATE")
+    |> repo.all()
+    |> Enum.reduce_while({:ok, :ok}, fn event, {:ok, :ok} ->
+      case SignalsGateway.mark_actor_event_completed_in_tx(repo, event, completed_at) do
+        {:ok, %ActorEvent{}} -> {:cont, {:ok, :ok}}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
@@ -185,7 +204,7 @@ defmodule Ankole.SubagentDelegations.Dispatch do
     source_event_id = "subagent_delegation:#{delegation.id}:dispatch:#{delegation.attempts}"
     reply_route = delegation.reply_route || %{}
 
-    Actors.append_actor_event_in_tx(repo, %{
+    SignalsGateway.append_actor_event_in_tx(repo, %{
       agent_uid: delegation.agent_uid,
       binding_name: Map.fetch!(reply_route, "binding_name"),
       session_id: "subagent:#{delegation.id}",

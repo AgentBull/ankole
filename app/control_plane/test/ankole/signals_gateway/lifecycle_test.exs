@@ -2,7 +2,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
   use Ankole.DataCase, async: false
 
   alias Ecto.Adapters.SQL
-  alias Ankole.Actors.ActorEvent
+  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.Ingress
@@ -12,7 +12,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.Entry
 
-  import Ankole.ActorRuntimeCase, only: [complete_actor_event: 4]
+  import Ankole.SignalsGateway.ActorRuntimeCase, only: [complete_actor_event: 4]
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsGatewayFixtures
 

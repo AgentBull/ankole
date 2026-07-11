@@ -13,12 +13,13 @@ import {
   workerReadyEnvelope
 } from '../src/worker/config'
 import { handleWorkerRpcRequest, type RpcRequest } from '../src/lanes/rpc_lane'
-import { workerProgressEnvelope } from '../src/fabric/envelopes'
+import { turnCompletedEnvelope, workerProgressEnvelope } from '../src/fabric/envelopes'
 import type { WorkerConfig } from '../src/worker/config'
 import { prepareTurnWorkspace } from '../src/worker/workspace'
 import { mailboxUpdatedFromEnvelope, turnStartFromEnvelope } from '../src/lanes/actor_lane'
 import type { TurnStart } from '../src/lanes/actor_lane'
-import { startTurnProgress, type ActiveTurn } from '../src/worker/active_turns'
+import { startTurnProgress, turnFailureDetails, type ActiveTurn } from '../src/worker/active_turns'
+import { SubagentAuditPersistenceError } from '../src/tools/subagent/audit'
 
 describe('@ankole/agent-computer runtime', () => {
   it('parses RuntimeFabric URL auth without embedding worker identity', () => {
@@ -72,6 +73,15 @@ describe('@ankole/agent-computer runtime', () => {
     })
   })
 
+  it('classifies exhausted subagent audit persistence as retryable worker infrastructure failure', () => {
+    const details = turnFailureDetails(new SubagentAuditPersistenceError(new Error('RPC timed out')))
+
+    expect(details).toMatchObject({
+      error_code: 'subagent_audit_persistence_failed',
+      retryable: true
+    })
+  })
+
   it('emits worker progress as an ephemeral progress-lane keepalive', () => {
     const turn = actorTurnRef()
     const envelope = workerProgressEnvelope(turn, 'checkpoint', 'turn in progress', 'turn-start-1', {
@@ -87,6 +97,24 @@ describe('@ankole/agent-computer runtime', () => {
       kind: 'checkpoint',
       summary: 'turn in progress',
       refs_json: { stage: 'llm' }
+    })
+    expect(runtimeFabricEncodeEnvelope(envelope)).toBeInstanceOf(Buffer)
+  })
+
+  it('emits response-backed turn completion as replayable turn control', () => {
+    const turn = actorTurnRef()
+    const envelope = turnCompletedEnvelope(turn, 'resp_final_1', 'iteration_exhausted', 'turn-start-1')
+
+    expect(envelope.lane).toBe('LANE_TURN')
+    expect(envelope.durability).toBe('CONTROL_REPLAYABLE')
+    expect(envelope.correlation_id).toBe('turn-start-1')
+    expect(envelope.body).toEqual({
+      type: 'turn_completed',
+      turn_completed: {
+        turn,
+        final_response_id: 'resp_final_1',
+        outcome: 'iteration_exhausted'
+      }
     })
     expect(runtimeFabricEncodeEnvelope(envelope)).toBeInstanceOf(Buffer)
   })

@@ -18,9 +18,9 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     ]
 
   alias Ankole.AIAgent.Library.Schemas.AgentSkillOverlay
-  alias Ankole.AIGateway.AgentConfig
-  alias Ankole.AIGateway.ModelProfiles
-  alias Ankole.Actors.ActorEvent
+  alias Ankole.SignalsGateway.ActorRuntime.AgentConfig
+  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.AppConfigure
   alias Ankole.SubagentDelegations.Schemas.Delegation, as: SubagentDelegation
   alias Ankole.SubagentDelegations.Schemas.Event, as: SubagentDelegationEvent
@@ -327,15 +327,28 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     %{input: input, reply: reply, message: message}
   end
 
-  def run_real_lark_codex_todolist_turn(%{
-        fake_feishu: fake_feishu,
-        agent: agent,
-        container: container,
-        provider_id: provider_id
-      }) do
+  def run_real_lark_codex_todolist_turn(
+        %{
+          fake_feishu: fake_feishu,
+          agent: agent,
+          container: container,
+          provider_id: provider_id
+        } = ctx
+      ) do
     put_real_model_profile!(agent.uid, provider_id, "primary", @real_coding_model, %{})
     put_real_model_profile!(agent.uid, provider_id, "heavy", @real_coding_model, %{})
-    put_real_model_profile!(agent.uid, provider_id, "coding", @real_coding_model, %{})
+
+    case ctx do
+      %{codex_account_id: account_id} ->
+        assert {:ok, _profile} =
+                 ModelProfiles.put_model_profile(agent.uid, "coding", %{
+                   "codex_account_id" => account_id
+                 })
+
+      _ctx ->
+        put_real_model_profile!(agent.uid, provider_id, "coding", @real_coding_model, %{})
+    end
+
     put_agent_inactivity_timeout!(agent.uid, @codex_real_llm_inactivity_timeout_ms)
 
     mention = lark_bot_mention()
@@ -346,7 +359,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                message_id: "om_real_codex_todolist_1",
                chat_id: "oc_real_llm_codex_todolist",
                text: """
-               @_user_1 Delegate this implementation to the Codex subagent in the background. Use the real OpenRouter model z-ai/glm-5.2.
+               @_user_1 Delegate this implementation to the Codex subagent in the background. Use the configured coding runtime.
 
                Task:
                1. Call subagent exactly once with action="start", title="Build the real todolist demo", and workdir="/workspace/user-files/subagent/ankole-codex-todolist-real".
@@ -398,17 +411,19 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     delegation =
       Repo.one!(
-        from delegation in SubagentDelegation,
+        from(delegation in SubagentDelegation,
           where: delegation.agent_uid == ^agent.uid,
           where: delegation.actor_event_id == ^input.id
+        )
       )
 
     dispatch_event =
       Repo.one!(
-        from event in ActorEvent,
+        from(event in ActorEvent,
           where: event.agent_uid == ^agent.uid,
           where: event.session_id == ^"subagent:#{delegation.id}",
           where: event.type == "subagent.delegation.dispatch"
+        )
       )
 
     assert {:ok, _result} =
@@ -438,11 +453,12 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     wakeup_event =
       Repo.one!(
-        from event in ActorEvent,
+        from(event in ActorEvent,
           where: event.agent_uid == ^agent.uid,
           where: event.session_id == ^input.session_id,
           where: event.type == "subagent.delegation.completed",
           where: event.source_event_id == ^"subagent_delegation:#{delegation.id}:succeeded"
+        )
       )
 
     if is_nil(wakeup_event.completed_at) do
@@ -468,9 +484,10 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     events =
       Repo.all(
-        from event in SubagentDelegationEvent,
+        from(event in SubagentDelegationEvent,
           where: event.delegation_id == ^delegation.id,
           order_by: [asc: event.seq]
+        )
       )
 
     assert length(events) >= 8

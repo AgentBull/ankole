@@ -16,7 +16,7 @@ defmodule Ankole.SubagentDelegations.Schemas.Delegation do
   @timestamps_opts [type: :utc_datetime_usec]
   @statuses ~w(queued running waiting_on_user succeeded failed stopped)
   @terminal_statuses ~w(succeeded failed stopped)
-  @running_statuses ~w(running waiting_on_user)
+  @running_statuses ~w(running)
   @status_transitions %{
     "queued" => ~w(queued running failed stopped),
     "running" => ~w(running waiting_on_user succeeded failed stopped),
@@ -56,6 +56,7 @@ defmodule Ankole.SubagentDelegations.Schemas.Delegation do
     field(:tool_call_id, :string)
     field(:runtime_thread_id, :string)
     field(:runtime, :string, default: "codex")
+    field(:codex_account_id, :string, default: "aigateway")
     field(:title, :string)
     field(:prompt, :string)
     field(:reply_route, :map, default: %{})
@@ -82,6 +83,7 @@ defmodule Ankole.SubagentDelegations.Schemas.Delegation do
       :tool_call_id,
       :runtime_thread_id,
       :runtime,
+      :codex_account_id,
       :title,
       :prompt,
       :reply_route,
@@ -101,6 +103,7 @@ defmodule Ankole.SubagentDelegations.Schemas.Delegation do
       :tool_call_id,
       :runtime_thread_id,
       :runtime,
+      :codex_account_id,
       :title,
       :prompt,
       :workdir,
@@ -110,6 +113,7 @@ defmodule Ankole.SubagentDelegations.Schemas.Delegation do
       :agent_uid,
       :session_id,
       :runtime,
+      :codex_account_id,
       :reply_route,
       :attempts,
       :status,

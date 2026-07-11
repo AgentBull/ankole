@@ -148,6 +148,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       modelInputModalities: modelRef.input_modalities,
       visionFallbackModel,
       maxTokens: runtimePolicy.maxOutputTokens,
+      maxModelIterations: runtimePolicy.maxIterations,
       stateful: {
         actorEventId: actorEvent.actor_event_id,
         conversationId: aiGatewayConversationId,
@@ -159,14 +160,14 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       withActivitySuspended: turnActivity.withSuspended,
       getSteeringMessages: async () => steeringMessages(turnStart, opts.pollSteering?.() ?? [])
     })
-    if (latest?.stopReason === 'error' || latest?.stopReason === 'aborted') {
+    if (latest.message.stopReason === 'error' || latest.message.stopReason === 'aborted') {
       throw new Error(
-        latest.errorMessage ||
-          (latest.stopReason === 'aborted' ? 'LLM provider call aborted' : 'LLM provider returned an error')
+        latest.message.errorMessage ||
+          (latest.message.stopReason === 'aborted' ? 'LLM provider call aborted' : 'LLM provider returned an error')
       )
     }
-    const replyText = assistantText(latest)
-    return textTurnResultFromAssistantReply(turnStart, replyText)
+    const replyText = assistantText(latest.message)
+    return textTurnResultFromAssistantReply(turnStart, replyText, latest.responseId, latest.outcome)
   } finally {
     turnActivity.cleanup()
   }
@@ -175,20 +176,22 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
 /**
  * Converts final assistant text into the worker's turn result contract.
  *
- * Empty visible text is only allowed for inputs that explicitly permit
- * schedule-origin silent success; otherwise it is treated as a worker failure so
- * the caller does not mistake no output for a completed user reply.
+ * The worker does not decide whether an adopted Response chain has a visible
+ * projection. SignalsGateway may find clarify or attachment output even when
+ * the final assistant text is empty, and rejects an actually empty chain at
+ * the durable completion boundary.
  */
-export function textTurnResultFromAssistantReply(turnStart: TurnStart, replyText: string): TurnHandlerResult {
-  if (silentSuccessAllowed(turnStart) && silentSuccessReply(replyText)) {
+export function textTurnResultFromAssistantReply(
+  turnStart: TurnStart,
+  replyText: string,
+  finalResponseId: string,
+  outcome: 'loop_finished' | 'iteration_exhausted'
+): TurnHandlerResult {
+  if (outcome === 'loop_finished' && silentSuccessAllowed(turnStart) && silentSuccessReply(replyText)) {
     return { kind: 'noop_completed', reason: 'schedule_silent_success' }
   }
 
-  if (!replyText) {
-    throw new Error('worker run completed without visible assistant text')
-  }
-
-  return { kind: 'aigateway_response' }
+  return { kind: 'turn_completed', finalResponseId, outcome }
 }
 
 /**

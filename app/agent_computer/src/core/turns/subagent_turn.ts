@@ -1,11 +1,14 @@
 import { jsonObject, type JsonObject } from '@pleisto/active-support'
-import { mkdirSync } from 'node:fs'
-import { dirname, relative } from 'node:path'
+import { genericHash } from '@ankole/kernel'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { errorMessage } from '../../common/errors'
 import type { TurnStart, TurnSteerUpdate } from '../../lanes/actor_lane'
 import {
   assertRpcResponse,
   type AIGatewayApiKeyResponse,
+  type CodexAccountAuthUpdateResponse,
+  type MemoryRpcMethod,
+  type RpcSchemaByMethod,
   type SubagentDelegationResponse,
   type SubagentDelegationStatus
 } from '../../lanes/rpc_lane'
@@ -49,7 +52,7 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     return { kind: 'noop_completed', reason: `subagent_${initial.status}` }
   }
 
-  if (!opts.workspaceSessionsRoot || !opts.userFilesRoot) {
+  if (!opts.workspaceSessionsRoot || !opts.sharedFsRoot || !opts.userFilesRoot) {
     throw new Error('subagent turn requires worker workspace roots')
   }
 
@@ -62,14 +65,13 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
 
   const agentContext = await resolveAgentConversationContext(turnStart, opts)
   const runtimeConfig = await resolveCodexRuntimeConfig({
-    agentUid: initial.agent_uid,
+    turn: turnStart.turn,
+    delegation: initial,
     requesters: opts
   })
   const materialized = materializeCodexConfig({
-    workspaceRoot: parentWorkspaceRoot,
-    delegationId,
-    override: runtimeConfig.override,
-    aiGatewayKey: runtimeConfig.aiGatewayKey
+    sharedFsRoot: opts.sharedFsRoot,
+    runtime: runtimeConfig
   })
   const sandbox = codexAppServerSandboxSpec({
     workspaceRoot: parentWorkspaceRoot,
@@ -80,9 +82,14 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     delegationId,
     turn: turnStart.turn,
     append: opts.appendSubagentDelegationEvents,
-    nextSeq: (initial.last_event_seq ?? -1) + 1
+    nextSeq: (initial.last_event_seq ?? -1) + 1,
+    attempt: initial.attempts
   })
-  const projectionApiKey = runtimeConfig.aiGatewayKey ?? (await requestProjectionAIGatewayKey(turnStart, opts))
+  let finalizing = false
+  const projectionApiKey =
+    runtimeConfig.mode === 'aigateway'
+      ? runtimeConfig.aiGatewayKey
+      : await requestProjectionAIGatewayKey(turnStart, opts)
   const projectionAIGateway = httpClientFromAIGatewayApiKey(projectionApiKey, options =>
     requestProjectionAIGatewayKey(turnStart, opts, options)
   )
@@ -105,15 +112,17 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     ...createMemoryTools({
       turnStart,
       requestMemoryRpc: opts.requestMemoryRpc
-        ? (method, request) =>
-            opts.requestMemoryRpc!(method, {
-              ...request,
+        ? <M extends MemoryRpcMethod>(method: M, payload: RpcSchemaByMethod[M]['request']) => {
+            const scoped = {
+              ...payload,
               delegation_id: delegationId,
               delegation_scope: {
                 session_id: initial.session_id,
                 signal_channel_id: stringValue(initial.reply_route.signal_channel_id)
               }
-            })
+            }
+            return opts.requestMemoryRpc!(method, scoped)
+          }
         : undefined
     })
   ].filter(tool => ['skill_view', 'web_search', 'memory_search', 'memory_browse'].includes(tool.name))
@@ -122,7 +131,9 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     skills: agentContext.skills ?? [],
     soul: agentContext.soul ?? '',
     mission: agentContext.mission ?? '',
-    onAudit: (eventType, payload) => audit.enqueue('tool', eventType, payload)
+    onAudit: (eventType, payload) => {
+      if (!finalizing) audit.enqueue('tool', eventType, payload)
+    }
   })
 
   let client: CodexAppServerClient | undefined
@@ -131,14 +142,37 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
   let outputText = ''
   let latestTokenUsage: JsonObject = {}
   let latestDiff = ''
-  let finalizing = false
   let waitingOnUserInput = false
   let recoveryInFlight = false
   let transientRetries = 0
   let compactRetries = 0
   let newThreadRetries = 0
+  let emptyReportRetries = 0
   let recreatedThreadDuringSetup = false
   let closing = false
+  let thrownError: unknown
+  let hasThrownError = false
+  let turnResult: TurnHandlerResult | undefined
+  let authReconcilePromise: Promise<JsonObject> | undefined
+  let authFailureAudited = false
+
+  const reconcileCodexAuth = (): Promise<JsonObject> => {
+    if (runtimeConfig.mode !== 'official_subscription') return Promise.resolve({ changed: false })
+    authReconcilePromise ??= writebackCodexAuth({
+      turnStart,
+      delegationId,
+      authPath: materialized.authPath,
+      initialAuthHash: materialized.initialAuthHash,
+      update: opts.updateCodexAccountAuth
+    })
+    return authReconcilePromise
+  }
+
+  const auditAuthFailure = (error: unknown): void => {
+    if (authFailureAudited) return
+    authFailureAudited = true
+    audit.enqueue('process', 'codex_auth_writeback_failed', { summary: errorMessage(error) })
+  }
   let steerTimer: ReturnType<typeof setInterval> | undefined
   let steerInFlight = false
   let resolveCompaction: (() => void) | undefined
@@ -160,39 +194,42 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     if (finalizing) return
     finalizing = true
     try {
+      if (runtimeConfig.mode === 'official_subscription') {
+        try {
+          audit.enqueue('process', 'codex_auth_checked', await reconcileCodexAuth())
+        } catch (error) {
+          auditAuthFailure(error)
+          throw error
+        }
+      }
       audit.enqueue('audit', `status_${status}`, {
         status,
         ...(runtimeThreadId ? { runtime_thread_id: runtimeThreadId } : {}),
         ...details
       })
       await audit.flush()
-      let committedStatus = status
-      let committedDetails = details
       try {
         audit.throwIfFailed()
       } catch (error) {
-        if (status !== 'stopped') {
-          committedStatus = 'failed'
-          committedDetails = {
-            error: {
-              code: 'audit_persistence_failed',
-              summary: `Subagent audit persistence failed: ${errorMessage(error)}`
-            }
-          }
-        }
+        if (status !== 'stopped') throw error
       }
       const response = await updateStatus({
         request_id: `subagent-status-${crypto.randomUUID()}`,
         turn: turnStart.turn,
         delegation_id: delegationId,
-        status: committedStatus,
+        status,
         ...(runtimeThreadId ? { runtime_thread_id: runtimeThreadId } : {}),
-        ...committedDetails
+        ...details
       })
       assertRpcResponse<SubagentDelegationResponse>(response, 'subagent status update rejected')
       resolveDone()
     } catch (error) {
-      rejectDone(error instanceof Error ? error : new Error(String(error)))
+      const failure = /subagent_pending_steer/.test(errorMessage(error))
+        ? new SubagentPendingSteerError(error)
+        : error instanceof Error
+          ? error
+          : new Error(String(error))
+      rejectDone(failure)
     }
   }
 
@@ -211,7 +248,7 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
         threadSource: 'ankole',
         developerInstructions: projection.developerInstructions,
         dynamicTools: projection.dynamicTools,
-        ...(runtimeConfig.modelOverride ? { model: runtimeConfig.modelOverride } : {})
+        ...(runtimeConfig.mode === 'aigateway' ? { model: runtimeConfig.modelOverride } : {})
       })
     )
     runtimeThreadId = stringValue(jsonObject(started.thread).id)
@@ -222,14 +259,16 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
 
   const startCodexTurn = async (input: string): Promise<void> => {
     if (!client || !runtimeThreadId) throw new Error('codex thread is not available')
+    const clientUserMessageId = turnClientUserMessageId(turnStart)
     const startedTurn = jsonObject(
       await client.request('turn/start', {
         threadId: runtimeThreadId,
+        ...(clientUserMessageId ? { clientUserMessageId } : {}),
         input: textInput(input),
         cwd: sandbox.codexCwd,
         approvalPolicy: 'never',
         sandboxPolicy: { type: 'dangerFullAccess' },
-        ...(runtimeConfig.modelOverride ? { model: runtimeConfig.modelOverride } : {}),
+        ...(runtimeConfig.mode === 'aigateway' ? { model: runtimeConfig.modelOverride } : {}),
         ...(jsonObject(initial.metadata).output_schema
           ? { outputSchema: jsonObject(initial.metadata).output_schema }
           : {})
@@ -279,10 +318,33 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     if (finalizing || waitingOnUserInput || recoveryInFlight) return
 
     if (status === 'succeeded') {
+      if (!stringValue(outputText)) {
+        if (emptyReportRetries < 1) {
+          emptyReportRetries += 1
+          audit.enqueue('process', 'empty_report_retry', { retry_attempt: emptyReportRetries })
+          await startCodexTurn(
+            'The delegated work produced no final report. Inspect the completed work and reply with a concise final report that states the outcome and verifies the acceptance criteria.'
+          )
+          return
+        }
+
+        await commit('failed', {
+          error: {
+            code: 'codex_empty_report',
+            summary: 'Codex completed without a usable final report after one report retry.'
+          }
+        })
+        return
+      }
+
       await commit('succeeded', {
         result: {
           summary: outputText,
           output_text: outputText,
+          report: outputText,
+          attempt: initial.attempts,
+          workdir: initial.workdir ?? workdir,
+          ...(runtimeThreadId ? { runtime_thread_id: runtimeThreadId } : {}),
           codex_turn_status: codexTurnStatus,
           usage: latestTokenUsage,
           files_changed: filesChangedFromDiff(latestDiff)
@@ -304,7 +366,7 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
 
       if (retryKind === 'transient' && transientRetries < 3) {
         transientRetries += 1
-        audit.enqueue('process', 'turn_retry', { kind: retryKind, attempt: transientRetries, error })
+        audit.enqueue('process', 'turn_retry', { kind: retryKind, retry_attempt: transientRetries, error })
         await Bun.sleep(Math.min(250 * 2 ** (transientRetries - 1), 1_000))
         outputText = ''
         await startCodexTurn(retryContinuationInput())
@@ -313,7 +375,7 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
 
       if (retryKind === 'context_overflow' && compactRetries < 1 && client && runtimeThreadId) {
         compactRetries += 1
-        audit.enqueue('process', 'turn_compact_retry', { attempt: compactRetries, error })
+        audit.enqueue('process', 'turn_compact_retry', { retry_attempt: compactRetries, error })
         await compactThread()
         outputText = ''
         await startCodexTurn(retryContinuationInput())
@@ -346,6 +408,7 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
   }
 
   const handleNotification = (message: JsonRpcMessage): void => {
+    if (finalizing) return
     const projection = projectCodexNotification(message)
     opts.onTurnActivity?.(`codex:${projection.type}`)
     audit.enqueue(projection.type === 'stderr' ? 'process' : 'server_to_client', projection.type, jsonObject(message))
@@ -363,8 +426,8 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     if (projection.type === 'turn_started') {
       codexTurnId = projection.turnId ?? codexTurnId
       if (resolveCompaction && projection.turnId) compactionTurnId = projection.turnId
-    } else if (projection.type === 'agent_delta') {
-      outputText += projection.delta
+    } else if (projection.type === 'agent_completed') {
+      outputText = projection.text
     } else if (projection.type === 'token_usage') {
       latestTokenUsage = jsonObject(projection.usage.last)
     } else if (projection.type === 'turn_diff') {
@@ -386,6 +449,7 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
   }
 
   const handleServerRequest = async (message: JsonRpcMessage, appServer: CodexAppServerClient): Promise<void> => {
+    if (finalizing) return
     const method = typeof message.method === 'string' ? message.method : ''
     if (message.id === undefined) return
     opts.onTurnActivity?.(`codex:${method || 'server_request'}`)
@@ -443,7 +507,7 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
 
   try {
     audit.enqueue('process', 'config_materialized', {
-      mode: runtimeConfig.override?.mode ?? 'aigateway',
+      mode: runtimeConfig.mode,
       codex_home: materialized.codexHome,
       workdir: sandbox.codexCwd
     })
@@ -451,7 +515,9 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
       cwd: sandbox.cwd,
       env: sandbox.env,
       commandArgv: sandbox.commandArgv,
-      audit: (direction, message) => audit.enqueue(direction, 'json_rpc', { message }),
+      audit: (direction, message) => {
+        if (!finalizing) audit.enqueue(direction, 'json_rpc', { message })
+      },
       onNotification: handleNotification,
       onServerRequest: handleServerRequest,
       onExit: error => {
@@ -498,7 +564,7 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
       status: 'running',
       runtime_thread_id: runtimeThreadId,
       metadata: {
-        codex_home_relative_path: relative(opts.workspaceSessionsRoot, dirname(materialized.codexHome)),
+        codex_account_id: initial.codex_account_id,
         codex_user_agent: stringValue(initializeResponse.userAgent),
         projected_tool_names: projection.dynamicTools.map(tool => tool.name),
         quarantined_tool_names: projection.quarantinedTools,
@@ -513,12 +579,24 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     )
 
     steerTimer = setInterval(() => {
-      if (steerInFlight || finalizing || !client || !runtimeThreadId || !codexTurnId) return
+      if (steerInFlight || finalizing || recoveryInFlight || !client || !runtimeThreadId || !codexTurnId) return
       const updates = opts.pollSteering?.() ?? []
       if (updates.length === 0) return
       steerInFlight = true
-      void steerActiveTurn(client, runtimeThreadId, codexTurnId, updates, audit)
-        .catch(error => commit('failed', { error: { code: 'steer_failed', summary: errorMessage(error) } }))
+      void steerActiveTurn(
+        client,
+        runtimeThreadId,
+        codexTurnId,
+        updates,
+        audit,
+        () => !finalizing,
+        opts.onSteeringApplied
+      )
+        .catch(error => {
+          if (finalizing) return
+          finalizing = true
+          rejectDone(error instanceof Error ? error : new Error(String(error)))
+        })
         .finally(() => {
           steerInFlight = false
         })
@@ -526,16 +604,85 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     steerTimer.unref?.()
 
     await done
-    return { kind: 'noop_completed', reason: 'subagent_delegation_committed' }
+    turnResult = { kind: 'noop_completed', reason: 'subagent_delegation_committed' }
   } catch (error) {
-    throw error
-  } finally {
-    if (steerTimer) clearInterval(steerTimer)
-    opts.abortSignal?.removeEventListener('abort', onAbort)
-    closing = true
-    await client?.close()
-    await audit.flush()
+    thrownError = error
+    hasThrownError = true
   }
+
+  if (steerTimer) clearInterval(steerTimer)
+  opts.abortSignal?.removeEventListener('abort', onAbort)
+  closing = true
+
+  try {
+    await client?.close()
+  } catch (error) {
+    if (!hasThrownError) {
+      thrownError = error
+      hasThrownError = true
+    }
+  }
+
+  try {
+    if (runtimeConfig.mode === 'official_subscription' && !authReconcilePromise) {
+      audit.enqueue('process', 'codex_auth_checked', await reconcileCodexAuth())
+    }
+  } catch (error) {
+    auditAuthFailure(error)
+    if (!hasThrownError) {
+      thrownError = error
+      hasThrownError = true
+    }
+  }
+
+  try {
+    await audit.flush()
+  } catch (error) {
+    if (!hasThrownError) {
+      thrownError = error
+      hasThrownError = true
+    }
+  }
+
+  if (hasThrownError) throw thrownError
+
+  if (!turnResult) {
+    throw new Error('subagent turn ended without a result')
+  }
+
+  return turnResult
+}
+
+async function writebackCodexAuth(input: {
+  turnStart: TurnStart
+  delegationId: string
+  authPath?: string
+  initialAuthHash?: string
+  update: TextTurnLoopOptions['updateCodexAccountAuth']
+}): Promise<JsonObject> {
+  if (!input.authPath || !input.initialAuthHash) throw new Error('Codex account auth was not materialized')
+  const authJson = readFileSync(input.authPath, 'utf8')
+  const finalHash = genericHash(Buffer.from(authJson))
+  if (finalHash === input.initialAuthHash) return { changed: false, auth_hash: finalHash }
+
+  const update = required(input.update, 'Codex account auth update')
+  let lastError: unknown
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const response = await update({
+        request_id: `codex-account-auth-update-${crypto.randomUUID()}`,
+        turn: input.turnStart.turn,
+        delegation_id: input.delegationId,
+        auth_json: authJson
+      })
+      assertRpcResponse<CodexAccountAuthUpdateResponse>(response, 'Codex account auth update rejected')
+      return { changed: true, auth_hash: finalHash }
+    } catch (error) {
+      lastError = error
+      if (attempt < 3) await Bun.sleep(50 * 2 ** (attempt - 1))
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(errorMessage(lastError))
 }
 
 function delegationIdFromTurn(turnStart: TurnStart): string {
@@ -549,6 +696,8 @@ function delegationIdFromTurn(turnStart: TurnStart): string {
 }
 
 function turnInput(turnStart: TurnStart, delegation: SubagentDelegationResponse): string {
+  let input: string
+
   if (turnStart.actor_event.type === 'command.steer') {
     const command = jsonObject(jsonObject(jsonObject(turnStart.actor_event.payload_json).data).command)
     const text = stringValue(command.argsText)
@@ -560,16 +709,46 @@ function turnInput(turnStart: TurnStart, delegation: SubagentDelegationResponse)
       .filter((line): line is string => Boolean(line))
       .join('\n\n')
 
-    return delegation.runtime_thread_id
+    input = delegation.runtime_thread_id
       ? steering
       : `${delegation.prompt ?? ''}\n\nAdditional instructions from the parent agent:\n${steering}`.trim()
+  } else if (delegation.attempts > 1 && delegation.runtime_thread_id) {
+    input = 'Continue the delegated task. Re-check the acceptance criteria in the original brief before finishing.'
+  } else {
+    input = delegation.prompt ?? ''
   }
 
-  if (delegation.attempts > 1 && delegation.runtime_thread_id) {
-    return 'Continue the delegated task. Re-check the acceptance criteria in the original brief before finishing.'
-  }
+  const pendingSteering = pendingSteeringInput(turnStart)
+  return pendingSteering ? `${input}\n\nPending instructions from the parent agent:\n${pendingSteering}`.trim() : input
+}
 
-  return delegation.prompt ?? ''
+function turnClientUserMessageId(turnStart: TurnStart): string | undefined {
+  if (turnStart.actor_event.type === 'command.steer') return turnStart.actor_event.actor_event_id
+  const pending = turnStart.request_context?.pending_steering
+  if (!Array.isArray(pending)) return undefined
+  return stringValue(jsonObject(pending[0]).actor_event_id)
+}
+
+function pendingSteeringInput(turnStart: TurnStart): string {
+  const pending = turnStart.request_context?.pending_steering
+  if (!Array.isArray(pending)) return ''
+
+  return pending
+    .map(value => {
+      const item = jsonObject(value)
+      const text = stringValue(item.text)
+      const answers = jsonObject(item.answers)
+      const answerText = Object.entries(answers)
+        .map(([id, answer]) => `${id}: ${Array.isArray(answer) ? answer.join(', ') : String(answer)}`)
+        .join('\n')
+      const instruction = [text, answerText ? `Answers:\n${answerText}` : undefined]
+        .filter((line): line is string => Boolean(line))
+        .join('\n')
+      const eventId = stringValue(item.actor_event_id)
+      return instruction ? `${eventId ? `[steer ${eventId}]\n` : ''}${instruction}` : ''
+    })
+    .filter(Boolean)
+    .join('\n\n')
 }
 
 type CodexRetryKind = 'transient' | 'context_overflow' | 'unknown_session' | 'terminal'
@@ -611,7 +790,10 @@ function retryContinuationInput(): string {
 }
 
 function recreatedThreadInput(delegation: SubagentDelegationResponse, continuation: string): string {
-  return `${delegation.prompt ?? ''}\n\nThe previous Codex thread could not be resumed. Inspect the existing working directory and continue from durable artifacts.\n\nCurrent continuation instructions:\n${continuation}\n\nRe-check every acceptance criterion before finishing.`.trim()
+  const priorAttempts = delegation.attempt_history?.length
+    ? `\n\nBounded history from prior execution attempts:\n${JSON.stringify(delegation.attempt_history, null, 2)}`
+    : ''
+  return `${delegation.prompt ?? ''}\n\nThe previous Codex thread could not be resumed. Inspect the existing working directory and continue from durable artifacts.${priorAttempts}\n\nCurrent continuation instructions:\n${continuation}\n\nRe-check every acceptance criterion before finishing.`.trim()
 }
 
 function filesChangedFromDiff(diff: string): string[] {
@@ -628,7 +810,9 @@ async function steerActiveTurn(
   threadId: string,
   turnId: string,
   updates: TurnSteerUpdate[],
-  audit: SubagentAuditBuffer
+  audit: SubagentAuditBuffer,
+  acceptsOutcome: () => boolean,
+  onSteeringApplied?: (update: TurnSteerUpdate) => Promise<void>
 ): Promise<void> {
   for (const update of updates) {
     const event = update.actorEvent
@@ -636,12 +820,53 @@ async function steerActiveTurn(
     const command = jsonObject(jsonObject(jsonObject(event.payload_json).data).command)
     const text = stringValue(command.argsText)
     if (!text) continue
-    await client.request('turn/steer', {
-      threadId,
-      expectedTurnId: turnId,
-      input: textInput(text)
+    try {
+      await client.request('turn/steer', {
+        threadId,
+        expectedTurnId: turnId,
+        clientUserMessageId: event.actor_event_id,
+        input: textInput(text)
+      })
+      if (!acceptsOutcome()) continue
+      await onSteeringApplied?.(update)
+      if (!acceptsOutcome()) continue
+      audit.enqueue('tool', 'turn_steer', { text, actor_event_id: event.actor_event_id })
+    } catch (error) {
+      if (!acceptsOutcome()) continue
+      audit.enqueue('tool', 'turn_steer_failed', {
+        summary: errorMessage(error),
+        actor_event_id: event.actor_event_id
+      })
+      if (!isSteerCompletionRace(error)) throw new SubagentSteerDeliveryError(error)
+    }
+  }
+}
+
+function isSteerCompletionRace(error: unknown): boolean {
+  return /(?:turn\s+)?already (?:completed|finished)|turn .* (?:has )?(?:completed|finished)/i.test(errorMessage(error))
+}
+
+class SubagentSteerDeliveryError extends Error {
+  readonly code = 'subagent_steer_delivery_failed'
+  readonly retryable = true
+
+  constructor(cause: unknown) {
+    super(`Subagent steer delivery failed: ${errorMessage(cause)}`, {
+      cause: cause instanceof Error ? cause : undefined
     })
-    audit.enqueue('tool', 'turn_steer', { text, actor_event_id: event.actor_event_id })
+    this.name = 'SubagentSteerDeliveryError'
+  }
+}
+
+class SubagentPendingSteerError extends Error {
+  readonly code = 'subagent_pending_steer'
+  readonly retryable = true
+
+  constructor(cause: unknown) {
+    super(`Subagent terminal commit deferred for pending steering: ${errorMessage(cause)}`, {
+      cause: cause instanceof Error ? cause : undefined
+    })
+    this.name = 'SubagentPendingSteerError'
   }
 }
 

@@ -1,7 +1,7 @@
 defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
   use Ankole.DataCase, async: false
 
-  alias Ankole.Actors.ActorEvent
+  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.Inbound
   alias Ankole.Repo

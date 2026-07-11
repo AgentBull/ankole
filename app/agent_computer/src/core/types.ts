@@ -2,11 +2,12 @@
  * Worker agent types for the AIGateway Responses loop.
  *
  * The worker owns tool execution, environment state, and the loop driver.
- * It does NOT own history expansion, compaction, or stop-strategy state.
+ * It owns the local Agent loop budget, but not history expansion, compaction,
+ * continuation anchors, or durable response state.
  */
 
 import type { z } from 'zod'
-import type { Message, ModelConfig, ContentPart, StatefulResponseContext } from './llm'
+import type { AssistantMessage, Message, ModelConfig, ContentPart, StatefulResponseContext } from './llm'
 
 // Re-export the core LLM types so consumers can import from one place.
 export type {
@@ -55,10 +56,7 @@ export interface AgentLoopConfig {
   tools?: AgentTool[]
 
   /** Max main-loop model/API iterations before a final no-tools summary call. */
-  maxModelIterations?: number
-
-  /** Max model→tool rounds before the worker aborts a runaway tool loop. */
-  maxToolRounds?: number
+  maxModelIterations: number
 
   /** Max output tokens per model call. */
   maxTokens?: number
@@ -80,6 +78,14 @@ export interface AgentLoopConfig {
 
   /** Runs work that should not count against model/provider inactivity tracking. */
   withActivitySuspended?: <T>(description: string, fn: () => Promise<T>) => Promise<T>
+}
+
+export type AgentLoopOutcome = 'loop_finished' | 'iteration_exhausted'
+
+export type AgentLoopResult = {
+  message: AssistantMessage
+  responseId: string
+  outcome: AgentLoopOutcome
 }
 
 /**

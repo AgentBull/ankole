@@ -337,7 +337,7 @@ diagnostics may be written in a separate best-effort update after rollback.
 
 ## Fire Worker
 
-The Oban worker is `Ankole.ActorRuntime.Jobs.FireScheduledEvent`.
+The Oban worker is `Ankole.SignalsGateway.ActorRuntime.Jobs.FireScheduledEvent`.
 
 Its job args contain only:
 
@@ -592,8 +592,8 @@ Any model calls the turn already made remain committed in
 assistant or introspection message is created.
 
 The worker must not express silent success by staying silent. The turn still
-needs a fenced, committable, auditable terminal result — either the AIGateway
-terminal commit of a final output, or the explicit noop marker.
+needs a fenced, committable, auditable terminal result — either
+`turn_completed` naming the adopted final Response or the explicit noop marker.
 
 Provider-visible output uses normal `signal_gateway_outbox` rows. The scheduler
 does not send messages directly from the fire worker, and the worker should not

@@ -11,8 +11,8 @@ defmodule Ankole.E2E.WaitHelpers do
   import ExUnit.Assertions
 
   alias Ankole.AIGateway.Schemas.Message
-  alias Ankole.Actors.ActorEvent
-  alias Ankole.ActorRuntime.Schemas.AgentComputerWorker
+  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.Repo
   alias Ankole.RuntimeEvents
   alias Ankole.RuntimeEvents.Event
@@ -393,7 +393,10 @@ defmodule Ankole.E2E.WaitHelpers do
   @spec ai_messages_for_actor_event(Ecto.UUID.t()) :: [Message.t()]
   def ai_messages_for_actor_event(actor_event_id) do
     Message
-    |> where([message], fragment("?->>'actor_event_id'", message.metadata) == ^actor_event_id)
+    |> where(
+      [message],
+      fragment("?#>>'{request_metadata,actor_event_id}'", message.metadata) == ^actor_event_id
+    )
     |> order_by([message], asc: message.inserted_at, asc: message.id)
     |> Repo.all()
   end
@@ -401,7 +404,7 @@ defmodule Ankole.E2E.WaitHelpers do
   defp insert_transcript_message!(agent_uid, conversation_id, role, text, previous_message_id) do
     %Message{}
     |> Message.changeset(%{
-      agent_uid: agent_uid,
+      subject_uid: agent_uid,
       conversation_id: conversation_id,
       previous_message_id: previous_message_id,
       role: role,
@@ -505,7 +508,10 @@ defmodule Ankole.E2E.WaitHelpers do
 
   defp ai_message_for_actor_event_latest(actor_event_id) do
     Message
-    |> where([message], fragment("?->>'actor_event_id'", message.metadata) == ^actor_event_id)
+    |> where(
+      [message],
+      fragment("?#>>'{request_metadata,actor_event_id}'", message.metadata) == ^actor_event_id
+    )
     |> order_by([message], desc: message.inserted_at, desc: message.id)
     |> limit(1)
     |> Repo.one()
@@ -520,7 +526,13 @@ defmodule Ankole.E2E.WaitHelpers do
   defp mirrored_latest_final_reply_for_actor_event(actor_event_id) do
     case final_ai_message_for_actor_event(actor_event_id) do
       %Message{} = message ->
-        case Repo.get_by(Entry, ai_message_id: message.id) do
+        case Entry
+             |> where([entry], entry.ai_message_id == ^message.id)
+             |> where(
+               [entry],
+               fragment("?#>>'{actor_event_id}'", entry.metadata) == ^actor_event_id
+             )
+             |> Repo.one() do
           %Entry{} = entry -> {entry, message}
           nil -> nil
         end
@@ -532,7 +544,10 @@ defmodule Ankole.E2E.WaitHelpers do
 
   defp final_answer_messages_for_actor_event(actor_event_id) do
     Message
-    |> where([message], fragment("?->>'actor_event_id'", message.metadata) == ^actor_event_id)
+    |> where(
+      [message],
+      fragment("?#>>'{request_metadata,actor_event_id}'", message.metadata) == ^actor_event_id
+    )
     |> where([message], message.status == "complete")
     |> order_by([message], desc: message.inserted_at, desc: message.id)
     |> Repo.all()

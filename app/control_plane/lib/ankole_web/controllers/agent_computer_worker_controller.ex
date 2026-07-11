@@ -6,7 +6,7 @@ defmodule AnkoleWeb.AgentComputerWorkerController do
   use AnkoleWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
-  alias Ankole.ActorRuntime
+  alias Ankole.SignalsGateway
   alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.ConsoleApi.AgentComputerWorkerListResponse
@@ -29,7 +29,7 @@ defmodule AnkoleWeb.AgentComputerWorkerController do
 
   def index(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "agent_computer_workers", "read") do
-      json(conn, %{data: Enum.map(ActorRuntime.list_workers(), &worker_json/1)})
+      json(conn, %{data: Enum.map(SignalsGateway.list_workers(), &worker_json/1)})
     else
       {:error, reason} -> error(conn, reason)
     end

@@ -5,10 +5,10 @@ defmodule Ankole.AIGatewayCase do
 
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AIGateway.Schemas.Message
-  alias Ankole.Actors.ActorEvent
-  alias Ankole.ActorRuntime.Schemas.ActorSessionActivation
-  alias Ankole.ActorRuntime.Schemas.ActorSessionWorkerAssignment
-  alias Ankole.ActorRuntime.Schemas.AgentComputerWorker
+  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.Repo
 
   using do
@@ -20,8 +20,8 @@ defmodule Ankole.AIGatewayCase do
 
       alias Ankole.AIGateway, warn: false
       alias Ankole.AIGateway.ProviderConfigs, warn: false
-      alias Ankole.AIGateway.ModelProfiles, warn: false
-      alias Ankole.ActorRuntime.RPCLane, warn: false
+      alias Ankole.AIAgent.ModelProfiles, warn: false
+      alias Ankole.SignalsGateway.ActorRuntime.RPCLane, warn: false
       alias AnkoleWeb.AIGatewayTokens, warn: false
     end
   end
@@ -255,7 +255,7 @@ defmodule Ankole.AIGatewayCase do
     conversation =
       Repo.insert!(%Conversation{
         id: Ecto.UUID.generate(),
-        agent_uid: agent_uid,
+        subject_uid: agent_uid,
         conversation_key: session_id,
         metadata: %{},
         inserted_at: now,
@@ -278,13 +278,13 @@ defmodule Ankole.AIGatewayCase do
       )
 
     Repo.insert!(%Message{
-      agent_uid: agent_uid,
+      subject_uid: agent_uid,
       conversation_id: conversation.id,
       type: "message",
       status: "generating",
       content: [],
       metadata: %{
-        "actor_event_id" => actor_event.id,
+        "request_metadata" => %{"actor_event_id" => actor_event.id},
         "profile" => "primary",
         "provider" => "test-provider",
         "model" => "z-ai/glm-5.2",

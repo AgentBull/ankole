@@ -4,21 +4,21 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AIAgent.Library
-  alias Ankole.AIGateway.AgentConfig
-  alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ProviderConfigs.Provider
   alias Ankole.AIGateway.ProviderRuntime
-  alias Ankole.AIGateway.ModelProfiles
+  alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.AppConfigure
-  alias Ankole.Actors.ActorEvent
-  alias Ankole.ActorRuntime.RPCLane
-  alias Ankole.ActorRuntime.WorkerAuthKey
-  alias Ankole.ActorRuntime.Schemas.ActorSessionActivation
-  alias Ankole.ActorRuntime.Schemas.AgentComputerWorker
-  alias Ankole.ActorRuntime.Schemas.ActorSessionWorkerAssignment
+  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.SignalsGateway.ActorRuntime.RPCLane
+  alias Ankole.SignalsGateway.ActorRuntime.AgentConfig
+  alias Ankole.SignalsGateway.ActorRuntime.TurnPolicy
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
   alias Ankole.Repo
 
   test "provider kind projection uses provider_kind vocabulary" do
@@ -513,8 +513,11 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                model: "gpt-5"
              })
 
-    assert {:ok, conversation} = Conversations.ensure_conversation(agent.uid, "session-vision")
-    assert {:ok, turn_start_spec} = Conversations.build_turn_start_spec(conversation)
+    assert {:ok, turn_start_spec} =
+             TurnPolicy.build_turn_start_spec(%{
+               agent_uid: agent.uid,
+               session_id: "session-vision"
+             })
 
     assert turn_start_spec.model_ref["input_modalities"] == ["text"]
 
@@ -534,10 +537,13 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert :ok = AgentConfig.ensure_registered()
     max_output_tokens_definition = AgentConfig.max_output_tokens_definition()
     inactivity_timeout_definition = AgentConfig.inactivity_timeout_ms_definition()
+    max_iterations_definition = AgentConfig.max_iterations_definition()
     assert :ok = AppConfigure.delete_global(max_output_tokens_definition)
     assert :ok = AppConfigure.delete_global(inactivity_timeout_definition)
+    assert :ok = AppConfigure.delete_global(max_iterations_definition)
     assert :ok = AppConfigure.delete_for_agent(agent.uid, max_output_tokens_definition)
     assert :ok = AppConfigure.delete_for_agent(agent.uid, inactivity_timeout_definition)
+    assert :ok = AppConfigure.delete_for_agent(agent.uid, max_iterations_definition)
 
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{
@@ -552,10 +558,9 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                model: "gpt-4o-mini"
              })
 
-    assert {:ok, conversation} =
-             Conversations.ensure_conversation(agent.uid, "session-agent-policy")
+    actor_key = %{agent_uid: agent.uid, session_id: "session-agent-policy"}
 
-    assert {:ok, turn_start_spec} = Conversations.build_turn_start_spec(conversation)
+    assert {:ok, turn_start_spec} = TurnPolicy.build_turn_start_spec(actor_key)
 
     assert turn_start_spec.model_ref["max_completion_tokens"] == 16_384
     assert get_in(turn_start_spec.request_context, ["ai_agent", "max_output_tokens"]) == nil
@@ -563,21 +568,29 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert get_in(turn_start_spec.request_context, ["ai_agent", "inactivity_timeout_ms"]) ==
              AgentConfig.default_inactivity_timeout_ms()
 
+    assert get_in(turn_start_spec.request_context, ["ai_agent", "max_iterations"]) == 90
+
     assert {:ok, 20_000} = AppConfigure.put_global(max_output_tokens_definition, 20_000)
     assert {:ok, 120_000} = AppConfigure.put_global(inactivity_timeout_definition, 120_000)
+    assert {:ok, 120} = AppConfigure.put_global(max_iterations_definition, 120)
 
-    assert {:ok, global_spec} = Conversations.build_turn_start_spec(conversation)
+    assert {:ok, global_spec} = TurnPolicy.build_turn_start_spec(actor_key)
     assert get_in(global_spec.request_context, ["ai_agent", "max_output_tokens"]) == 16_384
     assert get_in(global_spec.request_context, ["ai_agent", "inactivity_timeout_ms"]) == 120_000
+    assert get_in(global_spec.request_context, ["ai_agent", "max_iterations"]) == 120
 
     assert {:ok, 12_000} =
              AppConfigure.put_for_agent(agent.uid, max_output_tokens_definition, 12_000)
 
     assert {:ok, 0} = AppConfigure.put_for_agent(agent.uid, inactivity_timeout_definition, 0)
 
-    assert {:ok, agent_spec} = Conversations.build_turn_start_spec(conversation)
+    assert {:ok, 7} =
+             AppConfigure.put_for_agent(agent.uid, max_iterations_definition, 7)
+
+    assert {:ok, agent_spec} = TurnPolicy.build_turn_start_spec(actor_key)
     assert get_in(agent_spec.request_context, ["ai_agent", "max_output_tokens"]) == 12_000
     assert get_in(agent_spec.request_context, ["ai_agent", "inactivity_timeout_ms"]) == 0
+    assert get_in(agent_spec.request_context, ["ai_agent", "max_iterations"]) == 7
   end
 
   test "model profiles validate source-specific provider options and provider delete guard lists references" do
@@ -785,7 +798,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     conversation =
       Repo.insert!(%Conversation{
         id: Ecto.UUID.generate(),
-        agent_uid: agent_uid,
+        subject_uid: agent_uid,
         conversation_key: session_id,
         metadata: %{},
         inserted_at: now,
@@ -808,7 +821,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
       )
 
     Repo.insert!(%Message{
-      agent_uid: agent_uid,
+      subject_uid: agent_uid,
       conversation_id: conversation.id,
       type: "message",
       status: "generating",

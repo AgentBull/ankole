@@ -1173,12 +1173,12 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
         title: "ModelProfileWriteRequest",
         type: :object,
         properties: %{
+          codex_account_id: %Schema{type: :string},
           provider_id: %Schema{type: :string},
           model: %Schema{type: :string},
           context_length: %Schema{type: :integer, minimum: 1},
           provider_options: %Schema{type: :object, additionalProperties: true}
         },
-        required: [:provider_id, :model],
         additionalProperties: false
       },
       struct?: false
@@ -1278,7 +1278,7 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
         properties: %{
           root: %Schema{
             type: :string,
-            enum: ["workspace_sessions", "user_files", "agent_installed_skills"]
+            enum: Ankole.WorkerFiles.roots()
           },
           path: %Schema{type: :string},
           entries: %Schema{type: :array, items: WorkerFileEntry},
@@ -1322,7 +1322,7 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
         properties: %{
           root: %Schema{
             type: :string,
-            enum: ["workspace_sessions", "user_files", "agent_installed_skills"]
+            enum: Ankole.WorkerFiles.roots()
           },
           path: %Schema{type: :string},
           file: %Schema{type: :string, format: :binary}
@@ -1349,7 +1349,7 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
             properties: %{
               root: %Schema{
                 type: :string,
-                enum: ["workspace_sessions", "user_files", "agent_installed_skills"]
+                enum: Ankole.WorkerFiles.roots()
               },
               relative_path: %Schema{type: :string},
               size: %Schema{type: :integer},
@@ -1378,7 +1378,7 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
         properties: %{
           root: %Schema{
             type: :string,
-            enum: ["workspace_sessions", "user_files", "agent_installed_skills"]
+            enum: Ankole.WorkerFiles.roots()
           },
           from_path: %Schema{type: :string},
           to_path: %Schema{type: :string},
@@ -1406,7 +1406,7 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
             properties: %{
               root: %Schema{
                 type: :string,
-                enum: ["workspace_sessions", "user_files", "agent_installed_skills"]
+                enum: Ankole.WorkerFiles.roots()
               },
               from_relative_path: %Schema{type: :string},
               to_relative_path: %Schema{type: :string},
@@ -1438,7 +1438,7 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
             properties: %{
               root: %Schema{
                 type: :string,
-                enum: ["workspace_sessions", "user_files", "agent_installed_skills"]
+                enum: Ankole.WorkerFiles.roots()
               },
               relative_path: %Schema{type: :string},
               deleted: %Schema{type: :boolean}
@@ -1448,6 +1448,98 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
           }
         },
         required: [:data],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule CodexAccountItem do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "CodexAccountItem",
+        type: :object,
+        properties: %{
+          account_id: %Schema{type: :string},
+          name: %Schema{type: :string},
+          auth_hash: %Schema{type: :string},
+          inserted_at: %Schema{type: :string},
+          updated_at: %Schema{type: :string}
+        },
+        required: [:account_id, :name, :auth_hash, :inserted_at, :updated_at],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule CodexAccountListResponse do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "CodexAccountListResponse",
+        type: :object,
+        properties: %{data: %Schema{type: :array, items: CodexAccountItem}},
+        required: [:data],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule CodexAccountResponse do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "CodexAccountResponse",
+        type: :object,
+        properties: %{data: CodexAccountItem},
+        required: [:data],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule CodexAccountCreateRequest do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "CodexAccountCreateRequest",
+        type: :object,
+        properties: %{
+          name: %Schema{type: :string},
+          auth_json: %Schema{type: :string}
+        },
+        required: [:name, :auth_json],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule CodexAccountUpdateRequest do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "CodexAccountUpdateRequest",
+        type: :object,
+        properties: %{
+          name: %Schema{type: :string},
+          auth_json: %Schema{type: :string, nullable: true}
+        },
+        required: [:name],
         additionalProperties: false
       },
       struct?: false
@@ -1495,6 +1587,7 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
           agent_uid: %Schema{type: :string},
           session_id: %Schema{type: :string},
           runtime: %Schema{type: :string, enum: ["codex"]},
+          codex_account_id: %Schema{type: :string},
           runtime_thread_id: %Schema{type: :string, nullable: true},
           title: %Schema{type: :string, nullable: true},
           prompt: %Schema{type: :string, nullable: true},
@@ -1521,6 +1614,7 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
           :agent_uid,
           :session_id,
           :runtime,
+          :codex_account_id,
           :status,
           :attempts,
           :reply_route,

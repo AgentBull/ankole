@@ -15,17 +15,18 @@ import { useMutation } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  ankoleWebAiGatewayProviderControllerDeleteModelProfileMutation,
-  ankoleWebAiGatewayProviderControllerPutModelProfileMutation
+  ankoleWebAgentControllerDeleteModelProfileMutation,
+  ankoleWebAgentControllerPutModelProfileMutation
 } from '../api/generated/@tanstack/react-query.gen'
-import type { AgentItem, AiGatewayProviderItem } from '../api/generated/types.gen'
+import type { AgentItem, AiGatewayProviderItem, CodexAccountItem } from '../api/generated/types.gen'
 import { ErrorBlock, formatJson, parseObjectDraft } from '../console-primitives'
 import { JsonField, LabeledField } from '../console-shell'
 
-const PROFILE_NAMES = ['primary', 'light', 'heavy', 'embedding', 'rerank'] as const
+const PROFILE_NAMES = ['primary', 'light', 'heavy', 'coding', 'embedding', 'rerank'] as const
 const REQUIRED_PROFILES = new Set<string>(['primary', 'light', 'heavy'])
 
 type ProfileDraft = {
+  codexAccountId: string
   providerId: string
   model: string
   contextLength: string
@@ -39,7 +40,8 @@ export function ModelProfilesEditor({
   loading,
   onChanged,
   profiles,
-  providers
+  providers,
+  codexAccounts
 }: {
   agent: AgentItem
   error: unknown
@@ -47,18 +49,19 @@ export function ModelProfilesEditor({
   onChanged: () => void
   profiles: JsonObject
   providers: AiGatewayProviderItem[]
+  codexAccounts: CodexAccountItem[]
 }) {
   const { t } = useTranslation()
   const [drafts, setDrafts] = useState<Record<string, ProfileDraft>>({})
   const saveProfile = useMutation({
-    ...ankoleWebAiGatewayProviderControllerPutModelProfileMutation(),
+    ...ankoleWebAgentControllerPutModelProfileMutation(),
     onSuccess: (_data, variables) => {
       toast.success(t('console.models.saved', { profile: variables.path.profile }))
       onChanged()
     }
   })
   const clearProfile = useMutation({
-    ...ankoleWebAiGatewayProviderControllerDeleteModelProfileMutation(),
+    ...ankoleWebAgentControllerDeleteModelProfileMutation(),
     onSuccess: (_data, variables) => {
       toast.success(t('console.models.cleared', { profile: variables.path.profile }))
       onChanged()
@@ -79,6 +82,14 @@ export function ModelProfilesEditor({
 
   const submit = (profile: string) => {
     const draft = drafts[profile] ?? emptyProfileDraft()
+    if (profile === 'coding' && draft.codexAccountId) {
+      saveProfile.mutate({
+        body: { codex_account_id: draft.codexAccountId },
+        path: { agent_uid: agent.uid, profile }
+      })
+      return
+    }
+
     const parsedOptions = parseObjectDraft(draft.providerOptions, 'provider_options')
     if (!parsedOptions.ok) {
       updateDraft(profile, { error: parsedOptions.error })
@@ -107,7 +118,8 @@ export function ModelProfilesEditor({
       <div className="grid gap-4">
         {PROFILE_NAMES.map(profile => {
           const draft = drafts[profile] ?? emptyProfileDraft()
-          const configured = Boolean(draft.providerId && draft.model)
+          const configured = Boolean(draft.codexAccountId || (draft.providerId && draft.model))
+          const subscriptionCoding = profile === 'coding' && Boolean(draft.codexAccountId)
           return (
             <div key={profile} className="grid gap-4 border border-border bg-card p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -133,44 +145,73 @@ export function ModelProfilesEditor({
                 </div>
               </div>
               {draft.error ? <ErrorBlock error={draft.error} /> : null}
-              <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_128px]">
-                <LabeledField label={t('console.models.provider')}>
+              {profile === 'coding' ? (
+                <LabeledField
+                  label={t('console.models.coding_runtime')}
+                  description={t('console.models.coding_runtime_hint')}>
                   <Select
-                    value={draft.providerId}
-                    onValueChange={value => updateDraft(profile, { providerId: String(value) })}>
+                    value={draft.codexAccountId || 'aigateway'}
+                    onValueChange={value =>
+                      updateDraft(profile, {
+                        codexAccountId: String(value) === 'aigateway' ? '' : String(value)
+                      })
+                    }>
                     <SelectTrigger className="w-full">
-                      <SelectValue placeholder={t('console.models.provider_placeholder')} />
+                      <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {providers.map(provider => (
-                        <SelectItem key={provider.provider_id} value={provider.provider_id}>
-                          {provider.provider_id}
+                      <SelectItem value="aigateway">{t('console.models.aigateway')}</SelectItem>
+                      {codexAccounts.map(account => (
+                        <SelectItem key={account.account_id} value={account.account_id}>
+                          {account.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </LabeledField>
-                <LabeledField label={t('console.models.model')}>
-                  <Input
-                    placeholder="gpt-5"
-                    value={draft.model}
-                    onChange={event => updateDraft(profile, { model: event.target.value })}
+              ) : null}
+              {!subscriptionCoding ? (
+                <>
+                  <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_128px]">
+                    <LabeledField label={t('console.models.provider')}>
+                      <Select
+                        value={draft.providerId}
+                        onValueChange={value => updateDraft(profile, { providerId: String(value) })}>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder={t('console.models.provider_placeholder')} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {providers.map(provider => (
+                            <SelectItem key={provider.provider_id} value={provider.provider_id}>
+                              {provider.provider_id}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </LabeledField>
+                    <LabeledField label={t('console.models.model')}>
+                      <Input
+                        placeholder="gpt-5"
+                        value={draft.model}
+                        onChange={event => updateDraft(profile, { model: event.target.value })}
+                      />
+                    </LabeledField>
+                    <LabeledField label={t('console.models.context')}>
+                      <Input
+                        inputMode="numeric"
+                        value={draft.contextLength}
+                        onChange={event => updateDraft(profile, { contextLength: event.target.value })}
+                      />
+                    </LabeledField>
+                  </div>
+                  <JsonField
+                    label={t('console.models.provider_options')}
+                    minRows={3}
+                    value={draft.providerOptions}
+                    onChange={value => updateDraft(profile, { providerOptions: value })}
                   />
-                </LabeledField>
-                <LabeledField label={t('console.models.context')}>
-                  <Input
-                    inputMode="numeric"
-                    value={draft.contextLength}
-                    onChange={event => updateDraft(profile, { contextLength: event.target.value })}
-                  />
-                </LabeledField>
-              </div>
-              <JsonField
-                label={t('console.models.provider_options')}
-                minRows={3}
-                value={draft.providerOptions}
-                onChange={value => updateDraft(profile, { providerOptions: value })}
-              />
+                </>
+              ) : null}
             </div>
           )
         })}
@@ -181,6 +222,7 @@ export function ModelProfilesEditor({
 
 function emptyProfileDraft(): ProfileDraft {
   return {
+    codexAccountId: '',
     providerId: '',
     model: '',
     contextLength: '',
@@ -190,6 +232,7 @@ function emptyProfileDraft(): ProfileDraft {
 
 function draftFromProfile(profile: JsonObject): ProfileDraft {
   return {
+    codexAccountId: asString(profile.codex_account_id),
     providerId: asString(profile.provider_id),
     model: asString(profile.model),
     contextLength: profile.context_length ? String(profile.context_length) : '',

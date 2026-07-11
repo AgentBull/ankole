@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use serde::Deserialize;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 use crate::common::{KernelError, KernelResult};
 
@@ -715,7 +715,9 @@ mod tests {
         assert_eq!(input[0]["role"], json!("user"));
         assert_eq!(
             input[0]["content"][0]["text"],
-            json!("Context checkpoint: an earlier context window of this same agent already worked on this task and was compacted into the summary below. Tool side effects (files created or edited, commands run, processes started) remain in effect. Messages after this summary are verbatim and take precedence over it; continue the summary's in-progress work unless later messages supersede it.\n\nPrior work was summarized.")
+            json!(
+                "Context checkpoint: an earlier context window of this same agent already worked on this task and was compacted into the summary below. Tool side effects (files created or edited, commands run, processes started) remain in effect. Messages after this summary are verbatim and take precedence over it; continue the summary's in-progress work unless later messages supersede it.\n\nPrior work was summarized."
+            )
         );
         assert_eq!(input[1]["type"], json!("message"));
     }
@@ -744,7 +746,9 @@ mod tests {
         assert_eq!(input[0]["type"], json!("message"));
         assert_eq!(
             input[0]["content"][0]["text"],
-            json!("Context checkpoint: an earlier context window of this same agent already worked on this task and was compacted into the summary below. Tool side effects (files created or edited, commands run, processes started) remain in effect. Messages after this summary are verbatim and take precedence over it; continue the summary's in-progress work unless later messages supersede it.\n\nOpenResponses compacted state.")
+            json!(
+                "Context checkpoint: an earlier context window of this same agent already worked on this task and was compacted into the summary below. Tool side effects (files created or edited, commands run, processes started) remain in effect. Messages after this summary are verbatim and take precedence over it; continue the summary's in-progress work unless later messages supersede it.\n\nOpenResponses compacted state."
+            )
         );
         assert_eq!(input[1]["type"], json!("message"));
     }

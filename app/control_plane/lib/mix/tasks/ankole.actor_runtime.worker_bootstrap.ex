@@ -5,8 +5,8 @@ defmodule Mix.Tasks.Ankole.ActorRuntime.WorkerBootstrap do
 
   use Mix.Task
 
-  alias Ankole.ActorRuntime.WorkerBootstrap
-  alias Ankole.ActorRuntime.WorkerBootstrap.Docker
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap.Docker
 
   @shortdoc "Prints an external agent computer worker docker run command"
 

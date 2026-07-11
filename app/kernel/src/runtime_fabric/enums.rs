@@ -23,6 +23,22 @@ pub(super) fn durability_from_json(value: &Value) -> KernelResult<proto::Durabil
     }
 }
 
+pub(super) fn turn_completion_outcome_from_json(
+    value: &Value,
+) -> KernelResult<proto::TurnCompletionOutcome> {
+    match normalized_enum(value)?.as_str() {
+        "turn_completion_outcome_loop_finished" | "loop_finished" => {
+            Ok(proto::TurnCompletionOutcome::LoopFinished)
+        }
+        "turn_completion_outcome_iteration_exhausted" | "iteration_exhausted" => {
+            Ok(proto::TurnCompletionOutcome::IterationExhausted)
+        }
+        other => Err(KernelError::new(format!(
+            "unsupported turn completion outcome: {other}"
+        ))),
+    }
+}
+
 pub(super) fn lane_to_json(lane: i32) -> KernelResult<String> {
     match proto::Lane::try_from(lane).unwrap_or(proto::Lane::Unspecified) {
         proto::Lane::Unspecified => Err(KernelError::new("lane must be specified")),
@@ -38,6 +54,18 @@ pub(super) fn durability_to_json(durability: i32) -> KernelResult<String> {
             Err(KernelError::new("durability must be specified"))
         }
         durability => Ok(durability_name(durability).to_string()),
+    }
+}
+
+pub(super) fn turn_completion_outcome_to_json(outcome: i32) -> KernelResult<&'static str> {
+    match proto::TurnCompletionOutcome::try_from(outcome)
+        .unwrap_or(proto::TurnCompletionOutcome::Unspecified)
+    {
+        proto::TurnCompletionOutcome::LoopFinished => Ok("loop_finished"),
+        proto::TurnCompletionOutcome::IterationExhausted => Ok("iteration_exhausted"),
+        proto::TurnCompletionOutcome::Unspecified => Err(KernelError::new(
+            "turn completion outcome must be specified",
+        )),
     }
 }
 

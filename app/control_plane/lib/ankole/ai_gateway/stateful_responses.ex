@@ -1,18 +1,16 @@
 defmodule Ankole.AIGateway.StatefulResponses do
   @moduledoc """
-  Stateful Responses loop owner for AIGateway (new-plan2.md §3.9).
+  Durable stateful Responses owner for AIGateway.
 
   This module sits between the AIGateway transport entry (WebSocket
   `response.create` / HTTP `POST /responses`) and the provider request build.
   For each stateful `response.create + store=true` run it:
 
     1. Resolves `previous_response_id` / `conversation` into a message chain.
-    2. Creates one `ai_gateway_messages` row with `status = "generating"` and
-       optional `metadata.actor_event_id` correlation metadata.
+    2. Creates one `ai_gateway_messages` row with `status = "generating"`.
     3. Returns the row so the transport can build the provider-facing input
        (expanded history + current request items) and call the provider.
-    4. While the provider streams, live chunk events are published via
-       `Ankole.PubSub` so SignalsGateway can render IM preview/edit/finalize.
+    4. Publishes generic response events keyed by the owning conversation.
     5. When the provider reaches a terminal state, the transport calls
        `commit_complete/3` or `commit_error/4` to write the durable final
        `content` and flip the row to `complete` or `error`.
@@ -28,24 +26,16 @@ defmodule Ankole.AIGateway.StatefulResponses do
   alias Ecto.Adapters.SQL
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.Conversations
+  alias Ankole.AIGateway.Events
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AIGateway.Schemas.Message
-  alias Ankole.Actors
-  alias Ankole.Actors.ActorEvent
-  alias Ankole.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.Principals
   alias Ankole.Repo
   alias Ankole.RuntimeEvents
-  alias Ankole.SignalsGateway.AIReplyPreview
-  alias Ankole.SignalsGateway.AIReplyText
-  alias Ankole.SignalsGateway.ClarifyPrompt
-  alias Ankole.SignalsGateway.Outbox
-  alias Ankole.SignalsGateway.ReplyAttachment
 
-  @pubsub Ankole.PubSub
   @orphaned_generating_grace_seconds 300
   @history_chain_max_depth 10_000
-  @reply_attachment_chain_max_depth 500
+  @public_chain_max_depth 500
 
   # ───────────────────────────────────────────────────────────────
   # Public API
@@ -57,10 +47,8 @@ defmodule Ankole.AIGateway.StatefulResponses do
   ## Parameters
 
     * `attrs` — a map with:
-      - `agent_uid` (required) — the agent principal uid
+      - `subject_uid` (required) — the owning principal uid
       - `conversation_id` (required) — the ai_gateway_conversations.id
-      - `actor_event_id` (optional for internal callers) — worker correlation key
-        written into metadata when present.
       - `previous_response_id` (optional) — "resp_{uuid}" decoded to a
         raw UUID pointing at the anchor message
       - `request_items` (optional) — initial content items (input/function_call_output)
@@ -79,26 +67,17 @@ defmodule Ankole.AIGateway.StatefulResponses do
              Ecto.Changeset.t()
              | :invalid_anchor
              | :invalid_conversation
-             | :stateful_anchor_conflict
-             | :response_run_in_progress}
+             | :stateful_anchor_conflict}
   def start_response_run(attrs) do
-    raw_agent_uid = Map.fetch!(attrs, :agent_uid)
-    actor_event_id = Map.get(attrs, :actor_event_id, Map.get(attrs, "actor_event_id"))
+    raw_subject_uid = Map.fetch!(attrs, :subject_uid)
     conversation_id = conversation_id(attrs)
     previous_response_id = previous_response_id(attrs)
 
-    with {:ok, agent_uid} <- Principals.normalize_uid(raw_agent_uid),
+    with {:ok, subject_uid} <- Principals.normalize_uid(raw_subject_uid),
          :ok <- validate_anchor_selector(conversation_id, previous_response_id),
          {:ok, previous_message_id} <- decode_optional_response_id(previous_response_id),
          {:ok, conversation} <-
-           resolve_run_conversation(agent_uid, conversation_id, previous_message_id) do
-      # Source table: metadata.actor_event_id stores actor_events.id as
-      # correlation metadata only. Agent isolation is enforced by
-      # conversation/anchor lookup scoped by agent_uid.
-      base_metadata =
-        %{}
-        |> maybe_put_metadata("actor_event_id", actor_event_id)
-
+           resolve_run_conversation(subject_uid, conversation_id, previous_message_id) do
       extra_metadata =
         attrs
         |> Map.take([:metadata, "metadata"])
@@ -114,12 +93,10 @@ defmodule Ankole.AIGateway.StatefulResponses do
       merged_metadata =
         extra_metadata
         |> Map.merge(request_items_metadata(initial_content))
-        |> Map.merge(base_metadata)
 
       insert_response_run(%{
-        agent_uid: agent_uid,
+        subject_uid: subject_uid,
         conversation_id: conversation.id,
-        actor_event_id: actor_event_id,
         previous_message_id: previous_message_id,
         initial_content: initial_content,
         merged_metadata: merged_metadata
@@ -146,11 +123,9 @@ defmodule Ankole.AIGateway.StatefulResponses do
              Ecto.Changeset.t()
              | :invalid_anchor
              | :invalid_conversation
-             | :invalid_tool_results
-             | :missing_actor_event_id}
+             | :invalid_tool_results}
   def record_tool_results(attrs) when is_map(attrs) do
-    raw_agent_uid = Map.fetch!(attrs, :agent_uid)
-    actor_event_id = Map.get(attrs, :actor_event_id, Map.get(attrs, "actor_event_id"))
+    raw_subject_uid = Map.fetch!(attrs, :subject_uid)
     previous_response_id = previous_response_id(attrs)
     request_items = Map.get(attrs, :request_items, Map.get(attrs, "request_items", []))
 
@@ -163,20 +138,18 @@ defmodule Ankole.AIGateway.StatefulResponses do
         _ -> %{}
       end
 
-    with {:ok, agent_uid} <- Principals.normalize_uid(raw_agent_uid),
-         :ok <- validate_actor_event_id(actor_event_id),
+    with {:ok, subject_uid} <- Principals.normalize_uid(raw_subject_uid),
          :ok <- validate_tool_result_items(request_items),
          {:ok, previous_message_id} <- decode_response_id(previous_response_id),
          %Message{status: "complete"} = anchor <-
-           complete_message_for_agent(agent_uid, previous_message_id) do
+           complete_message_for_subject(subject_uid, previous_message_id) do
       idempotency_key =
-        tool_result_idempotency_key(agent_uid, actor_event_id, previous_message_id, request_items)
+        tool_result_idempotency_key(subject_uid, previous_message_id, request_items)
 
       merged_metadata =
         extra_metadata
         |> Map.merge(request_items_metadata(request_items))
         |> Map.merge(%{
-          "actor_event_id" => actor_event_id,
           "tool_result_journal" => true,
           "tool_result_idempotency_key" => idempotency_key
         })
@@ -191,9 +164,8 @@ defmodule Ankole.AIGateway.StatefulResponses do
   end
 
   defp insert_response_run(%{
-         agent_uid: agent_uid,
+         subject_uid: subject_uid,
          conversation_id: conversation_id,
-         actor_event_id: actor_event_id,
          previous_message_id: previous_message_id,
          initial_content: initial_content,
          merged_metadata: merged_metadata
@@ -201,7 +173,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
     changeset =
       %Message{}
       |> Message.changeset(%{
-        agent_uid: agent_uid,
+        subject_uid: subject_uid,
         conversation_id: conversation_id,
         type: "message",
         status: "generating",
@@ -211,37 +183,20 @@ defmodule Ankole.AIGateway.StatefulResponses do
       })
 
     case Repo.transact(fn repo ->
-           with :ok <-
-                  recover_stale_generating_run_in_tx(
-                    repo,
-                    agent_uid,
-                    actor_event_id,
-                    DateTime.utc_now(:microsecond)
-                  ),
-                {:ok, message} <- repo.insert(changeset),
+           with {:ok, message} <- repo.insert(changeset),
                 :ok <- notify_ai_message_deadline(repo, message) do
              {:ok, message}
            end
          end) do
       {:ok, %Message{} = message} ->
-        # Publish a "response.started" live event so SignalsGateway knows a
-        # new generating row exists. Subscribers use this to set up preview.
-        publish_live_event(message, :response_started, %{})
+        Events.publish(message, :response_started, %{})
         {:ok, message}
 
       {:error, %Ecto.Changeset{} = changeset} ->
-        insert_response_run_changeset_error(changeset)
+        {:error, changeset}
 
       {:error, _reason} = error ->
         error
-    end
-  end
-
-  defp insert_response_run_changeset_error(%Ecto.Changeset{} = changeset) do
-    if unique_constraint_error?(changeset, "ai_gateway_messages_generating_actor_event_index") do
-      {:error, :response_run_in_progress}
-    else
-      {:error, changeset}
     end
   end
 
@@ -251,8 +206,9 @@ defmodule Ankole.AIGateway.StatefulResponses do
          merged_metadata,
          idempotency_key
        ) do
-    case fetch_tool_result_journal(anchor.agent_uid, idempotency_key) do
+    case fetch_tool_result_journal(anchor.subject_uid, idempotency_key) do
       {:ok, %Message{} = message} ->
+        publish_tool_result_events(message, request_items)
         {:ok, message}
 
       {:error, :invalid_anchor} ->
@@ -269,7 +225,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
     changeset =
       %Message{}
       |> Message.changeset(%{
-        agent_uid: anchor.agent_uid,
+        subject_uid: anchor.subject_uid,
         conversation_id: anchor.conversation_id,
         type: "message",
         status: "complete",
@@ -280,6 +236,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
 
     case Repo.insert(changeset) do
       {:ok, %Message{} = message} ->
+        publish_tool_result_events(message, request_items)
         {:ok, message}
 
       {:error, %Ecto.Changeset{} = changeset} ->
@@ -287,17 +244,24 @@ defmodule Ankole.AIGateway.StatefulResponses do
              changeset,
              "ai_gateway_messages_tool_result_journal_key_index"
            ) do
-          fetch_tool_result_journal(anchor.agent_uid, idempotency_key)
+          case fetch_tool_result_journal(anchor.subject_uid, idempotency_key) do
+            {:ok, %Message{} = message} = result ->
+              publish_tool_result_events(message, request_items)
+              result
+
+            {:error, _reason} = error ->
+              error
+          end
         else
           {:error, changeset}
         end
     end
   end
 
-  defp fetch_tool_result_journal(agent_uid, idempotency_key) do
+  defp fetch_tool_result_journal(subject_uid, idempotency_key) do
     case Repo.one(
            from(message in Message,
-             where: message.agent_uid == ^agent_uid,
+             where: message.subject_uid == ^subject_uid,
              where:
                fragment(
                  "?->>'tool_result_idempotency_key'",
@@ -331,14 +295,17 @@ defmodule Ankole.AIGateway.StatefulResponses do
   defp function_call_output_item?(%{"type" => "function_call_output"}), do: true
   defp function_call_output_item?(_item), do: false
 
-  defp validate_actor_event_id(actor_event_id) when is_binary(actor_event_id) do
-    case String.trim(actor_event_id) do
-      "" -> {:error, :missing_actor_event_id}
-      _value -> :ok
-    end
+  defp publish_tool_result_events(%Message{} = message, request_items) do
+    request_items
+    |> Enum.filter(&function_call_output_item?/1)
+    |> Enum.each(fn item ->
+      Events.publish(
+        message,
+        :tool_call_completed,
+        item |> Map.take(["call_id", "name", "output"]) |> Map.put_new("seq", nil)
+      )
+    end)
   end
-
-  defp validate_actor_event_id(_actor_event_id), do: {:error, :missing_actor_event_id}
 
   defp validate_tool_result_items(request_items) when is_list(request_items) do
     case Enum.any?(request_items, &function_call_output_item?/1) do
@@ -349,13 +316,8 @@ defmodule Ankole.AIGateway.StatefulResponses do
 
   defp validate_tool_result_items(_request_items), do: {:error, :invalid_tool_results}
 
-  defp tool_result_idempotency_key(
-         agent_uid,
-         actor_event_id,
-         previous_message_id,
-         request_items
-       ) do
-    stable_term = {agent_uid, actor_event_id, previous_message_id, request_items}
+  defp tool_result_idempotency_key(subject_uid, previous_message_id, request_items) do
+    stable_term = {subject_uid, previous_message_id, request_items}
 
     stable_term
     |> :erlang.term_to_binary()
@@ -367,28 +329,6 @@ defmodule Ankole.AIGateway.StatefulResponses do
     Enum.any?(errors, fn {_field, {_message, opts}} ->
       opts[:constraint] == :unique and opts[:constraint_name] == constraint_name
     end)
-  end
-
-  defp recover_stale_generating_run_in_tx(_repo, _agent_uid, nil, _now), do: :ok
-  defp recover_stale_generating_run_in_tx(_repo, _agent_uid, "", _now), do: :ok
-
-  defp recover_stale_generating_run_in_tx(repo, agent_uid, actor_event_id, now) do
-    case generating_message_for_actor_event(repo, actor_event_id, agent_uid: agent_uid) do
-      nil ->
-        :ok
-
-      %Message{} = message ->
-        cond do
-          not generating_message_stale?(message, now) ->
-            {:error, :response_run_in_progress}
-
-          live_delivery_exists?(repo, agent_uid, actor_event_id) ->
-            {:error, :response_run_in_progress}
-
-          true ->
-            fail_stale_generating_run(repo, message, now)
-        end
-    end
   end
 
   @doc """
@@ -404,23 +344,18 @@ defmodule Ankole.AIGateway.StatefulResponses do
   def orphaned_generating_cutoff(now),
     do: DateTime.add(now, -orphaned_generating_grace_seconds(), :second)
 
-  @doc """
-  Loads one live generating response row by the actor event fence.
-  """
-  @spec generating_message_for_actor_event(module(), binary() | nil, keyword()) ::
-          Message.t() | nil
-  def generating_message_for_actor_event(repo, actor_event_id, opts \\ [])
-  def generating_message_for_actor_event(_repo, nil, _opts), do: nil
-  def generating_message_for_actor_event(_repo, "", _opts), do: nil
-
-  def generating_message_for_actor_event(repo, actor_event_id, opts) do
-    query =
-      generating_messages_query()
-      |> where([message], fragment("?->>'actor_event_id'", message.metadata) == ^actor_event_id)
-      |> maybe_scope_generating_query_to_agent(Keyword.get(opts, :agent_uid))
-      |> lock("FOR UPDATE")
-
-    repo.one(query)
+  @doc false
+  @spec runtime_event_snapshot() :: [{String.t(), map()}]
+  def runtime_event_snapshot do
+    generating_messages_query()
+    |> Repo.all()
+    |> Enum.map(fn message ->
+      {RuntimeEvents.ai_message_deadline_channel(),
+       %{
+         "message_id" => message.id,
+         "orphan_at" => RuntimeEvents.encode_datetime(ai_message_orphan_at(message))
+       }}
+    end)
   end
 
   @doc """
@@ -448,78 +383,161 @@ defmodule Ankole.AIGateway.StatefulResponses do
     |> repo.one()
   end
 
-  @doc false
-  @spec record_preview_source_entry(binary(), binary()) :: :ok | {:error, term()}
-  def record_preview_source_entry(actor_event_id, source_entry_id)
-      when is_binary(actor_event_id) and is_binary(source_entry_id) do
+  @doc """
+  Refreshes a generating response lease and schedules its next orphan deadline.
+  """
+  @spec touch_generating_response(String.t(), binary()) ::
+          {:ok, Message.t() | :already_terminal} | {:error, :not_found | term()}
+  def touch_generating_response(subject_uid, response_id) do
+    now = DateTime.utc_now(:microsecond)
+
+    with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid),
+         {:ok, message_id} <- decode_response_id(response_id) do
+      Repo.transact(fn repo ->
+        case repo.update_all(
+               from(message in Message,
+                 where:
+                   message.id == ^message_id and
+                     message.subject_uid == ^subject_uid and
+                     message.status == "generating",
+                 select: message
+               ),
+               [set: [updated_at: now]],
+               returning: true
+             ) do
+          {1, [%Message{} = message]} ->
+            with :ok <- notify_ai_message_deadline(repo, message), do: {:ok, message}
+
+          {0, []} ->
+            case repo.get_by(Message, id: message_id, subject_uid: subject_uid) do
+              %Message{} -> {:ok, :already_terminal}
+              nil -> {:error, :not_found}
+            end
+        end
+      end)
+    else
+      _invalid -> {:error, :not_found}
+    end
+  end
+
+  @doc """
+  Marks one explicitly identified generating response as failed.
+  """
+  @spec fail_generating_response(String.t(), binary(), map()) ::
+          {:ok, Message.t() | :already_terminal} | {:error, :not_found | term()}
+  def fail_generating_response(subject_uid, response_id, error_details)
+      when is_map(error_details) do
     now = DateTime.utc_now(:microsecond)
 
     case Repo.transact(fn repo ->
-           case generating_message_for_actor_event(repo, actor_event_id) do
-             %Message{} = message ->
-               metadata =
-                 (message.metadata || %{})
-                 |> Map.put("preview_source_entry_id", source_entry_id)
+           fail_generating_response_in_tx(
+             repo,
+             subject_uid,
+             response_id,
+             error_details,
+             now
+           )
+         end) do
+      {:ok, %Message{} = message} = ok ->
+        Events.publish(message, :response_failed, %{error: error_details})
+        ok
 
-               with {:ok, message} <-
-                      message
-                      |> Message.changeset(%{metadata: metadata, updated_at: now})
-                      |> repo.update(),
-                    :ok <- notify_ai_message_deadline(repo, message) do
-                 {:ok, :ok}
-               end
+      other ->
+        other
+    end
+  end
 
-             nil ->
-               {:ok, :ok}
+  @doc """
+  Transactional variant of `fail_generating_response/3` for callers that own a
+  wider transaction. It has no domain-specific side effects.
+  """
+  @spec fail_generating_response_in_tx(module(), String.t(), binary(), map(), DateTime.t()) ::
+          {:ok, Message.t() | :already_terminal} | {:error, :not_found | term()}
+  def fail_generating_response_in_tx(repo, subject_uid, response_id, error_details, now)
+      when is_map(error_details) do
+    with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid),
+         {:ok, message_id} <- decode_response_id(response_id) do
+      case lock_response_for_subject(repo, subject_uid, message_id) do
+        %Message{status: "generating"} = message ->
+          metadata = Map.put(message.metadata || %{}, "error", error_details)
+
+          case repo.update_all(
+                 from(candidate in Message,
+                   where: candidate.id == ^message.id and candidate.status == "generating",
+                   select: candidate
+                 ),
+                 [set: [status: "error", metadata: metadata, updated_at: now]],
+                 returning: true
+               ) do
+            {1, [%Message{} = updated]} -> {:ok, updated}
+            {0, []} -> {:ok, :already_terminal}
+          end
+
+        %Message{} ->
+          {:ok, :already_terminal}
+
+        nil ->
+          {:error, :not_found}
+      end
+    else
+      _invalid -> {:error, :not_found}
+    end
+  end
+
+  @doc """
+  Reconciles one orphan deadline using only the response row's own heartbeat.
+  """
+  @spec reconcile_orphaned_response(binary(), keyword()) ::
+          {:ok, :failed | :live | :already_terminal} | {:error, term()}
+  def reconcile_orphaned_response(response_id, opts \\ []) do
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+
+    case Repo.transact(fn repo ->
+           with {:ok, message_id} <- decode_response_id(response_id) do
+             case lock_generating_message_by_id(repo, message_id) do
+               %Message{} = message ->
+                 if generating_message_stale?(message, now) do
+                   error = %{
+                     "code" => "orphaned_generating_response",
+                     "reason" => "response heartbeat expired before a terminal commit",
+                     "stage" => "ai_message_deadline",
+                     "retryable" => true
+                   }
+
+                   with {:ok, %Message{} = failed} <-
+                          fail_generating_response_in_tx(
+                            repo,
+                            message.subject_uid,
+                            message.id,
+                            error,
+                            now
+                          ) do
+                     {:ok, {:failed, failed, error}}
+                   end
+                 else
+                   with :ok <- notify_ai_message_deadline(repo, message), do: {:ok, :live}
+                 end
+
+               nil ->
+                 {:ok, :already_terminal}
+             end
            end
          end) do
-      {:ok, :ok} -> :ok
-      {:error, _reason} = error -> error
+      {:ok, {:failed, %Message{} = message, error}} ->
+        Events.publish(message, :response_failed, %{error: error})
+        {:ok, :failed}
+
+      other ->
+        other
     end
   end
 
-  defp maybe_scope_generating_query_to_agent(query, nil), do: query
-  defp maybe_scope_generating_query_to_agent(query, ""), do: query
-
-  defp maybe_scope_generating_query_to_agent(query, agent_uid),
-    do: where(query, [message], message.agent_uid == ^agent_uid)
-
-  defp live_delivery_exists?(repo, agent_uid, actor_event_id) do
-    ActorEventDelivery
-    |> where([delivery], delivery.agent_uid == ^agent_uid)
-    |> where([delivery], delivery.actor_event_id_fence == ^actor_event_id)
-    |> where([delivery], delivery.state in ^ActorEventDelivery.live_states())
-    |> repo.exists?()
-  end
-
-  defp fail_stale_generating_run(repo, %Message{} = message, now) do
-    error_details = %{
-      "code" => "stale_generating_response",
-      "reason" => "stale generating response was replaced before a retry",
-      "stage" => "stateful_response_start"
-    }
-
-    metadata =
-      (message.metadata || %{})
-      |> Map.put("error", error_details)
-
-    case repo.update_all(
-           from(m in Message,
-             where: m.id == ^message.id and m.status == "generating",
-             select: m
-           ),
-           [
-             set: [
-               status: "error",
-               metadata: metadata,
-               updated_at: now
-             ]
-           ],
-           returning: true
-         ) do
-      {count, [_updated]} when count > 0 -> :ok
-      {0, []} -> {:error, :response_run_in_progress}
-    end
+  defp lock_response_for_subject(repo, subject_uid, message_id) do
+    Message
+    |> where([message], message.id == ^message_id)
+    |> where([message], message.subject_uid == ^subject_uid)
+    |> lock("FOR UPDATE")
+    |> repo.one()
   end
 
   @doc """
@@ -550,56 +568,38 @@ defmodule Ankole.AIGateway.StatefulResponses do
     now = DateTime.utc_now(:microsecond)
 
     case Repo.transact(fn repo ->
-           with %Message{} = current_message <- lock_generating_message_by_id(repo, message.id),
-                :ok <- ensure_message_actor_event_source_live_in_tx(repo, current_message, now) do
-             merged_metadata = Map.merge(current_message.metadata || %{}, extra_metadata)
+           case lock_generating_message_by_id(repo, message.id) do
+             %Message{} = current_message ->
+               merged_metadata = Map.merge(current_message.metadata || %{}, extra_metadata)
 
-             case repo.update_all(
-                    from(m in Message,
-                      where: m.id == ^message.id and m.status == "generating",
-                      select: m
-                    ),
-                    [
-                      set: [
-                        status: "complete",
-                        content: final_content,
-                        metadata: merged_metadata,
-                        updated_at: now
-                      ]
-                    ],
-                    returning: true
-                  ) do
-               {count, [updated]} when count > 0 ->
-                 with {:ok, _attachment_outboxes} <-
-                        commit_reply_attachment_outboxes_in_tx(repo, updated, final_content),
-                      {:ok, clarify_outbox} <-
-                        commit_clarify_outbox_in_tx(repo, updated, final_content),
-                      {:ok, _final_reply_outbox} <-
-                        commit_final_reply_outbox_in_tx(
-                          repo,
-                          updated,
-                          final_content,
-                          is_nil(clarify_outbox)
-                        ),
-                      {:ok, _actor_event_result} <-
-                        maybe_complete_actor_event_in_tx(repo, updated, final_content, now) do
+               case repo.update_all(
+                      from(m in Message,
+                        where: m.id == ^message.id and m.status == "generating",
+                        select: m
+                      ),
+                      [
+                        set: [
+                          status: "complete",
+                          content: final_content,
+                          metadata: merged_metadata,
+                          updated_at: now
+                        ]
+                      ],
+                      returning: true
+                    ) do
+                 {count, [updated]} when count > 0 ->
                    {:ok, updated}
-                 end
 
-               {0, []} ->
-                 {:ok, :already_terminal}
-             end
-           else
-             nil -> {:ok, :already_terminal}
-             {:error, _reason} = error -> error
+                 {0, []} ->
+                   {:ok, :already_terminal}
+               end
+
+             nil ->
+               {:ok, :already_terminal}
            end
          end) do
       {:ok, %Message{} = updated} ->
-        publish_live_event(updated, :response_completed, %{
-          content: final_content,
-          response_id: "resp_#{updated.id}",
-          actor_event_id: updated.metadata["actor_event_id"]
-        })
+        Events.publish(updated, complete_event_type(updated), %{content: final_content})
 
         {:ok, updated}
 
@@ -636,7 +636,6 @@ defmodule Ankole.AIGateway.StatefulResponses do
   defp commit_error_loaded(%Message{} = message, partial_content, error_details, opts) do
     final_content = durable_terminal_content(message, partial_content)
     now = DateTime.utc_now(:microsecond)
-    complete_actor_event? = Keyword.get(opts, :complete_actor_event?, true)
     extra_metadata = Keyword.get(opts, :metadata, %{})
 
     case Repo.transact(fn repo ->
@@ -663,14 +662,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
                       returning: true
                     ) do
                  {count, [updated]} when count > 0 ->
-                   if complete_actor_event? do
-                     with {:ok, _actor_event_result} <-
-                            complete_actor_event_in_tx(repo, updated, now) do
-                       {:ok, updated}
-                     end
-                   else
-                     {:ok, updated}
-                   end
+                   {:ok, updated}
 
                  {0, []} ->
                    {:ok, :already_terminal}
@@ -681,11 +673,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
            end
          end) do
       {:ok, %Message{} = updated} ->
-        publish_live_event(updated, :response_failed, %{
-          error: error_details,
-          response_id: "resp_#{updated.id}",
-          actor_event_id: updated.metadata["actor_event_id"]
-        })
+        Events.publish(updated, :response_failed, %{error: error_details})
 
         {:ok, updated}
 
@@ -698,54 +686,27 @@ defmodule Ankole.AIGateway.StatefulResponses do
   end
 
   @doc """
-  Publishes a live chunk event for an in-progress response run.
-
-  Live chunks are NOT durable — they are not written to `ai_gateway_messages`.
-  They are published via PubSub so SignalsGateway can render IM preview/edit.
-   Only terminal states write to the database (via `commit_complete` /
-   `commit_error`).
-
-  ## Parameters
-
-    * `message` — the generating message row (or its id)
-    * `chunk` — the live chunk payload (text delta, tool call delta, etc.)
-    * `seq` — optional sequence number for ordering
-  """
-  # Publishes a typed live chunk event via PubSub.
-  # The event_type is a semantic tag (e.g. :output_text_delta), not a provider
-  # frame name — provider raw event names must not leak into runtime semantics.
-  @spec publish_typed_event(binary(), atom(), map()) :: :ok
-  def publish_typed_event(actor_event_id, event_type, payload) do
-    topic = live_topic(actor_event_id)
-    Phoenix.PubSub.broadcast(@pubsub, topic, {:ai_gateway_live, event_type, payload})
-  end
-
-  @doc """
   Publishes a terminal live event for a response row that was moved to a terminal
   state outside the normal WebSocket commit path.
   """
-  @spec publish_terminal_event(Message.t(), :response_completed | :response_failed, map()) :: :ok
+  @spec publish_terminal_event(
+          Message.t(),
+          :response_completed | :response_incomplete | :response_failed,
+          map()
+        ) :: :ok
   def publish_terminal_event(%Message{} = message, event_type, payload)
-      when event_type in [:response_completed, :response_failed] do
-    publish_live_event(message, event_type, payload)
+      when event_type in [:response_completed, :response_incomplete, :response_failed] do
+    Events.publish(message, event_type, payload)
   end
 
-  @doc """
-  Subscribes the calling process to live events for an actor event.
-  Topic is keyed by actor_event_id — stable across all loop rounds.
-  """
-  @spec subscribe(binary()) :: :ok
-  def subscribe(actor_event_id) do
-    Phoenix.PubSub.subscribe(@pubsub, live_topic(actor_event_id))
-  end
+  defp complete_event_type(%Message{metadata: %{"response" => %{"status" => "incomplete"}}}),
+    do: :response_incomplete
 
-  @doc """
-  Unsubscribes the calling process from live events for an actor event.
-  """
-  @spec unsubscribe(binary()) :: :ok
-  def unsubscribe(actor_event_id) do
-    Phoenix.PubSub.unsubscribe(@pubsub, live_topic(actor_event_id))
-  end
+  defp complete_event_type(%Message{metadata: %{"incomplete_details" => details}})
+       when is_map(details),
+       do: :response_incomplete
+
+  defp complete_event_type(_message), do: :response_completed
 
   @doc """
   Expands the message chain for history projection.
@@ -779,36 +740,46 @@ defmodule Ankole.AIGateway.StatefulResponses do
   end
 
   @doc """
-  Counts durable provider function_call items for one actor event on an anchor chain.
+  Lists an immutable response chain from the requested response backwards.
 
-  This deliberately walks the raw `previous_message_id` chain instead of the
-  projected history so compaction coverage cannot reset the tool-loop guard.
+  Rows are returned final-first and include checkpoints. Traversal is capped at
+  500 rows even when a larger limit is requested.
   """
-  @spec count_function_calls_for_actor_event(binary(), term(), binary() | nil) ::
-          non_neg_integer()
-  def count_function_calls_for_actor_event(
-        _conversation_id,
-        _previous_response_id,
-        actor_event_id
-      )
-      when actor_event_id in [nil, ""],
-      do: 0
+  @spec list_response_chain(String.t(), binary(), pos_integer()) ::
+          {:ok, [Message.t()]} | {:error, :not_found}
+  def list_response_chain(subject_uid, response_id, max_depth \\ @public_chain_max_depth) do
+    max_depth = normalize_public_chain_depth(max_depth)
 
-  def count_function_calls_for_actor_event(conversation_id, previous_response_id, actor_event_id) do
-    with {:ok, conversation_id} <- cast_uuid(conversation_id),
-         {:ok, anchor_id} <-
-           history_anchor(conversation_id, previous_response_id: previous_response_id),
-         true <- is_binary(anchor_id) do
-      Repo
-      |> chain_messages(conversation_id, anchor_id)
-      |> Enum.filter(&function_call_count_candidate?(&1, actor_event_id))
-      |> Enum.flat_map(fn
-        %Message{content: content} when is_list(content) -> content
-        _message -> []
-      end)
-      |> Enum.count(&function_call_item?/1)
+    with {:ok, %Message{} = final} <- get_response_for_subject(subject_uid, response_id) do
+      {:ok, chain_messages(Repo, final.conversation_id, final.id, max_depth)}
+    end
+  end
+
+  @doc """
+  Lists Response rows for one owned conversation inside a caller transaction.
+
+  This is a generic Response query. Callers may filter by lifecycle status, but
+  AIGateway does not interpret caller metadata or choose an Actor target.
+  """
+  @spec list_conversation_responses_in_tx(module(), String.t(), binary(), keyword()) ::
+          {:ok, [Message.t()]} | {:error, :invalid_conversation}
+  def list_conversation_responses_in_tx(repo, subject_uid, conversation_id, opts \\ []) do
+    statuses = Keyword.get(opts, :statuses)
+
+    with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid),
+         {:ok, conversation_id} <- cast_uuid(conversation_id),
+         %Conversation{} <- lock_owned_conversation(repo, subject_uid, conversation_id) do
+      query =
+        Message
+        |> where([message], message.subject_uid == ^subject_uid)
+        |> where([message], message.conversation_id == ^conversation_id)
+        |> order_by([message], desc: message.inserted_at, desc: message.id)
+        |> maybe_filter_response_statuses(statuses)
+        |> maybe_lock_response_rows(Keyword.get(opts, :lock, false))
+
+      {:ok, repo.all(query)}
     else
-      _missing_or_invalid_anchor -> 0
+      _invalid_or_missing -> {:error, :invalid_conversation}
     end
   end
 
@@ -829,38 +800,41 @@ defmodule Ankole.AIGateway.StatefulResponses do
   end
 
   @doc """
-  Hard deletes the current visible tail produced by a completed actor event.
+  Hard deletes an explicitly selected, contiguous visible response suffix.
 
-  This is intentionally narrower than historical retraction. It only deletes a
-  contiguous terminal suffix of ordinary complete message rows whose
-  `metadata.actor_event_id` equals the removed source event's actor event. Once
-  another actor event or a checkpoint row has been appended, v1 leaves history
-  untouched instead of rewriting derived state.
+  `response_ids` must be ordered newest-first and must exactly match the current
+  complete leaf suffix. AIGateway never chooses the suffix from caller metadata.
   """
-  @spec hard_delete_visible_tail_for_actor_event_in_tx(module(), ActorEvent.t(), keyword()) ::
+  @spec hard_delete_visible_suffix_in_tx(
+          module(),
+          String.t(),
+          binary(),
+          [binary()],
+          keyword()
+        ) ::
           {:ok,
            %{
              required(:status) => :deleted | :noop,
              required(:deleted_message_ids) => [binary()],
              required(:deleted_count) => non_neg_integer(),
-             optional(:failed_generating_message_ids) => [binary()],
-             optional(:failed_generating_count) => non_neg_integer(),
              optional(:reason) => atom()
            }}
           | {:error, term()}
-  def hard_delete_visible_tail_for_actor_event_in_tx(
+  def hard_delete_visible_suffix_in_tx(
         repo,
-        %ActorEvent{} = actor_event,
-        opts \\ []
+        subject_uid,
+        conversation_id,
+        response_ids,
+        _opts \\ []
       ) do
-    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
-
-    case conversation_for_actor_event(repo, actor_event) do
-      %Conversation{} = conversation ->
-        delete_visible_tail_for_actor_event(repo, conversation, actor_event.id, now)
-
-      nil ->
-        {:ok, tail_delete_noop(:conversation_not_found)}
+    with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid),
+         {:ok, conversation_id} <- cast_uuid(conversation_id),
+         {:ok, message_ids} <- decode_response_ids(response_ids),
+         %Conversation{} <- lock_owned_conversation(repo, subject_uid, conversation_id) do
+      delete_visible_suffix(repo, conversation_id, message_ids)
+    else
+      nil -> {:ok, tail_delete_noop(:conversation_not_found)}
+      {:error, _reason} -> {:error, :invalid_response_suffix}
     end
   end
 
@@ -890,108 +864,94 @@ defmodule Ankole.AIGateway.StatefulResponses do
     |> repo.one()
   end
 
-  defp delete_visible_tail_for_actor_event(
-         repo,
-         %Conversation{} = conversation,
-         actor_event_id,
-         now
-       ) do
-    case latest_visible_leaf_for_uuid(repo, conversation.id) do
+  defp delete_visible_suffix(_repo, _conversation_id, []),
+    do: {:ok, tail_delete_noop(:empty_suffix)}
+
+  defp delete_visible_suffix(repo, conversation_id, message_ids) do
+    case latest_visible_leaf_for_uuid(repo, conversation_id) do
       nil ->
         {:ok, tail_delete_noop(:no_visible_leaf)}
 
       leaf_id ->
-        chain = chain_messages(repo, conversation.id, leaf_id)
-        tail = Enum.take_while(chain, &tail_message_for_actor_event?(&1, actor_event_id))
+        visible_suffix =
+          repo
+          |> chain_messages(conversation_id, leaf_id, length(message_ids))
+          |> Enum.map(& &1.id)
 
-        case tail do
-          [] ->
-            reason = actor_event_tail_noop_reason(repo, conversation.id, leaf_id, actor_event_id)
-            {:ok, tail_delete_noop(reason)}
+        cond do
+          visible_suffix != message_ids ->
+            {:ok, tail_delete_noop(:not_visible_suffix)}
 
-          [_message | _rest] ->
-            messages_to_delete = Enum.reverse(tail)
-            message_ids = Enum.map(messages_to_delete, & &1.id)
+          not deletable_response_rows?(repo, conversation_id, message_ids) ->
+            {:error, :invalid_response_suffix}
 
-            with {:ok, failed_generating_messages} <-
-                   fail_generating_messages_for_actor_event(
-                     repo,
-                     conversation.id,
-                     actor_event_id,
-                     now
-                   ) do
-              {deleted_count, _} =
-                Message
-                |> where([message], message.id in ^message_ids)
-                |> repo.delete_all()
+          response_suffix_has_external_children?(repo, conversation_id, message_ids) ->
+            {:error, :response_suffix_has_descendants}
 
-              failed_generating_message_ids =
-                Enum.map(failed_generating_messages, & &1.id)
+          true ->
+            {deleted_count, _} =
+              Message
+              |> where([message], message.id in ^message_ids)
+              |> repo.delete_all()
 
-              {:ok,
-               %{
-                 status: :deleted,
-                 deleted_message_ids: message_ids,
-                 deleted_count: deleted_count,
-                 failed_generating_message_ids: failed_generating_message_ids,
-                 failed_generating_count: length(failed_generating_message_ids)
-               }}
-            end
+            {:ok,
+             %{
+               status: :deleted,
+               deleted_message_ids: message_ids,
+               deleted_count: deleted_count
+             }}
         end
     end
   end
 
-  defp fail_generating_messages_for_actor_event(repo, conversation_id, actor_event_id, now) do
+  defp lock_owned_conversation(repo, subject_uid, conversation_id) do
+    Conversation
+    |> where([conversation], conversation.id == ^conversation_id)
+    |> where([conversation], conversation.subject_uid == ^subject_uid)
+    |> lock("FOR UPDATE")
+    |> repo.one()
+  end
+
+  defp deletable_response_rows?(repo, conversation_id, message_ids) do
+    count =
+      Message
+      |> where([message], message.id in ^message_ids)
+      |> where([message], message.conversation_id == ^conversation_id)
+      |> where([message], message.type == "message")
+      |> where([message], message.status == "complete")
+      |> repo.aggregate(:count)
+
+    count == length(message_ids)
+  end
+
+  defp response_suffix_has_external_children?(repo, conversation_id, message_ids) do
     Message
     |> where([message], message.conversation_id == ^conversation_id)
-    |> where([message], message.status == "generating")
-    |> where([message], fragment("?->>'actor_event_id'", message.metadata) == ^actor_event_id)
-    |> lock("FOR UPDATE")
-    |> repo.all()
-    |> Enum.reduce_while({:ok, []}, fn message, {:ok, failed_messages} ->
-      metadata =
-        (message.metadata || %{})
-        |> Map.put("error", %{
-          "code" => "source_entry_removed",
-          "failed_at" => DateTime.to_iso8601(now),
-          "reason" => "source_entry_removed_before_terminal_commit",
-          "stage" => "entry_lifecycle",
-          "retryable" => false
-        })
+    |> where([message], message.previous_message_id in ^message_ids)
+    |> where([message], message.id not in ^message_ids)
+    |> where([message], message.status == "complete")
+    |> repo.exists?()
+  end
 
-      case repo.update(Message.changeset(message, %{status: "error", metadata: metadata})) do
-        {:ok, failed_message} -> {:cont, {:ok, [failed_message | failed_messages]}}
-        {:error, reason} -> {:halt, {:error, reason}}
+  defp decode_response_ids(response_ids) when is_list(response_ids) do
+    Enum.reduce_while(response_ids, {:ok, []}, fn response_id, {:ok, ids} ->
+      case decode_response_id(response_id) do
+        {:ok, id} -> {:cont, {:ok, [id | ids]}}
+        {:error, _reason} -> {:halt, {:error, :invalid_response_id}}
       end
     end)
     |> case do
-      {:ok, failed_messages} -> {:ok, Enum.reverse(failed_messages)}
+      {:ok, ids} -> {:ok, Enum.reverse(ids)}
       {:error, _reason} = error -> error
     end
   end
 
-  defp conversation_for_actor_event(repo, %ActorEvent{} = actor_event) do
-    Conversation
-    |> where([conversation], conversation.agent_uid == ^actor_event.agent_uid)
-    |> where([conversation], conversation.conversation_key == ^actor_event.session_id)
-    |> where([conversation], is_nil(conversation.ended_at))
-    |> repo.one()
-  end
+  defp decode_response_ids(_response_ids), do: {:error, :invalid_response_id}
 
-  defp tail_message_for_actor_event?(%Message{} = message, actor_event_id) do
-    message.type == "message" and message.status == "complete" and
-      message.metadata["actor_event_id"] == actor_event_id
-  end
+  defp normalize_public_chain_depth(depth) when is_integer(depth) and depth > 0,
+    do: min(depth, @public_chain_max_depth)
 
-  defp actor_event_tail_noop_reason(repo, conversation_id, leaf_id, actor_event_id) do
-    repo
-    |> walk_message_chain(conversation_id, leaf_id, [])
-    |> Enum.any?(&(&1.metadata["actor_event_id"] == actor_event_id))
-    |> case do
-      true -> :not_visible_tail
-      false -> :actor_event_not_visible
-    end
-  end
+  defp normalize_public_chain_depth(_depth), do: @public_chain_max_depth
 
   defp tail_delete_noop(reason) do
     %{
@@ -1018,16 +978,27 @@ defmodule Ankole.AIGateway.StatefulResponses do
   end
 
   @doc """
-  Retrieves a stored response row scoped to one agent.
+  Returns the exact caller-supplied metadata object for a stored response.
   """
-  @spec get_message_for_agent(String.t(), binary()) :: {:ok, Message.t()} | {:error, :not_found}
-  def get_message_for_agent(agent_uid, resp_or_id) do
-    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
+  @spec response_metadata(Message.t()) :: map()
+  def response_metadata(%Message{metadata: %{"request_metadata" => metadata}})
+      when is_map(metadata),
+      do: metadata
+
+  def response_metadata(%Message{}), do: %{}
+
+  @doc """
+  Retrieves a stored response row scoped to one principal subject.
+  """
+  @spec get_response_for_subject(String.t(), binary()) ::
+          {:ok, Message.t()} | {:error, :not_found}
+  def get_response_for_subject(subject_uid, resp_or_id) do
+    with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid),
          {:ok, id} <- decode_response_id(resp_or_id),
          %Message{} = message <-
            Repo.one(
              from(m in Message,
-               where: m.id == ^id and m.agent_uid == ^agent_uid
+               where: m.id == ^id and m.subject_uid == ^subject_uid
              )
            ) do
       {:ok, message}
@@ -1051,18 +1022,18 @@ defmodule Ankole.AIGateway.StatefulResponses do
              | :stateful_anchor_conflict
              | Ecto.Changeset.t()}
   def create_compaction_checkpoint(attrs) when is_map(attrs) do
-    raw_agent_uid = Map.fetch!(attrs, :agent_uid)
+    raw_subject_uid = Map.fetch!(attrs, :subject_uid)
     artifact = Map.fetch!(attrs, :artifact)
     metadata = Map.get(attrs, :metadata, Map.get(attrs, "metadata", %{}))
     conversation_id = conversation_id(attrs)
     previous_response_id = previous_response_id(attrs)
 
-    with {:ok, agent_uid} <- Principals.normalize_uid(raw_agent_uid),
+    with {:ok, subject_uid} <- Principals.normalize_uid(raw_subject_uid),
          {:ok, previous_message_id} <- decode_optional_response_id(previous_response_id),
          {:ok, conversation_id, previous_message_id} <-
-           resolve_checkpoint_chain(agent_uid, conversation_id, previous_message_id, artifact) do
+           resolve_checkpoint_chain(subject_uid, conversation_id, previous_message_id, artifact) do
       insert_checkpoint_row(
-        agent_uid,
+        subject_uid,
         conversation_id,
         previous_message_id,
         artifact.id,
@@ -1080,22 +1051,22 @@ defmodule Ankole.AIGateway.StatefulResponses do
   end
 
   @doc """
-  Loads an active conversation by id and owning agent.
+  Loads an active conversation by id and owning subject.
 
   This is used at stateful request boundaries so a caller cannot attach a new
-  response run to another agent's conversation or expand another agent's history.
+  response run to another subject's conversation or expand another subject's history.
   """
-  @spec get_conversation_for_agent(String.t(), String.t()) ::
+  @spec get_conversation_for_subject(String.t(), String.t()) ::
           {:ok, Conversation.t()} | {:error, :invalid_conversation}
-  def get_conversation_for_agent(agent_uid, conversation_id) do
-    with {:ok, normalized_uid} <- Principals.normalize_uid(agent_uid),
+  def get_conversation_for_subject(subject_uid, conversation_id) do
+    with {:ok, normalized_uid} <- Principals.normalize_uid(subject_uid),
          {:ok, conversation_id} <- cast_uuid(conversation_id),
          %Conversation{} = conversation <-
            Repo.one(
              from(c in Conversation,
                where:
                  c.id == ^conversation_id and
-                   c.agent_uid == ^normalized_uid and
+                   c.subject_uid == ^normalized_uid and
                    is_nil(c.ended_at)
              )
            ) do
@@ -1121,14 +1092,14 @@ defmodule Ankole.AIGateway.StatefulResponses do
   end
 
   @doc """
-  Ensures a conversation exists for the given agent + key, creating one if needed.
+  Ensures a conversation exists for the given subject + key, creating one if needed.
 
   This is the bootstrap entry for a stateful conversation.
   """
   @spec ensure_conversation(String.t(), String.t()) ::
           {:ok, Conversation.t()} | {:error, term()}
-  def ensure_conversation(agent_uid, conversation_key) do
-    Conversations.ensure_conversation(agent_uid, conversation_key)
+  def ensure_conversation(subject_uid, conversation_key) do
+    Conversations.ensure_conversation(subject_uid, conversation_key)
   end
 
   @doc """
@@ -1137,8 +1108,8 @@ defmodule Ankole.AIGateway.StatefulResponses do
   """
   @spec create_managed_stateful_responses_conversation(String.t()) ::
           {:ok, Conversation.t()} | {:error, term()}
-  def create_managed_stateful_responses_conversation(agent_uid) do
-    Conversations.create_managed_stateful_responses_conversation(agent_uid)
+  def create_managed_stateful_responses_conversation(subject_uid) do
+    Conversations.create_managed_stateful_responses_conversation(subject_uid)
   end
 
   # ───────────────────────────────────────────────────────────────
@@ -1176,10 +1147,10 @@ defmodule Ankole.AIGateway.StatefulResponses do
 
   defp validate_anchor_selector(_conversation_id, _previous_response_id), do: :ok
 
-  defp resolve_run_conversation(agent_uid, conversation_id, nil),
-    do: get_conversation_for_agent(agent_uid, conversation_id)
+  defp resolve_run_conversation(subject_uid, conversation_id, nil),
+    do: get_conversation_for_subject(subject_uid, conversation_id)
 
-  defp resolve_run_conversation(agent_uid, nil, previous_message_id) do
+  defp resolve_run_conversation(subject_uid, nil, previous_message_id) do
     case Repo.one(
            from(m in Message,
              join: c in Conversation,
@@ -1187,7 +1158,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
              where:
                m.id == ^previous_message_id and
                  m.status == "complete" and
-                 c.agent_uid == ^agent_uid and
+                 c.subject_uid == ^subject_uid and
                  is_nil(c.ended_at),
              select: c
            )
@@ -1197,31 +1168,35 @@ defmodule Ankole.AIGateway.StatefulResponses do
     end
   end
 
-  defp complete_message_for_agent(agent_uid, message_id) do
+  defp complete_message_for_subject(subject_uid, message_id) do
     Repo.one(
       from(m in Message,
         where:
           m.id == ^message_id and
-            m.agent_uid == ^agent_uid and
+            m.subject_uid == ^subject_uid and
             m.status == "complete"
       )
     )
   end
 
-  defp resolve_checkpoint_chain(agent_uid, conversation_id, previous_message_id, artifact) do
+  defp resolve_checkpoint_chain(subject_uid, conversation_id, previous_message_id, artifact) do
     case previous_message_id do
       nil ->
         with conversation_id when is_binary(conversation_id) <-
                conversation_id || artifact.conversation_id,
-             {:ok, conversation} <- get_conversation_for_agent(agent_uid, conversation_id) do
+             {:ok, conversation} <-
+               get_conversation_for_subject(subject_uid, conversation_id) do
           {:ok, conversation.id, nil}
         end
 
       previous_message_id ->
         with %Message{conversation_id: anchor_conversation_id} <-
-               complete_message_for_agent(agent_uid, previous_message_id),
+               complete_message_for_subject(subject_uid, previous_message_id),
              {:ok, conversation} <-
-               get_conversation_for_agent(agent_uid, conversation_id || anchor_conversation_id),
+               get_conversation_for_subject(
+                 subject_uid,
+                 conversation_id || anchor_conversation_id
+               ),
              true <- conversation.id == anchor_conversation_id do
           {:ok, conversation.id, previous_message_id}
         end
@@ -1229,7 +1204,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
   end
 
   defp insert_checkpoint_row(
-         agent_uid,
+         subject_uid,
          conversation_id,
          previous_message_id,
          artifact_id,
@@ -1237,7 +1212,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
        ) do
     %Message{id: artifact_id}
     |> Message.changeset(%{
-      agent_uid: agent_uid,
+      subject_uid: subject_uid,
       conversation_id: conversation_id,
       type: "checkpoint",
       status: "complete",
@@ -1266,310 +1241,6 @@ defmodule Ankole.AIGateway.StatefulResponses do
     base_at = message.updated_at || message.inserted_at || DateTime.utc_now(:microsecond)
     DateTime.add(base_at, orphaned_generating_grace_seconds(), :second)
   end
-
-  defp commit_reply_attachment_outboxes_in_tx(repo, %Message{} = message, final_content) do
-    source_items =
-      repo
-      |> tool_output_source_items(message, final_content)
-      |> dedupe_function_call_outputs_by_call_id()
-
-    with {:ok, attachments} <- ReplyAttachment.attachments_from_response_items(source_items) do
-      case attachments do
-        [] ->
-          {:ok, []}
-
-        [_attachment | _rest] ->
-          with actor_event_id when is_binary(actor_event_id) <- message.metadata["actor_event_id"],
-               %ActorEvent{} = event <- lock_actor_event(repo, message.agent_uid, actor_event_id) do
-            text = final_assistant_text(final_content)
-
-            Outbox.commit_reply_attachment_outboxes_in_tx(
-              repo,
-              event,
-              message.id,
-              text,
-              attachments
-            )
-          else
-            nil -> {:error, :reply_attachment_actor_event_not_found}
-            {:error, _reason} = error -> error
-          end
-      end
-    end
-  end
-
-  defp commit_clarify_outbox_in_tx(repo, %Message{} = message, final_content) do
-    source_items =
-      repo
-      |> tool_output_source_items(message, final_content)
-      |> dedupe_function_call_outputs_by_call_id()
-
-    with {:ok, prompt} <- ClarifyPrompt.from_response_items(source_items) do
-      case prompt do
-        nil ->
-          {:ok, nil}
-
-        %{"fallback_visible_text" => fallback, "interactive_output" => interactive_output} ->
-          with actor_event_id when is_binary(actor_event_id) <- message.metadata["actor_event_id"],
-               %ActorEvent{} = event <- lock_actor_event(repo, message.agent_uid, actor_event_id),
-               true <- AIReplyPreview.im_visible_event?(event) do
-            final_text = final_assistant_text(final_content)
-            visible_text = join_clarify_text(final_text, fallback)
-
-            Outbox.commit_clarify_reply_outbox_in_tx(
-              repo,
-              event,
-              message,
-              visible_text,
-              interactive_output
-            )
-          else
-            nil -> {:error, :clarify_actor_event_not_found}
-            false -> {:ok, nil}
-          end
-      end
-    end
-  end
-
-  defp join_clarify_text("", fallback), do: fallback
-  defp join_clarify_text(text, fallback), do: text <> "\n\n" <> fallback
-
-  defp commit_final_reply_outbox_in_tx(repo, %Message{} = message, final_content, enabled?) do
-    text = AIReplyText.visible_text(final_content)
-
-    cond do
-      not enabled? ->
-        {:ok, nil}
-
-      contains_function_call?(final_content) ->
-        {:ok, nil}
-
-      not is_binary(text) or text == "" ->
-        {:ok, nil}
-
-      true ->
-        with actor_event_id when is_binary(actor_event_id) <- message.metadata["actor_event_id"],
-             %ActorEvent{} = event <- lock_actor_event(repo, message.agent_uid, actor_event_id),
-             true <- AIReplyPreview.im_visible_event?(event) do
-          Outbox.commit_final_reply_outbox_in_tx(repo, event, message, text)
-        else
-          nil -> {:ok, nil}
-          false -> {:ok, nil}
-          {:error, _reason} = error -> error
-        end
-    end
-  end
-
-  defp tool_output_source_items(repo, %Message{} = message, final_content) do
-    case message.metadata["actor_event_id"] do
-      actor_event_id when is_binary(actor_event_id) ->
-        ancestor_items =
-          repo
-          |> chain_messages(
-            message.conversation_id,
-            message.id,
-            @reply_attachment_chain_max_depth
-          )
-          |> Enum.take_while(&same_actor_event_message?(&1, actor_event_id))
-          |> Enum.reject(&(&1.id == message.id))
-          |> Enum.reverse()
-          |> Enum.flat_map(&message_content_items/1)
-
-        ancestor_items ++ final_content
-
-      _missing_actor_event_id ->
-        final_content
-    end
-  end
-
-  defp same_actor_event_message?(
-         %Message{metadata: %{"actor_event_id" => message_actor_event_id}},
-         actor_event_id
-       ),
-       do: message_actor_event_id == actor_event_id
-
-  defp same_actor_event_message?(_message, _actor_event_id), do: false
-
-  defp message_content_items(%Message{content: content}) when is_list(content), do: content
-  defp message_content_items(_message), do: []
-
-  defp dedupe_function_call_outputs_by_call_id(items) when is_list(items) do
-    {deduped, _seen_call_ids} =
-      Enum.reduce(items, {[], MapSet.new()}, fn
-        %{"type" => "function_call_output", "call_id" => call_id} = item, {acc, seen}
-        when is_binary(call_id) ->
-          if MapSet.member?(seen, call_id) do
-            {acc, seen}
-          else
-            {[item | acc], MapSet.put(seen, call_id)}
-          end
-
-        item, {acc, seen} ->
-          {[item | acc], seen}
-      end)
-
-    Enum.reverse(deduped)
-  end
-
-  defp dedupe_function_call_outputs_by_call_id(items), do: items
-
-  defp final_assistant_text(items) when is_list(items) do
-    items
-    |> Enum.flat_map(&assistant_item_text_parts/1)
-    |> Enum.join("")
-  end
-
-  defp final_assistant_text(_items), do: ""
-
-  defp assistant_item_text_parts(%{"type" => "message", "role" => role, "content" => parts})
-       when role in ["assistant", nil] and is_list(parts) do
-    Enum.flat_map(parts, &text_part/1)
-  end
-
-  defp assistant_item_text_parts(%{"type" => "message", "content" => parts})
-       when is_list(parts) do
-    Enum.flat_map(parts, &text_part/1)
-  end
-
-  defp assistant_item_text_parts(_item), do: []
-
-  defp text_part(%{"type" => type, "text" => text})
-       when type in ["output_text", "text"] and is_binary(text),
-       do: [text]
-
-  defp text_part(_part), do: []
-
-  defp ensure_message_actor_event_source_live_in_tx(repo, %Message{} = message, now) do
-    case message.metadata["actor_event_id"] do
-      actor_event_id when is_binary(actor_event_id) and actor_event_id != "" ->
-        case lock_actor_event(repo, message.agent_uid, actor_event_id) do
-          %ActorEvent{} = actor_event ->
-            Actors.ensure_event_source_live_in_tx(repo, actor_event, now)
-
-          nil ->
-            :ok
-        end
-
-      _missing ->
-        :ok
-    end
-  end
-
-  defp maybe_complete_actor_event_in_tx(repo, %Message{} = message, final_content, now) do
-    cond do
-      contains_function_call?(final_content) ->
-        {:ok, :kept_live_for_function_call}
-
-      true ->
-        complete_actor_event_in_tx(repo, message, now)
-    end
-  end
-
-  defp complete_actor_event_in_tx(repo, %Message{} = message, now) do
-    case message.metadata["actor_event_id"] do
-      actor_event_id when is_binary(actor_event_id) and actor_event_id != "" ->
-        with {:ok, _actor_event} <- mark_actor_event_completed(repo, message, actor_event_id, now),
-             :ok <-
-               mark_fenced_delivery_events_completed(repo, message.agent_uid, actor_event_id, now) do
-          cleanup_terminal_deliveries(repo, message.agent_uid, actor_event_id, now)
-          {:ok, :completed}
-        end
-
-      _missing ->
-        {:ok, :no_actor_event}
-    end
-  end
-
-  defp mark_actor_event_completed(repo, %Message{} = message, actor_event_id, now) do
-    case lock_actor_event(repo, message.agent_uid, actor_event_id) do
-      %ActorEvent{completed_at: nil} = actor_event ->
-        complete_provider_visible_actor_event(repo, actor_event, now)
-
-      %ActorEvent{} = actor_event ->
-        {:ok, actor_event}
-
-      nil ->
-        {:ok, :actor_event_not_found}
-    end
-  end
-
-  defp mark_fenced_delivery_events_completed(repo, agent_uid, actor_event_id, now) do
-    ActorEventDelivery
-    |> where([delivery], delivery.actor_event_id_fence == ^actor_event_id)
-    |> where([delivery], delivery.agent_uid == ^agent_uid)
-    |> where([delivery], delivery.state == "accepted")
-    |> select([delivery], delivery.actor_event_id)
-    |> repo.all()
-    |> Enum.uniq()
-    |> Enum.reduce_while(:ok, fn delivered_actor_event_id, :ok ->
-      case lock_actor_event(repo, agent_uid, delivered_actor_event_id) do
-        %ActorEvent{completed_at: nil} = delivered_event ->
-          case complete_provider_visible_actor_event(repo, delivered_event, now) do
-            {:ok, _event} -> {:cont, :ok}
-            {:error, _reason} = error -> {:halt, error}
-          end
-
-        %ActorEvent{} ->
-          {:cont, :ok}
-
-        nil ->
-          {:cont, :ok}
-      end
-    end)
-  end
-
-  defp complete_provider_visible_actor_event(repo, %ActorEvent{} = actor_event, now) do
-    Actors.complete_actor_event_in_tx(repo, actor_event, completed_at: now)
-  end
-
-  defp lock_actor_event(repo, agent_uid, actor_event_id) do
-    ActorEvent
-    |> where([event], event.id == ^actor_event_id)
-    |> where([event], event.agent_uid == ^agent_uid)
-    |> lock("FOR UPDATE")
-    |> repo.one()
-  end
-
-  defp cleanup_terminal_deliveries(repo, agent_uid, actor_event_id, now) do
-    delete_accepted_deliveries(repo, agent_uid, actor_event_id)
-    supersede_pending_deliveries(repo, agent_uid, actor_event_id, now)
-  end
-
-  defp delete_accepted_deliveries(repo, agent_uid, actor_event_id) do
-    ActorEventDelivery
-    |> where([delivery], delivery.actor_event_id_fence == ^actor_event_id)
-    |> where([delivery], delivery.agent_uid == ^agent_uid)
-    |> where([delivery], delivery.state == "accepted")
-    |> repo.delete_all()
-  end
-
-  defp supersede_pending_deliveries(repo, agent_uid, actor_event_id, now) do
-    ActorEventDelivery
-    |> where([delivery], delivery.actor_event_id_fence == ^actor_event_id)
-    |> where([delivery], delivery.agent_uid == ^agent_uid)
-    |> where([delivery], delivery.state in ["created", "sent"])
-    |> repo.update_all(
-      set: [
-        state: "superseded",
-        superseded_at: now,
-        error: %{"reason" => "terminal_commit_before_acceptance"},
-        updated_at: now
-      ]
-    )
-  end
-
-  defp contains_function_call?(items) when is_list(items),
-    do: Enum.any?(items, &function_call_item?/1)
-
-  defp contains_function_call?(_items), do: false
-
-  defp function_call_count_candidate?(%Message{} = message, actor_event_id) do
-    message.type == "message" and message.status == "complete" and
-      message.metadata["actor_event_id"] == actor_event_id
-  end
-
-  defp function_call_item?(%{"type" => "function_call"}), do: true
-  defp function_call_item?(_item), do: false
 
   defp history_anchor(conversation_id, opts) do
     previous_response_id =
@@ -1709,31 +1380,15 @@ defmodule Ankole.AIGateway.StatefulResponses do
   defp project_message?(%Message{status: "complete"}), do: true
   defp project_message?(_message), do: false
 
-  # Publishes a live event to the PubSub topic keyed by actor_event_id.
-  # This lets the preview handler subscribe once per actor event and receive
-  # all loop-round events (started/chunk/completed/failed) without re-subscribing
-  # on each round (each round has a different message_id but same actor_event_id).
-  defp publish_live_event(%Message{} = message, event_type, payload) do
-    actor_event_id = message.metadata["actor_event_id"]
+  defp maybe_filter_response_statuses(query, nil), do: query
 
-    if is_binary(actor_event_id) and actor_event_id != "" do
-      topic = live_topic(actor_event_id)
+  defp maybe_filter_response_statuses(query, statuses) when is_list(statuses),
+    do: where(query, [message], message.status in ^statuses)
 
-      # Include message_id in payload so the handler can correlate.
-      full_payload = Map.put(payload, :message_id, message.id)
+  defp maybe_filter_response_statuses(query, _statuses), do: query
 
-      Phoenix.PubSub.broadcast(
-        @pubsub,
-        topic,
-        {:ai_gateway_event, event_type, message.id, full_payload}
-      )
-    else
-      :ok
-    end
-  end
-
-  # PubSub topic keyed by actor_event_id (stable across loop rounds).
-  defp live_topic(actor_event_id), do: "ai_gateway:actor_event:#{actor_event_id}"
+  defp maybe_lock_response_rows(query, true), do: lock(query, "FOR UPDATE")
+  defp maybe_lock_response_rows(query, _lock?), do: query
 
   defp maybe_put_metadata(map, _key, nil), do: map
   defp maybe_put_metadata(map, _key, ""), do: map

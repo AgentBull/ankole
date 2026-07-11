@@ -4,9 +4,9 @@ SignalsGateway is the boundary between provider ingress, actor event handoff,
 and provider-visible outbound effects. It accepts normalized facts from
 adapters, applies binding policy, updates the provider mirror, appends durable
 `actor_events` rows when needed, acks the provider after the durable
-transaction, and delivers agent output back to the provider — streamed AI
-replies through live preview delivery, and explicit side effects through the
-gateway outbox.
+transaction, runs the session Actor runtime, and delivers agent output back to
+the provider. Streaming deltas use a live preview process; final replies and
+other explicit effects commit through the durable gateway outbox.
 
 If you have built an IM bot against Feishu or Slack webhooks, this boundary
 covers the same ground: receive events idempotently, mirror what the provider
@@ -41,10 +41,11 @@ difference is not whether it can wake an agent; the difference is whether the
 source supports provider-visible reply after the signal has been accepted. HTTP
 webhook acknowledgement is transport `ack`, not an agent reply.
 
-SignalsGateway does not own the AI message log. Model history, tool-loop state,
-and the final AI output of an actor event live in `ai_gateway_messages`, owned
-by AIGateway (see `docs/design-docs/AIGateway.md`). SignalsGateway only
-delivers that output to providers and mirrors what was delivered.
+SignalsGateway does not own the AI message log. Individual model Responses and
+their continuation chain live in `ai_gateway_messages`, owned by AIGateway (see
+`docs/design-docs/AIGateway.md`). SignalsGateway does own the session Actor,
+Agent Turn completion, final-reply projection, preview lifecycle, delivery
+cleanup, and provider-visible commit.
 
 SignalsGateway is not an audit subsystem. Auditability is a low-priority
 byproduct here, not the design driver. Runtime behavior should remain
@@ -68,8 +69,10 @@ explainable from these surfaces:
   is what "this session is running something" means.
 - `signal_gateway_outbox`: durable provider-visible side-effect execution
   state.
-- live AI-reply preview: in-process subscription to AIGateway chunk events for
-  streamed replies. Best-effort and transient; never durable truth.
+- live AI-reply preview: conversation-scoped subscription to generic AIGateway
+  events, filtered by opaque metadata. Best-effort and transient; never durable
+  truth. Its provider entry id is stored on the ActorEvent after first success
+  so the final outbox can choose an edit.
 
 ## Vocabulary
 
@@ -332,18 +335,19 @@ SignalsGateway owns:
 - binding and command admission policy, including group-message admission;
 - latest-state provider mirror updates for signal channels and entries;
 - signal-to-session mapping and `actor_events` construction;
+- the Actor journal, session Actor runtime, worker delivery fences, and Agent
+  Turn completion;
 - short-lived tombstones for provider-removal races;
 - provider-visible outbox execution;
-- live streamed-reply preview delivery (`AIReplyPreview`) and final-reply
-  mirror recovery (`RecoveryScan`);
+- live streamed-reply preview delivery (`AIReplyPreview`) and durable
+  final-reply outbox commit;
 - provider limitation boundaries that affect what can be mirrored or replied to.
 
 SignalsGateway does not own:
 
-- session actor execution, checkpoint semantics, or command execution
-  semantics;
-- the AIGateway Responses loop, its message log, continuation anchors, stop
-  policy, compaction, or terminal commit;
+- the Agent Computer's model/tool loop or iteration counter;
+- AIGateway Response persistence, history expansion, continuation anchors,
+  compaction, or Response terminal commit;
 - the rule for whether a user-side removal should also remove prior assistant
   output;
 - Principal/AuthZ truth, except for exposing a host-owned bridge that adapters
@@ -356,7 +360,7 @@ SignalsGateway does not own:
 - a universal audit log of every upstream provider payload;
 - a universal rule-routing engine or arbitrary runtime delivery rules;
 - transport ack policy beyond whether ingress was accepted by the gateway;
-- ZeroMQ actor fabric, actor session activations, or agent computer lifecycle.
+- provider model execution or agent computer process lifecycle.
 
 ## Adapter Contract
 
@@ -484,12 +488,12 @@ removed before the actor sees it. If the event's work already completed, the
 gateway appends a `signal.entry.removed` lifecycle event instead. Consuming
 that lifecycle event cancels checkbacks anchored to the removed entry, applies
 the AI-message deletion mapping, and completes — it produces no model-visible
-note. The deletion mapping works on `ai_gateway_messages` rows, located through
-the identity chain (`signal_gateway_entries` / `actor_events.source_event_id` →
-`metadata.actor_event_id` → the event's loop chain): chain-tail rows after the
-last compaction are hard-deleted; historical rows and rows already covered by a
-compaction are no-op in v1. SignalsGateway does not derive a retraction note and
-never infers deletion of prior assistant output.
+note. The deletion mapping works through `SignalsGateway.AIGatewayLink`: the
+gateway selects explicit Response ids from its Actor/session facts, then calls
+AIGateway's subject-scoped suffix-removal API. AIGateway never receives an
+ActorEvent parameter. Chain-tail rows after the last compaction are deleted;
+historical or compaction-covered rows are no-op in v1. SignalsGateway does not
+derive a retraction note and never infers deletion of prior assistant output.
 
 For `/steer`, the adapter/shared parser recognizes a visible command entry. The
 gateway mirrors the visible entry and appends
@@ -497,8 +501,9 @@ gateway mirrors the visible entry and appends
 command admission. The session actor may consume that event through the same
 resolver path used for `im.message.addressed`; that resolver mapping is static
 runtime code keyed by `ActorEvent.type`, not database state or user
-configuration. Checkpoint consumption and revision fencing belong to the
-session actor runtime; the AI output itself commits inside AIGateway.
+configuration. Checkpoint consumption, revision fencing, and final projection
+belong to SignalsGateway's session Actor runtime; AIGateway commits only
+individual Responses.
 
 For daily session reset, the control plane enqueues `session.reset_due` for due
 active sessions at the installation's AppConfigure timezone boundary. The
@@ -641,7 +646,7 @@ adapter callback
        - actor event effect only when a batch closes or a non-IM event is direct
   -> return accepted, recorded, ignored, filtered, or error
   -> external layer may provider-ack after commit
-  -> ActorRuntime may publish/replay the ready actor event from the journal
+  -> SignalsGateway ActorRuntime may publish/replay the ready actor event
 ```
 
 Malformed payloads must fail before provider ack unless a future adapter first
@@ -650,14 +655,18 @@ payloads, and provider mirror JSON fields must be JSON-serializable before
 insert. Runtime values such as processes, functions, references, tuples,
 arbitrary structs, and non-boolean atoms are not stringified into durable state.
 
-Outbound has two paths. Streamed AI replies — the normal chat answer — are
-delivered live and never pass through the outbox:
+Outbound has two cooperating paths. Streaming deltas are best-effort previews;
+the adopted final reply is always a durable outbox intent:
 
 ```text
-AIGateway publishes live chunk / terminal events (process messages)
+AIGateway publishes conversation-scoped generic Response events
   -> AIReplyPreview sends the provider preview message on the first chunk
   -> edits the same provider message as chunks arrive
-  -> on the terminal complete event: finalize the provider message
+  -> Response terminal events retain the handler but do not complete the turn
+Worker sends turn_completed(final_response_id, outcome)
+  -> SignalsGateway validates and projects the immutable Response chain
+  -> one transaction commits final/clarify/attachment outbox intents and Actor completion
+  -> the final outbox edits the preview entry when recorded, otherwise sends
   -> on confirmed final send/edit:
        - upsert signal_gateway_entries by signal_entry_key
        - set signal_gateway_entries.ai_message_id to the final ai_gateway_messages row
@@ -683,13 +692,12 @@ Gateway acceptance means the IngressFact has been durably processed by
 SignalsGateway. If the route writes an actor event, it also means the event has
 been durably accepted into `actor_events`. It does not mean the actor fabric
 delivered it, a worker accepted a turn, or the agent finished the work.
-Provider send failure stays on `signal_gateway_outbox` (for explicit effects)
-or is compensated by the recovery scan (for streamed replies); neither revokes
-the accepted actor event.
+Provider send failure stays on `signal_gateway_outbox`; it does not revoke the
+accepted or completed ActorEvent.
 
-SignalsGateway does not own execution scheduling. One-active-turn fencing, actor
-epochs, revision checks, agent computer crash recovery, and checkpoint
-consumption belong to the actor store and Elixir control plane. ZeroMQ is the
+SignalsGateway owns execution scheduling. One-active-turn fencing, Actor
+epochs, revision checks, Agent Computer crash recovery, and checkpoint
+consumption belong to its Actor store/runtime. ZeroMQ is the
 live actor fabric between the Elixir control plane and agent computer workers.
 It may carry journal-backed event delivery and nudge/progress traffic, but
 durable signal recovery, fencing, and provider-visible side-effect truth remain
@@ -770,8 +778,8 @@ index. When a streamed AI reply's final send or edit succeeds, the mirror row
 records the `ai_gateway_messages.id` of the final output it delivered. The
 column is not part of the primary key — mirror identity stays the provider
 entry identity. Intermediate streaming chunks never write `signal_gateway_entries`;
-only the confirmed final reply does. The recovery scan uses this column to find
-completed AI outputs that never reached the provider.
+only the confirmed final reply does. The final outbox row owns retries and
+reconciliation; no Response-chain scan infers missing replies.
 
 `signal_gateway_entries` also reserves recall/search fields. These fields are part of
 the mirror row because later full-text and vector recall need a stable searchable
@@ -876,10 +884,11 @@ lifecycle table:
   `actor_events` before ack.
 - IM receives update or close pending inbound batches before ack; closed batches
   that choose actor delivery write exactly one `actor_events` row.
-- work completion is recorded on the event row itself: AIGateway's terminal
-  commit — or the worker's noop marker — sets `actor_events.completed_at` in
-  the same transaction that commits the final output and clears the live
-  delivery. There is no separate consumption table.
+- work completion is recorded on the event row itself. The worker's explicit
+  `turn_completed` (or `turn_noop_completed`) enters SignalsGateway, which sets
+  `actor_events.completed_at` in the same transaction as outbox intent commit
+  and live-delivery cleanup. AIGateway Response completion does not mutate
+  Actor state. There is no separate consumption table.
 - provider-side removal refreshes the tombstone first, then checks
   `actor_events` state (`input_state`, `completed_at`, live deliveries) to
   decide whether to remove the pending event, append a lifecycle event, or only
@@ -1006,8 +1015,8 @@ list of source provider entries. It is used for provenance, deletion/recall,
 reply-anchor recalculation, and debugging. It must not become the only place
 where the worker can understand the user input.
 
-`actor_events` is a generic work-item journal. The current runtime routes every
-event type to one executor: the AIGateway/agent-computer handler, which runs
+`actor_events` is a generic work-item journal. The current runtime routes model
+work to the Agent Computer, which uses AIGateway as its upstream LLM and runs
 the Responses tool loop. A future executor — for example a DAG workflow
 runtime — would receive the same kind of actor event but must own its own
 durable run tables; only events routed to the AI handler write
@@ -1080,7 +1089,7 @@ provider observation and memory/search substrate. Provider-side removal may
 remove or redact content through explicit product/privacy semantics, but
 background runtime cleanup must not treat it like actor delivery state.
 
-ActorRuntime tables such as `actor_event_deliveries`,
+SignalsGateway ActorRuntime tables such as `actor_event_deliveries`,
 `actor_session_activations`, worker heartbeat projections, and sticky placement
 rows are different: they are recovery-window runtime state. Their unlogged
 storage choice and row cleanup rules belong to the actor store/runtime design,
@@ -1136,11 +1145,11 @@ explicit `session_id`. They can append `actor_events` rows without creating a
 `signal_gateway_channels` row or `signal_gateway_entries` mirror row. Unless they deliberately
 carry a channel, they do not enter the provider mirror.
 
-The actor runtime owns session scheduling, fencing, and turn recovery;
-conversation history, compaction, and the final AI output live in AIGateway's
-message log. Runtime state may include binding name and provider realm id, but
-SignalsGateway should not create a separate session for provider thread or
-ActorEvent type.
+SignalsGateway's Actor runtime owns session scheduling, fencing, turn recovery,
+and final reply projection. Conversation history, compaction, and immutable
+model Responses live in AIGateway's message log. Runtime state may include
+binding name and provider realm id, but SignalsGateway should not create a
+separate session for provider thread or ActorEvent type.
 
 Daily reset is represented as `ActorEvent(type = session.reset_due)`. The event
 is queued against the current `session_key` because its ordering relative to
@@ -1237,8 +1246,8 @@ control queue.
 The `/steer` command event completes when ActorRuntime successfully sends or
 queues that `mailbox_updated` nudge for the active turn. That completion is a
 receive acknowledgement for the command, not proof that the current model call
-or a later tool round incorporated the steer. If the active turn reaches a
-terminal commit first, the delivery may be superseded while the command event
+or a later tool round incorporated the steer. If the active turn reaches its
+SignalsGateway completion commit first, the delivery may be superseded while the command event
 stays complete. This is a deliberate latency tradeoff for active human guidance;
 transport delivery and model incorporation remain separate runtime facts.
 
@@ -1272,17 +1281,33 @@ provider payload copies. Heavy raw data, attachments, and long-lived searchable
 content should stay in `signal_gateway_entries`, attachment/blob storage, or the
 AIGateway message log after the work completes.
 
-Completing an actor event is the commit boundary, and it happens in AIGateway.
-Worker acceptance over the actor fabric is a separate delivery fact in
-`actor_event_deliveries`, not completion. When the final `response.create` of
-an event's tool loop reaches its terminal state, AIGateway's commit transaction
-verifies the delivery fence (activation/epoch/revision), rejects the commit if
-a provider-removal tombstone canceled the event, marks the final
-`ai_gateway_messages` row `complete`, sets `actor_events.completed_at`, clears
-the live delivery, and inserts any explicit outbox intents (such as reply
-attachments) — all in one transaction. An event with no meaningful output
-completes through the worker's `turn_noop_completed` marker instead; the
-control plane sets `completed_at` and creates nothing else.
+Completing an ActorEvent is a SignalsGateway commit boundary. Worker acceptance
+over the actor fabric is a separate delivery fact in `actor_event_deliveries`,
+not completion. After the Agent Computer decides its loop has ended, it sends
+`turn_completed` with the final adopted `resp_*` id and either
+`loop_finished` or `iteration_exhausted`.
+
+Before opening a transaction, `ActorTurnCompletion` uses the public
+`AIGatewayLink` to load at most 500 immutable Response ancestors. It verifies
+the subject and conversation against the Actor session, requires the opaque
+`actor_event_id` to match this TurnRef throughout the adopted chain, accepts
+only a final `completed` or `incomplete` Response, and requires at least one
+user-visible final text, clarify prompt, or attachment projection.
+
+Inside one SignalsGateway transaction it locks the ActorEvent, activation, and
+deliveries in the established order; validates activation uid, epoch, event,
+session, lease, and revision; checks the provider source tombstone; inserts
+idempotent final/clarify/attachment outbox intents; completes the primary and
+accepted steer events; deletes accepted deliveries; and supersedes remaining
+created/sent deliveries. Only after commit does it terminate Preview. A duplicate
+completion returns `already_completed` and writes no new outbox row. A stale
+fence or invalid Response chain makes zero changes.
+
+An event with no meaningful output completes only through the worker's explicit
+`turn_noop_completed` marker. `iteration_exhausted` is terminal and
+non-retryable but does not claim user-task success; the outcome is recorded in
+structured logs and internal final-outbox metadata, not a larger ActorEvent
+state machine.
 
 There is no user-message materialization step. The human input of an event
 travels inside the first `response.create` of the loop and is stored as
@@ -1311,13 +1336,12 @@ and the logical batch revision so provider-side removal can update pending or
 in-flight work without pretending each source message was a separate actor
 event.
 
-SignalsGateway must provide enough data for the actor store to assign
+SignalsGateway must provide enough data for its actor store to assign
 `queue_sequence`, evaluate readiness, and later correlate provider-side removal
 with the accepted event. It does not decide worker placement, actor epoch,
-ZeroMQ route, send outcome, worker acceptance, or completion. Those facts
-belong to `actor_event_deliveries`, `actor_session_activations`, and — for the
-AI output itself — `ai_gateway_messages` rows located through
-`metadata.actor_event_id`.
+ZeroMQ route, send outcome, or worker acceptance. Those runtime facts belong to
+`actor_event_deliveries` and `actor_session_activations`; individual model
+output facts remain in AIGateway and are read through `AIGatewayLink`.
 
 The actor event idempotency key is `(agent_uid, binding_name,
 source_event_id)`. For provider-backed events, the adapter must map the
@@ -1346,10 +1370,11 @@ or cancelled; a completed event (`completed_at` set) produces a
 and only updates the provider mirror. There is no separate entry-lifecycle
 store and no consumption table to consult.
 
-The completion transaction must verify the source actor event has not been
-canceled by provider-side removal after the worker read it. If the event was
-canceled, the commit is rejected as stale and must not mark the output
-`complete`, set `completed_at`, or write outbox rows for that event.
+The completion transaction must verify the source ActorEvent has not been
+canceled by provider-side removal after the worker read it. If canceled, the
+commit is rejected as stale and must not set `completed_at`, clear delivery
+state, or write outbox rows. The referenced Response is already immutable and
+is not rolled back.
 
 Actor event readiness is still code-defined, but IM batching is complete before
 the actor event is handed to ActorRuntime. `available_at` means "this already
@@ -1452,15 +1477,15 @@ a transaction-scoped advisory lock over a `hashtext` key derived from
 the other observes state. Rare hash collisions only serialize unrelated entries
 briefly.
 
-## Outbound And Recovery Boundary
+## Outbound Boundary
 
-The outbox carries explicit provider-visible side effects committed by the
-Elixir control plane: posts, replies, edits, deletes, reactions, cards,
-dividers, non-streamed system notifications, command feedback,
-schedule/checkback visible output, and outbound reply attachments. Streamed AI
-replies do not pass through the outbox; they are delivered live (see Streamed
-AI Reply Delivery below). SignalsGateway does not infer that a removed user
-entry should remove prior agent output. The committed intent is the
+The outbox carries provider-visible effects committed by the Elixir control
+plane: adopted final replies, clarifications, attachments, posts, edits,
+deletes, reactions, cards, dividers, system notifications, command feedback,
+and schedule/checkback visible output. Only live preview deltas bypass the
+outbox; every adopted final Agent Turn projection is durable (see Streamed AI
+Reply Delivery below). SignalsGateway does not infer that a removed user entry
+should remove prior agent output. The committed intent is the
 `signal_gateway_outbox` row itself; there is no second actor-outbox table that
 the gateway later copies from.
 
@@ -1545,78 +1570,59 @@ The gateway does not promise provider side-effect exactly-once unless the
 provider/adapter can support idempotency or reconciliation. It does promise not
 to fake provider mirror state before confirmed provider success.
 
-Final AI content truth belongs to `ai_gateway_messages`, owned by AIGateway.
-SignalsGateway owns only the delivery of that content and the mirror of what
-was delivered. The rule for whether a user-side removal should also delete bot
-output stays outside the gateway.
+Immutable model Response content belongs to `ai_gateway_messages`, owned by
+AIGateway. The choice of which Response ends an Agent Turn, how that chain is
+projected, and how the projection is delivered belong to SignalsGateway. The
+rule for whether a user-side removal should also delete bot output stays in
+SignalsGateway policy, never in AIGateway inference.
 
 ## Streamed AI Reply Delivery
 
-The normal chat answer is streamed. Its delivery deliberately uses no Redis, no
-streaming-delivery state table, and no periodic chunk scanning. The design is
-"durable facts in PostgreSQL, live signals as process messages":
+The normal chat answer may be previewed while it is generated. Preview delivery
+uses no Redis or chunk table. Durable final delivery uses the existing outbox:
 
-- `ai_gateway_messages` is the content truth. AIGateway writes it.
+- `ai_gateway_messages` is immutable Response truth. AIGateway writes it.
 - Live chunks are in-process publish/subscribe messages from AIGateway. They
   are preview signals and are never persisted.
+- `actor_events.reply_preview_source_entry_id` records the provider entry id
+  after the first preview send succeeds; it is delivery correlation, not model
+  metadata.
+- the final outbox row is the retry/recovery truth for the adopted reply.
 - `signal_gateway_entries.ai_message_id` is the delivery proof: it is set only after a
   confirmed final provider send or edit.
 
-`AIReplyPreview` is a per-event process that SignalsGateway starts when an
-IM-visible actor event begins generating (both the immediate ingress path and
-the batch finalizer start it). It subscribes to the event's live chunk and
-terminal events:
+`AIReplyPreview` is a per-event process that SignalsGateway starts only when a
+real `turn_start` is dispatched and its conversation id is known. It subscribes
+to conversation-scoped AIGateway events and filters them using the opaque
+`actor_event_id` metadata value:
 
 - on the first chunk, it sends the provider preview message. The Feishu/Lark
   adapter may use a streaming card when its chat config enables that behavior;
+- on the first successful send, it writes the returned provider entry id to the
+  ActorEvent;
 - as chunks arrive, it edits the same provider message, throttled;
-- on the terminal `complete` event of the loop's final round (the round without
-  a `function_call`), it finalizes: the provider message is replaced with the
-  durable final content. Intermediate rounds that end in a `function_call` keep
-  the preview open;
-- on a failed terminal, it stops. Error output is not rendered to the provider
-  in the current policy; the preview handler simply terminates and writes no
-  mirror.
+- each `response_started` begins a fresh round buffer;
+- `response.completed`, `response.incomplete`, and `response.failed` never
+  decide whether the Agent Turn ended;
+- successful completion, noop, dead-letter, or explicit stop terminates it;
+  retryable `turn_error` may retain the same handler.
 
 Preview continuity is best-effort, not a durable guarantee. The provider-side
-preview message id is transient delivery state; it is never written back into
-`ai_gateway_messages`. If the preview process dies mid-stream, the user may see
-a stale preview until recovery delivers the final content.
+preview id is never written to AIGateway. If the preview process dies
+mid-stream, the durable final outbox still sends a reply; if the recorded
+preview id can be edited, the final outbox chooses edit instead of send.
 
-Only the confirmed final send or edit writes the mirror: `signal_gateway_entries` is
-upserted with the same normalized shape used for inbound entries, keyed by the
-provider entry identity `(signal_channel_id, source_entry_id)`, with
-`ai_message_id` set to the final row's id. If the provider does not return an
-entry id, no mirror row is written — the gateway never synthesizes a provider
-identity — and the recovery scan compensates later. Intermediate chunks never
-touch `signal_gateway_entries`.
+Only confirmed final outbox send/edit writes the mirror:
+`signal_gateway_entries` is upserted with the same normalized shape used for
+inbound entries, keyed by `(signal_channel_id, source_entry_id)`, with
+`ai_message_id` set to the final adopted row id. If the provider does not return
+an entry id, no mirror row is synthesized. Intermediate chunks never touch the
+mirror.
 
-`RecoveryScan` is the catch-up path for finals that never reached the provider
-(preview process died, provider send failed, control plane restarted). It runs
-as a single control-plane process on startup and on a periodic bounded scan.
-Its eligibility predicate is pushed down into SQL and shared with
-`AIReplyPreview`'s IM-visibility predicate, so live and recovery paths agree on
-what should be visible:
-
-- `type = "message"`, `status = "complete"`, and the row is the chain tail of
-  its event (no `function_call` in content);
-- the actor event is IM-visible by policy;
-- the final content has non-empty visible text;
-- no `signal_gateway_entries` row with this `ai_message_id` exists yet.
-
-Matching rows get their final IM reply sent (or re-sent). The scan waits out a
-grace window before touching recent rows, and re-checks best-effort before and
-after sending. There is deliberately no database or advisory-lock mutex around
-the resend: in the current single-instance deployment it would not make
-delivery exactly-once, and it would add a coordination layer with no owner. A
-multi-instance deployment adds an explicit claim as part of that design.
-
-The resulting guarantee is explicit: streamed IM delivery is at-least-once and
-best-effort. A reply can be delivered twice in rare crash windows, and a
-preview can go stale, but a completed reply is never silently lost while the
-scan runs, and durable content is never wrong. Error terminals are not
-delivered at all in the current policy — a failed generation leaves no new
-provider message; retry surfaces the answer through a fresh actor event.
+The resulting guarantee is the outbox guarantee: retryable before a confirmed
+provider result, reconciled when the adapter can prove an ambiguous send, and
+`unknown_after_send` otherwise. No periodic AIGateway-chain scan guesses which
+Response was final, and no Response terminal event creates a reply by itself.
 
 ## Feishu/Lark Adapter Boundary
 
@@ -1851,16 +1857,20 @@ The gateway user-story surface includes these contract cases:
 - A provider-side removal refreshes a tombstone and updates current provider
   mirror/search projection; stored AI output changes only through the deletion
   mapping, and provider-visible agent output is never removed by inference.
-- Explicit provider-visible side effects execute only through
-  `signal_gateway_outbox` rows. Streamed AI replies are delivered live through
-  `AIReplyPreview` and mirrored into `signal_gateway_entries` with `ai_message_id`;
-  they never pass through the outbox.
-- Provider send failure belongs to the outbox row for explicit effects, and to
-  the recovery scan for streamed replies; neither revokes the accepted actor
-  event.
+- Explicit provider-visible side effects and adopted final replies execute only
+  through `signal_gateway_outbox` rows. `AIReplyPreview` carries transient
+  deltas only; confirmed final outbox delivery mirrors
+  `signal_gateway_entries.ai_message_id`.
+- Provider send failure belongs to the outbox row; it does not revoke the
+  already completed ActorEvent.
 - HTTP webhook ack is not a provider-visible reply.
 - ZeroMQ is the live actor fabric between the Elixir control plane and agent
   computer workers, not durable signal storage or provider-visible outbox truth.
 - Live AI-reply previews are progress hints, not final output truth.
+- Only Agent Computer may declare a normal Agent Turn finished; only
+  SignalsGateway may commit that declaration into Actor completion and outbox
+  effects.
+- AIGateway may be used without an Actor or Worker and never mutates
+  SignalsGateway state.
 - Provider-specific gaps are adapter limitations, not reasons to widen generic
   gateway semantics.

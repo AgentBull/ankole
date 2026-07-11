@@ -2,13 +2,13 @@ defmodule Ankole.AIGateway.Resolver do
   @moduledoc """
   Resolves public model selectors into provider runtime maps.
 
-  The resolver is the point where an agent-visible selector becomes a concrete
+  The resolver is the point where a subject-visible selector becomes a concrete
   provider id, provider kind, upstream model, and runtime settings. Provider
-  modules only receive this resolved runtime map; they do not query agents or
+  modules only receive this resolved runtime map; they do not query subjects or
   model profiles themselves.
   """
 
-  alias Ankole.AIGateway.ModelProfiles
+  alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.ModelSelectors
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.Providers
@@ -17,40 +17,40 @@ defmodule Ankole.AIGateway.Resolver do
   @llm_aliases ~w(primary light heavy coding vision_fallback)
 
   @doc """
-  Resolves the request `model` field for one agent and capability.
+  Resolves the request `model` field for one Principal subject and capability.
 
   LLM aliases use named profiles such as `primary`. Embedding and rerank accept
   `default`, explicit default bindings such as `embedding.default`, or explicit
   `provider_id/model` selectors.
   """
   @spec resolve_request_model(String.t(), String.t(), map()) :: {:ok, map()} | {:error, term()}
-  def resolve_request_model(agent_uid, capability, request) do
+  def resolve_request_model(subject_uid, capability, request) do
     with {:ok, selector} <- model_selector(request) do
-      resolve_model(agent_uid, capability, selector, request)
+      resolve_model(subject_uid, capability, selector, request)
     end
   end
 
-  defp resolve_model(agent_uid, "llm", selector, request) when selector in @llm_aliases do
-    resolve_profile_model(agent_uid, "llm", selector, selector, request)
+  defp resolve_model(subject_uid, "llm", selector, request) when selector in @llm_aliases do
+    resolve_profile_model(subject_uid, "llm", selector, selector, request)
   end
 
-  defp resolve_model(agent_uid, capability, selector, request)
+  defp resolve_model(subject_uid, capability, selector, request)
        when capability in ["embedding", "rerank", "web_search", "web_fetch"] do
     case explicit_provider_selector(selector) do
       {:ok, provider_id, model} ->
-        resolve_provider_model(agent_uid, capability, selector, provider_id, model, request)
+        resolve_provider_model(subject_uid, capability, selector, provider_id, model, request)
 
       :error ->
         with {:ok, profile} <- ModelSelectors.default_profile(capability, selector) do
-          resolve_profile_model(agent_uid, capability, selector, profile, request)
+          resolve_profile_model(subject_uid, capability, selector, profile, request)
         end
     end
   end
 
-  defp resolve_model(agent_uid, capability, selector, request) do
+  defp resolve_model(subject_uid, capability, selector, request) do
     case explicit_provider_selector(selector) do
       {:ok, provider_id, model} ->
-        resolve_provider_model(agent_uid, capability, selector, provider_id, model, request)
+        resolve_provider_model(subject_uid, capability, selector, provider_id, model, request)
 
       :error ->
         {:error, {:unknown_model_selector, capability, selector}}
@@ -60,22 +60,22 @@ defmodule Ankole.AIGateway.Resolver do
   # Profile resolution keeps encrypted provider options in the control plane.
   # Workers get only AIGateway API keys and never receive upstream provider
   # secrets.
-  defp resolve_profile_model(agent_uid, capability, selector, profile_name, request) do
+  defp resolve_profile_model(subject_uid, capability, selector, profile_name, request) do
     with {:ok, profile_capability} <- ModelProfiles.profile_capability(profile_name),
          ^capability <- profile_capability,
-         {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
-         {:ok, profile} <- ModelProfiles.get_model_profile(agent_uid, profile_name) do
-      build_runtime(agent_uid, capability, selector, profile, request)
+         {:ok, subject_uid} <- Principals.normalize_uid(subject_uid),
+         {:ok, profile} <- ModelProfiles.get_model_profile(subject_uid, profile_name) do
+      build_runtime(subject_uid, capability, selector, profile, request)
     else
       other when is_binary(other) -> {:error, {:model_profile_capability_mismatch, other}}
       {:error, _reason} = error -> error
     end
   end
 
-  defp resolve_provider_model(agent_uid, capability, selector, provider_id, model, request) do
-    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid) do
+  defp resolve_provider_model(subject_uid, capability, selector, provider_id, model, request) do
+    with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid) do
       build_runtime(
-        agent_uid,
+        subject_uid,
         capability,
         selector,
         %{"provider_id" => provider_id, "model" => model, "provider_options" => %{}},
@@ -87,7 +87,7 @@ defmodule Ankole.AIGateway.Resolver do
   # This is the single runtime-map constructor for every selector style. Profile
   # selectors and explicit `provider/model` selectors must leave this module with
   # the same shape, otherwise provider preparation will drift by selector path.
-  defp build_runtime(agent_uid, capability, selector, binding, request) do
+  defp build_runtime(subject_uid, capability, selector, binding, request) do
     with {:ok, provider_id} <- binding_text(binding, "provider_id"),
          {:ok, model} <- binding_text(binding, "model"),
          {:ok, provider} <- ProviderConfigs.fetch_active_provider(provider_id),
@@ -98,7 +98,7 @@ defmodule Ankole.AIGateway.Resolver do
          {:ok, connection_options} <- ProviderConfigs.runtime_connection(provider) do
       runtime =
         %{
-          "agent_uid" => agent_uid,
+          "subject_uid" => subject_uid,
           "capability" => capability,
           "selector" => selector,
           "provider_id" => provider.provider_id,

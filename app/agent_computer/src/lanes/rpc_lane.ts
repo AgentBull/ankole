@@ -4,10 +4,23 @@ import type { EnvelopeSender } from '../fabric/fabric'
 import type { JsonObject } from '@pleisto/active-support'
 import type { InstalledSkillObservation } from '../skills/types'
 
+/**
+ * Worker-originated RuntimeFabric RPC operation registry.
+ *
+ * This table, `rpcOperationMeta`, and `RpcSchemaByMethod` are the Bun side of
+ * the cross-language RPC contract. The Elixir side lives in
+ * `Ankole.SignalsGateway.ActorRuntime.RPCLane`; both sides are pinned to the committed
+ * `app/kernel/proto/ankole/runtime_fabric/v1/rpc_methods.json` by package-local
+ * parity tests. Adding an operation means: one entry in each of the three
+ * structures here, regenerating the JSON (`bun run gen:rpc-contract`), one
+ * dispatch row plus one broker function on the Elixir side.
+ */
 export const rpcMethods = {
   aiGatewayApiKeyForCreateOrFindByAgent: 'ai_gateway.api_key_for.create_or_find_by_agent',
   agentConversationContextResolve: 'agent_conversation.context.resolve',
   appConfigureResolve: 'app_configure.resolve',
+  codexAccountResolve: 'codex.account.resolve',
+  codexAccountAuthUpdate: 'codex.account.auth.update',
   subagentDelegationCreate: 'subagent.delegation.create',
   subagentDelegationGet: 'subagent.delegation.get',
   subagentDelegationList: 'subagent.delegation.list',
@@ -38,9 +51,58 @@ export const rpcMethods = {
 
 export type RpcMethod = (typeof rpcMethods)[keyof typeof rpcMethods]
 
+/**
+ * Authorization semantics of one operation.
+ *
+ * `turn` operations echo the turn fence under the payload key `turn` and are
+ * authorized per effect by `WorkerRouteAuth` (write additionally checks the
+ * activation revision). `worker_agent` operations carry no turn fence; the
+ * control-plane broker trusts the payload agent uid by design.
+ */
+export type RpcOperationMeta = { scope: 'worker_agent' } | { scope: 'turn'; effect: 'read' | 'write' }
+
+export const rpcOperationMeta = {
+  [rpcMethods.aiGatewayApiKeyForCreateOrFindByAgent]: { scope: 'worker_agent' },
+  [rpcMethods.agentConversationContextResolve]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.appConfigureResolve]: { scope: 'worker_agent' },
+  [rpcMethods.codexAccountResolve]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.codexAccountAuthUpdate]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.subagentDelegationCreate]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.subagentDelegationGet]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.subagentDelegationList]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.subagentDelegationSteer]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.subagentDelegationStop]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.subagentDelegationEventAppend]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.subagentDelegationStatusUpdate]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.memoryNoteSave]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.memoryNoteUpdate]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.memoryNoteForget]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.memoryNoteList]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.memorySearch]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.memoryBrowse]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.scheduleCheckBackLaterCreate]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.scheduleCronList]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.scheduleCronGet]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.scheduleCronRuns]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.scheduleCronAdd]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.scheduleCronUpdate]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.scheduleCronPause]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.scheduleCronResume]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.scheduleCronRemove]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.scheduleCronRun]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.skillsInstalledReplace]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.skillsOverlayResolve]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.skillsOverlayReplace]: { scope: 'turn', effect: 'write' }
+} as const satisfies Record<RpcMethod, RpcOperationMeta>
+
+/**
+ * Wire frame of an RPC request. `method` stays `string` here because inbound
+ * frames may name methods this worker build does not know; outbound method
+ * safety is enforced by the typed `RuntimeRpcClient.request` signature.
+ */
 export type RpcRequest = {
   request_id: string
-  method: RpcMethod | string
+  method: string
   deadline_unix_ms?: number
   payload_json?: JsonObject
 }
@@ -62,6 +124,12 @@ export type RpcRejectedResponse = {
   message?: string
 }
 
+/**
+ * Narrows a method result union by the presence of a `code` field. Sound for
+ * wire frames (`RpcResponse` never carries `code`); for unwrapped `JsonObject`
+ * responses it relies on first-party brokers never emitting `code` in success
+ * payloads.
+ */
 export function isRpcRejected(response: unknown): response is RpcRejectedResponse {
   return Boolean(
     response &&
@@ -84,6 +152,15 @@ export function assertRpcResponse<TResponse>(
   label: string
 ): asserts response is TResponse {
   if (isRpcRejected(response)) throw new Error(rpcRejectedMessage(label, response))
+}
+
+/**
+ * Base payload of every turn-scoped operation: the turn fence is echoed under
+ * the `turn` key and checked by control-plane `WorkerRouteAuth` before dispatch.
+ */
+export type TurnScopedRpcRequest = {
+  request_id: string
+  turn: ActorTurnRef
 }
 
 export type RuntimeSkillSummary = {
@@ -132,31 +209,96 @@ export type RuntimeMemoryNote = {
   updated_at?: string | null
 }
 
-export type AgentConversationContextRequest = {
-  request_id: string
-  turn: ActorTurnRef
+export type AgentConversationContextRequest = TurnScopedRpcRequest & {
   actor_event?: ActorEventEnvelope
 }
 
-export type ScheduleRpcRequest = JsonObject & {
-  request_id: string
-  turn_ref: ActorTurnRef
+export type ScheduleCheckBackLaterCreateRequest = TurnScopedRpcRequest & {
+  tool_call_id: string
+  idempotency_key: string
+  reason: string
+  check: string
+  context_summary?: string
+  schedule: JsonObject
+  reply_route: JsonObject
 }
 
-export type MemoryRpcRequest = JsonObject & {
-  request_id: string
-  turn_ref: ActorTurnRef
+export type ScheduleCronListRequest = TurnScopedRpcRequest
+
+export type ScheduleCronTargetRequest = TurnScopedRpcRequest & {
+  cron_schedule_id: string
+}
+
+export type ScheduleCronRunsRequest = ScheduleCronTargetRequest & {
+  limit?: number
+}
+
+export type ScheduleCronAddRequest = TurnScopedRpcRequest & {
+  binding_name: string
+  name?: string
+  schedule: JsonObject
+  payload?: JsonObject
+  delivery?: JsonObject
+  idempotency_key: string
+  failure_policy?: JsonObject
+}
+
+export type ScheduleCronUpdateRequest = ScheduleCronTargetRequest & {
+  updates: JsonObject
+}
+
+export type MemoryDelegationScope = {
+  session_id: string
+  signal_channel_id?: string
+}
+
+/**
+ * Memory operations carry the actor event so the control plane can resolve the
+ * current channel; subagent turns additionally pin their delegation scope.
+ */
+export type MemoryRpcRequestBase = TurnScopedRpcRequest & {
   actor_event: ActorEventEnvelope
   delegation_id?: string
-  delegation_scope?: {
-    session_id: string
-    signal_channel_id?: string
-  }
+  delegation_scope?: MemoryDelegationScope
 }
 
-export type SkillOverlayRequest = {
-  request_id: string
-  turn: ActorTurnRef
+export type MemoryNoteSaveRequest = MemoryRpcRequestBase & {
+  tool_call_id: string
+  content: string
+}
+
+export type MemoryNoteUpdateRequest = MemoryRpcRequestBase & {
+  tool_call_id: string
+  note_id: string
+  content: string
+}
+
+export type MemoryNoteForgetRequest = MemoryRpcRequestBase & {
+  tool_call_id: string
+  note_id: string
+}
+
+export type MemoryNoteListRequest = MemoryRpcRequestBase & {
+  tool_call_id: string
+}
+
+export type MemorySearchRequest = MemoryRpcRequestBase & {
+  query: string
+  scope?: 'current_channel' | 'permitted_context'
+  from?: string
+  to?: string
+  limit?: number
+}
+
+export type MemoryBrowseRequest = MemoryRpcRequestBase & {
+  channel_id?: string
+  from?: string
+  to?: string
+  cursor?: string
+  limit?: number
+}
+
+export type SkillOverlayRequest = TurnScopedRpcRequest & {
   skill_name: string
 }
 
@@ -175,9 +317,7 @@ export type SkillOverlayResponse = {
   content_hash?: string
 }
 
-export type InstalledSkillReplaceRequest = {
-  request_id: string
-  turn: ActorTurnRef
+export type InstalledSkillReplaceRequest = TurnScopedRpcRequest & {
   observations: InstalledSkillObservation[]
 }
 
@@ -207,13 +347,6 @@ export type AIGatewayApiKeyResponse = {
   base_url: string
 }
 
-export type AIGatewayApiKeyRejected = {
-  request_id: string
-  agent_uid: string
-  code: string
-  message?: string
-}
-
 export type AppConfigureResolveRequest = {
   request_id: string
   agent_uid: string
@@ -232,18 +365,30 @@ export type AppConfigureResolveResponse = {
   values: Record<string, AppConfigureResolution>
 }
 
-export type AppConfigureResolveRejected = {
+export type CodexAccountResolveRequest = TurnScopedRpcRequest & {
+  delegation_id: string
+}
+
+export type CodexAccountResolveResponse = {
   request_id: string
-  agent_uid: string
-  code: string
-  message?: string
+  account_id: string
+  auth_json: string
+  auth_hash: string
+}
+
+export type CodexAccountAuthUpdateRequest = TurnScopedRpcRequest & {
+  delegation_id: string
+  auth_json: string
+}
+
+export type CodexAccountAuthUpdateResponse = {
+  request_id: string
+  account_id: string
 }
 
 export type SubagentDelegationStatus = 'queued' | 'running' | 'waiting_on_user' | 'succeeded' | 'failed' | 'stopped'
 
-export type SubagentDelegationCreateRequest = {
-  request_id: string
-  turn: ActorTurnRef
+export type SubagentDelegationCreateRequest = TurnScopedRpcRequest & {
   tool_call_id: string
   title: string
   prompt: string
@@ -252,16 +397,11 @@ export type SubagentDelegationCreateRequest = {
   metadata?: JsonObject
 }
 
-export type SubagentDelegationGetRequest = {
-  request_id: string
-  turn: ActorTurnRef
+export type SubagentDelegationGetRequest = TurnScopedRpcRequest & {
   delegation_id: string
 }
 
-export type SubagentDelegationListRequest = {
-  request_id: string
-  turn: ActorTurnRef
-}
+export type SubagentDelegationListRequest = TurnScopedRpcRequest
 
 export type SubagentDelegationSteerRequest = SubagentDelegationGetRequest & {
   text?: string
@@ -282,6 +422,7 @@ export type SubagentDelegationResponse = {
   status: SubagentDelegationStatus
   runtime_thread_id?: string
   runtime: 'codex'
+  codex_account_id: string
   title: string
   prompt?: string
   reply_route: JsonObject
@@ -294,6 +435,11 @@ export type SubagentDelegationResponse = {
   error?: JsonObject
   metadata?: JsonObject
   last_event_seq?: number
+  attempt_history?: Array<{
+    attempt: number
+    event_types: string[]
+    summary?: string
+  }>
   result_ref?: JsonObject
 }
 
@@ -316,9 +462,7 @@ export type SubagentDelegationAuditEvent = {
   occurred_at?: string
 }
 
-export type SubagentDelegationEventAppendRequest = {
-  request_id: string
-  turn: ActorTurnRef
+export type SubagentDelegationEventAppendRequest = TurnScopedRpcRequest & {
   delegation_id: string
   events: SubagentDelegationAuditEvent[]
 }
@@ -330,9 +474,7 @@ export type SubagentDelegationEventResponse = {
   last_event_seq?: number
 }
 
-export type SubagentDelegationStatusUpdateRequest = {
-  request_id: string
-  turn: ActorTurnRef
+export type SubagentDelegationStatusUpdateRequest = TurnScopedRpcRequest & {
   delegation_id: string
   status: SubagentDelegationStatus
   runtime_thread_id?: string
@@ -341,43 +483,113 @@ export type SubagentDelegationStatusUpdateRequest = {
   metadata?: JsonObject
 }
 
-export type SubagentDelegationRejected = {
-  request_id: string
-  code: string
-  message?: string
+/**
+ * Request and response payload bound to each operation.
+ *
+ * Responses that are consumed field-by-field use precise types; schedule and
+ * memory responses pass through to the model as JSON and deliberately stay
+ * `JsonObject`.
+ */
+export type RpcSchemaByMethod = {
+  [rpcMethods.aiGatewayApiKeyForCreateOrFindByAgent]: {
+    request: AIGatewayApiKeyRequest
+    response: AIGatewayApiKeyResponse
+  }
+  [rpcMethods.agentConversationContextResolve]: {
+    request: AgentConversationContextRequest
+    response: AgentConversationContext
+  }
+  [rpcMethods.appConfigureResolve]: {
+    request: AppConfigureResolveRequest
+    response: AppConfigureResolveResponse
+  }
+  [rpcMethods.codexAccountResolve]: {
+    request: CodexAccountResolveRequest
+    response: CodexAccountResolveResponse
+  }
+  [rpcMethods.codexAccountAuthUpdate]: {
+    request: CodexAccountAuthUpdateRequest
+    response: CodexAccountAuthUpdateResponse
+  }
+  [rpcMethods.subagentDelegationCreate]: {
+    request: SubagentDelegationCreateRequest
+    response: SubagentDelegationResponse
+  }
+  [rpcMethods.subagentDelegationGet]: {
+    request: SubagentDelegationGetRequest
+    response: SubagentDelegationResponse
+  }
+  [rpcMethods.subagentDelegationList]: {
+    request: SubagentDelegationListRequest
+    response: SubagentDelegationListResponse
+  }
+  [rpcMethods.subagentDelegationSteer]: {
+    request: SubagentDelegationSteerRequest
+    response: SubagentDelegationResponse
+  }
+  [rpcMethods.subagentDelegationStop]: {
+    request: SubagentDelegationStopRequest
+    response: SubagentDelegationResponse
+  }
+  [rpcMethods.subagentDelegationEventAppend]: {
+    request: SubagentDelegationEventAppendRequest
+    response: SubagentDelegationEventResponse
+  }
+  [rpcMethods.subagentDelegationStatusUpdate]: {
+    request: SubagentDelegationStatusUpdateRequest
+    response: SubagentDelegationResponse
+  }
+  [rpcMethods.memoryNoteSave]: { request: MemoryNoteSaveRequest; response: JsonObject }
+  [rpcMethods.memoryNoteUpdate]: { request: MemoryNoteUpdateRequest; response: JsonObject }
+  [rpcMethods.memoryNoteForget]: { request: MemoryNoteForgetRequest; response: JsonObject }
+  [rpcMethods.memoryNoteList]: { request: MemoryNoteListRequest; response: JsonObject }
+  [rpcMethods.memorySearch]: { request: MemorySearchRequest; response: JsonObject }
+  [rpcMethods.memoryBrowse]: { request: MemoryBrowseRequest; response: JsonObject }
+  [rpcMethods.scheduleCheckBackLaterCreate]: { request: ScheduleCheckBackLaterCreateRequest; response: JsonObject }
+  [rpcMethods.scheduleCronList]: { request: ScheduleCronListRequest; response: JsonObject }
+  [rpcMethods.scheduleCronGet]: { request: ScheduleCronTargetRequest; response: JsonObject }
+  [rpcMethods.scheduleCronRuns]: { request: ScheduleCronRunsRequest; response: JsonObject }
+  [rpcMethods.scheduleCronAdd]: { request: ScheduleCronAddRequest; response: JsonObject }
+  [rpcMethods.scheduleCronUpdate]: { request: ScheduleCronUpdateRequest; response: JsonObject }
+  [rpcMethods.scheduleCronPause]: { request: ScheduleCronTargetRequest; response: JsonObject }
+  [rpcMethods.scheduleCronResume]: { request: ScheduleCronTargetRequest; response: JsonObject }
+  [rpcMethods.scheduleCronRemove]: { request: ScheduleCronTargetRequest; response: JsonObject }
+  [rpcMethods.scheduleCronRun]: { request: ScheduleCronTargetRequest; response: JsonObject }
+  [rpcMethods.skillsInstalledReplace]: {
+    request: InstalledSkillReplaceRequest
+    response: InstalledSkillReplaceResponse
+  }
+  [rpcMethods.skillsOverlayResolve]: { request: SkillOverlayRequest; response: SkillOverlayResponse }
+  [rpcMethods.skillsOverlayReplace]: { request: SkillOverlayReplaceRequest; response: SkillOverlayResponse }
 }
 
-export type RpcPayloadByMethod = {
-  [rpcMethods.aiGatewayApiKeyForCreateOrFindByAgent]: AIGatewayApiKeyRequest
-  [rpcMethods.agentConversationContextResolve]: AgentConversationContextRequest
-  [rpcMethods.appConfigureResolve]: AppConfigureResolveRequest
-  [rpcMethods.subagentDelegationCreate]: SubagentDelegationCreateRequest
-  [rpcMethods.subagentDelegationGet]: SubagentDelegationGetRequest
-  [rpcMethods.subagentDelegationList]: SubagentDelegationListRequest
-  [rpcMethods.subagentDelegationSteer]: SubagentDelegationSteerRequest
-  [rpcMethods.subagentDelegationStop]: SubagentDelegationStopRequest
-  [rpcMethods.subagentDelegationEventAppend]: SubagentDelegationEventAppendRequest
-  [rpcMethods.subagentDelegationStatusUpdate]: SubagentDelegationStatusUpdateRequest
-  [rpcMethods.memoryNoteSave]: MemoryRpcRequest
-  [rpcMethods.memoryNoteUpdate]: MemoryRpcRequest
-  [rpcMethods.memoryNoteForget]: MemoryRpcRequest
-  [rpcMethods.memoryNoteList]: MemoryRpcRequest
-  [rpcMethods.memorySearch]: MemoryRpcRequest
-  [rpcMethods.memoryBrowse]: MemoryRpcRequest
-  [rpcMethods.scheduleCheckBackLaterCreate]: ScheduleRpcRequest
-  [rpcMethods.scheduleCronList]: ScheduleRpcRequest
-  [rpcMethods.scheduleCronGet]: ScheduleRpcRequest
-  [rpcMethods.scheduleCronRuns]: ScheduleRpcRequest
-  [rpcMethods.scheduleCronAdd]: ScheduleRpcRequest
-  [rpcMethods.scheduleCronUpdate]: ScheduleRpcRequest
-  [rpcMethods.scheduleCronPause]: ScheduleRpcRequest
-  [rpcMethods.scheduleCronResume]: ScheduleRpcRequest
-  [rpcMethods.scheduleCronRemove]: ScheduleRpcRequest
-  [rpcMethods.scheduleCronRun]: ScheduleRpcRequest
-  [rpcMethods.skillsInstalledReplace]: InstalledSkillReplaceRequest
-  [rpcMethods.skillsOverlayResolve]: SkillOverlayRequest
-  [rpcMethods.skillsOverlayReplace]: SkillOverlayReplaceRequest
-}
+/**
+ * Shape of an injected RPC caller that converts control-plane errors into
+ * thrown tool failures. The worker only packages requests and never applies
+ * local fallback behavior for these operations.
+ */
+export type RpcRequester = <M extends RpcMethod>(
+  method: M,
+  payload: RpcSchemaByMethod[M]['request']
+) => Promise<RpcSchemaByMethod[M]['response']>
+
+export type ScheduleRpcMethod = Extract<RpcMethod, `schedule.${string}`>
+export type MemoryRpcMethod = Extract<RpcMethod, `memory${string}`>
+
+/**
+ * Family-scoped requesters injected into schedule and memory tools. Payloads
+ * are still checked per method; responses in these families are model-facing
+ * passthrough JSON.
+ */
+export type ScheduleRpcRequester = <M extends ScheduleRpcMethod>(
+  method: M,
+  payload: RpcSchemaByMethod[M]['request']
+) => Promise<JsonObject>
+
+export type MemoryRpcRequester = <M extends MemoryRpcMethod>(
+  method: M,
+  payload: RpcSchemaByMethod[M]['request']
+) => Promise<JsonObject>
 
 export const rpcTimeoutMs = 60_000
 
@@ -440,12 +652,15 @@ export class RuntimeRpcClient {
 
   /**
    * Sends one typed RPC request and waits for its reply.
+   *
+   * Returns the unwrapped response payload for the operation, or the RPC error
+   * frame. This is the single point where wire payloads meet contract types.
    */
   async request<M extends RpcMethod>(
     method: M,
-    payload: RpcPayloadByMethod[M],
-    requestId: string
-  ): Promise<RpcResponse | RpcError> {
+    payload: RpcSchemaByMethod[M]['request']
+  ): Promise<RpcSchemaByMethod[M]['response'] | RpcError> {
+    const requestId = payload.request_id
     const request: RpcRequest = {
       request_id: requestId,
       method,
@@ -478,7 +693,9 @@ export class RuntimeRpcClient {
       throw error
     }
 
-    return promise
+    const reply = await promise
+    if (isRpcError(reply)) return reply
+    return (reply.payload_json ?? {}) as RpcSchemaByMethod[M]['response']
   }
 
   /**

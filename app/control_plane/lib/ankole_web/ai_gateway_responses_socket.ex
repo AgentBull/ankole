@@ -11,8 +11,8 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
     1. **Client forwarding** — raw JSON text pushed to the WebSocket client.
     2. **Terminal content accumulation** — completed Response items held in
        process memory until the terminal commit.
-    3. **Typed live chunk publishing** — semantic events (text deltas, function
-       calls) published via PubSub for SignalsGateway preview/finalize.
+    3. **Typed live chunk publishing** — generic semantic events published on
+       the owning AIGateway conversation.
 
   Response ID rewriting: every stateful frame with `response.id` or top-level
   `response_id` has it rewritten from the provider's raw id to
@@ -23,11 +23,14 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   @behaviour WebSock
 
   alias Ankole.AIGateway
+  alias Ankole.AIGateway.Events
+  alias Ankole.AIGateway.MaxToolCalls
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.Kernel.UniversalAIClient
   alias Ankole.Logging
 
   @socket_response_history_limit 32
+  @response_heartbeat_ms 60_000
 
   # ─────────────────────────────────────────────────────────────────
   # Connection lifecycle
@@ -80,7 +83,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
           error_event(
             400,
             "invalid_stateful_conversation",
-            "conversation does not reference an active conversation owned by this agent."
+            "conversation does not reference an active conversation owned by this subject."
           )
 
         {:push, {:text, Ankole.JSON.encode!(event)}, state}
@@ -112,17 +115,6 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
             400,
             "stateful_store_required",
             "previous_response_id and conversation require explicit store=true on WebSocket response.create."
-          )
-
-        {:push, {:text, Ankole.JSON.encode!(event)}, state}
-
-      {:error, :missing_actor_event_id} ->
-        event =
-          error_event(
-            400,
-            "missing_actor_event_id",
-            "metadata.actor_event_id is required for actor-event tool-result correlation.",
-            "metadata.actor_event_id"
           )
 
         {:push, {:text, Ankole.JSON.encode!(event)}, state}
@@ -165,7 +157,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
           error_event(
             409,
             "response_in_progress",
-            "This actor event already has an active stateful response run."
+            "This response already has an active stateful run."
           )
 
         {:push, {:text, Ankole.JSON.encode!(event)}, state}
@@ -248,7 +240,6 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
 
     case AIGateway.record_tool_results(state.subject_uid, request) do
       {:ok, %{body: body}} ->
-        publish_tool_results_recorded(request)
         event = tool_results_recorded_event(body)
         {:push, {:text, Ankole.JSON.encode!(event)}, state}
 
@@ -271,36 +262,41 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
     # response ID rewriting on terminal frames, handled in :done/:error).
     {new_active, client_chunk} = process_provider_chunk(active, chunk, seq)
 
-    # Publish typed live events for stateful runs (SignalsGateway subscribes).
+    # Publish typed live events for stateful runs.
     maybe_publish_typed_events(stateful, active, new_active, seq)
 
-    if Map.get(new_active, :terminal_received, false) do
-      state =
-        state
-        |> remember_socket_response(new_active)
-        |> clear_active_stream()
+    cond do
+      Map.get(new_active, :terminal_received, false) ->
+        state =
+          state
+          |> remember_socket_response(new_active)
+          |> clear_active_stream()
 
-      {:push, {:text, client_chunk}, state}
-    else
-      case UniversalAIClient.read(stream, 1) do
-        :ok ->
-          {:push, {:text, client_chunk}, Map.put(state, :active_stream, new_active)}
+        {:push, {:text, client_chunk}, state}
 
-        {:error, reason} ->
-          case fail_active_stream(
-                 state,
-                 new_active,
-                 "stream_read_failed: #{inspect(reason)}",
-                 code: "provider_stream_error",
-                 retryable: true
-               ) do
-            {:push, failed_chunk, state} ->
-              {:push, [{:text, client_chunk}, {:text, failed_chunk}], state}
+      MaxToolCalls.stop?(Map.get(new_active, :max_tool_calls)) ->
+        stop_for_max_tool_calls(state, new_active, client_chunk)
 
-            {:ok, state} ->
-              {:push, {:text, client_chunk}, state}
-          end
-      end
+      true ->
+        case UniversalAIClient.read(stream, 1) do
+          :ok ->
+            {:push, {:text, client_chunk}, Map.put(state, :active_stream, new_active)}
+
+          {:error, reason} ->
+            case fail_active_stream(
+                   state,
+                   new_active,
+                   "stream_read_failed: #{inspect(reason)}",
+                   code: "provider_stream_error",
+                   retryable: true
+                 ) do
+              {:push, failed_chunk, state} ->
+                {:push, [{:text, client_chunk}, {:text, failed_chunk}], state}
+
+              {:ok, state} ->
+                {:push, {:text, client_chunk}, state}
+            end
+        end
     end
   end
 
@@ -388,6 +384,24 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   def handle_info({:universal_ai_client, _ref, _kind, _seq, _chunk_kind, _binary}, state),
     do: {:ok, state}
 
+  def handle_info(
+        {:ai_gateway_response_heartbeat, ref},
+        %{
+          subject_uid: subject_uid,
+          active_stream: %{ref: ref, stateful: %{message_id: message_id}}
+        } = state
+      ) do
+    case StatefulResponses.touch_generating_response(subject_uid, message_id) do
+      {:ok, %{} = _message} -> schedule_response_heartbeat(ref)
+      {:ok, :already_terminal} -> :ok
+      {:error, _reason} -> :ok
+    end
+
+    {:ok, state}
+  end
+
+  def handle_info({:ai_gateway_response_heartbeat, _stale_ref}, state), do: {:ok, state}
+
   def handle_info(_message, state), do: {:ok, state}
 
   # ─────────────────────────────────────────────────────────────────
@@ -440,7 +454,11 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
 
   # Handles a parsed JSON chunk from the provider.
   defp handle_parsed_chunk(active, chunk, seq, original_string) do
-    active = remember_provider_response_id(active, chunk)
+    active =
+      active
+      |> remember_provider_response_id(chunk)
+      |> Map.put(:seq, seq)
+      |> observe_max_tool_calls(chunk)
 
     case chunk["type"] do
       # ── Text delta ──
@@ -506,18 +524,14 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
 
   defp maybe_publish_typed_events(nil, _old_active, _new_active, _seq), do: :ok
 
-  defp maybe_publish_typed_events(%{message_id: _message_id}, old_active, new_active, seq) do
-    actor_event_id = get_in(new_active, [:stateful, :actor_event_id])
+  defp maybe_publish_typed_events(%{message: %{} = message}, old_active, new_active, seq) do
+    publish_new_tool_calls(message, old_active, new_active, seq)
 
-    if actor_event_id do
-      publish_new_tool_calls(actor_event_id, old_active, new_active, seq)
-    end
-
-    if actor_event_id && new_active.text_buffer != old_active.text_buffer do
+    if new_active.text_buffer != old_active.text_buffer do
       delta = text_delta_since(old_active.text_buffer, new_active.text_buffer)
 
       if delta != "" do
-        StatefulResponses.publish_typed_event(actor_event_id, :output_text_delta, %{
+        Events.publish(message, :output_text_delta, %{
           text: delta,
           seq: seq
         })
@@ -527,46 +541,31 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
     :ok
   end
 
-  defp publish_new_tool_calls(actor_event_id, old_active, new_active, seq) do
+  defp publish_new_tool_calls(message, old_active, new_active, seq) do
     old_items = Map.get(old_active, :accumulated_items, [])
     new_items = Map.get(new_active, :accumulated_items, [])
     old_count = length(old_items)
 
     new_items
     |> Enum.drop(old_count)
-    |> Enum.filter(&function_call_item?/1)
+    |> Enum.filter(&tool_activity_item?/1)
     |> Enum.each(fn item ->
-      StatefulResponses.publish_typed_event(
-        actor_event_id,
-        :tool_call_started,
-        tool_activity_payload(item, seq)
-      )
+      Events.publish(message, :tool_call_started, tool_activity_payload(item, seq))
     end)
   end
-
-  defp publish_tool_results_recorded(%{
-         "input" => input,
-         "metadata" => %{"actor_event_id" => actor_event_id}
-       })
-       when is_binary(actor_event_id) and is_list(input) do
-    input
-    |> Enum.filter(&function_call_output_item?/1)
-    |> Enum.each(fn item ->
-      StatefulResponses.publish_typed_event(
-        actor_event_id,
-        :tool_call_completed,
-        tool_activity_payload(item, nil)
-      )
-    end)
-  end
-
-  defp publish_tool_results_recorded(_body), do: :ok
 
   defp tool_activity_payload(item, seq) do
     item
-    |> Map.take(["call_id", "name", "output"])
+    |> Map.take(["type", "id", "call_id", "name", "status", "output", "action"])
     |> maybe_put_payload("seq", seq)
   end
+
+  defp tool_activity_item?(%{"type" => type}) when is_binary(type) do
+    type in ["function_call", "custom_tool_call", "mcp_list_tools"] or
+      String.ends_with?(type, "_call")
+  end
+
+  defp tool_activity_item?(_item), do: false
 
   defp maybe_put_payload(payload, _key, nil), do: payload
   defp maybe_put_payload(payload, key, value), do: Map.put(payload, key, value)
@@ -637,6 +636,93 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
       original_string
     )
   end
+
+  defp observe_max_tool_calls(active, chunk) do
+    Map.update(
+      active,
+      :max_tool_calls,
+      nil,
+      &MaxToolCalls.observe(&1, chunk)
+    )
+  end
+
+  defp stop_for_max_tool_calls(state, active, client_chunk) do
+    _ = UniversalAIClient.cancel(active.stream)
+
+    response = max_tool_calls_incomplete_response(active)
+    terminal_metadata = max_tool_calls_terminal_metadata(active, response)
+
+    active =
+      Map.merge(active, %{
+        terminal_error: nil,
+        terminal_response: response
+      })
+
+    case commit_stateful_terminal(
+           active.stateful,
+           unpersisted_items(active),
+           nil,
+           terminal_metadata
+         ) do
+      :ok ->
+        active =
+          active
+          |> Map.put(:terminal_committed, terminal_committed_after_forward?(active))
+          |> Map.put(:terminal_received, true)
+
+        next_state =
+          state
+          |> remember_socket_response(active)
+          |> clear_active_stream()
+
+        incomplete_chunk =
+          %{
+            "type" => "response.incomplete",
+            "response" => response
+          }
+          |> maybe_put_sequence_number(next_sequence_number(active))
+          |> Ankole.JSON.encode!()
+
+        {:push, [{:text, client_chunk}, {:text, incomplete_chunk}], next_state}
+
+      {:error, reason} ->
+        failed_chunk =
+          active
+          |> stateful_commit_failed_chunk(reason, next_sequence_number(active))
+          |> Ankole.JSON.encode!()
+
+        {:push, [{:text, client_chunk}, {:text, failed_chunk}], clear_active_stream(state)}
+    end
+  end
+
+  defp max_tool_calls_incomplete_response(active) do
+    provider_metadata = %{
+      "max_tool_calls" => MaxToolCalls.details(active.max_tool_calls)
+    }
+
+    %{
+      "id" => cleanup_response_id(active),
+      "object" => "response",
+      "status" => "incomplete",
+      "incomplete_details" => nil,
+      "output" => unpersisted_items(active),
+      "provider_metadata" => provider_metadata
+    }
+  end
+
+  defp max_tool_calls_terminal_metadata(active, response) do
+    %{
+      "provider_metadata" => response["provider_metadata"],
+      "response" => %{
+        "id" => active.provider_response_id || response["id"],
+        "object" => "response",
+        "status" => "incomplete"
+      }
+    }
+  end
+
+  defp next_sequence_number(%{seq: seq}) when is_integer(seq), do: seq + 1
+  defp next_sequence_number(_active), do: nil
 
   defp commit_and_forward_terminal_chunk(
          active,
@@ -779,9 +865,6 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   defp function_call_item?(%{"type" => "function_call"}), do: true
   defp function_call_item?(_item), do: false
 
-  defp function_call_output_item?(%{"type" => "function_call_output"}), do: true
-  defp function_call_output_item?(_item), do: false
-
   # ─────────────────────────────────────────────────────────────────
   # Response ID rewriting
   # ─────────────────────────────────────────────────────────────────
@@ -814,6 +897,8 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
       {:ok, stream, meta} ->
         case UniversalAIClient.read(stream, 1) do
           :ok ->
+            schedule_response_heartbeat(stream.ref, stateful_context_from_meta(meta))
+
             {:ok,
              %{
                ref: stream.ref,
@@ -829,7 +914,12 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
                seq: 0,
                terminal_error: nil,
                terminal_committed: false,
-               terminal_received: false
+               terminal_received: false,
+               max_tool_calls:
+                 MaxToolCalls.new(
+                   Map.get(request, "max_tool_calls"),
+                   stream_api_resolver(meta)
+                 )
              }}
 
           {:error, reason} ->
@@ -853,6 +943,11 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
 
   defp stateful_context_from_meta(%{stateful: stateful_context}), do: stateful_context
   defp stateful_context_from_meta(_meta), do: nil
+
+  defp stream_api_resolver(meta) when is_map(meta),
+    do: Map.get(meta, "api_resolver") || Map.get(meta, :api_resolver)
+
+  defp stream_api_resolver(_meta), do: nil
 
   defp safe_open_websocket_stream(subject_uid, request) do
     AIGateway.open_websocket_stream(subject_uid, request)
@@ -894,10 +989,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   end
 
   defp commit_stateful_terminal(stateful, items, error_details, terminal_metadata) do
-    opts =
-      if retryable_terminal_error?(error_details), do: [complete_actor_event?: false], else: []
-
-    opts = Keyword.put(opts, :metadata, terminal_metadata)
+    opts = [metadata: terminal_metadata]
 
     case StatefulResponses.commit_error(stateful.message_id, items, error_details, opts) do
       {:ok, %{} = _message} ->
@@ -928,8 +1020,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
         "reason" => "stateful_terminal_commit_failed",
         "stage" => "terminal_commit",
         "details" => inspect(reason)
-      },
-      complete_actor_event?: false
+      }
     )
   end
 
@@ -948,9 +1039,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
       }
       |> maybe_put_retryable(retryable?)
 
-    commit_opts = [complete_actor_event?: Keyword.get(opts, :complete_actor_event?, false)]
-
-    StatefulResponses.commit_error(message_id, partial_content, error_details, commit_opts)
+    StatefulResponses.commit_error(message_id, partial_content, error_details)
   end
 
   defp commit_stateful_error(%{message_id: message_id}, reason, partial_content, opts) do
@@ -1150,7 +1239,6 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
           |> Map.delete("previous_response_id")
           |> Map.put("store", false)
           |> Map.delete("conversation")
-          |> strip_internal_socket_metadata()
 
         {:ok, request, %{socket_previous_response_id: response_id}}
 
@@ -1159,11 +1247,13 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
     end
   end
 
-  defp strip_internal_socket_metadata(%{"metadata" => %{} = metadata} = request) do
-    Map.put(request, "metadata", Map.delete(metadata, "actor_event_id"))
-  end
+  defp schedule_response_heartbeat(ref, %{message_id: _message_id}),
+    do: Process.send_after(self(), {:ai_gateway_response_heartbeat, ref}, @response_heartbeat_ms)
 
-  defp strip_internal_socket_metadata(request), do: request
+  defp schedule_response_heartbeat(_ref, nil), do: :ok
+
+  defp schedule_response_heartbeat(ref),
+    do: Process.send_after(self(), {:ai_gateway_response_heartbeat, ref}, @response_heartbeat_ms)
 
   defp remember_socket_response(
          state,
@@ -1330,8 +1420,6 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
       String.contains?(message, "too many requests") or
       Regex.match?(~r/(^|\D)429(\D|$)/, message)
   end
-
-  defp retryable_terminal_error?(_details), do: false
 
   defp integer_value(value) when is_integer(value), do: value
   defp integer_value(_value), do: nil

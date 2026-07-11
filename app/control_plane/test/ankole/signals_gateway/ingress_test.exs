@@ -1,8 +1,8 @@
 defmodule Ankole.SignalsGatewayIngressTest do
   use Ankole.DataCase, async: false
 
-  alias Ankole.Actors
-  alias Ankole.Actors.ActorEvent
+  alias Ankole.SignalsGateway.Actors
+  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Repo
@@ -162,7 +162,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       assert {:ok, conversation} = Conversations.ensure_conversation(agent.uid, session_id)
 
       Repo.insert!(%Message{
-        agent_uid: agent.uid,
+        subject_uid: agent.uid,
         conversation_id: conversation.id,
         type: "message",
         role: "assistant",
@@ -986,6 +986,37 @@ defmodule Ankole.SignalsGatewayIngressTest do
                get_in(input.payload, ["data", "entries"])
     end
 
+    test "provider redelivery after batch finalization does not create a second actor event" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      fact =
+        group_entry(%{
+          explicit: true,
+          source_event_id: "evt-finalized-redelivery",
+          source_entry_id: "msg-finalized-redelivery",
+          text: "@Agent please answer once"
+        })
+
+      assert {:ok, %{status: :accepted, inbound_batch: batch}} =
+               Ingress.emit_entry(agent.uid, "bot", fact, now: @base_time)
+
+      assert {:ok, [%{actor_event: first_event}]} =
+               finalize_due_inbound_batch_events(now: batch.available_at)
+
+      assert {:ok, %{status: :duplicate, inbound_batch: nil}} =
+               Ingress.emit_entry(
+                 agent.uid,
+                 "bot",
+                 fact,
+                 now: DateTime.add(batch.available_at, 1, :second)
+               )
+
+      assert Repo.aggregate(ActorEvent, :count) == 1
+      assert Repo.aggregate(InboundBatch, :count) == 1
+      assert Repo.get!(ActorEvent, first_event.id).id == first_event.id
+    end
+
     test "newer provider state replaces a pending duplicate batch entry" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
@@ -1157,7 +1188,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
              )
     end
 
-    test "inline finalized addressed batch starts a preview handler" do
+    test "inline finalized addressed batch does not start preview before turn dispatch" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
@@ -1202,7 +1233,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       assert second_batch.id != first_batch.id
       assert first_event.type == "im.message.addressed"
       assert get_in(first_event.payload, ["data", "entry", "text"]) == "@Agent first"
-      assert is_pid(wait_for_preview_handler(first_event.id))
+      assert Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, first_event.id) == []
     end
 
     test "addressed text followed by attachment waits on the attachment window and merges" do
@@ -1302,25 +1333,6 @@ defmodule Ankole.SignalsGatewayIngressTest do
       assert get_in(input.payload, ["data", "entry", "text"]) == long_text
       assert [_one_entry] = get_in(input.payload, ["data", "entries"])
     end
-  end
-
-  defp wait_for_preview_handler(actor_event_id, attempts_left \\ 20)
-
-  defp wait_for_preview_handler(actor_event_id, attempts_left) when attempts_left > 0 do
-    case Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, actor_event_id) do
-      [{pid, _value}] ->
-        pid
-
-      [] ->
-        receive do
-        after
-          50 -> wait_for_preview_handler(actor_event_id, attempts_left - 1)
-        end
-    end
-  end
-
-  defp wait_for_preview_handler(actor_event_id, 0) do
-    flunk("preview handler for actor_event_id=#{actor_event_id} was not started")
   end
 
   defp insert_signal_entry!(

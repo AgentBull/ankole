@@ -12,7 +12,8 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   import Ankole.E2E.Harness
   import Ankole.E2E.Scenarios.RealLLM
 
-  alias Ankole.AIGateway.ModelProfiles
+  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIAgent.CodexAccounts
   alias Ankole.AIGateway
 
   # Models are deliberately hardcoded (no env overrides): the suite gates a
@@ -106,7 +107,7 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   @tag ownership_timeout: 1_800_000
   @tag :real_llm
   @tag :codex_todolist_real_llm
-  test "real OpenRouter GPT-5.4-mini delegates and verifies a Vite React todolist task" do
+  test "real OpenRouter model delegates and verifies a Vite React todolist task" do
     ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!())
 
     result = run_real_lark_codex_todolist_turn(ctx)
@@ -118,6 +119,38 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
       :reply,
       "om_real_codex_todolist_1"
     )
+  end
+
+  @tag timeout: 1_800_000
+  @tag ownership_timeout: 1_800_000
+  @tag :real_llm
+  @tag :codex_subscription_real_llm
+  test "real ChatGPT subscription account completes the delegated Codex task" do
+    auth_json = File.read!(Path.expand("~/.codex/auth.json"))
+    %{"tokens" => %{"account_id" => account_id}} = Ankole.JSON.decode!(auth_json)
+
+    assert {:ok, account} =
+             CodexAccounts.create_account(%{
+               "name" => "Real subscription #{String.slice(account_id, 0, 8)}",
+               "auth_json" => auth_json
+             })
+
+    ctx =
+      start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!())
+      |> Map.put(:codex_account_id, account.account_id)
+
+    result = run_real_lark_codex_todolist_turn(ctx)
+
+    assert_lark_final_reply(
+      ctx.fake_feishu,
+      result.reply,
+      "ANKOLE_CODEX_TODOLIST_REAL_OK",
+      :reply,
+      "om_real_codex_todolist_1"
+    )
+
+    assert {:ok, resolved} = CodexAccounts.resolve_auth(account.account_id)
+    assert resolved.auth_hash == Ankole.Kernel.generic_hash(resolved.auth_json)
   end
 
   @tag timeout: 600_000

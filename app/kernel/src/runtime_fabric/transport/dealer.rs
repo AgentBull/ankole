@@ -113,9 +113,8 @@ impl DealerInbox {
             .map_err(|_| TransportError::SocketClosed)?;
 
         loop {
-            match state.queue.front() {
-                Some(_event) => return Ok(state.pop_front()),
-                None => {}
+            if !state.queue.is_empty() {
+                return Ok(state.pop_front());
             }
 
             if state.closed {

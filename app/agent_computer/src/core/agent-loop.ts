@@ -7,9 +7,10 @@
  *   3. Record function_call_output results through AIGateway.
  *   4. Continue from the recorded journal anchor until no function_call items are returned.
  *
- * The worker does NOT own history expansion, compaction, or continuation
- * anchors, stop strategy, or durable state. Those live in AIGateway
- * (StatefulResponses). The worker just executes tools and records results.
+ * The worker owns loop termination and its local iteration budget. It does NOT
+ * own history expansion, compaction, continuation anchors, or durable response
+ * state; those remain in AIGateway. The worker executes tools, records their
+ * results, and explicitly reports when the whole Agent turn has ended.
  */
 
 import { createHash, randomBytes } from 'node:crypto'
@@ -29,19 +30,13 @@ import {
   type ToolCall
 } from './llm'
 import { isLocallyRetryableLlmError, isRetryableLlmError } from './llm-error-classifier'
-import type { AgentLoopConfig, AgentTool, AgentToolResult } from './types'
+import type { AgentLoopConfig, AgentLoopResult, AgentTool, AgentToolResult } from './types'
 import { contentText, imageSummaryBlock, modelImageAdaptation, responseImageUnavailableText } from './vision'
 
-const DEFAULT_MAX_MODEL_ITERATIONS = 90
-const DEFAULT_MAX_TOOL_ROUNDS = 90
 const EMPTY_AFTER_TOOL_NUDGE_TEXT =
   'You just executed tool calls but returned an empty response. Please process the tool results above and continue with the task.'
 const MODEL_ITERATION_LIMIT_SYNTHESIS_TEXT =
   "You've reached the maximum number of tool-calling iterations allowed. Please provide a final response summarizing what you've found and accomplished so far, without calling any more tools."
-const TOOL_ROUND_LIMIT_SYNTHESIS_TEXT =
-  'The tool round limit has been reached. Do not call more tools. Synthesize the best final answer from the tool results and conversation state already available. Be explicit about anything left incomplete or unverified.'
-const TOOL_ROUND_LIMIT_TOOL_OUTPUT_TEXT =
-  'Tool call was not executed because the worker reached the maximum tool-round limit for this turn. Stop calling tools and synthesize a final answer from the information already available.'
 const TOOL_ERROR_RECOVERY_HINT = 'Analyze the error above and try a different approach.'
 const VOLATILE_TOOL_ARGUMENT_KEYS = new Set([
   'idempotency_key',
@@ -59,17 +54,17 @@ const VOLATILE_TOOL_ARGUMENT_KEYS = new Set([
  * Tool outputs are recorded through AIGateway and then continued from the new
  * response id, which avoids replaying local transcripts into a stateful store.
  */
-export async function runAgentLoop(config: AgentLoopConfig): Promise<AssistantMessage> {
+export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopResult> {
   let pendingMessages: Message[] = [...config.messages]
   let latestAssistant: AssistantMessage | undefined
+  let latestResponseId: string | undefined
+  let outcome: AgentLoopResult['outcome'] = 'loop_finished'
   let modelIterations = 0
-  let toolRounds = 0
   let sawToolResults = false
   let nudgedEmptyAfterTools = false
   let clarifyExecuted = false
   const repeatedFailureState: RepeatedToolFailureState = { count: 0 }
-  const maxModelIterations = config.maxModelIterations ?? DEFAULT_MAX_MODEL_ITERATIONS
-  const maxToolRounds = config.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS
+  const maxModelIterations = config.maxModelIterations
   const toolByName = config.tools?.length ? agentToolMap(config.tools) : undefined
   const modelTurn = createModelTurn(config.model, {
     stateful: config.stateful,
@@ -90,6 +85,8 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AssistantMe
           modelTurn
         })
         latestAssistant = synthesized.message
+        latestResponseId = requiredResponseId(synthesized.responseId)
+        outcome = 'iteration_exhausted'
         break
       }
 
@@ -136,6 +133,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AssistantMe
       )
 
       latestAssistant = result.message
+      latestResponseId = requiredResponseId(result.responseId)
 
       // If no tool calls, the loop is done.
       if (!result.hasToolCalls || !latestAssistant.toolCalls?.length) {
@@ -145,18 +143,6 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AssistantMe
           continue
         }
 
-        break
-      }
-
-      toolRounds += 1
-      if (toolRounds > maxToolRounds) {
-        const synthesized = await synthesizeAfterToolRoundLimit({
-          config,
-          maxToolRounds,
-          modelTurn,
-          toolCalls: latestAssistant.toolCalls
-        })
-        latestAssistant = synthesized.message
         break
       }
 
@@ -206,10 +192,10 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AssistantMe
     modelTurn.close()
   }
 
-  if (!latestAssistant) {
-    throw new Error('agent loop completed without an assistant response')
+  if (!latestAssistant || !latestResponseId) {
+    throw new Error('agent loop completed without a response-backed assistant message')
   }
-  return latestAssistant
+  return { message: latestAssistant, responseId: latestResponseId, outcome }
 }
 
 /**
@@ -276,13 +262,6 @@ interface RepeatedToolFailureState {
   count: number
 }
 
-interface ToolLimitSynthesisInput {
-  config: AgentLoopConfig
-  maxToolRounds: number
-  modelTurn: ModelTurn
-  toolCalls: ToolCall[]
-}
-
 interface ModelIterationLimitSynthesisInput {
   config: AgentLoopConfig
   maxModelIterations: number
@@ -290,71 +269,10 @@ interface ModelIterationLimitSynthesisInput {
 }
 
 /**
- * Converts a runaway tool request into one no-tools synthesis turn.
- *
- * In stateful Responses mode the model has just emitted function calls. Before
- * asking it to summarize, the worker records synthetic function_call_output
- * items for those calls so the provider-side transcript is structurally closed.
- */
-async function synthesizeAfterToolRoundLimit(input: ToolLimitSynthesisInput): Promise<{
-  message: AssistantMessage
-}> {
-  let pendingMessages: Message[] = [
-    ...input.toolCalls.map(toolCall => toolRoundLimitResult(toolCall, input.maxToolRounds)),
-    { role: 'user' as const, content: TOOL_ROUND_LIMIT_SYNTHESIS_TEXT }
-  ]
-
-  if (input.toolCalls.length > 0) {
-    await withRetry(
-      () => {
-        input.config.onActivity?.('tool_round_limit_record_start')
-        return input.modelTurn
-          .recordToolResults(pendingMessages)
-          .finally(() => input.config.onActivity?.('tool_round_limit_record_done'))
-      },
-      {
-        maxAttempts: 2,
-        signal: input.config.abortSignal,
-        isRetryable: isLocallyRetryableLlmError
-      }
-    )
-
-    pendingMessages = []
-  }
-
-  const result = await withRetry(
-    () => {
-      input.config.onActivity?.('tool_round_limit_synthesis_start')
-      return input.modelTurn
-        .call({
-          instructions: input.config.systemPrompt,
-          messages: pendingMessages,
-          maxOutputTokens: input.config.maxTokens,
-          temperature: input.config.temperature
-        })
-        .finally(() => input.config.onActivity?.('tool_round_limit_synthesis_done'))
-    },
-    {
-      maxAttempts: 2,
-      signal: input.config.abortSignal,
-      isRetryable: isLocallyRetryableLlmError
-    }
-  )
-
-  return {
-    // There is no public "interrupted" stop reason in the worker type. Marking
-    // this as length preserves that the answer came from a bounded partial run.
-    message: result.message.stopReason === 'stop' ? { ...result.message, stopReason: 'length' } : result.message
-  }
-}
-
-/**
  * Mirrors Hermes' max-iteration finalizer: once the main model/API iteration
  * budget is spent, make one final no-tools call asking the model to summarize.
  */
-async function synthesizeAfterModelIterationLimit(input: ModelIterationLimitSynthesisInput): Promise<{
-  message: AssistantMessage
-}> {
+async function synthesizeAfterModelIterationLimit(input: ModelIterationLimitSynthesisInput) {
   const pendingMessages: Message[] = [
     {
       role: 'user' as const,
@@ -381,19 +299,14 @@ async function synthesizeAfterModelIterationLimit(input: ModelIterationLimitSynt
     }
   )
 
-  return {
-    message: result.message.stopReason === 'stop' ? { ...result.message, stopReason: 'length' } : result.message
-  }
+  return result
 }
 
-function toolRoundLimitResult(toolCall: ToolCall, maxToolRounds: number): ToolResultMessage {
-  return {
-    role: 'tool',
-    toolCallId: toolCall.id,
-    result: wrapUntrustedToolOutput(
-      `${TOOL_ROUND_LIMIT_TOOL_OUTPUT_TEXT}\nmax_tool_rounds=${maxToolRounds}\ntool=${toolCall.name}`
-    )
+function requiredResponseId(responseId: string | undefined): string {
+  if (!responseId?.startsWith('resp_')) {
+    throw new Error('AIGateway model call completed without a valid response id')
   }
+  return responseId
 }
 
 /**
