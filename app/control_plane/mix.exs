@@ -85,6 +85,7 @@ defmodule Ankole.MixProject do
       {:llm_db, "~> 2026.6"},
       {:ankole_kernel, path: "../kernel"},
       {:feishu_openapi, path: "../../libs/feishu_openapi"},
+      {:slack_openapi, path: "../../libs/slack_openapi"},
       {:dns_cluster, "~> 0.2"},
       {:bandit, "~> 1.12"}
     ]
@@ -107,6 +108,9 @@ defmodule Ankole.MixProject do
         "test ../../tools/e2e/suites/lark_transport_e2e_test.exs " <>
           "../../tools/e2e/suites/lark_main_flow_e2e_test.exs " <>
           "../../tools/e2e/suites/lark_lifecycle_e2e_test.exs " <>
+          "../../tools/e2e/suites/slack_transport_e2e_test.exs " <>
+          "../../tools/e2e/suites/slack_main_flow_e2e_test.exs " <>
+          "../../tools/e2e/suites/slack_lifecycle_e2e_test.exs " <>
           "../../tools/e2e/suites/worker_computer_e2e_test.exs " <>
           "../../tools/e2e/suites/schedule_e2e_test.exs --trace"
       ],

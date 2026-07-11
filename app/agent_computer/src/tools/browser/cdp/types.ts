@@ -78,22 +78,22 @@ export interface BrowserFindMatch {
 }
 
 export interface PageSession {
-  targetID: string
-  sessionID: string
-  mainFrameID?: string
-  mainContextID?: number
+  targetId: string
+  sessionId: string
+  mainFrameId?: string
+  mainContextId?: number
   domContentEventAtUnixMs?: number
   loadEventAtUnixMs?: number
   mainFrameStoppedLoadingAtUnixMs?: number
 }
 
 export interface TargetInfo {
-  targetID: string
+  targetId: string
   type: string
   url: string
   title?: string
   attached?: boolean
-  browserContextID?: string
+  browserContextId?: string
 }
 
 export interface RuntimeEvaluateResult {
@@ -109,8 +109,8 @@ export interface RuntimeEvaluateResult {
 }
 
 export interface PageNavigateResult {
-  frameID: string
-  loaderID?: string
+  frameId: string
+  loaderId?: string
   errorText?: string
 }
 
@@ -127,7 +127,7 @@ export interface RuntimeExecutionContextCreatedEvent {
     auxData?: {
       isDefault?: boolean
       type?: string
-      frameID?: string
+      frameId?: string
     }
   }
 }

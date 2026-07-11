@@ -33,25 +33,25 @@ export function setLocalChromiumSessionCloser(close: (connectURL: string) => voi
  * still gets isolated cookies/storage through its own BrowserContext.
  */
 export async function createLocalBrowserContext(connectURL: string): Promise<{
-  browserContextID: string
-  targetID: string
+  browserContextId: string
+  targetId: string
 }> {
   const cdp = await CDPClient.connect(connectURL, { timeoutMs: DEFAULT_CDP_CONNECT_TIMEOUT_MS })
-  let browserContextID: string | undefined
+  let browserContextId: string | undefined
   try {
-    const context = await cdp.send<{ browserContextID: string }>('Target.createBrowserContext', {})
-    browserContextID = context.browserContextID
-    const target = await cdp.send<{ targetID: string }>('Target.createTarget', {
+    const context = await cdp.send<{ browserContextId: string }>('Target.createBrowserContext', {})
+    browserContextId = context.browserContextId
+    const target = await cdp.send<{ targetId: string }>('Target.createTarget', {
       url: 'about:blank',
-      browserContextID
+      browserContextId
     })
-    return { browserContextID, targetID: target.targetID }
+    return { browserContextId, targetId: target.targetId }
   } catch (error) {
-    if (browserContextID) {
+    if (browserContextId) {
       try {
         await cdp.send(
           'Target.disposeBrowserContext',
-          { browserContextID },
+          { browserContextId },
           undefined,
           DEFAULT_BROWSER_COMMAND_TIMEOUT_MS
         )

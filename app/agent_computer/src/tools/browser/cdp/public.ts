@@ -80,7 +80,7 @@ export async function releaseBrowserSession(
       try {
         await cdp.send(
           'Target.disposeBrowserContext',
-          { browserContextID: meta.browser_context_id },
+          { browserContextId: meta.browser_context_id },
           undefined,
           DEFAULT_BROWSER_COMMAND_TIMEOUT_MS
         )
@@ -162,8 +162,8 @@ async function startBrowserSession(session: string, options?: BrowserRuntimeOpti
     connect_url: connectURL,
     connect_url_redacted: redactURL(connectURL),
     connect_url_source: 'session',
-    browser_context_id: context.browserContextID,
-    target_id: context.targetID,
+    browser_context_id: context.browserContextId,
+    target_id: context.targetId,
     profile_dir: toWorkspacePath(profileDir),
     started_at_unix_ms: Date.now()
   }
@@ -176,8 +176,8 @@ async function startBrowserSession(session: string, options?: BrowserRuntimeOpti
     session,
     pid: sidecar.proc.pid,
     connect_url: redactURL(connectURL),
-    browser_context_id: context.browserContextID,
-    target_id: context.targetID,
+    browser_context_id: context.browserContextId,
+    target_id: context.targetId,
     profile_dir: toWorkspacePath(profileDir)
   }
 
@@ -266,7 +266,7 @@ export async function browserNavigate(
       let navigationFailure: string | undefined
       for (let attempt = 1; attempt <= BROWSER_NAVIGATION_ATTEMPTS; attempt += 1) {
         resetPageNavigationState(page)
-        const navigation = await cdp.send<PageNavigateResult>('Page.navigate', { url: args.url }, page.sessionID)
+        const navigation = await cdp.send<PageNavigateResult>('Page.navigate', { url: args.url }, page.sessionId)
         await waitForReadyState(cdp, page, DEFAULT_WAIT_MS)
         snapshot = await captureSnapshot(cdp, page, session, options)
         navigationFailure = navigation.errorText || browserNavigationFailureReason(snapshot)
@@ -410,17 +410,17 @@ export async function browserClick(
     await cdp.send(
       'Input.dispatchMouseEvent',
       { type: 'mouseMoved', x: clicked.x, y: clicked.y, button: 'none' },
-      page.sessionID
+      page.sessionId
     )
     await cdp.send(
       'Input.dispatchMouseEvent',
       { type: 'mousePressed', x: clicked.x, y: clicked.y, button: 'left', clickCount: 1 },
-      page.sessionID
+      page.sessionId
     )
     await cdp.send(
       'Input.dispatchMouseEvent',
       { type: 'mouseReleased', x: clicked.x, y: clicked.y, button: 'left', clickCount: 1 },
-      page.sessionID
+      page.sessionId
     )
     await waitBriefly()
     let snapshot = await captureSnapshot(cdp, page, session, options)
@@ -432,7 +432,7 @@ export async function browserClick(
       sameBrowserURL(snapshot.url, clicked.beforeURL)
     ) {
       resetPageNavigationState(page)
-      const navigation = await cdp.send<PageNavigateResult>('Page.navigate', { url: clicked.href }, page.sessionID)
+      const navigation = await cdp.send<PageNavigateResult>('Page.navigate', { url: clicked.href }, page.sessionId)
       await waitForReadyState(cdp, page, DEFAULT_WAIT_MS)
       snapshot = await captureSnapshot(cdp, page, session, options)
       const fallbackFailure = navigation.errorText || browserNavigationFailureReason(snapshot)
@@ -520,9 +520,9 @@ export async function browserPress(
 ): Promise<JSONObject> {
   return withPage(args.session, options, async (cdp, page, session, connection) => {
     const key = keyDefinition(args.key)
-    await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', ...key }, page.sessionID)
-    if (key.text) await cdp.send('Input.dispatchKeyEvent', { type: 'char', ...key }, page.sessionID)
-    await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', ...key }, page.sessionID)
+    await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', ...key }, page.sessionId)
+    if (key.text) await cdp.send('Input.dispatchKeyEvent', { type: 'char', ...key }, page.sessionId)
+    await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', ...key }, page.sessionId)
     await waitBriefly()
     const snapshot = await captureSnapshot(cdp, page, session, options)
     return {
@@ -688,12 +688,12 @@ export async function browserBack(
       const history = await cdp.send<{ currentIndex: number; entries: Array<{ id: number }> }>(
         'Page.getNavigationHistory',
         {},
-        page.sessionID
+        page.sessionId
       )
       if (history.currentIndex <= 0) throw new Error('No previous browser history entry.')
       const entry = history.entries[history.currentIndex - 1]
       resetPageNavigationState(page)
-      await cdp.send('Page.navigateToHistoryEntry', { entryID: entry.id }, page.sessionID)
+      await cdp.send('Page.navigateToHistoryEntry', { entryId: entry.id }, page.sessionId)
       await waitForReadyState(cdp, page, DEFAULT_WAIT_MS)
       const snapshot = await captureSnapshot(cdp, page, session, options)
       return {
@@ -714,7 +714,7 @@ export async function browserBack(
  * load signal.
  */
 function resetPageNavigationState(page: PageSession): void {
-  page.mainContextID = undefined
+  page.mainContextId = undefined
   page.domContentEventAtUnixMs = undefined
   page.loadEventAtUnixMs = undefined
   page.mainFrameStoppedLoadingAtUnixMs = undefined

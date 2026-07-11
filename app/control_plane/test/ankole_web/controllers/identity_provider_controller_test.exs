@@ -59,7 +59,10 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
       |> bearer_conn()
       |> get(~p"/api/v1/identity-provider-adapters")
 
-    assert %{"identity_provider_adapters" => [adapter]} = json_response(conn, 200)
+    assert %{"identity_provider_adapters" => adapters} = json_response(conn, 200)
+    assert Enum.map(adapters, & &1["adapter_id"]) == ["lark", "slack"]
+
+    adapter = Enum.find(adapters, &(&1["adapter_id"] == "lark"))
     assert adapter["adapter_id"] == "lark"
     assert adapter["display_name"]["default"] == "Lark"
     assert "directory_full_sync" in adapter["capabilities"]
@@ -77,6 +80,24 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
 
     assert Enum.find(adapter["fields"], &(&1["path"] == "appSecret"))["encrypted"] == true
     assert Enum.find(adapter["fields"], &(&1["path"] == "sync.websocket"))["advanced"] == true
+
+    slack = Enum.find(adapters, &(&1["adapter_id"] == "slack"))
+    assert slack["default_provider_id"] == "slack-main"
+    assert slack["display_name"]["default"] == "Slack"
+    assert "directory_realtime_sync" in slack["capabilities"]
+
+    assert Enum.map(slack["fields"], & &1["path"]) == [
+             "clientID",
+             "clientSecret",
+             "teamID",
+             "botToken",
+             "appToken",
+             "oidc.enabled",
+             "oidc.scopes",
+             "sync.contacts",
+             "sync.websocket",
+             "sync.pageSize"
+           ]
 
     conn =
       conn

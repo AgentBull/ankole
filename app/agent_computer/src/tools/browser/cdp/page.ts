@@ -26,40 +26,40 @@ import type {
  */
 export async function attachPage(
   cdp: CDPClient,
-  preferredTargetID?: string,
-  browserContextID?: string
+  preferredTargetId?: string,
+  browserContextId?: string
 ): Promise<PageSession> {
   const targets = await cdp.send<{ targetInfos: TargetInfo[] }>('Target.getTargets')
-  let target = preferredTargetID
-    ? targets.targetInfos.find(info => info.targetID === preferredTargetID && info.type === 'page')
+  let target = preferredTargetId
+    ? targets.targetInfos.find(info => info.targetId === preferredTargetId && info.type === 'page')
     : undefined
-  if (!target && browserContextID) {
-    target = targets.targetInfos.find(info => info.type === 'page' && info.browserContextID === browserContextID)
+  if (!target && browserContextId) {
+    target = targets.targetInfos.find(info => info.type === 'page' && info.browserContextId === browserContextId)
   }
-  if (!browserContextID) {
+  if (!browserContextId) {
     target ??= targets.targetInfos.find(
       info => info.type === 'page' && !info.url.startsWith('devtools://') && info.url !== 'about:blank'
     )
     target ??= targets.targetInfos.find(info => info.type === 'page' && !info.url.startsWith('devtools://'))
   }
   if (!target) {
-    const created = await cdp.send<{ targetID: string }>('Target.createTarget', {
+    const created = await cdp.send<{ targetId: string }>('Target.createTarget', {
       url: 'about:blank',
-      ...(browserContextID ? { browserContextID } : {})
+      ...(browserContextId ? { browserContextId } : {})
     })
-    target = { targetID: created.targetID, type: 'page', url: 'about:blank' }
+    target = { targetId: created.targetId, type: 'page', url: 'about:blank' }
   }
 
-  const attached = await cdp.send<{ sessionID: string }>('Target.attachToTarget', {
-    targetID: target.targetID,
+  const attached = await cdp.send<{ sessionId: string }>('Target.attachToTarget', {
+    targetId: target.targetId,
     flatten: true
   })
-  const page = { targetID: target.targetID, sessionID: attached.sessionID }
-  await cdp.send('Page.enable', {}, page.sessionID)
-  await refreshMainFrameID(cdp, page)
+  const page = { targetId: target.targetId, sessionId: attached.sessionId }
+  await cdp.send('Page.enable', {}, page.sessionId)
+  await refreshMainFrameId(cdp, page)
   installPageContextTracking(cdp, page)
-  await cdp.send('Runtime.enable', {}, page.sessionID)
-  await cdp.send('DOM.enable', {}, page.sessionID)
+  await cdp.send('Runtime.enable', {}, page.sessionId)
+  await cdp.send('DOM.enable', {}, page.sessionId)
   await waitForMainExecutionContext(cdp, page, 1_500)
   return page
 }
@@ -67,49 +67,49 @@ export async function attachPage(
 /**
  * Refreshes the main frame id from the CDP frame tree.
  */
-async function refreshMainFrameID(cdp: CDPClient, page: PageSession): Promise<void> {
-  const frameTree = await cdp.send<PageFrameTree>('Page.getFrameTree', {}, page.sessionID)
-  page.mainFrameID = frameTree.frameTree.frame.id
+async function refreshMainFrameId(cdp: CDPClient, page: PageSession): Promise<void> {
+  const frameTree = await cdp.send<PageFrameTree>('Page.getFrameTree', {}, page.sessionId)
+  page.mainFrameId = frameTree.frameTree.frame.id
 }
 
 /**
  * Tracks navigation and execution-context state for the attached page.
  */
 function installPageContextTracking(cdp: CDPClient, page: PageSession): void {
-  cdp.on('Runtime.executionContextsCleared', page.sessionID, () => {
-    page.mainContextID = undefined
+  cdp.on('Runtime.executionContextsCleared', page.sessionId, () => {
+    page.mainContextId = undefined
   })
-  cdp.on('Page.frameNavigated', page.sessionID, params => {
+  cdp.on('Page.frameNavigated', page.sessionId, params => {
     const event = params as unknown as PageFrameNavigatedEvent
-    if (!page.mainFrameID || event.frame?.id === page.mainFrameID) {
-      page.mainFrameID = event.frame?.id ?? page.mainFrameID
-      page.mainContextID = undefined
+    if (!page.mainFrameId || event.frame?.id === page.mainFrameId) {
+      page.mainFrameId = event.frame?.id ?? page.mainFrameId
+      page.mainContextId = undefined
     }
   })
-  cdp.on('Page.frameStartedNavigating', page.sessionID, params => {
-    const frameID = typeof params['frameId'] === 'string' ? params['frameId'] : undefined
-    if (!page.mainFrameID || frameID === page.mainFrameID) page.mainContextID = undefined
+  cdp.on('Page.frameStartedNavigating', page.sessionId, params => {
+    const frameId = typeof params['frameId'] === 'string' ? params['frameId'] : undefined
+    if (!page.mainFrameId || frameId === page.mainFrameId) page.mainContextId = undefined
   })
-  cdp.on('Page.domContentEventFired', page.sessionID, () => {
+  cdp.on('Page.domContentEventFired', page.sessionId, () => {
     page.domContentEventAtUnixMs = Date.now()
   })
-  cdp.on('Page.loadEventFired', page.sessionID, () => {
+  cdp.on('Page.loadEventFired', page.sessionId, () => {
     page.loadEventAtUnixMs = Date.now()
   })
-  cdp.on('Page.frameStoppedLoading', page.sessionID, params => {
-    const frameID = typeof params['frameId'] === 'string' ? params['frameId'] : undefined
-    if (!page.mainFrameID || frameID === page.mainFrameID) page.mainFrameStoppedLoadingAtUnixMs = Date.now()
+  cdp.on('Page.frameStoppedLoading', page.sessionId, params => {
+    const frameId = typeof params['frameId'] === 'string' ? params['frameId'] : undefined
+    if (!page.mainFrameId || frameId === page.mainFrameId) page.mainFrameStoppedLoadingAtUnixMs = Date.now()
   })
-  cdp.on('Runtime.executionContextCreated', page.sessionID, params => {
+  cdp.on('Runtime.executionContextCreated', page.sessionId, params => {
     const event = params as unknown as RuntimeExecutionContextCreatedEvent
     const auxData = event.context?.auxData
     if (
       typeof event.context?.id === 'number' &&
       auxData?.isDefault === true &&
-      auxData.frameID &&
-      auxData.frameID === page.mainFrameID
+      auxData.frameId &&
+      auxData.frameId === page.mainFrameId
     ) {
-      page.mainContextID = event.context.id
+      page.mainContextId = event.context.id
     }
   })
 }
@@ -147,7 +147,7 @@ export async function captureScreenshot(
     result = await cdp.send<{ data: string }>(
       'Page.captureScreenshot',
       { format: 'png', fromSurface: true },
-      page.sessionID,
+      page.sessionId,
       30_000
     )
   } catch (error) {
@@ -243,7 +243,7 @@ export async function waitPredicate(
  * Evaluates JavaScript in the main page context and returns the by-value result.
  */
 export async function evaluate<T>(cdp: CDPClient, page: PageSession, expression: string): Promise<T> {
-  const contextID = await waitForMainExecutionContext(cdp, page, 1_500)
+  const contextId = await waitForMainExecutionContext(cdp, page, 1_500)
   const response = await cdp.send<RuntimeEvaluateResult>(
     'Runtime.evaluate',
     {
@@ -251,9 +251,9 @@ export async function evaluate<T>(cdp: CDPClient, page: PageSession, expression:
       awaitPromise: true,
       returnByValue: true,
       userGesture: true,
-      ...(contextID === undefined ? {} : { contextID })
+      ...(contextId === undefined ? {} : { contextId })
     },
-    page.sessionID
+    page.sessionId
   )
 
   if (response.exceptionDetails) {
@@ -276,11 +276,11 @@ async function waitForMainExecutionContext(
   page: PageSession,
   timeoutMs: number
 ): Promise<number | undefined> {
-  if (page.mainContextID !== undefined) return page.mainContextID
+  if (page.mainContextId !== undefined) return page.mainContextId
 
-  if (!page.mainFrameID) {
+  if (!page.mainFrameId) {
     try {
-      await refreshMainFrameID(cdp, page)
+      await refreshMainFrameId(cdp, page)
     } catch {
       return undefined
     }
@@ -288,8 +288,8 @@ async function waitForMainExecutionContext(
 
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    if (page.mainContextID !== undefined) return page.mainContextID
+    if (page.mainContextId !== undefined) return page.mainContextId
     await sleep(50)
   }
-  return page.mainContextID
+  return page.mainContextId
 }

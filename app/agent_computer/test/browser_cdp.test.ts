@@ -6,12 +6,110 @@ import { join } from 'node:path'
 const workspaceRoot = mkdtempSync(join(tmpdir(), 'ankole-cdp-'))
 process.env.ANKOLE_WORKSPACE_ROOT = workspaceRoot
 const browser = await import('../src/tools/browser/cdp')
+const { CDPClient } = await import('../src/tools/browser/cdp/client')
+const { createLocalBrowserContext } = await import('../src/tools/browser/cdp/chromium')
+const { attachPage, evaluate } = await import('../src/tools/browser/cdp/page')
 
 afterAll(() => {
   rmSync(workspaceRoot, { force: true, recursive: true })
 })
 
 describe('@ankole/agent-computer browser CDP runtime', () => {
+  it('uses the exact Chrome DevTools Protocol Id field casing', async () => {
+    const messages: Array<{ id: number; method: string; params: Record<string, unknown>; sessionId?: string }> = []
+    const server = Bun.serve({
+      port: 0,
+      fetch(request, server) {
+        if (server.upgrade(request)) return
+        return new Response('upgrade failed', { status: 400 })
+      },
+      websocket: {
+        message(socket, rawMessage) {
+          const message = JSON.parse(String(rawMessage)) as (typeof messages)[number]
+          messages.push(message)
+
+          const result =
+            message.method === 'Target.createBrowserContext'
+              ? { browserContextId: 'context-1' }
+              : message.method === 'Target.createTarget'
+                ? { targetId: 'target-1' }
+                : message.method === 'Target.getTargets'
+                  ? {
+                      targetInfos: [
+                        {
+                          targetId: 'target-1',
+                          type: 'page',
+                          title: '',
+                          url: 'about:blank',
+                          attached: false,
+                          browserContextId: 'context-1'
+                        }
+                      ]
+                    }
+                  : message.method === 'Target.attachToTarget'
+                    ? { sessionId: 'session-1' }
+                    : message.method === 'Page.getFrameTree'
+                      ? { frameTree: { frame: { id: 'frame-1' } } }
+                      : message.method === 'Runtime.evaluate'
+                        ? { result: { type: 'number', value: 2 } }
+                        : {}
+
+          socket.send(JSON.stringify({ id: message.id, result }))
+
+          if (message.method === 'Runtime.enable') {
+            socket.send(
+              JSON.stringify({
+                method: 'Runtime.executionContextCreated',
+                sessionId: 'session-1',
+                params: {
+                  context: {
+                    id: 42,
+                    auxData: { isDefault: true, frameId: 'frame-1' }
+                  }
+                }
+              })
+            )
+          }
+        }
+      }
+    })
+    const connectURL = `ws://127.0.0.1:${server.port}`
+
+    try {
+      expect(await createLocalBrowserContext(connectURL)).toEqual({
+        browserContextId: 'context-1',
+        targetId: 'target-1'
+      })
+
+      const cdp = await CDPClient.connect(connectURL)
+      try {
+        const page = await attachPage(cdp, 'target-1', 'context-1')
+        expect(page).toMatchObject({
+          targetId: 'target-1',
+          sessionId: 'session-1',
+          mainFrameId: 'frame-1',
+          mainContextId: 42
+        })
+        expect(await evaluate<number>(cdp, page, '1 + 1')).toBe(2)
+      } finally {
+        cdp.close()
+      }
+
+      expect(messageFor(messages, 'Target.createTarget')).toMatchObject({
+        params: { url: 'about:blank', browserContextId: 'context-1' }
+      })
+      expect(messageFor(messages, 'Target.attachToTarget')).toMatchObject({
+        params: { targetId: 'target-1', flatten: true }
+      })
+      expect(messageFor(messages, 'Runtime.evaluate')).toMatchObject({
+        params: { contextId: 42 },
+        sessionId: 'session-1'
+      })
+    } finally {
+      server.stop(true)
+    }
+  })
+
   it('passes configured headers to remote CDP discovery and websocket connections', async () => {
     const token = 'Bearer remote-cdp-token'
     const server = Bun.serve<{ headers: Headers }>({
@@ -85,6 +183,21 @@ describe('@ankole/agent-computer browser CDP runtime', () => {
 
     const session = `chromium-${Date.now()}`
     const options = {}
+    const html = [
+      '<html><body>',
+      '<a href="#models">Models</a>',
+      '<section id="models">Model Catalog</section>',
+      '<label>Name <input aria-label="Name" /></label>',
+      `<button onclick="document.getElementById('result').textContent = 'Hello ' + document.querySelector('input').value">Submit</button>`,
+      '<p id="result"></p>',
+      '</body></html>'
+    ].join('')
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        return new Response(html, { headers: { 'content-type': 'text/html' } })
+      }
+    })
 
     try {
       const ready = await browser.ensureBrowserSession({ session }, options)
@@ -93,19 +206,10 @@ describe('@ankole/agent-computer browser CDP runtime', () => {
       expect(typeof ready.browser_context_id).toBe('string')
       expect(typeof ready.target_id).toBe('string')
 
-      const html = [
-        '<html><body>',
-        '<a href="#models">Models</a>',
-        '<section id="models">Model Catalog</section>',
-        '<label>Name <input aria-label="Name" /></label>',
-        `<button onclick="document.getElementById('result').textContent = 'Hello ' + document.querySelector('input').value">Submit</button>`,
-        '<p id="result"></p>',
-        '</body></html>'
-      ].join('')
       const navigated = await browser.browserNavigate(
         {
           session,
-          url: `data:text/html,${encodeURIComponent(html)}`
+          url: `http://127.0.0.1:${server.port}`
         },
         options
       )
@@ -133,6 +237,7 @@ describe('@ankole/agent-computer browser CDP runtime', () => {
       expect(typeof screenshot.screenshot_path).toBe('string')
     } finally {
       await browser.releaseBrowserSession({ session }, options)
+      server.stop(true)
     }
   }, 30_000)
 
@@ -185,4 +290,11 @@ describe('@ankole/agent-computer browser CDP runtime', () => {
 function refFor(snapshot: string, role: string, name: string): string {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   return snapshot.match(new RegExp(`\\[(e\\d+)\\] ${role} "${escaped}"`))?.[1] ?? ''
+}
+
+function messageFor(
+  messages: Array<{ method: string; params: Record<string, unknown>; sessionId?: string }>,
+  method: string
+) {
+  return messages.find(message => message.method === method)
 }

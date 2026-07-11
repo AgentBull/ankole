@@ -174,11 +174,11 @@ canonical examples.
 | `app/webapps/` | Three Vite + React SPAs (`auth/`, `console/`, `setup/`) built into `app/control_plane/priv/static/assets/`. Generated OpenAPI client. |
 | `app/library/` | Built-in skills (`skills/nano-pdf`, `skills/jupyter-live-kernel`, `skills/powerpoint`) and agent starter templates (`templates/MISSION.md`, `templates/SOUL.md`). |
 | `app/locales/` | TOML message catalogs (`en-US.toml`, `zh-Hans-CN.toml`) consumed by both the Elixir I18n context and the SPAs. |
-| `plugins/` | Public first-party Elixir plugins: `lark_adapter` (Feishu chat + identity provider), `china_market_ai_providers` (AIGateway providers). |
+| `plugins/` | Public first-party Elixir plugins: `lark_adapter` and `slack_adapter` (chat + identity providers), `china_market_ai_providers` (AIGateway providers). |
 | `internals/` | Private first-party material: `plugins/`, `skills/` (e.g. financial-data CLI), `helm-chart/`, extra worker Dockerfiles, internal test notes. |
-| `libs/` | `feishu_openapi` (Elixir Lark client: tokens, WS long connection, crypto) and `uikit` (shared React components, Tailwind 4). |
+| `libs/` | `feishu_openapi` (Elixir Lark client), `slack_openapi` (Slack Web API, Socket Mode, OIDC), and `uikit` (shared React components, Tailwind 4). |
 | `tools/devkit/` | Workspace CLI: `bun kit ...` (external services via Docker Compose, codegen, analysis). |
-| `tools/e2e/` | E2E harness and suites (fake Feishu, fake OpenAI, real Docker worker), driven by `mix e2e.*` aliases. |
+| `tools/e2e/` | E2E harness and suites (fake Feishu, fake Slack, fake OpenAI, real Docker worker), driven by `mix e2e.*` aliases. |
 | `docs/` | This page, `TradeoffsAndKnownLimits.md`, `design-docs/`. |
 
 ## Control Plane Boot Order
@@ -674,12 +674,12 @@ right tier (see `docs/TradeoffsAndKnownLimits.md` § Worker E2E):
 | Control-plane unit/integration | `bun control-plane:test` (= `mix test`) | PostgreSQL only |
 | Worker tools | `bun agent-computer:test` | Docker + worker image (bubblewrap is container-only) |
 | Type/lint/format | `bun type-check`, `bun lint`, `bun fmt` | — |
-| Main-chain e2e | `cd app/control_plane && mix e2e.gate` | Docker worker image; fake Feishu + fake OpenAI |
+| Main-chain e2e | `cd app/control_plane && mix e2e.gate` | Docker worker image; fake Feishu + fake Slack + fake OpenAI |
 | Chaos / perf | `mix e2e.chaos`, `mix e2e.perf` | same as above |
 | Real providers | `mix e2e.real_llm` (`ANKOLE_REAL_LLM_E2E=1`), `mix e2e.ai_gateway_real_provider` | real credentials |
 
-The e2e harness (`tools/e2e/`) runs a fake Feishu platform that speaks the
-real WS protocol against the real `lark_adapter`, a fake OpenAI endpoint,
+The e2e harness (`tools/e2e/`) runs fake Feishu and Slack platforms that speak
+their real WS protocols against the real adapters, a fake OpenAI endpoint,
 and a real Agent Computer container wired through RuntimeFabric. So "the main
 chain works" is a runnable claim, not a static-review claim. `bun kit`
 exposes devkit helpers (`external-services`, `analyze`, codegen), and package

@@ -114,7 +114,10 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       |> bearer_conn()
       |> get(~p"/api/v1/signal-adapters")
 
-    assert %{"signal_adapters" => [adapter]} = json_response(conn, 200)
+    assert %{"signal_adapters" => adapters} = json_response(conn, 200)
+    assert Enum.map(adapters, & &1["adapter_id"]) == ["lark", "slack"]
+
+    adapter = Enum.find(adapters, &(&1["adapter_id"] == "lark"))
     assert adapter["adapter_id"] == "lark"
     assert adapter["display_name"]["default"] == "Lark"
 
@@ -138,6 +141,19 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
              "observe_all",
              "may_intervene"
            ]
+
+    slack = Enum.find(adapters, &(&1["adapter_id"] == "slack"))
+    assert slack["display_name"]["default"] == "Slack"
+
+    assert Enum.map(slack["fields"], & &1["path"]) == [
+             "botToken",
+             "appToken",
+             "platformSubjectNamespace",
+             "userName",
+             "baseURL"
+           ]
+
+    assert slack["group_message_mode_field"] == adapter["group_message_mode_field"]
   end
 
   test "signal adapter catalog returns 503 while the plugin registry is unavailable", %{

@@ -121,11 +121,11 @@ Kernel 从同一个 crate 编译两次：一次作为 Elixir 的 Rustler NIF（�
 | `app/webapps/` | 三个 Vite + React SPA（`auth/`、`console/`、`setup/`），构建到 `app/control_plane/priv/static/assets/`。包含生成的 OpenAPI client。 |
 | `app/library/` | 内置 skill（`skills/nano-pdf`、`skills/jupyter-live-kernel`、`skills/powerpoint`）和 agent 起步模板（`templates/MISSION.md`、`templates/SOUL.md`）。 |
 | `app/locales/` | TOML 消息目录（`en-US.toml`、`zh-Hans-CN.toml`），Elixir I18n context 和 SPA 共用。 |
-| `plugins/` | 公开的第一方 Elixir plugin：`lark_adapter`（飞书聊天 + identity provider）、`china_market_ai_providers`（AIGateway provider）。 |
+| `plugins/` | 公开的第一方 Elixir plugin：`lark_adapter`、`slack_adapter`（聊天 + identity provider），以及 `china_market_ai_providers`（AIGateway provider）。 |
 | `internals/` | 私有的第一方资料：`plugins/`、`skills/`（例如金融数据 CLI）、`helm-chart/`、额外的 worker Dockerfile、内部测试笔记。 |
-| `libs/` | `feishu_openapi`（Elixir Lark client：token、WS 长连接、crypto）和 `uikit`（共享 React 组件、Tailwind 4）。 |
+| `libs/` | `feishu_openapi`（Elixir Lark client）、`slack_openapi`（Slack Web API、Socket Mode、OIDC）和 `uikit`（共享 React 组件、Tailwind 4）。 |
 | `tools/devkit/` | 工作区 CLI：`bun kit ...`（通过 Docker Compose 管理外部服务、codegen、分析）。 |
-| `tools/e2e/` | E2E harness 和测试套件（fake Feishu、fake OpenAI、真实 Docker worker），由 `mix e2e.*` alias 驱动。 |
+| `tools/e2e/` | E2E harness 和测试套件（fake Feishu、fake Slack、fake OpenAI、真实 Docker worker），由 `mix e2e.*` alias 驱动。 |
 | `docs/` | 本文、`TradeoffsAndKnownLimits.md`、`design-docs/`。 |
 
 ## Control Plane 启动顺序
@@ -301,11 +301,11 @@ mix ankole.actor_runtime.worker_bootstrap \
 | Control-plane 单元/集成 | `bun run control-plane:test`（= `mix test`） | 只需要 PostgreSQL |
 | Worker tool | `bun run agent-computer:test` | Docker + worker 镜像（bubblewrap 只在容器内可用） |
 | 类型/lint/format | `bun run type-check`、`bun run lint`、`bun run fmt` | 无 |
-| 主链 e2e | `cd app/control_plane && mix e2e.gate` | Docker worker 镜像；fake Feishu + fake OpenAI |
+| 主链 e2e | `cd app/control_plane && mix e2e.gate` | Docker worker 镜像；fake Feishu + fake Slack + fake OpenAI |
 | 混乱/性能 | `mix e2e.chaos`、`mix e2e.perf` | 同上 |
 | 真实 provider | `mix e2e.real_llm`（`ANKOLE_REAL_LLM_E2E=1`）、`mix e2e.ai_gateway_real_provider` | 真实凭证 |
 
-E2E harness（`tools/e2e/`）跑一个 fake 飞书平台，它用真实 WS 协议对接真实的 `lark_adapter`，再加 fake OpenAI endpoint 和一个通过 RuntimeFabric 连接的真实 Agent Computer container。因此，“主链能用”是一个可运行的 claim，而不是静态审查的 claim。`bun kit` 暴露 devkit helper（`external-services`、`analyze`、codegen）；包过滤器（`bun run --filter @ankole/... test`）让验证在工作区快速变动时仍然保持在包级别。
+E2E harness（`tools/e2e/`）跑 fake 飞书与 fake Slack 平台，分别用真实 WS 协议对接真实 adapter，再加 fake OpenAI endpoint 和一个通过 RuntimeFabric 连接的真实 Agent Computer container。因此，“主链能用”是一个可运行的 claim，而不是静态审查的 claim。`bun kit` 暴露 devkit helper（`external-services`、`analyze`、codegen）；包过滤器（`bun run --filter @ankole/... test`）让验证在工作区快速变动时仍然保持在包级别。
 
 ## 术语表
 

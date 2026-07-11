@@ -111,6 +111,7 @@ Ankole 是早期工程发行版，不是打磨完成的终端用户产品或托�
 - `app/locales` - control plane 和 browser surfaces 共用的 TOML translation catalogs。
 - `libs/uikit` - Ankole webapps 共用的 UI primitives。
 - `libs/feishu_openapi` - 本地 Lark/Feishu OpenAPI client library。
+- `libs/slack_openapi` - 本地 Slack Web API、Socket Mode 与 OIDC client library。
 - `internals/plugins` - 随仓库维护的私有第一方 provider/plugin code，但不作为公开 plugin boundary 呈现。
 - `tools/devkit` - local services、app database helpers、code generation 和 analysis 的 workspace automation。
 - `docs/design-docs` - Principal identity、authorization、configuration、I18n、plugins、RuntimeFabric、SignalsGateway 和 provider adapters 的当前设计文档。

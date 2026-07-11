@@ -111,6 +111,7 @@ This repository is the active Ankole control-plane and runtime workspace. It is 
 - `app/locales` - shared TOML translation catalogs consumed by the control plane and browser surfaces.
 - `libs/uikit` - shared UI primitives for Ankole webapps.
 - `libs/feishu_openapi` - local Lark/Feishu OpenAPI client library.
+- `libs/slack_openapi` - local Slack Web API, Socket Mode, and OIDC client library.
 - `internals/plugins` - private first-party provider/plugin code that is kept with the repo but not presented as the public plugin boundary.
 - `tools/devkit` - workspace automation for local services, app database helpers, code generation, and analysis.
 - `docs/design-docs` - current design documents for principal identity, authorization, configuration, I18n, plugins, RuntimeFabric, SignalsGateway, and provider adapters.

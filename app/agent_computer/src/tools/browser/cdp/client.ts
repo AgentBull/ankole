@@ -80,15 +80,15 @@ export class CDPClient {
   send<T>(
     method: string,
     params: JSONObject = {},
-    sessionID?: string,
+    sessionId?: string,
     timeoutMs = DEFAULT_BROWSER_COMMAND_TIMEOUT_MS
   ): Promise<T> {
     if (this.socket.readyState !== WebSocket.OPEN) throw new Error('CDP socket is not open')
 
     const id = this.nextID++
     const message: JSONObject = { id, method, params }
-    if (sessionID) message['sessionId'] = sessionID
-    debugCDP(`send id=${id} method=${method} session=${sessionID ?? '-'}`)
+    if (sessionId) message['sessionId'] = sessionId
+    debugCDP(`send id=${id} method=${method} session=${sessionId ?? '-'}`)
 
     const promise = new Promise<T>((resolveSend, rejectSend) => {
       const timeout = setTimeout(() => {
@@ -125,8 +125,8 @@ export class CDPClient {
   /**
    * Subscribes to CDP events, optionally scoped to an attached target session.
    */
-  on(method: string, sessionID: string | undefined, listener: (params: JSONObject) => void): () => void {
-    const key = eventListenerKey(method, sessionID)
+  on(method: string, sessionId: string | undefined, listener: (params: JSONObject) => void): () => void {
+    const key = eventListenerKey(method, sessionId)
     let listeners = this.eventListeners.get(key)
     if (!listeners) {
       listeners = new Set()
@@ -151,12 +151,12 @@ export class CDPClient {
       id?: number
       method?: string
       params?: JSONObject
-      sessionID?: string
+      sessionId?: string
       result?: unknown
       error?: { message?: string; data?: string }
     }
     if (message.id === undefined) {
-      if (message.method) this.emitEvent(message.method, message.sessionID, message.params ?? {})
+      if (message.method) this.emitEvent(message.method, message.sessionId, message.params ?? {})
       return
     }
 
@@ -187,8 +187,8 @@ export class CDPClient {
   /**
    * Emits an event to both session-specific listeners and wildcard listeners.
    */
-  private emitEvent(method: string, sessionID: string | undefined, params: JSONObject): void {
-    for (const key of [eventListenerKey(method, sessionID), eventListenerKey(method, undefined)]) {
+  private emitEvent(method: string, sessionId: string | undefined, params: JSONObject): void {
+    for (const key of [eventListenerKey(method, sessionId), eventListenerKey(method, undefined)]) {
       const listeners = this.eventListeners.get(key)
       if (!listeners) continue
       for (const listener of listeners) {
@@ -205,8 +205,8 @@ export class CDPClient {
 /**
  * Builds the listener map key for a CDP event and optional target session.
  */
-function eventListenerKey(method: string, sessionID: string | undefined): string {
-  return `${sessionID ?? '*'}:${method}`
+function eventListenerKey(method: string, sessionId: string | undefined): string {
+  return `${sessionId ?? '*'}:${method}`
 }
 
 /**

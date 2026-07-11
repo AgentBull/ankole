@@ -68,8 +68,8 @@ export async function resolveConnectionForSession(
           session,
           {
             ...meta,
-            browser_context_id: context.browserContextID,
-            target_id: context.targetID
+            browser_context_id: context.browserContextId,
+            target_id: context.targetId
           },
           options
         )
@@ -87,8 +87,8 @@ export async function resolveConnectionForSession(
     const context =
       sidecarChanged || !meta.browser_context_id || !meta.target_id
         ? await createLocalBrowserContext(sidecar.connectURL)
-        : { browserContextID: meta.browser_context_id, targetID: meta.target_id }
-    if (sidecarChanged || meta.browser_context_id !== context.browserContextID || meta.target_id !== context.targetID) {
+        : { browserContextId: meta.browser_context_id, targetId: meta.target_id }
+    if (sidecarChanged || meta.browser_context_id !== context.browserContextId || meta.target_id !== context.targetId) {
       writeSessionMeta(
         session,
         {
@@ -98,8 +98,8 @@ export async function resolveConnectionForSession(
           connect_url: sidecar.connectURL,
           connect_url_redacted: redactURL(sidecar.connectURL),
           connect_url_source: 'session',
-          browser_context_id: context.browserContextID,
-          target_id: context.targetID
+          browser_context_id: context.browserContextId,
+          target_id: context.targetId
         },
         options
       )

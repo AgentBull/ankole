@@ -97,8 +97,8 @@ export async function recoverLocalChromiumConnection(
       connect_url: recovered.connectURL,
       connect_url_redacted: redactURL(recovered.connectURL),
       connect_url_source: 'session',
-      browser_context_id: context.browserContextID,
-      target_id: context.targetID
+      browser_context_id: context.browserContextId,
+      target_id: context.targetId
     },
     options
   )
@@ -137,8 +137,8 @@ export async function activePageForSession(
 
   const cdp = await CDPClient.connect(connection.connectURL, { headers: connection.headers })
   const page = await attachPage(cdp, meta.target_id, meta.browser_context_id)
-  if (meta.target_id !== page.targetID) {
-    writeSessionMeta(session, { ...(readSessionMeta(session, options) ?? meta), target_id: page.targetID }, options)
+  if (meta.target_id !== page.targetId) {
+    writeSessionMeta(session, { ...(readSessionMeta(session, options) ?? meta), target_id: page.targetId }, options)
   }
 
   const active: ActiveBrowserSession = {
