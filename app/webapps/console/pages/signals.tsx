@@ -10,9 +10,10 @@ import {
   TableRow,
   toast
 } from '@ankole/uikit'
-import { type JsonObject as JSONObject } from '@pleisto/active-support'
+import { useModel } from '@preact/signals-react'
+import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router'
 import {
@@ -33,10 +34,13 @@ import {
   ankoleWebSignalBindingControllerIndexOptions,
   ankoleWebSignalBindingControllerPutBindingMutation
 } from '../api/generated/@tanstack/react-query.gen'
-import type { SignalAdapterItem, SignalBindingWriteRequest } from '../api/generated/types.gen'
+import type { SignalAdapterItem } from '../api/generated/types.gen'
 import { LabeledField, ResourceEditorPage, ResourceListPage, RowActions } from '../console-shell'
-
-type GroupMessageMode = NonNullable<SignalBindingWriteRequest['group_message_mode']>
+import {
+  SignalBindingEditorModel,
+  type GroupMessageMode,
+  type SignalBindingEditorDraft
+} from '../state/signal-binding-editor-model'
 
 export function SignalsListPage() {
   const { t } = useTranslation()
@@ -127,17 +131,12 @@ export function SignalsListPage() {
   )
 }
 
-type SignalForm = {
-  adapterID: string
-  name: string
-  groupMessageMode: GroupMessageMode | ''
-  config: JSONObject
-}
-
 export function SignalBindingEditorPage() {
+  useSignals()
   const { t } = useTranslation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const model = useModel(SignalBindingEditorModel)
   const [searchParams] = useSearchParams()
   const locale = i18n.language
 
@@ -149,17 +148,18 @@ export function SignalBindingEditorPage() {
   const adapters = useQuery(ankoleWebSignalBindingControllerAdaptersOptions())
   const signalAdapters = adapters.data?.signal_adapters ?? []
 
-  const [form, setForm] = useState<SignalForm>(emptyForm())
-  const [error, setError] = useState<string>()
-  const activeAdapter = signalAdapters.find(adapter => adapter.adapter_id === form.adapterID) ?? signalAdapters[0]
+  const activeAdapter =
+    signalAdapters.find(adapter => adapter.adapter_id === model.adapterID.value) ?? signalAdapters[0]
 
   const ready = signalAdapters.length > 0
   useEffect(() => {
     if (!ready) return
     const adapter = signalAdapters.find(item => item.adapter_id === lockedAdapter) ?? signalAdapters[0]
-    setForm(formFromAdapter(adapter, lockedName))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, lockedAdapter, lockedName])
+    model.initialize(
+      `binding:${agentUID}:${lockedAdapter ?? ''}:${lockedName ?? 'new'}`,
+      formFromAdapter(adapter, lockedName)
+    )
+  }, [agentUID, lockedAdapter, lockedName, model, ready, signalAdapters])
 
   const saveBinding = useMutation({
     ...ankoleWebSignalBindingControllerPutBindingMutation(),
@@ -167,25 +167,24 @@ export function SignalBindingEditorPage() {
       toast.success(t('console.signals.saved', { name: variables.path.binding_name }))
       void queryClient.invalidateQueries()
       navigate(`..?agent=${encodeURIComponent(agentUID)}`)
-    },
-    onError: mutationError => setError(requestErrorMessage(mutationError))
+    }
   })
 
   const submit = () => {
-    setError(undefined)
+    model.clearValidation()
     if (!activeAdapter || !agentUID) return
-    const name = form.name.trim()
+    const name = model.name.value.trim()
     if (!name) {
-      setError(t('console.signals.binding_name_required'))
+      model.validationError.value = t('console.signals.binding_name_required')
       return
     }
-    const groupMessageMode = asGroupMessageMode(form.groupMessageMode || defaultGroupMessageMode(activeAdapter))
+    const groupMessageMode = asGroupMessageMode(model.groupMessageMode.value || defaultGroupMessageMode(activeAdapter))
     if (!groupMessageMode) {
-      setError(t('console.signals.group_message_mode_invalid'))
+      model.validationError.value = t('console.signals.group_message_mode_invalid')
       return
     }
     saveBinding.mutate({
-      body: { config: form.config, group_message_mode: groupMessageMode },
+      body: { config: model.config.value, group_message_mode: groupMessageMode },
       path: { adapter_id: activeAdapter.adapter_id, agent_uid: agentUID, binding_name: name }
     })
   }
@@ -195,7 +194,7 @@ export function SignalBindingEditorPage() {
       title={reconfigure ? t('console.signals.reconfigure') : t('console.signals.new')}
       description={reconfigure ? t('console.signals.reconfigure_hint') : t('console.signals.editor_description')}
       backTo={`..?agent=${encodeURIComponent(agentUID)}`}
-      error={error ?? adapters.error ?? saveBinding.error}
+      error={model.validationError.value ?? adapters.error ?? saveBinding.error}
       submitting={saveBinding.isPending}
       onSubmit={submit}>
       <div className="grid gap-5 md:grid-cols-2">
@@ -205,7 +204,7 @@ export function SignalBindingEditorPage() {
             value={activeAdapter?.adapter_id ?? ''}
             onValueChange={value => {
               const adapter = signalAdapters.find(item => item.adapter_id === value)
-              if (adapter) setForm(formFromAdapter(adapter))
+              if (adapter) model.changeAdapter(formFromAdapter(adapter))
             }}>
             <SelectTrigger className="w-full">
               <SelectValue />
@@ -222,8 +221,8 @@ export function SignalBindingEditorPage() {
         <LabeledField label={t('console.signals.binding_name')} required>
           <Input
             disabled={reconfigure}
-            value={form.name}
-            onChange={event => setForm(current => ({ ...current, name: event.target.value }))}
+            value={model.name.value}
+            onChange={event => (model.name.value = event.target.value)}
           />
         </LabeledField>
       </div>
@@ -233,18 +232,14 @@ export function SignalBindingEditorPage() {
           <ConfigField
             field={asConfigField(activeAdapter.group_message_mode_field)}
             locale={locale}
-            value={form.groupMessageMode || defaultGroupMessageMode(activeAdapter)}
-            onChange={value =>
-              setForm(current => ({ ...current, groupMessageMode: String(value) as GroupMessageMode }))
-            }
+            value={model.groupMessageMode.value || defaultGroupMessageMode(activeAdapter)}
+            onChange={value => (model.groupMessageMode.value = String(value) as GroupMessageMode)}
           />
           <ConfigFields
-            config={form.config}
+            config={model.config.value}
             fields={asConfigFields(activeAdapter.fields)}
             locale={locale}
-            onChange={(path, value) =>
-              setForm(current => ({ ...current, config: setPath(current.config, path, value) }))
-            }
+            onChange={(path, value) => (model.config.value = setPath(model.config.value, path, value))}
           />
         </>
       ) : null}
@@ -257,11 +252,11 @@ function reconfigureTo(agentUID: string, adapter: string, name: string): string 
   return `new?${query.toString()}`
 }
 
-function emptyForm(): SignalForm {
+function emptyForm(): SignalBindingEditorDraft {
   return { adapterID: '', name: '', groupMessageMode: '', config: {} }
 }
 
-function formFromAdapter(adapter: SignalAdapterItem | undefined, name?: string): SignalForm {
+function formFromAdapter(adapter: SignalAdapterItem | undefined, name?: string): SignalBindingEditorDraft {
   if (!adapter) return emptyForm()
   return {
     adapterID: adapter.adapter_id,

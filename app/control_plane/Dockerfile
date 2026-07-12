@@ -62,6 +62,7 @@ RUN --mount=type=cache,target=/root/.bun/install/cache \
 COPY app/control_plane/mix.exs app/control_plane/mix.lock ./app/control_plane/
 COPY app/kernel/mix.exs app/kernel/Cargo.toml app/kernel/Cargo.lock ./app/kernel/
 COPY libs/feishu_openapi/mix.exs libs/feishu_openapi/mix.lock ./libs/feishu_openapi/
+COPY libs/slack_openapi/mix.exs libs/slack_openapi/mix.lock ./libs/slack_openapi/
 
 WORKDIR /repo/app/control_plane
 
@@ -78,6 +79,7 @@ COPY app/library ./app/library
 COPY app/locales ./app/locales
 COPY app/webapps ./app/webapps
 COPY libs/feishu_openapi ./libs/feishu_openapi
+COPY libs/slack_openapi ./libs/slack_openapi
 COPY libs/uikit ./libs/uikit
 COPY plugins ./plugins
 

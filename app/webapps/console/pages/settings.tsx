@@ -1,7 +1,9 @@
 import { Badge, Button, TableCell, TableRow, buttonVariants, cn, toast } from '@ankole/uikit'
+import { useModel } from '@preact/signals-react'
+import { useSignals } from '@preact/signals-react/runtime'
 import { RiEyeLine } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router'
 import {
@@ -14,6 +16,7 @@ import {
 import { requestErrorMessage } from '../../common/request-errors'
 import { formatJSON, parseJSON } from '../console-primitives'
 import { JSONField, ResourceEditorPage, ResourceListPage } from '../console-shell'
+import { SettingEditorModel } from '../state/setting-editor-model'
 
 export function SettingsListPage() {
   const { t } = useTranslation()
@@ -71,9 +74,11 @@ export function SettingsListPage() {
 }
 
 export function SettingEditorPage() {
+  useSignals()
   const { t } = useTranslation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const model = useModel(SettingEditorModel)
   const params = useParams()
   const key = params.key ? decodeURIComponent(params.key) : ''
 
@@ -85,16 +90,6 @@ export function SettingEditorPage() {
   })
   const item = detail.data?.app_configuration ?? summary
 
-  const [text, setText] = useState('')
-  const [error, setError] = useState<string>()
-  const [revealed, setRevealed] = useState<unknown>(undefined)
-
-  useEffect(() => {
-    setRevealed(undefined)
-    setText(formatJSON(item?.encrypted && item.value === undefined ? {} : (item?.value ?? null)))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item?.key, item?.source, item?.value])
-
   const refresh = () => void queryClient.invalidateQueries()
   const update = useMutation({
     ...ankoleWebAppConfigurationControllerUpdateMutation(),
@@ -102,30 +97,40 @@ export function SettingEditorPage() {
       toast.success(t('console.settings.saved', { key: response.app_configuration.key }))
       refresh()
       navigate('..')
-    },
-    onError: mutationError => setError(requestErrorMessage(mutationError))
+    }
   })
   const reset = useMutation({
     ...ankoleWebAppConfigurationControllerDeleteMutation(),
     onSuccess: () => {
       toast.success(t('console.settings.reset_done', { key }))
-      setRevealed(undefined)
+      model.resetSource()
+      decrypt.reset()
       refresh()
     },
     onError: mutationError => toast.error(requestErrorMessage(mutationError))
   })
   const decrypt = useMutation({
     ...ankoleWebAppConfigurationControllerDecryptMutation(),
-    onSuccess: response => setRevealed(response.decrypted_value.value),
+    gcTime: 0,
     onError: mutationError => toast.error(requestErrorMessage(mutationError))
   })
+  const revealed = decrypt.data?.decrypted_value.value
+
+  useEffect(() => {
+    decrypt.reset()
+    if (!item || detail.isLoading) return
+    model.initialize(
+      `setting:${item.key}`,
+      formatJSON(item.encrypted && item.value === undefined ? {} : (item.value ?? null))
+    )
+  }, [detail.isLoading, item, model])
 
   const submit = () => {
-    setError(undefined)
+    model.clearValidation()
     if (!item) return
-    const parsed = parseJSON(text, 'value')
+    const parsed = parseJSON(model.text.value, 'value')
     if (!parsed.ok) {
-      setError(parsed.error)
+      model.validationError.value = parsed.error
       return
     }
     update.mutate({ body: { value: parsed.value }, path: { key: item.key } })
@@ -136,7 +141,7 @@ export function SettingEditorPage() {
       title={key}
       description={item?.description ?? t('console.settings.editor_description')}
       backTo=".."
-      error={error ?? update.error ?? decrypt.error}
+      error={model.validationError.value ?? update.error ?? decrypt.error}
       submitting={update.isPending}
       onSubmit={submit}
       secondary={
@@ -157,7 +162,12 @@ export function SettingEditorPage() {
         {item?.encrypted ? <Badge variant="destructive">{t('console.status.encrypted')}</Badge> : null}
       </div>
 
-      <JSONField label={t('console.settings.value')} value={text} minRows={10} onChange={setText} />
+      <JSONField
+        label={t('console.settings.value')}
+        value={model.text.value}
+        minRows={10}
+        onChange={value => (model.text.value = value)}
+      />
 
       {item?.encrypted ? (
         <Button

@@ -26,6 +26,8 @@ function manualChunks(moduleID: string): string | undefined {
   if (
     moduleID.includes('/@tanstack/query-core/') ||
     moduleID.includes('/@tanstack/react-query/') ||
+    moduleID.includes('/@preact/signals-core/') ||
+    moduleID.includes('/@preact/signals-react/') ||
     moduleID.includes('/i18next/') ||
     moduleID.includes('/react-i18next/') ||
     moduleID.includes('/html-parse-stringify/')

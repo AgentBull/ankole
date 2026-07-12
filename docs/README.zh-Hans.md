@@ -58,7 +58,7 @@ Ankole 里的 agent 不是简单的 chat completion 封装，而是一个持久�
 - **Agent Computer**（Bun worker）执行工具：shell、文件、浏览器，以及当前 turn 的 worker 本地状态。它通过 WebSocket 驱动 model loop，但不保存会话状态。
 - **PostgreSQL** 保存所有持久语义事实及持久文件的所有权引用。用户产物和可恢复运行时文件位于 worker 共享工作区；它们的生命周期与权威状态仍是由 Elixir 写入的 PostgreSQL 行。
 
-Schedule（`design-docs/Schedule.md`）把时间变成 actor event。Principal 和 AuthZ（`design-docs/Principal.md`、`design-docs/AuthZ.md`）负责身份和权限。AppConfiguration（`design-docs/AppConfiguration.md`）区分启动用的 env var 和 operator 管理的 runtime setting。Plugins（`design-docs/Plugins.md`）是可信的第一方 Elixir 扩展，例如飞书 adapter（`design-docs/plugins/FeishuAdapter.md`）。Subagent Delegation（`design-docs/SubagentDelegation.md`）把长时间 Codex 执行变成会在完成后唤醒父会话的持久后台工作项。
+Schedule（`design-docs/Schedule.md`）把时间变成 actor event。Principal 和 AuthZ（`design-docs/Principal.md`、`design-docs/AuthZ.md`）负责身份和权限。AppConfiguration（`design-docs/AppConfiguration.md`）区分启动用的 env var 和 operator 管理的 runtime setting。Plugins（`design-docs/Plugins.md`）是可信的第一方 Elixir 扩展，例如飞书和 Slack adapter（`design-docs/plugins/FeishuAdapter.md`、`design-docs/plugins/SlackAdapter.md`）。Subagent Delegation（`design-docs/SubagentDelegation.md`）把长时间 Codex 执行变成会在完成后唤醒父会话的持久后台工作项。
 
 ## 运行时拓扑
 
@@ -201,7 +201,7 @@ Ankole 会持久保存 provider mirror 和 AI Gateway history，但单个 turn �
 
 `Ankole.Plugins`（`lib/ankole/plugins/`）。启动时，`Discovery` 从 `plugins/` 和 `internals/plugins/` 加载 plugin 源（可用 `ANKOLE_PLUGIN_PATHS` 覆盖）；plugin 是实现 `Ankole.Plugins.Plugin` behaviour 的 module：`plugin_id/0`、`api_version/0`（= 1），以及可选的 `display_name/0`、`description/0`、`app_config_definitions/0`、`app_config_patterns/0`、`setup_metadata/0`、`adapter_declarations/0`、`children/0`。Registry 校验 spec，跳过列在 `plugins.disabled_ids` 配置里的 id，注册活跃 plugin 的 config definition，启动它们受监督的 children，并按 contract id 索引 adapter declaration：聊天/provider adapter 用 `signals_gateway.adapter`，model provider 用 `ai_gateway.provider`。没有动态第三方加载，没有 marketplace，没有热激活；plugin 是随 installation 一起交付的可信代码。
 
-`plugins/lark_adapter` 是参考 adapter：每个 `{domain, app_id}` 一条长连接（通过 `libs/feishu_openapi`），对 message/recall/reaction/card action 做入口归一化，提供用于 post、回复、编辑、删除、reaction 和流式 CardKit 卡片的 outbox adapter，并提供独立的 identity-provider contract（OIDC 登录 + 用户/部门同步进 Principal）。
+`plugins/lark_adapter` 是参考 adapter：每个 `{domain, app_id}` 一条长连接（通过 `libs/feishu_openapi`），对 message/recall/reaction/card action 做入口归一化，提供用于 post、回复、编辑、删除、reaction 和流式 CardKit 卡片的 outbox adapter，并提供独立的 identity-provider contract（OIDC 登录 + 用户/部门同步进 Principal）。`plugins/slack_adapter` 通过 Socket Mode、Slack Web API、Block Kit、Sign in with Slack 以及用户/usergroup 目录同步实现同一组 host contract。
 
 ### Schedule：把时间变成 actor event
 
@@ -266,7 +266,7 @@ Canonical 定义在 `design-docs/SignalsGateway.md` 的 Identity Layers 部分�
 
 **新增 worker tool。** 在 `app/agent_computer/src/tools/` 下实现它（Zod 参数 schema + `execute`），在 `src/core/turns/text_turn.ts` 的 turn 装配里注册，并通过 bubblewrap helper 路由任何命令执行。Tool 接口是 allowlist，也是产品决策；扩大它时更新 `docs/TradeoffsAndKnownLimits.md`。持久副作用必须走 RPC 或 AIGateway API，不能写本地文件。测试要在镜像里跑：`bun run agent-computer:test`；跨边界行为放在 `tools/e2e/suites/worker_computer_e2e_test.exs`。
 
-**新增聊天/signal provider adapter。** 在 `plugins/` 下新建 Elixir plugin，实现 `Ankole.Plugins.Plugin`，声明 `signals_gateway.adapter`，包含 inbound/outbox module、setup metadata、凭证的 config pattern。Inbound 代码把 provider event 归一化成 `SignalsGateway.Ingress.emit_*` 事实；outbox module 实现它能诚实支持的 operation。长连接作为 plugin 的 `children/0` 运行。`plugins/lark_adapter` 是参考；contract 在 `design-docs/SignalsGateway.md` 和 `design-docs/plugins/FeishuAdapter.md`。E2E 使用遵循 `tools/e2e/support/fake_feishu/` 的 fake provider server。
+**新增聊天/signal provider adapter。** 在 `plugins/` 下新建 Elixir plugin，实现 `Ankole.Plugins.Plugin`，声明 `signals_gateway.adapter`，包含 inbound/outbox module、setup metadata、凭证的 config pattern。Inbound 代码把 provider event 归一化成 `SignalsGateway.Ingress.emit_*` 事实；outbox module 实现它能诚实支持的 operation。长连接作为 plugin 的 `children/0` 运行。`plugins/lark_adapter` 和 `plugins/slack_adapter` 是参考；contract 在 `design-docs/SignalsGateway.md`、`design-docs/plugins/FeishuAdapter.md` 和 `design-docs/plugins/SlackAdapter.md`。E2E 使用 `tools/e2e/support/` 下对应的 fake provider server。
 
 **新增 worker->control-plane RPC。** Elixir 侧的 handler 注册在 `lib/ankole/signals_gateway/actor_runtime/rpc_lane.ex`；像现有 broker 一样校验 turn ref 和已认证路由。Worker 侧从 `src/rpc_lane.ts` 调用。如果负载在崩溃之后仍然重要，handler 写 PostgreSQL；worker 永远不直接写。
 
@@ -361,7 +361,7 @@ E2E harness（`tools/e2e/`）跑 fake 飞书与 fake Slack 平台，分别用真
 | `design-docs/SubagentDelegation.md` | 持久后台工作、Codex resume、steer、唤醒 |
 | `design-docs/Principal.md`、`design-docs/AuthZ.md` | 身份、group、grant、CEL |
 | `design-docs/AppConfiguration.md` | 配置 key、scope、加密 |
-| `design-docs/Plugins.md`、`design-docs/plugins/FeishuAdapter.md` | Plugin contract、Lark adapter |
+| `design-docs/Plugins.md`、`design-docs/plugins/FeishuAdapter.md`、`design-docs/plugins/SlackAdapter.md` | Plugin contract、Lark 和 Slack adapter |
 | `design-docs/I18n.md` | 本地化目录 |
 | `design-docs/Logger.md` | 结构化 JSON 日志、severity、labels、请求和 operation 字段 |
 | `docs/TradeoffsAndKnownLimits.md` | 任何看起来像 bug 的行为 |

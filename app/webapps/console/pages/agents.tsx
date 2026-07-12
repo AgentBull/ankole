@@ -1,7 +1,9 @@
 import { recordValue } from '@pleisto/active-support'
 import { Badge, Input, Separator, TableCell, TableRow, toast } from '@ankole/uikit'
+import { useModel } from '@preact/signals-react'
+import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams } from 'react-router'
 import {
@@ -17,6 +19,7 @@ import type { AgentItem } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
 import { blankToNull, formatJSON, parseObjectDraft } from '../console-primitives'
 import { JSONField, LabeledField, ResourceEditorPage, ResourceListPage, RowActions } from '../console-shell'
+import { AgentEditorModel, type AgentEditorDraft } from '../state/agent-editor-model'
 import { ModelProfilesEditor } from './model-profiles-editor'
 
 export function AgentsListPage() {
@@ -70,18 +73,12 @@ export function AgentsListPage() {
   )
 }
 
-type AgentForm = {
-  uid: string
-  displayName: string
-  avatarURL: string
-  role: string
-  options: string
-}
-
 export function AgentEditorPage() {
+  useSignals()
   const { t } = useTranslation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const model = useModel(AgentEditorModel)
   const params = useParams()
   const uid = params.uid ? decodeURIComponent(params.uid) : undefined
   const mode = uid ? 'edit' : 'new'
@@ -95,14 +92,12 @@ export function AgentEditorPage() {
     enabled: Boolean(selectedAgent?.uid)
   })
 
-  const [form, setForm] = useState<AgentForm>(emptyAgentForm())
-  const [error, setError] = useState<string>()
   const refresh = () => void queryClient.invalidateQueries()
 
   useEffect(() => {
-    setForm(mode === 'edit' && selectedAgent ? formFromAgent(selectedAgent) : emptyAgentForm())
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, selectedAgent?.uid])
+    if (mode === 'new') model.initialize('new', emptyAgentForm())
+    else if (selectedAgent) model.initialize(`agent:${selectedAgent.uid}`, formFromAgent(selectedAgent))
+  }, [mode, model, selectedAgent])
 
   const createAgent = useMutation({
     ...ankoleWebAgentControllerCreateMutation(),
@@ -111,33 +106,31 @@ export function AgentEditorPage() {
       refresh()
       // Land on the new agent's editor so model profiles can be configured next.
       navigate(`../${encodeURIComponent(response.agent.uid)}`)
-    },
-    onError: mutationError => setError(requestErrorMessage(mutationError))
+    }
   })
   const updateAgent = useMutation({
     ...ankoleWebAgentControllerUpdateMutation(),
     onSuccess: response => {
       toast.success(t('console.agents.saved', { id: response.agent.uid }))
       refresh()
-    },
-    onError: mutationError => setError(requestErrorMessage(mutationError))
+    }
   })
 
   const submit = () => {
-    setError(undefined)
-    const parsed = parseObjectDraft(form.options, 'options')
+    model.clearValidation()
+    const parsed = parseObjectDraft(model.options.value, 'options')
     if (!parsed.ok) {
-      setError(parsed.error)
+      model.validationError.value = parsed.error
       return
     }
     const body = {
-      display_name: blankToNull(form.displayName),
-      avatar_url: blankToNull(form.avatarURL),
-      role: form.role.trim(),
+      display_name: blankToNull(model.displayName.value),
+      avatar_url: blankToNull(model.avatarURL.value),
+      role: model.role.value.trim(),
       options: parsed.value
     }
     if (mode === 'new') {
-      createAgent.mutate({ body: { ...body, uid: form.uid.trim() } })
+      createAgent.mutate({ body: { ...body, uid: model.uid.value.trim() } })
       return
     }
     if (selectedAgent) updateAgent.mutate({ body, path: { agent_uid: selectedAgent.uid } })
@@ -148,7 +141,7 @@ export function AgentEditorPage() {
       title={mode === 'new' ? t('console.agents.new') : (uid ?? '')}
       description={t('console.agents.editor_description')}
       backTo=".."
-      error={error ?? createAgent.error ?? updateAgent.error}
+      error={model.validationError.value ?? createAgent.error ?? updateAgent.error}
       submitting={createAgent.isPending || updateAgent.isPending}
       onSubmit={submit}>
       <LabeledField
@@ -158,32 +151,26 @@ export function AgentEditorPage() {
         <Input
           disabled={mode === 'edit'}
           placeholder="research-analyst"
-          value={form.uid}
-          onChange={event => setForm(current => ({ ...current, uid: event.target.value }))}
+          value={model.uid.value}
+          onChange={event => (model.uid.value = event.target.value)}
         />
       </LabeledField>
       <div className="grid gap-5 md:grid-cols-2">
         <LabeledField label={t('console.agents.display_name')}>
-          <Input
-            value={form.displayName}
-            onChange={event => setForm(current => ({ ...current, displayName: event.target.value }))}
-          />
+          <Input value={model.displayName.value} onChange={event => (model.displayName.value = event.target.value)} />
         </LabeledField>
         <LabeledField label={t('console.agents.role')}>
-          <Input value={form.role} onChange={event => setForm(current => ({ ...current, role: event.target.value }))} />
+          <Input value={model.role.value} onChange={event => (model.role.value = event.target.value)} />
         </LabeledField>
       </div>
       <LabeledField label={t('console.agents.avatar_url')}>
-        <Input
-          value={form.avatarURL}
-          onChange={event => setForm(current => ({ ...current, avatarURL: event.target.value }))}
-        />
+        <Input value={model.avatarURL.value} onChange={event => (model.avatarURL.value = event.target.value)} />
       </LabeledField>
       <JSONField
         label={t('console.agents.options')}
         description={t('console.agents.options_hint')}
-        value={form.options}
-        onChange={value => setForm(current => ({ ...current, options: value }))}
+        value={model.options.value}
+        onChange={value => (model.options.value = value)}
       />
 
       {mode === 'edit' && selectedAgent ? (
@@ -204,7 +191,7 @@ export function AgentEditorPage() {
   )
 }
 
-function emptyAgentForm(): AgentForm {
+function emptyAgentForm(): AgentEditorDraft {
   return {
     uid: '',
     displayName: '',
@@ -214,7 +201,7 @@ function emptyAgentForm(): AgentForm {
   }
 }
 
-function formFromAgent(agent: AgentItem): AgentForm {
+function formFromAgent(agent: AgentItem): AgentEditorDraft {
   return {
     uid: agent.uid,
     displayName: agent.display_name ?? '',

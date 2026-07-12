@@ -10,9 +10,11 @@ import {
   SelectValue,
   toast
 } from '@ankole/uikit'
+import { useModel } from '@preact/signals-react'
+import { useSignals } from '@preact/signals-react/runtime'
 import { RiSave3Line } from '@remixicon/react'
 import { useMutation } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   ankoleWebAgentControllerDeleteModelProfileMutation,
@@ -25,18 +27,9 @@ import type {
 } from '../api/generated/types.gen'
 import { ErrorBlock, formatJSON, parseObjectDraft } from '../console-primitives'
 import { JSONField, LabeledField } from '../console-shell'
+import { ModelProfilesModel, PROFILE_NAMES, type ProfileDraft, type ProfileName } from '../state/model-profiles-model'
 
-const PROFILE_NAMES = ['primary', 'light', 'heavy', 'coding', 'embedding', 'rerank'] as const
 const REQUIRED_PROFILES = new Set<string>(['primary', 'light', 'heavy'])
-
-type ProfileDraft = {
-  codexAccountID: string
-  providerID: string
-  model: string
-  contextLength: string
-  providerOptions: string
-  error?: string
-}
 
 export function ModelProfilesEditor({
   agent,
@@ -55,8 +48,9 @@ export function ModelProfilesEditor({
   providers: AIGatewayProviderItem[]
   codexAccounts: CodexAccountItem[]
 }) {
+  useSignals()
   const { t } = useTranslation()
-  const [drafts, setDrafts] = useState<Record<string, ProfileDraft>>({})
+  const model = useModel(ModelProfilesModel)
   const saveProfile = useMutation({
     ...ankoleWebAgentControllerPutModelProfileMutation(),
     onSuccess: (_data, variables) => {
@@ -68,24 +62,25 @@ export function ModelProfilesEditor({
     ...ankoleWebAgentControllerDeleteModelProfileMutation(),
     onSuccess: (_data, variables) => {
       toast.success(t('console.models.cleared', { profile: variables.path.profile }))
+      model.clear(variables.path.profile as ProfileName)
       onChanged()
     }
   })
 
   useEffect(() => {
-    setDrafts(
+    if (loading) return
+    model.initialize(
+      `agent:${agent.uid}`,
       Object.fromEntries(
         PROFILE_NAMES.map(profile => [profile, draftFromProfile(recordValue(profiles[profile]) ?? {})])
       )
     )
-  }, [agent.uid, profiles])
+  }, [agent.uid, loading, model, profiles])
 
-  const updateDraft = (profile: string, patch: Partial<ProfileDraft>) => {
-    setDrafts(current => ({ ...current, [profile]: { ...(current[profile] ?? emptyProfileDraft()), ...patch } }))
-  }
+  const updateDraft = (profile: ProfileName, patch: Partial<ProfileDraft>) => model.update(profile, patch)
 
-  const submit = (profile: string) => {
-    const draft = drafts[profile] ?? emptyProfileDraft()
+  const submit = (profile: ProfileName) => {
+    const draft = model.snapshot(profile)
     if (profile === 'coding' && draft.codexAccountID) {
       saveProfile.mutate({
         body: { codex_account_id: draft.codexAccountID },
@@ -121,7 +116,7 @@ export function ModelProfilesEditor({
       {loading ? <span className="text-xs text-muted-foreground">{t('common.loading')}</span> : null}
       <div className="grid gap-4">
         {PROFILE_NAMES.map(profile => {
-          const draft = drafts[profile] ?? emptyProfileDraft()
+          const draft = model.snapshot(profile)
           const configured = Boolean(draft.codexAccountID || (draft.providerID && draft.model))
           const subscriptionCoding = profile === 'coding' && Boolean(draft.codexAccountID)
           return (
@@ -222,16 +217,6 @@ export function ModelProfilesEditor({
       </div>
     </section>
   )
-}
-
-function emptyProfileDraft(): ProfileDraft {
-  return {
-    codexAccountID: '',
-    providerID: '',
-    model: '',
-    contextLength: '',
-    providerOptions: '{}'
-  }
 }
 
 function draftFromProfile(profile: JSONObject): ProfileDraft {

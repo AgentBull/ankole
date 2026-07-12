@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --config vite.config.ts",
     "build": "vite build --config vite.config.ts",
+    "test": "bun test console/state setup/state",
     "type-check": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
     "fmt": "oxfmt .",
@@ -16,6 +17,7 @@
     "@ankole/uikit": "workspace:*",
     "@formisch/react": "^1.0.0-rc.0",
     "@pleisto/active-support": "^1.6.0",
+    "@preact/signals-react": "3.10.3",
     "@remixicon/react": "4.9.0",
     "@tanstack/react-query": "5.101.2",
     "i18next": "26.3.6",

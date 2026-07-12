@@ -93,7 +93,8 @@ and AuthZ (`design-docs/Principal.md`, `design-docs/AuthZ.md`) own identity
 and permissions. AppConfiguration (`design-docs/AppConfiguration.md`) splits
 boot env vars from operator-managed runtime settings. Plugins
 (`design-docs/Plugins.md`) are trusted first-party Elixir extensions, such as
-the Feishu adapter (`design-docs/plugins/FeishuAdapter.md`). Subagent
+the Feishu and Slack adapters (`design-docs/plugins/FeishuAdapter.md`,
+`design-docs/plugins/SlackAdapter.md`). Subagent
 Delegation (`design-docs/SubagentDelegation.md`) turns long-running Codex work
 into durable background work items that wake the parent session for delivery.
 
@@ -439,7 +440,9 @@ per `{domain, app_id}` (via `libs/feishu_openapi`), normalizes ingress for
 messages/recalls/reactions/card actions, provides an outbox adapter for
 posts, replies, edits, deletes, reactions, and streaming CardKit cards, and
 exposes a separate identity-provider contract (OIDC login + user/department
-sync into Principals).
+sync into Principals). `plugins/slack_adapter` implements the same host
+contracts through Socket Mode, Slack Web API, Block Kit, Sign in with Slack,
+and user/usergroup directory sync.
 
 ### Schedule — time as actor events
 
@@ -621,10 +624,11 @@ with your inbound and outbox modules, setup metadata, and config patterns
 for credentials. Inbound code normalizes provider events into
 `SignalsGateway.Ingress.emit_*` facts; the outbox module implements only the
 operations you can honestly support. Long connections run as plugin
-`children/0`. `plugins/lark_adapter` is the reference; the contract lives in
-`design-docs/SignalsGateway.md` and `design-docs/plugins/FeishuAdapter.md`.
-For E2E, run a fake provider server following
-`tools/e2e/support/fake_feishu/`.
+`children/0`. `plugins/lark_adapter` and `plugins/slack_adapter` are the
+references; their contracts live in `design-docs/SignalsGateway.md`,
+`design-docs/plugins/FeishuAdapter.md`, and
+`design-docs/plugins/SlackAdapter.md`. For E2E, run the corresponding fake
+provider under `tools/e2e/support/`.
 
 **Add a worker->control-plane RPC.** Handler on the Elixir side registered in
 `lib/ankole/signals_gateway/actor_runtime/rpc_lane.ex`; validate the turn ref and the
@@ -787,7 +791,7 @@ doc first, then the code.
 | `design-docs/SubagentDelegation.md` | Durable background work, Codex resume, steering, wakeups |
 | `design-docs/Principal.md`, `design-docs/AuthZ.md` | Identity, groups, grants, CEL |
 | `design-docs/AppConfiguration.md` | Config keys, scopes, encryption |
-| `design-docs/Plugins.md`, `design-docs/plugins/FeishuAdapter.md` | Plugin contracts, the Lark adapter |
+| `design-docs/Plugins.md`, `design-docs/plugins/FeishuAdapter.md`, `design-docs/plugins/SlackAdapter.md` | Plugin contracts, the Lark and Slack adapters |
 | `design-docs/I18n.md` | Locale catalogs |
 | `design-docs/Logger.md` | Structured JSON logs, severity, labels, request and operation fields |
 | `docs/TradeoffsAndKnownLimits.md` | Any time behavior looks like a bug |

@@ -1,4 +1,4 @@
-import { Field as FormField, Form, setInput, useForm } from '@formisch/react'
+import { Field as FormField, Form, useForm } from '@formisch/react'
 import { RiArrowRightSLine, RiLoginCircleLine } from '@remixicon/react'
 import { Alert, AlertDescription, AlertTitle } from '@ankole/uikit/components/alert'
 import { Button } from '@ankole/uikit/components/button'
@@ -14,6 +14,8 @@ import {
 import { Input } from '@ankole/uikit/components/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@ankole/uikit/components/select'
 import { toast } from '@ankole/uikit/components/sonner'
+import { useModel } from '@preact/signals-react'
+import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -28,9 +30,10 @@ import {
   type LocalizedText
 } from '../common/config-fields'
 import i18n, { nativeLocaleLabel } from '../common/i18n'
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import { requestErrorMessage } from '../common/request-errors'
 import { SetupLayout } from './layout'
+import { IdentitySetupModel, type IdentitySetupDraft } from './state/identity-setup-model'
+import { PluginsStepModel } from './state/plugins-step-model'
 
 type SetupState = {
   authenticated: boolean
@@ -219,20 +222,22 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
 }
 
 function PluginsStep({ onContinue }: { onContinue: () => void }) {
+  useSignals()
   const { i18n: i18next, t } = useTranslation()
+  const model = useModel(PluginsStepModel)
   const query = useQuery({
     queryKey: ['setup-plugins'],
     queryFn: () => internalAPIGet<{ enabledPluginIDs: string[]; plugins: Plugin[] }>('/.internal-apis/setup/plugins')
   })
-  const [selected, setSelected] = useState<Set<string> | null>(null)
-  // `null` means the user has not touched the form yet. Until then, the server
-  // value remains the source of truth and late query data can still populate UI.
-  const selectedIDs = selected ?? new Set(query.data?.enabledPluginIDs ?? [])
+
+  useEffect(() => {
+    if (query.data) model.initialize('setup-plugins', query.data.enabledPluginIDs)
+  }, [model, query.data])
+
+  const selectedIDs = model.selectedPluginIDs.value
   const mutation = useMutation({
     mutationFn: () =>
-      internalAPIPut<{ enabledPluginIDs: string[] }>('/.internal-apis/setup/plugins/enabled', {
-        pluginIDs: [...selectedIDs]
-      }),
+      internalAPIPut<{ enabledPluginIDs: string[] }>('/.internal-apis/setup/plugins/enabled', model.submission()),
     onSuccess: onContinue
   })
 
@@ -248,11 +253,7 @@ function PluginsStep({ onContinue }: { onContinue: () => void }) {
             <label key={plugin.id} className="flex items-start gap-3 border border-border/70 bg-card/60 px-4 py-4">
               <Checkbox
                 checked={checked}
-                onCheckedChange={value => {
-                  const next = new Set(selectedIDs)
-                  value ? next.add(plugin.id) : next.delete(plugin.id)
-                  setSelected(next)
-                }}
+                onCheckedChange={value => model.setPluginSelected(plugin.id, value === true)}
               />
               <span className="grid min-w-0 flex-1 gap-2">
                 <span className="break-words text-sm font-semibold leading-5">
@@ -292,25 +293,25 @@ function IdentityStep() {
 
 /** Renders the selected identity adapter fields and starts setup-time OIDC. */
 function IdentityForm({ adapters }: { adapters: IdentityAdapter[] }) {
+  useSignals()
   const { i18n: i18next, t } = useTranslation()
+  const model = useModel(IdentitySetupModel)
   const firstAdapter = adapters[0]
-  const form = useForm({
-    schema: IdentitySchema,
-    initialInput: {
+
+  useEffect(() => {
+    model.initialize('setup-identity', {
       adapterID: firstAdapter.adapterID,
-      providerID: firstAdapter.defaultProviderID
-    },
-    validate: 'submit',
-    revalidate: 'input'
-  })
-  const [adapterID, setAdapterID] = useState(firstAdapter.adapterID)
-  const activeAdapter = adapters.find(adapter => adapter.adapterID === adapterID) ?? firstAdapter
-  const [config, setConfig] = useState<JSONObject>(() => defaultConfig(activeAdapter.fields))
+      providerID: firstAdapter.defaultProviderID,
+      config: defaultConfig(firstAdapter.fields)
+    })
+  }, [firstAdapter, model])
+
+  const activeAdapter = adapters.find(adapter => adapter.adapterID === model.adapterID.value) ?? firstAdapter
   const mutation = useMutation({
-    mutationFn: async (input: v.InferOutput<typeof IdentitySchema>) => {
+    mutationFn: async (input: IdentitySetupDraft) => {
       await internalAPIPut(`/.internal-apis/setup/identity-providers/${encodeURIComponent(input.providerID)}`, {
         adapterID: input.adapterID,
-        config,
+        config: input.config,
         enabled: true
       })
       return internalAPIPost<{ authorizationURL: string }>(
@@ -322,63 +323,70 @@ function IdentityForm({ adapters }: { adapters: IdentityAdapter[] }) {
 
   function changeAdapter(nextAdapterID: string) {
     const nextAdapter = adapters.find(adapter => adapter.adapterID === nextAdapterID) ?? firstAdapter
-    setAdapterID(nextAdapter.adapterID)
     // Switching adapters resets generated config because field paths and default
     // values are adapter-owned. Preserving old config would mix provider contracts.
-    setConfig(defaultConfig(nextAdapter.fields))
-    setInput(form, { path: ['adapterID'], input: nextAdapter.adapterID })
-    setInput(form, { path: ['providerID'], input: nextAdapter.defaultProviderID })
+    model.changeAdapter({
+      adapterID: nextAdapter.adapterID,
+      providerID: nextAdapter.defaultProviderID,
+      config: defaultConfig(nextAdapter.fields)
+    })
+  }
+
+  function submitIdentity(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const draft = model.submission()
+    const result = v.safeParse(IdentitySchema, draft)
+    if (!result.success) {
+      model.setValidationError(result.issues[0]?.message)
+      return
+    }
+
+    model.setValidationError()
+    mutation.mutate({ ...draft, ...result.output })
   }
 
   return (
     <Panel title={t('setup.identity_provider')}>
       <ErrorAlert error={mutation.error} />
-      <Form className="grid gap-6" of={form} onSubmit={output => mutation.mutate(output)}>
+      <form className="grid gap-6" onSubmit={submitIdentity}>
         <FieldGroup className="grid gap-5 md:grid-cols-2">
-          <FormField of={form} path={['adapterID']}>
-            {field => (
-              <Field>
-                <FieldLabel>{t('setup.adapter')}</FieldLabel>
-                <Select
-                  value={String(field.input ?? activeAdapter.adapterID)}
-                  onValueChange={value => {
-                    if (value) changeAdapter(value)
-                  }}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue>
-                      {value =>
-                        identityAdapterLabel(adapterByID(adapters, value ?? activeAdapter.adapterID), i18next.language)
-                      }
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {adapters.map(adapter => (
-                      <SelectItem key={adapter.adapterID} value={adapter.adapterID}>
-                        {identityAdapterLabel(adapter, i18next.language)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FormFieldError errors={field.errors} />
-              </Field>
-            )}
-          </FormField>
+          <Field>
+            <FieldLabel>{t('setup.adapter')}</FieldLabel>
+            <Select
+              value={model.adapterID.value || activeAdapter.adapterID}
+              onValueChange={value => {
+                if (value) changeAdapter(value)
+              }}>
+              <SelectTrigger className="w-full">
+                <SelectValue>
+                  {value =>
+                    identityAdapterLabel(adapterByID(adapters, value ?? activeAdapter.adapterID), i18next.language)
+                  }
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {adapters.map(adapter => (
+                  <SelectItem key={adapter.adapterID} value={adapter.adapterID}>
+                    {identityAdapterLabel(adapter, i18next.language)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
 
-          <FormField of={form} path={['providerID']}>
-            {field => (
-              <Field>
-                <FieldLabel>{t('setup.provider_id')}</FieldLabel>
-                <Input
-                  {...field.props}
-                  aria-invalid={field.errors ? true : undefined}
-                  value={String(field.input ?? '')}
-                  onChange={event => field.onChange(event.target.value)}
-                />
-                <FieldDescription>{t('setup.provider_id_hint')}</FieldDescription>
-                <FormFieldError errors={field.errors} />
-              </Field>
-            )}
-          </FormField>
+          <Field>
+            <FieldLabel>{t('setup.provider_id')}</FieldLabel>
+            <Input
+              aria-invalid={model.validationError.value ? true : undefined}
+              value={model.providerID.value}
+              onChange={event => {
+                model.providerID.value = event.target.value
+                model.setValidationError()
+              }}
+            />
+            <FieldDescription>{t('setup.provider_id_hint')}</FieldDescription>
+            {model.validationError.value ? <UiFieldError>{model.validationError.value}</UiFieldError> : null}
+          </Field>
         </FieldGroup>
 
         <section className="grid gap-5">
@@ -386,10 +394,10 @@ function IdentityForm({ adapters }: { adapters: IdentityAdapter[] }) {
             {t('setup.adapter_config')}
           </h2>
           <ConfigFields
-            config={config}
+            config={model.config.value}
             fields={activeAdapter.fields}
             locale={i18next.language}
-            onChange={(path, value) => setConfig(previous => setPath(previous, path, value))}
+            onChange={(path, value) => model.setConfig(setPath(model.config.value, path, value))}
           />
         </section>
 
@@ -399,7 +407,7 @@ function IdentityForm({ adapters }: { adapters: IdentityAdapter[] }) {
             <RiLoginCircleLine data-icon="inline-end" />
           </Button>
         </div>
-      </Form>
+      </form>
     </Panel>
   )
 }

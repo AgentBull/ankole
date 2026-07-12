@@ -22,6 +22,7 @@ import { RiCloseCircleLine, RiTimeLine } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useSearchParams } from 'react-router'
 import { requestErrorMessage } from '../../common/request-errors'
 import {
   ankoleWebSubagentDelegationControllerCancelMutation,
@@ -47,9 +48,10 @@ const columns: Column[] = [
 export function DelegationsPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const [agentFilter, setAgentFilter] = useState('')
-  const [selectedID, setSelectedID] = useState<string>()
-  const [cancelTarget, setCancelTarget] = useState<SubagentDelegationItem>()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const agentFilter = searchParams.get('agent') ?? ''
+  const selectedID = searchParams.get('delegation') ?? undefined
+  const [cancelTargetID, setCancelTargetID] = useState<string>()
   const list = useQuery({
     ...ankoleWebSubagentDelegationControllerIndexOptions({
       query: { agent: agentFilter.trim() || undefined, limit: 100 }
@@ -67,13 +69,35 @@ export function DelegationsPage() {
     ...ankoleWebSubagentDelegationControllerCancelMutation(),
     onSuccess: () => {
       toast.success(t('console.delegations.cancelled'))
-      setCancelTarget(undefined)
+      setCancelTargetID(undefined)
       void queryClient.invalidateQueries()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
   const delegations = list.data?.delegations ?? []
   const selected = detail.data?.delegation
+  const cancelTarget =
+    delegations.find(delegation => delegation.id === cancelTargetID) ??
+    (selected?.id === cancelTargetID ? selected : undefined)
+
+  const setAgentFilter = (value: string) => {
+    const next = new URLSearchParams(searchParams)
+    if (value) next.set('agent', value)
+    else next.delete('agent')
+    setSearchParams(next, { replace: true })
+  }
+
+  const openDelegation = (id: string) => {
+    const next = new URLSearchParams(searchParams)
+    next.set('delegation', id)
+    setSearchParams(next)
+  }
+
+  const closeDelegation = () => {
+    const next = new URLSearchParams(searchParams)
+    next.delete('delegation')
+    setSearchParams(next, { replace: true })
+  }
 
   const grouped = useMemo(
     () =>
@@ -127,8 +151,8 @@ export function DelegationsPage() {
                     key={task.id}
                     task={task}
                     cancelling={cancel.isPending}
-                    onCancel={() => setCancelTarget(task)}
-                    onOpen={() => setSelectedID(task.id)}
+                    onCancel={() => setCancelTargetID(task.id)}
+                    onOpen={() => openDelegation(task.id)}
                   />
                 ))
               )}
@@ -137,7 +161,7 @@ export function DelegationsPage() {
         ))}
       </div>
 
-      <Sheet open={Boolean(selectedID)} onOpenChange={open => !open && setSelectedID(undefined)}>
+      <Sheet open={Boolean(selectedID)} onOpenChange={open => !open && closeDelegation()}>
         <SheetContent className="w-full sm:max-w-2xl">
           <SheetHeader>
             <SheetTitle>{selected?.title ?? t('console.delegations.detail_title')}</SheetTitle>
@@ -209,7 +233,7 @@ export function DelegationsPage() {
 
           {selected && cancellable(selected.status) ? (
             <SheetFooter>
-              <Button variant="destructive" disabled={cancel.isPending} onClick={() => setCancelTarget(selected)}>
+              <Button variant="destructive" disabled={cancel.isPending} onClick={() => setCancelTargetID(selected.id)}>
                 <RiCloseCircleLine />
                 {t('console.delegations.cancel')}
               </Button>
@@ -218,7 +242,7 @@ export function DelegationsPage() {
         </SheetContent>
       </Sheet>
 
-      <Dialog open={Boolean(cancelTarget)} onOpenChange={open => !open && setCancelTarget(undefined)}>
+      <Dialog open={Boolean(cancelTarget)} onOpenChange={open => !open && setCancelTargetID(undefined)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('console.delegations.cancel_title')}</DialogTitle>
