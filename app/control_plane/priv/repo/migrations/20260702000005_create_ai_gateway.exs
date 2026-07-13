@@ -2,8 +2,7 @@ defmodule Ankole.Repo.Migrations.CreateAIGateway do
   # AIGateway owns durable conversation and message-log state.
   #
   # The continuation chain is previous_message_id, durable content is written only at
-  # terminal state, and metadata.actor_event_id has a partial unique index so one actor
-  # event can have at most one generating message row.
+  # terminal state, and checkpoint rows reference immutable compaction artifacts.
   use Ecto.Migration
 
   def up do
@@ -12,7 +11,7 @@ defmodule Ankole.Repo.Migrations.CreateAIGateway do
     create table(:ai_gateway_conversations, primary_key: false) do
       add :id, :uuid, primary_key: true
 
-      add :agent_uid,
+      add :subject_uid,
           references(:principals, column: :uid, type: :text, on_delete: :delete_all),
           null: false
 
@@ -23,8 +22,8 @@ defmodule Ankole.Repo.Migrations.CreateAIGateway do
       timestamps(type: :utc_datetime_usec)
     end
 
-    # One agent/conversation_key may have only one active conversation at a time.
-    create unique_index(:ai_gateway_conversations, [:agent_uid, :conversation_key],
+    # One subject/conversation_key may have only one active conversation at a time.
+    create unique_index(:ai_gateway_conversations, [:subject_uid, :conversation_key],
              name: :ai_gateway_conversations_active_key_index,
              where: "ended_at IS NULL"
            )
@@ -33,29 +32,33 @@ defmodule Ankole.Repo.Migrations.CreateAIGateway do
              check: "jsonb_typeof(metadata) = 'object'"
            )
 
-    comment_table(:ai_gateway_conversations, "Durable AI-gateway conversation threads per agent.")
+    comment_table(
+      :ai_gateway_conversations,
+      "Durable AIGateway conversation threads per Principal subject."
+    )
 
     comment_columns(:ai_gateway_conversations, %{
-      agent_uid: "Agent principal that owns the conversation.",
-      conversation_key: "Agent-local key used to identify the active conversation lane.",
+      subject_uid: "Principal that owns the conversation.",
+      conversation_key: "Subject-local key used to identify an active conversation.",
       ended_at: "Time the conversation was closed and excluded from active-key uniqueness.",
       metadata: "Conversation metadata outside the stable message contract."
     })
 
-    # Each row is a stored message-log fact: a stateful Responses run, a compaction,
-    # or an internal AIGateway message fact. type is semantics; status is lifecycle.
+    # Each row is a stored Response, journal, or checkpoint fact. type is semantics;
+    # status is lifecycle.
     create table(:ai_gateway_messages, primary_key: false) do
       add :id, :uuid, primary_key: true
 
-      add :agent_uid, references(:principals, column: :uid, type: :text, on_delete: :delete_all),
-        null: false
+      add :subject_uid,
+          references(:principals, column: :uid, type: :text, on_delete: :delete_all),
+          null: false
 
       add :conversation_id,
           references(:ai_gateway_conversations, type: :uuid, on_delete: :delete_all), null: false
 
       # Row-level semantic:
       #   message - ordinary response/message fact
-      #   compaction - summary fact whose content must contain a compaction item
+      #   checkpoint - continuation anchor that references one compaction artifact
       add :type, :text, null: false
 
       # role is a legacy transcript/UI projection hint, not the authoritative item role.
@@ -76,10 +79,7 @@ defmodule Ankole.Repo.Migrations.CreateAIGateway do
       # content is the stored OpenResponses ResponseItem[] subset for one response.create.
       # Multiple items from the same create call remain array elements in one row.
       add :content, :map, null: false, default: fragment("'[]'::jsonb")
-      add :covers_until_message_id, :uuid
-      # metadata stores auxiliary facts: model/provider, usage, provider raw ids,
-      # render hints, actor_event_id, request refs, and compaction refs. actor_event_id
-      # is the AIGateway/ActorRuntime correlation key.
+      # metadata stores opaque caller metadata plus AIGateway response facts.
       add :metadata, :map, null: false, default: %{}
 
       timestamps(type: :utc_datetime_usec)
@@ -99,7 +99,7 @@ defmodule Ankole.Repo.Migrations.CreateAIGateway do
       """
     )
 
-    create index(:ai_gateway_messages, [:agent_uid, :conversation_id],
+    create index(:ai_gateway_messages, [:subject_uid, :conversation_id],
              name: :ai_gateway_messages_conversation_index
            )
 
@@ -108,17 +108,6 @@ defmodule Ankole.Repo.Migrations.CreateAIGateway do
              name: :ai_gateway_messages_previous_message_id_index,
              where: "previous_message_id IS NOT NULL"
            )
-
-    # Each actor event may have only one in-flight message row. Reconnect uses this
-    # index to locate the active response.create row without persisting partial streams.
-    execute(
-      """
-      CREATE UNIQUE INDEX ai_gateway_messages_generating_actor_event_index
-      ON ai_gateway_messages ((metadata->>'actor_event_id'))
-      WHERE status = 'generating' AND type = 'message'
-      """,
-      "DROP INDEX IF EXISTS ai_gateway_messages_generating_actor_event_index"
-    )
 
     execute(
       """
@@ -134,7 +123,7 @@ defmodule Ankole.Repo.Migrations.CreateAIGateway do
            )
 
     create constraint(:ai_gateway_messages, :ai_gateway_messages_type_check,
-             check: "type IN ('message', 'compaction')"
+             check: "type IN ('message', 'checkpoint')"
            )
 
     create constraint(:ai_gateway_messages, :ai_gateway_messages_status_check,
@@ -145,31 +134,82 @@ defmodule Ankole.Repo.Migrations.CreateAIGateway do
              check: "jsonb_typeof(content) = 'array'"
            )
 
+    create constraint(
+             :ai_gateway_messages,
+             :ai_gateway_messages_message_content_no_compaction_refs,
+             check:
+               "type <> 'message' OR NOT jsonb_path_exists(content, '$[*] ? (@.type == \"compaction\" || @.type == \"compaction_artifact\")')"
+           )
+
+    create constraint(
+             :ai_gateway_messages,
+             :ai_gateway_messages_checkpoint_content_ref,
+             check:
+               "type <> 'checkpoint' OR (jsonb_array_length(content) = 1 AND content->0->>'type' = 'compaction_artifact' AND content->0->>'id' ~ '^cmp_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')"
+           )
+
     create constraint(:ai_gateway_messages, :ai_gateway_messages_metadata_object,
              check: "jsonb_typeof(metadata) = 'object'"
            )
 
     comment_table(
       :ai_gateway_messages,
-      "Stored AI-gateway message-log facts: response runs, compactions, and message facts."
+      "Stored Response, journal, and checkpoint facts owned by AIGateway."
     )
 
     comment_columns(:ai_gateway_messages, %{
-      agent_uid: "Agent principal that owns the message.",
+      subject_uid: "Principal that owns the response message.",
       conversation_id: "Conversation containing the message.",
-      type: "Row-level semantic: message (normal) or compaction (summary).",
+      type: "Row-level semantic: message (normal) or checkpoint (compaction continuation).",
       role: "Legacy transcript/UI role hint; not the authoritative Response item role.",
       status: "Lifecycle: generating, complete, error, or retracted.",
       previous_message_id:
         "Self-reference continuation anchor; renders as previous_response_id on the API.",
-      content: "OpenResponses ResponseItem[] subset stored for this row.",
-      covers_until_message_id:
-        "Compaction coverage boundary interpreted only on this row's ancestor chain.",
-      metadata: "Auxiliary facts: model/provider, usage, actor_event_id, request refs."
+      content:
+        "OpenResponses ResponseItem[] for message rows, or one compaction_artifact ref for checkpoint rows.",
+      metadata: "Opaque caller metadata plus AIGateway response facts."
+    })
+
+    create table(:ai_gateway_compaction_artifacts, primary_key: false) do
+      add :id, :uuid, primary_key: true
+
+      add :subject_uid,
+          references(:principals, column: :uid, type: :text, on_delete: :delete_all),
+          null: false
+
+      add :conversation_id,
+          references(:ai_gateway_conversations, type: :uuid, on_delete: :delete_all)
+
+      add :content, :map, null: false, default: %{}
+
+      timestamps(type: :utc_datetime_usec)
+    end
+
+    create index(:ai_gateway_compaction_artifacts, [:subject_uid, :conversation_id],
+             name: :ai_gateway_compaction_artifacts_owner_index
+           )
+
+    create constraint(
+             :ai_gateway_compaction_artifacts,
+             :ai_gateway_compaction_artifacts_content_object,
+             check: "jsonb_typeof(content) = 'object'"
+           )
+
+    comment_table(
+      :ai_gateway_compaction_artifacts,
+      "Immutable compaction artifacts owned by an AIGateway subject."
+    )
+
+    comment_columns(:ai_gateway_compaction_artifacts, %{
+      subject_uid: "Principal that owns the compaction artifact.",
+      conversation_id: "Optional conversation associated with stateful/checkpoint compaction.",
+      content:
+        "Versioned compaction artifact JSON body including summary, output, retention, and usage."
     })
   end
 
   def down do
+    drop table(:ai_gateway_compaction_artifacts)
     drop table(:ai_gateway_messages)
     drop table(:ai_gateway_conversations)
   end

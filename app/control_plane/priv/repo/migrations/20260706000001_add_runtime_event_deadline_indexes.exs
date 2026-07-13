@@ -23,14 +23,14 @@ defmodule Ankole.Repo.Migrations.AddRuntimeEventDeadlineIndexes do
            )
 
     execute("""
-    CREATE INDEX codex_delegations_running_worker_route_index
-    ON codex_delegations ((metadata->>'worker_route'))
+    CREATE INDEX subagent_delegations_running_worker_route_index
+    ON subagent_delegations ((metadata->>'worker_route'))
     WHERE status IN ('running', 'waiting_on_user')
     """)
   end
 
   def down do
-    execute("DROP INDEX IF EXISTS codex_delegations_running_worker_route_index")
+    execute("DROP INDEX IF EXISTS subagent_delegations_running_worker_route_index")
 
     drop_if_exists index(:ai_gateway_messages, [:status, :type, :updated_at],
                      name: :ai_gateway_messages_generating_deadline_index

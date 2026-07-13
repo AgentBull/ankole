@@ -307,6 +307,7 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
       add :signal_channel_id, :text
       add :provider_thread_id, :text
       add :source_entry_id, :text
+      add :reply_preview_source_entry_id, :text
       add :type, :text, null: false
       add :available_at, :utc_datetime_usec, null: false
       # Per-session ordering lives here because delivery is ordered within one actor session.
@@ -364,6 +365,8 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
       provider_thread_id: "Provider thread key used for batching and reply context.",
       source_entry_id:
         "Provider entry that produced this event when applicable (layer-2 identity).",
+      reply_preview_source_entry_id:
+        "Provider entry created for the live AI reply preview; SignalsGateway uses it as the final edit target.",
       type: "Actor event type such as command, signal entry, or session lifecycle.",
       available_at: "Earliest time this event may be delivered to the actor runtime.",
       queue_sequence: "Per-session sequence for ordering currently open actor events.",

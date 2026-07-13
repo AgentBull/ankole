@@ -84,7 +84,7 @@ jobs:
           fi
 
           changed_files="$(git diff --name-only "${published_revision}" "${target_sha}")"
-          control_plane_pattern='^(\.dockerignore$|package\.json$|bun\.lock$|app/control_plane/|app/locales/|app/webapps/|libs/uikit/|libs/feishu_openapi/|app/kernel/|plugins/|\.github/workflows/control-plane-image\.yml$)'
+          control_plane_pattern='^(\.dockerignore$|package\.json$|bun\.lock$|app/control_plane/|app/locales/|app/webapps/|libs/|app/kernel/|plugins/|\.github/workflows/control-plane-image\.yml$)'
 
           if grep -Eq "${control_plane_pattern}" <<<"${changed_files}"; then
             echo "changed=true" >> "$GITHUB_OUTPUT"

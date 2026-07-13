@@ -13,7 +13,7 @@ fi
 import importlib.util
 import sys
 
-required = ["jupyterlab", "ipykernel", "requests", "websocket", "jupyter_client", "jupyter_server", "nbformat"]
+required = ["jupyterlab", "ipykernel", "websocket", "jupyter_client", "jupyter_server", "nbformat"]
 missing = [name for name in required if importlib.util.find_spec(name) is None]
 if missing:
     print("missing packages in agent Python env: " + ", ".join(missing), file=sys.stderr)

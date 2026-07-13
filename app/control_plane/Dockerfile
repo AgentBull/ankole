@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1.20
 
 ARG ELIXIR_IMAGE=elixir:1.20.1-otp-28-slim
 ARG BUN_IMAGE=oven/bun:1.3.14
@@ -59,10 +59,15 @@ COPY tools/devkit/package.json ./tools/devkit/package.json
 RUN --mount=type=cache,target=/root/.bun/install/cache \
   bun install --no-save
 
-COPY app/control_plane/mix.exs app/control_plane/mix.lock ./app/control_plane/
-COPY app/kernel/mix.exs app/kernel/Cargo.toml app/kernel/Cargo.lock ./app/kernel/
-COPY libs/feishu_openapi/mix.exs libs/feishu_openapi/mix.lock ./libs/feishu_openapi/
-COPY libs/slack_openapi/mix.exs libs/slack_openapi/mix.lock ./libs/slack_openapi/
+COPY --parents \
+  ./app/control_plane/mix.exs \
+  ./app/control_plane/mix.lock \
+  ./app/kernel/mix.exs \
+  ./app/kernel/Cargo.toml \
+  ./app/kernel/Cargo.lock \
+  ./libs/*/mix.exs \
+  ./libs/*/mix.lock \
+  ./
 
 WORKDIR /repo/app/control_plane
 
@@ -78,9 +83,7 @@ COPY app/kernel ./app/kernel
 COPY app/library ./app/library
 COPY app/locales ./app/locales
 COPY app/webapps ./app/webapps
-COPY libs/feishu_openapi ./libs/feishu_openapi
-COPY libs/slack_openapi ./libs/slack_openapi
-COPY libs/uikit ./libs/uikit
+COPY libs ./libs
 COPY plugins ./plugins
 
 WORKDIR /repo/app/control_plane

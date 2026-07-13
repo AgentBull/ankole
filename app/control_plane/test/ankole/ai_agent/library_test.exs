@@ -4,6 +4,7 @@ defmodule Ankole.AIAgent.LibraryTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AIAgent.Library
+  alias Ankole.AIAgent.Library.Schemas.AgentLibraryContainerEntry
   alias Ankole.AIAgent.Library.Schemas.AgentSkill
   alias Ankole.AIAgent.Library.Schemas.AgentSkillOverlay
   alias Ankole.AIAgent.Library.SourceReader
@@ -37,6 +38,21 @@ defmodule Ankole.AIAgent.LibraryTest do
 
     assert soul == File.read!(Path.expand("../../../../library/templates/SOUL.md", __DIR__))
     assert mission == File.read!(Path.expand("../../../../library/templates/MISSION.md", __DIR__))
+  end
+
+  test "rejects unimplemented library source kinds" do
+    %{principal: agent} = agent_fixture()
+
+    changeset =
+      AgentLibraryContainerEntry.changeset(%AgentLibraryContainerEntry{}, %{
+        agent_uid: agent.uid,
+        path: "SETTING.md",
+        source_kind: "setting",
+        content: "unused",
+        metadata: %{}
+      })
+
+    assert "is invalid" in errors_on(changeset).source_kind
   end
 
   test "skill_view merges canonical skill body with agent DB overlay" do

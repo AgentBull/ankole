@@ -7,9 +7,7 @@ Ankole.Config.Bootstrap.load_dotenv!(
   env: config_env()
 )
 
-runtime_fabric_bind_endpoint =
-  System.get_env("ANKOLE_RUNTIME_FABRIC_BIND_ENDPOINT") ||
-    System.get_env("ANKOLE_RUNTIME_FABRIC_ENDPOINT")
+runtime_fabric_bind_endpoint = System.get_env("ANKOLE_RUNTIME_FABRIC_BIND_ENDPOINT")
 
 if runtime_fabric_bind_endpoint do
   config :ankole, :actor_runtime_router, bind_endpoint: runtime_fabric_bind_endpoint

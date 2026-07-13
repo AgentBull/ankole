@@ -67,8 +67,8 @@ defmodule Ankole.Repo.Migrations.CreateProviderRuntimeLibrarySkillsAndInboundBat
       disabled_at: "Time the provider was disabled and excluded from runtime resolution."
     })
 
-    # Agent library rows materialize worker-visible persona and setting files
-    # such as SOUL.md, MISSION.md, and SETTING.md. Skill overlays live separately.
+    # Agent library rows materialize the worker-visible SOUL.md and MISSION.md
+    # persona files. Skill overlays live separately.
     create table(:agent_library_container_entries, primary_key: false) do
       add :id, :uuid, primary_key: true
 
@@ -90,10 +90,6 @@ defmodule Ankole.Repo.Migrations.CreateProviderRuntimeLibrarySkillsAndInboundBat
              where: "deleted_at IS NULL"
            )
 
-    create index(:agent_library_container_entries, [:agent_uid, :source_kind],
-             name: :agent_library_container_entries_source_kind_index
-           )
-
     create constraint(
              :agent_library_container_entries,
              :agent_library_container_entries_path_present,
@@ -103,8 +99,7 @@ defmodule Ankole.Repo.Migrations.CreateProviderRuntimeLibrarySkillsAndInboundBat
     create constraint(
              :agent_library_container_entries,
              :agent_library_container_entries_source_kind_check,
-             check:
-               "source_kind IN ('soul', 'mission', 'setting', 'memory', 'system', 'user', 'computer')"
+             check: "source_kind IN ('soul', 'mission')"
            )
 
     create constraint(
@@ -115,13 +110,13 @@ defmodule Ankole.Repo.Migrations.CreateProviderRuntimeLibrarySkillsAndInboundBat
 
     comment_table(
       :agent_library_container_entries,
-      "Per-agent library container entries materialized for worker-visible files."
+      "Per-agent library entries for worker-visible SOUL.md and MISSION.md files."
     )
 
     comment_columns(:agent_library_container_entries, %{
       agent_uid: "Agent principal that owns the library entry.",
       path: "Agent-local library path exposed to the worker.",
-      source_kind: "Library source bucket such as mission, memory, system, or computer.",
+      source_kind: "Persona file kind: soul or mission.",
       content: "Text content stored for file-backed library entries.",
       content_hash: "Hash of the stored content projection.",
       metadata: "Library entry metadata outside the file content contract.",

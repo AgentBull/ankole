@@ -14,10 +14,9 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentLibraryContainerEntry do
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
-  # What kind of agent-owned file this row backs. `soul`/`mission` are the
-  # persona docs seeded per agent; skill overlays are semantic rows in
-  # `agent_skill_overlays`, not files in this table.
-  @source_kinds ~w(soul mission setting memory system user computer)
+  # The only agent-owned files implemented by this table are the persona docs
+  # seeded per agent. Skill overlays are semantic rows in `agent_skill_overlays`.
+  @source_kinds ~w(soul mission)
 
   schema "agent_library_container_entries" do
     belongs_to(:agent, Principal,
