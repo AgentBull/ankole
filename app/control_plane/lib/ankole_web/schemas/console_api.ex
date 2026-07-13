@@ -1732,6 +1732,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
 
     require OpenAPISpex
 
+    @runtimes Ankole.SubagentDelegations.Schemas.Delegation.runtimes()
     @statuses Ankole.SubagentDelegations.Schemas.Delegation.statuses()
 
     OpenAPISpex.schema(
@@ -1742,7 +1743,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           id: %Schema{type: :string},
           agent_uid: %Schema{type: :string},
           session_id: %Schema{type: :string},
-          runtime: %Schema{type: :string, enum: ["codex"]},
+          runtime: %Schema{type: :string, enum: @runtimes},
           codex_account_id: %Schema{type: :string},
           runtime_thread_id: %Schema{type: :string, nullable: true},
           title: %Schema{type: :string},

@@ -20,7 +20,7 @@ defmodule Ankole.Repo.Migrations.CreateSubagentDelegations do
       add :result, :map, null: false, default: %{}
       add :error, :map, null: false, default: %{}
       add :metadata, :map, null: false, default: %{}
-      add :runtime, :text, null: false, default: "codex"
+      add :runtime, :text, null: false, default: "task_worker"
       add :title, :text, null: false
       add :task, :text, null: false
       add :background, :text
@@ -72,7 +72,7 @@ defmodule Ankole.Repo.Migrations.CreateSubagentDelegations do
            )
 
     create constraint(:subagent_delegations, :subagent_delegations_runtime_check,
-             check: "runtime IN ('codex')"
+             check: "runtime IN ('task_worker')"
            )
 
     create constraint(:subagent_delegations, :subagent_delegations_reply_route_object,

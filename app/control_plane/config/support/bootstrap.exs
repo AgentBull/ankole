@@ -7,7 +7,6 @@ defmodule Ankole.Config.Bootstrap do
   """
 
   @phoenix_secret_key_base "phoenix.secret_key_base"
-  @min_secret_base_bytes 64
 
   @doc """
   Loads Ankole dotenv files for the given Mix environment.
@@ -95,22 +94,9 @@ defmodule Ankole.Config.Bootstrap do
     raise "Ankole.Config.Bootstrap: invalid port for #{name}: #{inspect(port)}"
   end
 
-  @doc "Validates the root installation secret used to derive application keys."
-  def validate_secret_base!(secret_base)
-      when is_binary(secret_base) and byte_size(secret_base) >= @min_secret_base_bytes do
-    secret_base
-  end
-
-  def validate_secret_base!(secret_base) do
-    raise "Ankole.Config.Bootstrap: ANKOLE_SECRET_BASE must be at least #{@min_secret_base_bytes} bytes, got #{inspect(secret_base)}"
-  end
-
   @doc "Derives Phoenix's endpoint secret from ANKOLE_SECRET_BASE."
   def endpoint_secret_key_base! do
-    secret_base =
-      "ANKOLE_SECRET_BASE"
-      |> env!()
-      |> validate_secret_base!()
+    secret_base = env!("ANKOLE_SECRET_BASE")
 
     case apply(Ankole.Kernel, :derive_key, [secret_base, @phoenix_secret_key_base]) do
       secret_key_base when is_binary(secret_key_base) ->

@@ -5,13 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite --config vite.config.ts",
-    "build": "vite build --config vite.config.ts",
+    "build": "bun run openapi:generate && bun run type-check && vite build --config vite.config.ts",
     "test": "bun test console/state setup/state",
     "type-check": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
     "fmt": "oxfmt .",
     "fmt:check": "oxfmt --check .",
-    "openapi:generate": "bunx @hey-api/openapi-ts@0.99.0 -f openapi-ts.config.ts && oxfmt console/api/generated"
+    "openapi:generate": "openapi-ts -f openapi-ts.config.ts && oxfmt console/api/generated"
   },
   "dependencies": {
     "@ankole/uikit": "workspace:*",
@@ -42,7 +42,7 @@
     "babel-plugin-react-compiler": "1.0.0",
     "smol-toml": "1.7.0",
     "tailwindcss": "4.3.2",
-    "typescript": "7.0.2",
+    "typescript": "6.0.3",
     "vite": "8.1.4"
   }
 }

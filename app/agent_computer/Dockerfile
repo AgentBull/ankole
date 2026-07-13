@@ -50,15 +50,18 @@ WORKDIR /repo
 RUN set -eux; \
   installed=0; \
   for attempt in 1 2 3; do \
-    if bun add -g @openai/codex@0.144.0; then installed=1; break; fi; \
+    if bun add -g @openai/codex@0.144.0 mcporter@0.12.3; then installed=1; break; fi; \
     rm -rf /root/.bun/install/cache/* /tmp/bun-*; \
     sleep $((attempt * 5)); \
   done; \
   test "$installed" = 1; \
-  rm -f /usr/local/bin/codex; \
+  rm -f /usr/local/bin/codex /usr/local/bin/mcporter; \
   printf '%s\n' '#!/usr/bin/env sh' 'exec /usr/local/bin/bun /root/.bun/install/global/node_modules/@openai/codex/bin/codex.js "$@"' > /usr/local/bin/codex; \
+  printf '%s\n' '#!/usr/bin/env sh' 'exec /usr/local/bin/bun /root/.bun/install/global/node_modules/mcporter/dist/cli.js "$@"' > /usr/local/bin/mcporter; \
   chmod +x /usr/local/bin/codex; \
-  test "$(codex --version)" = "codex-cli 0.144.0"
+  chmod +x /usr/local/bin/mcporter; \
+  test "$(codex --version)" = "codex-cli 0.144.0"; \
+  test "$(mcporter --version)" = "0.12.3"
 
 COPY --from=build /repo/app/kernel/index.js ./app/kernel/index.js
 COPY --from=build /repo/app/kernel/main.js ./app/kernel/main.js

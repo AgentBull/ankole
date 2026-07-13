@@ -65,10 +65,9 @@ defmodule AnkoleWeb.SessionCookieStore do
 
   # The per-cookie AEAD key is derived from the endpoint secret under a fixed
   # sub-key id and the configured key context, so the session cookie never uses
-  # the raw secret directly and is namespaced apart from other Kernel keys. The
-  # 64-byte minimum guards against a too-short/misconfigured secret.
+  # the raw secret directly and is namespaced apart from other Kernel keys.
   defp encryption_key(%Plug.Conn{secret_key_base: secret_key_base}, opts)
-       when is_binary(secret_key_base) and byte_size(secret_key_base) >= 64 do
+       when is_binary(secret_key_base) do
     case NativeKernel.derive_key(secret_key_base, @sub_key_id, opts.key_context) do
       key when is_binary(key) -> {:ok, key}
       {:error, reason} -> {:error, reason}
@@ -80,7 +79,7 @@ defmodule AnkoleWeb.SessionCookieStore do
   end
 
   defp encryption_key(%Plug.Conn{}, _opts) do
-    {:error, "cookie store expects conn.secret_key_base to be at least 64 bytes"}
+    {:error, "cookie store expects conn.secret_key_base to be a binary"}
   end
 
   defp decrypt(raw_cookie, key) do

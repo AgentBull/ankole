@@ -828,7 +828,7 @@ function response(): SubagentDelegationResponse {
     agent_uid: 'agent-1',
     session_id: 'parent-session',
     status: 'running',
-    runtime: 'codex',
+    runtime: 'task_worker',
     codex_account_id: 'aigateway',
     title: 'Prepare launch brief',
     task: '\n  Write and verify the launch brief.  \n',

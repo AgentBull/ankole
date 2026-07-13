@@ -267,7 +267,7 @@ jobs:
           fi
 
           changed_files="$(git diff --name-only "${published_revision}" "${target_sha}")"
-          worker_pattern='^(\.dockerignore$|package\.json$|bun\.lock$|app/agent_computer/Dockerfile$|app/agent_computer/package\.json$|app/agent_computer/bin/|app/agent_computer/src/|app/kernel/|app/library/|\.github/workflows/agent-computer-images\.yml$)'
+          worker_pattern='^(\.dockerignore$|package\.json$|bun\.lock$|tsconfig\.base\.json$|app/agent_computer/Dockerfile$|app/agent_computer/package\.json$|app/agent_computer/tsconfig\.json$|app/agent_computer/bin/|app/agent_computer/src/|app/kernel/|app/library/|\.github/workflows/agent-computer-images\.yml$)'
 
           if grep -Eq "${worker_pattern}" <<<"${changed_files}"; then
             echo "changed=true" >> "$GITHUB_OUTPUT"

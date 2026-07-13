@@ -517,7 +517,7 @@ export type SubagentDelegationItem = {
   result: {
     [key: string]: unknown
   }
-  runtime: 'codex'
+  runtime: 'task_worker'
   runtime_thread_id?: string | null
   session_id: string
   started_at?: string | null

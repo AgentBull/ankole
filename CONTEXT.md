@@ -51,12 +51,12 @@ _Avoid_: Ask user, blocking question
 _Avoid_: Codex delegation, background job, async task
 
 **Subagent**:
-在隔离上下文中执行委托的后台执行者角色，由某个 Delegation Runtime 实现；不继承父会话历史，靠 Handoff 获得工作所需上下文。
+在隔离上下文中执行委托的后台执行者角色，由 Task Worker 承载；不继承父会话历史，靠 Handoff 获得工作所需上下文。
 _Avoid_: Codex（指角色时）, child agent
 
-**Delegation Runtime**:
-实现 Subagent 执行能力的具体引擎（当前唯一实现是 Codex）。委托的生命周期语义不属于 runtime，runtime 只拥有执行机制。
-_Avoid_: Runtime（不加限定）, engine
+**Task Worker**:
+承载 Subagent 角色并执行 Delegation 的可替换 runtime。它只拥有执行机制，不拥有委托生命周期语义。
+_Avoid_: Delegation Runtime, Codex（指 runtime 类别时）, engine
 
 **Handoff**:
 父会话向 Subagent 移交工作所需信息的方式：完整指令与全部 requirements 写在 durable `task` 字段并作为首个 user input；SOUL、MISSION、相关 background、执行 notes 与环境信息写入任务级 AGENTS；Skills 与必要的 Ankole Tools 作为可用能力提供。父会话历史永不自动携带。

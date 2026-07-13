@@ -1103,7 +1103,7 @@
             "type": "object"
           },
           "runtime": {
-            "enum": ["codex"],
+            "enum": ["task_worker"],
             "type": "string"
           },
           "runtime_thread_id": {
@@ -7900,7 +7900,7 @@
       "name": "Workers"
     },
     {
-      "description": "Durable background work delegated to the Codex subagent runtime",
+      "description": "Durable background work delegated to the task-worker runtime",
       "name": "Subagent Delegations"
     },
     {

@@ -27,7 +27,6 @@ defmodule Ankole.SubagentDelegations.Dispatch do
         |> Map.put("agent_uid", agent_uid)
         |> Map.put("reply_route", reply_route)
         |> Map.put("codex_account_id", codex_account_id)
-        |> Map.put_new("runtime", "codex")
         |> Map.put_new("status", "queued")
         |> Map.put_new("attempts", 0)
         |> Map.put_new("queued_at", now)

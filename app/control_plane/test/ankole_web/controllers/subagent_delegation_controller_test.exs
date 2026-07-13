@@ -85,6 +85,7 @@ defmodule AnkoleWeb.SubagentDelegationControllerTest do
       |> Map.fetch!("delegation")
 
     assert detail["title"] == middle.title
+    assert detail["runtime"] == "task_worker"
     assert [%{"seq" => 0, "event_type" => "thread_started"}] = detail["events"]
 
     cancelled =

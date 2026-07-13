@@ -62,7 +62,7 @@ export type SubagentToolOptions = {
 }
 
 const DESCRIPTION = [
-  "Manage asynchronous background work performed by this Ankole installation's Codex subagent runtime.",
+  "Manage asynchronous background work performed by this Ankole installation's task-worker runtime.",
   'Delegate only work expected to take at least 10 minutes. Do faster work directly in this turn.',
   'start returns immediately. After start, tell the user the work has begun and that you will report when the system wakes you.',
   'The subagent receives SOUL and MISSION automatically, but no parent conversation history.',

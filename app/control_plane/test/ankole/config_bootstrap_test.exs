@@ -11,7 +11,8 @@ defmodule Ankole.Config.BootstrapTest do
     "ANKOLE_BOOTSTRAP_GLOBAL_LOCAL",
     "ANKOLE_BOOTSTRAP_ONLY_GLOBAL",
     "ANKOLE_BOOTSTRAP_OS",
-    "ANKOLE_BOOTSTRAP_PATHS"
+    "ANKOLE_BOOTSTRAP_PATHS",
+    "ANKOLE_SECRET_BASE"
   ]
 
   setup do
@@ -97,6 +98,15 @@ defmodule Ankole.Config.BootstrapTest do
            ]
 
     assert Bootstrap.env_path_list("ANKOLE_BOOTSTRAP_MISSING_PATHS", []) == []
+  end
+
+  test "derives the endpoint secret from any configured seed value" do
+    Enum.each(["", "x"], fn seed ->
+      System.put_env("ANKOLE_SECRET_BASE", seed)
+
+      assert Bootstrap.endpoint_secret_key_base!() ==
+               Ankole.Kernel.derive_key(seed, "phoenix.secret_key_base")
+    end)
   end
 
   defp tmp_root do

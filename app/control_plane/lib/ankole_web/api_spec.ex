@@ -90,7 +90,7 @@ defmodule AnkoleWeb.APISpec do
         },
         %Tag{
           name: "Subagent Delegations",
-          description: "Durable background work delegated to the Codex subagent runtime"
+          description: "Durable background work delegated to the task-worker runtime"
         },
         %Tag{
           name: "Brain",

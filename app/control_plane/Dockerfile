@@ -93,6 +93,11 @@ RUN --mount=type=cache,target=/root/.cargo/git \
   --mount=type=cache,target=/repo/app/kernel/target \
   mix compile
 
+RUN ANKOLE_SECRET_BASE=build-smoke \
+  DATABASE_URL=ecto://ankole:ankole@127.0.0.1/ankole_build_smoke \
+  PHX_SERVER=false \
+  mix ankole.openapi.check
+
 RUN --mount=type=cache,target=/root/.cargo/git \
   --mount=type=cache,target=/root/.cargo/registry \
   --mount=type=cache,target=/repo/app/kernel/target \
@@ -147,6 +152,11 @@ ENV PHX_SERVER=true
 ENV PORT=4000
 ENV ANKOLE_LIBRARY_ROOT=/app/app/library
 ENV ANKOLE_PLUGIN_PATHS=/app/plugins
+
+RUN ANKOLE_SECRET_BASE=build-smoke \
+  DATABASE_URL=ecto://ankole:ankole@127.0.0.1/ankole_build_smoke \
+  PHX_SERVER=false \
+  /app/bin/ankole eval 'Application.load(:ankole)'
 
 ENTRYPOINT ["tini", "-g", "--"]
 CMD ["/app/bin/ankole", "start"]

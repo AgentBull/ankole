@@ -1,6 +1,6 @@
 defmodule Ankole.AIAgent.CodexAccounts do
   @moduledoc """
-  Durable ChatGPT subscription accounts for the Codex worker runtime.
+  Durable ChatGPT subscription accounts for the Codex task-worker implementation.
   """
 
   import Ecto.Query, warn: false

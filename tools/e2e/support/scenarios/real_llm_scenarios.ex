@@ -376,7 +376,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                message_id: "om_real_codex_todolist_1",
                chat_id: "oc_real_llm_codex_todolist",
                text: """
-               @_user_1 Delegate this implementation to the Codex subagent in the background. Use the configured coding runtime.
+               @_user_1 Delegate this implementation to a task worker in the background. Use the configured task-worker implementation.
 
                Task:
                1. Call subagent exactly once with action="start", title="Build the real todolist demo", and workdir="/workspace/user-files/subagent/ankole-codex-todolist-real".
@@ -557,7 +557,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                message_id: "om_real_codex_pptx_1",
                chat_id: "oc_real_llm_codex_pptx",
                text: """
-               @_user_1 Delegate this PowerPoint task to the Codex subagent in the background using the configured coding runtime.
+               @_user_1 Delegate this PowerPoint task to a task worker in the background using the configured task-worker implementation.
 
                Initial-turn state machine:
                1. Call subagent exactly once. Its decoded arguments must equal the JSON object below. Copy the complete strings; do not summarize, shorten, repair, or regenerate any field. The task value is intentionally long because it contains every requirement.

@@ -182,7 +182,7 @@ function response(): SubagentDelegationResponse {
     agent_uid: 'agent-1',
     session_id: 'session-1',
     status: 'queued',
-    runtime: 'codex',
+    runtime: 'task_worker',
     codex_account_id: 'aigateway',
     title: 'Launch brief',
     task: 'Write the brief.',

@@ -417,11 +417,11 @@ it exceeds its capacity; running background commands are not evicted or killed
 by that capacity rule. A caller can still pass `timeout` to opt into an
 explicit command budget.
 
-Codex delegation is a separate durable work path. `subagent(start)` commits a
+Task-worker delegation is a separate durable work path. `subagent(start)` commits a
 PostgreSQL work item and returns immediately; a delegation actor session owns
 dispatch, retry, cancellation, and parent-session wakeup. There is no global
 delegation timeout: active work is protected by the ordinary turn lease and can
-resume on another worker. The Codex app-server protocol still uses bounded
+resume on another worker. The current Codex implementation still uses bounded
 request classes: `initialize` is `15s`, `thread/start` is `30s`, and generic
 requests are `60s`. These are protocol-stall bounds, not a task-duration cap.
 

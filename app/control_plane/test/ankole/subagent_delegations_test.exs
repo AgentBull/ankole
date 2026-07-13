@@ -9,6 +9,8 @@ defmodule Ankole.SubagentDelegationsTest do
   alias Ankole.Repo
 
   test "create_with_dispatch durably creates one queued work item and one isolated dispatch event" do
+    assert Delegation.runtimes() == ["task_worker"]
+
     %{principal: agent} = agent_fixture()
 
     attrs = %{
@@ -32,7 +34,7 @@ defmodule Ankole.SubagentDelegationsTest do
     assert {:ok, %{delegation: %Delegation{} = delegation, dispatch_event: %ActorEvent{} = event}} =
              SubagentDelegations.create_with_dispatch(attrs)
 
-    assert delegation.runtime == "codex"
+    assert delegation.runtime == "task_worker"
     assert delegation.status == "queued"
     assert delegation.attempts == 0
     assert delegation.title == attrs["title"]

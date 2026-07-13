@@ -515,7 +515,7 @@ export type SubagentDelegationResponse = {
   tool_call_id?: string
   status: SubagentDelegationStatus
   runtime_thread_id?: string
-  runtime: 'codex'
+  runtime: 'task_worker'
   codex_account_id: string
   title: string
   task: string

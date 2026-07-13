@@ -120,9 +120,10 @@ itself goes away.
 
 The `subagent` tool is a five-action asynchronous control surface:
 `start`/`list`/`status`/`steer`/`stop`. `start` commits a durable control-plane
-work item and returns immediately. A dedicated subagent turn launches Codex,
-uses a durable `CODEX_HOME`, and commits completion before the parent session is
-woken. Delegations have no wall-clock timeout; individual JSON-RPC requests use
+work item and returns immediately. A dedicated task-worker turn currently
+launches Codex, uses a durable `CODEX_HOME`, and commits completion before the
+parent session is woken. Delegations have no wall-clock timeout; individual
+JSON-RPC requests use
 `15s` for `initialize`, `30s` for `thread/start`, and `60s` for other requests.
 
 Optional capacity tuning:
@@ -151,6 +152,12 @@ ANKOLE_BUILTIN_SKILLS_ROOT=/repo/app/library/skills
 ANKOLE_INTERNAL_SKILLS_ROOT=/repo/internals/skills  # optional internal image only
 ANKOLE_AGENT_COMPUTER_BUN_WORKDIR=/repo/app/agent_computer
 ```
+
+Operator-managed variables are resolved per agent through `worker_env.resolve`
+and injected into both main-agent commands and Codex subagent shells. MCP-backed
+skills call the image-provided `mcporter` CLI with a skill-owned config; the
+config may contain fixed endpoints but must reference secrets through those
+turn-scoped environment variables rather than image or process env.
 
 Browser runtime:
 

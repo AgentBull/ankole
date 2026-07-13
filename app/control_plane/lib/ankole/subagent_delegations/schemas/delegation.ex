@@ -14,6 +14,7 @@ defmodule Ankole.SubagentDelegations.Schemas.Delegation do
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
+  @runtimes ~w(task_worker)
   @statuses ~w(queued running waiting_on_user succeeded failed stopped)
   @terminal_statuses ~w(succeeded failed stopped)
   @running_statuses ~w(running)
@@ -25,6 +26,10 @@ defmodule Ankole.SubagentDelegations.Schemas.Delegation do
     "failed" => ~w(failed),
     "stopped" => ~w(stopped)
   }
+
+  @doc "Returns the supported delegation runtime categories."
+  @spec runtimes() :: [String.t()]
+  def runtimes, do: @runtimes
 
   @doc "Returns the complete durable status vocabulary."
   @spec statuses() :: [String.t()]
@@ -55,7 +60,7 @@ defmodule Ankole.SubagentDelegations.Schemas.Delegation do
     field(:actor_event_id, Ecto.UUID)
     field(:tool_call_id, :string)
     field(:runtime_thread_id, :string)
-    field(:runtime, :string, default: "codex")
+    field(:runtime, :string, default: "task_worker")
     field(:codex_account_id, :string, default: "aigateway")
     field(:title, :string)
     field(:task, :string)
@@ -126,7 +131,7 @@ defmodule Ankole.SubagentDelegations.Schemas.Delegation do
       :error,
       :metadata
     ])
-    |> validate_inclusion(:runtime, ["codex"])
+    |> validate_inclusion(:runtime, @runtimes)
     |> validate_inclusion(:status, @statuses)
     |> validate_change(:task, fn :task, task ->
       if is_binary(task) and String.trim(task) != "", do: [], else: [task: "can't be blank"]

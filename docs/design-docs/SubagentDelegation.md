@@ -1,13 +1,15 @@
 # Subagent Delegation
 
 Subagent Delegation is Ankole's durable background-work subsystem. It lets a
-main agent turn a long-running request into an isolated Codex task, return to
-the conversation immediately, and receive a durable wakeup when the task
-finishes, fails, or needs user input.
+main agent turn a long-running request into an isolated task-worker job, return
+to the conversation immediately, and receive a durable wakeup when the task
+finishes, fails, or needs user input. The current task-worker implementation is
+Codex.
 
 The product object is the delegation, not a Codex process. PostgreSQL owns the
-work item and its lifecycle. Agent Computer workers and Codex app-server
-processes are replaceable execution leases over that durable state.
+work item and its lifecycle. Agent Computer workers and task-worker processes
+are replaceable execution leases over that durable state; the current
+implementation launches Codex app-server.
 
 Use delegation for work expected to take at least ten minutes. Work that can be
 completed promptly belongs in the current agent turn.
@@ -19,8 +21,9 @@ completed promptly belongs in the current agent turn.
    constraint, and acceptance criterion.
 2. The call returns the durable delegation immediately. The parent confirms
    that work started and remains available for normal conversation.
-3. Codex works in an isolated actor session and a durable artifact directory.
-   It can resume after worker loss, accept steering, or ask the user a question.
+3. The task worker works in an isolated actor session and a durable artifact
+   directory. The current Codex implementation can resume after worker loss,
+   accept steering, or ask the user a question.
 4. A waiting or terminal transition wakes the parent session. The parent reads
    the result, verifies artifacts and tests, and then reports to the user.
 
@@ -73,7 +76,7 @@ parent agent turn
 
 - UUIDv7 `id`;
 - parent `agent_uid`, `session_id`, `actor_event_id`, and `tool_call_id`;
-- `runtime`, currently `codex`;
+- `runtime`, currently `task_worker`; Codex is the current implementation;
 - operator-facing `title`, verbatim `task`, and optional `background` and
   `notes` text;
 - frozen `reply_route`;

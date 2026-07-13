@@ -195,10 +195,10 @@ function runtimeWorkspaceBinds(): string[] {
     binds.push('--bind', installedSkillsRoot, WORKSPACE_AGENT_INSTALLED_SKILLS_ROOT)
   }
 
-  const codexInstallRoot = codexGlobalPackageRoot()
-  if (existsSync(codexInstallRoot)) {
-    pushDirs(binds, parentDirs(codexInstallRoot))
-    binds.push('--ro-bind', codexInstallRoot, codexInstallRoot)
+  const globalToolPackagesRoot = bunGlobalToolPackagesRoot()
+  if (existsSync(globalToolPackagesRoot)) {
+    pushDirs(binds, parentDirs(globalToolPackagesRoot))
+    binds.push('--ro-bind', globalToolPackagesRoot, globalToolPackagesRoot)
   }
 
   const builtinSkillsRoot = process.env.ANKOLE_BUILTIN_SKILLS_ROOT
@@ -217,21 +217,25 @@ function runtimeWorkspaceBinds(): string[] {
 }
 
 /**
- * Resolves Bun's global Codex package directory from the public `codex` executable.
+ * Resolves the global Bun packages behind image-provided tool CLIs.
+ *
+ * The whole node_modules directory is one dependency closure: mcporter imports
+ * the MCP SDK and other hoisted siblings at runtime, while its public wrapper
+ * under `/usr/local/bin` is already present through the read-only `/usr` bind.
  */
-function codexGlobalPackageRoot(): string {
-  const bunGlobalOpenAIRoot = '/root/.bun/install/global/node_modules/@openai'
-  if (existsSync(bunGlobalOpenAIRoot)) return bunGlobalOpenAIRoot
+function bunGlobalToolPackagesRoot(): string {
+  const bunGlobalRoot = '/root/.bun/install/global/node_modules'
+  if (existsSync(bunGlobalRoot)) return bunGlobalRoot
 
   const codexBin = '/usr/local/bin/codex'
   if (!existsSync(codexBin)) return ''
 
   const realPath = realpathSync(codexBin)
-  const marker = '/node_modules/@openai/'
+  const marker = '/node_modules/'
   const markerIndex = realPath.indexOf(marker)
   if (markerIndex === -1) return ''
 
-  return realPath.slice(0, markerIndex + '/node_modules/@openai'.length)
+  return realPath.slice(0, markerIndex + '/node_modules'.length)
 }
 
 /**

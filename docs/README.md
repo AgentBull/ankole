@@ -98,8 +98,9 @@ boot env vars from operator-managed runtime settings. Plugins
 (`design-docs/Plugins.md`) are trusted first-party Elixir extensions, such as
 the Feishu and Slack adapters (`design-docs/plugins/FeishuAdapter.md`,
 `design-docs/plugins/SlackAdapter.md`). Subagent
-Delegation (`design-docs/SubagentDelegation.md`) turns long-running Codex work
-into durable background work items that wake the parent session for delivery.
+Delegation (`design-docs/SubagentDelegation.md`) turns long-running task-worker
+jobs into durable background work items that wake the parent session for
+delivery. Codex is the current task-worker implementation.
 
 ## Runtime Topology
 
@@ -179,7 +180,7 @@ canonical examples.
 | `app/library/` | Built-in skills (`skills/nano-pdf`, `skills/jupyter-live-kernel`, `skills/powerpoint`) and agent starter templates (`templates/MISSION.md`, `templates/SOUL.md`). |
 | `app/locales/` | TOML message catalogs (`en-US.toml`, `zh-Hans-CN.toml`) consumed by both the Elixir I18n context and the SPAs. |
 | `plugins/` | Public first-party Elixir plugins: `lark_adapter` and `slack_adapter` (chat + identity providers), `china_market_ai_providers` (AIGateway providers). |
-| `internals/` | Private first-party material: `plugins/`, `skills/` (e.g. financial-data CLI), `helm-chart/`, extra worker Dockerfiles, internal test notes. |
+| `internals/` | Private first-party material: `plugins/`, `skills/` (including MCP-backed skills), `helm-chart/`, extra worker Dockerfiles, internal test notes. |
 | `libs/` | `feishu_openapi` (Elixir Lark client), `slack_openapi` (Slack Web API, Socket Mode, OIDC), and `uikit` (shared React components, Tailwind 4). |
 | `tools/devkit/` | Workspace CLI: `bun kit ...` (external services via Docker Compose, codegen, analysis). |
 | `tools/e2e/` | E2E harness and suites (fake Feishu, fake Slack, fake OpenAI, real Docker worker), driven by `mix e2e.*` aliases. |
@@ -356,19 +357,21 @@ Brain tools `memory_search`, `memory_browse`, `memory_open`, `memory_update`,
 and `memory_health_check`
 (`src/tools/memory/`); and the skill tools `skill_view`, `skill_append`, and
 `skill_replace`
-(`src/tools/library/`). Shell
+(`src/tools/library/`). MCP-backed skills use the image-provided `mcporter` CLI
+through those existing shell surfaces; they do not add MCP tools to the native
+model tool registry. WorkerEnv supplies agent-scoped secrets to both main-agent
+commands and Codex subagent shells. The contract is documented in
+`design-docs/MCPBackedSkills.md`. Shell
 commands run inside bubblewrap — strong mode preferred, weak mode with a
 startup warning, never unsandboxed (`src/tools/computer/bubblewrap.ts`).
-There is no MCP support in the current tree; if it arrives, it belongs at
-this worker boundary as another local tool source.
 
 Tool runtime bounds are tool-owned, not one global worker timeout. The
 `command` tool defaults foreground runs to `180s`; background runs return a
 `backgroundId` and have no default command timeout unless the caller passes
 `timeout`. Running background commands stay tracked until exit, `kill`, or
 worker shutdown. `subagent(start)` creates a PostgreSQL-owned work item and
-returns immediately; a separate delegation turn runs Codex and wakes the parent
-session on completion, failure, or a user-input request. Delegations have no
+returns immediately; a separate task-worker turn currently runs Codex and wakes
+the parent session on completion, failure, or a user-input request. Delegations have no
 wall-clock timeout and resume after worker loss, while individual Codex
 app-server requests keep `15s` (`initialize`), `30s` (`thread/start`), and `60s`
 (generic request) protocol budgets. See `docs/TradeoffsAndKnownLimits.md` for
@@ -798,6 +801,7 @@ doc first, then the code.
 | `design-docs/RuntimeFabric.md` | Envelopes, lanes, sockets, file transfer |
 | `design-docs/Schedule.md` | Checkbacks, cron, Oban wake edge |
 | `design-docs/SubagentDelegation.md` | Durable background work, Codex resume, steering, wakeups |
+| `design-docs/MCPBackedSkills.md` | MCP client ownership, skill packaging, WorkerEnv secrets, and the replaceable CLI boundary |
 | `design-docs/Principal.md`, `design-docs/AuthZ.md` | Identity, groups, grants, CEL |
 | `design-docs/AppConfiguration.md` | Config keys, scopes, encryption |
 | `design-docs/Plugins.md`, `design-docs/plugins/FeishuAdapter.md`, `design-docs/plugins/SlackAdapter.md` | Plugin contracts, the Lark and Slack adapters |

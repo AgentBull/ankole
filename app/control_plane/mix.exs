@@ -10,6 +10,7 @@ defmodule Ankole.MixProject do
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
+      releases: releases(),
       listeners: [Phoenix.CodeReloader]
     ]
   end
@@ -59,6 +60,27 @@ defmodule Ankole.MixProject do
     ]
     |> Enum.flat_map(&Path.wildcard/1)
     |> Enum.filter(&File.dir?/1)
+  end
+
+  defp releases do
+    [ankole: [steps: [:assemble, &copy_runtime_config_support/1]]]
+  end
+
+  defp copy_runtime_config_support(%Mix.Release{} = release) do
+    source = Path.join(__DIR__, "config/support/bootstrap.exs")
+
+    target =
+      Path.join([
+        release.path,
+        "releases",
+        release.version,
+        "support",
+        "bootstrap.exs"
+      ])
+
+    File.mkdir_p!(Path.dirname(target))
+    File.cp!(source, target)
+    release
   end
 
   # Specifies your project dependencies.
