@@ -44,6 +44,12 @@ const CheckBackLaterParams = z
       .describe('Relative delay. Mutually exclusive with at.'),
     at: z.string().optional().describe('Absolute ISO datetime, or local ISO datetime with timezone.'),
     timezone: z.string().optional().describe('Timezone for local at values.'),
+    quiet_success: z
+      .boolean()
+      .optional()
+      .describe(
+        'Allow this checkback to finish without a visible reply when nothing needs attention. Set true only when the user explicitly asked for no update on normal/no-change outcomes; failures, blockers, human decisions, meaningful changes, and time-sensitive risks must still be visible.'
+      ),
     idempotency_key: z.string().optional().describe('Stable key for retrying the same schedule request.')
   })
   .refine(params => Boolean(params.after) !== Boolean(params.at), {
@@ -101,7 +107,7 @@ function createCheckBackLaterTool(
   return {
     name: 'check_back_later',
     description:
-      'Schedule one delayed self-wakeup for this conversation. Use when the user asks you to wait, remind yourself, follow up later, or re-check something after time passes.',
+      'Schedule one delayed self-wakeup for this conversation. Use when the user asks you to wait, remind yourself, follow up later, or re-check something after time passes. Checkbacks are visible by default. Set quiet_success=true only when the user explicitly asked not to be notified for normal or unchanged outcomes. If another quiet checkback is needed later, opt in again. After scheduling, tell the user when you will check and whether a normal outcome will be reported.',
     schema: CheckBackLaterParams,
     executionMode: 'sequential',
     isReadOnly: false,
@@ -124,6 +130,7 @@ function createCheckBackLaterTool(
         reason: params.reason,
         check: params.check,
         context_summary: params.context_summary,
+        quiet_success: params.quiet_success === true,
         schedule,
         reply_route: replyRoute
       })
@@ -145,6 +152,7 @@ function defaultCheckBackIdempotencyKey(turnStart: TurnStart, params: z.output<t
     reason: params.reason.trim(),
     check: params.check.trim(),
     context_summary: params.context_summary?.trim() ?? '',
+    ...(params.quiet_success === true ? { quiet_success: true } : {}),
     schedule: params.after
       ? {
           after: params.after,

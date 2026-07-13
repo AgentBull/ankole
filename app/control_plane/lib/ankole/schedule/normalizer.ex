@@ -22,6 +22,7 @@ defmodule Ankole.Schedule.Normalizer do
          {:ok, check} <- Attrs.bounded_text(attrs, "check", @max_check_length),
          {:ok, context_summary} <-
            Attrs.optional_bounded_text(attrs, "context_summary", @max_context_summary_length),
+         {:ok, quiet_success} <- optional_boolean(attrs, "quiet_success", false),
          {:ok, tool_call_id} <- Attrs.required_text(attrs, "tool_call_id"),
          {:ok, idempotency_key} <- Attrs.required_text(attrs, "idempotency_key"),
          {:ok, agent_uid} <- Attrs.required_text(attrs, "agent_uid"),
@@ -53,6 +54,7 @@ defmodule Ankole.Schedule.Normalizer do
            "reason" => reason,
            "check" => check,
            "context_summary" => context_summary,
+           "quiet_success" => quiet_success,
            "due_at" => DateTime.to_iso8601(due_at),
            "timezone" => timezone,
            "schedule" => Attrs.map_value(attrs, "schedule") || %{}
@@ -135,4 +137,12 @@ defmodule Ankole.Schedule.Normalizer do
   end
 
   defp normalize_cron_delivery(_delivery), do: {:error, :cron_delivery_route_required}
+
+  defp optional_boolean(attrs, key, default) do
+    case Map.fetch(attrs, key) do
+      {:ok, value} when is_boolean(value) -> {:ok, value}
+      {:ok, _value} -> {:error, {:invalid_boolean, key}}
+      :error -> {:ok, default}
+    end
+  end
 end

@@ -226,6 +226,7 @@ export type ScheduleCheckBackLaterCreateRequest = TurnScopedRPCRequest & {
   reason: string
   check: string
   context_summary?: string
+  quiet_success?: boolean
   schedule: JSONObject
   reply_route: JSONObject
 }

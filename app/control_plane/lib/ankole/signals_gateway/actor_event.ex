@@ -2,10 +2,9 @@ defmodule Ankole.SignalsGateway.ActorEvent do
   @moduledoc """
   Durable actor-facing event accepted by SignalsGateway and processed by ActorRuntime.
 
-  An actor event is a durable lifecycle row while it remains relevant to the
-  session queue. Normal completion is recorded as a timestamp rather than as a
-  state enum, and stale system events may be physically deleted by reset or
-  retry cleanup paths. `input_state` is constrained to only `open | dead_letter`.
+  An actor event is a durable lifecycle row in the session queue. Normal
+  completion is recorded as a timestamp rather than as a state enum, and
+  `input_state` is constrained to only `open | dead_letter`.
   """
 
   use Ecto.Schema

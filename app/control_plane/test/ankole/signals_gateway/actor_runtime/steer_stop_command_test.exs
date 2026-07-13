@@ -1,6 +1,7 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
   use Ankole.SignalsGateway.ActorRuntimeCase
 
+  alias Ankole.I18n
   alias Ankole.SignalsGateway.InputTombstone
 
   setup {Ankole.SignalsGateway.ActorRuntimeCase, :use_mock_signal_provider_plugin}
@@ -365,13 +366,17 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
                  now: DateTime.add(@base_time, 2, :second)
                )
 
+      result =
+        I18n.with_locale("zh-Hans-CN", fn ->
+          process_ready_events_once(now: DateTime.add(@base_time, 3, :second))
+        end)
+
       assert {:ok,
               %{
                 status: :command_consumed,
-                feedback: "Stopped.",
+                feedback: "已停止。",
                 stop_control_outcomes: [%{send_outcome: "sent_or_queued"}]
-              }} =
-               process_ready_events_once(now: DateTime.add(@base_time, 3, :second))
+              }} = result
 
       assert_receive {:ai_gateway_event, :response_failed, event}
       assert event.subject_uid == agent.uid
@@ -401,7 +406,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
                  )
                )
 
-      assert %OutboxEntry{payload: %{"text" => "Stopped."}} =
+      assert %OutboxEntry{payload: %{"text" => "已停止。"}} =
                Repo.one!(
                  from(outbox in OutboxEntry,
                    where: outbox.source_actor_event_id == ^stop_event.id

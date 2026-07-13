@@ -152,6 +152,25 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert Process.alive?(pid)
   end
 
+  test "tool activity preview uses the current locale" do
+    %{subject: subject, actor_event: actor_event} = addressed_actor_event("tool-activity-i18n")
+    %{response: response, pid: pid} = start_dispatched_preview(subject.uid, actor_event)
+
+    :sys.replace_state(pid, fn state ->
+      {:ok, _tag} = Ankole.I18n.put_locale("zh-Hans-CN")
+      state
+    end)
+
+    assert :ok =
+             Events.publish(response, :tool_call_started, %{
+               "call_id" => "call_web_fetch_i18n",
+               "name" => "web_fetch"
+             })
+
+    assert_receive {:mock_provider_outbox_sent, initial}
+    assert initial.fallback_visible_text == "正在调用工具：web_fetch"
+  end
+
   test "response terminal events neither terminate preview nor send a final reply" do
     %{subject: subject, actor_event: actor_event} = addressed_actor_event("terminal-events")
     %{response: response, pid: pid} = start_dispatched_preview(subject.uid, actor_event)
@@ -185,7 +204,11 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
   test "scheduled noop marker stays invisible until explicit lifecycle stop" do
     %{principal: subject} = agent_fixture()
     binding_fixture(subject.uid, "mock", :ignore, adapter: "mock-provider")
-    actor_event = scheduled_actor_event_fixture(subject.uid)
+
+    actor_event =
+      scheduled_actor_event_fixture(subject.uid,
+        payload: %{"data" => %{"wake_payload" => %{"quiet_success" => true}}}
+      )
 
     %{response: response, pid: pid} = start_dispatched_preview(subject.uid, actor_event)
 
@@ -267,7 +290,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     :ok
   end
 
-  defp scheduled_actor_event_fixture(agent_uid, opts \\ []) do
+  defp scheduled_actor_event_fixture(agent_uid, opts) do
     now = DateTime.utc_now(:microsecond)
 
     attrs =

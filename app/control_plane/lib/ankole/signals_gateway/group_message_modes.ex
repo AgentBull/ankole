@@ -3,7 +3,7 @@ defmodule Ankole.SignalsGateway.GroupMessageModes do
   Shared IM group-message modes exposed by SignalsGateway adapters.
   """
 
-  @default_mode "addressed_only"
+  @default_mode "observe_all"
 
   @modes [
     %{

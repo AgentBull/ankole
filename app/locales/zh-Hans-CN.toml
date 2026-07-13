@@ -433,4 +433,7 @@ step_plugins = "插件"
 title = "Ankole 初始化"
 
 [signals_gateway.reply]
+command_stopped = "已停止。"
 dead_letter = "AI 服务返回了错误，请重试。（参考号：{$ref}）"
+tool_call_completed = "工具调用完成：{$tool}。正在读取结果。"
+tool_call_started = "正在调用工具：{$tool}"

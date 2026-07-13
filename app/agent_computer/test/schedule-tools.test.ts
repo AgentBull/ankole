@@ -33,10 +33,39 @@ describe('schedule tools', () => {
     expect(requests).toHaveLength(2)
     expect(requests[0]!.tool_call_id).toBe('call_first')
     expect(requests[1]!.tool_call_id).toBe('call_retry')
+    expect(requests[0]!.quiet_success).toBe(false)
+    expect(requests[1]!.quiet_success).toBe(false)
     expect(requests[0]!.idempotency_key).toBe(requests[1]!.idempotency_key)
     expect(
       String(requests[0]!.idempotency_key).startsWith('check_back_later:00000000-0000-0000-0000-000000000123:')
     ).toBe(true)
+  })
+
+  it('keeps visible checkbacks on the old default key and separates explicit quiet checkbacks', async () => {
+    const requests: JSONObject[] = []
+    const checkBackLater = createScheduleTools({
+      turnStart: turnStartForScheduleTool(),
+      requestScheduleRPC: async (_method: ScheduleRPCMethod, request: JSONObject): Promise<JSONObject> => {
+        requests.push(request)
+        return { status: 'scheduled', quiet_success: request.quiet_success }
+      }
+    }).find(tool => tool.name === 'check_back_later')
+
+    const params = {
+      reason: 'follow up on the deployment',
+      check: 'Check whether the deployment finished.',
+      after: { value: 5, unit: 'minute' as const },
+      timezone: 'Etc/UTC'
+    }
+
+    await checkBackLater!.execute('call_omitted', params)
+    await checkBackLater!.execute('call_false', { ...params, quiet_success: false })
+    await checkBackLater!.execute('call_true', { ...params, quiet_success: true })
+
+    expect(requests.map(request => request.quiet_success)).toEqual([false, false, true])
+    expect(requests[0]!.idempotency_key).toBe('check_back_later:00000000-0000-0000-0000-000000000123:6059cf6dc9b5f7ff')
+    expect(requests[0]!.idempotency_key).toBe(requests[1]!.idempotency_key)
+    expect(requests[2]!.idempotency_key).not.toBe(requests[0]!.idempotency_key)
   })
 
   it('keeps explicit check_back_later idempotency keys unchanged', async () => {

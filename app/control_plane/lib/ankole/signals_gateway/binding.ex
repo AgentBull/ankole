@@ -41,11 +41,11 @@ defmodule Ankole.SignalsGateway.Binding do
     # What the agent does with a group message that does NOT explicitly address
     # it: stay out (:ignore), just mirror it for context (:record_only), or be
     # allowed to jump in (:may_intervene → ambient "may_intervene" actor event).
-    # Default :ignore so a freshly bound agent is silent in shared rooms until an
-    # operator opts into more.
+    # Default :record_only so a new group binding captures shared-room context
+    # without waking the agent for unaddressed messages.
     field :unaddressed_group_message_policy, Ecto.Enum,
       values: [:ignore, :record_only, :may_intervene],
-      default: :ignore
+      default: :record_only
 
     field :enabled, :boolean, default: true
     # When set on an enabled binding, ingress is refused with this reason instead

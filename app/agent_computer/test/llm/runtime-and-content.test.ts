@@ -471,8 +471,9 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       reason: 'schedule_silent_success'
     })
     expect(textTurnResultFromAssistantReply(scheduledTurnStart, '   ', 'resp_silent', 'loop_finished')).toEqual({
-      kind: 'noop_completed',
-      reason: 'schedule_silent_success'
+      kind: 'turn_completed',
+      finalResponseID: 'resp_silent',
+      outcome: 'loop_finished'
     })
     expect(
       textTurnResultFromAssistantReply(turnStartForTest(), '<silent_success/>', 'resp_final', 'loop_finished')

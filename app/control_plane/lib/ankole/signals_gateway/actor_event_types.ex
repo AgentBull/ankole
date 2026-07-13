@@ -38,16 +38,4 @@ defmodule Ankole.SignalsGateway.ActorEventTypes do
   def command_runtime_policy("command.compress"), do: :control_now
   def command_runtime_policy("command." <> _name), do: :unknown
   def command_runtime_policy(_type), do: :unknown
-
-  @doc """
-  Whether a still-open event belongs to old session-local system work after reset.
-  """
-  @spec stale_after_session_reset?(String.t() | map()) :: boolean()
-  def stale_after_session_reset?(%{type: type}), do: stale_after_session_reset?(type)
-
-  def stale_after_session_reset?(type) when is_binary(type) do
-    String.starts_with?(type, "cron.")
-  end
-
-  def stale_after_session_reset?(_type), do: false
 end

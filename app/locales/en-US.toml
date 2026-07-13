@@ -432,4 +432,7 @@ step_plugins = "Plugins"
 title = "Ankole setup"
 
 [signals_gateway.reply]
+command_stopped = "Stopped."
 dead_letter = "The AI service returned an error. Please try again. (Ref: {$ref})"
+tool_call_completed = "Finished tool: {$tool}. Reading results."
+tool_call_started = "Calling tool: {$tool}"

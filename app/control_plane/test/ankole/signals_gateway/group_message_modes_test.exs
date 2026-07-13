@@ -1,10 +1,12 @@
 defmodule Ankole.SignalsGateway.GroupMessageModesTest do
   use ExUnit.Case, async: true
 
+  alias Ankole.SignalsGateway.Binding
   alias Ankole.SignalsGateway.GroupMessageModes
 
   test "maps public IM group-message modes to durable binding policies" do
-    assert GroupMessageModes.default_mode() == "addressed_only"
+    assert GroupMessageModes.default_mode() == "observe_all"
+    assert %Binding{}.unaddressed_group_message_policy == :record_only
     assert GroupMessageModes.policy("addressed_only") == {:ok, :ignore}
     assert GroupMessageModes.policy("observe_all") == {:ok, :record_only}
     assert GroupMessageModes.policy("may_intervene") == {:ok, :may_intervene}

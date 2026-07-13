@@ -27,14 +27,13 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     :ok
   end
 
-  test "admin creates a Lark signal binding through the console API", %{conn: conn} do
+  test "admin creates a Lark signal binding with the record-only default", %{conn: conn} do
     %{principal: agent} = agent_fixture()
 
     conn =
       conn
       |> bearer_conn()
       |> put(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
-        "group_message_mode" => "may_intervene",
         "config" => %{
           "appID" => "cli_lark_main",
           "appSecret" => "secret-lark-main",
@@ -51,7 +50,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
                "adapter" => "lark",
                "config_key" => "signals_gateway.lark.bindings.lark-main",
                "config_ref" => "app-config://signals_gateway.lark.bindings.lark-main",
-               "unaddressed_group_message_policy" => "may_intervene",
+               "unaddressed_group_message_policy" => "record_only",
                "enabled" => true
              }
            } = json_response(conn, 200)
@@ -61,7 +60,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     assert {:ok, binding} = SignalsGateway.get_binding(agent.uid, "lark-main")
     assert binding.adapter == "lark"
-    assert binding.unaddressed_group_message_policy == :may_intervene
+    assert binding.unaddressed_group_message_policy == :record_only
 
     assert {:ok, config} = LarkConfig.load_chat_config_ref(binding.config_ref)
     assert config["appID"] == "cli_lark_main"
@@ -134,7 +133,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     assert adapter["group_message_mode_field"]["path"] == "group_message_mode"
     assert adapter["group_message_mode_field"]["advanced"] == false
-    assert adapter["group_message_mode_field"]["default"] == "addressed_only"
+    assert adapter["group_message_mode_field"]["default"] == "observe_all"
 
     assert Enum.map(adapter["group_message_mode_field"]["options"], & &1["value"]) == [
              "addressed_only",

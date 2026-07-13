@@ -26,7 +26,8 @@ defmodule Ankole.Schedule.RPCBroker do
            "status" => rpc_status(status),
            "scheduled_event_id" => event.id,
            "due_at" => DateTime.to_iso8601(event.due_at),
-           "timezone" => event.timezone
+           "timezone" => event.timezone,
+           "quiet_success" => checkback_quiet_success(event)
          }}
       end
     end)
@@ -167,7 +168,8 @@ defmodule Ankole.Schedule.RPCBroker do
     reply_route = RPCWire.value(request, "reply_route") || %{}
 
     with {:ok, tool_call_id} <- required_text(request, "tool_call_id"),
-         {:ok, idempotency_key} <- required_text(request, "idempotency_key") do
+         {:ok, idempotency_key} <- required_text(request, "idempotency_key"),
+         {:ok, quiet_success} <- optional_boolean(request, "quiet_success", false) do
       {:ok,
        %{
          "agent_uid" => turn_ref.agent_uid,
@@ -179,6 +181,7 @@ defmodule Ankole.Schedule.RPCBroker do
          "reason" => RPCWire.text(request, "reason"),
          "check" => RPCWire.text(request, "check"),
          "context_summary" => RPCWire.text(request, "context_summary"),
+         "quiet_success" => quiet_success,
          "reply_route" => reply_route,
          # Source tables: current_ai_message_id resolves ai_gateway_messages.id;
          # source.actor_event_id is the actor_events.id currently being served.
@@ -340,6 +343,10 @@ defmodule Ankole.Schedule.RPCBroker do
   defp rpc_status(:scheduled), do: "scheduled"
   defp rpc_status(:already_scheduled), do: "already_scheduled"
 
+  defp checkback_quiet_success(event) do
+    is_map(event.wake_payload) and Map.get(event.wake_payload, "quiet_success") == true
+  end
+
   defp cron_create_status(:created), do: "created"
   defp cron_create_status(:already_exists), do: "already_exists"
 
@@ -361,6 +368,14 @@ defmodule Ankole.Schedule.RPCBroker do
     case RPCWire.text(map, key) do
       value when is_binary(value) and value != "" -> {:ok, value}
       _value -> {:error, {:missing_text, key}}
+    end
+  end
+
+  defp optional_boolean(map, key, default) do
+    case RPCWire.value(map, key) do
+      nil -> {:ok, default}
+      value when is_boolean(value) -> {:ok, value}
+      _value -> {:error, {:invalid_boolean, key}}
     end
   end
 

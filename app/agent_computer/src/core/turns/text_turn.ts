@@ -212,6 +212,5 @@ function skillRootsFromOptions(opts: TextTurnLoopOptions): SkillFileRoots | unde
  * Detects the explicit silent-success marker used by schedule wakeups.
  */
 function silentSuccessReply(replyText: string): boolean {
-  const text = replyText.trim()
-  return text === '' || text === silentSuccessMarker
+  return replyText.trim() === silentSuccessMarker
 }

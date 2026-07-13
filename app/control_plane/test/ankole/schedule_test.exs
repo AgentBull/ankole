@@ -48,6 +48,7 @@ defmodule Ankole.ScheduleTest do
 
       assert event.due_at == due_at
       assert event.source_entry_id == "msg-source"
+      assert event.wake_payload["quiet_success"] == false
 
       assert {:ok, %{status: :already_scheduled, scheduled_event: duplicate}} =
                Schedule.create_check_back_later(attrs, now: @base_time)
@@ -387,6 +388,7 @@ defmodule Ankole.ScheduleTest do
         "schedule" => %{"after" => %{"value" => 5, "unit" => "minute"}, "timezone" => "Etc/UTC"},
         "reason" => "Deployment is still running.",
         "check" => "Ask whether the deployment finished.",
+        "quiet_success" => true,
         "reply_route" => reply_route
       }
 
@@ -394,12 +396,38 @@ defmodule Ankole.ScheduleTest do
               %{
                 "status" => "scheduled",
                 "scheduled_event_id" => scheduled_event_id,
-                "timezone" => "Etc/UTC"
+                "timezone" => "Etc/UTC",
+                "quiet_success" => true
               }} = schedule_rpc("check_back_later.create", request, route)
 
       scheduled_event = Repo.get!(ScheduledEvent, scheduled_event_id)
       assert scheduled_event.source_actor_event_id == source_event.id
       assert scheduled_event.origin_ai_message_id == generating_message.id
+      assert scheduled_event.wake_payload["quiet_success"] == true
+
+      assert {:ok,
+              %{
+                "status" => "already_scheduled",
+                "scheduled_event_id" => ^scheduled_event_id,
+                "quiet_success" => true
+              }} =
+               schedule_rpc(
+                 "check_back_later.create",
+                 %{request | "request_id" => "schedule-rpc-duplicate", "quiet_success" => false},
+                 route
+               )
+
+      assert {:error, %{"code" => "invalid_boolean"}} =
+               schedule_rpc(
+                 "check_back_later.create",
+                 %{
+                   request
+                   | "request_id" => "schedule-rpc-invalid-quiet",
+                     "idempotency_key" => "schedule-rpc-invalid-quiet",
+                     "quiet_success" => "yes"
+                 },
+                 route
+               )
 
       bad_reply_route = %{reply_route | "source_entry_id" => "not-current-entry"}
 
@@ -546,6 +574,7 @@ defmodule Ankole.ScheduleTest do
       input_ids = Enum.map(List.wrap(turn_start["actor_event"]), & &1["actor_event_id"])
 
       assert input_ids == [wake_input.id]
+      assert turn_start["request_context"]["silent_success_allowed"] == false
 
       assert {:ok, [_delivery]} =
                ActorRuntime.handle_turn_accepted(%{
@@ -722,7 +751,7 @@ defmodule Ankole.ScheduleTest do
       assert mirror.metadata["actor_event_id"] == cron_input.id
     end
 
-    test "checkback wakeup starts a checkback_generation turn that can finish silently" do
+    test "checkback wakeup can finish silently only with explicit quiet success" do
       %{principal: agent} = agent_fixture()
       route = unique_route()
       :ok = Broker.register_local_worker(route, self())
@@ -734,6 +763,7 @@ defmodule Ankole.ScheduleTest do
       assert {:ok, %{scheduled_event: event}} =
                Schedule.create_check_back_later(
                  checkback_attrs(agent.uid,
+                   quiet_success: true,
                    schedule: %{"at" => DateTime.to_iso8601(due_at), "timezone" => "Etc/UTC"}
                  ),
                  now: @base_time
@@ -973,7 +1003,7 @@ defmodule Ankole.ScheduleTest do
       assert Repo.aggregate(OutboxEntry, :count) == 0
     end
 
-    test "session reset cancels overdue pending cron fires and rearms from reset time" do
+    test "session reset preserves an overdue cron fire until it materializes" do
       %{principal: agent} = agent_fixture()
       session_id = "mock:chat:schedule"
       first_slot = DateTime.add(@base_time, 1, :minute)
@@ -1007,23 +1037,39 @@ defmodule Ankole.ScheduleTest do
       assert {:ok,
               %{
                 status: :session_reset,
-                reset_event: ^reset_event,
-                cron_reset: %{cancelled_events: 1, rearmed_schedules: 1}
+                reset_event: ^reset_event
               }} =
                process_ready_events_once(now: reset_at)
 
-      assert Repo.get!(ScheduledEvent, old_event.id).status == "cancelled"
+      preserved_event = Repo.get!(ScheduledEvent, old_event.id)
+      assert preserved_event.status == "scheduled"
+      assert preserved_event.cron_fire_slot_at == first_slot
+
+      before_fire = Schedule.get_cron_schedule(schedule.id) |> elem(1)
+      assert before_fire.last_fire_at == nil
+      assert before_fire.next_fire_at == first_slot
+
+      assert {:ok, %{status: :fired, actor_event: cron_input}} =
+               Schedule.fire_due_event(old_event.id, now: reset_at)
+
+      assert cron_input.type == "cron.fire"
+      assert cron_input.source_event_id == old_event.idempotency_key
+
+      assert get_in(cron_input.payload, ["data", "cron_fire_slot_at"]) ==
+               DateTime.to_iso8601(first_slot)
+
       assert {:ok, %{status: :noop}} = Schedule.fire_due_event(old_event.id, now: reset_at)
 
       reloaded = Schedule.get_cron_schedule(schedule.id) |> elem(1)
+      assert reloaded.last_fire_at == first_slot
       assert reloaded.next_fire_at == DateTime.add(@base_time, 3, :minute)
 
-      scheduled_runs =
-        schedule.id
-        |> Schedule.list_cron_runs(10)
-        |> Enum.filter(&(&1.status == "scheduled"))
+      runs = Schedule.list_cron_runs(schedule.id, 10)
 
-      assert Enum.map(scheduled_runs, & &1.due_at) == [DateTime.add(@base_time, 3, :minute)]
+      assert Enum.map(runs, &{&1.status, &1.due_at}) == [
+               {"scheduled", DateTime.add(@base_time, 3, :minute)},
+               {"fired", first_slot}
+             ]
     end
   end
 

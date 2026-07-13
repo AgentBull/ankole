@@ -1209,8 +1209,8 @@ actor_id = {agent_uid, session_id}
 
 Daily reset does not make the channel forget what is happening in the room.
 `im.message.may_intervene` is a real provider observation, not a heartbeat,
-cron, exec, or other stale system-event notice. An open ambient batch is allowed
-to keep collecting room observations across the reset boundary and later
+cron, exec, or session lifecycle notice. An open ambient batch is allowed to
+keep collecting room observations across the reset boundary and later
 materialize into the successor active session. That continuity is intentional:
 it gives the agent a better scene for intervention after the reset instead of
 cutting a live group conversation at an arbitrary clock edge.
@@ -1318,8 +1318,13 @@ how to fence overlapping work.
 
 The actor store owns the physical `actor_events` and `actor_event_deliveries`
 schema. SignalsGateway owns the signal payload and idempotency contract it
-writes. Actor event payloads should be minimal dispatch snapshots, not raw
-provider payload copies. Heavy raw data, attachments, and long-lived searchable
+writes. Actor event payloads should be bounded, immutable, minimal-sufficient
+dispatch snapshots, not raw provider payload copies. Here, minimal means the
+smallest normalized snapshot that lets the worker handle the event without a
+second control-plane read; it does not mean current-event fields only. An
+ambient dispatch may therefore carry the bounded room scene needed for
+recognition, including up to 80 observed messages captured for that dispatch.
+Heavy raw data, attachments, unbounded history, and long-lived searchable
 content should stay in `signal_gateway_entries`, attachment/blob storage, or the
 AIGateway message log after the work completes.
 
@@ -1369,7 +1374,7 @@ Required logical actor event metadata:
 - `completed_at`: set once when the work finishes
 - optional `dead_letter_at`
 - `sender_key`
-- `payload` as a minimal dispatch snapshot
+- `payload` as a bounded, immutable, minimal-sufficient dispatch snapshot
 
 For closed IM batches, `source_entry_id` is the reply anchor, normally the
 last source provider entry in the batch. It is not the full source set. The
@@ -1400,8 +1405,8 @@ identity. Direct non-IM events set `available_at = now` and do not need pending
 batch state.
 
 A completed `actor_events` row is not a third long-lived content copy beside
-`signal_gateway_entries` and the AIGateway message log: its payload stays a minimal
-dispatch snapshot, and the durable content lives in the mirror and in
+`signal_gateway_entries` and the AIGateway message log: its payload stays a
+bounded dispatch snapshot, and the durable content lives in the mirror and in
 `ai_gateway_messages`. The row itself stays because its lifecycle fields answer
 questions no other table should answer.
 
@@ -1451,10 +1456,13 @@ head of the ready set, ActorRuntime should leave the reset event open and report
 that it is waiting for the running work to finish. Later events for the same
 session must not pass the barrier.
 
-That barrier is about actor event execution order. It must discard stale
-session-local system work such as schedule and exec notices when the reset
-rolls the session, but it should not discard or split ambient room observations
-solely because their batch spans the clock boundary.
+That barrier is about actor event execution order, not cancellation. Durable
+work already queued behind it, including materialized `cron.fire` events,
+remains open and enters the successor active conversation. A due cron event that
+has not materialized also remains in `actor_scheduled_events`; reset does not
+cancel, re-arm, or advance it. Ambient room observations likewise continue
+across the boundary instead of being discarded or split solely because their
+batch spans the clock edge.
 
 Pending inbound batching is represented by short-lived gateway state, not by a
 set of already-created actor events with synchronized `available_at` values.

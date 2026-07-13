@@ -22,8 +22,10 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   use GenServer, restart: :temporary
 
   alias Ankole.AIGateway.Events
+  alias Ankole.I18n
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.SignalsGateway.ActorRuntime.ScheduledTurn
   alias Ankole.Logging
   alias Ankole.SignalsGateway.Adapters
   alias Ankole.SignalsGateway.AIReplyText
@@ -142,7 +144,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       edit_sequence: 0,
       # Dirty flag for edit flush.
       dirty: false,
-      silent_success_allowed: AIReplyText.silent_success_allowed?(event)
+      silent_success_allowed: ScheduledTurn.silent_success_allowed?(event)
     }
 
     {:ok, state}
@@ -358,12 +360,13 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   defp tool_name_from_output(%{tool: tool}), do: normalize_optional_text(tool)
   defp tool_name_from_output(_output), do: nil
 
-  defp tool_activity_text(:started, name), do: "Calling tool: #{truncate_tool_name(name)}"
+  defp tool_activity_text(:started, name) do
+    I18n.t("signals_gateway.reply.tool_call_started", %{"tool" => truncate_tool_name(name)})
+  end
 
-  defp tool_activity_text(:completed, name),
-    do: "Finished tool: #{truncate_tool_name(name)}. Reading results."
-
-  defp tool_activity_text(_stage, name), do: "Working with tool: #{truncate_tool_name(name)}"
+  defp tool_activity_text(:completed, name) do
+    I18n.t("signals_gateway.reply.tool_call_completed", %{"tool" => truncate_tool_name(name)})
+  end
 
   defp truncate_tool_name(name) do
     name = normalize_optional_text(name) || "tool"

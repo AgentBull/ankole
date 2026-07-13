@@ -1,8 +1,6 @@
 defmodule Ankole.SignalsGateway.AIReplyText do
   @moduledoc false
 
-  alias Ankole.SignalsGateway.ActorEvent
-
   @silent_success_marker "<silent_success/>"
 
   def silent_success_marker, do: @silent_success_marker
@@ -29,19 +27,6 @@ defmodule Ankole.SignalsGateway.AIReplyText do
   end
 
   def normalize_visible_text(_text), do: ""
-
-  def silent_success_allowed?(%ActorEvent{type: "check_back_later.wakeup"}), do: true
-
-  def silent_success_allowed?(%ActorEvent{type: "cron.fire", payload: payload}) do
-    data = map_value(payload, "data") || %{}
-    wake_payload = map_value(data, "wake_payload") || %{}
-    delivery = map_value(wake_payload, "delivery") || %{}
-
-    map_value(wake_payload, "quiet_success") == true or
-      map_value(delivery, "quiet_success") == true
-  end
-
-  def silent_success_allowed?(%ActorEvent{}), do: false
 
   def silent_success_marker_prefix?(text) when is_binary(text) do
     candidate = String.trim_leading(text)
@@ -73,7 +58,4 @@ defmodule Ankole.SignalsGateway.AIReplyText do
        do: [text]
 
   defp visible_text_parts(_item), do: []
-
-  defp map_value(map, key) when is_map(map), do: Map.get(map, key)
-  defp map_value(_map, _key), do: nil
 end

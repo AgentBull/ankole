@@ -81,14 +81,6 @@ defmodule Ankole.Schedule do
   defdelegate cancel_checkbacks_for_provider_entry_in_tx(repo, attrs, now), to: Checkbacks
 
   @doc """
-  Cancels due cron events that are superseded by a session reset.
-  """
-  @spec cancel_due_cron_events_for_reset_in_tx(module(), map(), DateTime.t(), DateTime.t()) ::
-          {:ok, %{cancelled_events: non_neg_integer(), rearmed_schedules: non_neg_integer()}}
-          | {:error, term()}
-  defdelegate cancel_due_cron_events_for_reset_in_tx(repo, actor_key, reset_at, now), to: Cron
-
-  @doc """
   Fires a due scheduled event by appending an ActorEvent.
   """
   @spec fire_due_event(Ecto.UUID.t(), keyword()) ::

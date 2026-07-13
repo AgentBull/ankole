@@ -22,8 +22,10 @@ the actor event journal it feeds is described in
 
 BullX Agent's `check_back_later` is the closest reference for one-shot delayed
 self-wakeup: the model supplies `reason`, `check`, and optional compact context;
-the future wake runs as a distinct checkback turn; and the agent may stay silent
-when nothing needs user attention.
+the future wake runs as a distinct checkback turn; and routine outcomes may stay
+silent. Ankole keeps the same one-shot mechanism but broadens the user story to
+reminders and promised follow-ups, so checkbacks are visible by default. Quiet
+success is an explicit opt-in for requests such as "only tell me if it changes."
 
 Hermes and OpenClaw are the useful references for recurring cron work:
 
@@ -139,7 +141,9 @@ Required columns:
 - `source_provenance`: JSON object for audit-only facts such as transport route,
   authenticated worker id, key revision, source activation uid, actor epoch,
   source revision, and source RPC request id.
-- `wake_payload`: JSON object used to build the future ActorEvent payload.
+- `wake_payload`: JSON object used to build the future ActorEvent payload. For
+  checkbacks it includes the effective `quiet_success` boolean, defaulting to
+  `false`.
 - `oban_job_id`, `actor_event_id`.
 - `fire_attempts`, `fire_claimed_at`, `fired_at`, `cancelled_at`.
 - `last_fire_error`: JSON object.
@@ -163,6 +167,13 @@ The unique idempotency key should be permanent. If a tool call created a
 schedule and that schedule was later cancelled, retrying the same tool call
 returns the existing cancelled event rather than expressing a different
 commitment with the same key.
+
+The worker-generated checkback key treats omitted and `quiet_success = false`
+as the same existing contract. It adds a policy discriminator only when
+`quiet_success = true`, so enabling quiet delivery creates a distinct semantic
+commitment without changing retry behavior for existing callers. If a caller
+reuses an explicit key with different input, the persisted event wins and the
+RPC response reports that persisted effective policy.
 
 ### actor_cron_schedules
 
@@ -219,7 +230,7 @@ The request payload must include:
 ```json
 {
   "request_id": "rpc request id",
-  "turn_ref": { "...": "ActorTurnRef" },
+  "turn": { "...": "ActorTurnRef" },
   "tool_call_id": "provider tool call id",
   "idempotency_key": "stable key",
   "schedule": {
@@ -230,6 +241,7 @@ The request payload must include:
   "reason": "why waiting is useful",
   "check": "what to inspect later",
   "context_summary": "compact optional context",
+  "quiet_success": false,
   "reply_route": {
     "binding_name": "feishu-main",
     "signal_channel_id": "channel id",
@@ -241,14 +253,16 @@ The request payload must include:
 
 The handler must:
 
-1. validate the `turn_ref` shape;
+1. validate `turn` as an `ActorTurnRef`;
 2. authorize the authenticated RuntimeFabric route against that turn with
    `WorkerRouteAuth.authorize_turn_route(turn_ref, route, :write)`;
 3. verify the requested reply route belongs to the current turn context or to
    the actor event referenced by the turn;
-4. validate `tool_call_id` and `idempotency_key`;
+4. validate `tool_call_id`, `idempotency_key`, and the optional boolean
+   `quiet_success`, defaulting it to `false`;
 5. parse time in the control plane using `system.timezone` as the default;
-6. insert the `actor_scheduled_events` row;
+6. persist the effective quiet policy in `wake_payload` and insert the
+   `actor_scheduled_events` row;
 7. insert the Oban wake job in the same transaction.
 
 The response is stable across retries:
@@ -258,12 +272,18 @@ The response is stable across retries:
   "status": "scheduled",
   "scheduled_event_id": "uuid",
   "due_at": "2026-06-27T10:30:00Z",
-  "timezone": "Asia/Shanghai"
+  "timezone": "Asia/Shanghai",
+  "quiet_success": false
 }
 ```
 
 When the row already exists, return `status = "already_scheduled"` with the same
-ids and timestamps.
+ids, timestamps, and persisted effective `quiet_success` value. The response
+must describe the stored commitment, not merely echo the latest request.
+
+After a successful create, the initiating turn's visible reply confirms what
+will be checked, when it will run, and whether a normal or unchanged outcome
+will be reported.
 
 Cron management can be exposed through a Phoenix control-plane API and, later,
 through a model-visible `cron` tool. Both surfaces call the same domain context.
@@ -403,9 +423,9 @@ history and are not returned by `agent_conversation.context.resolve`.
 Both event types are direct events: they are ready immediately and never enter
 IM batching.
 
-Reset staleness keeps the split behavior: already-materialized `cron.*` fires
-are stale after a session reset barrier; `check_back_later.wakeup` is not stale
-by default.
+Daily reset does not make either schedule event stale. A materialized
+`cron.fire` or `check_back_later.wakeup` behind the reset barrier remains in the
+actor queue and enters the successor conversation when it reaches the head.
 
 ## Prompt Contract
 
@@ -418,9 +438,15 @@ For `check_back_later`:
 - say it is not a user message, heartbeat, cron, or recurring monitor;
 - include `due_at`, `fired_at`, `reason`, `check`, and `context_summary`;
 - use the context as background, not as permission to replay old tasks;
-- if nothing needs user attention, the agent may finish silently;
+- produce a concise provider-visible result by default, including when nothing
+  changed or the work is still waiting;
+- finish silently only when this checkback has `quiet_success = true`, and only
+  when there is no meaningful result, failure, blocker, human decision, state
+  change, or time-sensitive risk to report;
 - if the check is still legitimately blocked, the agent may schedule a new
-  one-shot checkback.
+  one-shot checkback. Quiet authorization is not inherited: it must set
+  `quiet_success = true` again when the same user-authorized quiet obligation is
+  deliberately continued.
 
 For `cron.fire`:
 
@@ -560,24 +586,30 @@ transactionally when the schedule is deleted.
 
 ## Reset Semantics
 
-`check_back_later` is an agent commitment to revisit one concrete question. It
-survives daily reset. If its `due_at` was before reset but Oban fires it after
-reset, the fired event enters the successor active conversation and carries both
-the original due time and actual fired time.
+`check_back_later` and each concrete cron fire are durable commitments. They
+survive daily reset. If a scheduled event's `due_at` was before reset but Oban
+fires it after reset, the fired event enters the successor active conversation
+and carries both the original due time and actual fired time.
 
-Cron definitions survive reset. Individual already-materialized `cron.fire`
-actor events are session-local system notices and remain stale after reset, as
-the `cron.*` reset rule says. A cron definition whose fire was
-discarded by reset computes a later fire through the normal recurrence path.
+Already-materialized `cron.fire` actor events behind the reset barrier remain
+open and are consumed from the successor conversation. Due cron rows that have
+not materialized are not cancelled or re-armed by reset; the existing fire
+worker materializes the same `cron_fire_slot_at` afterward. Reset does not
+advance `last_fire_at` or `next_fire_at`. Recurrence advances only after that
+concrete fire is claimed and materialized through the normal locked cron path.
 
-This distinction keeps one-time agent promises durable while still preventing
-old routine system notices from crossing a session reset barrier.
+This keeps daily reset as a conversation-history boundary rather than a second
+missed-fire policy. The scheduled-event claim and cron slot idempotency still
+guarantee that the preserved occurrence fires at most once.
 
 ## Delivery And Silent Success
 
-Checkback delivery is conservative. It should only produce a visible provider
-reply when the user needs attention: meaningful result, blocker, requested
-decision, or time-sensitive risk. Silent success is normal.
+Checkback delivery is visible by default because "check later," reminders, and
+promised follow-ups create an expectation that the agent will return. A
+checkback may opt into quiet success only when the original user explicitly
+asked not to hear about normal or unchanged outcomes. Even then, meaningful
+results, failures, blockers, requested decisions, state changes, and
+time-sensitive risks remain visible.
 
 Cron delivery is schedule-defined. A recurring report usually delivers the final
 assistant output every run. A monitoring schedule may opt into quiet success, in
@@ -585,15 +617,18 @@ which case a clean run can commit without provider-visible output.
 
 Silent success is still a normal, fenced completion. When a schedule-origin
 turn has nothing meaningful to report and its request context allows quiet
-success, the worker sends the explicit `turn_noop_completed` marker. The
-control plane then sets `actor_events.completed_at` and creates no outbox row.
+success, the worker must produce exactly `<silent_success/>`; the worker then
+sends `turn_noop_completed`. The control plane sets `actor_events.completed_at`
+and creates no outbox row.
 Any model calls the turn already made remain committed in
 `ai_gateway_messages`; those rows are the audit record, and no separate
 assistant or introspection message is created.
 
-The worker must not express silent success by staying silent. The turn still
-needs a fenced, committable, auditable terminal result — either
-`turn_completed` naming the adopted final Response or the explicit noop marker.
+The worker must not express silent success with empty output. Empty output and
+`<silent_success/>` on a turn without quiet authorization cannot complete the
+user-visible path. Every turn still needs a fenced, committable, auditable
+terminal result — either `turn_completed` naming a Response with a user-visible
+projection or the explicitly authorized noop completion.
 
 Provider-visible output uses normal `signal_gateway_outbox_entries` rows. The scheduler
 does not send messages directly from the fire worker, and the worker should not
@@ -663,8 +698,10 @@ ActorRuntime and worker:
 - `check_back_later.wakeup` starts a turn with `turn_mode = check_back_later`;
 - `cron.fire` starts a turn with `turn_mode = cron`;
 - prompt context marks both as schedule-origin events, not user messages;
-- checkback silent success completes the event via the noop marker and creates
-  no outbox row;
+- checkback default delivery creates provider-visible outbox even for unchanged
+  or still-waiting results;
+- an explicitly quiet checkback can complete via the noop marker and creates no
+  outbox row;
 - cron default delivery creates provider-visible outbox;
 - cron quiet-success policy creates no outbox;
 - visible checkback reply uses the original reply route;
@@ -676,5 +713,8 @@ Reset:
 - pending checkbacks survive reset;
 - due-before-reset, fired-after-reset checkback enters the successor
   conversation with due/fired timestamps;
-- materialized cron fires after the reset barrier are stale;
-- cron definitions survive reset and continue with later fires.
+- due-before-reset, fired-after-reset cron enters the successor conversation
+  with its original slot and due/fired timestamps;
+- materialized cron fires after the reset barrier remain queued and execute
+  once in the successor conversation;
+- reset does not cancel, re-arm, or advance cron recurrence.

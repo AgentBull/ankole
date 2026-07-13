@@ -154,7 +154,12 @@ function scheduleOriginLines(opts: BuildAgentSystemPromptOptions): string[] {
 
   if (context.silent_success_allowed === true) {
     lines.push(
-      'This schedule-origin turn may finish quietly only when no provider-visible update is useful. To do that, reply exactly <silent_success/> and nothing else. If the scheduled check failed, is blocked, needs human action, or changed state in a way people should know, send a visible reply instead.'
+      'This schedule-origin turn may finish quietly only when no provider-visible update is useful. To do that, reply exactly <silent_success/> and nothing else. If the scheduled check failed, is blocked, needs human action, changed state in a way people should know, or found a time-sensitive risk, send a visible reply instead.'
+    )
+  }
+  if (turnMode === 'check_back_later' && context.silent_success_allowed !== true) {
+    lines.push(
+      'This checkback must produce a concise provider-visible result even if nothing changed or it is still waiting.'
     )
   }
   if (turnMode === 'cron') {

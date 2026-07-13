@@ -87,7 +87,7 @@ _Avoid_: Nudge, interrupt
 _Avoid_: Blocked, paused
 
 **Wakeup**:
-把后台事实带回父会话并开启一个不允许静默成功 turn 的 durable 事件。来源包括定时回访与委托的完成、失败、等待用户；取消不产生 Wakeup。
+把后台事实带回父会话并开启新 turn 的 durable 事件。来源包括定时回访与委托的完成、失败、等待用户；是否产生用户可见输出由来源领域的交付承诺决定，取消不产生 Wakeup。
 _Avoid_: Notification, callback
 
 **Delegation Report**:

@@ -5,6 +5,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
   import Ankole.SignalsGateway.ActorRuntime.Common, only: [reason_text: 1]
 
   alias Ankole.AIGateway.Compaction
+  alias Ankole.I18n
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.AIGatewayLink
@@ -205,7 +206,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
   defp apply_runtime_command(repo, actor_key, %ActorEvent{type: "command.stop"} = input, now) do
     with {:ok, %{stop_controls: stop_controls, cancelled_turn: cancelled_turn}} <-
            cancel_live_turn(repo, actor_key, now, "command.stop"),
-         {:ok, result} <- consume_command_feedback(repo, input, "Stopped.", now) do
+         {:ok, result} <-
+           consume_command_feedback(
+             repo,
+             input,
+             I18n.t("signals_gateway.reply.command_stopped"),
+             now
+           ) do
       {:ok,
        result
        |> Map.put(:stop_controls, stop_controls)

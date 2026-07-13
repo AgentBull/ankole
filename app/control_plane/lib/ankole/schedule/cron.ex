@@ -1,8 +1,6 @@
 defmodule Ankole.Schedule.Cron do
   @moduledoc false
 
-  import Ecto.Query, warn: false
-
   alias Ankole.Repo
   alias Ankole.Schedule.Attrs
   alias Ankole.Schedule.Normalizer
@@ -138,47 +136,6 @@ defmodule Ankole.Schedule.Cron do
     end)
   end
 
-  @spec cancel_due_cron_events_for_reset_in_tx(module(), map(), DateTime.t(), DateTime.t()) ::
-          {:ok, %{cancelled_events: non_neg_integer(), rearmed_schedules: non_neg_integer()}}
-          | {:error, term()}
-  def cancel_due_cron_events_for_reset_in_tx(
-        repo,
-        actor_key,
-        %DateTime{} = reset_at,
-        %DateTime{} = now
-      )
-      when is_map(actor_key) do
-    agent_uid = Attrs.map_text(actor_key, "agent_uid")
-    session_id = Attrs.map_text(actor_key, "session_id")
-
-    if is_binary(agent_uid) and is_binary(session_id) do
-      events =
-        ScheduledEvent
-        |> where([event], event.kind == "cron_fire")
-        |> where([event], event.status == "scheduled")
-        |> where([event], event.agent_uid == ^String.downcase(agent_uid))
-        |> where([event], event.session_id == ^session_id)
-        |> where([event], event.due_at <= ^reset_at)
-        |> lock("FOR UPDATE")
-        |> repo.all()
-
-      schedule_ids =
-        events
-        |> Enum.map(& &1.cron_schedule_id)
-        |> Enum.filter(&is_binary/1)
-        |> Enum.uniq()
-
-      with {:ok, _cancelled} <-
-             Store.cancel_scheduled_events(repo, events, now, "session_reset_due"),
-           {:ok, rearmed_count} <-
-             rearm_active_cron_schedules_after_reset(repo, schedule_ids, now) do
-        {:ok, %{cancelled_events: length(events), rearmed_schedules: rearmed_count}}
-      end
-    else
-      {:ok, %{cancelled_events: 0, rearmed_schedules: 0}}
-    end
-  end
-
   @spec arm_cron_fire_in_tx(module(), CronSchedule.t(), DateTime.t(), DateTime.t(), keyword()) ::
           {:ok, %{status: :scheduled | :already_scheduled, scheduled_event: ScheduledEvent.t()}}
           | {:error, term()}
@@ -295,40 +252,4 @@ defmodule Ankole.Schedule.Cron do
 
   defp maybe_arm_active_cron_in_tx(_repo, %CronSchedule{} = schedule, _now, _opts),
     do: {:ok, schedule}
-
-  defp rearm_active_cron_schedules_after_reset(_repo, [], _now), do: {:ok, 0}
-
-  defp rearm_active_cron_schedules_after_reset(repo, schedule_ids, now) do
-    schedule_ids
-    |> Enum.map(&rearm_active_cron_schedule_after_reset(repo, &1, now))
-    |> Attrs.collect_results()
-    |> case do
-      {:ok, results} ->
-        {:ok, Enum.count(results, &(&1 == :rearmed))}
-
-      {:error, _reason} = error ->
-        error
-    end
-  end
-
-  defp rearm_active_cron_schedule_after_reset(repo, cron_schedule_id, now) do
-    case Store.lock_cron_schedule(repo, cron_schedule_id) do
-      %CronSchedule{status: "active"} = schedule ->
-        with {:ok, next_fire_at} <-
-               Planner.next_fire_after(schedule.schedule, schedule.timezone, now),
-             {:ok, schedule} <-
-               schedule
-               |> CronSchedule.changeset(%{next_fire_at: next_fire_at})
-               |> repo.update(),
-             {:ok, _event_result} <- arm_cron_fire_in_tx(repo, schedule, next_fire_at, now, []) do
-          {:ok, :rearmed}
-        end
-
-      %CronSchedule{} ->
-        {:ok, :skipped}
-
-      nil ->
-        {:ok, :missing}
-    end
-  end
 end

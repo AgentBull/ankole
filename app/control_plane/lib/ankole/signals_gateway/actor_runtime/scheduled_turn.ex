@@ -42,20 +42,26 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ScheduledTurn do
           "payload" => map_value(wake_payload, "payload") || %{},
           "delivery" => delivery
         }),
-      "silent_success_allowed" => schedule_silent_success_allowed?(type, wake_payload, delivery)
+      "silent_success_allowed" => silent_success_allowed?(input)
     }
   end
 
   defp scheduled_turn_mode("check_back_later.wakeup"), do: "check_back_later"
   defp scheduled_turn_mode("cron.fire"), do: "cron"
 
-  defp schedule_silent_success_allowed?("check_back_later.wakeup", _wake_payload, _delivery),
-    do: true
-
-  defp schedule_silent_success_allowed?("cron.fire", wake_payload, delivery) do
-    map_value(wake_payload, "quiet_success") == true or
-      map_value(delivery, "quiet_success") == true
+  @spec silent_success_allowed?(ActorEvent.t()) :: boolean()
+  def silent_success_allowed?(%ActorEvent{type: "check_back_later.wakeup"} = event) do
+    wake_payload = event |> actor_event_data() |> map_value("wake_payload")
+    map_value(wake_payload, "quiet_success") == true
   end
+
+  def silent_success_allowed?(%ActorEvent{type: "cron.fire"} = event) do
+    wake_payload = event |> actor_event_data() |> map_value("wake_payload")
+    delivery = map_value(wake_payload, "delivery")
+    map_value(delivery, "quiet_success") == true
+  end
+
+  def silent_success_allowed?(%ActorEvent{}), do: false
 
   defp actor_event_data(%ActorEvent{payload: payload}) when is_map(payload) do
     map_value(payload, "data") || %{}
