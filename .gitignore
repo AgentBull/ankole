@@ -109,3 +109,5 @@ app/kernel/_build/
 app/kernel/deps/
 app/kernel/priv/native/
 /.claude/
+/.zcode/
+HEY.md

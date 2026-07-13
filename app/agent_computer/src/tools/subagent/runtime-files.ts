@@ -12,8 +12,9 @@ import {
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import type { ActorTurnRef } from '../../lanes/actor_lane'
-import type { RuntimeSkillSummary } from '../../lanes/rpc_lane'
+import type { RuntimeBrainSnapshot, RuntimeSkillSummary } from '../../lanes/rpc_lane'
 import type { SkillOverlayRequester } from '../../core/turns/turn_options'
+import { formatBrainSnapshot } from '../../prompts/brain_snapshot'
 import { insideWorkspace, WORKSPACE_MODEL_ROOT, WORKSPACE_USER_FILES_ROOT } from '../../core/workspace-paths'
 import {
   assertValidSkillName,
@@ -52,6 +53,7 @@ export async function materializeSubagentRuntimeFiles(input: {
   durableArtifactsRootForModel: string
   soul: string
   mission: string
+  brainSnapshot?: RuntimeBrainSnapshot
   background?: string
   notes?: string
   timezone?: string | null
@@ -77,6 +79,7 @@ export async function materializeSubagentRuntimeFiles(input: {
         existingGuidance: localAgents.content,
         soul: input.soul,
         mission: input.mission,
+        brainSnapshot: input.brainSnapshot,
         background: input.background,
         notes: input.notes,
         timezone: input.timezone,
@@ -231,6 +234,7 @@ function renderTaskAgents(input: {
   existingGuidance: string
   soul: string
   mission: string
+  brainSnapshot?: RuntimeBrainSnapshot
   background?: string
   notes?: string
   timezone?: string | null
@@ -243,7 +247,7 @@ function renderTaskAgents(input: {
     `Working directory: ${input.workdirForModel}.`,
     `Durable artifacts belong under ${input.durableArtifactsRootForModel}.`,
     'Your final message is a delegation report for the parent agent. Include outcomes, evidence, artifact paths, and remaining risks.',
-    'Use Codex requestUserInput when a decision is required. The parent agent owns user-visible replies, attachments, scheduling, and durable memory or skill writes.',
+    'Use Codex requestUserInput when a decision is required. The parent agent owns user-visible replies, attachments, scheduling, and durable skill writes. Projected Brain tools may read and write durable memory within the server-validated parent conversation scope.',
     'Complete foreground work before ending the turn; do not leave required shell jobs running in the background.'
   ].join('\n')
 
@@ -252,6 +256,7 @@ function renderTaskAgents(input: {
     '# Ankole Subagent Context',
     section('SOUL', input.soul),
     section('MISSION', input.mission),
+    section('Frozen Brain Snapshot', formatBrainSnapshot(input.brainSnapshot)),
     section('Background', input.background),
     section('Notes', input.notes),
     section('Execution Context', executionContext)

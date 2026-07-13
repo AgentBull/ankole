@@ -9,6 +9,8 @@ export interface CommandInput {
   args?: string[]
   cwd?: string
   env?: Record<string, string>
+  /** Operator-managed variables injected below the caller's `env`. */
+  workerEnv?: Record<string, string>
   timeoutMs?: number
   signal?: AbortSignal
 }
@@ -25,7 +27,7 @@ export async function runWorkspaceCommand(input: CommandInput, workspaceRoot: st
   if (input.signal?.aborted) return finishedCommand(130, '', 'command aborted')
 
   const cwd = input.cwd ? workspacePath(workspaceRoot, input.cwd) : workspaceRoot
-  const env = commandEnv(input.env)
+  const env = commandEnv(input.env, { workerEnv: input.workerEnv })
   const argv = bubblewrapArgv({
     workspaceRoot,
     cwd,
@@ -43,6 +45,10 @@ export async function runWorkspaceCommand(input: CommandInput, workspaceRoot: st
  * `interactive_terminal` is backed by a tmux server, and wrapping every tmux
  * control command in a fresh bubblewrap `/tmp` would make the session socket
  * disappear between `start`, `send`, `capture`, and `kill`.
+ *
+ * Operator worker env deliberately stays out of this path: the tmux server may
+ * be shared by several agents on one worker, so per-agent variables enter a
+ * session via `new-session -e`, never via the server process environment.
  */
 export async function runControlCommand(input: CommandInput, workspaceRoot: string): Promise<CommandFinished> {
   if (input.signal?.aborted) return finishedCommand(130, '', 'command aborted')

@@ -45,6 +45,16 @@ export declare function signalsGatewayValidateFilter(filterSource: string): bool
 /** Computes a standard unified text diff body using the native kernel diff primitive. */
 export declare function unifiedTextDiff(before: string, after: string, contextLines: number): Promise<string>
 
+/** Parses a web URL with WHATWG semantics and classifies its host. */
+export declare function webURLFacts(url: string): WebURLFacts
+
+/** Facts about one parsed web URL for the shared web tools URL policy. */
+export interface WebURLFacts {
+  scheme: string
+  host?: string
+  hostClass?: 'metadata' | 'private' | 'public' | null
+}
+
 /** Computes the non-cryptographic XXH3 128-bit observation fingerprint. */
 export declare function xxh3File128Hex(path: string): string
 

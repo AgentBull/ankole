@@ -11,7 +11,15 @@ import type { JsonValue as JSONValue } from './generated/protocol/serde_json/Jso
 
 const maxToolResultBytes = 16_384
 const truncationSuffix = '...[truncated]'
-const allowedToolNames = new Set(['web_search', 'web_fetch', 'memory_search', 'memory_browse'])
+const allowedToolNames = new Set([
+  'web_search',
+  'web_fetch',
+  'memory_search',
+  'memory_browse',
+  'memory_open',
+  'memory_update',
+  'memory_health_check'
+])
 
 export type SubagentProjection = {
   dynamicTools: DynamicToolSpec[]
@@ -103,8 +111,8 @@ function dynamicToolContentItems(result: {
     { type: 'inputText', text: boundedText(text || toolResultDetailsText(result.details)) }
   ]
   for (const part of result.content) {
-    const imageUrl = toolResultImageURL(part)
-    if (imageUrl) contentItems.push({ type: 'inputImage', imageUrl })
+    const imageURL = toolResultImageURL(part)
+    if (imageURL) contentItems.push({ type: 'inputImage', imageUrl: imageURL })
   }
   return contentItems
 }

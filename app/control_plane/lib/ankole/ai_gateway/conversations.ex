@@ -16,7 +16,8 @@ defmodule Ankole.AIGateway.Conversations do
           {:ok, Conversation.t()} | {:error, term()}
   def ensure_conversation(subject_uid, conversation_key, opts \\ []) do
     repo = Keyword.get(opts, :repo, Repo)
-    ensure_conversation_in_tx(repo, normalize_uid(subject_uid), conversation_key)
+    metadata = Keyword.get(opts, :metadata, %{})
+    ensure_conversation_in_tx(repo, normalize_uid(subject_uid), conversation_key, metadata)
   end
 
   @doc """
@@ -45,11 +46,12 @@ defmodule Ankole.AIGateway.Conversations do
   @doc """
   Ensures the active conversation inside a caller-owned transaction.
   """
-  @spec ensure_conversation_in_tx(module(), String.t(), String.t()) ::
+  @spec ensure_conversation_in_tx(module(), String.t(), String.t(), map()) ::
           {:ok, Conversation.t()} | {:error, term()}
   # Uses insert-then-refetch to tolerate concurrent first input for the same
   # conversation key without exposing unique-constraint details to callers.
-  def ensure_conversation_in_tx(repo, subject_uid, conversation_key) do
+  def ensure_conversation_in_tx(repo, subject_uid, conversation_key, metadata \\ %{})
+      when is_map(metadata) do
     subject_uid = normalize_uid(subject_uid)
 
     case active_conversation(repo, subject_uid, conversation_key) do
@@ -61,7 +63,7 @@ defmodule Ankole.AIGateway.Conversations do
         |> Conversation.changeset(%{
           subject_uid: subject_uid,
           conversation_key: conversation_key,
-          metadata: %{}
+          metadata: metadata
         })
         |> repo.insert()
         |> case do
@@ -72,6 +74,16 @@ defmodule Ankole.AIGateway.Conversations do
             refetch_active_conversation(repo, subject_uid, conversation_key)
         end
     end
+  end
+
+  @doc false
+  @spec update_conversation_metadata_in_tx(module(), Conversation.t(), map()) ::
+          {:ok, Conversation.t()} | {:error, Ecto.Changeset.t()}
+  def update_conversation_metadata_in_tx(repo, %Conversation{} = conversation, metadata)
+      when is_map(metadata) do
+    conversation
+    |> Conversation.changeset(%{metadata: metadata})
+    |> repo.update()
   end
 
   @doc """

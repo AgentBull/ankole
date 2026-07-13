@@ -185,7 +185,7 @@ describe('@ankole/agent-computer skill tools', () => {
     }
   })
 
-  it('skill_append appends notes to the existing skill overlay', async () => {
+  it('skill_append sends one atomic append request to the control plane', async () => {
     const turn: ActorTurnRef = {
       actor: { agent_uid: 'agent-1', session_id: 'session-1' },
       activation_uid: 'activation-1',
@@ -198,16 +198,7 @@ describe('@ankole/agent-computer skill tools', () => {
     const tools = createSkillTools('/workspace', {
       turn,
       enabledSkills: [{ skill_name: 'nano-pdf', source_kind: 'builtin', relative_path: 'nano-pdf' }],
-      requestSkillOverlay: async request => ({
-        request_id: request.request_id,
-        agent_uid: turn.actor.agent_uid,
-        session_id: turn.actor.session_id,
-        skill_name: request.skill_name,
-        has_overlay: true,
-        overlay_json: { text: 'Prefer page-by-page verification.' },
-        content_hash: 'hash-1'
-      }),
-      replaceSkillOverlay: async request => {
+      appendSkillOverlay: async request => {
         writes.push(request)
         return {
           request_id: request.request_id,
@@ -215,7 +206,7 @@ describe('@ankole/agent-computer skill tools', () => {
           session_id: turn.actor.session_id,
           skill_name: request.skill_name,
           has_overlay: true,
-          overlay_json: request.overlay_json ?? {},
+          overlay_json: { text: 'Prefer page-by-page verification.\n\nUse render output as final evidence.' },
           content_hash: 'hash-2'
         }
       }
@@ -232,9 +223,7 @@ describe('@ankole/agent-computer skill tools', () => {
     expect(writes).toHaveLength(1)
     expect(writes[0]).toMatchObject({
       skill_name: 'nano-pdf',
-      overlay_json: {
-        text: 'Prefer page-by-page verification.\n\nUse render output as final evidence.'
-      }
+      content: 'Use render output as final evidence.'
     })
   })
 
@@ -251,16 +240,7 @@ describe('@ankole/agent-computer skill tools', () => {
     const tools = createSkillTools('/workspace', {
       turn,
       enabledSkills: [{ skill_name: 'nano-pdf', source_kind: 'builtin', relative_path: 'nano-pdf' }],
-      requestSkillOverlay: async request => ({
-        request_id: request.request_id,
-        agent_uid: turn.actor.agent_uid,
-        session_id: turn.actor.session_id,
-        skill_name: request.skill_name,
-        has_overlay: false,
-        overlay_json: {},
-        content_hash: undefined
-      }),
-      replaceSkillOverlay: async request => {
+      appendSkillOverlay: async request => {
         writes.push(request)
         return {
           request_id: request.request_id,
@@ -268,7 +248,7 @@ describe('@ankole/agent-computer skill tools', () => {
           session_id: turn.actor.session_id,
           skill_name: request.skill_name,
           has_overlay: true,
-          overlay_json: request.overlay_json ?? {},
+          overlay_json: { text: request.content },
           content_hash: 'hash-1'
         }
       }
@@ -285,9 +265,57 @@ describe('@ankole/agent-computer skill tools', () => {
     expect(writes).toHaveLength(1)
     expect(writes[0]).toMatchObject({
       skill_name: 'nano-pdf',
-      overlay_json: {
-        text: 'Create the first overlay note.'
+      content: 'Create the first overlay note.'
+    })
+  })
+
+  it('skill_replace resolves the latest hash and sends a compare-and-swap replacement', async () => {
+    const turn: ActorTurnRef = {
+      actor: { agent_uid: 'agent-1', session_id: 'session-1' },
+      activation_uid: 'activation-1',
+      actor_epoch: 1,
+      actor_event_id: '00000000-0000-0000-0000-000000000004',
+      revision: 0
+    }
+    const writes: unknown[] = []
+    const tools = createSkillTools('/workspace', {
+      turn,
+      enabledSkills: [{ skill_name: 'nano-pdf', source_kind: 'builtin', relative_path: 'nano-pdf' }],
+      requestSkillOverlay: async request => ({
+        request_id: request.request_id,
+        agent_uid: turn.actor.agent_uid,
+        session_id: turn.actor.session_id,
+        skill_name: request.skill_name,
+        has_overlay: true,
+        overlay_json: { text: 'Old duplicated notes.' },
+        content_hash: 'current-hash'
+      }),
+      replaceSkillOverlay: async request => {
+        writes.push(request)
+        return {
+          request_id: request.request_id,
+          agent_uid: turn.actor.agent_uid,
+          session_id: turn.actor.session_id,
+          skill_name: request.skill_name,
+          has_overlay: true,
+          overlay_json: request.overlay_json ?? {},
+          content_hash: 'replacement-hash'
+        }
       }
+    })
+
+    const tool = tools.find(candidate => candidate.name === 'skill_replace')!
+    await tool.execute('call-replace', {
+      name: 'nano-pdf',
+      content: 'One concise current lesson.'
+    })
+
+    expect(writes).toHaveLength(1)
+    expect(writes[0]).toMatchObject({
+      skill_name: 'nano-pdf',
+      content: 'One concise current lesson.',
+      overlay_json: { text: 'One concise current lesson.' },
+      expected_content_hash: 'current-hash'
     })
   })
 })

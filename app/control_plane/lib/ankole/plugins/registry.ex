@@ -235,6 +235,9 @@ defmodule Ankole.Plugins.Registry do
         "signals_gateway.adapter" ->
           Ankole.SignalsGateway.Adapters.validate_declaration(declaration)
 
+        "signals_gateway.webhook_handler" ->
+          Ankole.SignalsGateway.WebhookHandlers.validate_declaration(declaration)
+
         "principals.identity_provider" ->
           Ankole.IdentityProviders.validate_adapter_declaration(declaration)
 

@@ -15,6 +15,9 @@ export interface ComputerToolsBinding {
   workspaceRoot: string
   browserRemoteCDPConfig?: JSONObject | null
   localBrowserIdleTtlMs?: number
+  blockPrivateNetwork?: boolean
+  /** Operator-managed shell variables resolved for this turn's agent. */
+  workerEnv?: Record<string, string>
 }
 
 /**
@@ -40,13 +43,16 @@ export function createComputerTools(binding: ComputerToolsBinding): AgentTool<an
 /** Builds the shared run-scoped context used by main-agent and subagent browser tools. */
 export function createComputerToolContext(binding: ComputerToolsBinding): ComputerToolContext {
   const executionScopeID = binding.conversationID ?? binding.agentUID
-  const computer = createContainerComputer(binding.workspaceRoot, executionScopeID)
+  const computer = createContainerComputer(binding.workspaceRoot, executionScopeID, {
+    workerEnv: binding.workerEnv
+  })
   return {
     agentUID: binding.agentUID,
     workspaceRoot: binding.workspaceRoot,
     executionScopeID,
     browserRemoteCDPConfig: binding.browserRemoteCDPConfig,
     localBrowserIdleTtlMs: binding.localBrowserIdleTtlMs,
+    blockPrivateNetwork: binding.blockPrivateNetwork,
     getComputer: async () => computer
   }
 }

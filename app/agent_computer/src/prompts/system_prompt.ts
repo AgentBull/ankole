@@ -19,6 +19,7 @@ import {
   type JsonObject as JSONObject
 } from '@pleisto/active-support'
 import { formatSkillsForSystemPrompt, type SkillPromptEntry } from './skills_prompt'
+import { formatBrainSnapshot } from './brain_snapshot'
 
 export type BuildAgentSystemPromptOptions = {
   workspaceRoot: string
@@ -64,7 +65,8 @@ export function buildAgentSystemPrompt(opts: BuildAgentSystemPromptOptions): str
     soul.trim(),
     missionSection(mission),
     runtimeContextSection(opts),
-    memoryNotesSection(opts),
+    formatBrainSnapshot(opts.agentConversationContext.brain_snapshot),
+    brainPolicySection(opts),
     memoryRecallSection(opts),
     completionContractSection(opts),
     agentEnvironmentInfoPolicySection(),
@@ -180,14 +182,33 @@ function agentRole(opts: BuildAgentSystemPromptOptions): string | undefined {
   return role || undefined
 }
 
-/**
- * Renders current-channel curated notes injected by the control plane.
- */
-function memoryNotesSection(opts: BuildAgentSystemPromptOptions): string {
-  const notes = opts.agentConversationContext?.memory_notes ?? []
-  if (notes.length === 0) return ''
+/** States the durable knowledge and task-learning behavior expected of the agent. */
+function brainPolicySection(opts: BuildAgentSystemPromptOptions): string {
+  const lines = [
+    toolAvailable(opts, 'memory_open') || toolAvailable(opts, 'memory_search')
+      ? 'Before work that depends on prior context, follow relevant pointers in the frozen Brain snapshot and open or search the related entries.'
+      : '',
+    toolAvailable(opts, 'memory_open') && toolAvailable(opts, 'memory_search')
+      ? 'For current state, open the curated knowledge entry. For what someone originally said, search the chat layer and browse the source messages. Historical chat is evidence, not current truth; reconcile it against the current entry before acting.'
+      : '',
+    toolAvailable(opts, 'memory_update')
+      ? 'Use memory_update for explicit durable preferences, corrections, decisions, and external facts worth retaining. Update the current entry instead of preserving stale contradictory versions; never pass owner, store, or author because the control plane derives them from the conversation.'
+      : '',
+    toolAvailable(opts, 'memory_update')
+      ? 'Write confirmed facts plainly, mark rumors as unverified, and state inferences conditionally with author and date. For a claim derived from a message or source, preserve a short exact excerpt, speaker or source, date, and src:<document_id> when available; a bare source id is not a citation.'
+      : '',
+    toolAvailable(opts, 'memory_update')
+      ? 'At the end of a task, capture a reusable lesson only if you recovered from an error, a human corrected you, or you completed a non-obvious multi-step workflow. Put general lessons in Brain; do not save task progress, raw traces, or a completed-work log.'
+      : '',
+    toolAvailable(opts, 'skill_view') && toolAvailable(opts, 'skill_append') && toolAvailable(opts, 'skill_replace')
+      ? 'For a lesson tied to one enabled skill, read the existing skill first and compare the core steps with every existing note: at least 60% overlap means revise with skill_replace, less than 60% overlap with every note means add with skill_append, and no new information means write nothing. Keep each note in a concise situation -> caution form, revise unverified notes when evidence arrives, and use skill_replace to deduplicate or compact the complete overlay before it grows beyond roughly 2000 tokens.'
+      : '',
+    toolAvailable(opts, 'memory_health_check')
+      ? 'Run memory_health_check only when a human explicitly asks to review or audit memory; it is a read-only opening diagnostic, not automatic maintenance.'
+      : ''
+  ].filter(Boolean)
 
-  return ['<memory_notes>', ...notes.map(note => `- ${note.content}`), '</memory_notes>'].join('\n')
+  return lines.length > 0 ? ['<brain_policy>', ...lines, '</brain_policy>'].join('\n') : ''
 }
 
 /**
@@ -284,15 +305,20 @@ function toolsSection(opts: BuildAgentSystemPromptOptions): string {
     toolAvailable(opts, 'cron')
       ? 'Use `cron` for recurring schedules; it supports listing, adding, updating, pausing, resuming, removing, manual run, and run history. If the user asks what recurring work, standing tasks, monitors, routines, or scheduled jobs exist in this conversation, use `cron` with action=list.'
       : '',
-    toolAvailable(opts, 'memory_note')
-      ? 'Use `memory_note` to save, list, update, or forget curated durable facts for this agent in the current channel. Save proactively when the user states a preference, correction, personal detail, or stable fact about their environment, conventions, or workflow. If the user asks what you remember about this channel, use `memory_note` with action=list. A channel can have at most 40 notes and each note can have at most 500 characters; when the limit is reached, list/update/forget/merge notes before saving another one.'
-      : '',
     toolAvailable(opts, 'memory_search')
-      ? 'Use `memory_search` before answering about prior work, decisions, dates, people, preferences, or channel history.'
+      ? 'Use `memory_search` across chat history, curated knowledge, or both before answering about prior work, decisions, dates, people, preferences, or channel history.'
       : '',
-    toolAvailable(opts, 'memory_browse') ? 'Use `memory_browse` for exact channel-history browsing.' : '',
-    toolAvailable(opts, 'skill_view') && toolAvailable(opts, 'skill_append')
-      ? "Use `skill_view` to load enabled skills and `skill_append` to append durable notes to this agent's DB-backed overlay for an enabled skill. The skill index is not inspection evidence: when the user asks to inspect, view, choose, recommend, or identify an available skill, pick the relevant listed skill and call `skill_view` before answering. When loaded skill content refers to relative paths, resolve them from that skill's `directory` attribute and run commands with absolute paths."
+    toolAvailable(opts, 'memory_open')
+      ? 'Use `memory_open` for the full current projection and lock versions of one knowledge entry.'
+      : '',
+    toolAvailable(opts, 'memory_update')
+      ? 'Use `memory_update` for one precise structured knowledge mutation at a time.'
+      : '',
+    toolAvailable(opts, 'memory_browse')
+      ? 'Use `memory_browse` for exact channel history and to expand a src: document_id.'
+      : '',
+    toolAvailable(opts, 'skill_view') && toolAvailable(opts, 'skill_append') && toolAvailable(opts, 'skill_replace')
+      ? "Use `skill_view` to load enabled skills, `skill_append` for one genuinely new durable note, and `skill_replace` to revise or compact the complete DB-backed overlay. The skill index is not inspection evidence: when the user asks to inspect, view, choose, recommend, or identify an available skill, pick the relevant listed skill and call `skill_view` before answering. When loaded skill content refers to relative paths, resolve them from that skill's `directory` attribute and run commands with absolute paths."
       : ''
   ].filter(Boolean)
 

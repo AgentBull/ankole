@@ -3,12 +3,20 @@ defmodule Ankole.Kernel do
   Native kernel helpers shared by the Bun and Elixir runtimes.
   """
 
+  @rustler_mode if(Mix.env() == :prod, do: :release, else: :debug)
+  @rustler_feature if(Mix.env() == :prod, do: "nif_prod", else: "nif_dev")
+
+  Mix.shell().info("Building Ankole.Kernel NIF with #{@rustler_feature} in #{@rustler_mode} mode")
+
   use Rustler,
     otp_app: :ankole_kernel,
     crate: "ankole_kernel",
-    path: ".",
+    # Rustler compares this path verbatim when excluding target artifacts from
+    # Elixir external resources, so keep it absolute instead of using `.`.
+    path: Path.expand("../..", __DIR__),
     default_features: false,
-    features: ["nif"]
+    features: [@rustler_feature],
+    mode: @rustler_mode
 
   @type error_reason :: String.t()
   @type result(value) :: value | {:error, error_reason()}
@@ -23,6 +31,14 @@ defmodule Ankole.Kernel do
   @type jwt_validation :: map()
   @type runtime_fabric_router :: reference()
   @type universal_ai_client_stream :: reference()
+  @type reciprocal_rank_fusion_result :: %{
+          required(String.t()) => String.t() | float()
+        }
+  @type web_url_facts :: %{
+          scheme: String.t(),
+          host: String.t() | nil,
+          host_class: :metadata | :private | :public | nil
+        }
 
   @doc """
   Decrypts a compact AEAD token produced by `aead_encrypt/2`.
@@ -206,6 +222,29 @@ defmodule Ankole.Kernel do
   def estimate_o200k_base_tokens(_text), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
+  Combines multiple ordered result ID lists with reciprocal-rank fusion.
+
+  Each route contributes `1 / (k + rank)` for an ID's first occurrence in that
+  route. Results are ordered by descending fused score; equal scores preserve
+  the IDs' first appearance order across the supplied routes.
+  """
+  @spec reciprocal_rank_fusion([[String.t()]], non_neg_integer()) ::
+          result([reciprocal_rank_fusion_result()])
+  def reciprocal_rank_fusion(ranked_lists, k \\ 60)
+
+  def reciprocal_rank_fusion(ranked_lists, k)
+      when is_list(ranked_lists) and is_integer(k) and k >= 0 do
+    ranked_lists
+    |> Torque.encode!()
+    |> reciprocal_rank_fusion_nif(k)
+    |> decode_json_result()
+  end
+
+  @spec reciprocal_rank_fusion_nif(String.t(), non_neg_integer()) :: result(String.t())
+  defp reciprocal_rank_fusion_nif(_ranked_lists, _k),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
   Computes a non-cryptographic XXH3 128-bit observation fingerprint.
 
   This is for file observations and change detection. It is not a security
@@ -255,6 +294,23 @@ defmodule Ankole.Kernel do
   defp jwt_sign_nif(_claims, _key, _header), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
+  Signs JSON-compatible JWT claims with an RSA private key in PEM form.
+
+  Only RS256/RS384/RS512 are accepted (default RS256); HMAC signing stays on
+  `jwt_sign/3`. The header map takes the same fields as `jwt_sign/3`,
+  including `key_id`/`kid`.
+  """
+  @spec jwt_sign_pem(jwt_claims(), String.t(), jwt_header()) :: result(String.t())
+  def jwt_sign_pem(claims, private_key_pem, header \\ %{})
+      when is_map(claims) and is_binary(private_key_pem) and is_map(header) do
+    jwt_sign_pem_nif(Torque.encode!(claims), private_key_pem, Torque.encode!(header))
+  end
+
+  @spec jwt_sign_pem_nif(String.t(), String.t(), String.t()) :: result(String.t())
+  defp jwt_sign_pem_nif(_claims, _private_key_pem, _header),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
   Verifies a JWT and returns its JSON-compatible claims.
   """
   @spec jwt_verify(String.t(), binary(), jwt_validation()) :: result(jwt_claims())
@@ -267,6 +323,24 @@ defmodule Ankole.Kernel do
 
   @spec jwt_verify_nif(String.t(), binary(), String.t()) :: result(String.t())
   defp jwt_verify_nif(_token, _key, _validation), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Verifies an RSA-signed JWT against an RFC 7517 JWK and returns its claims.
+
+  `jwk` is one JWK map with `"kty" => "RSA"` and base64url `"n"`/`"e"`
+  components, as served by provider JWKS documents. Only RS256/RS384/RS512 are
+  accepted; HMAC verification stays on `jwt_verify/3`.
+  """
+  @spec jwt_verify_jwk(String.t(), map(), jwt_validation()) :: result(jwt_claims())
+  def jwt_verify_jwk(token, jwk, validation \\ %{})
+      when is_binary(token) and is_map(jwk) and is_map(validation) do
+    token
+    |> jwt_verify_jwk_nif(Torque.encode!(jwk), Torque.encode!(validation))
+    |> decode_json_result()
+  end
+
+  @spec jwt_verify_jwk_nif(String.t(), String.t(), String.t()) :: result(String.t())
+  defp jwt_verify_jwk_nif(_token, _jwk, _validation), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
   Generates a random 32-byte hex key for kernel cryptographic helpers.
@@ -304,6 +378,21 @@ defmodule Ankole.Kernel do
   """
   @spec gen_uuid_v7() :: String.t()
   def gen_uuid_v7, do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Parses a web URL with WHATWG semantics and classifies its host.
+
+  `host_class` drives the shared web tools URL policy: `:metadata` hosts are
+  cloud credential endpoints Ankole always rejects, `:private` hosts are
+  rejected only when `web_tools.block_private_network` is enabled, and
+  `:public` hosts are allowed. Scheme rules and policy application stay with
+  the runtime callers; both Elixir and Bun consume this one classifier.
+  """
+  @spec web_url_facts(String.t()) :: result(web_url_facts())
+  def web_url_facts(url) when is_binary(url), do: web_url_facts_nif(url)
+
+  @spec web_url_facts_nif(String.t()) :: result(web_url_facts())
+  defp web_url_facts_nif(_url), do: :erlang.nif_error(:nif_not_loaded)
 
   defp decode_json_result({:error, _reason} = error), do: error
   defp decode_json_result(json) when is_binary(json), do: Torque.decode!(json)

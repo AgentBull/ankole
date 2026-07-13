@@ -78,7 +78,7 @@ defmodule Ankole.SignalsGateway.Projection do
         name: attrs.name || channel.name,
         visibility: attrs.visibility || channel.visibility,
         principal_group_id: attrs.principal_group_id || channel.principal_group_id,
-        metadata: preserve_empty_map(attrs.metadata, channel.metadata),
+        metadata: merge_metadata(channel.metadata, attrs.metadata),
         raw_payload: preserve_empty_map(attrs.raw_payload, channel.raw_payload),
         first_seen_at: channel.first_seen_at
     }
@@ -91,6 +91,18 @@ defmodule Ankole.SignalsGateway.Projection do
 
   defp preserve_empty_map(map, existing) when map == %{}, do: existing || %{}
   defp preserve_empty_map(map, _existing), do: map
+
+  defp merge_metadata(existing, incoming) when is_map(existing) and is_map(incoming) do
+    Map.merge(existing, incoming, fn _key, old_value, new_value ->
+      if is_map(old_value) and is_map(new_value) do
+        merge_metadata(old_value, new_value)
+      else
+        new_value
+      end
+    end)
+  end
+
+  defp merge_metadata(_existing, incoming) when is_map(incoming), do: incoming
 
   # Upsert the entry mirror, but never let an out-of-order (older) provider event
   # overwrite a newer stored state: if the incoming provider_time predates what's

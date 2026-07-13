@@ -192,6 +192,89 @@ describe('web tools', () => {
     })
   })
 
+  it('rejects private-network URLs in local web_fetch when the policy is on', async () => {
+    const fetched: string[] = []
+    const client: AIGatewayHTTPClient = {
+      baseURL: 'https://control.test/api/v1/ai-gateway',
+      fetch: async () =>
+        jsonResponse({
+          web_fetch: { available: false, reason: 'model_profile_not_configured' }
+        })
+    }
+
+    const tools = await createWebTools({
+      aiGateway: client,
+      localBrowser: {
+        agentUID: 'agent-1',
+        executionScopeID: 'conversation-1',
+        blockPrivateNetwork: true,
+        fetchURL: async ({ url }) => {
+          fetched.push(url)
+          return { url, text: 'Fetched public page' }
+        }
+      }
+    })
+    const webFetch = tools.find(tool => tool.name === 'web_fetch')
+
+    const result = await webFetch!.execute('call-fetch', {
+      urls: ['https://192.168.1.20/console', 'https://example.com']
+    })
+
+    expect(fetched).toEqual(['https://example.com'])
+    expect(result.details).toMatchObject({
+      success: false,
+      source: 'local_browser',
+      results: [
+        {
+          url: 'https://192.168.1.20/console',
+          error: 'blocked non-public URL by the web_tools.block_private_network policy'
+        },
+        { url: 'https://example.com', text: 'Fetched public page' }
+      ]
+    })
+  })
+
+  it('keeps intranet URLs reachable and metadata blocked in local web_fetch by default', async () => {
+    const fetched: string[] = []
+    const client: AIGatewayHTTPClient = {
+      baseURL: 'https://control.test/api/v1/ai-gateway',
+      fetch: async () =>
+        jsonResponse({
+          web_fetch: { available: false, reason: 'model_profile_not_configured' }
+        })
+    }
+
+    const tools = await createWebTools({
+      aiGateway: client,
+      localBrowser: {
+        agentUID: 'agent-1',
+        executionScopeID: 'conversation-1',
+        fetchURL: async ({ url }) => {
+          fetched.push(url)
+          return { url, text: 'Intranet page text' }
+        }
+      }
+    })
+    const webFetch = tools.find(tool => tool.name === 'web_fetch')
+
+    const result = await webFetch!.execute('call-fetch', {
+      urls: ['https://192.168.1.20/console', 'https://169.254.169.254/latest/meta-data/']
+    })
+
+    expect(fetched).toEqual(['https://192.168.1.20/console'])
+    expect(result.details).toMatchObject({
+      success: false,
+      source: 'local_browser',
+      results: [
+        { url: 'https://192.168.1.20/console', text: 'Intranet page text' },
+        {
+          url: 'https://169.254.169.254/latest/meta-data/',
+          error: 'blocked browser navigation to cloud metadata endpoint'
+        }
+      ]
+    })
+  })
+
   it('returns a clear local browser unavailable error for web_fetch', async () => {
     const client: AIGatewayHTTPClient = {
       baseURL: 'https://control.test/api/v1/ai-gateway',

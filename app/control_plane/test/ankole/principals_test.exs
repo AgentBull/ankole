@@ -205,6 +205,91 @@ defmodule Ankole.PrincipalsTest do
                  uid: principal.uid
                })
     end
+
+    test "upsert_platform_subject_human/1 joins a first-seen subject to the email owner" do
+      assert {:ok, slack} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "slack-main",
+                 external_id: "U1000",
+                 uid: "U1000",
+                 display_name: "Alice",
+                 email: "join.alice@example.com"
+               })
+
+      # The uid suggestion loses to the email claim; casing does not matter.
+      assert {:ok, google} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "google-workspace-main",
+                 external_id: "103200300400500600700",
+                 uid: "103200300400500600700",
+                 display_name: "Alice G",
+                 email: "Join.Alice@Example.com",
+                 job_title: "Engineer"
+               })
+
+      assert google.principal.uid == slack.principal.uid
+      assert google.identity.provider == "google-workspace-main"
+      assert google.identity.external_id == "103200300400500600700"
+      assert google.principal.display_name == "Alice G"
+      assert google.human_user.job_title == "Engineer"
+
+      assert {:ok, resolved} = Principals.resolve_platform_subject("slack-main", "U1000")
+      assert resolved.uid == slack.principal.uid
+    end
+
+    test "upsert_platform_subject_human/1 drops a conflicting email from a bound subject" do
+      assert {:ok, google} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "google-workspace-main",
+                 external_id: "998877665544332211009",
+                 email: "conflict.bob@example.com"
+               })
+
+      assert {:ok, slack_first} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "slack-main",
+                 external_id: "U2000",
+                 uid: "U2000"
+               })
+
+      refute slack_first.principal.uid == google.principal.uid
+
+      # A later directory sync attaches an email another principal already
+      # owns: the update succeeds without the email instead of aborting.
+      assert {:ok, slack_second} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "slack-main",
+                 external_id: "U2000",
+                 email: "conflict.bob@example.com",
+                 job_title: "Support"
+               })
+
+      assert slack_second.principal.uid == slack_first.principal.uid
+      assert slack_second.human_user.email == nil
+      assert slack_second.human_user.job_title == "Support"
+    end
+
+    test "upsert_platform_subject_human/1 drops a conflicting mobile and never joins by it" do
+      assert {:ok, first} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "lark-main",
+                 external_id: "ou_mobile_owner",
+                 email: "mobile.owner@example.com",
+                 mobile: "+14155559999"
+               })
+
+      assert {:ok, second} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "google-workspace-main",
+                 external_id: "556677889900112233445",
+                 email: "mobile.other@example.com",
+                 mobile: "+1 415 555 9999"
+               })
+
+      refute second.principal.uid == first.principal.uid
+      assert second.human_user.email == "mobile.other@example.com"
+      assert second.human_user.mobile == nil
+    end
   end
 
   describe "channel actors" do

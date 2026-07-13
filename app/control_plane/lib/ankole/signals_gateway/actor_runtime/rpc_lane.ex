@@ -26,8 +26,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
   alias Ankole.SignalsGateway.ActorRuntime.SkillOverlayBroker
   alias Ankole.SignalsGateway.ActorRuntime.SubagentDelegationBroker
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerEnvBroker
   alias Ankole.SignalsGateway.ActorRuntime.WorkerRouteAuth
-  alias Ankole.Memory.RPCBroker, as: MemoryRPCBroker
+  alias Ankole.Brain.RPCBroker, as: BrainRPCBroker
   alias Ankole.Schedule.RPCBroker, as: ScheduleRPCBroker
 
   @typedoc "Authorization scope of one operation; turn scopes carry the WorkerRouteAuth effect."
@@ -50,12 +51,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
       {SubagentDelegationBroker, :handle_append_events, :turn_write},
     "subagent.delegation.status.update" =>
       {SubagentDelegationBroker, :handle_update_status, :turn_write},
-    "memory_note.save" => {MemoryRPCBroker, :handle_note_save, :turn_write},
-    "memory_note.update" => {MemoryRPCBroker, :handle_note_update, :turn_write},
-    "memory_note.forget" => {MemoryRPCBroker, :handle_note_forget, :turn_write},
-    "memory_note.list" => {MemoryRPCBroker, :handle_note_list, :turn_read},
-    "memory_search" => {MemoryRPCBroker, :handle_search, :turn_read},
-    "memory_browse" => {MemoryRPCBroker, :handle_browse, :turn_read},
+    "memory_search" => {BrainRPCBroker, :handle_search, :turn_read},
+    "memory_open" => {BrainRPCBroker, :handle_open, :turn_read},
+    "memory_update" => {BrainRPCBroker, :handle_update, :turn_write},
+    "memory_browse" => {BrainRPCBroker, :handle_browse, :turn_read},
+    "memory_health_check" => {BrainRPCBroker, :handle_health_check, :turn_read},
     "schedule.check_back_later.create" =>
       {ScheduleRPCBroker, :handle_check_back_later_create, :turn_write},
     "schedule.cron.list" => {ScheduleRPCBroker, :handle_cron_list, :turn_read},
@@ -69,7 +69,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
     "schedule.cron.run" => {ScheduleRPCBroker, :handle_cron_run, :turn_write},
     "skills.installed.replace" => {SkillRegistryBroker, :handle_replace, :turn_write},
     "skills.overlay.resolve" => {SkillOverlayBroker, :handle_resolve, :turn_read},
-    "skills.overlay.replace" => {SkillOverlayBroker, :handle_replace, :turn_write}
+    "skills.overlay.append" => {SkillOverlayBroker, :handle_append, :turn_write},
+    "skills.overlay.replace" => {SkillOverlayBroker, :handle_replace, :turn_write},
+    "worker_env.resolve" => {WorkerEnvBroker, :handle_request, :worker_agent}
   }
 
   @doc false

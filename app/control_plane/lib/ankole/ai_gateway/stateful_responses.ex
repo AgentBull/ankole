@@ -1096,20 +1096,20 @@ defmodule Ankole.AIGateway.StatefulResponses do
 
   This is the bootstrap entry for a stateful conversation.
   """
-  @spec ensure_conversation(String.t(), String.t()) ::
+  @spec ensure_conversation(String.t(), String.t(), keyword()) ::
           {:ok, Conversation.t()} | {:error, term()}
-  def ensure_conversation(subject_uid, conversation_key) do
-    Conversations.ensure_conversation(subject_uid, conversation_key)
+  def ensure_conversation(subject_uid, conversation_key, opts \\ []) do
+    Conversations.ensure_conversation(subject_uid, conversation_key, opts)
   end
 
   @doc """
   Creates a conversation implicitly for stateful Responses callers that start
   with `store=true` and no explicit conversation or previous response anchor.
   """
-  @spec create_managed_stateful_responses_conversation(String.t()) ::
+  @spec create_managed_stateful_responses_conversation(String.t(), keyword()) ::
           {:ok, Conversation.t()} | {:error, term()}
-  def create_managed_stateful_responses_conversation(subject_uid) do
-    Conversations.create_managed_stateful_responses_conversation(subject_uid)
+  def create_managed_stateful_responses_conversation(subject_uid, opts \\ []) do
+    Conversations.create_managed_stateful_responses_conversation(subject_uid, opts)
   end
 
   # ───────────────────────────────────────────────────────────────

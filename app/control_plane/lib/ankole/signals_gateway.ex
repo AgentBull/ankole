@@ -13,6 +13,7 @@ defmodule Ankole.SignalsGateway do
   alias Ankole.SignalsGateway.ActorRuntime.SessionController
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.Bindings
+  alias Ankole.SignalsGateway.Entry
   alias Ankole.SignalsGateway.InboundBatches
   alias Ankole.SignalsGateway.Outbox
   alias Ankole.SignalsGateway.OutboxEntry
@@ -20,6 +21,7 @@ defmodule Ankole.SignalsGateway do
   alias Ankole.SignalsGateway.Binding
   alias Ankole.SignalsGateway.StateCleanup
   alias Ankole.SignalsGateway.Utils
+  alias Ankole.SignalsGateway.Visibility
 
   @doc """
   Appends one durable Actor event inside a caller-owned transaction.
@@ -86,6 +88,20 @@ defmodule Ankole.SignalsGateway do
   """
   @spec list_enabled_bindings(String.t(), keyword()) :: [Binding.t()]
   defdelegate list_enabled_bindings(adapter, opts \\ []), to: Bindings
+
+  @doc """
+  Returns the provider and AuthZ-backed channel mirrors visible to a principal.
+  """
+  @spec visible_channels(String.t(), keyword()) :: [Ankole.SignalsGateway.Channel.t()]
+  defdelegate visible_channels(principal_uid, opts \\ []), to: Visibility
+
+  @doc """
+  Resolves the globally unique, stable address of one mirrored source entry.
+  """
+  @spec get_entry_by_document_id(String.t()) :: Entry.t() | nil
+  def get_entry_by_document_id(document_id) when is_binary(document_id) do
+    Ankole.Repo.get_by(Entry, document_id: document_id)
+  end
 
   @doc """
   Returns the binding config ref for an outbox row's route.

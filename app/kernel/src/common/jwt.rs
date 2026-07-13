@@ -23,6 +23,57 @@ pub fn jwt_verify(token: &str, key: &[u8], validation_json: &str) -> KernelResul
         .and_then(encode_claims)
 }
 
+/// Signs JSON claims with an RSA private key in PEM form.
+///
+/// Only the RS* algorithm family is accepted here (default RS256); HMAC
+/// signing stays on `jwt_sign`. The header JSON takes the same fields as
+/// `jwt_sign`, including `kid` for key selection at the receiving side.
+pub fn jwt_sign_pem(
+    claims_json: &str,
+    private_key_pem: &str,
+    header_json: &str,
+) -> KernelResult<String> {
+    let claims = decode_json_object(claims_json, "claims")?;
+    let header = jwt_rsa_header_from_json(header_json)?;
+    let key = EncodingKey::from_rsa_pem(private_key_pem.as_bytes())
+        .map_err(|error| KernelError::new(format!("invalid rsa pem key: {error}")))?;
+
+    encode(&header, &claims, &key)
+        .map_err(|error| KernelError::new(format!("jwt sign failed: {error}")))
+}
+
+/// Verifies an RSA-signed JWT against a JWK and returns its claims as JSON.
+///
+/// The key is a single RFC 7517 JWK object with `kty: "RSA"` and base64url
+/// `n`/`e` components, as served by provider JWKS documents. Only the RS*
+/// algorithm family is accepted here; HMAC verification stays on `jwt_verify`.
+pub fn jwt_verify_jwk(token: &str, jwk_json: &str, validation_json: &str) -> KernelResult<String> {
+    let validation = jwt_rsa_validation_from_json(validation_json)?;
+    let key = decoding_key_from_rsa_jwk(jwk_json)?;
+
+    decode::<Value>(token, &key, &validation)
+        .map_err(|error| KernelError::new(format!("jwt verify failed: {error}")))
+        .and_then(encode_claims)
+}
+
+fn decoding_key_from_rsa_jwk(input: &str) -> KernelResult<DecodingKey> {
+    let value = decode_json_object(input, "jwk")?;
+
+    match string_field(&value, &["kty"]).as_deref() {
+        Some("RSA") => {
+            let modulus = string_field(&value, &["n"])
+                .ok_or_else(|| KernelError::new("jwk must contain an n component"))?;
+            let exponent = string_field(&value, &["e"])
+                .ok_or_else(|| KernelError::new("jwk must contain an e component"))?;
+
+            DecodingKey::from_rsa_components(&modulus, &exponent)
+                .map_err(|error| KernelError::new(format!("invalid rsa jwk: {error}")))
+        }
+        Some(kty) => Err(KernelError::new(format!("unsupported jwk kty: {kty}"))),
+        None => Err(KernelError::new("jwk must contain kty")),
+    }
+}
+
 fn decode_json_object(input: &str, field: &str) -> KernelResult<Value> {
     let value = serde_json::from_str::<Value>(input)
         .map_err(|error| KernelError::new(format!("{field} must contain valid JSON: {error}")))?;
@@ -34,12 +85,24 @@ fn decode_json_object(input: &str, field: &str) -> KernelResult<Value> {
 }
 
 fn jwt_header_from_json(input: &str) -> KernelResult<Header> {
+    header_from_json(input, parse_hmac_algorithm, Algorithm::HS256)
+}
+
+fn jwt_rsa_header_from_json(input: &str) -> KernelResult<Header> {
+    header_from_json(input, parse_rsa_algorithm, Algorithm::RS256)
+}
+
+fn header_from_json(
+    input: &str,
+    parse_algorithm: fn(&str) -> KernelResult<Algorithm>,
+    default_algorithm: Algorithm,
+) -> KernelResult<Header> {
     let value = decode_json_object(input, "header")?;
     let algorithm = string_field(&value, &["algorithm", "alg"])
         .as_deref()
         .map(parse_algorithm)
         .transpose()?
-        .unwrap_or(Algorithm::HS256);
+        .unwrap_or(default_algorithm);
 
     let mut header = Header::new(algorithm);
     header.typ = string_field(&value, &["type", "typ"]).or_else(|| Some("JWT".to_string()));
@@ -55,9 +118,21 @@ fn jwt_header_from_json(input: &str) -> KernelResult<Header> {
 }
 
 fn jwt_validation_from_json(input: &str) -> KernelResult<Validation> {
+    validation_from_json(input, parse_hmac_algorithm, Algorithm::HS256)
+}
+
+fn jwt_rsa_validation_from_json(input: &str) -> KernelResult<Validation> {
+    validation_from_json(input, parse_rsa_algorithm, Algorithm::RS256)
+}
+
+fn validation_from_json(
+    input: &str,
+    parse_algorithm: fn(&str) -> KernelResult<Algorithm>,
+    default_algorithm: Algorithm,
+) -> KernelResult<Validation> {
     let value = decode_json_object(input, "validation")?;
-    let algorithms = algorithms_field(&value)?;
-    let mut validation = Validation::new(algorithms.first().copied().unwrap_or(Algorithm::HS256));
+    let algorithms = algorithms_field(&value, parse_algorithm, default_algorithm)?;
+    let mut validation = Validation::new(algorithms.first().copied().unwrap_or(default_algorithm));
     validation.algorithms = algorithms;
 
     match string_array_field(&value, &["aud", "audience"])? {
@@ -98,7 +173,11 @@ fn jwt_validation_from_json(input: &str) -> KernelResult<Validation> {
     Ok(validation)
 }
 
-fn algorithms_field(value: &Value) -> KernelResult<Vec<Algorithm>> {
+fn algorithms_field(
+    value: &Value,
+    parse_algorithm: fn(&str) -> KernelResult<Algorithm>,
+    default_algorithm: Algorithm,
+) -> KernelResult<Vec<Algorithm>> {
     match value.get("algorithms") {
         Some(Value::Array(values)) => values
             .iter()
@@ -110,17 +189,28 @@ fn algorithms_field(value: &Value) -> KernelResult<Vec<Algorithm>> {
         Some(_) => Err(KernelError::new("algorithms must be an array")),
         None => string_field(value, &["algorithm", "alg"])
             .map(|algorithm| parse_algorithm(&algorithm).map(|algorithm| vec![algorithm]))
-            .unwrap_or_else(|| Ok(vec![Algorithm::HS256])),
+            .unwrap_or_else(|| Ok(vec![default_algorithm])),
     }
 }
 
-fn parse_algorithm(input: &str) -> KernelResult<Algorithm> {
+fn parse_hmac_algorithm(input: &str) -> KernelResult<Algorithm> {
     match input {
         "HS256" => Ok(Algorithm::HS256),
         "HS384" => Ok(Algorithm::HS384),
         "HS512" => Ok(Algorithm::HS512),
         algorithm => Err(KernelError::new(format!(
             "unsupported jwt algorithm: {algorithm}"
+        ))),
+    }
+}
+
+fn parse_rsa_algorithm(input: &str) -> KernelResult<Algorithm> {
+    match input {
+        "RS256" => Ok(Algorithm::RS256),
+        "RS384" => Ok(Algorithm::RS384),
+        "RS512" => Ok(Algorithm::RS512),
+        algorithm => Err(KernelError::new(format!(
+            "unsupported jwk jwt algorithm: {algorithm}"
         ))),
     }
 }

@@ -19,6 +19,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.AdapterContext
   alias Ankole.SignalsGateway.Binding
+  alias Ankole.SignalsGateway.BindingMembership
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.Projection
   alias FeishuOpenAPI.Event
@@ -203,7 +204,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
              namespace(config),
              chat_id,
              chat_attrs(config, chat),
-             participant(context, config, :joined)
+             context
            ),
          {:ok, principal_uids} <- member_principal_uids(config, chat_id, opts),
          # The API snapshot can be older than a just-arrived member event. The
@@ -221,14 +222,14 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   end
 
   @doc false
-  @spec ensure_lark_im_group(String.t(), String.t(), map(), map()) ::
+  @spec ensure_lark_im_group(String.t(), String.t(), map(), AdapterContext.t()) ::
           {:ok, Group.t()} | {:error, term()}
-  def ensure_lark_im_group(namespace, chat_id, attrs, participant)
-      when is_binary(namespace) and is_binary(chat_id) and is_map(attrs) and is_map(participant) do
+  def ensure_lark_im_group(namespace, chat_id, attrs, %AdapterContext{} = context)
+      when is_binary(namespace) and is_binary(chat_id) and is_map(attrs) do
     Repo.transact(fn repo ->
       with :ok <- lock_chat(repo, namespace, chat_id),
            {:ok, group} <-
-             ensure_lark_im_group_in_tx(repo, namespace, chat_id, attrs, participant) do
+             ensure_lark_im_group_in_tx(repo, namespace, chat_id, attrs, context) do
         {:ok, group}
       end
     end)
@@ -269,7 +270,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   end
 
   defp dispatch_im_event(_consumer, context, config, @bot_deleted, _event, _content, chat_id) do
-    mark_participant_left(namespace(config), chat_id, participant(context, config, :left))
+    mark_participant_left(namespace(config), chat_id, context)
   end
 
   defp dispatch_im_event(_consumer, _context, config, @chat_disbanded, _event, _content, chat_id) do
@@ -360,7 +361,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
                namespace(config),
                chat_id,
                chat_attrs(config, chat),
-               participant(context, config, :joined)
+               context
              ),
            {:ok, principal_uids} <- member_principal_uids(config, chat_id, opts),
            # Writes are serialized per chat, but the provider snapshot can still
@@ -469,15 +470,15 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
     end
   end
 
-  defp ensure_lark_im_group_in_tx(repo, namespace, chat_id, attrs, participant) do
+  defp ensure_lark_im_group_in_tx(repo, namespace, chat_id, attrs, context) do
     case lock_im_group_by_binding(repo, namespace, chat_id) do
-      {:ok, group} -> update_im_group_in_tx(repo, group, namespace, chat_id, attrs, participant)
-      {:error, :not_found} -> create_im_group_in_tx(repo, namespace, chat_id, attrs, participant)
+      {:ok, group} -> update_im_group_in_tx(repo, group, namespace, chat_id, attrs, context)
+      {:error, :not_found} -> create_im_group_in_tx(repo, namespace, chat_id, attrs, context)
     end
   end
 
-  defp create_im_group_in_tx(repo, namespace, chat_id, attrs, participant) do
-    metadata = merge_participant(%{}, participant)
+  defp create_im_group_in_tx(repo, namespace, chat_id, attrs, context) do
+    metadata = BindingMembership.project(%{}, context, :joined)
 
     with {:ok, group} <-
            %Group{}
@@ -495,10 +496,10 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
     end
   end
 
-  defp update_im_group_in_tx(repo, %Group{} = group, namespace, chat_id, attrs, participant) do
+  defp update_im_group_in_tx(repo, %Group{} = group, namespace, chat_id, attrs, context) do
     changes =
       %{
-        metadata: merge_participant(group.metadata || %{}, participant)
+        metadata: BindingMembership.project(group.metadata, context, :joined)
       }
       |> maybe_put_display_name(attrs, chat_id)
 
@@ -643,7 +644,6 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   defp mark_missing_chats_left(%AdapterContext{} = context, config, observed_chat_ids) do
     observed = MapSet.new(observed_chat_ids)
     namespace = namespace(config)
-    participant_key = participant_key(String.downcase(context.agent_uid), context.binding_name)
 
     groups =
       ExternalBinding
@@ -659,25 +659,24 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
     groups
     |> Enum.reject(fn {chat_id, _group_id, _metadata} -> MapSet.member?(observed, chat_id) end)
     |> Enum.filter(fn {_chat_id, _group_id, metadata} ->
-      get_in(metadata || %{}, ["lark_im", "sync_participants", participant_key, "state"]) ==
-        "joined"
+      BindingMembership.joined?(metadata, context)
     end)
     |> Enum.reduce_while({:ok, 0}, fn {chat_id, _group_id, _metadata}, {:ok, count} ->
-      case mark_participant_left(namespace, chat_id, participant(context, config, :left)) do
+      case mark_participant_left(namespace, chat_id, context) do
         {:ok, _result} -> {:cont, {:ok, count + 1}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
 
-  defp mark_participant_left(namespace, chat_id, participant) do
+  defp mark_participant_left(namespace, chat_id, %AdapterContext{} = context) do
     Repo.transact(fn repo ->
       with :ok <- lock_chat(repo, namespace, chat_id),
            {:ok, group} <- lock_im_group_by_binding(repo, namespace, chat_id),
            {:ok, group} <-
              group
              |> Group.changeset(%{
-               metadata: merge_participant(group.metadata || %{}, participant)
+               metadata: BindingMembership.project(group.metadata, context, :left)
              })
              |> repo.update(),
            {:ok, cleanup} <- maybe_clear_all_left_members(repo, group) do
@@ -693,7 +692,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
     Repo.transact(fn repo ->
       with :ok <- lock_chat(repo, namespace, chat_id),
            {:ok, group} <- lock_im_group_by_binding(repo, namespace, chat_id),
-           metadata <- mark_all_participants_left(group.metadata || %{}),
+           metadata <- BindingMembership.mark_all_left(group.metadata),
            {:ok, group} <- group |> Group.changeset(%{metadata: metadata}) |> repo.update(),
            {:ok, cleanup} <- maybe_clear_all_left_members(repo, group) do
         {:ok, Map.put(cleanup, :group_id, group.id)}
@@ -705,10 +704,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   end
 
   defp maybe_clear_all_left_members(repo, %Group{} = group) do
-    participants = get_in(group.metadata || %{}, ["lark_im", "sync_participants"]) || %{}
-
-    if participants != %{} and
-         Enum.all?(participants, fn {_key, value} -> value["state"] == "left" end) do
+    if BindingMembership.all_left?(group.metadata) do
       AuthZStore.clear_static_group_members(repo, group.id, :im_group)
       |> case do
         {:ok, result} -> {:ok, Map.put(result, :status, :all_left_members_cleared)}
@@ -718,52 +714,6 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
       {:ok, %{status: :participant_marked_left, removed_memberships: 0}}
     end
   end
-
-  defp merge_participant(metadata, participant) do
-    key = participant_key(participant["agent_uid"], participant["binding_name"])
-
-    metadata
-    |> put_in_if_missing(["lark_im"], %{})
-    |> put_in_if_missing(["lark_im", "sync_participants"], %{})
-    |> put_in(["lark_im", "sync_participants", key], participant)
-  end
-
-  defp mark_all_participants_left(metadata) do
-    now = DateTime.utc_now(:microsecond) |> DateTime.to_iso8601()
-    participants = get_in(metadata, ["lark_im", "sync_participants"]) || %{}
-
-    updated =
-      Map.new(participants, fn {key, value} ->
-        {key, value |> Map.put("state", "left") |> Map.put("last_left_at", now)}
-      end)
-
-    put_in(metadata, ["lark_im", "sync_participants"], updated)
-  end
-
-  defp put_in_if_missing(map, path, value) do
-    case get_in(map, path) do
-      nil -> put_in(map, path, value)
-      _existing -> map
-    end
-  end
-
-  defp participant(%AdapterContext{} = context, config, state) when state in [:joined, :left] do
-    now = DateTime.utc_now(:microsecond) |> DateTime.to_iso8601()
-
-    %{
-      "agent_uid" => context.agent_uid,
-      "binding_name" => context.binding_name,
-      "app_id" => Map.fetch!(config, "appID"),
-      "domain" => Map.fetch!(config, "domain"),
-      "state" => Atom.to_string(state),
-      "last_seen_at" => if(state == :joined, do: now),
-      "last_left_at" => if(state == :left, do: now)
-    }
-    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-    |> Map.new()
-  end
-
-  defp participant_key(agent_uid, binding_name), do: "#{agent_uid}|#{binding_name}"
 
   defp group_name(namespace, chat_id), do: "#{namespace}:im_group:#{String.downcase(chat_id)}"
 

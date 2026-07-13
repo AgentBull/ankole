@@ -117,7 +117,19 @@ defmodule SlackOpenAPI.SocketMode.Client do
         Process.demonitor(ref, [:flush])
         duration = System.monotonic_time(:millisecond) - started_at
         emit([:envelope], %{duration_ms: duration}, %{event_type: event_type, result: result})
-        {:noreply, send_ack(envelope_id, duration, %{state | dispatch_tasks: rest})}
+
+        state = %{state | dispatch_tasks: rest}
+
+        # A provider ack is sent only after the gateway transaction commits
+        # (SignalsGateway.md). An {:ok, _} result covers both accepted facts
+        # and committed terminal decisions (filtered/ignored/no_handler), all
+        # of which are safe to ack. An {:error, _} means the transaction did
+        # not commit; withholding the ack lets Slack redeliver (ingress is
+        # idempotent via the actor_events unique constraint).
+        case result do
+          {:ok, _} -> {:noreply, send_ack(envelope_id, duration, state)}
+          {:error, _reason} -> {:noreply, state}
+        end
     end
   end
 
@@ -127,11 +139,15 @@ defmodule SlackOpenAPI.SocketMode.Client do
       {nil, _rest} ->
         {:noreply, state}
 
-      {{envelope_id, event_type, started_at}, rest} ->
+      {{_envelope_id, event_type, started_at}, rest} ->
         duration = System.monotonic_time(:millisecond) - started_at
         Logger.error("slack_openapi Socket Mode dispatch crashed: #{inspect(reason)}")
         emit([:envelope], %{duration_ms: duration}, %{event_type: event_type, result: :crashed})
-        {:noreply, send_ack(envelope_id, duration, %{state | dispatch_tasks: rest})}
+
+        # A crash gives no commit guarantee, so the envelope is not acked.
+        # Slack redelivers after the ack timeout; ingress idempotency keeps
+        # the redelivery safe.
+        {:noreply, %{state | dispatch_tasks: rest}}
     end
   end
 

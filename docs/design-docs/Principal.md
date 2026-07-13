@@ -177,6 +177,33 @@ The uniqueness key is:
 kind + provider + external_id
 ```
 
+#### Email join across providers
+
+Human email is unique installation-wide, so email is the cross-provider join
+key. When a platform subject is seen for the first time, its Principal resolves
+in this order:
+
+1. the Principal already bound to `provider + external_id`;
+2. the Principal whose `human_users.email` equals the subject's normalized
+   email (case-insensitive), regardless of Principal status;
+3. the caller-suggested `uid`;
+4. the `external_id` as the new Principal uid.
+
+Rule 2 is what merges a chat-observed subject and a directory-synced subject
+into one human when both providers report the same email. It requires the
+earlier provider to have stored the email: a chat adapter that projects members
+without emails creates email-less Principals that a later provider cannot
+claim, so mixed installations should run the email-bearing directory sync
+before enabling a second identity provider.
+
+A subject that is already bound keeps its Principal. If its update carries an
+email or mobile that a different Principal owns, that field is dropped from the
+update and a `principals.platform_subject.contact_conflict` warning names both
+Principal uids; subjects are never re-pointed automatically, and duplicate
+Principals that predate the conflict are an operator cleanup, not an automatic
+merge. Mobile is never a join key. Reusing a former employee's email for a new
+hire requires clearing the email on the old Principal first.
+
 ### `channel_actor`
 
 `channel_actor` is a channel-scoped fallback for integrations that cannot

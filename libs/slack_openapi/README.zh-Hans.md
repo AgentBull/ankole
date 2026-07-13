@@ -14,7 +14,9 @@ client =
 {:ok, auth} = SlackOpenAPI.post(client, "auth.test", body: %{})
 ```
 
-Socket Mode handler 在 `SlackOpenAPI.EventTaskSupervisor` 中执行；dispatch
-完成后才回 ack。Slack 的例行 disconnect 会立即重连，凭证类错误则停止客户端。
+Socket Mode handler 在 `SlackOpenAPI.EventTaskSupervisor` 中执行；只有 dispatch
+成功后才回 ack——已提交的结果（含 filtered/ignored 等终局策略决定）回 ack，而错误或
+handler 崩溃不回 ack，由 Slack 重投信封。Slack 的例行 disconnect 会立即重连，凭证类
+错误则停止客户端。
 
 在本目录执行 `mix test`。

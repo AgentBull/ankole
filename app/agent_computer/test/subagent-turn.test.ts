@@ -88,8 +88,7 @@ describe('@ankole/agent-computer subagent turn', () => {
           soul: 'SOUL: Be careful and evidence-driven.',
           mission: 'MISSION: Ship reliable work.',
           skills: [],
-          memory_notes: [],
-          cache_key: 'subagent-context'
+          brain_snapshot: {}
         })
       })
 
@@ -213,8 +212,7 @@ describe('@ankole/agent-computer subagent turn', () => {
         soul: 'SOUL',
         mission: 'MISSION',
         skills: [],
-        memory_notes: [],
-        cache_key: 'context'
+        brain_snapshot: {}
       })
     }
 
@@ -745,8 +743,7 @@ describe('@ankole/agent-computer subagent turn', () => {
             soul: 'SOUL',
             mission: 'MISSION',
             skills: [],
-            memory_notes: [],
-            cache_key: 'context'
+            brain_snapshot: {}
           })
         })
       ).rejects.toThrow('compaction failed')
@@ -787,8 +784,7 @@ describe('@ankole/agent-computer subagent turn', () => {
               soul: 'SOUL',
               mission: 'MISSION',
               skills: [{ skill_name: 'required-skill', source_kind: 'builtin', relative_path: 'required-skill' }],
-              memory_notes: [],
-              cache_key: 'context-with-required-skill'
+              brain_snapshot: {}
             })
           })
         )
@@ -1003,8 +999,7 @@ function controlScenarioOptions(
       soul: 'SOUL',
       mission: 'MISSION',
       skills: [],
-      memory_notes: [],
-      cache_key: 'context'
+      brain_snapshot: {}
     }),
     ...overrides
   }

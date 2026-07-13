@@ -15,7 +15,10 @@ client =
 ```
 
 Socket Mode handlers run in `SlackOpenAPI.EventTaskSupervisor`; an envelope is
-acknowledged only after dispatch completes. Regular Slack disconnect refreshes
-reconnect immediately, while credential failures stop the client.
+acknowledged only after dispatch succeeds — a committed result (including a
+terminal policy decision such as filtered or ignored) is acked, while an error
+or a handler crash withholds the ack so Slack redelivers the envelope. Regular
+Slack disconnect refreshes reconnect immediately, while credential failures
+stop the client.
 
 Run tests with `mix test` from this directory.

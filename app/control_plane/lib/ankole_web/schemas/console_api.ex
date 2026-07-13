@@ -465,6 +465,143 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
+  defmodule WorkerEnvItem do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    # One Agent Computer shell variable as the console sees it. `kind` says
+    # which track owns the name: a `declared` AppConfigure definition (with
+    # `declared_key` pointing at the configuration key) or a `custom` operator
+    # row. `source` names the tier the effective value comes from, and secret
+    # values omit `value` — the decryption endpoint reveals them.
+    OpenAPISpex.schema(
+      %{
+        title: "WorkerEnvItem",
+        type: :object,
+        properties: %{
+          name: %Schema{type: :string},
+          kind: %Schema{type: :string, enum: ["declared", "custom"]},
+          secret: %Schema{type: :boolean},
+          description: %Schema{type: :string, nullable: true},
+          declared_key: %Schema{type: :string, nullable: true},
+          present: %Schema{type: :boolean},
+          source: %Schema{
+            type: :string,
+            enum: ["default", "global", "agent", "missing", "error"]
+          },
+          editable: %Schema{type: :boolean},
+          value: JSONValue,
+          error: %Schema{type: :string, nullable: true}
+        },
+        required: [:name, :kind, :secret, :present, :source, :editable],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule WorkerEnvListResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "WorkerEnvListResponse",
+        type: :object,
+        properties: %{
+          worker_envs: %Schema{type: :array, items: WorkerEnvItem}
+        },
+        required: [:worker_envs],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule WorkerEnvResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "WorkerEnvResponse",
+        type: :object,
+        properties: %{
+          worker_env: WorkerEnvItem
+        },
+        required: [:worker_env],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule WorkerEnvUpdateRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    # `value` must be a string for custom variables; declared variables accept
+    # whatever JSON their AppConfigure schema validates. `secret` only applies
+    # to custom variables and keeps its stored state when omitted.
+    OpenAPISpex.schema(
+      %{
+        title: "WorkerEnvUpdateRequest",
+        type: :object,
+        properties: %{
+          value: JSONValue,
+          secret: %Schema{type: :boolean},
+          description: %Schema{type: :string, nullable: true}
+        },
+        required: [:value],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule WorkerEnvDecryptionValue do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "WorkerEnvDecryptionValue",
+        type: :object,
+        properties: %{
+          name: %Schema{type: :string},
+          value: JSONValue
+        },
+        required: [:name, :value],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule WorkerEnvDecryptionResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "WorkerEnvDecryptionResponse",
+        type: :object,
+        properties: %{
+          decrypted_value: WorkerEnvDecryptionValue
+        },
+        required: [:decrypted_value],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
   defmodule SignalAdapterFieldOption do
     @moduledoc false
 

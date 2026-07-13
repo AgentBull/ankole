@@ -33,6 +33,8 @@ export interface ContainerComputer {
 
 interface ContainerComputerOptions {
   backgroundCommandRegistry?: BackgroundCommandRegistry
+  /** Operator-managed variables applied to every command and terminal session. */
+  workerEnv?: Record<string, string>
 }
 
 /**
@@ -50,16 +52,17 @@ export function createContainerComputer(
   const root = resolve(workspaceRoot)
   const backgroundCommandRegistry = options.backgroundCommandRegistry ?? defaultBackgroundCommandRegistry
   const backgroundScope = { workspaceRoot: root, executionScopeID }
+  const workerEnv = options.workerEnv
 
   const safePath = (path: string, cwd?: string): string => resolveWorkspacePath(root, path, { cwd })
 
   return {
     runCommand(input) {
-      return runWorkspaceCommand(input, root)
+      return runWorkspaceCommand({ workerEnv, ...input }, root)
     },
     backgroundCommands: {
       start(input) {
-        return backgroundCommandRegistry.start(input, backgroundScope)
+        return backgroundCommandRegistry.start({ workerEnv, ...input }, backgroundScope)
       },
       status(id) {
         return Promise.resolve(backgroundCommandRegistry.status(id, backgroundScope))
@@ -88,6 +91,6 @@ export function createContainerComputer(
         }
       }
     },
-    terminals: createContainerTerminals(root)
+    terminals: createContainerTerminals(root, workerEnv)
   }
 }

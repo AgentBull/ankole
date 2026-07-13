@@ -1,0 +1,71 @@
+defmodule Ankole.Plugins.GoogleWorkspaceAdapter.MapHelpers do
+  @moduledoc false
+
+  @spec fetch_value(term(), term()) :: term()
+  def fetch_value(map, key) when is_map(map) do
+    atom_key = atom_key(key)
+
+    cond do
+      Map.has_key?(map, key) -> Map.fetch!(map, key)
+      not is_nil(atom_key) and Map.has_key?(map, atom_key) -> Map.fetch!(map, atom_key)
+      true -> nil
+    end
+  end
+
+  def fetch_value(_map, _key), do: nil
+
+  @spec fetch_map(term(), term(), map()) :: map()
+  def fetch_map(map, key, default) do
+    case fetch_value(map, key) do
+      value when is_map(value) -> value
+      _value -> default
+    end
+  end
+
+  @spec fetch_list(term(), term()) :: list()
+  def fetch_list(map, key) do
+    case fetch_value(map, key) do
+      value when is_list(value) -> value
+      _value -> []
+    end
+  end
+
+  @spec optional_text(term(), term()) :: String.t() | nil
+  def optional_text(map, key) do
+    case fetch_value(map, key) do
+      value when is_binary(value) -> presence(value)
+      _value -> nil
+    end
+  end
+
+  @spec presence(term()) :: String.t() | nil
+  def presence(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      value -> value
+    end
+  end
+
+  def presence(_value), do: nil
+
+  @spec compact_map(map()) :: map()
+  def compact_map(map), do: Map.reject(map, fn {_key, value} -> is_nil(value) end)
+
+  @spec compact_metadata_map(map()) :: map()
+  def compact_metadata_map(map) do
+    Map.reject(map, fn {_key, value} -> is_nil(value) or value == [] end)
+  end
+
+  @spec maybe_put(map(), term(), term()) :: map()
+  def maybe_put(map, _key, nil), do: map
+  def maybe_put(map, _key, ""), do: map
+  def maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp atom_key(key) when is_binary(key) do
+    String.to_existing_atom(key)
+  rescue
+    ArgumentError -> nil
+  end
+
+  defp atom_key(_key), do: nil
+end

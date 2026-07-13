@@ -53,6 +53,10 @@ defmodule AnkoleWeb.APISpec do
           description: "Registry-backed runtime configuration exposed to the web console"
         },
         %Tag{
+          name: "WorkerEnv",
+          description: "Operator-managed environment variables for Agent Computer shells"
+        },
+        %Tag{
           name: "Agents",
           description: "Operator-managed agent principals"
         },
@@ -87,6 +91,10 @@ defmodule AnkoleWeb.APISpec do
         %Tag{
           name: "Subagent Delegations",
           description: "Durable background work delegated to the Codex subagent runtime"
+        },
+        %Tag{
+          name: "Brain",
+          description: "Human supervision of current knowledge, provenance, and audit recovery"
         }
       ]
     }

@@ -77,16 +77,20 @@ Host runtimes provide complete inputs:
 
 | Host | Loader | Binding file | Cargo feature |
 |------|--------|--------------|---------------|
-| Elixir / BEAM | Rustler | `src/nif_exports.rs` | `nif` |
+| Elixir / BEAM (dev/test) | Rustler | `src/nif_exports.rs` | `nif_dev` |
+| Elixir / BEAM (production) | Rustler | `src/nif_exports.rs` | `nif_prod` |
 | Bun / Node | N-API | `src/napi_exports.rs` | `napi` |
 
 The host-neutral modules are compiled for tests and for both binding features.
 The binding files decode host values, preserve binary and JSON boundaries,
 translate errors, and forward to the shared modules.
 
-`universal_ai_client` is feature-gated separately and currently enabled by the
-Rustler/NIF build. Keep one-sided exports explicit in the binding layer until
-another host needs the same API.
+`universal_ai_client` is feature-gated separately and enabled by both Rustler
+builds. Development uses ring without HTTP/3 to keep cold compilation fast;
+production keeps reqwest's AWS-LC-backed HTTP/3 support. A development build
+falls back to HTTP/2 or HTTP/1 even when a transport preference only lists H3.
+Keep one-sided exports explicit in the binding layer until another host needs
+the same API.
 
 Binding layers may use host-native naming and types, but they must not introduce
 different behavior. Complex maps cross as JSON-shaped values (`Torque` on

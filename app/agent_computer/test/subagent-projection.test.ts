@@ -8,6 +8,7 @@ describe('@ankole/agent-computer subagent capability projection', () => {
     const calls: unknown[] = []
     const tools: AgentTool[] = [
       tool('skill_view', z.object({ name: z.string() }), () => 'must stay hidden'),
+      tool('memory_note', z.object({ content: z.string() }), () => 'must stay hidden'),
       tool('web_search', z.object({ query: z.string() }), params => {
         calls.push(params)
         return 'search result'
@@ -18,6 +19,9 @@ describe('@ankole/agent-computer subagent capability projection', () => {
         return 'memory result'
       }),
       tool('memory_browse', z.object({ cursor: z.string() }), () => 'x'.repeat(20_000)),
+      tool('memory_open', z.object({ name: z.string() }), () => 'opened memory'),
+      tool('memory_update', z.object({ operation: z.literal('set_summary') }), () => 'updated memory'),
+      tool('memory_health_check', z.object({}), () => 'healthy memory'),
       tool('browser_navigate', z.object({ url: z.string() }), () => 'page snapshot'),
       imageTool('browser_screenshot'),
       ...['browser_run', 'command', 'interactive_terminal', 'read_file', 'patch', 'reply_attachment'].map(name =>
@@ -39,6 +43,9 @@ describe('@ankole/agent-computer subagent capability projection', () => {
       'web_fetch',
       'memory_search',
       'memory_browse',
+      'memory_open',
+      'memory_update',
+      'memory_health_check',
       'browser_navigate',
       'browser_screenshot'
     ])

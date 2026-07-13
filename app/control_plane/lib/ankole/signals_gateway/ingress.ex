@@ -21,6 +21,7 @@ defmodule Ankole.SignalsGateway.Ingress do
   alias Ankole.SignalsGateway.Projection
   alias Ankole.SignalsGateway.Binding
   alias Ankole.SignalsGateway.Entry
+  alias Ankole.Brain.SourceWithdrawal
 
   import Ankole.SignalsGateway.Utils,
     only: [
@@ -208,6 +209,9 @@ defmodule Ankole.SignalsGateway.Ingress do
            {:ok, tombstone} <- Projection.upsert_tombstone(repo, fact, now),
            {:ok, updated_batches} <- InboundBatches.remove_pending_inbound_entry(repo, fact, now),
            {deleted_count, _rows} <- Projection.delete_mirror_entry(repo, fact),
+           source_document_id <-
+             Projection.entry_document_id(fact.signal_channel_id, fact.source_entry_id),
+           {:ok, withdrawal_job} <- SourceWithdrawal.enqueue(source_document_id),
            {:ok, runtime_retractions} <-
              TurnRetry.retract_source_entry_in_tx(repo, fact, :removed, now),
            completed_events <-
@@ -225,6 +229,7 @@ defmodule Ankole.SignalsGateway.Ingress do
            tombstone: tombstone,
            updated_inbound_batches: length(updated_batches),
            deleted_mirror_entries: deleted_count,
+           source_withdrawal_job_id: withdrawal_job.id,
            canceled_actor_events: runtime_retractions.canceled_actor_events,
            retried_actor_events: runtime_retractions.retried_actor_events,
            runtime_retractions: runtime_retractions,

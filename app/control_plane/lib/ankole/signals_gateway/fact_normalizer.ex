@@ -33,6 +33,14 @@ defmodule Ankole.SignalsGateway.FactNormalizer do
       channel = fetch_map(input, :channel, %{})
       author = normalize_author_principal(binding, fetch_map(input, :author, %{}))
 
+      channel_kind =
+        normalize_channel_kind(fetch_value(channel, :kind) || fetch_value(input, :channel_kind))
+
+      channel_metadata =
+        channel
+        |> fetch_map(:metadata, %{})
+        |> put_dm_peer_principal(channel_kind, author, binding.agent_uid)
+
       {:ok,
        %{
          agent_uid: binding.agent_uid,
@@ -42,10 +50,7 @@ defmodule Ankole.SignalsGateway.FactNormalizer do
          signal_channel_id: signal_channel_id,
          source_entry_id: source_entry_id,
          provider_thread_id: optional_text(input, :provider_thread_id),
-         channel_kind:
-           normalize_channel_kind(
-             fetch_value(channel, :kind) || fetch_value(input, :channel_kind)
-           ),
+         channel_kind: channel_kind,
          reply_mode:
            normalize_reply_mode(
              fetch_value(channel, :reply_mode) || fetch_value(input, :reply_mode)
@@ -53,7 +58,7 @@ defmodule Ankole.SignalsGateway.FactNormalizer do
          channel_name: channel_name(input, channel),
          channel_visibility:
            optional_text(channel, :visibility) || optional_text(input, :channel_visibility),
-         channel_metadata: fetch_map(channel, :metadata, %{}),
+         channel_metadata: channel_metadata,
          channel_raw_payload: fetch_map(channel, :raw_payload, fetch_map(channel, :raw, %{})),
          text: optional_text(input, :text),
          formatted_content: fetch_map(input, :formatted_content, %{}),
@@ -206,6 +211,28 @@ defmodule Ankole.SignalsGateway.FactNormalizer do
   defp channel_name(input, channel) do
     optional_text(channel, :name) || optional_text(input, :channel_name)
   end
+
+  # A DM's peer is a durable routing fact, not a provider-specific payload
+  # detail. Persist the normalized Ankole principal on the channel mirror so a
+  # later system event in the same channel can declare the same Brain scope
+  # without reinterpreting an old message body.
+  defp put_dm_peer_principal(metadata, :im_dm, author, agent_uid) do
+    case optional_text(author, :principal_uid) do
+      principal_uid when is_binary(principal_uid) ->
+        principal_uid = normalize_uid(principal_uid)
+
+        if principal_uid == normalize_uid(agent_uid) do
+          metadata
+        else
+          Map.put(metadata, "dm_peer_principal_uid", principal_uid)
+        end
+
+      nil ->
+        metadata
+    end
+  end
+
+  defp put_dm_peer_principal(metadata, _channel_kind, _author, _agent_uid), do: metadata
 
   defp structured_agent_mention?(input, agent_uid) do
     input

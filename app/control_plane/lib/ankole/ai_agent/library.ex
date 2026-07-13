@@ -280,6 +280,60 @@ defmodule Ankole.AIAgent.Library do
     do: {:error, :invalid_overlay}
 
   @doc """
+  Replaces an enabled skill overlay only when its current content hash matches.
+
+  An absent overlay has the empty-string hash at this boundary. This is the
+  whole-overlay model-facing write path; stale callers must resolve and retry
+  instead of silently overwriting a concurrent addition.
+  """
+  @spec replace_skill_overlay_cas(String.t(), String.t(), String.t(), map(), keyword()) ::
+          {:ok, AgentSkillOverlay.t()} | {:error, term()}
+  def replace_skill_overlay_cas(
+        agent_uid,
+        skill_name,
+        expected_content_hash,
+        overlay_json,
+        opts \\ []
+      )
+
+  def replace_skill_overlay_cas(
+        agent_uid,
+        skill_name,
+        expected_content_hash,
+        overlay_json,
+        opts
+      )
+      when is_binary(expected_content_hash) and is_map(overlay_json) do
+    repo = Keyword.get(opts, :repo, Repo)
+
+    repo.transact(fn repo ->
+      with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
+           {:ok, sources} <- agent_skill_sources(agent_uid, opts),
+           {:ok, _result} <-
+             sync_agent_skills_in_tx(repo, agent_uid, sources, DateTime.utc_now(:microsecond)),
+           {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name),
+           {:ok, _skill} <- enabled_skill(repo, agent_uid, skill_name),
+           :ok <- lock_skill_overlay(repo, agent_uid, skill_name),
+           :ok <-
+             verify_overlay_hash(
+               active_skill_overlay(repo, agent_uid, skill_name),
+               expected_content_hash
+             ) do
+        replace_skill_overlay_in_tx(repo, agent_uid, skill_name, overlay_json)
+      end
+    end)
+  end
+
+  def replace_skill_overlay_cas(
+        _agent_uid,
+        _skill_name,
+        _expected_content_hash,
+        _overlay_json,
+        _opts
+      ),
+      do: {:error, :invalid_overlay}
+
+  @doc """
   Worker `skill_append` tool entry: appends durable notes to the agent's DB overlay text.
   """
   @spec skill_append(String.t(), String.t(), String.t(), keyword()) ::
@@ -295,7 +349,8 @@ defmodule Ankole.AIAgent.Library do
            {:ok, _result} <-
              sync_agent_skills_in_tx(repo, agent_uid, sources, DateTime.utc_now(:microsecond)),
            {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name),
-           {:ok, _skill} <- enabled_skill(repo, agent_uid, skill_name) do
+           {:ok, _skill} <- enabled_skill(repo, agent_uid, skill_name),
+           :ok <- lock_skill_overlay(repo, agent_uid, skill_name) do
         existing =
           repo
           |> active_skill_overlay(agent_uid, skill_name)
@@ -744,6 +799,23 @@ defmodule Ankole.AIAgent.Library do
     |> where([overlay], is_nil(overlay.deleted_at))
     |> repo.one()
   end
+
+  defp lock_skill_overlay(repo, agent_uid, skill_name) do
+    Ecto.Adapters.SQL.query!(
+      repo,
+      "SELECT pg_advisory_xact_lock(hashtext($1))",
+      ["skill-overlay:#{agent_uid}:#{skill_name}"]
+    )
+
+    :ok
+  end
+
+  defp verify_overlay_hash(nil, ""), do: :ok
+
+  defp verify_overlay_hash(%AgentSkillOverlay{content_hash: content_hash}, content_hash),
+    do: :ok
+
+  defp verify_overlay_hash(_overlay, _expected), do: {:error, :skill_overlay_conflict}
 
   defp replace_skill_overlay_in_tx(repo, agent_uid, skill_name, overlay_json) do
     attrs = %{

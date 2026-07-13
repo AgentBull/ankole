@@ -494,6 +494,17 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
       assert is_nil(stored_poison.completed_at)
       assert %DateTime{} = stored_poison.dead_letter_at
 
+      # No preview streamed, so the addressed message would otherwise go silent.
+      # The dead-letter notice posts a fresh message rather than editing a preview.
+      notice = Repo.get_by!(OutboxEntry, outbound_key: "ai-dead-letter:#{poison_event.id}")
+
+      assert notice.fallback_visible_text ==
+               Ankole.I18n.t("signals_gateway.reply.dead_letter", %{"ref" => poison_event.id})
+
+      # The actor event id is embedded so an operator can trace the failure.
+      assert notice.fallback_visible_text =~ poison_event.id
+      assert is_nil(notice.target_source_entry_id)
+
       assert {:ok, %{turn_ref: next_turn_ref}} =
                process_ready_events_once(
                  now: DateTime.add(@base_time, 5, :second),
@@ -503,6 +514,57 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
       assert next_turn_ref["actor_event_id"] == next_event.id
       assert_receive {:actor_lane, next_envelope}
       assert next_envelope["body"]["turn_start"]["turn"]["actor_event_id"] == next_event.id
+    end
+
+    test "dead-lettering an addressed message finalizes the reply preview with a failure notice" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_event: poison_event}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "poison", explicit: true}),
+                 now: @base_time
+               )
+
+      # Simulate a preview that streamed on an earlier attempt before the turn
+      # exhausted its worker retries. The dead-letter notice must edit that frozen
+      # preview in place rather than leave it stuck or post a second message.
+      preview_source_entry_id = "preview-#{Ecto.UUID.generate()}"
+
+      poison_event
+      |> ActorEvent.changeset(%{reply_preview_source_entry_id: preview_source_entry_id})
+      |> Repo.update!()
+
+      assert {:ok, %{status: :turn_failed}} =
+               fail_next_turn!(DateTime.add(@base_time, 2, :second))
+
+      assert {:ok, %{status: :turn_failed}} =
+               fail_next_turn!(DateTime.add(@base_time, 3, :second))
+
+      assert {:ok, %{status: :turn_dead_lettered}} =
+               fail_next_turn!(DateTime.add(@base_time, 4, :second))
+
+      notice = Repo.get_by!(OutboxEntry, outbound_key: "ai-dead-letter:#{poison_event.id}")
+
+      expected_text =
+        Ankole.I18n.t("signals_gateway.reply.dead_letter", %{"ref" => poison_event.id})
+
+      # Proves the catalog resolved instead of degrading to the raw key string.
+      refute expected_text == "signals_gateway.reply.dead_letter"
+      assert notice.fallback_visible_text == expected_text
+      assert notice.payload["text"] == expected_text
+      # The actor event id is embedded so an operator can trace the failure.
+      assert notice.fallback_visible_text =~ poison_event.id
+      assert notice.operation == :edit
+      assert notice.target_source_entry_id == preview_source_entry_id
+      assert is_nil(notice.reply_to_source_entry_id)
     end
 
     test "retryable turn_error backs off without poisoning the event" do

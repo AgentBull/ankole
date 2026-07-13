@@ -19,6 +19,7 @@ import { createTurnActivity } from './turn_activity'
 import { resolveAgentConversationContext } from './turn_context'
 import { agentRuntimePolicyFromTurnStart } from './turn_runtime_policy'
 import { resolveBrowserRuntimeConfig } from './browser_runtime_config'
+import { resolveWorkerEnv } from './worker_env'
 import type { TextTurnLoopOptions, TurnHandlerResult } from './turn_options'
 
 const silentSuccessMarker = '<silent_success/>'
@@ -59,6 +60,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       resolveBrowserRuntimeConfig(turnStart, opts),
       'browser runtime config'
     )
+    const workerEnv = await turnActivity.runStep(resolveWorkerEnv(turnStart, opts), 'worker env')
     const webTools = await turnActivity.runStep(
       createWebTools({
         aiGateway,
@@ -66,6 +68,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
         localBrowser: {
           agentUID: turnStart.turn.actor.agent_uid,
           executionScopeID: turnStart.turn.actor.session_id ?? turnStart.turn.actor.agent_uid,
+          blockPrivateNetwork: browserRuntimeConfig.blockPrivateNetwork,
           ...(typeof browserRuntimeConfig.localBrowserIdleTtlMs === 'number'
             ? { localBrowserIdleTtlMs: browserRuntimeConfig.localBrowserIdleTtlMs }
             : {})
@@ -96,7 +99,9 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
         conversationID: turnStart.turn.actor.session_id,
         workspaceRoot: opts.workspaceRoot,
         browserRemoteCDPConfig: browserRuntimeConfig.remoteCDPConfig,
-        localBrowserIdleTtlMs: browserRuntimeConfig.localBrowserIdleTtlMs
+        localBrowserIdleTtlMs: browserRuntimeConfig.localBrowserIdleTtlMs,
+        blockPrivateNetwork: browserRuntimeConfig.blockPrivateNetwork,
+        workerEnv
       }),
       ...createScheduleTools({
         turnStart,
@@ -121,6 +126,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
         enabledSkills: agentConversationContext.skills ?? [],
         skillRoots: skillRootsFromOptions(opts),
         requestSkillOverlay: opts.requestSkillOverlay,
+        appendSkillOverlay: opts.appendSkillOverlay,
         replaceSkillOverlay: opts.replaceSkillOverlay
       })
     ]

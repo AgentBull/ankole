@@ -29,10 +29,12 @@ export function codexAppServerSandboxSpec(input: {
   workdir: string
   materialized: MaterializedCodexConfig
   runtimeFiles?: MaterializedSubagentRuntimeFiles
+  /** Operator-managed shell variables resolved for the delegating agent. */
+  workerEnv?: Record<string, string>
 }): CodexAppServerSandboxSpec {
   const codexCwd = modelPath(input.workspaceRoot, input.workdir)
   const codexHomeBind = codexHomeBindForSandbox(input.workspaceRoot, input.materialized.codexHome)
-  const env = codexSandboxEnv(input.workspaceRoot, input.materialized.env, codexHomeBind?.target)
+  const env = codexSandboxEnv(input.workspaceRoot, input.materialized.env, codexHomeBind?.target, input.workerEnv)
   const runtimeFileBinds = input.runtimeFiles ? subagentRuntimeFileBinds(input.runtimeFiles) : []
 
   return {
@@ -96,11 +98,13 @@ function subagentRuntimeFileBinds(runtime: MaterializedSubagentRuntimeFiles) {
 function codexSandboxEnv(
   workspaceRoot: string,
   env: Record<string, string>,
-  codexHomeSandboxPath?: string
+  codexHomeSandboxPath?: string,
+  workerEnv?: Record<string, string>
 ): Record<string, string> {
   const next = commandEnv(env, {
     home: WORKSPACE_MODEL_ROOT,
-    ankoleWorkspaceRoot: WORKSPACE_MODEL_ROOT
+    ankoleWorkspaceRoot: WORKSPACE_MODEL_ROOT,
+    workerEnv
   })
   if (next.CODEX_HOME) next.CODEX_HOME = codexHomeSandboxPath ?? modelPath(workspaceRoot, next.CODEX_HOME)
   return next

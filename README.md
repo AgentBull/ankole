@@ -174,3 +174,10 @@ mix ankole.actor_runtime.worker_bootstrap --endpoint tcp://127.0.0.1:6010 --work
 ```
 
 Production bootstrap configuration uses standard infrastructure names such as `DATABASE_URL` and `SECRET_KEY_BASE`. Runtime application configuration belongs in Ankole's PostgreSQL-backed AppConfigure surface rather than process-local environment variables.
+
+Brain requires PostgreSQL 18 with `pg_search` preloaded and both `pg_search`
+and `vector` installed. Model profiles and the destructive-vs-incremental
+database procedure are documented in the
+[Brain operations guide](docs/operations/Brain.md). Its dedicated real-model
+acceptance path is `tools/e2e/run --brain-real-llm`; it is not part of the
+default test gate or `--all`.

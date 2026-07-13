@@ -35,6 +35,7 @@ defmodule Ankole.Application do
       [
         AnkoleWeb.Telemetry,
         Ankole.Repo,
+        {Task.Supervisor, name: Ankole.Brain.TaskSupervisor},
         Ankole.AppConfigure.Registry,
         Ankole.AppConfigure.Cache,
         Ankole.Setup.Bootstrap,

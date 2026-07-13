@@ -293,7 +293,8 @@ recovery remain later user inputs.
 
 Every dispatch materializes a private, read-only `AGENTS.override.md`. Existing
 same-level Codex guidance is included first, followed by SOUL, MISSION, optional
-`background`, optional execution `notes`, and execution context. When a
+frozen Brain snapshot, optional `background`, optional execution `notes`, and
+execution context. When a
 same-level AGENTS file already exists, the merged document overlays that
 existing sandbox mountpoint without changing its host contents. Otherwise,
 Codex discovers the document through its native project-doc fallback from a
@@ -309,12 +310,15 @@ with a database overlay receives a merged `SKILL.md` facade while other
 resources stay mounted from their source directory. A missing enabled Skill is
 a setup failure; there is no `skill_view`, prompt-catalog, or MCP fallback.
 
-The projected Ankole tools are `web_search`, `web_fetch`, `memory_search`,
-`memory_browse`, and every `browser_*` tool except `browser_run`. Browser work
-uses a private `subagent:<delegation_id>` execution scope and screenshot results
-remain Codex `inputImage` parts. Codex-native shell, file, patch, and planning
-capabilities are not projected twice. Skill/memory writes, user delivery,
-scheduling, clarification, and nested delegation remain parent-owned.
+The projected Ankole tools are `web_search`, `web_fetch`, the full Brain surface
+(`memory_search`, `memory_browse`, `memory_open`, `memory_update`, and
+`memory_health_check`), and every `browser_*` tool except `browser_run`. Brain
+reads and writes resolve through the server-validated parent conversation scope;
+the subagent cannot choose an owner, store, or author. Browser work uses a private
+`subagent:<delegation_id>` execution scope and screenshot results remain Codex
+`inputImage` parts. Codex-native shell, file, patch, and planning capabilities are
+not projected twice. Skill writes, user delivery, scheduling, clarification, and
+nested delegation remain parent-owned.
 
 Streaming message deltas are audit and activity signals. The last completed
 Codex `agentMessage` is the canonical delegation report. If Codex completes

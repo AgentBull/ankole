@@ -224,6 +224,65 @@ defmodule Ankole.SignalsGateway.Outbox do
   end
 
   @doc """
+  Commits a durable failure notice for an actor event that reached dead-letter.
+
+  Terminal delivery is outbox-owned, so a dead-lettered addressed message still
+  reaches the user through the same finalize path as a successful reply: it edits
+  the reply preview in place when one exists, otherwise posts a fresh message.
+  This is the durable counterpart to the transient preview, which is stopped
+  without a final edit once a turn is dead-lettered.
+  """
+  @spec commit_dead_letter_notice_outbox(ActorEvent.t(), String.t()) ::
+          {:ok, OutboxEntry.t()} | {:error, term()}
+  def commit_dead_letter_notice_outbox(%ActorEvent{} = actor_event, text) do
+    Repo.transact(fn repo ->
+      commit_dead_letter_notice_outbox_in_tx(repo, actor_event, text)
+    end)
+  end
+
+  @doc """
+  Commits a dead-letter failure notice inside a caller-owned transaction.
+  """
+  @spec commit_dead_letter_notice_outbox_in_tx(module(), ActorEvent.t(), String.t()) ::
+          {:ok, OutboxEntry.t()} | {:error, term()}
+  def commit_dead_letter_notice_outbox_in_tx(repo, %ActorEvent{} = actor_event, text) do
+    case normalize_visible_text(text) do
+      "" ->
+        {:error, :empty_dead_letter_notice_text}
+
+      final_text ->
+        with {:ok, operation, operation_attrs} <- final_reply_operation(repo, actor_event) do
+          outbound_key = "ai-dead-letter:#{actor_event.id}"
+
+          commit_outbox_in_tx(
+            repo,
+            Map.merge(
+              %{
+                agent_uid: actor_event.agent_uid,
+                binding_name: actor_event.binding_name,
+                outbound_key: outbound_key,
+                operation: operation,
+                signal_channel_id: actor_event.signal_channel_id,
+                provider_thread_id: actor_event.provider_thread_id,
+                source_actor_event_id: actor_event.id,
+                payload: %{
+                  "text" => final_text,
+                  "metadata" => %{
+                    "actor_event_id" => actor_event.id,
+                    "source" => "actor_dead_letter_notice"
+                  }
+                },
+                fallback_visible_text: final_text,
+                idempotency_key: outbound_key
+              },
+              operation_attrs
+            )
+          )
+        end
+    end
+  end
+
+  @doc """
   Chooses the provider-visible reply operation for an actor event.
 
   Decides whether the agent's reply should be a threaded `:reply` to the
@@ -418,7 +477,15 @@ defmodule Ankole.SignalsGateway.Outbox do
     })
   end
 
-  defp final_reply_operation(repo, %ActorEvent{} = actor_event, %Message{}) do
+  # A committed final reply reuses the streaming preview message when one was
+  # established: editing it in place turns the transient preview into the durable
+  # reply. Without a preview it posts a fresh threaded reply or top-level message.
+  # The same operation selection serves any actor-event terminal state, so a
+  # dead-letter notice finalizes the preview exactly like a successful reply.
+  defp final_reply_operation(repo, %ActorEvent{} = actor_event, %Message{}),
+    do: final_reply_operation(repo, actor_event)
+
+  defp final_reply_operation(repo, %ActorEvent{} = actor_event) do
     case actor_event.reply_preview_source_entry_id do
       source_entry_id when is_binary(source_entry_id) ->
         {:ok, :edit, %{target_source_entry_id: source_entry_id}}

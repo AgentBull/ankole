@@ -20,7 +20,7 @@
   "dependencies": {
     "@ankole/kernel": "workspace:*",
     "@pleisto/active-support": "^1.6.0",
-    "openai": "^6.45.0",
+    "openai": "^6.46.0",
     "pino": "^10.1.0",
     "zod": "^4.4.3"
   },

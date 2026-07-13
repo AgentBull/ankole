@@ -57,6 +57,16 @@ defmodule Ankole.AppConfigure do
   def register_patterns(patterns), do: Registry.register_patterns(patterns)
 
   @doc """
+  Lists registered exact definitions in stable key order.
+
+  Subsystems that project registered keys into another surface (for example
+  worker shell environment exports) enumerate through this facade instead of
+  reaching into the registry process.
+  """
+  @spec list_definitions() :: [Definition.t()]
+  def list_definitions, do: Registry.list_definitions()
+
+  @doc """
   Resolves a typed definition to its effective value and source metadata.
 
   With `:agent_id`, resolution checks the agent scope first, then `global`, then

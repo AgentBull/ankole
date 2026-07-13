@@ -5,7 +5,7 @@ import {
   canonicalPascalIdentifier,
   canonicalSourcePath
 } from './naming-policy'
-import { findLexicalNamingViolations, findTypeScriptNamingViolations } from './naming'
+import { findLexicalNamingViolations, findTypeScriptNamingViolations, isNamingSourcePath } from './naming'
 
 describe('naming policy', () => {
   test('preserves canonical initialisms inside PascalCase identifiers', () => {
@@ -43,6 +43,14 @@ describe('naming policy', () => {
     )
   })
 
+  test('skips external CDP casing and generated sources without widening browser exclusions', () => {
+    expect(isNamingSourcePath('app/agent_computer/src/tools/browser/cdp/client.ts')).toBe(false)
+    expect(isNamingSourcePath('app/agent_computer/test/browser_cdp.test.ts')).toBe(false)
+    expect(isNamingSourcePath('app/agent_computer/src/tools/subagent/generated/protocol/ThreadId.ts')).toBe(false)
+    expect(isNamingSourcePath('app/kernel/index.d.ts')).toBe(false)
+    expect(isNamingSourcePath('app/agent_computer/src/tools/browser/browser-tools.ts')).toBe(true)
+  })
+
   test('reports noncanonical owned identifiers but accepts an aliased external import', () => {
     const source = [
       "import type { JsonObject as JSONObject } from '@pleisto/active-support'",
@@ -59,10 +67,20 @@ describe('naming policy', () => {
   test('does not claim third-party member names as owned declarations', () => {
     const source = [
       'const element = document.getElementById("root")',
-      'const { webSocketDebuggerUrl: webSocketDebuggerURL } = remoteTarget'
+      'const { webSocketDebuggerUrl: webSocketDebuggerURL } = remoteTarget',
+      'const payload = { imageUrl: imageURL, threadId: threadID }'
     ].join('\n')
 
     expect(findTypeScriptNamingViolations('fixture.ts', source)).toEqual([])
+  })
+
+  test('still checks locally declared property contracts', () => {
+    const source = ['interface ScreenshotResult { imageUrl: string }', 'class Screenshot { imageUrl = "" }'].join('\n')
+
+    expect(findTypeScriptNamingViolations('fixture.ts', source)).toEqual([
+      { actual: 'imageUrl', expected: 'imageURL', file: 'fixture.ts', line: 1 },
+      { actual: 'imageUrl', expected: 'imageURL', file: 'fixture.ts', line: 2 }
+    ])
   })
 
   test('accepts canonical aliases for external Elixir and Rust names', () => {

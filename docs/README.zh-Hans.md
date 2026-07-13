@@ -105,7 +105,7 @@ Schedule（`design-docs/Schedule.md`）把时间变成 actor event。Principal �
 
 | Runtime | 负责 | 不应该 |
 | --- | --- | --- |
-| **Elixir**（`app/control_plane`） | PostgreSQL 语义和 migration、supervision、setup/console/auth 界面、Principal/AuthZ facade、AppConfigure、SignalsGateway 的 ActorRuntime 调度/fence/最终提交、AIGateway provider 和有状态 Responses 日志、Memory、plugin registry | 把持久状态的归属推给 worker 或 kernel，或让 AIGateway 反向依赖 Actor |
+| **Elixir**（`app/control_plane`） | PostgreSQL 语义和 migration、supervision、setup/console/auth 界面、Principal/AuthZ facade、AppConfigure、SignalsGateway 的 ActorRuntime 调度/fence/最终提交、AIGateway provider 和有状态 Responses 日志、Brain、plugin registry | 把持久状态的归属推给 worker 或 kernel，或让 AIGateway 反向依赖 Actor |
 | **Rust kernel**（`app/kernel`） | Elixir/Bun 需要保持一致的确定性共享机制：crypto（AEAD、key derivation）、UUIDv7、JWT、phone normalization、xxh3、zstd block codec、AuthZ 和 signal filter 的 CEL 求值、protobuf envelope codec + 校验、ZeroMQ socket 所有权（ROUTER/DEALER/ZAP 线程） | 碰 PostgreSQL，持有产品生命周期状态，膨胀成领域 owner |
 | **Bun worker**（`app/agent_computer`） | Agent loop、tool、prompt、终端/浏览器状态、bubblewrap 沙箱、worker 本地文件系统、AIGateway client | 发明 control-plane 状态；任何必须跨重启存活的东西都要通过 RPC 或 AIGateway API 落到 PostgreSQL |
 
@@ -142,11 +142,11 @@ Kernel 从同一个 crate 编译两次：一次作为 Elixir 的 Rustler NIF（�
 
 拥有的表：`signal_gateway_bindings`、`signal_gateway_channels`、`signal_gateway_entries`、`signal_gateway_input_tombstones`、`signal_gateway_inbound_batches`、`signal_gateway_outbox_entries`。
 
-### Memory：channel 记忆和历史召回
+### Brain：策展知识、聊天召回和 dreaming
 
-`Ankole.Memory`（`lib/ankole/memory.ex`）。Layer A 是当前 channel 的人工策展短记忆，经 `memory_note` tool 写入 `memory_notes`，按 `{agent_uid, channel}` 限 40 条、单条 500 字符，并注入 addressed 与 ambient turn。Layer B 用 `signal_gateway_entries` 做 ground truth：Phase 1 提供 BM25 `memory_search` 与按时段 `memory_browse`；Phase 2 用 `memory_episodes` + embedding 增强排序，失败时降级回 BM25。设计入口见 `design-docs/memory/Basic.md`，详细 v1 设计见 `internals/docs/Memory.zh.md`。
+`Ankole.Brain`（`lib/ankole/brain.ex`）为 Principal 提供策展知识、基于 provider mirror 的历史聊天召回、会话级冻结快照，以及可审计的 dreaming 流程。PostgreSQL 关系行是持久事实；`memory_open` 返回的 Markdown 只是投影。结构化可见性分为 `public` 与一对一 DM store，owner、store 和 author 都由控制面从持久会话推导，worker 不能指定。运维入口见 `operations/Brain.zh-Hans.md`，英文设计契约见 `design-docs/Brain.md`，中文对应稿见 `internals/docs/Brain.zh.md`。
 
-拥有的表：`memory_notes`、`memory_episodes`、`memory_channel_cursors`。
+拥有的表：`brain_entries`、`brain_entry_blocks`、`brain_entry_relations`、`brain_audit_log`、`brain_episodes`、`brain_cursors`。
 
 ### ActorRuntime：带 fence 的 worker turn 调度
 
@@ -169,13 +169,13 @@ Wire 接口是 OpenAI Responses 形状：任意已鉴权 subject 都可连接 `G
 
 Envelope 是 protobuf（`app/kernel/proto/ankole/runtime_fabric/v1/envelope.proto`），在任何 host 看到它们之前，先由 Rust 校验。四条 lane：CONTROL（`worker_ready`、心跳、容量、`turn_control`、关停）、TURN（`turn_start`、`mailbox_updated`、`turn_accepted`、`turn_completed`、`turn_error`、`turn_noop_completed`）、PROGRESS（`worker_progress`，只用于可观测性）、RPC（`rpc_request`/`rpc_response`/`rpc_error`）。`turn_completed` 是 replayable 的单向完成声明，携带 fence、最终 `resp_*` id 和 `loop_finished | iteration_exhausted` outcome，不增加 completion ACK。另外还有一条 raw-frame 文件 lane（`ANKOLE_FILE/1`，2 MiB zstd 块、信用流控），在 control plane 和 worker 可见根 `user_files`、`agent_installed_skills` 之间搬运字节（`lib/ankole/signals_gateway/actor_runtime/file_transfer_lane.ex` <-> `src/lanes/file/`）。
 
-Worker->control-plane 的 RPC 方法注册在 `lib/ankole/signals_gateway/actor_runtime/rpc_lane.ex`：`ai_gateway.api_key_for.create_or_find_by_agent`、`agent_conversation.context.resolve`、`skills.overlay.resolve` / `.replace`、`schedule.check_back_later.create`、`schedule.cron.*` 系列、`memory_note.*`、`memory_search`、`memory_browse`。
+Worker->control-plane 的 RPC 方法注册在 `lib/ankole/signals_gateway/actor_runtime/rpc_lane.ex`：`ai_gateway.api_key_for.create_or_find_by_agent`、`agent_conversation.context.resolve`、`skills.overlay.resolve` / `.append` / `.replace`、`schedule.check_back_later.create`、`schedule.cron.*` 系列，以及 Brain 的 `memory_search`、`memory_browse`、`memory_open`、`memory_update`、`memory_health_check`。
 
 ### Agent Computer：Bun worker
 
 `app/agent_computer/src/`。`main.ts` 解析 env（`WORKER_ID`、形如 `tcp://:worker_auth_key@host:port` 的 `RUNTIME_FABRIC_URL`），启动 DEALER，宣告 `worker_ready`，每 15 秒发一次心跳，并分发 envelope。一个 `turn_start` 会跑 `core/turns/` 里的 turn pipeline（文本 turn 是 `text_turn.ts`）：通过 RPC 拿会话上下文和 AIGateway API key，构造 system prompt，组装 tool，然后驱动 `core/agent-loop.ts`。每次 execution 都从 `request_context.ai_agent.max_iterations` 创建新的本地计数器（默认 90）；每次逻辑 model call 计一次，包括 empty-response nudge，但同一次调用的 provider/transport retry、tool-result journal 和并行 tool 都不额外计数。第 90 次调用自然无工具结束时返回 `loop_finished`；只有预算耗尽后仍需继续，才追加一次预算外、无工具的总结 Response，并返回 `iteration_exhausted`，不把最终 Response 的 stop reason 篡改成 `length`。Worker 随后发送一次带真实最终 Response id 的 `turn_completed`，不等待 ACK。Steering 通过 `mailbox_updated` 到达，并在轮次之间注入；`turn_control` 会中止。
 
-Model 可见的 tool 接口有意保持很窄（扩大前先看 `docs/TradeoffsAndKnownLimits.md`）：`todo`（`src/tools/todo/todo-tool.ts`）；computer tool `command`、`interactive_terminal`、`read_file`、`patch`、`reply_attachment`（`src/tools/computer/`）；异步委托工具 `subagent`（`src/tools/subagent/`）；结束当前 turn 的提问工具 `clarify`（`src/tools/clarify/`）；browser tool `browser_navigate`、`browser_snapshot`、`browser_find`、`browser_click`、`browser_open`、`browser_run`、`browser_extract`（`src/tools/browser/`）；schedule tool `check_back_later`、`cron`（`src/tools/schedule/schedule-tools.ts`）；memory tool `memory_note`、`memory_search`、`memory_browse`（`src/tools/memory/`）；skill tool `skill_view`、`skill_append`（`src/tools/library/`）。Shell 命令在 bubblewrap 里运行（优先 strong mode，启动时若为 weak mode 给警告，绝不无沙箱：`src/tools/computer/bubblewrap.ts`）。当前代码树没有 MCP 支持；如果以后加入，它应该作为另一个本地 tool 源，放在这个 worker 边界里。
+Model 可见的 tool 接口有意保持很窄（扩大前先看 `docs/TradeoffsAndKnownLimits.md`）：`todo`（`src/tools/todo/todo-tool.ts`）；computer tool `command`、`interactive_terminal`、`read_file`、`patch`、`reply_attachment`（`src/tools/computer/`）；异步委托工具 `subagent`（`src/tools/subagent/`）；结束当前 turn 的提问工具 `clarify`（`src/tools/clarify/`）；browser tool `browser_navigate`、`browser_snapshot`、`browser_find`、`browser_click`、`browser_open`、`browser_run`、`browser_extract`（`src/tools/browser/`）；schedule tool `check_back_later`、`cron`（`src/tools/schedule/schedule-tools.ts`）；Brain tool `memory_search`、`memory_browse`、`memory_open`、`memory_update`、`memory_health_check`（`src/tools/memory/`）；skill tool `skill_view`、`skill_append`、`skill_replace`（`src/tools/library/`）。Shell 命令在 bubblewrap 里运行（优先 strong mode，启动时若为 weak mode 给警告，绝不无沙箱：`src/tools/computer/bubblewrap.ts`）。当前代码树没有 MCP 支持；如果以后加入，它应该作为另一个本地 tool 源，放在这个 worker 边界里。
 
 Tool 运行边界由各 tool 自己负责，不存在一个 worker 全局 wall-clock timeout。`command` tool 的 foreground 默认是 `180s`；background run 立即返回 `backgroundId`，默认不设置 command timeout，除非调用方显式传 `timeout`。运行中的后台命令会一直被跟踪，直到进程退出、被 `kill`，或 worker 自身结束。`subagent(start)` 会创建由 PostgreSQL 持有的工作项并立即返回；独立 delegation turn 运行 Codex，在完成、失败或需要用户输入时唤醒父会话。委托本身没有 wall-clock timeout，worker 失活后可恢复；单次 Codex app-server 请求仍使用类别预算：`initialize` 为 `15s`，`thread/start` 为 `30s`，普通请求为 `60s`。这个取舍写在 `docs/TradeoffsAndKnownLimits.md`。
 
@@ -249,7 +249,7 @@ Canonical 定义在 `design-docs/SignalsGateway.md` 的 Identity Layers 部分�
 
 ## Data Model Essentials
 
-持久表（崩溃后的事实来源）：`principals`、`human_users`、`agents`、`external_identities`、`principal_groups`、`permission_grants`、`app_configurations`、`signal_gateway_bindings`、`signal_gateway_channels`、`signal_gateway_entries`、`signal_gateway_outbox_entries`、`actor_events`、`actor_cron_schedules`、`actor_scheduled_events`、`ai_gateway_conversations`、`ai_gateway_messages`、`ai_gateway_providers`、`memory_notes`、`memory_episodes`、`memory_channel_cursors`，以及 skill library 表。
+持久表（崩溃后的事实来源）：`principals`、`human_users`、`agents`、`external_identities`、`principal_groups`、`permission_grants`、`app_configurations`、`signal_gateway_bindings`、`signal_gateway_channels`、`signal_gateway_entries`、`signal_gateway_outbox_entries`、`actor_events`、`actor_cron_schedules`、`actor_scheduled_events`、`ai_gateway_conversations`、`ai_gateway_messages`、`ai_gateway_providers`、`brain_entries`、`brain_entry_blocks`、`brain_entry_relations`、`brain_audit_log`、`brain_episodes`、`brain_cursors`，以及 skill library 表。
 
 运行时投影（UNLOGGED、可重建）：`actor_event_deliveries`、`actor_session_activations`、`actor_session_worker_assignments`、`agent_computer_workers`。
 
@@ -344,7 +344,7 @@ E2E harness（`tools/e2e/`）跑 fake 飞书与 fake Slack 平台，分别用真
 1. 本文。
 2. `design-docs/AIGateway.md`：如果你改 AI 侧，包括 provider、有状态 Responses 日志、通用事件、compaction。
 3. `design-docs/SignalsGateway.md`：如果你改 IM/provider 或 Actor 侧，包括入口、batch、ActorRuntime、completion、preview 和 outbox delivery。
-4. `design-docs/memory/Basic.md`：如果你改 channel 记忆、历史召回、BM25/vector 检索或 memory tools；详细 v1 设计见 `internals/docs/Memory.zh.md`。
+4. `design-docs/Brain.md`：如果你修改 Brain 的知识模型、可见性、检索、dreaming、审计、快照或模型工具；部署和运维时读 `operations/Brain.zh-Hans.md`。中文对应稿是 `internals/docs/Brain.zh.md`。
 5. `design-docs/RuntimeFabric.md`、`design-docs/Schedule.md` 和 `design-docs/SubagentDelegation.md`：当你改传输、时间或持久后台工作。
 6. `design-docs/Principal.md`、`design-docs/AuthZ.md`、`design-docs/AppConfiguration.md`、`design-docs/Plugins.md`、`design-docs/I18n.md`、`design-docs/Logger.md`：按需查阅。
 
@@ -353,9 +353,10 @@ E2E harness（`tools/e2e/`）跑 fake 飞书与 fake Slack 平台，分别用真
 | Document | 修改这些内容时阅读 |
 | --- | --- |
 | `docs/README.md` | 任何内容：system map、code-level map、change guide、glossary |
+| `operations/Brain.zh-Hans.md` | PostgreSQL 扩展、模型 profile、迁移、dreaming 运维与 Brain 真实模型验收 |
+| `design-docs/Brain.md` | 策展知识、聊天召回、隔离、dreaming、审计与人类监督 |
 | `design-docs/AIGateway.md` | Provider、Responses log、通用事件、compaction |
 | `design-docs/SignalsGateway.md` | Ingress、ActorRuntime、completion、preview、mirror、outbox |
-| `design-docs/memory/Basic.md` | Channel note、历史召回、BM25/vector search |
 | `design-docs/RuntimeFabric.md` | Envelope、lane、socket、文件传输 |
 | `design-docs/Schedule.md` | Checkback、cron、Oban 唤醒边 |
 | `design-docs/SubagentDelegation.md` | 持久后台工作、Codex resume、steer、唤醒 |

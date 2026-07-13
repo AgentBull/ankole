@@ -36,6 +36,7 @@ import { createComputerToolContext } from '../../tools/computer'
 import { httpClientFromAIGatewayAPIKey } from '../ai_gateway_transport'
 import { resolveAgentConversationContext } from './turn_context'
 import { resolveBrowserRuntimeConfig } from './browser_runtime_config'
+import { resolveWorkerEnv } from './worker_env'
 import type { TextTurnLoopOptions, TurnHandlerResult } from './turn_options'
 
 const terminalStatuses = new Set<SubagentDelegationStatus>(['succeeded', 'failed', 'stopped'])
@@ -93,6 +94,7 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     requestProjectionAIGatewayKey(turnStart, opts, options)
   )
   const browserRuntimeConfig = await resolveBrowserRuntimeConfig(turnStart, opts)
+  const workerEnv = await resolveWorkerEnv(turnStart, opts)
   const executionScopeID = `subagent:${delegationID}`
   const webTools = await createWebTools({
     aiGateway: projectionAIGateway,
@@ -100,6 +102,7 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     localBrowser: {
       agentUID: initial.agent_uid,
       executionScopeID,
+      blockPrivateNetwork: browserRuntimeConfig.blockPrivateNetwork,
       ...(typeof browserRuntimeConfig.localBrowserIdleTtlMs === 'number'
         ? { localBrowserIdleTtlMs: browserRuntimeConfig.localBrowserIdleTtlMs }
         : {})
@@ -111,7 +114,8 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
       conversationID: executionScopeID,
       workspaceRoot: parentWorkspaceRoot,
       browserRemoteCDPConfig: browserRuntimeConfig.remoteCDPConfig,
-      localBrowserIdleTtlMs: browserRuntimeConfig.localBrowserIdleTtlMs
+      localBrowserIdleTtlMs: browserRuntimeConfig.localBrowserIdleTtlMs,
+      blockPrivateNetwork: browserRuntimeConfig.blockPrivateNetwork
     })
   )
   const projectedTools = [
@@ -147,6 +151,7 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     durableArtifactsRootForModel: `${WORKSPACE_MODEL_ROOT}/user-files`,
     soul: agentContext.soul ?? '',
     mission: agentContext.mission ?? '',
+    brainSnapshot: agentContext.brain_snapshot,
     background: initial.background,
     notes: initial.notes,
     timezone: agentContext.conversation?.timezone,
@@ -168,7 +173,8 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
       workspaceRoot: parentWorkspaceRoot,
       workdir,
       materialized,
-      runtimeFiles
+      runtimeFiles,
+      workerEnv
     })
   } catch (error) {
     runtimeFiles.cleanup()

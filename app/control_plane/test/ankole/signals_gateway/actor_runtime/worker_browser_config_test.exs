@@ -3,6 +3,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBrowserConfigTest do
 
   import Ecto.Query
 
+  alias Ankole.AIGateway.WebToolsPolicy
   alias Ankole.SignalsGateway.ActorRuntime.WorkerBrowserConfig
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.AppConfig
@@ -12,13 +13,19 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBrowserConfigTest do
   setup do
     allow_cache_database_access()
     :ok = WorkerBrowserConfig.ensure_registered()
+    :ok = WebToolsPolicy.ensure_registered()
 
     remote_definition = WorkerBrowserConfig.remote_cdp_config_definition()
     ttl_definition = WorkerBrowserConfig.local_browser_idle_ttl_ms_definition()
+    policy_definition = WebToolsPolicy.block_private_network_definition()
     :ok = AppConfigure.delete_global(remote_definition)
     :ok = AppConfigure.delete_global(ttl_definition)
+    :ok = AppConfigure.delete_global(policy_definition)
 
-    {:ok, remote_definition: remote_definition, ttl_definition: ttl_definition}
+    {:ok,
+     remote_definition: remote_definition,
+     ttl_definition: ttl_definition,
+     policy_definition: policy_definition}
   end
 
   test "remote CDP config defaults to local browser and resolves agent over global", %{
@@ -105,7 +112,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBrowserConfigTest do
   test "RuntimeFabric app_configure.resolve returns effective worker config without turn_start persistence",
        %{
          remote_definition: remote_definition,
-         ttl_definition: ttl_definition
+         ttl_definition: ttl_definition,
+         policy_definition: policy_definition
        } do
     %{principal: agent} = agent_fixture()
 
@@ -130,7 +138,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBrowserConfigTest do
                    "agent_uid" => agent.uid,
                    "keys" => [
                      remote_definition.key,
-                     ttl_definition.key
+                     ttl_definition.key,
+                     policy_definition.key
                    ]
                  }
                },
@@ -144,6 +153,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBrowserConfigTest do
     assert get_in(response, ["values", remote_definition.key, "value"]) == config
     assert get_in(response, ["values", ttl_definition.key, "source"]) == "global"
     assert get_in(response, ["values", ttl_definition.key, "value"]) == ttl
+    assert get_in(response, ["values", policy_definition.key, "source"]) == "default"
+    assert get_in(response, ["values", policy_definition.key, "value"]) == false
   end
 
   test "RuntimeFabric app_configure.resolve rejects unknown agents", %{

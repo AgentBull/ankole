@@ -27,8 +27,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime do
   alias Ankole.SignalsGateway.ActorRuntime.TurnLifecycle
   alias Ankole.SignalsGateway.ActorRuntime.WorkerAdmission
   alias Ankole.SignalsGateway.ActorRuntime.WorkerPool
+  alias Ankole.I18n
+  alias Ankole.Logging
+  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorTurnCompletion
   alias Ankole.SignalsGateway.AIReplyPreview
+  alias Ankole.SignalsGateway.Outbox
   alias Ankole.SubagentDelegations
 
   @type actor_key :: %{agent_uid: String.t(), session_id: String.t()}
@@ -111,12 +115,48 @@ defmodule Ankole.SignalsGateway.ActorRuntime do
 
     case result do
       {:ok, %{dead_lettered?: true, actor_event: event}} ->
+        # Stop the preview first so no late flush clobbers the failure notice,
+        # then finalize the dead-lettered turn with a durable user-facing message.
         AIReplyPreview.stop(event.id)
+        notify_dead_letter(event)
         result
 
       _result ->
         result
     end
+  end
+
+  # A dead-lettered addressed message has exhausted worker retries. The transient
+  # preview is stopped without a final edit, so the user would otherwise see only
+  # a frozen mid-turn preview (or nothing at all). Commit one durable failure
+  # notice through the same outbox finalize path a successful reply uses: it edits
+  # the preview in place when one exists, otherwise posts a fresh message.
+  # Delivery is best-effort — a missing route must not resurrect the terminal
+  # dead-letter state, which already committed in the turn-error transaction.
+  defp notify_dead_letter(%ActorEvent{} = event) do
+    if AIReplyPreview.im_visible_event?(event) do
+      case Outbox.commit_dead_letter_notice_outbox(event, dead_letter_notice_text(event)) do
+        {:ok, _outbox} ->
+          :ok
+
+        {:error, reason} ->
+          Logging.warning(
+            "signals_gateway.actor_runtime.dead_letter_notice_failed",
+            "dead-letter user notice not committed",
+            %{actor_event_id: event.id, reason: inspect(reason)}
+          )
+
+          :ok
+      end
+    else
+      :ok
+    end
+  end
+
+  # The actor event id is the operator's correlation key: it ties the notice back
+  # to the dead-letter row, the superseded deliveries, and the failure log.
+  defp dead_letter_notice_text(%ActorEvent{id: id}) do
+    I18n.t("signals_gateway.reply.dead_letter", %{"ref" => id})
   end
 
   @doc false

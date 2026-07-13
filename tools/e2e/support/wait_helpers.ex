@@ -307,23 +307,25 @@ defmodule Ankole.E2E.WaitHelpers do
       )
     end
 
-    case {Repo.get(ActorEvent, actor_event_id),
-          mirrored_latest_final_reply_for_actor_event(actor_event_id)} do
-      {%ActorEvent{completed_at: %DateTime{}}, {%Entry{} = reply, %Message{} = message}} ->
-        {:ok, reply, message}
+    with_transient_db_retry(process, deadline, fn ->
+      case {Repo.get(ActorEvent, actor_event_id),
+            mirrored_latest_final_reply_for_actor_event(actor_event_id)} do
+        {%ActorEvent{completed_at: %DateTime{}}, {%Entry{} = reply, %Message{} = message}} ->
+          {:ok, reply, message}
 
-      {%ActorEvent{completed_at: %DateTime{}}, nil} ->
-        run_due_outbox_runtime_events()
+        {%ActorEvent{completed_at: %DateTime{}}, nil} ->
+          run_due_outbox_runtime_events()
 
-        receive_port_or_wait(process, deadline, fn ->
-          wait_for_completed_final_reply(process, actor_event_id, deadline)
-        end)
+          receive_port_or_wait(process, deadline, fn ->
+            wait_for_completed_final_reply(process, actor_event_id, deadline)
+          end)
 
-      _other ->
-        receive_port_or_wait(process, deadline, fn ->
-          wait_for_completed_final_reply(process, actor_event_id, deadline)
-        end)
-    end
+        _other ->
+          receive_port_or_wait(process, deadline, fn ->
+            wait_for_completed_final_reply(process, actor_event_id, deadline)
+          end)
+      end
+    end)
   end
 
   @doc """

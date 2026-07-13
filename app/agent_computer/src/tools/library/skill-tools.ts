@@ -5,7 +5,11 @@ import type { ActorTurnRef } from '../../lanes/actor_lane'
 import type { AgentTool, AgentToolResult } from '../../core'
 import { jsonToolResult } from '../../core/tool-result'
 import type { RuntimeSkillSummary } from '../../lanes/rpc_lane'
-import type { SkillOverlayReplaceRequester, SkillOverlayRequester } from '../../core/turns/turn_options'
+import type {
+  SkillOverlayAppendRequester,
+  SkillOverlayReplaceRequester,
+  SkillOverlayRequester
+} from '../../core/turns/turn_options'
 import {
   enabledSkillByName,
   resolveSkillFilesystemRoot,
@@ -25,6 +29,11 @@ const SkillViewParams = z.object({
 const SkillAppendParams = z.object({
   name: z.string().min(1).describe('Enabled skill name whose agent notes should be updated.'),
   content: z.string().min(1).describe('New durable note text to append to this agent-specific skill overlay.')
+})
+
+const SkillReplaceParams = z.object({
+  name: z.string().min(1).describe('Enabled skill name whose agent notes should be replaced.'),
+  content: z.string().describe('Complete replacement text for this agent-specific skill overlay.')
 })
 
 /** Structured echo for logs/UI: which skill, which file, and (for append) whether it wrote. */
@@ -50,6 +59,7 @@ export interface CreateSkillToolsOptions {
   enabledSkills?: Array<RuntimeSkillSummary | string>
   skillRoots?: SkillFileRoots
   requestSkillOverlay?: SkillOverlayRequester
+  appendSkillOverlay?: SkillOverlayAppendRequester
   replaceSkillOverlay?: SkillOverlayReplaceRequester
 }
 
@@ -62,7 +72,7 @@ export interface CreateSkillToolsOptions {
  * any workspace file. Assignment remains a control-plane concern.
  */
 export function createSkillTools(_workspaceRoot: string, opts: CreateSkillToolsOptions = {}): AgentTool<any>[] {
-  return [createSkillViewTool(opts), createSkillAppendTool(opts)]
+  return [createSkillViewTool(opts), createSkillAppendTool(opts), createSkillReplaceTool(opts)]
 }
 
 /**
@@ -105,10 +115,9 @@ function createSkillViewTool(opts: CreateSkillToolsOptions): AgentTool<typeof Sk
 }
 
 /**
- * `skill_append`: lets the agent persist durable notes onto a skill by appending
- * to the DB-backed overlay for that enabled skill. The base skill file stays
- * first-party or agent-installed filesystem content; only the overlay is mutable
- * here.
+ * `skill_append`: atomically adds one durable note to the DB-backed overlay. The
+ * control plane owns the read-modify-write transaction so concurrent turns do
+ * not lose each other's additions.
  */
 function createSkillAppendTool(opts: CreateSkillToolsOptions): AgentTool<typeof SkillAppendParams, SkillToolDetails> {
   return {
@@ -121,22 +130,58 @@ function createSkillAppendTool(opts: CreateSkillToolsOptions): AgentTool<typeof 
     isDestructive: false,
     async execute(_toolCallId, params): Promise<AgentToolResult<SkillToolDetails>> {
       enabledSkill(params.name, opts)
-      if (!opts.turn || !opts.requestSkillOverlay || !opts.replaceSkillOverlay) {
+      if (!opts.turn || !opts.appendSkillOverlay) {
         throw new Error('skill_append requires RuntimeFabric skill overlay RPC')
       }
 
-      const appendedContent = appendOverlayText(await overlayText(params.name, opts), params.content)
-
-      await opts.replaceSkillOverlay({
-        request_id: `skill-overlay-replace-${crypto.randomUUID()}`,
+      await opts.appendSkillOverlay({
+        request_id: `skill-overlay-append-${crypto.randomUUID()}`,
         turn: opts.turn,
         skill_name: params.name,
-        content: appendedContent,
-        overlay_json: { text: appendedContent }
+        content: params.content
       })
 
       const details: SkillToolDetails = { name: params.name, changed: true }
       return jsonToolResult(details)
+    }
+  }
+}
+
+/**
+ * Replaces the complete overlay using the latest resolved content hash as an
+ * optimistic compare-and-swap fence. A concurrent writer causes the control
+ * plane to reject the replacement instead of silently losing an update.
+ */
+function createSkillReplaceTool(opts: CreateSkillToolsOptions): AgentTool<typeof SkillReplaceParams, SkillToolDetails> {
+  return {
+    name: 'skill_replace',
+    description:
+      "Replace all durable notes in this agent's DB-backed overlay for an enabled skill. Read the skill first, then use this for revisions, deduplication, or budget-preserving compaction; a concurrent change is rejected.",
+    schema: SkillReplaceParams,
+    executionMode: 'sequential',
+    isReadOnly: false,
+    isDestructive: true,
+    async execute(_toolCallID, params): Promise<AgentToolResult<SkillToolDetails>> {
+      enabledSkill(params.name, opts)
+      if (!opts.turn || !opts.requestSkillOverlay || !opts.replaceSkillOverlay) {
+        throw new Error('skill_replace requires RuntimeFabric skill overlay RPC')
+      }
+
+      const current = await opts.requestSkillOverlay({
+        request_id: `skill-overlay-resolve-${crypto.randomUUID()}`,
+        turn: opts.turn,
+        skill_name: params.name
+      })
+      await opts.replaceSkillOverlay({
+        request_id: `skill-overlay-replace-${crypto.randomUUID()}`,
+        turn: opts.turn,
+        skill_name: params.name,
+        content: params.content,
+        overlay_json: { text: params.content },
+        expected_content_hash: current.content_hash
+      })
+
+      return jsonToolResult({ name: params.name, changed: true })
     }
   }
 }
@@ -234,16 +279,6 @@ function skillLocation(name: string, filePath: string): string {
  */
 async function overlayText(name: string, opts: CreateSkillToolsOptions): Promise<string> {
   return await resolveSkillOverlayText(name, opts)
-}
-
-/**
- * Appends a new note to existing overlay text with a blank-line separator.
- */
-function appendOverlayText(existing: string, addition: string): string {
-  const note = addition.trim()
-  if (!existing) return note
-  if (!note) return existing
-  return `${existing}\n\n${note}`
 }
 
 /**

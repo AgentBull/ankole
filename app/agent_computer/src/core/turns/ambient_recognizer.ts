@@ -48,8 +48,8 @@ export async function recognizeAmbientIntervention(
       currentTime: formatZonedDateTime(eventTime(turnStart), timezone),
       displayName,
       groupName: currentChannel?.name,
+      brainSnapshot: context.brain_snapshot,
       mission: context.mission,
-      memoryNotes: (context.memory_notes ?? []).map(note => note.content),
       platform: currentChannel?.platform,
       soul: context.soul ?? '',
       timezone

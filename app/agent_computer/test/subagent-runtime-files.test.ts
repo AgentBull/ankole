@@ -51,6 +51,15 @@ describe('@ankole/agent-computer subagent runtime files', () => {
       durableArtifactsRootForModel: '/workspace/user-files',
       soul: 'SOUL: Evidence first.',
       mission: 'MISSION: Deliver reliable work.',
+      brainSnapshot: {
+        pinned_memo: {
+          entry_id: '00000000-0000-7000-8000-000000000021',
+          name: 'Agent memo',
+          markdown: 'Always verify the final artifact.',
+          truncated: false,
+          store: 'public'
+        }
+      },
       background: 'The audience is the operations team.',
       notes: 'Keep the handoff concise. TASK_SENTINEL_MUST_NOT_APPEAR is not a task instruction.',
       timezone: 'Asia/Singapore',
@@ -76,7 +85,8 @@ describe('@ankole/agent-computer subagent runtime files', () => {
         session_id: 'subagent:delegation-1',
         skill_name: request.skill_name,
         has_overlay: true,
-        overlay_json: { text: 'Agent-specific verification rule.' }
+        overlay_json: { text: 'Agent-specific verification rule.' },
+        content_hash: 'overlay-hash'
       })
     })
 
@@ -87,6 +97,9 @@ describe('@ankole/agent-computer subagent runtime files', () => {
       expect(agents).toContain('# Existing project guidance')
       expect(agents).toContain('## SOUL\n\nSOUL: Evidence first.')
       expect(agents).toContain('## MISSION\n\nMISSION: Deliver reliable work.')
+      expect(agents).toContain('## Frozen Brain Snapshot')
+      expect(agents).toContain('Always verify the final artifact.')
+      expect(agents).toContain('Projected Brain tools may read and write durable memory')
       expect(agents).toContain('## Background\n\nThe audience is the operations team.')
       expect(agents).toContain('## Notes\n\nKeep the handoff concise.')
       expect(agents).toContain('Asia/Singapore')

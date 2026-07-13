@@ -86,6 +86,8 @@ defmodule Ankole.MixProject do
       {:ankole_kernel, path: "../kernel"},
       {:feishu_openapi, path: "../../libs/feishu_openapi"},
       {:slack_openapi, path: "../../libs/slack_openapi"},
+      {:microsoft_openapi, path: "../../libs/microsoft_openapi"},
+      {:google_openapi, path: "../../libs/google_openapi"},
       {:dns_cluster, "~> 0.2"},
       {:bandit, "~> 1.12"}
     ]

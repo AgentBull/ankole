@@ -6,6 +6,7 @@ import { join } from 'node:path'
 const workspaceRoot = mkdtempSync(join(tmpdir(), 'ankole-cdp-'))
 process.env.ANKOLE_WORKSPACE_ROOT = workspaceRoot
 const browser = await import('../src/tools/browser/cdp')
+const { assertSafeBrowserURL } = await import('../src/tools/browser/cdp/utils')
 const { CDPClient } = await import('../src/tools/browser/cdp/client')
 const { createLocalBrowserContext } = await import('../src/tools/browser/cdp/chromium')
 const { attachPage, evaluate } = await import('../src/tools/browser/cdp/page')
@@ -176,6 +177,52 @@ describe('@ankole/agent-computer browser CDP runtime', () => {
         url: 'http://169.254.169.254/latest/meta-data'
       })
     ).rejects.toThrow('cloud metadata')
+  })
+
+  it('blocks non-public navigation before any browser backend work when the policy is on', async () => {
+    await expect(
+      browser.browserNavigate(
+        { session: `private-block-${Date.now()}`, url: 'https://10.0.0.8/internal' },
+        { blockPrivateNetwork: true }
+      )
+    ).rejects.toThrow('web_tools.block_private_network')
+
+    await expect(
+      browser.browserExtractFromSession(
+        { session: `private-block-extract-${Date.now()}`, url: 'https://localhost/internal' },
+        { blockPrivateNetwork: true }
+      )
+    ).rejects.toThrow('web_tools.block_private_network')
+  })
+
+  it('applies the private-network URL policy only when enabled', () => {
+    expect(() => assertSafeBrowserURL('https://10.0.0.8/internal')).not.toThrow()
+    expect(() => assertSafeBrowserURL('https://10.0.0.8/internal', { blockPrivateNetwork: false })).not.toThrow()
+    expect(() => assertSafeBrowserURL('https://10.0.0.8/internal', { blockPrivateNetwork: true })).toThrow(
+      'web_tools.block_private_network'
+    )
+    expect(() => assertSafeBrowserURL('https://example.com/page', { blockPrivateNetwork: true })).not.toThrow()
+    expect(() => assertSafeBrowserURL('https://169.254.169.254/latest', { blockPrivateNetwork: false })).toThrow(
+      'cloud metadata'
+    )
+  })
+
+  it('rejects URLs through the shared kernel classifier, including canonicalized literals', () => {
+    // The classification vector matrix lives in the kernel's Rust tests; this
+    // proves the guard consumes that classifier, not a local reimplementation.
+    const blocked = { blockPrivateNetwork: true }
+    for (const url of [
+      'https://localhost/x',
+      'https://[::1]/x',
+      'https://0x7f000001/x',
+      'https://[::ffff:10.0.0.1]/x'
+    ]) {
+      expect(() => assertSafeBrowserURL(url, blocked)).toThrow('web_tools.block_private_network')
+    }
+    expect(() => assertSafeBrowserURL('https://intranet-wiki/x', blocked)).not.toThrow()
+    expect(() => assertSafeBrowserURL('https://[fd00:ec2::254]/x')).toThrow('cloud metadata')
+    expect(() => assertSafeBrowserURL('ftp://example.com/x')).toThrow('unsupported browser URL protocol: ftp:')
+    expect(() => assertSafeBrowserURL('data:text/plain,hi')).not.toThrow()
   })
 
   it('drives a persistent Chromium session through the CDP engine when available', async () => {

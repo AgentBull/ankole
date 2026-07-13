@@ -26,6 +26,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.AdapterContext
+  alias Ankole.SignalsGateway.BindingMembership
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.Entry
   alias FeishuOpenAPI.Client
@@ -833,7 +834,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  "lark-main",
                  "oc_merge",
                  im_chat_attrs("oc_merge", "Ops Room", "cli_a"),
-                 im_participant(first_agent.uid, "lark-a", "cli_a", "joined")
+                 im_context(first_agent.uid, "lark-a")
                )
 
       assert {:ok, second_group} =
@@ -841,13 +842,13 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  "lark-main",
                  "oc_merge",
                  im_chat_attrs("oc_merge", "Ops Room Renamed", "cli_b"),
-                 im_participant(second_agent.uid, "lark-b", "cli_b", "joined")
+                 im_context(second_agent.uid, "lark-b")
                )
 
       assert second_group.id == first_group.id
 
       group = Repo.get!(Group, first_group.id)
-      participants = get_in(group.metadata, ["lark_im", "sync_participants"])
+      participants = BindingMembership.memberships(group.metadata)
 
       assert participants["#{first_agent.uid}|lark-a"]["state"] == "joined"
       assert participants["#{second_agent.uid}|lark-b"]["state"] == "joined"
@@ -868,7 +869,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  "lark-main",
                  "oc_left",
                  im_chat_attrs("oc_left", "Left Room", "cli_a"),
-                 im_participant(first_agent.uid, "lark-a", "cli_a", "joined")
+                 im_context(first_agent.uid, "lark-a")
                )
 
       assert {:ok, group} =
@@ -876,7 +877,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  "lark-main",
                  "oc_left",
                  im_chat_attrs("oc_left", "Left Room", "cli_b"),
-                 im_participant(second_agent.uid, "lark-b", "cli_b", "joined")
+                 im_context(second_agent.uid, "lark-b")
                )
 
       assert group.id == first_group.id
@@ -936,7 +937,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  "lark-main",
                  "oc_disband",
                  im_chat_attrs("oc_disband", "Disband Room", "cli_a"),
-                 im_participant(first_agent.uid, "lark-a", "cli_a", "joined")
+                 im_context(first_agent.uid, "lark-a")
                )
 
       assert {:ok, group} =
@@ -944,7 +945,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  "lark-main",
                  "oc_disband",
                  im_chat_attrs("oc_disband", "Disband Room", "cli_b"),
-                 im_participant(second_agent.uid, "lark-b", "cli_b", "joined")
+                 im_context(second_agent.uid, "lark-b")
                )
 
       assert group.id == first_group.id
@@ -957,7 +958,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                ])
 
       group = Repo.get!(Group, group.id)
-      participants = get_in(group.metadata, ["lark_im", "sync_participants"])
+      participants = BindingMembership.memberships(group.metadata)
 
       assert participants["#{first_agent.uid}|lark-a"]["state"] == "left"
       assert participants["#{second_agent.uid}|lark-b"]["state"] == "left"
@@ -972,7 +973,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  "lark-main",
                  "oc_add_missing_subject",
                  im_chat_attrs("oc_add_missing_subject", "Add Missing Subject Room", "cli_add"),
-                 im_participant(agent.uid, "lark", "cli_add", "joined")
+                 im_context(agent.uid, "lark")
                )
 
       principal_count = Repo.aggregate(Principal, :count)
@@ -1030,7 +1031,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  "lark-main",
                  "oc_remove",
                  im_chat_attrs("oc_remove", "Remove Room", "cli_remove"),
-                 im_participant(agent.uid, "lark", "cli_remove", "joined")
+                 im_context(agent.uid, "lark")
                )
 
       assert {:ok, _membership} = AuthZ.add_principal_to_group(observed.principal.uid, group.id)
@@ -1075,7 +1076,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                    "Remove Missing Subject Room",
                    "cli_remove"
                  ),
-                 im_participant(agent.uid, "lark", "cli_remove", "joined")
+                 im_context(agent.uid, "lark")
                )
 
       assert {:ok, _membership} = AuthZ.add_principal_to_group(observed.principal.uid, group.id)
@@ -1122,7 +1123,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  "lark-main",
                  "oc_remove_missing",
                  im_chat_attrs("oc_remove_missing", "Remove Missing Room", "cli_remove"),
-                 im_participant(agent.uid, "lark", "cli_remove", "joined")
+                 im_context(agent.uid, "lark")
                )
 
       assert {:ok, [%{status: :refresh_enqueued}]} =
@@ -1152,7 +1153,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  "lark-main",
                  "oc_namespace",
                  im_chat_attrs("oc_namespace", "Namespace Room", "cli_a"),
-                 im_participant(first_agent.uid, "lark-a", "cli_a", "joined")
+                 im_context(first_agent.uid, "lark-a")
                )
 
       assert {:ok, second_group} =
@@ -1160,7 +1161,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  "other-lark",
                  "oc_namespace",
                  im_chat_attrs("oc_namespace", "Namespace Room", "cli_b"),
-                 im_participant(second_agent.uid, "lark-b", "cli_b", "joined")
+                 im_context(second_agent.uid, "lark-b")
                )
 
       assert second_group.id != first_group.id
@@ -1636,15 +1637,13 @@ defmodule Ankole.Plugins.LarkAdapterTest do
     }
   end
 
-  defp im_participant(agent_uid, binding_name, app_id, state) do
-    %{
-      "agent_uid" => agent_uid,
-      "binding_name" => binding_name,
-      "app_id" => app_id,
-      "domain" => "feishu",
-      "state" => state,
-      "last_seen_at" => DateTime.to_iso8601(@base_time)
-    }
+  defp im_context(agent_uid, binding_name) do
+    AdapterContext.new(
+      agent_uid: agent_uid,
+      binding_name: binding_name,
+      adapter: "lark",
+      user_name: "Lark"
+    )
   end
 
   defp im_chat_event(chat_id) do

@@ -21,6 +21,7 @@ import { blankToNull, formatJSON, parseObjectDraft } from '../console-primitives
 import { JSONField, LabeledField, ResourceEditorPage, ResourceListPage, RowActions } from '../console-shell'
 import { AgentEditorModel, type AgentEditorDraft } from '../state/agent-editor-model'
 import { ModelProfilesEditor } from './model-profiles-editor'
+import { WorkerEnvAgentSection } from './worker-env-agent-section'
 
 export function AgentsListPage() {
   const { t } = useTranslation()
@@ -185,6 +186,8 @@ export function AgentEditorPage() {
             codexAccounts={codexAccounts.data?.codex_accounts ?? []}
             onChanged={refresh}
           />
+          <Separator />
+          <WorkerEnvAgentSection agentUID={selectedAgent.uid} />
         </>
       ) : null}
     </ResourceEditorPage>

@@ -7,7 +7,15 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
   alias Ankole.{AuthZ, Logging, Principals, Repo, SignalsGateway}
   alias Ankole.AuthZ.{ExternalBinding, Group}
   alias Ankole.Plugins.SlackAdapter.{Config, Inbound, MapHelpers}
-  alias Ankole.SignalsGateway.{AdapterContext, Binding, Channel, Projection}
+
+  alias Ankole.SignalsGateway.{
+    AdapterContext,
+    Binding,
+    BindingMembership,
+    Channel,
+    Projection
+  }
+
   alias SlackOpenAPI.{Event, Pagination}
 
   @event_types [
@@ -314,12 +322,12 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
             display_name: channel["name"] || "Slack Channel #{channel_id}",
             domain: :im_group,
             kind: :static,
-            metadata: participant_metadata(context, config)
+            metadata: participant_metadata(context)
           })
       end
 
     with {:ok, group} <- group_result,
-         {:ok, group} <- maybe_update_group(group, context, config, channel),
+         {:ok, group} <- maybe_update_group(group, context, channel),
          {:ok, _binding} <-
            AuthZ.upsert_external_binding(%{
              provider: provider,
@@ -338,8 +346,8 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
     end
   end
 
-  defp maybe_update_group(group, context, config, channel) do
-    metadata = merge_participant(group.metadata || %{}, context, config, "joined")
+  defp maybe_update_group(group, context, channel) do
+    metadata = BindingMembership.project(group.metadata, context, :joined)
     attrs = %{metadata: metadata}
 
     attrs =
@@ -350,9 +358,7 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
     AuthZ.update_principal_group(group, attrs)
   end
 
-  defp participant_metadata(context, config) do
-    merge_participant(%{}, context, config, "joined")
-  end
+  defp participant_metadata(context), do: BindingMembership.project(%{}, context, :joined)
 
   defp upsert_channel_projection(channel, group_id) do
     fact = %{
@@ -412,10 +418,10 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
     with_channel_lock(namespace(config), channel_id, fn ->
       case fetch_group(namespace(config), channel_id) do
         {:ok, group} ->
-          metadata = merge_participant(group.metadata || %{}, context, config, "left")
+          metadata = BindingMembership.project(group.metadata, context, :left)
 
           with {:ok, group} <- AuthZ.update_principal_group(group, %{metadata: metadata}) do
-            if all_participants_left?(metadata) do
+            if BindingMembership.all_left?(metadata) do
               clear_group_members(group, :all_participants_left)
             else
               {:ok, %{status: :participant_marked_left, group_id: group.id}}
@@ -435,18 +441,7 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
     with_channel_lock(namespace(config), channel_id, fn ->
       case fetch_group(namespace(config), channel_id) do
         {:ok, group} ->
-          now = DateTime.utc_now(:microsecond) |> DateTime.to_iso8601()
-          metadata = group.metadata || %{}
-          slack_im = Map.get(metadata, "slack_im", %{})
-          participants = Map.get(slack_im, "sync_participants", %{})
-
-          participants =
-            Map.new(participants, fn {key, participant} ->
-              {key, participant |> Map.put("state", "left") |> Map.put("last_left_at", now)}
-            end)
-
-          metadata =
-            Map.put(metadata, "slack_im", Map.put(slack_im, "sync_participants", participants))
+          metadata = BindingMembership.mark_all_left(group.metadata)
 
           with {:ok, group} <- AuthZ.update_principal_group(group, %{metadata: metadata}) do
             clear_group_members(group, :channel_gone)
@@ -475,7 +470,6 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
   defp mark_missing_channels_left(context, config, observed_channel_ids) do
     observed = MapSet.new(observed_channel_ids)
     provider = namespace(config)
-    key = participant_key(context)
 
     groups =
       ExternalBinding
@@ -491,7 +485,7 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
     groups
     |> Enum.reject(fn {channel_id, _metadata} -> MapSet.member?(observed, channel_id) end)
     |> Enum.filter(fn {_channel_id, metadata} ->
-      get_in(metadata || %{}, ["slack_im", "sync_participants", key, "state"]) == "joined"
+      BindingMembership.joined?(metadata, context)
     end)
     |> Enum.reduce_while({:ok, 0}, fn {channel_id, _metadata}, {:ok, count} ->
       case mark_participant_left(context, config, channel_id) do
@@ -499,42 +493,6 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
-  end
-
-  defp merge_participant(metadata, context, config, state) do
-    now = DateTime.utc_now(:microsecond) |> DateTime.to_iso8601()
-    slack_im = Map.get(metadata, "slack_im", %{})
-    participants = Map.get(slack_im, "sync_participants", %{})
-
-    participant =
-      %{
-        "agent_uid" => context.agent_uid,
-        "binding_name" => context.binding_name,
-        "state" => state,
-        "last_seen_at" => if(state == "joined", do: now),
-        "last_left_at" => if(state == "left", do: now),
-        "team_id" => Map.get(config, "runtimeTeamID")
-      }
-      |> MapHelpers.compact_map()
-
-    slack_im =
-      Map.put(
-        slack_im,
-        "sync_participants",
-        Map.put(participants, participant_key(context), participant)
-      )
-
-    Map.put(metadata, "slack_im", slack_im)
-  end
-
-  defp participant_key(context),
-    do: "#{String.downcase(context.agent_uid)}|#{context.binding_name}"
-
-  defp all_participants_left?(metadata) do
-    participants = get_in(metadata, ["slack_im", "sync_participants"]) || %{}
-
-    participants != %{} and
-      Enum.all?(participants, fn {_key, value} -> value["state"] == "left" end)
   end
 
   defp with_channel_lock(provider, channel_id, fun) when is_binary(channel_id) do

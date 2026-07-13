@@ -377,10 +377,13 @@ provider. Provider responses are normalized to a shared body with `success`,
 `published_at`, `source`, `sources`, `score`, and provider metadata when the
 upstream supplies it.
 
-`/web_fetch` accepts `model` and one to five public HTTPS `urls`. It resolves
-the model through the `web_fetch` capability and dispatches only to
-provider-backed extraction. Literal localhost, private, link-local, loopback,
-and metadata-host URLs are rejected before provider dispatch. Responses are
+`/web_fetch` accepts `model` and one to five HTTPS `urls`. It resolves the
+model through the `web_fetch` capability and dispatches only to
+provider-backed extraction. Literal cloud metadata-host URLs are always
+rejected before provider dispatch; literal localhost, private, link-local,
+loopback, and CGNAT URLs are additionally rejected when the
+`web_tools.block_private_network` AppConfigure key is enabled (default off;
+see the WebTools design doc). Responses are
 normalized to `success` plus `results`, where each result includes at least the
 requested `url` and may include `title`, `content`, `text`, `markdown`,
 `html`, `links`, `images`, `metadata`, or `error` depending on the provider

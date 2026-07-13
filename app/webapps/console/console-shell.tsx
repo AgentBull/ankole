@@ -41,9 +41,11 @@ import {
   RiSettings3Line,
   RiSparkling2Line,
   RiBroadcastLine,
+  RiBrainLine,
   RiShieldKeyholeLine,
   RiServerLine,
-  RiGitBranchLine
+  RiGitBranchLine,
+  RiTerminalBoxLine
 } from '@remixicon/react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState, type ComponentProps, type ComponentType, type FormEvent, type ReactNode } from 'react'
@@ -75,6 +77,8 @@ const NAV_ITEMS: NavItem[] = [
   { to: 'signals', label: 'console.nav.signals', icon: RiBroadcastLine },
   { to: 'workers', label: 'console.nav.workers', icon: RiServerLine },
   { to: 'delegations', label: 'console.nav.delegations', icon: RiGitBranchLine },
+  { to: 'brain', label: 'console.nav.brain', icon: RiBrainLine },
+  { to: 'worker-envs', label: 'console.nav.worker_envs', icon: RiTerminalBoxLine },
   { to: 'settings', label: 'console.nav.settings', icon: RiSettings3Line }
 ]
 
@@ -167,6 +171,7 @@ export function ResourceListPage({
   emptyDescription,
   emptyTitle,
   error,
+  footer,
   isEmpty,
   isLoading,
   title,
@@ -180,6 +185,7 @@ export function ResourceListPage({
   emptyDescription?: string
   emptyTitle?: string
   error?: unknown
+  footer?: ReactNode
   isEmpty: boolean
   isLoading: boolean
   title: string
@@ -250,6 +256,7 @@ export function ResourceListPage({
           </Table>
         </div>
       )}
+      {footer}
     </div>
   )
 }

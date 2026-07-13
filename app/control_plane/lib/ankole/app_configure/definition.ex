@@ -14,6 +14,7 @@ defmodule Ankole.AppConfigure.Definition do
     :generator,
     :scope,
     :encrypted,
+    :worker_env_name,
     default?: false
   ]
 
@@ -25,8 +26,11 @@ defmodule Ankole.AppConfigure.Definition do
           default_value: term(),
           description: String.t() | nil,
           generator: (-> term()) | nil,
-          scope: :scoped | :global
+          scope: :scoped | :global,
+          worker_env_name: String.t() | nil
         }
+
+  @worker_env_name_format ~r/^[A-Za-z_][A-Za-z0-9_]*$/
 
   @doc """
   Builds an exact key definition without registering it.
@@ -44,7 +48,8 @@ defmodule Ankole.AppConfigure.Definition do
          {:ok, default?, default_value} <- fetch_default(attrs, schema),
          {:ok, description} <- fetch_optional_string(attrs, :description),
          {:ok, generator} <- fetch_optional_generator(attrs),
-         {:ok, scope} <- fetch_scope(attrs) do
+         {:ok, scope} <- fetch_scope(attrs),
+         {:ok, worker_env_name} <- fetch_optional_worker_env_name(attrs) do
       {:ok,
        %__MODULE__{
          key: key,
@@ -54,7 +59,8 @@ defmodule Ankole.AppConfigure.Definition do
          default_value: default_value,
          description: description,
          generator: generator,
-         scope: scope
+         scope: scope,
+         worker_env_name: worker_env_name
        }}
     end
   end
@@ -165,6 +171,29 @@ defmodule Ankole.AppConfigure.Definition do
       {:ok, nil} -> {:ok, :scoped}
       {:ok, _scope} -> {:error, :invalid_scope}
       :error -> {:ok, :scoped}
+    end
+  end
+
+  # Marks the key's resolved value for export into Agent Computer shells. Only
+  # the POSIX name syntax is checked here; worker-side naming policy (reserved
+  # names, merge order) is owned by the WorkerEnv subsystem.
+  defp fetch_optional_worker_env_name(attrs) do
+    case Map.fetch(attrs, :worker_env_name) do
+      :error ->
+        {:ok, nil}
+
+      {:ok, nil} ->
+        {:ok, nil}
+
+      {:ok, name} when is_binary(name) ->
+        if Regex.match?(@worker_env_name_format, name) do
+          {:ok, name}
+        else
+          {:error, {:invalid_worker_env_name, name}}
+        end
+
+      {:ok, name} ->
+        {:error, {:invalid_worker_env_name, name}}
     end
   end
 end

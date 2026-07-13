@@ -1,251 +1,124 @@
 # Ankole Agent Guidelines
 
-Ankole is a general-purpose Agent Operating System for long-running digital work. It can serve enterprises, teams, and one-person companies; the current architecture assumes one Ankole Installation as the operating domain rather than a SaaS-style multi-tenant product boundary. 
+Ankole is a general-purpose Agent Operating System for long-running digital work. It can serve enterprises, teams, and one-person companies.
 
-## The Zen of Ankole Development
+## Collaboration
 
-Do the task that was asked.
+Other agents may work on the same branch. Treat unrelated diffs and unexpected file changes as concurrent work, do not revert or overwrite them, and keep moving. Use `HEY.md` to coordinate when needed, then remove your messages when the coordination is complete.
 
-Do not silently change the task.
+## Core discipline
 
-Correct is better than clever.
+Do the task that was asked, without silently substituting an easier goal. Correct is better than clever, consistency is better than theoretical completeness, and a useful change is better than a locally elegant one that leaves the system harder to operate.
 
-Consistent is better than complete.
+Treat omissions, contradictions, and ambiguities that change behavior as real issues. A local preference or disagreement with a settled tradeoff is not an architecture finding; evaluate whether the implementation is consistent inside the chosen direction instead of relitigating it. Do not argue for theoretical completeness unless the user asks for it.
 
-Useful is better than theoretically perfect.
+Design for the next change rather than a frozen diagram. Prefer the smallest correction that preserves the intended direction, contracts the system can actually keep, and behavior an operator can explain. A little duplication, a manual recovery path, or a deliberately weaker guarantee may be better than an abstraction or automation that compounds complexity. Prefer code that remains understandable and deletable after six months of patches, and use purity only when it protects a boundary rather than adding ceremony.
 
-A deliberate tradeoff is not a bug.
+Before inventing a pattern, search for the existing one. Prefer deletion over addition, reuse over invention, and boring contracts over clever machinery. Working drafts may think out loud, but shareable documents must remove scaffolding, TODO theater, abandoned alternatives, and meta-writing.
 
-A local preference is not an architecture finding.
+## Interaction and reasoning
 
-Omissions matter.
+Take the time needed to reason correctly. Optional commentary is noise: use it only when a tool call requires it or the user explicitly asks for status, and do not use it to report progress, narrate state, or explain intermediate reasoning. Tasks that need no tools should be answered only in the final response.
 
-Contradictions matter.
+Reason from first principles. Separate what can be observed, what can be controlled, and what guarantee the answer must provide. If a relevant property can be observed, touched, marked, sorted, or otherwise controlled, use a staged or adaptive strategy instead of treating the problem as blind one-shot sampling.
 
-Ambiguities matter when they change behavior.
+For quantitative, logical, boundary, or guarantee questions, prove worst-case sufficiency before answering. When claiming an exact optimum, match it with a lower bound; when the answer is numeric, recheck the arithmetic and confirm that the value answers the actual question. Keep these rules general rather than tuning reasoning to a benchmark, evaluation, or expected answer.
 
-Mere disagreement is usually noise.
+## Writing style
 
-Reality is not smooth.
+Write chat responses in flowing technical prose, the way a sharp senior engineer speaks: direct, conversational, and confident. Do not default to the voice or structure of documentation, a report, or a slide deck unless the user asked for that artifact.
 
-Production systems are negotiated with time, cost, failure, and change.
+Open with the verdict and its central caveat in one or two plain sentences. Answer exactly what was asked at the length it deserves, and err short: a yes/no or confirmation needs two to four sentences, a choice usually needs a few paragraphs, and only a genuinely multi-part design question earns a long answer. Before sending, remove background, restatement, generic advice, or any paragraph that does not change what the reader does next.
 
-Code is not static.
+Every paragraph and bullet must carry a complete argument: state the claim, explain the mechanism, and connect it to the consequence. Do not shred connected reasoning into bullets when the links between ideas are the content, and do not use a bold label followed by a clipped noun phrase as a substitute for a sentence.
 
-Code grows, bends, splits, merges, and dies.
+Match form to content and vary it when the content varies:
 
-Design for the next change, not for a frozen diagram.
+- Use short bold headings on their own line for distinct sections or comparison axes.
+- Use a numbered list for a genuine sequence, diagnostic path, or ranking; open each item with a short bold lead and continue with one to four full sentences.
+- Use plain bullets for genuinely parallel, enumerable facts.
+- Use paragraphs for reasoning, causality, and narrative.
 
-Simplicity is not shallowness.
+Cut low-value sentences without flattening useful structure. Shortness comes from removing content, not compressing prose: keep articles, avoid stacked abstract nouns, and explain the concrete mechanism.
 
-Completeness is not always responsibility.
+Keep the tone conversational but undramatic. Prefer contractions and ordinary connectors such as “so” and “but”; avoid formal scaffolding such as “therefore,” “however,” “it is worth noting,” or “importantly.” Do not use theatrical labels, hype adjectives, staccato dramatic sentences, or setup phrases such as “here's the thing,” “here's the kicker,” “the part nobody warns you about,” “what nobody tells you,” “the dirty secret,” “the truth is,” “plot twist,” “the reality is,” and “here's what's wild.” State the claim directly, and avoid “not just X, but Y” constructions that manufacture emphasis by negating a weaker framing.
 
-Edge cases have diminishing returns.
+End with a bottom line only when the answer weighs a real decision. State the choice and the condition that would change it in one plain-prose sentence; factual and confirmation answers should simply end.
 
-Complexity compounds.
+## Objective fidelity
 
-Rot compounds faster.
+The recurring failure mode is objective substitution: replacing the real task with a cheaper proxy such as a green test, a small diff, a clean local API, a flexible abstraction, or a happy-path demo. When work feels blocked, identify whether the blocker is a design problem, missing dependency, invalid test, or misunderstood boundary instead of redefining success around the easiest local result.
 
-Simplicity and ROI are measured in the system a change leaves behind, not in the writing or changing of the code.
+Public fields, config keys, environment variables, APIs, events, tools, and documented options are contracts. Never keep an old public name while silently changing its semantics to reduce churn; rename or migrate the contract explicitly, or preserve its existing meaning.
 
-The cheapest change to make is often the most expensive system to live with.
+Ankole has no released public compatibility contract, so do not add or keep shims, legacy branches, old names, or fallback paths without a real current caller.
 
-Prefer deletion over addition.
+### Change plan
 
-Prefer reuse over invention.
+Before changing code, write a cleanup plan that names:
 
-Prefer boring contracts over clever machinery.
-
-Prefer the chosen guarantee over an imagined stronger one.
-
-Purity is useful when it protects a boundary.
-
-Purity is harmful when it becomes ceremony.
-
-Before changing code, write the cleanup plan.
+- Dead code to delete.
+- Duplicate logic to merge.
+- Existing utilities or patterns to reuse.
+- Tests or commands that prove behavior is preserved.
+- Risks to supervision, persistence, message flow, or public contracts.
 
 Before adding code, ask what can be deleted.
 
-Before inventing a pattern, search for the existing one.
+### New features
 
-Before criticizing a tradeoff, check whether it was already settled.
+- Implement the requested real path. Do not replace a required SDK, upstream implementation, native boundary, user flow, provider protocol, or end-to-end path with a handwritten shortcut unless the user changes the task.
+- Extend or simplify the abstraction that already owns the domain instead of adding a second layer for flexibility. When a task requires migrating, vendoring, or adapting a complex dependency, clone or inspect the real upstream and make the smallest intentional adaptation rather than building a simplified substitute.
+- Keep permission chains, validation, configuration, and audit machinery proportional to the feature's actual guarantee. If the bottom-level design is wrong, repair that boundary before polishing individual functions.
 
-If it was settled, inspect inside it.
+### Refactors and cleanup
 
-Do not relitigate it.
+Refactors must reduce global complexity, not merely polish the current file. Before declaring one complete, check for duplicated concepts, impedance between modules, zombie code, compatibility residue, and boundary drift. Prefer deleting the wrong semantic center over wrapping it, and prefer moving or reusing code over inventing another seam. Split large files by cohesive responsibility and stable public entrypoints, not into thin delegating layers.
 
-Working drafts may think out loud.
+Preserve real ownership boundaries across subsystems and runtimes; do not move responsibility merely because another owner is easier to test or edit. Remove defensive branches for states the current design cannot produce, or make the future requirement explicit. After moving code or replacing behavior, search for and remove old names, old branches, stale comments, compatibility paths, TODOs, and unused helpers.
 
-Shareable documents must not.
+### Test fixes
 
-Remove scaffolding, TODO theater, abandoned alternatives, and meta-writing before committing docs.
+- A failing test is evidence, not the goal. Do not bypass the production path, weaken assertions, change a test to bless broken behavior, or move behavior across ownership boundaries merely to make it pass.
+- Unit, integration, and end-to-end tests must exercise the boundary they claim to protect. Do not replace a user flow with a lower-level helper, a cross-runtime path with a same-runtime shortcut, or a real-provider path with a local fake unless the test explicitly promises a fake.
+- If a test is wrong, explain why before changing it by naming the real contract and its owning source file or design document. If setup is broken, fix or isolate the package-local setup; otherwise report the external blocker as unverified instead of softening the test.
+- Public function names describe domain semantics; keep codec details at internal edges instead of exposing them through names or wrappers. When design drift blocks a test, repair the design boundary first and then update the test to prove it.
 
-### Scope fidelity
+## Tooling
 
-When a document says a tradeoff is final, evaluate consistency inside that tradeoff.
+### Bun
 
-Do not argue for theoretical completeness unless the user asked for it.
-Do not optimize for a perfect static design. This system will change.
+Default to Bun instead of Node.js:
 
-A design that handles every imagined edge case today may become the source of tomorrow's rot.
+- Use `bun <file>` instead of `node <file>` or `ts-node <file>`.
+- Use `bun test` instead of Jest or Vitest.
+- Use `bun build <file.html|file.ts|file.css>` instead of Webpack or esbuild.
+- Use `bun install` instead of npm, Yarn, or pnpm.
+- Use `bun run <script>` instead of the equivalent npm, Yarn, or pnpm command.
+- Use `bunx <package> <command>` instead of `npx`.
+- Bun loads `.env` automatically, so do not add `dotenv`.
 
-Prefer the smallest correction that preserves the chosen direction.
+### `@pleisto/active-support`
 
-If something looks risky, first ask:
-- Is it actually inconsistent with the stated goal?
-- Is it an omission inside the chosen design?
-- Is it a contradiction against another explicit decision?
-- Or am I merely disagreeing with the tradeoff?
+Use `@pleisto/active-support` as the general-purpose utility library; it provides Lodash-style helpers and re-exports `ts-pattern`. Use `match().with().exhaustive()` for complex branching and `ms('24h')`-style duration helpers for semantic millisecond values.
 
-Only the first three are useful by default. The fourth is noise unless explicitly requested.
+## Project boundaries
 
-### Reality bias
+Module-specific schemas, events, storage layouts, and transport mechanics belong in `docs/design-docs/`, while language- and runtime-specific rules belong in the relevant agent skill. Read the owning guidance and code before changing a module; keep this file focused on boundaries that span the system.
 
-Real systems are uneven.
-
-Do not assume the cleanest theoretical model is the responsible one.
-
-A little duplication may be better than a premature abstraction.
-
-A manual recovery path may be better than a complex automatic one.
-
-A weaker guarantee may be better than code that nobody can safely change.
-
-Prefer designs that remain understandable after six months of patches.
-
-Prefer code that can be deleted.
-
-Prefer behavior that can be explained to an operator.
-
-Prefer guarantees that the system can actually keep.
-
-## Interaction and reasoning discipline
-
-Take the time needed to reason correctly.
-
-Optional commentary is noise. Do not use commentary to report progress, narrate state, or explain intermediate reasoning.
-
-Use commentary only when a tool call requires it or when the user explicitly asks for a status update.
-
-For tasks that do not require tools, finish the reasoning first and answer only in the final response.
-
-Prefer first-principles reasoning over pattern matching.
-
-Before solving, separate what can be observed, what can be controlled, and what guarantee the answer must provide.
-
-If a relevant property can be observed, touched, sensed, marked, sorted, or otherwise controlled, use a staged or adaptive strategy that exploits that control. Do not collapse the problem into blind one-shot sampling.
-
-For quantitative, logical, boundary, or guarantee questions, prove before the final answer that the strategy is sufficient in the worst case and that the lower bound matches when an exact optimum is being claimed.
-
-When the answer is numeric, recheck the arithmetic and make sure the final value answers the question actually asked.
-
-Keep these rules general. Do not tune the reasoning to a specific benchmark, evaluation, or expected answer.
-
-## Reward-hacking guardrails
-
-The recurring failure mode is objective substitution: replacing the real task with a cheaper proxy such as "the test passes", "the diff is small", "the local API looks clean", "this abstraction is more flexible", or "the happy path demos". Treat that as a bug, not as progress.
-
-When work feels blocked, do not change the goal to the cheapest passing local result. Stop and identify whether the blocker is a real design problem, a missing dependency, an invalid test, or a misunderstanding of the existing boundary.
-
-Never keep an existing public name while silently changing its semantics just to reduce churn, preserve a smaller diff, or avoid touching callers. Public fields, config keys, env vars, API names, event names, tool names, and documented options are contracts. If the contract changes, rename or migrate it explicitly; if the name must stay, preserve the old semantics.
-
-### New feature notes
-
-- Implement the requested real path first. Do not replace a required SDK, upstream implementation, Rust NIF, UI flow, provider protocol, or e2e path with a hand-written shortcut unless the user explicitly changes the task.
-- Do not add a second abstraction layer on top of an abstraction that already owns the domain. If a provider, DSL, facade, or runtime envelope already expresses the contract, extend or simplify that contract instead of inserting a middle layer "for flexibility".
-- Do not build a simplified clone of a complex dependency when the task requires migrating, vendoring, or adapting that dependency. Clone or inspect the real upstream first, then make the smallest intentional adaptation.
-- Keep the first version honest. Because Ankole has not released a public compatibility contract yet, do not add compatibility shims, legacy branches, old names, or fallback paths without a real current caller.
-- Do not let technical correctness swamp the business core. Permission chains, validation engines, configuration systems, and audit machinery must stay proportional to the feature's actual guarantee.
-- If the bottom-level design looks wrong, address that design before optimizing individual functions. Local polish on a bad boundary is still bad architecture.
-
-### Refactor notes
-
-- Refactors must reduce global complexity, not merely improve the file currently in view. Check for duplicated concepts, impedance between modules, zombie code, compatibility residue, and boundary drift before declaring the refactor done.
-- Prefer deleting the wrong semantic center over wrapping it. A facade that preserves the old mistake is not a cleanup.
-- Split large files by high-cohesion responsibilities and stable public entrypoints. Do not create many thin files that only add delegation layers.
-- Preserve real ownership boundaries. Elixir, Rust, and Bun responsibilities must not be moved just because one side is easier to test or edit.
-- Do not keep defensive branches for states the current design cannot produce. If a branch exists only for imagined future flexibility, remove it or make the future requirement explicit.
-- After moving code, search for old names, stale comments, compatibility paths, and unused helpers. Leaving them behind counts as unfinished refactoring.
-
-### Test-fix notes
-
-- A failing test is evidence. Do not make it pass by bypassing the production path, weakening assertions, changing the test to match a broken implementation, or moving behavior across ownership boundaries.
-- Unit tests, integration tests, and e2e tests must exercise the same boundary they claim to protect. A UI flow cannot be replaced by a CLI helper; an Elixir-to-Rust NIF path cannot be replaced by direct Elixir HTTP; a real provider smoke path cannot be replaced by a local fake unless the test explicitly says it is fake.
-- If a test is wrong, explain why it is wrong before changing it. The explanation must name the real contract and the source file or design doc that owns that contract.
-- Do not soften integration tests to avoid setup cost. Fix the setup, isolate the package-local command, or mark the remaining blocker as external and unverified.
-- Do not rename public functions with suffixes such as `_json` or add wrapper names just to make a boundary leak look intentional. Public names should describe domain semantics; codec details belong at internal edges.
-- When tests are blocked by design drift, stop treating the failure as a test maintenance task. First repair the design boundary, then update the tests to prove that boundary.
-
-## Bun
-
-Default to using Bun instead of Node.js.
-
-- Use `bun <file>` instead of `node <file>` or `ts-node <file>`
-- Use `bun test` instead of `jest` or `vitest`
-- Use `bun build <file.html|file.ts|file.css>` instead of `webpack` or `esbuild`
-- Use `bun install` instead of `npm install` or `yarn install` or `pnpm install`
-- Use `bun run <script>` instead of `npm run <script>` or `yarn run <script>` or `pnpm run <script>`
-- Use `bunx <package> <command>` instead of `npx <package> <command>`
-- Bun automatically loads .env, so don't use dotenv.
-
-## PostgreSQL
-
-Make good use of PostgreSQL's data types and features to achieve better designs, instead of using the database in the crude, lowest-common-denominator way typical of MySQL.
-
-## @pleisto/active-support
-
-Use `@pleisto/active-support` as the general-purpose utility library. It provides Lodash-style helper functions and also re-exports `ts-pattern`.
-
-- For complex if/else logic, use its `match().with().exhaustive()` syntax.
-- For millisecond durations, use its exported `ms('24h')`-style functions to keep them semantic.
-
-## Cleanup and refactor rules
-For cleanup or refactor work, write the cleanup plan before modifying code.
-
-A cleanup plan must list:
-
-- Dead code to delete.
-
-- Duplicate logic to merge.
-
-- Existing utilities or patterns to reuse.
-
-- Tests or commands that prove behavior is preserved.
-
-- Risks to supervision, persistence, message flow, or public contracts.
-
-Prefer deleting obsolete code to wrapping it.
-
-Prefer moving code to inventing code.
-
-Prefer one clear boundary to many clever seams.
-
-Do not keep compatibility shims unless there is a real caller.
-
-Do not leave old names, old branches, old TODOs, or old comments behind after replacing behavior.
-
-When a refactor touches OTP structure, state which failure boundary changed.
-
-If no failure boundary changed, avoid changing the supervision tree.
-
-## Project guidelines
-
-- Treat one Ankole Installation as the product boundary. Do not add hidden SaaS tenant ids, tenant-scoped identity rules, or multi-tenant routing assumptions unless the task explicitly changes that model.
-- Keep Principal/AuthZ as the accountable subject and permission boundary. Principal UIDs are installation-wide lowercase subject keys; do not invent parallel user, agent, or external-subject models in Bun, plugins, or provider adapters.
-- Keep bootstrap configuration and runtime-owned storage separate. Environment variables are for process startup and infrastructure facts; operator-managed runtime settings, generated worker auth keys, plugin settings, and similar process-independent values belong in declared `Ankole.AppConfigure` keys or the owning subsystem's declared encrypted storage.
-- Match the existing persistence shape before adding schema. Principals use text `uid` keys, and provider mirrors/outbox rows may use domain or composite keys. When a row needs an opaque PostgreSQL UUID id, generate it in application code with `Ankole.Ecto.UUIDv7` for Ecto schemas or `Ankole.Kernel.gen_uuid_v7/0` for explicit row ids outside Ecto schema inserts; do not rely on PostgreSQL defaults such as `gen_random_uuid()`.
-- Prefer PostgreSQL-native modeling when it clarifies the domain: native enums mapped through `Ecto.Enum`, `jsonb` for declared payloads, range/interval/numeric types where they fit, and database constraints for invariants that must survive process crashes.
-- Keep SignalsGateway as the provider-ingress boundary: adapters produce ingress facts, provider mirror rows record observed external state, `actor_events` are the actor-facing handoff, and `signal_gateway_outbox_entries` is the durable provider-visible side-effect path. Provider raw event names must not leak into runtime semantics when an `ActorEvent.type` contract is needed.
-- Keep RuntimeFabric as live transport, not durable truth. ZeroMQ carries actor, RPC, and worker-file traffic with bounded routing/backpressure; PostgreSQL owns replay, fences, reconciliation, and final commits. If a fact matters after process death, journal or commit it in PostgreSQL.
-- Respect runtime ownership boundaries. Elixir owns PostgreSQL semantics, setup, supervision, AppConfigure, Principal/AuthZ facades, and actor commit authority. Rust kernel owns crypto, shared identifier helpers, AuthZ rule evaluation, protobuf validation, and ZeroMQ mechanics. Bun Agent Computer owns LLM loops, tools, MCP servers, terminal state, and worker-local filesystem behavior.
-- Worker code must not invent control-plane state. Reads or writes that affect PG-owned semantics go through RuntimeFabric RPC or an explicit control-plane API; process-local worker state must be rebuildable after restart.
-- Keep enabled skills and workspaces honest. Models may see `skill://enabled/...` references, but worker reads resolve from RuntimeFabric skill metadata, built-in image assets, managed shared skill storage, and PG skill overlays. Do not synthesize fake `/workspace/skills` or library-container paths.
-- Treat plugins as trusted first-party Elixir code discovered at boot. Do not add dynamic third-party plugin loading, marketplace isolation, hot activation, or plugin-owned config stores unless the plugin design docs are updated first.
-- Do not add dependencies unless the user explicitly requests or approves them. Reuse existing workspace packages, kernel bindings, Phoenix contexts, Bun utilities, and `@pleisto/active-support` helpers first.
-- Keep public contracts boring and named: Ecto schemas, context facades, AppConfigure definitions, plugin declarations, RuntimeFabric envelopes, actor events, signal bindings, outbox entries, and explicit TypeScript/Rust types are better than loose maps and freeform strings at subsystem boundaries.
-- Keep runtime and worker integration tests out of the default fast test path. Use package-local checks by default and dedicated Mix/Bun commands for Docker-backed Agent Computer or real-provider e2e flows.
-- Multiple coding agents may work in parallel on the same branch. Unrelated files or diffs in Git status are normal; do not revert or touch them unless your task explicitly requires it.
-- Verify outcomes before final claims. Do not say a bug is fixed, a feature works, or a migration is safe unless you ran the relevant command or clearly state what remains unverified.
+- Treat one Ankole Installation as the product boundary. Do not add hidden SaaS tenant IDs, tenant-scoped identity rules, or multi-tenant routing assumptions unless the task explicitly changes that model.
+- Keep Principal/AuthZ as the accountable subject and permission boundary; do not invent parallel subject models or tenant-scoped identity.
+- Keep bootstrap configuration separate from runtime-owned state. Environment variables carry process-startup and infrastructure facts; operator-managed settings belong in declared `Ankole.AppConfigure` keys, while generated credentials and other secrets belong in the owning subsystem's existing encrypted storage.
+- Match the owning domain's existing schema and identifier shape before adding persistence; do not introduce a new key strategy or database-generated identifier locally.
+- PostgreSQL owns durable truth. Use its native types and constraints when they express domain invariants, and persist any fact that must survive process death instead of leaving it in live transport or process-local state.
+- Respect runtime ownership. The Elixir control plane owns durable domain state, supervision, and commit authority; the Rust kernel owns shared native primitives and transport; Bun Agent Computer owns agent execution and worker-local state. Do not move responsibility across these boundaries merely because another runtime is easier to test or edit.
+- Worker code must not invent control-plane state. Reads or writes that affect durable semantics go through a control-plane-owned contract, and process-local state must be rebuildable after restart.
+- Model-visible resources and paths must resolve through a real owning runtime contract; do not synthesize fake skills, workspaces, storage locations, or state.
+- Treat the current extension model as trusted and first-party. Do not invent third-party marketplace, hot-loading, or isolation machinery unless the task explicitly changes the product model.
+- Do not add dependencies unless the user explicitly requests or approves them. Reuse existing workspace packages, owning subsystem APIs, and shared utilities first.
+- Keep subsystem boundaries explicit and named; prefer concrete contracts over loose maps and free-form strings.
+- Keep integration and end-to-end tests out of the default fast path. Use package-local checks by default and dedicated commands for slower or environment-backed validation.
+- Verify outcomes before claiming a bug is fixed, a feature works, or a migration is safe. Run the relevant command or state clearly what remains unverified.
 
 ## Agent skills
 

@@ -20,6 +20,19 @@ export type AiGatewayProviderListResponse = {
 }
 
 /**
+ * BrainEntryRelation
+ */
+export type BrainEntryRelation = {
+  id: string
+  inserted_at: string
+  predicate: string
+  source_entry_id: string
+  source_name?: string | null
+  target_entry_id: string
+  target_name?: string | null
+}
+
+/**
  * WorkerFileListData
  */
 export type WorkerFileListData = {
@@ -34,6 +47,13 @@ export type WorkerFileListData = {
  */
 export type AppConfigurationResponse = {
   app_configuration: AppConfigurationItem
+}
+
+/**
+ * BrainEntryOperationsRequest
+ */
+export type BrainEntryOperationsRequest = {
+  operations: Array<BrainEntryOperation>
 }
 
 /**
@@ -52,6 +72,13 @@ export type AuthSessionDeleteResponse = {
 }
 
 /**
+ * WorkerEnvDecryptionResponse
+ */
+export type WorkerEnvDecryptionResponse = {
+  decrypted_value: WorkerEnvDecryptionValue
+}
+
+/**
  * SubagentDelegationResponse
  */
 export type SubagentDelegationResponse = {
@@ -64,6 +91,13 @@ export type SubagentDelegationResponse = {
  * Any JSON-compatible value. AppConfigure validates the concrete key schema.
  */
 export type JsonValue = unknown
+
+/**
+ * BrainAuditRestorationResponse
+ */
+export type BrainAuditRestorationResponse = {
+  restoration: JsonValue
+}
 
 /**
  * AgentUpdateRequest
@@ -85,6 +119,13 @@ export type WorkerFileEntry = {
   modified_unix_ms: number
   relative_path: string
   size: number
+}
+
+/**
+ * WorkerEnvListResponse
+ */
+export type WorkerEnvListResponse = {
+  worker_envs: Array<WorkerEnvItem>
 }
 
 /**
@@ -124,10 +165,37 @@ export type ModelProfileResponse = {
 }
 
 /**
+ * BrainEntryListResponse
+ */
+export type BrainEntryListResponse = {
+  entries: Array<BrainEntry>
+  next_cursor?: string | null
+}
+
+/**
  * IdentityProviderListResponse
  */
 export type IdentityProviderListResponse = {
   identity_providers: Array<IdentityProviderItem>
+}
+
+/**
+ * BrainEntry
+ */
+export type BrainEntry = {
+  aliases: Array<string>
+  id: string
+  inserted_at: string
+  lock_version: number
+  name: string
+  owner_uid: string
+  properties: {
+    [key: string]: unknown
+  }
+  store_key: string
+  summary: string
+  type: string
+  updated_at: string
 }
 
 /**
@@ -146,6 +214,14 @@ export type AiGatewayProviderItem = {
   provider_metadata: {
     [key: string]: unknown
   }
+}
+
+/**
+ * BrainAuditLogResponse
+ */
+export type BrainAuditLogResponse = {
+  audit_log: Array<BrainAuditLog>
+  next_cursor?: string | null
 }
 
 /**
@@ -183,6 +259,31 @@ export type AiGatewayProviderEncryptedOptionProjection = {
 }
 
 /**
+ * BrainAuditLog
+ */
+export type BrainAuditLog = {
+  action: string
+  actor_kind?: 'human' | 'agent' | 'dreaming'
+  actor_uid?: string | null
+  after?: {
+    [key: string]: unknown
+  } | null
+  before?: {
+    [key: string]: unknown
+  } | null
+  block_id?: string | null
+  entry_id?: string | null
+  id: string
+  inserted_at: string
+  metadata: {
+    [key: string]: unknown
+  }
+  owner_uid: string
+  relation_id?: string | null
+  store_key: string
+}
+
+/**
  * IdentityProviderResponse
  */
 export type IdentityProviderResponse = {
@@ -214,6 +315,15 @@ export type AppConfigurationItem = {
  */
 export type SignalAdapterListResponse = {
   signal_adapters: Array<SignalAdapterItem>
+}
+
+/**
+ * WorkerEnvUpdateRequest
+ */
+export type WorkerEnvUpdateRequest = {
+  description?: string | null
+  secret?: boolean
+  value: JsonValue
 }
 
 /**
@@ -488,6 +598,32 @@ export type ScheduleCronWriteRequest = {
 }
 
 /**
+ * BrainEntryResponse
+ */
+export type BrainEntryResponse = {
+  backlinks: Array<BrainEntryRelation>
+  blocks: Array<BrainEntryBlock>
+  entry: BrainEntry
+  markdown: string
+  relations: Array<BrainEntryRelation>
+}
+
+/**
+ * WorkerEnvResponse
+ */
+export type WorkerEnvResponse = {
+  worker_env: WorkerEnvItem
+}
+
+/**
+ * BrainEntryOperationsResponse
+ */
+export type BrainEntryOperationsResponse = {
+  results: Array<JsonValue>
+  touched_entry_ids: Array<string>
+}
+
+/**
  * CodexAccountUpdateRequest
  */
 export type CodexAccountUpdateRequest = {
@@ -515,6 +651,18 @@ export type OAuthErrorResponse = {
  */
 export type AppConfigurationUpdateRequest = {
   value: JsonValue
+}
+
+/**
+ * BrainDreamingRun
+ */
+export type BrainDreamingRun = {
+  material_count?: number
+  operation_count?: number
+  run_id?: string
+  skill_update_count?: number
+  status: 'completed' | 'no_new_material' | 'already_running' | 'disabled'
+  touched_entry_ids?: Array<string>
 }
 
 /**
@@ -563,10 +711,56 @@ export type CodexAccountItem = {
 }
 
 /**
+ * BrainSourceEntry
+ */
+export type BrainSourceEntry = {
+  attachments: Array<JsonValue>
+  author: {
+    [key: string]: unknown
+  }
+  document_id: string
+  formatted_content: {
+    [key: string]: unknown
+  }
+  links: Array<JsonValue>
+  metadata: {
+    [key: string]: unknown
+  }
+  provider_time?: string | null
+  signal_channel_id: string
+  source_entry_id: string
+  text?: string | null
+}
+
+/**
+ * WorkerEnvItem
+ */
+export type WorkerEnvItem = {
+  declared_key?: string | null
+  description?: string | null
+  editable: boolean
+  error?: string | null
+  kind: 'declared' | 'custom'
+  name: string
+  present: boolean
+  secret: boolean
+  source: 'default' | 'global' | 'agent' | 'missing' | 'error'
+  value?: JsonValue
+}
+
+/**
  * AgentListResponse
  */
 export type AgentListResponse = {
   agents: Array<AgentItem>
+}
+
+/**
+ * WorkerEnvDecryptionValue
+ */
+export type WorkerEnvDecryptionValue = {
+  name: string
+  value: JsonValue
 }
 
 /**
@@ -623,6 +817,13 @@ export type WorkerFileMoveResponse = {
 }
 
 /**
+ * BrainDreamingRunResponse
+ */
+export type BrainDreamingRunResponse = {
+  run: BrainDreamingRun
+}
+
+/**
  * AIGatewayProviderResponse
  */
 export type AiGatewayProviderResponse = {
@@ -646,6 +847,49 @@ export type IdentityProviderAdapterItem = {
   display_name?: LocalizedText
   fields: Array<SignalAdapterField>
   plugin_id?: string | null
+}
+
+/**
+ * BrainSourceEntryResponse
+ */
+export type BrainSourceEntryResponse = {
+  source: BrainSourceEntry
+}
+
+/**
+ * BrainEntryOperation
+ *
+ * One structured Brain mutation. owner/store/author are intentionally absent and are derived by the server.
+ */
+export type BrainEntryOperation = {
+  aliases?: Array<string>
+  block_id?: string
+  body?: string
+  entry_id?: string
+  expected_block_lock_version?: number
+  expected_entry_lock_version?: number
+  key?: string
+  name?: string
+  operation:
+    | 'create_entry'
+    | 'delete_entry'
+    | 'append_block'
+    | 'edit_block'
+    | 'delete_block'
+    | 'set_property'
+    | 'add_relation'
+    | 'remove_relation'
+    | 'set_summary'
+    | 'set_aliases'
+  predicate?: string
+  properties?: {
+    [key: string]: unknown
+  }
+  relation_id?: string
+  summary?: string
+  target_entry_id?: string
+  type?: string
+  value?: JsonValue
 }
 
 /**
@@ -679,6 +923,13 @@ export type AiGatewayProviderWriteRequest = {
 }
 
 /**
+ * BrainAuditRestorationsRequest
+ */
+export type BrainAuditRestorationsRequest = {
+  audit_ids: Array<string>
+}
+
+/**
  * ConsoleTokenResponse
  */
 export type ConsoleTokenResponse = {
@@ -709,6 +960,23 @@ export type SignalBindingItem = {
  */
 export type AppConfigurationDecryptionResponse = {
   decrypted_value: AppConfigurationDecryptionValue
+}
+
+/**
+ * BrainEntryBlock
+ */
+export type BrainEntryBlock = {
+  author_kind: 'human' | 'agent' | 'dreaming'
+  author_uid?: string | null
+  body: string
+  embedding_error?: string | null
+  embedding_state: 'pending' | 'synced' | 'failed'
+  entry_id: string
+  id: string
+  inserted_at: string
+  lock_version: number
+  position: number
+  updated_at: string
 }
 
 /**
@@ -849,6 +1117,52 @@ export type AnkoleWebScheduleControllerPauseCronResponses = {
 export type AnkoleWebScheduleControllerPauseCronResponse =
   AnkoleWebScheduleControllerPauseCronResponses[keyof AnkoleWebScheduleControllerPauseCronResponses]
 
+export type AnkoleWebBrainControllerAuditLogData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query: {
+    /**
+     * Principal whose Brain library is being supervised
+     */
+    owner_uid: string
+    store?: string
+    action?: string
+    actor?: string
+    run_id?: string
+    inserted_after?: string
+    inserted_before?: string
+    cursor?: string
+    limit?: number
+  }
+  url: '/api/v1/brain/entries/{id}/audit-log'
+}
+
+export type AnkoleWebBrainControllerAuditLogErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebBrainControllerAuditLogError =
+  AnkoleWebBrainControllerAuditLogErrors[keyof AnkoleWebBrainControllerAuditLogErrors]
+
+export type AnkoleWebBrainControllerAuditLogResponses = {
+  /**
+   * Brain audit log
+   */
+  200: BrainAuditLogResponse
+}
+
+export type AnkoleWebBrainControllerAuditLogResponse =
+  AnkoleWebBrainControllerAuditLogResponses[keyof AnkoleWebBrainControllerAuditLogResponses]
+
 export type AnkoleWebAppConfigurationControllerIndexData = {
   body?: never
   path?: never
@@ -879,6 +1193,56 @@ export type AnkoleWebAppConfigurationControllerIndexResponses = {
 
 export type AnkoleWebAppConfigurationControllerIndexResponse =
   AnkoleWebAppConfigurationControllerIndexResponses[keyof AnkoleWebAppConfigurationControllerIndexResponses]
+
+export type AnkoleWebBrainControllerRestoreAuditData = {
+  body?: never
+  path: {
+    audit_id: string
+  }
+  query: {
+    /**
+     * Principal whose Brain library is being supervised
+     */
+    owner_uid: string
+  }
+  url: '/api/v1/brain/audit-log/{audit_id}/restorations'
+}
+
+export type AnkoleWebBrainControllerRestoreAuditErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Optimistic lock conflict
+   */
+  409: ConsoleApiErrorEnvelope
+  /**
+   * Audit record cannot be restored
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebBrainControllerRestoreAuditError =
+  AnkoleWebBrainControllerRestoreAuditErrors[keyof AnkoleWebBrainControllerRestoreAuditErrors]
+
+export type AnkoleWebBrainControllerRestoreAuditResponses = {
+  /**
+   * Restoration result
+   */
+  200: BrainAuditRestorationResponse
+}
+
+export type AnkoleWebBrainControllerRestoreAuditResponse =
+  AnkoleWebBrainControllerRestoreAuditResponses[keyof AnkoleWebBrainControllerRestoreAuditResponses]
 
 export type AnkoleWebScheduleControllerIndexCronData = {
   body?: never
@@ -991,6 +1355,48 @@ export type AnkoleWebSubagentDelegationControllerShowResponses = {
 
 export type AnkoleWebSubagentDelegationControllerShowResponse =
   AnkoleWebSubagentDelegationControllerShowResponses[keyof AnkoleWebSubagentDelegationControllerShowResponses]
+
+export type AnkoleWebBrainControllerShowData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query: {
+    /**
+     * Principal whose Brain library is being supervised
+     */
+    owner_uid: string
+  }
+  url: '/api/v1/brain/entries/{id}'
+}
+
+export type AnkoleWebBrainControllerShowErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebBrainControllerShowError =
+  AnkoleWebBrainControllerShowErrors[keyof AnkoleWebBrainControllerShowErrors]
+
+export type AnkoleWebBrainControllerShowResponses = {
+  /**
+   * Brain entry
+   */
+  200: BrainEntryResponse
+}
+
+export type AnkoleWebBrainControllerShowResponse =
+  AnkoleWebBrainControllerShowResponses[keyof AnkoleWebBrainControllerShowResponses]
 
 export type AnkoleWebWorkerFileControllerDeleteData = {
   body?: never
@@ -1187,6 +1593,53 @@ export type AnkoleWebAiGatewayControllerResponsesResponses = {
 
 export type AnkoleWebAiGatewayControllerResponsesResponse =
   AnkoleWebAiGatewayControllerResponsesResponses[keyof AnkoleWebAiGatewayControllerResponsesResponses]
+
+export type AnkoleWebBrainControllerRestoreAuditsData = {
+  /**
+   * Exact audit selection
+   */
+  body: BrainAuditRestorationsRequest
+  path?: never
+  query: {
+    /**
+     * Principal whose Brain library is being supervised
+     */
+    owner_uid: string
+  }
+  url: '/api/v1/brain/audit-log/restorations'
+}
+
+export type AnkoleWebBrainControllerRestoreAuditsErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Audit selection or current state changed
+   */
+  409: ConsoleApiErrorEnvelope
+  /**
+   * Invalid audit selection
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebBrainControllerRestoreAuditsError =
+  AnkoleWebBrainControllerRestoreAuditsErrors[keyof AnkoleWebBrainControllerRestoreAuditsErrors]
+
+export type AnkoleWebBrainControllerRestoreAuditsResponses = {
+  /**
+   * Batch restoration result
+   */
+  200: BrainAuditRestorationResponse
+}
+
+export type AnkoleWebBrainControllerRestoreAuditsResponse =
+  AnkoleWebBrainControllerRestoreAuditsResponses[keyof AnkoleWebBrainControllerRestoreAuditsResponses]
 
 export type AnkoleWebAiGatewayProviderControllerProviderKindsData = {
   body?: never
@@ -1852,6 +2305,89 @@ export type AnkoleWebAiGatewayControllerCompactResponseResponses = {
 export type AnkoleWebAiGatewayControllerCompactResponseResponse =
   AnkoleWebAiGatewayControllerCompactResponseResponses[keyof AnkoleWebAiGatewayControllerCompactResponseResponses]
 
+export type AnkoleWebWorkerEnvControllerDecryptForAgentData = {
+  body?: never
+  path: {
+    agent_uid: string
+    name: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/worker-envs/{name}/decryptions'
+}
+
+export type AnkoleWebWorkerEnvControllerDecryptForAgentErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Not encrypted
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebWorkerEnvControllerDecryptForAgentError =
+  AnkoleWebWorkerEnvControllerDecryptForAgentErrors[keyof AnkoleWebWorkerEnvControllerDecryptForAgentErrors]
+
+export type AnkoleWebWorkerEnvControllerDecryptForAgentResponses = {
+  /**
+   * Decrypted value
+   */
+  200: WorkerEnvDecryptionResponse
+}
+
+export type AnkoleWebWorkerEnvControllerDecryptForAgentResponse =
+  AnkoleWebWorkerEnvControllerDecryptForAgentResponses[keyof AnkoleWebWorkerEnvControllerDecryptForAgentResponses]
+
+export type AnkoleWebWorkerEnvControllerDecryptData = {
+  body?: never
+  path: {
+    name: string
+  }
+  query?: never
+  url: '/api/v1/worker-envs/{name}/decryptions'
+}
+
+export type AnkoleWebWorkerEnvControllerDecryptErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Not encrypted
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebWorkerEnvControllerDecryptError =
+  AnkoleWebWorkerEnvControllerDecryptErrors[keyof AnkoleWebWorkerEnvControllerDecryptErrors]
+
+export type AnkoleWebWorkerEnvControllerDecryptResponses = {
+  /**
+   * Decrypted value
+   */
+  200: WorkerEnvDecryptionResponse
+}
+
+export type AnkoleWebWorkerEnvControllerDecryptResponse =
+  AnkoleWebWorkerEnvControllerDecryptResponses[keyof AnkoleWebWorkerEnvControllerDecryptResponses]
+
 export type AnkoleWebIdentityProviderControllerRunSyncData = {
   body?: never
   path: {
@@ -2265,6 +2801,43 @@ export type AnkoleWebSignalBindingControllerDeleteResponses = {
 export type AnkoleWebSignalBindingControllerDeleteResponse =
   AnkoleWebSignalBindingControllerDeleteResponses[keyof AnkoleWebSignalBindingControllerDeleteResponses]
 
+export type AnkoleWebBrainControllerSourceData = {
+  body?: never
+  path: {
+    document_id: string
+  }
+  query?: never
+  url: '/api/v1/brain/sources/{document_id}'
+}
+
+export type AnkoleWebBrainControllerSourceErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebBrainControllerSourceError =
+  AnkoleWebBrainControllerSourceErrors[keyof AnkoleWebBrainControllerSourceErrors]
+
+export type AnkoleWebBrainControllerSourceResponses = {
+  /**
+   * Original source message
+   */
+  200: BrainSourceEntryResponse
+}
+
+export type AnkoleWebBrainControllerSourceResponse =
+  AnkoleWebBrainControllerSourceResponses[keyof AnkoleWebBrainControllerSourceResponses]
+
 export type AnkoleWebScheduleControllerCancelCheckbackData = {
   body?: never
   path: {
@@ -2539,6 +3112,181 @@ export type AnkoleWebCodexAccountControllerUpdateResponses = {
 export type AnkoleWebCodexAccountControllerUpdateResponse =
   AnkoleWebCodexAccountControllerUpdateResponses[keyof AnkoleWebCodexAccountControllerUpdateResponses]
 
+export type AnkoleWebBrainControllerIndexData = {
+  body?: never
+  path?: never
+  query: {
+    /**
+     * Principal whose Brain library is being supervised
+     */
+    owner_uid: string
+    type?: string
+    query?: string
+    store?: string
+    /**
+     * An author kind (human/agent/dreaming) or exact author UID
+     */
+    author?: string
+    /**
+     * ISO-8601 lower bound for entry updated_at
+     */
+    updated?: string
+    cursor?: string
+    limit?: number
+  }
+  url: '/api/v1/brain/entries'
+}
+
+export type AnkoleWebBrainControllerIndexErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Invalid filters
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebBrainControllerIndexError =
+  AnkoleWebBrainControllerIndexErrors[keyof AnkoleWebBrainControllerIndexErrors]
+
+export type AnkoleWebBrainControllerIndexResponses = {
+  /**
+   * Brain entries
+   */
+  200: BrainEntryListResponse
+}
+
+export type AnkoleWebBrainControllerIndexResponse =
+  AnkoleWebBrainControllerIndexResponses[keyof AnkoleWebBrainControllerIndexResponses]
+
+export type AnkoleWebWorkerEnvControllerDeleteData = {
+  body?: never
+  path: {
+    name: string
+  }
+  query?: never
+  url: '/api/v1/worker-envs/{name}'
+}
+
+export type AnkoleWebWorkerEnvControllerDeleteErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Invalid name
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebWorkerEnvControllerDeleteError =
+  AnkoleWebWorkerEnvControllerDeleteErrors[keyof AnkoleWebWorkerEnvControllerDeleteErrors]
+
+export type AnkoleWebWorkerEnvControllerDeleteResponses = {
+  /**
+   * Worker env entry
+   */
+  200: WorkerEnvResponse
+}
+
+export type AnkoleWebWorkerEnvControllerDeleteResponse =
+  AnkoleWebWorkerEnvControllerDeleteResponses[keyof AnkoleWebWorkerEnvControllerDeleteResponses]
+
+export type AnkoleWebWorkerEnvControllerShowData = {
+  body?: never
+  path: {
+    name: string
+  }
+  query?: never
+  url: '/api/v1/worker-envs/{name}'
+}
+
+export type AnkoleWebWorkerEnvControllerShowErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Invalid name
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebWorkerEnvControllerShowError =
+  AnkoleWebWorkerEnvControllerShowErrors[keyof AnkoleWebWorkerEnvControllerShowErrors]
+
+export type AnkoleWebWorkerEnvControllerShowResponses = {
+  /**
+   * Worker env entry
+   */
+  200: WorkerEnvResponse
+}
+
+export type AnkoleWebWorkerEnvControllerShowResponse =
+  AnkoleWebWorkerEnvControllerShowResponses[keyof AnkoleWebWorkerEnvControllerShowResponses]
+
+export type AnkoleWebWorkerEnvControllerUpdateData = {
+  /**
+   * Worker env update
+   */
+  body: WorkerEnvUpdateRequest
+  path: {
+    name: string
+  }
+  query?: never
+  url: '/api/v1/worker-envs/{name}'
+}
+
+export type AnkoleWebWorkerEnvControllerUpdateErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Invalid value
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebWorkerEnvControllerUpdateError =
+  AnkoleWebWorkerEnvControllerUpdateErrors[keyof AnkoleWebWorkerEnvControllerUpdateErrors]
+
+export type AnkoleWebWorkerEnvControllerUpdateResponses = {
+  /**
+   * Worker env entry
+   */
+  200: WorkerEnvResponse
+}
+
+export type AnkoleWebWorkerEnvControllerUpdateResponse =
+  AnkoleWebWorkerEnvControllerUpdateResponses[keyof AnkoleWebWorkerEnvControllerUpdateResponses]
+
 export type AnkoleWebAuthControllerDeleteSessionData = {
   body?: never
   path?: never
@@ -2591,6 +3339,37 @@ export type AnkoleWebAiGatewayControllerRerankResponses = {
 
 export type AnkoleWebAiGatewayControllerRerankResponse =
   AnkoleWebAiGatewayControllerRerankResponses[keyof AnkoleWebAiGatewayControllerRerankResponses]
+
+export type AnkoleWebWorkerEnvControllerIndexData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v1/worker-envs'
+}
+
+export type AnkoleWebWorkerEnvControllerIndexErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebWorkerEnvControllerIndexError =
+  AnkoleWebWorkerEnvControllerIndexErrors[keyof AnkoleWebWorkerEnvControllerIndexErrors]
+
+export type AnkoleWebWorkerEnvControllerIndexResponses = {
+  /**
+   * Worker env entries
+   */
+  200: WorkerEnvListResponse
+}
+
+export type AnkoleWebWorkerEnvControllerIndexResponse =
+  AnkoleWebWorkerEnvControllerIndexResponses[keyof AnkoleWebWorkerEnvControllerIndexResponses]
 
 export type AnkoleWebAppConfigurationControllerDecryptData = {
   body?: never
@@ -2740,6 +3519,83 @@ export type AnkoleWebSubagentDelegationControllerIndexResponses = {
 export type AnkoleWebSubagentDelegationControllerIndexResponse =
   AnkoleWebSubagentDelegationControllerIndexResponses[keyof AnkoleWebSubagentDelegationControllerIndexResponses]
 
+export type AnkoleWebBrainControllerRunDreamingData = {
+  body?: never
+  path?: never
+  query: {
+    /**
+     * Principal whose Brain library is being supervised
+     */
+    owner_uid: string
+  }
+  url: '/api/v1/brain/dreaming-runs'
+}
+
+export type AnkoleWebBrainControllerRunDreamingErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Dreaming run failed
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebBrainControllerRunDreamingError =
+  AnkoleWebBrainControllerRunDreamingErrors[keyof AnkoleWebBrainControllerRunDreamingErrors]
+
+export type AnkoleWebBrainControllerRunDreamingResponses = {
+  /**
+   * Dreaming run result
+   */
+  200: BrainDreamingRunResponse
+}
+
+export type AnkoleWebBrainControllerRunDreamingResponse =
+  AnkoleWebBrainControllerRunDreamingResponses[keyof AnkoleWebBrainControllerRunDreamingResponses]
+
+export type AnkoleWebWorkerEnvControllerIndexForAgentData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/worker-envs'
+}
+
+export type AnkoleWebWorkerEnvControllerIndexForAgentErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Agent not found
+   */
+  404: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebWorkerEnvControllerIndexForAgentError =
+  AnkoleWebWorkerEnvControllerIndexForAgentErrors[keyof AnkoleWebWorkerEnvControllerIndexForAgentErrors]
+
+export type AnkoleWebWorkerEnvControllerIndexForAgentResponses = {
+  /**
+   * Worker env entries
+   */
+  200: WorkerEnvListResponse
+}
+
+export type AnkoleWebWorkerEnvControllerIndexForAgentResponse =
+  AnkoleWebWorkerEnvControllerIndexForAgentResponses[keyof AnkoleWebWorkerEnvControllerIndexForAgentResponses]
+
 export type AnkoleWebSubagentDelegationControllerCancelData = {
   body?: never
   path: {
@@ -2776,6 +3632,54 @@ export type AnkoleWebSubagentDelegationControllerCancelResponses = {
 
 export type AnkoleWebSubagentDelegationControllerCancelResponse =
   AnkoleWebSubagentDelegationControllerCancelResponses[keyof AnkoleWebSubagentDelegationControllerCancelResponses]
+
+export type AnkoleWebBrainControllerAuditIndexData = {
+  body?: never
+  path?: never
+  query: {
+    /**
+     * Principal whose Brain library is being supervised
+     */
+    owner_uid: string
+    store?: string
+    action?: string
+    actor?: string
+    run_id?: string
+    inserted_after?: string
+    inserted_before?: string
+    cursor?: string
+    limit?: number
+  }
+  url: '/api/v1/brain/audit-log'
+}
+
+export type AnkoleWebBrainControllerAuditIndexErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Invalid filters
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebBrainControllerAuditIndexError =
+  AnkoleWebBrainControllerAuditIndexErrors[keyof AnkoleWebBrainControllerAuditIndexErrors]
+
+export type AnkoleWebBrainControllerAuditIndexResponses = {
+  /**
+   * Brain audit log
+   */
+  200: BrainAuditLogResponse
+}
+
+export type AnkoleWebBrainControllerAuditIndexResponse =
+  AnkoleWebBrainControllerAuditIndexResponses[keyof AnkoleWebBrainControllerAuditIndexResponses]
 
 export type AnkoleWebAppConfigurationControllerDeleteData = {
   body?: never
@@ -2902,6 +3806,148 @@ export type AnkoleWebAppConfigurationControllerUpdateResponses = {
 
 export type AnkoleWebAppConfigurationControllerUpdateResponse =
   AnkoleWebAppConfigurationControllerUpdateResponses[keyof AnkoleWebAppConfigurationControllerUpdateResponses]
+
+export type AnkoleWebBrainControllerApplyOperationsData = {
+  /**
+   * Structured Brain operations
+   */
+  body: BrainEntryOperationsRequest
+  path?: never
+  query: {
+    /**
+     * Principal whose Brain library is being supervised
+     */
+    owner_uid: string
+    /**
+     * Required for create-only batches; existing entries derive their store
+     */
+    store?: string
+  }
+  url: '/api/v1/brain/entry-operations'
+}
+
+export type AnkoleWebBrainControllerApplyOperationsErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Optimistic lock conflict
+   */
+  409: ConsoleApiErrorEnvelope
+  /**
+   * Invalid operations
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebBrainControllerApplyOperationsError =
+  AnkoleWebBrainControllerApplyOperationsErrors[keyof AnkoleWebBrainControllerApplyOperationsErrors]
+
+export type AnkoleWebBrainControllerApplyOperationsResponses = {
+  /**
+   * Operation results
+   */
+  200: BrainEntryOperationsResponse
+}
+
+export type AnkoleWebBrainControllerApplyOperationsResponse =
+  AnkoleWebBrainControllerApplyOperationsResponses[keyof AnkoleWebBrainControllerApplyOperationsResponses]
+
+export type AnkoleWebWorkerEnvControllerDeleteForAgentData = {
+  body?: never
+  path: {
+    agent_uid: string
+    name: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/worker-envs/{name}'
+}
+
+export type AnkoleWebWorkerEnvControllerDeleteForAgentErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Invalid name
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebWorkerEnvControllerDeleteForAgentError =
+  AnkoleWebWorkerEnvControllerDeleteForAgentErrors[keyof AnkoleWebWorkerEnvControllerDeleteForAgentErrors]
+
+export type AnkoleWebWorkerEnvControllerDeleteForAgentResponses = {
+  /**
+   * Worker env entry
+   */
+  200: WorkerEnvResponse
+}
+
+export type AnkoleWebWorkerEnvControllerDeleteForAgentResponse =
+  AnkoleWebWorkerEnvControllerDeleteForAgentResponses[keyof AnkoleWebWorkerEnvControllerDeleteForAgentResponses]
+
+export type AnkoleWebWorkerEnvControllerUpdateForAgentData = {
+  /**
+   * Worker env update
+   */
+  body: WorkerEnvUpdateRequest
+  path: {
+    agent_uid: string
+    name: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/worker-envs/{name}'
+}
+
+export type AnkoleWebWorkerEnvControllerUpdateForAgentErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Agent not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Invalid value
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebWorkerEnvControllerUpdateForAgentError =
+  AnkoleWebWorkerEnvControllerUpdateForAgentErrors[keyof AnkoleWebWorkerEnvControllerUpdateForAgentErrors]
+
+export type AnkoleWebWorkerEnvControllerUpdateForAgentResponses = {
+  /**
+   * Worker env entry
+   */
+  200: WorkerEnvResponse
+}
+
+export type AnkoleWebWorkerEnvControllerUpdateForAgentResponse =
+  AnkoleWebWorkerEnvControllerUpdateForAgentResponses[keyof AnkoleWebWorkerEnvControllerUpdateForAgentResponses]
 
 export type AnkoleWebAuthControllerOauthTokenData = {
   /**

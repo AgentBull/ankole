@@ -47,7 +47,7 @@ defmodule Ankole.AIGateway.Schemas.Conversation do
     # Only one *active* (not yet `ended_at`) conversation may exist per
     # (subject, conversation_key). The backing index is partial on `ended_at IS
     # NULL`, so an ended session can be superseded by a new one under the same
-    # key. This collision is what `Conversations.ensure_conversation_in_tx/3` relies on
+    # key. This collision is what `Conversations.ensure_conversation_in_tx/4` relies on
     # to make concurrent first-input safe: it inserts, and on conflict refetches
     # the row the racing writer created.
     |> unique_constraint([:subject_uid, :conversation_key],

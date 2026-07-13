@@ -179,7 +179,8 @@ if printf 'forbidden' >> /ankole/subagent-skills/pptx/SKILL.md 2>/dev/null; then
         session_id: 'subagent:delegation-1',
         skill_name: request.skill_name,
         has_overlay: true,
-        overlay_json: { text: 'PG_OVERLAY_MARKER' }
+        overlay_json: { text: 'PG_OVERLAY_MARKER' },
+        content_hash: 'overlay-hash'
       })
     }
     const runtimeFiles = await materializeSubagentRuntimeFiles(runtimeInput)

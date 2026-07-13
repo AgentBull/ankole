@@ -34,6 +34,20 @@ export const ALIAS_TSCONFIGS = [
 ] as const
 
 // ---------------------------------------------------------------------------
+// naming: source ownership exceptions
+// ---------------------------------------------------------------------------
+
+/**
+ * Source paths whose identifier casing is owned by an external protocol.
+ * Keep this narrow: ordinary browser tooling remains subject to Ankole naming.
+ */
+export const NAMING_EXTERNAL_PROTOCOL_PATHS = [
+  'app/agent_computer/src/tools/browser/cdp/',
+  'app/agent_computer/test/browser_cdp.test.ts',
+  'app/kernel/index.d.ts'
+] as const
+
+// ---------------------------------------------------------------------------
 // smells: boundary rules
 // ---------------------------------------------------------------------------
 
@@ -127,13 +141,7 @@ export interface UnusedAllowEntry {
  * db-migrate, package exports) are declared as `entry` in knip.config.ts so
  * Knip treats them as used — they do NOT belong here (that would be stale).
  */
-export const UNUSED_ALLOWLIST: UnusedAllowEntry[] = [
-  {
-    file: 'app/webapps/console/api/generated/index.ts',
-    owner: 'webapps-console-api',
-    reason: 'Generated OpenAPI barrel; current consumers import generated query/types modules directly.'
-  }
-]
+export const UNUSED_ALLOWLIST: UnusedAllowEntry[] = []
 
 // ---------------------------------------------------------------------------
 // duplicates: jscpd v5
@@ -173,15 +181,18 @@ export const DUP_SCANS: DupScan[] = [
   {
     name: 'cross-module',
     paths: [
+      'app/agent_computer/scripts',
       'app/agent_computer/src',
       'app/control_plane/lib',
       'app/kernel/build.rs',
+      'app/kernel/examples',
       'app/kernel/index.js',
       'app/kernel/lib',
       'app/kernel/main.js',
       'app/kernel/src',
       'app/webapps',
       'libs/feishu_openapi/lib',
+      'libs/slack_openapi/lib',
       'libs/uikit/src',
       'plugins',
       'tools/devkit/src'

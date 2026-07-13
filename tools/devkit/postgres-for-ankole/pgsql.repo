@@ -7,7 +7,7 @@ module_hotfixes = 1
 
 [pgdg-common]
 name = PostgreSQL Common $releasever - $basearch
-baseurl = https://mirrors.aliyun.com/postgresql/repos/yum/common/redhat/rhel-9.5-$basearch
+baseurl = https://mirrors.aliyun.com/postgresql/repos/yum/common/redhat/rhel-9.8-$basearch
 gpgcheck = 0
 enabled = 1
 module_hotfixes = 1

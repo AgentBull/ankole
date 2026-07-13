@@ -20,6 +20,33 @@ defmodule Ankole.KernelTest do
     assert NativeKernel.generate_key() =~ ~r/\A[0-9a-f]{64}\z/
   end
 
+  test "web_url_facts/1 parses and classifies web URLs" do
+    assert %{scheme: "https", host: "example.com", host_class: :public} =
+             NativeKernel.web_url_facts("https://Example.COM/page")
+
+    assert %{host_class: :private} = NativeKernel.web_url_facts("https://10.0.0.8/internal")
+    assert %{host_class: :private} = NativeKernel.web_url_facts("https://svc.localhost/app")
+
+    assert %{host: "127.0.0.1", host_class: :private} =
+             NativeKernel.web_url_facts("https://0x7f000001/")
+
+    assert %{host_class: :private} = NativeKernel.web_url_facts("https://[::ffff:10.0.0.1]/")
+
+    assert %{host_class: :metadata} =
+             NativeKernel.web_url_facts("https://169.254.169.254/latest/")
+
+    assert %{host_class: :metadata} =
+             NativeKernel.web_url_facts("https://metadata.google.internal/v1/")
+
+    assert %{host_class: :metadata} = NativeKernel.web_url_facts("https://[fe80::1]/admin")
+
+    assert %{scheme: "data", host: nil, host_class: nil} =
+             NativeKernel.web_url_facts("data:text/plain,hi")
+
+    assert {:error, reason} = NativeKernel.web_url_facts("not a url")
+    assert reason =~ "invalid web url"
+  end
+
   test "aead helpers encrypt and decrypt compact payloads" do
     encrypted = NativeKernel.aead_encrypt("secret", @aead_key)
 
@@ -54,6 +81,115 @@ defmodule Ankole.KernelTest do
                aud: ["ankole.web_console"],
                sub: "human-1"
              })
+  end
+
+  # RS256 token signed by a throwaway test key whose public JWK is below;
+  # claims: iss api.botframework.com, aud 11111111-…, exp 2100-01-01.
+  @rs256_token "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6InRlc3Qta2V5LTEifQ.eyJpc3MiOiJodHRwczovL2FwaS5ib3RmcmFtZXdvcmsuY29tIiwiYXVkIjoiMTExMTExMTEtMjIyMi0zMzMzLTQ0NDQtNTU1NTU1NTU1NTU1Iiwic2VydmljZVVybCI6Imh0dHBzOi8vc21iYS50cmFmZmljbWFuYWdlci5uZXQvdGVhbXMvIiwiZXhwIjo0MTAyNDQ0ODAwfQ.ZIR18QFxalBM4yQuG2cH1M30wm3gYEdPeQyjxiJMe008iJ-r2-bE8HUMmhlZHqdnUMpH8YvKfKz_M4yCVuDD6oNJXBBZHHN6PGW5peuaE5yRf9u6o0R1xArV-LTxkW3te2RgHSEbvaQrUUozASQbbP5UjpCzpB172Q5V2tyc2YvXsjZug0gRAtY3DdONrijJm4wxusyYT4Yaf2b_wJSKQJ-g6vlzq5LENdWCWP-cq_aHRdnWcmsMepH3oE2z0g38YDlumNN9gZV6L3JQpUFnKv_e46jIAnixV-Dl1ZXoSdnB7psVACgnaVkn4FtB5ToEms3UuYyPfIaYPlQpXm-JJg"
+  @rs256_jwk %{
+    "kty" => "RSA",
+    "kid" => "test-key-1",
+    "n" =>
+      "voAhnbPZoyk16UJ5MBXNX08cXYR3u2AQVCX_ryzDEtKUy-PUzk29MSf32f0AdYjdCqaTva8Xc8Vg77DeBzNVGiDxKZgY2Pp3r4e02vZHSkIF5aWXfOzrc-ZHsJqhOmf1hRE9LjAo6Zwe48ZyeH9MaKF0BbV5yU8WW3ed0OglCgRTxO1oigIeRwrXriZ0IDnBHakY0XpXAcRCBHfCqA7ISLEs8qA-vABhlQZ0G2kaqGJ8h1C4xoB2qasiKqGu8z7_3RyH2M14UUSXG_pJcqnXu4XzQLW5icWsaTgMHQe7ki_u2FfVdQKsdDbYBpHn0pk_r1raFmEs3mDAT4xAvRZThQ",
+    "e" => "AQAB"
+  }
+
+  test "jwt_verify_jwk verifies RS256 tokens against an RSA JWK" do
+    assert %{
+             "iss" => "https://api.botframework.com",
+             "serviceUrl" => "https://smba.trafficmanager.net/teams/"
+           } =
+             NativeKernel.jwt_verify_jwk(@rs256_token, @rs256_jwk, %{
+               algorithms: ["RS256"],
+               iss: ["https://api.botframework.com"],
+               aud: ["11111111-2222-3333-4444-555555555555"]
+             })
+
+    assert {:error, _reason} =
+             NativeKernel.jwt_verify_jwk(@rs256_token, @rs256_jwk, %{
+               algorithms: ["RS256"],
+               aud: ["other-app"]
+             })
+
+    assert {:error, _reason} =
+             NativeKernel.jwt_verify_jwk(@rs256_token, @rs256_jwk, %{algorithms: ["HS256"]})
+
+    [header, payload, signature] = String.split(@rs256_token, ".")
+
+    assert {:error, _reason} =
+             NativeKernel.jwt_verify_jwk(
+               "#{header}.f#{binary_slice(payload, 1..-1//1)}.#{signature}",
+               @rs256_jwk,
+               %{algorithms: ["RS256"]}
+             )
+  end
+
+  # Throwaway private key matching @rs256_jwk; it protects nothing.
+  @rs256_private_key_pem """
+  -----BEGIN PRIVATE KEY-----
+  MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQC+gCGds9mjKTXp
+  QnkwFc1fTxxdhHe7YBBUJf+vLMMS0pTL49TOTb0xJ/fZ/QB1iN0KppO9rxdzxWDv
+  sN4HM1UaIPEpmBjY+nevh7Ta9kdKQgXlpZd87Otz5kewmqE6Z/WFET0uMCjpnB7j
+  xnJ4f0xooXQFtXnJTxZbd53Q6CUKBFPE7WiKAh5HCteuJnQgOcEdqRjRelcBxEIE
+  d8KoDshIsSzyoD68AGGVBnQbaRqoYnyHULjGgHapqyIqoa7zPv/dHIfYzXhRRJcb
+  +klyqde7hfNAtbmJxaxpOAwdB7uSL+7YV9V1Aqx0NtgGkefSmT+vWtoWYSzeYMBP
+  jEC9FlOFAgMBAAECggEAVRS47swiiaKgN1u+8GDsZoLYslO1ffQ7lrmZ5kzhmwh9
+  +En7A2Do/IlTQwKiL9w+jME0/uSyXrxqvOKLZz/f5FmOG/uYLWBAEB9WAO05jcrL
+  A3PfoqXVyt+waQnGtGU13IaEgppzy1I04ZoCChsgryJcxSf2CpjN7XARBfqIgF4D
+  YncHS9JkTgtiC8ojHgmf302uWtbdofNjqbjG/VoP+KzJu9OsTtbn/p7ktmgWhviO
+  Jqmqs5b/LQq3laHrYFB7fViurG3XHozRL8aQ4R7MnlaclwB5th1SQcBV5q++7t87
+  5qyy/uld/iFPZmC3TfIO/DM3Jg+e7xEyBuM4bFgRyQKBgQD8OOkNSwvjVfW/80IV
+  DPxixFxj2z1lunbzY5YxOn/yqXmvMpfCNl2qc8o1TfUBrjVOe/N/HL0HtPEwXbS2
+  T0QzRUPccpi29HELQR67yP0r+z6u8Rbq/v7W4B7Wjd99yfTE+jw2q77rPevUW53p
+  nYkKDDqV1xIC2iXA9DwpzdRjFwKBgQDBWpAI3gEyYlkMrqDcUY7vnUdW+Js40KAM
+  ldJ3SxbBcmUSljtRYakpp/iJ1UzxDO+vP9w1HyO0VIPjR2BOhpgFlaiHz2Z9a0aL
+  BxAYNGQvXuxDgn8EXFxNfQqEylqxR0s2+FvNbJHZmcufNlA3Gp7Z578jMXLW+Xi3
+  4eNGo9OPwwKBgA4d0U1hKeUrZnm7z7MF6wpMGy+rkaAj84xjwoA22fpm6dyYZE4G
+  ZO+pU2PwXQofCfS+kz5GCX5o7iba18ZsYVDNS6MG9u0meT08A9BWy3Suty9rZvD4
+  HKNCH/e6MQwFRaHQr5YPvrvD13MnPYtZudXKIW1JgESQmRRXlxZv4rc5AoGAblvg
+  Zg9Ao59asFBj5Bxw9vbQJyXSgsUg9M32yLwFCvjeE5PH25VgVjRXOWSTe+okS+Sp
+  LXDOkjjC5lBw+aD82AMppAqOtvsp0mR/nTEaFaeaNpYfJUAKNvgtrslIpnLIzWFI
+  FKHpRUfw3rjDZBA/pqQNhmrM30KY0muNq14KfL0CgYAh2PBtHyY09Or7uLkPr8kG
+  zsgVAle6vjE4r3s5cNO5hkqQs2kkfCklHZWFbDZ26r5hwmFHlbgF9X/K+JTPrZVh
+  9f2PcI2LK9M1y/YkgTx+qSc0ROLtMrfKz6XOX6WSBwl2CY2XYJh6gRwvWG88mjJ+
+  WcIZW/EN2+olnpMjA71EXA==
+  -----END PRIVATE KEY-----
+  """
+
+  test "jwt_sign_pem signs RS256 tokens that verify against the matching JWK" do
+    assert token =
+             NativeKernel.jwt_sign_pem(
+               %{
+                 iss: "sa@project.iam.gserviceaccount.com",
+                 sub: "admin@example.com",
+                 scope: "https://www.googleapis.com/auth/admin.directory.user.readonly",
+                 aud: "https://oauth2.googleapis.com/token",
+                 iat: 1_000_000_000,
+                 exp: 4_102_444_800
+               },
+               @rs256_private_key_pem,
+               %{algorithm: "RS256", key_id: "sa-key-1"}
+             )
+
+    assert is_binary(token)
+
+    assert %{
+             "sub" => "admin@example.com",
+             "scope" => "https://www.googleapis.com/auth/admin.directory.user.readonly"
+           } =
+             NativeKernel.jwt_verify_jwk(token, @rs256_jwk, %{
+               algorithms: ["RS256"],
+               iss: ["sa@project.iam.gserviceaccount.com"],
+               aud: ["https://oauth2.googleapis.com/token"]
+             })
+
+    assert {:error, _reason} =
+             NativeKernel.jwt_sign_pem(%{exp: 4_102_444_800}, @rs256_private_key_pem, %{
+               algorithm: "HS256"
+             })
+
+    assert {:error, _reason} =
+             NativeKernel.jwt_sign_pem(%{exp: 4_102_444_800}, "not a pem key", %{})
   end
 
   test "runtime fabric helpers encode and decode protobuf envelopes" do
@@ -347,6 +483,30 @@ defmodule Ankole.KernelTest do
   test "o200k_base token estimator is provider-neutral" do
     assert NativeKernel.estimate_o200k_base_tokens("Hello world") == 2
     assert NativeKernel.estimate_o200k_base_tokens("记忆系统") > 0
+  end
+
+  test "reciprocal rank fusion combines routes through the native boundary" do
+    assert [
+             %{"id" => "shared", "score" => shared_score},
+             %{"id" => "first", "score" => first_score},
+             %{"id" => "last", "score" => last_score}
+           ] =
+             NativeKernel.reciprocal_rank_fusion([
+               ["first", "shared", "shared"],
+               ["shared", "last"]
+             ])
+
+    assert_in_delta shared_score, 1 / 62 + 1 / 61, 1.0e-15
+    assert_in_delta first_score, 1 / 61, 1.0e-15
+    assert_in_delta last_score, 1 / 62, 1.0e-15
+
+    assert [%{"id" => "first"}, %{"id" => "second"}] =
+             NativeKernel.reciprocal_rank_fusion([["first"], ["second"]], 0)
+  end
+
+  test "reciprocal rank fusion rejects malformed route lists at the native boundary" do
+    assert {:error, reason} = NativeKernel.reciprocal_rank_fusion([["valid", 1]])
+    assert reason =~ "ranked_lists must contain a JSON array of string arrays"
   end
 
   test "fingerprint and phone helpers match expected behavior" do

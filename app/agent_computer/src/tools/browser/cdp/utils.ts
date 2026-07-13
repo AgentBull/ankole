@@ -1,4 +1,4 @@
-import { isIP } from 'node:net'
+import { webURLFacts } from '@ankole/kernel'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import {
   resolveWorkspacePath,
@@ -27,32 +27,32 @@ export function redactBrowserJSON<T>(value: T): T {
   return value
 }
 
-/**
- * Rejects browser navigation URLs that would let the model hit local/cloud
- * metadata surfaces.
- */
-export function assertSafeBrowserURL(rawURL: string): void {
-  const url = new URL(rawURL)
-  if (url.protocol === 'data:' || url.protocol === 'about:') return
-  if (!['http:', 'https:'].includes(url.protocol)) {
-    throw new Error(`unsupported browser URL protocol: ${url.protocol}`)
-  }
-
-  const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase()
-  if (isBlockedMetadataHost(host)) {
-    throw new Error('blocked browser navigation to cloud metadata endpoint')
-  }
+export interface BrowserURLPolicy {
+  blockPrivateNetwork?: boolean
 }
 
 /**
- * Detects well-known cloud metadata hosts and link-local metadata addresses.
+ * Rejects model-supplied navigation URLs: cloud metadata surfaces always, and
+ * non-public hosts when the `web_tools.block_private_network` policy is on.
+ *
+ * Parsing and host classification come from the native kernel, so this guard
+ * and the AIGateway `web_fetch` validation share one classifier. Page-driven
+ * navigation (real clicks, JS redirects) never passes through here; this is a
+ * model input filter, not a network-layer control.
  */
-export function isBlockedMetadataHost(host: string): boolean {
-  if (host === 'metadata.google.internal' || host === 'metadata') return true
-  if (host === '169.254.169.254' || host === '169.254.169.250' || host === '169.254.169.251') return true
-  if (host === 'fd00:ec2::254') return true
-  if (isIP(host) === 6 && host.startsWith('fe80:')) return true
-  return false
+export function assertSafeBrowserURL(rawURL: string, policy?: BrowserURLPolicy): void {
+  const facts = webURLFacts(rawURL)
+  if (facts.scheme === 'data' || facts.scheme === 'about') return
+  if (facts.scheme !== 'http' && facts.scheme !== 'https') {
+    throw new Error(`unsupported browser URL protocol: ${facts.scheme}:`)
+  }
+
+  if (facts.hostClass === 'metadata') {
+    throw new Error('blocked browser navigation to cloud metadata endpoint')
+  }
+  if (policy?.blockPrivateNetwork === true && facts.hostClass === 'private') {
+    throw new Error('blocked non-public URL by the web_tools.block_private_network policy')
+  }
 }
 
 /**

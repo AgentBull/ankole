@@ -18,6 +18,7 @@ describe('@ankole/kernel', () => {
       'signalsGatewayFilterMatch',
       'signalsGatewayValidateFilter',
       'unifiedTextDiff',
+      'webURLFacts',
       'xxh3File128Hex',
       'xxh3String128Hex',
       'zstdCompressBlock',
@@ -25,6 +26,22 @@ describe('@ankole/kernel', () => {
     ]) {
       expect(kernel[name as keyof typeof kernel]).toBeFunction()
     }
+  })
+
+  it('parses and classifies web URLs through the shared kernel classifier', () => {
+    expect(kernel.webURLFacts('https://Example.COM/page')).toEqual({
+      scheme: 'https',
+      host: 'example.com',
+      hostClass: 'public'
+    })
+    expect(kernel.webURLFacts('https://10.0.0.8/internal').hostClass).toBe('private')
+    expect(kernel.webURLFacts('https://0x7f000001/').host).toBe('127.0.0.1')
+    expect(kernel.webURLFacts('https://[::ffff:10.0.0.1]/').hostClass).toBe('private')
+    expect(kernel.webURLFacts('https://169.254.169.254/latest/').hostClass).toBe('metadata')
+    expect(kernel.webURLFacts('https://[fe80::1]/').hostClass).toBe('metadata')
+    expect(kernel.webURLFacts('data:text/plain,hi').scheme).toBe('data')
+    expect(kernel.webURLFacts('data:text/plain,hi').hostClass).toBeNil()
+    expect(() => kernel.webURLFacts('not a url')).toThrow('invalid web url')
   })
 
   it('generates the narrowed RuntimeFabric TypeScript declarations during build', async () => {

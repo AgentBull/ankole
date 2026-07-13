@@ -312,8 +312,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionReset do
 
   defp ensure_successor_conversation(_repo, _actor_key, nil), do: {:ok, nil}
 
-  defp ensure_successor_conversation(repo, actor_key, %{}) do
-    AIGatewayLink.ensure_conversation_in_tx(repo, actor_key.agent_uid, actor_key.session_id)
+  defp ensure_successor_conversation(repo, actor_key, %{} = previous_conversation) do
+    AIGatewayLink.ensure_conversation_in_tx(
+      repo,
+      actor_key.agent_uid,
+      actor_key.session_id,
+      AIGatewayLink.successor_brain_metadata(previous_conversation)
+    )
   end
 
   defp discard_stale_system_events_after_reset(repo, actor_key, %ActorEvent{} = reset_event) do

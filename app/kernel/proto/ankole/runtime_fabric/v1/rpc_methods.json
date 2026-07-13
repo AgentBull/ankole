@@ -28,29 +28,24 @@
     "effect": "read"
   },
   {
-    "method": "memory_note.forget",
-    "scope": "turn",
-    "effect": "write"
-  },
-  {
-    "method": "memory_note.list",
+    "method": "memory_health_check",
     "scope": "turn",
     "effect": "read"
   },
   {
-    "method": "memory_note.save",
+    "method": "memory_open",
     "scope": "turn",
-    "effect": "write"
-  },
-  {
-    "method": "memory_note.update",
-    "scope": "turn",
-    "effect": "write"
+    "effect": "read"
   },
   {
     "method": "memory_search",
     "scope": "turn",
     "effect": "read"
+  },
+  {
+    "method": "memory_update",
+    "scope": "turn",
+    "effect": "write"
   },
   {
     "method": "schedule.check_back_later.create",
@@ -108,6 +103,11 @@
     "effect": "write"
   },
   {
+    "method": "skills.overlay.append",
+    "scope": "turn",
+    "effect": "write"
+  },
+  {
     "method": "skills.overlay.replace",
     "scope": "turn",
     "effect": "write"
@@ -151,5 +151,9 @@
     "method": "subagent.delegation.stop",
     "scope": "turn",
     "effect": "write"
+  },
+  {
+    "method": "worker_env.resolve",
+    "scope": "worker_agent"
   }
 ]

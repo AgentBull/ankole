@@ -10,6 +10,9 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.Schemas.CompactionArtifact
   alias Ankole.AIGateway.Schemas.Message
+  alias Ankole.AIGateway.WebToolsPolicy
+  alias Ankole.AppConfigure
+  alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.Repo
   alias AnkoleWeb.AIGatewaySSELimit
   alias AnkoleWeb.AIGatewayTokens
@@ -589,7 +592,8 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     refute Map.has_key?(extract_request.body, "model")
   end
 
-  test "web_fetch rejects non-public URLs before provider dispatch", %{conn: conn} do
+  test "web_fetch rejects non-public URLs before provider dispatch when the private-network block is on",
+       %{conn: conn} do
     %{principal: agent} = agent_fixture()
 
     assert {:ok, _provider} =
@@ -605,6 +609,68 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                model: "default"
              })
 
+    assert :ok = WebToolsPolicy.ensure_registered()
+
+    assert {:ok, _value} =
+             AppConfigure.put_global(WebToolsPolicy.block_private_network_definition(), true)
+
+    on_exit(fn -> AppConfigureCache.clear_for_test() end)
+
+    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+
+    for url <- [
+          "https://127.0.0.1/private",
+          "https://10.0.0.8/internal",
+          "https://192.168.1.20/console",
+          "https://intranet.localhost/app"
+        ] do
+      conn =
+        conn
+        |> recycle()
+        |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+        |> post(~p"/api/v1/ai-gateway/web_fetch", %{
+          "model" => "web_fetch.default",
+          "urls" => [url]
+        })
+
+      assert %{"error" => %{"code" => "invalid_urls"}} = json_response(conn, 400)
+    end
+  end
+
+  test "web_fetch allows private-network URLs by default and dispatches to the provider",
+       %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+    test_pid = self()
+
+    base_url =
+      start_recording_upstream(test_pid, fn
+        %{path: "v1/extract"} ->
+          {:json, 200,
+           %{
+             "results" => [
+               %{
+                 "title" => "Intranet Wiki",
+                 "url" => "https://192.168.10.20/wiki",
+                 "excerpts" => ["Intranet page text"]
+               }
+             ]
+           }}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "parallel-web-intranet",
+               provider_kind: "parallel",
+               base_url: base_url,
+               connection_options: %{"api_key" => "parallel-key"}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "web_fetch", %{
+               provider_id: "parallel-web-intranet",
+               model: "default"
+             })
+
     assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
 
     conn =
@@ -612,10 +678,55 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       |> put_req_header("authorization", "Bearer #{api_key.api_key}")
       |> post(~p"/api/v1/ai-gateway/web_fetch", %{
         "model" => "web_fetch.default",
-        "urls" => ["https://127.0.0.1/private"]
+        "urls" => ["https://192.168.10.20/wiki"]
       })
 
-    assert %{"error" => %{"code" => "invalid_urls"}} = json_response(conn, 400)
+    assert %{
+             "success" => true,
+             "results" => [%{"url" => "https://192.168.10.20/wiki"}]
+           } = json_response(conn, 200)
+
+    assert_receive {:gateway_request, extract_request}
+    assert extract_request.path == "v1/extract"
+    assert extract_request.body["urls"] == ["https://192.168.10.20/wiki"]
+  end
+
+  test "web_fetch rejects cloud metadata endpoints even when the private-network block is off",
+       %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "parallel-web-metadata-url",
+               provider_kind: "parallel",
+               connection_options: %{"api_key" => "parallel-key"}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "web_fetch", %{
+               provider_id: "parallel-web-metadata-url",
+               model: "default"
+             })
+
+    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+
+    for url <- [
+          "https://metadata.google.internal/computeMetadata/v1/",
+          "https://169.254.169.254/latest/meta-data/",
+          "https://[fd00:ec2::254]/latest/meta-data/",
+          "https://[fe80::1]/admin"
+        ] do
+      conn =
+        conn
+        |> recycle()
+        |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+        |> post(~p"/api/v1/ai-gateway/web_fetch", %{
+          "model" => "web_fetch.default",
+          "urls" => [url]
+        })
+
+      assert %{"error" => %{"code" => "invalid_urls"}} = json_response(conn, 400)
+    end
   end
 
   test "web_search can use Jina Search as a provider-backed profile", %{conn: conn} do

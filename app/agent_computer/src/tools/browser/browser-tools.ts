@@ -437,7 +437,8 @@ function browserRuntimeOptions(context: ComputerToolContext): BrowserRuntimeOpti
   return {
     workspaceRoot: context.workspaceRoot,
     remoteCDPConfig: context.browserRemoteCDPConfig ?? null,
-    localBrowserIdleTtlMs: context.localBrowserIdleTtlMs
+    localBrowserIdleTtlMs: context.localBrowserIdleTtlMs,
+    blockPrivateNetwork: context.blockPrivateNetwork
   }
 }
 

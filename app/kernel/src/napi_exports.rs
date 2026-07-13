@@ -200,6 +200,29 @@ fn raw_dealer_frames(event: Option<DealerEvent>) -> Result<Option<Vec<Vec<u8>>>>
     }
 }
 
+/// Facts about one parsed web URL for the shared web tools URL policy.
+#[napi(object, js_name = "WebURLFacts")]
+pub struct WebURLFacts {
+    pub scheme: String,
+    pub host: Option<String>,
+    #[napi(ts_type = "'metadata' | 'private' | 'public' | null")]
+    pub host_class: Option<String>,
+}
+
+/// Parses a web URL with WHATWG semantics and classifies its host.
+#[napi(js_name = "webURLFacts")]
+pub fn web_url_facts(url: String) -> Result<WebURLFacts> {
+    let facts = common::web_url_facts(&url).map_err(napi_error)?;
+
+    Ok(WebURLFacts {
+        scheme: facts.scheme,
+        host: facts.host,
+        host_class: facts
+            .host_class
+            .map(|host_class| host_class.as_str().to_string()),
+    })
+}
+
 /// Computes the non-cryptographic XXH3 128-bit observation fingerprint.
 #[napi(js_name = "xxh3File128Hex")]
 pub fn js_xxh3_file_128_hex(path: String) -> Result<String> {

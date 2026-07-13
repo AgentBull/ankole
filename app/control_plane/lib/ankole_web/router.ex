@@ -110,6 +110,20 @@ defmodule AnkoleWeb.Router do
     delete "/app-configurations/:key", AppConfigurationController, :delete
     post "/app-configurations/:key/decryptions", AppConfigurationController, :decrypt
 
+    get "/worker-envs", WorkerEnvController, :index
+    get "/worker-envs/:name", WorkerEnvController, :show
+    put "/worker-envs/:name", WorkerEnvController, :update
+    delete "/worker-envs/:name", WorkerEnvController, :delete
+    post "/worker-envs/:name/decryptions", WorkerEnvController, :decrypt
+
+    get "/agents/:agent_uid/worker-envs", WorkerEnvController, :index_for_agent
+    put "/agents/:agent_uid/worker-envs/:name", WorkerEnvController, :update_for_agent
+    delete "/agents/:agent_uid/worker-envs/:name", WorkerEnvController, :delete_for_agent
+
+    post "/agents/:agent_uid/worker-envs/:name/decryptions",
+         WorkerEnvController,
+         :decrypt_for_agent
+
     get "/agents", AgentController, :index
     post "/agents", AgentController, :create
     get "/agents/:agent_uid", AgentController, :show
@@ -121,6 +135,16 @@ defmodule AnkoleWeb.Router do
     get "/delegations", SubagentDelegationController, :index
     get "/delegations/:delegation_id", SubagentDelegationController, :show
     post "/delegations/:delegation_id/cancel", SubagentDelegationController, :cancel
+
+    get "/brain/entries", BrainController, :index
+    get "/brain/entries/:id", BrainController, :show
+    post "/brain/entry-operations", BrainController, :apply_operations
+    get "/brain/audit-log", BrainController, :audit_index
+    get "/brain/entries/:id/audit-log", BrainController, :audit_log
+    get "/brain/sources/:document_id", BrainController, :source
+    post "/brain/audit-log/restorations", BrainController, :restore_audits
+    post "/brain/audit-log/:audit_id/restorations", BrainController, :restore_audit
+    post "/brain/dreaming-runs", BrainController, :run_dreaming
 
     get "/agent-computer-workers/:worker_id/files", WorkerFileController, :index
 
@@ -229,6 +253,15 @@ defmodule AnkoleWeb.Router do
     post "/rerank", AIGatewayController, :rerank
     post "/web_search", AIGatewayController, :web_search
     post "/web_fetch", AIGatewayController, :web_fetch
+  end
+
+  # Provider webhook ingress. Not a RESTful API surface, so it lives outside
+  # /api/v1 and outside every pipeline: no session, no CSRF, no bearer token,
+  # and no Accept negotiation (providers send arbitrary Accept headers).
+  # Authenticating the provider is the declared handler's job — Bot Framework
+  # JWT, Graph clientState, or whatever the provider signs with.
+  scope "/webhooks", AnkoleWeb do
+    post "/v1/:handler_id/:instance_id/:kind", SignalWebhookController, :handle
   end
 
   # Browser-facing HTML. The `*path` catch-alls let each SPA own its own

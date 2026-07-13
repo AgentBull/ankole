@@ -6,8 +6,17 @@ import { IdentityProviderEditorPage, IdentityProvidersListPage } from './pages/i
 import { CodexAccountEditorPage, ProviderEditorPage, ProvidersListPage } from './pages/providers'
 import { SettingEditorPage, SettingsListPage } from './pages/settings'
 import { SignalBindingEditorPage, SignalsListPage } from './pages/signals'
+import { WorkerEnvEditorPage, WorkerEnvsListPage } from './pages/worker-envs'
 import { WorkerFilesPage, WorkersListPage } from './pages/workers'
 import { DelegationsPage } from './pages/delegations'
+import {
+  BrainAuditPage,
+  BrainEntriesPage,
+  BrainEntryAuditPage,
+  BrainEntryCreatePage,
+  BrainEntryEditorPage,
+  BrainSourcePage
+} from './pages/brain'
 
 // Configure the bearer-token API client at module load, before any route
 // component can render or fire a query. This must run eagerly and NOT inside a
@@ -42,9 +51,18 @@ const router = createBrowserRouter(
         { path: 'signals/new', element: <SignalBindingEditorPage /> },
         { path: 'settings', element: <SettingsListPage /> },
         { path: 'settings/:key', element: <SettingEditorPage /> },
+        { path: 'worker-envs', element: <WorkerEnvsListPage /> },
+        { path: 'worker-envs/new', element: <WorkerEnvEditorPage /> },
+        { path: 'worker-envs/:name', element: <WorkerEnvEditorPage /> },
         { path: 'workers', element: <WorkersListPage /> },
         { path: 'workers/:workerID/files', element: <WorkerFilesPage /> },
         { path: 'delegations', element: <DelegationsPage /> },
+        { path: 'brain', element: <BrainEntriesPage /> },
+        { path: 'brain/new', element: <BrainEntryCreatePage /> },
+        { path: 'brain/audit', element: <BrainAuditPage /> },
+        { path: 'brain/audit/:id', element: <BrainEntryAuditPage /> },
+        { path: 'brain/:id', element: <BrainEntryEditorPage /> },
+        { path: 'brain/sources/:documentID', element: <BrainSourcePage /> },
         { path: '*', element: <Navigate to="agents" replace /> }
       ]
     }

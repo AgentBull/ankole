@@ -7,6 +7,8 @@ defmodule Ankole.Principals do
   import Ecto.Query, warn: false
 
   alias Ecto.Changeset
+  alias Ankole.Kernel, as: NativeKernel
+  alias Ankole.Logging
   alias Ankole.PrincipalKey
   alias Ankole.Principals.Agent
   alias Ankole.Principals.ExternalIdentity
@@ -172,6 +174,13 @@ defmodule Ankole.Principals do
 
   @doc """
   Upserts a human Principal from a provider-scoped subject.
+
+  A first-seen subject that carries an email already held by an existing human
+  Principal binds to that Principal instead of creating a new one, so subjects
+  from different providers converge on one human. An email or mobile value
+  owned by a different Principal than the one the subject resolves to is
+  dropped from the profile update with a warning; subjects are never re-pointed
+  automatically.
   """
   @spec upsert_platform_subject_human(map()) ::
           {:ok,
@@ -179,16 +188,25 @@ defmodule Ankole.Principals do
           | {:error, term()}
   def upsert_platform_subject_human(attrs) when is_map(attrs) do
     Repo.transact(fn repo ->
+      email = normalized_email_attr(attrs)
+
       with {:ok, provider} <- required_provider(attrs, :provider),
            {:ok, external_id} <- required_text(attrs, :external_id),
            {:ok, metadata} <- metadata_attrs(attrs),
            :ok <- lock_platform_subject(repo, provider, external_id),
+           :ok <- maybe_lock_human_email(repo, email),
            existing_identity <- fetch_platform_subject(repo, provider, external_id),
            {:ok, principal_uid} <-
-             platform_subject_principal_uid(existing_identity, attrs, external_id),
+             platform_subject_principal_uid(repo, existing_identity, attrs, external_id, email),
            {:ok, principal} <- upsert_human_principal(repo, principal_uid, attrs),
-           {:ok, human_user} <-
-             upsert_human_user(repo, principal.uid, take_attrs(attrs, @human_profile_fields)),
+           profile_attrs <-
+             drop_conflicting_contacts(
+               repo,
+               provider,
+               principal.uid,
+               take_attrs(attrs, @human_profile_fields)
+             ),
+           {:ok, human_user} <- upsert_human_user(repo, principal.uid, profile_attrs),
            identity_attrs <-
              platform_subject_identity_attrs(
                principal,
@@ -411,8 +429,21 @@ defmodule Ankole.Principals do
   end
 
   defp lock_platform_subject(repo, provider, external_id) do
-    lock_key = "principal_external_identity:platform_subject:#{provider}:#{external_id}"
+    advisory_xact_lock(
+      repo,
+      "principal_external_identity:platform_subject:#{provider}:#{external_id}"
+    )
+  end
 
+  # The email join runs on subject creation, so concurrent first-sightings of
+  # the same email must serialize or both would create a principal.
+  defp maybe_lock_human_email(_repo, nil), do: :ok
+
+  defp maybe_lock_human_email(repo, email) do
+    advisory_xact_lock(repo, "principal_human_email:#{email}")
+  end
+
+  defp advisory_xact_lock(repo, lock_key) do
     case SQL.query(repo, "SELECT pg_advisory_xact_lock(hashtext($1::text))", [lock_key]) do
       {:ok, _result} -> :ok
       {:error, reason} -> {:error, reason}
@@ -420,19 +451,124 @@ defmodule Ankole.Principals do
   end
 
   defp platform_subject_principal_uid(
+         _repo,
          %ExternalIdentity{principal_uid: principal_uid},
          _attrs,
-         _external_id
+         _external_id,
+         _email
        ) do
     {:ok, principal_uid}
   end
 
-  defp platform_subject_principal_uid(nil, attrs, external_id) do
-    case fetch_attr(attrs, :uid) do
-      {:ok, uid} -> normalize_uid(uid)
-      :error -> normalize_uid(external_id)
+  defp platform_subject_principal_uid(repo, nil, attrs, external_id, email) do
+    case human_email_owner_uid(repo, email) do
+      nil ->
+        case fetch_attr(attrs, :uid) do
+          {:ok, uid} -> normalize_uid(uid)
+          :error -> normalize_uid(external_id)
+        end
+
+      owner_uid ->
+        Logging.info(
+          "principals.platform_subject.email_join",
+          "Platform subject joined an existing principal by email",
+          %{principal_uid: owner_uid, external_id: external_id}
+        )
+
+        {:ok, owner_uid}
     end
   end
+
+  defp human_email_owner_uid(_repo, nil), do: nil
+
+  defp human_email_owner_uid(repo, email) do
+    repo.one(
+      from human_user in HumanUser,
+        where: human_user.email == ^email,
+        select: human_user.principal_uid
+    )
+  end
+
+  defp normalized_email_attr(attrs) do
+    case fetch_attr(attrs, :email) do
+      {:ok, value} -> normalized_contact_email(value)
+      :error -> nil
+    end
+  end
+
+  # Unique-owned contact fields are dropped rather than failed on: a unique
+  # violation would abort the whole transaction, and the conflicting field is
+  # the other provider's problem to reconcile, not this subject's.
+  defp drop_conflicting_contacts(repo, provider, principal_uid, profile_attrs) do
+    profile_attrs
+    |> drop_conflicting_contact(
+      repo,
+      provider,
+      principal_uid,
+      :email,
+      &normalized_contact_email/1
+    )
+    |> drop_conflicting_contact(
+      repo,
+      provider,
+      principal_uid,
+      :mobile,
+      &normalized_contact_mobile/1
+    )
+  end
+
+  defp drop_conflicting_contact(profile_attrs, repo, provider, principal_uid, field, normalize) do
+    with {:ok, value} <- Map.fetch(profile_attrs, field),
+         normalized when is_binary(normalized) <- normalize.(value),
+         owner_uid when is_binary(owner_uid) <- contact_owner_uid(repo, field, normalized) do
+      if owner_uid == principal_uid do
+        profile_attrs
+      else
+        Logging.warning(
+          "principals.platform_subject.contact_conflict",
+          "Platform subject contact field dropped: value belongs to another principal",
+          %{
+            field: field,
+            provider: provider,
+            principal_uid: principal_uid,
+            owner_principal_uid: owner_uid
+          }
+        )
+
+        Map.delete(profile_attrs, field)
+      end
+    else
+      _absent_or_unowned -> profile_attrs
+    end
+  end
+
+  defp contact_owner_uid(repo, field, value) do
+    repo.one(
+      from human_user in HumanUser,
+        where: field(human_user, ^field) == ^value,
+        select: human_user.principal_uid
+    )
+  end
+
+  defp normalized_contact_email(value) when is_binary(value) do
+    case value |> String.trim() |> String.downcase() do
+      "" -> nil
+      normalized -> normalized
+    end
+  end
+
+  defp normalized_contact_email(_value), do: nil
+
+  # Mirrors the HumanUser changeset normalization; a value the kernel cannot
+  # normalize is left for the changeset to reject as today.
+  defp normalized_contact_mobile(value) when is_binary(value) do
+    case NativeKernel.phone_normalize_e164(value) do
+      normalized when is_binary(normalized) -> normalized
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp normalized_contact_mobile(_value), do: nil
 
   defp platform_subject_identity_attrs(
          principal,

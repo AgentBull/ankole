@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { webURLFacts } from '@ankole/kernel'
 import {
   deepString,
   isRecord,
@@ -6,7 +7,12 @@ import {
   safeJsonStringify as safeJSONStringify
 } from '@pleisto/active-support'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
-import { browserExtractFromSession, ensureBrowserSession, type BrowserRuntimeOptions } from '../browser/cdp'
+import {
+  assertSafeBrowserURL,
+  browserExtractFromSession,
+  ensureBrowserSession,
+  type BrowserRuntimeOptions
+} from '../browser/cdp'
 import type { AgentTool, AgentToolResult } from '../../core'
 import type { AIGatewayHTTPClient } from '../../core/ai_gateway_transport'
 import { errorMessage } from '../../common/errors'
@@ -34,6 +40,7 @@ export interface LocalBrowserWebFetchOptions {
   agentUID: string
   executionScopeID?: string | null
   localBrowserIdleTtlMs?: number
+  blockPrivateNetwork?: boolean
   fetchURL?: LocalBrowserFetchURL
 }
 
@@ -50,7 +57,7 @@ const HTTPSURL = z
   .refine(value => isHTTPSURL(value), 'Only HTTPS URLs are supported.')
 
 const WebFetchParams = z.object({
-  urls: z.array(HTTPSURL).min(1).max(5).describe('Public HTTPS URLs to fetch. Maximum 5.')
+  urls: z.array(HTTPSURL).min(1).max(5).describe('HTTPS URLs to fetch. Maximum 5.')
 })
 
 /**
@@ -130,8 +137,8 @@ function createWebFetchTool(
   }
 ): AgentTool<typeof WebFetchParams, WebToolDetails> {
   const description = config.providerModel
-    ? 'Fetch readable text from public HTTPS web pages through AIGateway, falling back to the local browser when available. Pass all needed URLs in one call.'
-    : 'Fetch readable text from public HTTPS web pages through the local browser. Pass all needed URLs in one call.'
+    ? 'Fetch readable text from HTTPS web pages through AIGateway, falling back to the local browser when available. Pass all needed URLs in one call.'
+    : 'Fetch readable text from HTTPS web pages through the local browser. Pass all needed URLs in one call.'
 
   return {
     name: 'web_fetch',
@@ -191,6 +198,9 @@ async function localBrowserFetch(
     if (signal?.aborted) throw new Error('web_fetch aborted')
     try {
       if (!isHTTPSURL(url)) throw new Error('Only HTTPS URLs are supported.')
+      // Same guard the browser session applies on navigation; checking here
+      // fails fast without starting a Chromium sidecar for a rejected URL.
+      assertSafeBrowserURL(url, { blockPrivateNetwork: config.blockPrivateNetwork === true })
       const result = await fetchURL({ url, index }, signal)
       results.push(normalizeLocalBrowserFetchResult(url, result))
     } catch (error) {
@@ -224,6 +234,7 @@ function createLocalBrowserFetchURL(config: LocalBrowserWebFetchOptions): LocalB
   const session = `web-fetch-${executionScopeID}`
   const options: BrowserRuntimeOptions = {
     remoteCDPConfig: null,
+    blockPrivateNetwork: config.blockPrivateNetwork === true,
     ...(typeof config.localBrowserIdleTtlMs === 'number' ? { localBrowserIdleTtlMs: config.localBrowserIdleTtlMs } : {})
   }
   let sessionReady = false
@@ -404,14 +415,11 @@ function stringField(record: JSONObject, key: string): string | undefined {
 }
 
 /**
- * Reads a nested string from a JSON object.
- */
-/**
- * Accepts only public HTTPS URLs for web_fetch.
+ * Accepts HTTPS URLs for web_fetch, using the shared kernel URL parser.
  */
 function isHTTPSURL(value: string): boolean {
   try {
-    return new URL(value).protocol === 'https:'
+    return webURLFacts(value).scheme === 'https'
   } catch {
     return false
   }

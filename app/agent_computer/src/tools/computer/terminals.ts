@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { runControlCommand, workspacePath, type CommandFinished } from './commands'
+import { injectableWorkerEnv } from './env'
 
 export interface ContainerTerminals {
   list(opts?: { signal?: AbortSignal }): Promise<Array<{ name: string; windows: number; attached: boolean }>>
@@ -22,10 +23,17 @@ export interface ContainerTerminals {
   kill(name: string, opts?: { signal?: AbortSignal }): Promise<{ name: string; status: string }>
 }
 
-export function createContainerTerminals(workspaceRoot: string): ContainerTerminals {
+export function createContainerTerminals(
+  workspaceRoot: string,
+  workerEnv?: Record<string, string>
+): ContainerTerminals {
   const root = resolve(workspaceRoot)
   const runTmux = async (args: string[], opts?: { signal?: AbortSignal }): Promise<CommandFinished> =>
     runControlCommand({ cmd: 'tmux', args, signal: opts?.signal }, root)
+  // Session env via `-e`, never the tmux server env: one worker's tmux server
+  // may host sessions of several agents, so operator variables must stay
+  // scoped to the session they were resolved for.
+  const sessionEnvArgs = injectableWorkerEnv(workerEnv).flatMap(([key, value]) => ['-e', `${key}=${value}`])
 
   return {
     async list(opts) {
@@ -51,7 +59,10 @@ export function createContainerTerminals(workspaceRoot: string): ContainerTermin
       const cwd = workspacePath(root, opts.cwd ?? '/workspace')
       mkdirSync(cwd, { recursive: true })
       const size = ['-x', String(opts.cols ?? 140), '-y', String(opts.rows ?? 40)]
-      const result = await runTmux(['new-session', '-d', '-s', name, '-c', cwd, ...size, opts.command], runOpts)
+      const result = await runTmux(
+        ['new-session', '-d', '-s', name, '-c', cwd, ...size, ...sessionEnvArgs, opts.command],
+        runOpts
+      )
       if (result.exitCode !== 0) throw new Error(await result.output('both', runOpts))
       return { name, status: 'started' }
     },

@@ -10,7 +10,7 @@ defmodule Ankole.AIAgent.LibraryTest do
   alias Ankole.Repo
 
   setup do
-    assert {:ok, %{skills: 5, changed: _changed}} = Library.sync_builtin_skills(force: true)
+    assert {:ok, %{skills: 6, changed: _changed}} = Library.sync_builtin_skills(force: true)
     :ok
   end
 
@@ -18,12 +18,15 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert {:ok, skills} = Library.enabled_skills_for_agent(agent_fixture().principal.uid)
 
     assert Enum.map(skills, & &1["skill_name"]) ==
-             ~w(docx jupyter-live-kernel nano-pdf pptx xlsx)
+             ~w(brain-review docx jupyter-live-kernel nano-pdf pptx xlsx)
 
     assert Enum.all?(skills, & &1["default_enabled"])
 
     assert Enum.find(skills, &(&1["skill_name"] == "jupyter-live-kernel"))["category"] ==
              "data-science"
+
+    assert Enum.find(skills, &(&1["skill_name"] == "brain-review"))["description"] =~
+             "explicitly asks"
   end
 
   test "new agents are seeded with soul and mission library entries" do
@@ -67,14 +70,44 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert skill["content"] =~ "Prefer page-by-page verification."
     assert skill["content"] =~ "Use render output as final evidence."
 
+    current = Repo.get!(AgentSkillOverlay, overlay.id)
+
+    assert {:error, :skill_overlay_conflict} =
+             Library.replace_skill_overlay_cas(
+               agent.uid,
+               "nano-pdf",
+               "stale-hash",
+               %{"text" => "stale replacement"}
+             )
+
+    assert {:ok, replaced} =
+             Library.replace_skill_overlay_cas(
+               agent.uid,
+               "nano-pdf",
+               current.content_hash,
+               %{"text" => "Consolidated verification guidance."}
+             )
+
+    assert replaced.overlay_json == %{"text" => "Consolidated verification guidance."}
+
     assert {:error, :skill_file_not_found} =
              Library.skill_view(agent.uid, "nano-pdf", "AGENT_APPEND.md")
+  end
+
+  test "brain review is a model-invoked builtin skill with the supervision sequence" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, skill} = Library.skill_view(agent.uid, "brain-review")
+    assert skill["skill_uri"] == "skill://enabled/brain-review/SKILL.md"
+    assert skill["content"] =~ "Run `memory_health_check` first"
+    assert skill["content"] =~ "The human is the evaluator"
+    assert skill["content"] =~ "enabled skills"
   end
 
   test "agent-installed skills are recorded from worker file observations" do
     %{principal: agent} = agent_fixture()
 
-    assert {:ok, %{skills: 6}} =
+    assert {:ok, %{skills: 7}} =
              Library.replace_installed_skill_observations(agent.uid, [
                %{
                  skill_name: "agent-notes",
@@ -96,14 +129,14 @@ defmodule Ankole.AIAgent.LibraryTest do
 
     assert {:error, :skill_file_not_found} = Library.skill_view(agent.uid, "agent-notes")
 
-    assert {:ok, %{skills: 5}} = Library.replace_installed_skill_observations(agent.uid, [])
+    assert {:ok, %{skills: 6}} = Library.replace_installed_skill_observations(agent.uid, [])
     assert {:error, :skill_not_found} = Library.skill_view(agent.uid, "agent-notes")
   end
 
   test "agent-installed registry rows survive builtin sync until new worker observations arrive" do
     %{principal: agent} = agent_fixture()
 
-    assert {:ok, %{skills: 6}} =
+    assert {:ok, %{skills: 7}} =
              Library.replace_installed_skill_observations(agent.uid, [
                %{
                  "skill_name" => "agent-notes",
@@ -119,7 +152,7 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert %AgentSkill{source_kind: "installed"} =
              Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "agent-notes")
 
-    assert {:ok, %{skills: 5}} = Library.sync_agent_skills(agent.uid)
+    assert {:ok, %{skills: 6}} = Library.sync_agent_skills(agent.uid)
 
     assert %AgentSkill{source_kind: "installed"} =
              Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "agent-notes")

@@ -171,55 +171,48 @@ This is why `mailbox_updated`, worker progress, and live fabric delivery are not
 durable ownership signals by themselves. They are runtime signals around
 PostgreSQL-owned facts.
 
-## Memory V1
+## Brain
 
-Memory belongs to the channel/place where it was observed. Layer A curated
-notes are scoped to `{agent_uid, signal_channel_id}` and exposed only through
-the current-channel `memory_note` tool. The limits are intentional: at most 40
-notes per agent/channel and 500 characters per note. When the list is full, the
-agent must merge, update, or forget before saving another note.
+Brain keeps one relational source of truth in PostgreSQL. Curated entries,
+ordered blocks, typed relations, audit records, chat episodes, and progress
+cursors are rows with database-enforced ownership and optimistic locks.
+`memory_open` renders Markdown from those rows; Markdown is not a second store
+and cannot be edited independently.
 
-Historical recall uses `signal_gateway_entries` as ground truth. ParadeDB BM25
-requires a unique key field, so `signal_gateway_entries.document_id` is enforced
-unique before it can be used as `key_field='document_id'`. The document id stays
-derived from `{signal_channel_id, source_entry_id}`; the database constraint is
-the guarantee, not a comment in the projection code.
+Visibility is structural, not a general ACL system. Public conversations read
+and write the principal's `public` store. A one-to-one DM conversation reads
+its peer-specific DM store plus `public`, but writes only the DM store. The
+control plane derives owner, store, and author from the durable conversation;
+model tool arguments cannot broaden them. Subagents inherit the parent's frozen
+scope and snapshot.
 
-Phase 1 is BM25 search plus browse and has no model-profile dependency. Phase 2
-adds channel episodes and embeddings, but only when `memory.recall.model_agent_uid`
-points at an existing agent with both `light` and `embedding` profiles. If that
-model owner is missing or incomplete, summary and embedding jobs report
-unavailable and do not advance cursors. Invalid summarizer output is retried,
-but after the worker exhausts its attempts the window is skipped, the cursor is
-advanced, and telemetry records the skipped window so a poison window cannot
-burn model calls forever. A valid episode whose embedding fails is kept with
-`embedding_state = 'failed'`; search degrades to BM25 and reports the vector-route
-degradation.
+`memory_search` has two independent selectors: `layer = chat | knowledge | all`
+and `channel_scope = current_channel | all_channels`. Chat recall uses
+`signal_gateway_entries` as ground truth and `document_id` as the stable global
+identifier. Curated entry and block BM25 indexes remain separate, and keyword
+and vector routes are merged with reciprocal-rank fusion. Optional reranking
+and embedding routes degrade explicitly rather than changing durable truth.
+Current-channel search excludes the bounded hot tail already available to the
+active turn; `memory_browse` is the exact chronological path for that tail.
 
-Current-channel `memory_search` deliberately excludes hot context: entries from
-roughly the last 2 hours or latest 80 observed current-channel entries are left
-out because they should already be in the active turn context. Use
-`memory_browse` with an explicit time range when the caller needs exact recent
-transcript rows. Cross-channel search is limited to channels observed through
-`actor_events`, and non-DM current channels exclude `im_dm` sources.
+The conversation's pinned memo and current-channel projection are frozen into
+conversation metadata at creation. Later writes are intentionally invisible to
+that conversation until a reset creates a new snapshot. Before automatic
+AIGateway compaction, the normal agent loop may use `memory_update` to persist
+only durable corrections, decisions, preferences, and reusable lessons.
 
-Episode scanning also skips channels whose entire unprocessed tail is still
-inside the young-tail guard. Those rows remain in `signal_gateway_entries` and
-become eligible once they age out or the backlog threshold is reached; this
-avoids low-volume channels producing empty summarizer jobs forever.
+Dreaming is Brain's only automatic background writer. Stage A produces chat
+navigation episodes; stage B proposes structured knowledge and skill changes,
+then the control plane validates source references, scope, budgets, locks, and
+audit snapshots before committing. Dreaming output may still be semantically
+wrong. The accepted recovery path is observable audit plus later human or
+agent correction, not a hidden self-repair loop. `memory_health_check` is a
+read-only opening step for a human-requested review and never runs by itself.
 
-Memory token budgeting uses the kernel `o200k_base` estimator from
-`tiktoken-rs`, independent of provider/model selection. AIGateway compaction
-is separate: it uses upstream provider usage metadata recorded on history
-messages, except for the pre-compaction nudge that asks the normal agent/tool
-loop to persist durable facts via `memory_note` before automatic compaction
-proceeds.
-
-Layer A notes are intentionally injected into the system prompt for the current
-channel. That makes them powerful and also means a channel participant who can
-cause the agent to save a note can create durable prompt pressure. This is an
-accepted v1 tradeoff, mitigated by current-channel scope, the 40-note cap,
-explicit list/update/forget tools, and operator-visible persisted rows.
+Curated text is durable prompt material, so writes are scanned for prompt-
+injection patterns and length limits before commit. This is a guardrail, not a
+claim that persisted text is harmless; explicit provenance, source withdrawal,
+structured mutations, and audit restoration are the operator recovery tools.
 
 ## Provider Configuration and Credentials
 

@@ -96,7 +96,7 @@ The Compose file lives at `tools/devkit/external-services.docker-compose.yml`.
 
 ## Architecture overview
 
-Ankole runs as three cooperating layers: a Phoenix/OTP control plane (`app/control_plane`) that owns durable state and runtime authority, a Bun + TypeScript Agent Computer worker (`app/agent_computer`) that executes agent turns inside a Linux container, and a shared Rust kernel (`app/kernel`) loaded by Elixir (Rustler) and Bun (N-API) for crypto, identifiers, AuthZ evaluation, and ZeroMQ RuntimeFabric transport. Before contributing to a specific area, read [`AGENTS.md`](AGENTS.md) for coding conventions and the *Zen of Ankole* (symlinked as `CLAUDE.md`); [`README.md`](README.md) has the fuller architecture narrative.
+Ankole runs as three cooperating layers: a Phoenix/OTP control plane (`app/control_plane`) that owns durable state and runtime authority, a Bun + TypeScript Agent Computer worker (`app/agent_computer`) that executes agent turns inside a Linux container, and a shared Rust kernel (`app/kernel`) loaded by Elixir (Rustler) and Bun (N-API) for crypto, identifiers, AuthZ evaluation, and ZeroMQ RuntimeFabric transport. Before contributing to a specific area, read [`AGENTS.md`](AGENTS.md) for the agent-specific coding and reasoning rules (symlinked as `CLAUDE.md`); [`README.md`](README.md) has the fuller architecture narrative.
 
 The control plane is organized into subsystems under `app/control_plane/lib/ankole/`:
 

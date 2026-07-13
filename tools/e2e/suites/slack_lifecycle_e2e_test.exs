@@ -9,7 +9,7 @@ defmodule Ankole.E2E.SlackLifecycleTest do
   alias Ankole.Principals
   alias Ankole.Repo
   alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.{AdapterContext, Channel}
+  alias Ankole.SignalsGateway.{AdapterContext, BindingMembership, Channel}
   alias SlackOpenAPI.Event
 
   import Ankole.PrincipalsFixtures
@@ -111,6 +111,9 @@ defmodule Ankole.E2E.SlackLifecycleTest do
              Channels.sync_binding(agent.uid, binding_name)
 
     assert %Channel{principal_group_id: group_id} = Repo.get(Channel, "slack:C1")
+    assert {:ok, group} = AuthZ.get_principal_group(group_id)
+    assert BindingMembership.joined?(group.metadata, agent.uid, binding_name)
+    assert "slack:C1" in Enum.map(SignalsGateway.visible_channels(agent.uid), & &1.id)
     assert {:ok, u1_uid} = Principals.resolve_platform_subject_uid("slack-main", "U1")
     assert Repo.get_by(Membership, principal_uid: u1_uid, group_id: group_id)
     assert {:error, :not_found} = Principals.resolve_platform_subject_uid("slack-main", "UBOT")
@@ -145,6 +148,9 @@ defmodule Ankole.E2E.SlackLifecycleTest do
     assert {:ok, [%{status: :all_participants_left}]} =
              Channels.handle_im_event("member_left_channel", bot_left, [consumer])
 
+    assert {:ok, group} = AuthZ.get_principal_group(group_id)
+    refute BindingMembership.joined?(group.metadata, agent.uid, binding_name)
+    refute "slack:C1" in Enum.map(SignalsGateway.visible_channels(agent.uid), & &1.id)
     refute Repo.get_by(Membership, principal_uid: u1_uid, group_id: group_id)
     refute Repo.get_by(Membership, principal_uid: u2_uid, group_id: group_id)
   end

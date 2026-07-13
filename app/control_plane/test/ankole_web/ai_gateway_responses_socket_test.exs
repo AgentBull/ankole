@@ -1919,13 +1919,13 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
         %{"type" => "input_image", "image_url" => image_url},
         %{
           "type" => "input_text",
-          "text" => "[#{memory_pre_compaction_nudge_marker()}]"
+          "text" => "[#{brain_pre_compaction_nudge_marker()}]"
         }
       ]
     }
   end
 
-  defp memory_pre_compaction_nudge_marker, do: "ankole.memory.pre_compaction_nudge.v1"
+  defp brain_pre_compaction_nudge_marker, do: "ankole.brain.pre_compaction_nudge.v1"
 
   defp with_compaction_config(config) do
     assert {:ok, _config} = Compaction.put_config(Map.new(config))

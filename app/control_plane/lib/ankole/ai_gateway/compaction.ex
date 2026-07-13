@@ -30,7 +30,7 @@ defmodule Ankole.AIGateway.Compaction do
   @small_context_trigger_ratio 0.85
   @default_tail_rows 2
   @summarizer_max_output_tokens 4_096
-  @memory_pre_compaction_nudge_marker "ankole.memory.pre_compaction_nudge.v1"
+  @brain_pre_compaction_nudge_marker "ankole.brain.pre_compaction_nudge.v1"
   @opaque_ref_keys ~w(agent_computer_path blob_ref content_type file_id file_url filename id image_url media_type mime_type name path provider_file_id provider_ref provider_uri storage_ref uri url)
   @max_ref_chars 512
 
@@ -146,8 +146,8 @@ defmodule Ankole.AIGateway.Compaction do
       total_tokens <= threshold.tokens ->
         {:ok, unchanged(history, request)}
 
-      memory_pre_compaction_nudge_due?(history, total_tokens, threshold) ->
-        {:ok, memory_pre_compaction_nudge(history, request, total_tokens, threshold)}
+      brain_pre_compaction_nudge_due?(history, total_tokens, threshold) ->
+        {:ok, brain_pre_compaction_nudge(history, request, total_tokens, threshold)}
 
       true ->
         compact_history(
@@ -163,19 +163,19 @@ defmodule Ankole.AIGateway.Compaction do
   end
 
   @doc """
-  Adds the one-time Memory pre-compaction nudge to normal model input when due.
+  Adds the one-time Brain pre-compaction nudge to normal model input when due.
   """
-  @spec maybe_inject_memory_pre_compaction_nudge([map()], map()) :: [map()]
-  def maybe_inject_memory_pre_compaction_nudge([], _run_metadata), do: []
+  @spec maybe_inject_brain_pre_compaction_nudge([map()], map()) :: [map()]
+  def maybe_inject_brain_pre_compaction_nudge([], _run_metadata), do: []
 
-  def maybe_inject_memory_pre_compaction_nudge(current_input, %{
-        "memory_pre_compaction_nudge" => %{"status" => "due"}
+  def maybe_inject_brain_pre_compaction_nudge(current_input, %{
+        "brain_pre_compaction_nudge" => %{"status" => "due"}
       })
       when is_list(current_input) do
-    [memory_pre_compaction_nudge_input() | current_input]
+    [brain_pre_compaction_nudge_input() | current_input]
   end
 
-  def maybe_inject_memory_pre_compaction_nudge(current_input, _run_metadata)
+  def maybe_inject_brain_pre_compaction_nudge(current_input, _run_metadata)
       when is_list(current_input),
       do: current_input
 
@@ -424,7 +424,9 @@ defmodule Ankole.AIGateway.Compaction do
 
         true ->
           with {:ok, conversation} <-
-                 StatefulResponses.create_managed_stateful_responses_conversation(subject_uid) do
+                 StatefulResponses.create_managed_stateful_responses_conversation(subject_uid,
+                   metadata: request_metadata(request)
+                 ) do
             {:ok,
              %{
                store?: true,
@@ -470,15 +472,15 @@ defmodule Ankole.AIGateway.Compaction do
     }
   end
 
-  defp memory_pre_compaction_nudge(history, request, total_tokens, threshold) do
+  defp brain_pre_compaction_nudge(history, request, total_tokens, threshold) do
     %{
       history: history,
       previous_response_id: previous_response_id_for(history, request),
       compaction: nil,
       run_metadata: %{
-        "memory_pre_compaction_nudge" => %{
+        "brain_pre_compaction_nudge" => %{
           "status" => "due",
-          "marker" => @memory_pre_compaction_nudge_marker,
+          "marker" => @brain_pre_compaction_nudge_marker,
           "history_usage_tokens_before" => total_tokens,
           "token_threshold" => threshold.tokens,
           "context_length" => threshold.context_length,
@@ -489,27 +491,27 @@ defmodule Ankole.AIGateway.Compaction do
     }
   end
 
-  defp memory_pre_compaction_nudge_due?(history, total_tokens, threshold) do
+  defp brain_pre_compaction_nudge_due?(history, total_tokens, threshold) do
     total_tokens < threshold.effective_context_length and
-      not memory_pre_compaction_nudge_seen?(history)
+      not brain_pre_compaction_nudge_seen?(history)
   end
 
-  defp memory_pre_compaction_nudge_seen?(history) do
+  defp brain_pre_compaction_nudge_seen?(history) do
     Enum.any?(history, fn %Message{} = message ->
       message
       |> message_content_text()
-      |> String.contains?(@memory_pre_compaction_nudge_marker)
+      |> String.contains?(@brain_pre_compaction_nudge_marker)
     end)
   end
 
-  defp memory_pre_compaction_nudge_input do
+  defp brain_pre_compaction_nudge_input do
     %{
       "role" => "system",
       "content" => [
         %{
           "type" => "input_text",
           "text" =>
-            "[#{@memory_pre_compaction_nudge_marker}] Automatic compaction may run soon. Before continuing, use memory_note to save durable user preferences, decisions, identifiers, dates, or project facts from the current hot context that should survive future compaction. Skip saving if there are no durable facts."
+            "[#{@brain_pre_compaction_nudge_marker}] Automatic compaction may run soon. Before continuing, use memory_update to merge durable preferences, corrections, decisions, identifiers, dates, and project facts into the current Brain knowledge entries. Replace stale contradictory content instead of appending another version. Skip this when there is nothing worth retaining."
         }
       ]
     }

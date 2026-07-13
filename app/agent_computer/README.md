@@ -32,7 +32,9 @@ payloads.
   shaping, tool loops, and ambient recognizer turns.
 - Worker-local tools: `todo`, browser tools, `command`,
   `interactive_terminal`, `read_file`, `patch`, `reply_attachment`,
-  `subagent`, `clarify`, `skill_view`, `skill_append`, `check_back_later`, and
+  `subagent`, `clarify`, the Brain tools `memory_search`, `memory_open`,
+  `memory_update`, `memory_browse`, and `memory_health_check`, the skill tools
+  `skill_view`, `skill_append`, and `skill_replace`, plus `check_back_later` and
   `cron`.
 - Workspace behavior: per-session roots under `/workspace/.sessions`, shared
   user files, agent-installed skill files, temporary files, tmux state, and

@@ -73,10 +73,13 @@ Seven pieces, one sentence each:
   credentials and routing plus stateful model history and compaction. A
   Response terminal has no Actor side effect. Owns `ai_gateway_messages` and
   `ai_gateway_conversations`. Read `design-docs/AIGateway.md`.
-- **Memory** (Elixir + Bun tools) owns curated channel notes and historical
-  recall over provider mirrors. Owns `memory_notes`, `memory_episodes`, and
-  `memory_channel_cursors`. Read `design-docs/memory/Basic.md`; the detailed
-  v1 design lives in `internals/docs/Memory.zh.md`.
+- **Brain** (Elixir + Bun tools) owns principal-scoped curated knowledge,
+  historical chat recall over provider mirrors, frozen conversation snapshots,
+  and the auditable dreaming pipeline. PostgreSQL relational rows are the
+  durable truth; Markdown is only a projection. Owns `brain_entries`,
+  `brain_entry_blocks`, `brain_entry_relations`, `brain_audit_log`,
+  `brain_episodes`, and `brain_cursors`. Read `operations/Brain.md` for
+  operations and `design-docs/Brain.md` for the design contract.
 - **RuntimeFabric** (Rust + ZeroMQ) is the live transport between the control
   plane and workers: turn envelopes, RPC, file bytes. It is never durable
   truth. Read `design-docs/RuntimeFabric.md`.
@@ -309,9 +312,11 @@ and `agent_installed_skills`
 Worker->control-plane RPC methods are registered in
 `lib/ankole/signals_gateway/actor_runtime/rpc_lane.ex`:
 `ai_gateway.api_key_for.create_or_find_by_agent`,
-`agent_conversation.context.resolve`, `skills.overlay.resolve` / `.replace`,
+`agent_conversation.context.resolve`, `skills.overlay.resolve` / `.append` /
+`.replace`,
 `schedule.check_back_later.create`, the `schedule.cron.*` family,
-`memory_note.*`, `memory_search`, and `memory_browse`.
+and the Brain methods `memory_search`, `memory_browse`, `memory_open`,
+`memory_update`, and `memory_health_check`.
 
 ### Agent Computer — the Bun worker
 
@@ -347,8 +352,10 @@ The model-visible tool surface is deliberately narrow (see
 tools `browser_navigate`, `browser_snapshot`, `browser_find`, `browser_click`,
 `browser_open`, `browser_run`, and `browser_extract` (`src/tools/browser/`); the schedule
 tools `check_back_later` and `cron` (`src/tools/schedule/schedule-tools.ts`); and the
-memory tools `memory_note`, `memory_search`, and `memory_browse`
-(`src/tools/memory/`); and the skill tools `skill_view` and `skill_append`
+Brain tools `memory_search`, `memory_browse`, `memory_open`, `memory_update`,
+and `memory_health_check`
+(`src/tools/memory/`); and the skill tools `skill_view`, `skill_append`, and
+`skill_replace`
 (`src/tools/library/`). Shell
 commands run inside bubblewrap — strong mode preferred, weak mode with a
 startup warning, never unsandboxed (`src/tools/computer/bubblewrap.ts`).
@@ -575,8 +582,9 @@ Durable tables (crash truth): `principals`, `human_users`, `agents`,
 `app_configurations`, `signal_gateway_bindings`, `signal_gateway_channels`, `signal_gateway_entries`,
 `signal_gateway_outbox_entries`, `actor_events`, `actor_cron_schedules`,
 `actor_scheduled_events`, `ai_gateway_conversations`, `ai_gateway_messages`,
-`ai_gateway_providers`, `memory_notes`, `memory_episodes`,
-`memory_channel_cursors`, plus the skill library tables.
+`ai_gateway_providers`, `brain_entries`, `brain_entry_blocks`,
+`brain_entry_relations`, `brain_audit_log`, `brain_episodes`, `brain_cursors`,
+plus the skill library tables.
 
 Runtime projections (UNLOGGED, rebuildable): `actor_event_deliveries`,
 `actor_session_activations`, `actor_session_worker_assignments`,
@@ -764,9 +772,9 @@ doc first, then the code.
    stateful message log, the tool loop, compaction.
 3. `design-docs/SignalsGateway.md` — if you work on the IM/provider side:
    ingress, batching, commands, streamed delivery, recovery.
-4. `design-docs/memory/Basic.md` — if you work on channel memory, historical
-   recall, BM25/vector retrieval, or memory tools. Use
-   `internals/docs/Memory.zh.md` for the detailed v1 design.
+4. `design-docs/Brain.md` — if you change Brain's knowledge model, visibility,
+   retrieval, dreaming, audit, snapshots, or model-facing tools. Use
+   `operations/Brain.md` when deploying or operating it.
 5. `design-docs/RuntimeFabric.md`, `design-docs/Schedule.md`, and
    `design-docs/SubagentDelegation.md` — transport, time, and durable background
    work, when you touch them.
@@ -783,9 +791,10 @@ doc first, then the code.
 | Document | Read when you touch |
 | --- | --- |
 | `docs/README.md` | Anything — the system map, code-level map, change guide, and glossary |
+| `operations/Brain.md` | PostgreSQL extensions, model profiles, migrations, dreaming operations, and real-model Brain acceptance |
+| `design-docs/Brain.md` | Curated knowledge, chat recall, isolation, dreaming, audit, and human oversight |
 | `design-docs/AIGateway.md` | Providers, message log, tool loop, compaction |
 | `design-docs/SignalsGateway.md` | Ingress, mirrors, outbox, delivery, commands |
-| `design-docs/memory/Basic.md` | Channel notes, historical recall, BM25/vector search |
 | `design-docs/RuntimeFabric.md` | Envelopes, lanes, sockets, file transfer |
 | `design-docs/Schedule.md` | Checkbacks, cron, Oban wake edge |
 | `design-docs/SubagentDelegation.md` | Durable background work, Codex resume, steering, wakeups |

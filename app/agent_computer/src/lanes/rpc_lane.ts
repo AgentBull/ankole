@@ -28,12 +28,11 @@ export const rpcMethods = {
   subagentDelegationStop: 'subagent.delegation.stop',
   subagentDelegationEventAppend: 'subagent.delegation.event.append',
   subagentDelegationStatusUpdate: 'subagent.delegation.status.update',
-  memoryNoteSave: 'memory_note.save',
-  memoryNoteUpdate: 'memory_note.update',
-  memoryNoteForget: 'memory_note.forget',
-  memoryNoteList: 'memory_note.list',
   memorySearch: 'memory_search',
   memoryBrowse: 'memory_browse',
+  memoryOpen: 'memory_open',
+  memoryUpdate: 'memory_update',
+  memoryHealthCheck: 'memory_health_check',
   scheduleCheckBackLaterCreate: 'schedule.check_back_later.create',
   scheduleCronList: 'schedule.cron.list',
   scheduleCronGet: 'schedule.cron.get',
@@ -45,8 +44,10 @@ export const rpcMethods = {
   scheduleCronRemove: 'schedule.cron.remove',
   scheduleCronRun: 'schedule.cron.run',
   skillsInstalledReplace: 'skills.installed.replace',
+  skillsOverlayAppend: 'skills.overlay.append',
   skillsOverlayResolve: 'skills.overlay.resolve',
-  skillsOverlayReplace: 'skills.overlay.replace'
+  skillsOverlayReplace: 'skills.overlay.replace',
+  workerEnvResolve: 'worker_env.resolve'
 } as const
 
 export type RPCMethod = (typeof rpcMethods)[keyof typeof rpcMethods]
@@ -74,12 +75,11 @@ export const rpcOperationMeta = {
   [rpcMethods.subagentDelegationStop]: { scope: 'turn', effect: 'write' },
   [rpcMethods.subagentDelegationEventAppend]: { scope: 'turn', effect: 'write' },
   [rpcMethods.subagentDelegationStatusUpdate]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.memoryNoteSave]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.memoryNoteUpdate]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.memoryNoteForget]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.memoryNoteList]: { scope: 'turn', effect: 'read' },
   [rpcMethods.memorySearch]: { scope: 'turn', effect: 'read' },
   [rpcMethods.memoryBrowse]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.memoryOpen]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.memoryUpdate]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.memoryHealthCheck]: { scope: 'turn', effect: 'read' },
   [rpcMethods.scheduleCheckBackLaterCreate]: { scope: 'turn', effect: 'write' },
   [rpcMethods.scheduleCronList]: { scope: 'turn', effect: 'read' },
   [rpcMethods.scheduleCronGet]: { scope: 'turn', effect: 'read' },
@@ -91,8 +91,10 @@ export const rpcOperationMeta = {
   [rpcMethods.scheduleCronRemove]: { scope: 'turn', effect: 'write' },
   [rpcMethods.scheduleCronRun]: { scope: 'turn', effect: 'write' },
   [rpcMethods.skillsInstalledReplace]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.skillsOverlayAppend]: { scope: 'turn', effect: 'write' },
   [rpcMethods.skillsOverlayResolve]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.skillsOverlayReplace]: { scope: 'turn', effect: 'write' }
+  [rpcMethods.skillsOverlayReplace]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.workerEnvResolve]: { scope: 'worker_agent' }
 } as const satisfies Record<RPCMethod, RPCOperationMeta>
 
 /**
@@ -194,19 +196,24 @@ export type AgentConversationContext = {
   }
   soul?: string
   mission?: string
-  memory_notes?: RuntimeMemoryNote[]
+  brain_snapshot?: RuntimeBrainSnapshot
   skills?: RuntimeSkillSummary[]
-  cache_key?: string
 }
 
-export type RuntimeMemoryNote = {
-  id: string
-  agent_uid?: string
-  channel_id?: string
-  content: string
-  source?: JSONObject
-  created_at?: string | null
-  updated_at?: string | null
+export type RuntimeBrainSnapshotEntry = {
+  entry_id: string
+  name: string
+  markdown: string
+  truncated: boolean
+  store?: string
+  type?: string
+  lock_version?: number
+  estimated_tokens?: number
+}
+
+export type RuntimeBrainSnapshot = {
+  pinned_memo?: RuntimeBrainSnapshotEntry | null
+  channel_entry?: RuntimeBrainSnapshotEntry | null
 }
 
 export type AgentConversationContextRequest = TurnScopedRPCRequest & {
@@ -253,7 +260,7 @@ export type MemoryDelegationScope = {
 }
 
 /**
- * Memory operations carry the actor event so the control plane can resolve the
+ * Brain operations carry the actor event so the control plane can resolve the
  * current channel; subagent turns additionally pin their delegation scope.
  */
 export type MemoryRPCRequestBase = TurnScopedRPCRequest & {
@@ -262,35 +269,21 @@ export type MemoryRPCRequestBase = TurnScopedRPCRequest & {
   delegation_scope?: MemoryDelegationScope
 }
 
-export type MemoryNoteSaveRequest = MemoryRPCRequestBase & {
-  tool_call_id: string
-  content: string
-}
-
-export type MemoryNoteUpdateRequest = MemoryRPCRequestBase & {
-  tool_call_id: string
-  note_id: string
-  content: string
-}
-
-export type MemoryNoteForgetRequest = MemoryRPCRequestBase & {
-  tool_call_id: string
-  note_id: string
-}
-
-export type MemoryNoteListRequest = MemoryRPCRequestBase & {
-  tool_call_id: string
-}
-
 export type MemorySearchRequest = MemoryRPCRequestBase & {
   query: string
-  scope?: 'current_channel' | 'permitted_context'
+  layer?: 'chat' | 'knowledge' | 'all'
+  channel_scope?: 'current_channel' | 'all_channels'
+  channel_id?: string
   from?: string
   to?: string
+  store?: 'current' | 'public'
+  entry_type?: string
+  author_kind?: 'human' | 'agent' | 'dreaming'
   limit?: number
 }
 
 export type MemoryBrowseRequest = MemoryRPCRequestBase & {
+  document_id?: string
   channel_id?: string
   from?: string
   to?: string
@@ -298,13 +291,99 @@ export type MemoryBrowseRequest = MemoryRPCRequestBase & {
   limit?: number
 }
 
+export type MemoryOpenRequest = MemoryRPCRequestBase & {
+  entry_id?: string
+  name?: string
+  store?: 'current' | 'public'
+  block_cursor?: string
+  block_limit?: number
+}
+
+export type MemoryUpdateOperation =
+  | {
+      operation: 'create_entry'
+      name: string
+      type: string
+      summary?: string
+      aliases?: string[]
+      properties?: JSONObject
+    }
+  | {
+      operation: 'delete_entry'
+      entry_id: string
+      expected_entry_lock_version: number
+    }
+  | {
+      operation: 'append_block'
+      entry_id: string
+      body: string
+      expected_entry_lock_version: number
+    }
+  | {
+      operation: 'edit_block'
+      entry_id: string
+      block_id: string
+      body: string
+      expected_block_lock_version: number
+    }
+  | {
+      operation: 'delete_block'
+      entry_id: string
+      block_id: string
+      expected_block_lock_version: number
+    }
+  | {
+      operation: 'set_property'
+      entry_id: string
+      key: string
+      value: unknown
+      expected_entry_lock_version: number
+    }
+  | {
+      operation: 'add_relation'
+      entry_id: string
+      target_entry_id: string
+      predicate: string
+      expected_entry_lock_version: number
+    }
+  | {
+      operation: 'remove_relation'
+      entry_id: string
+      relation_id: string
+      expected_entry_lock_version: number
+    }
+  | {
+      operation: 'set_summary'
+      entry_id: string
+      summary: string
+      expected_entry_lock_version: number
+    }
+  | {
+      operation: 'set_aliases'
+      entry_id: string
+      aliases: string[]
+      expected_entry_lock_version: number
+    }
+
+export type MemoryUpdateRequest = MemoryRPCRequestBase &
+  MemoryUpdateOperation & {
+    tool_call_id: string
+  }
+
+export type MemoryHealthCheckRequest = MemoryRPCRequestBase
+
 export type SkillOverlayRequest = TurnScopedRPCRequest & {
   skill_name: string
+}
+
+export type SkillOverlayAppendRequest = SkillOverlayRequest & {
+  content: string
 }
 
 export type SkillOverlayReplaceRequest = SkillOverlayRequest & {
   content: string
   overlay_json?: JSONObject
+  expected_content_hash: string
 }
 
 export type SkillOverlayResponse = {
@@ -314,7 +393,7 @@ export type SkillOverlayResponse = {
   skill_name: string
   has_overlay: boolean
   overlay_json: JSONObject
-  content_hash?: string
+  content_hash: string
 }
 
 export type InstalledSkillReplaceRequest = TurnScopedRPCRequest & {
@@ -363,6 +442,18 @@ export type AppConfigureResolveResponse = {
   request_id: string
   agent_uid: string
   values: Record<string, AppConfigureResolution>
+}
+
+export type WorkerEnvResolveRequest = {
+  request_id: string
+  agent_uid: string
+}
+
+/** Merged operator shell environment; secrets arrive decrypted and stay in memory. */
+export type WorkerEnvResolveResponse = {
+  request_id: string
+  agent_uid: string
+  vars: Record<string, string>
 }
 
 export type CodexAccountResolveRequest = TurnScopedRPCRequest & {
@@ -507,6 +598,10 @@ export type RPCSchemaByMethod = {
     request: AppConfigureResolveRequest
     response: AppConfigureResolveResponse
   }
+  [rpcMethods.workerEnvResolve]: {
+    request: WorkerEnvResolveRequest
+    response: WorkerEnvResolveResponse
+  }
   [rpcMethods.codexAccountResolve]: {
     request: CodexAccountResolveRequest
     response: CodexAccountResolveResponse
@@ -543,12 +638,11 @@ export type RPCSchemaByMethod = {
     request: SubagentDelegationStatusUpdateRequest
     response: SubagentDelegationResponse
   }
-  [rpcMethods.memoryNoteSave]: { request: MemoryNoteSaveRequest; response: JSONObject }
-  [rpcMethods.memoryNoteUpdate]: { request: MemoryNoteUpdateRequest; response: JSONObject }
-  [rpcMethods.memoryNoteForget]: { request: MemoryNoteForgetRequest; response: JSONObject }
-  [rpcMethods.memoryNoteList]: { request: MemoryNoteListRequest; response: JSONObject }
   [rpcMethods.memorySearch]: { request: MemorySearchRequest; response: JSONObject }
   [rpcMethods.memoryBrowse]: { request: MemoryBrowseRequest; response: JSONObject }
+  [rpcMethods.memoryOpen]: { request: MemoryOpenRequest; response: JSONObject }
+  [rpcMethods.memoryUpdate]: { request: MemoryUpdateRequest; response: JSONObject }
+  [rpcMethods.memoryHealthCheck]: { request: MemoryHealthCheckRequest; response: JSONObject }
   [rpcMethods.scheduleCheckBackLaterCreate]: { request: ScheduleCheckBackLaterCreateRequest; response: JSONObject }
   [rpcMethods.scheduleCronList]: { request: ScheduleCronListRequest; response: JSONObject }
   [rpcMethods.scheduleCronGet]: { request: ScheduleCronTargetRequest; response: JSONObject }
@@ -563,6 +657,7 @@ export type RPCSchemaByMethod = {
     request: InstalledSkillReplaceRequest
     response: InstalledSkillReplaceResponse
   }
+  [rpcMethods.skillsOverlayAppend]: { request: SkillOverlayAppendRequest; response: SkillOverlayResponse }
   [rpcMethods.skillsOverlayResolve]: { request: SkillOverlayRequest; response: SkillOverlayResponse }
   [rpcMethods.skillsOverlayReplace]: { request: SkillOverlayReplaceRequest; response: SkillOverlayResponse }
 }

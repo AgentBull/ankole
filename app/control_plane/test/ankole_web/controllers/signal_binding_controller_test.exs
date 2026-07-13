@@ -115,7 +115,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       |> get(~p"/api/v1/signal-adapters")
 
     assert %{"signal_adapters" => adapters} = json_response(conn, 200)
-    assert Enum.map(adapters, & &1["adapter_id"]) == ["lark", "slack"]
+    assert Enum.map(adapters, & &1["adapter_id"]) == ["lark", "slack", "teams"]
 
     adapter = Enum.find(adapters, &(&1["adapter_id"] == "lark"))
     assert adapter["adapter_id"] == "lark"

@@ -5,8 +5,8 @@ families:
 
 - `web_search`: search the public web through the agent's configured
   AIGateway provider profile.
-- `web_fetch`: fetch readable content from public HTTPS URLs through the
-  agent's configured AIGateway provider profile, with a worker-local browser
+- `web_fetch`: fetch readable content from HTTPS URLs through the agent's
+  configured AIGateway provider profile, with a worker-local browser
   fallback.
 - `browser_*`: operate an interactive rendered browser session in Agent
   Computer.
@@ -52,11 +52,14 @@ registers `web_fetch` when the worker-local browser runtime is available.
 responses into a shared result list with fields such as `title`, `url`,
 `snippet`, `published_at`, `source`, `sources`, and `score` when available.
 
-`web_fetch` accepts one to five public HTTPS URLs. AIGateway rejects literal
-localhost, loopback, private, link-local, and metadata-host URLs before
-provider dispatch. Provider responses are normalized into a shared result list
-with fields such as `url`, `title`, `text`, `markdown`, `html`, `links`,
-`images`, `metadata`, and `error` when available.
+`web_fetch` accepts one to five HTTPS URLs. AIGateway always rejects literal
+cloud metadata-host URLs before provider dispatch, and additionally rejects
+literal localhost, loopback, private, link-local, and CGNAT URLs when the
+`web_tools.block_private_network` AppConfigure key is enabled (see Private
+Network Policy below; the default keeps intranet URLs reachable). Provider
+responses are normalized into a shared result list with fields such as `url`,
+`title`, `text`, `markdown`, `html`, `links`, `images`, `metadata`, and
+`error` when available.
 
 Provider-backed `web_search` and `web_fetch` are not rendered browser
 automation. The local `web_fetch` fallback uses a rendered CDP browser session,
@@ -73,8 +76,10 @@ local browser scope for the current agent/session.
 
 The fallback:
 
-- accepts the same one-to-five public HTTPS URL input as provider-backed
-  `web_fetch`;
+- accepts the same one-to-five HTTPS URL input as provider-backed `web_fetch`
+  and applies the same URL policy: cloud metadata endpoints are always
+  rejected, and non-public URLs are rejected when
+  `web_tools.block_private_network` is enabled;
 - starts or reuses the local Chromium singleton through `LocalSidecarManager`;
 - uses its own browser session and Chromium BrowserContext separate from
   interactive `browser_*` sessions;
@@ -87,6 +92,48 @@ The fallback:
 The fallback deliberately does not use the operator remote CDP override. It is
 the local-browser safety path for missing or failed provider-backed extraction;
 operator-selected remote browser behavior remains visible through `browser_*`.
+
+## Private Network Policy
+
+Ankole is built for digital employees, so reaching intranet services through
+web tools is the expected default. The only restriction switch is:
+
+```text
+web_tools.block_private_network
+```
+
+Contract:
+
+- scope: scoped AppConfigure key, resolution `agent:<uid> -> global -> default`;
+- encrypted: false;
+- default: `false` (private-network URLs allowed);
+- operator/admin-owned setting, not model-writable state.
+
+When enabled, model-supplied URLs must point at public hosts, and the same
+rejection set applies at every model URL input: AIGateway `web_fetch`
+validation, the worker-local `web_fetch` fallback, and `browser_*` navigation
+entrypoints (`browser_navigate` and the extract path). Rejected inputs are
+literal `localhost` and `*.localhost` names, loopback, RFC1918 private ranges,
+IPv4 link-local, CGNAT (`100.64/10`), `0/8`, IPv6 loopback, unique-local
+(`fc00::/7`), IPv6 link-local (`fe80::/10`), and IPv4-mapped IPv6 forms of
+those addresses.
+
+URL parsing and host classification are implemented once in the native kernel
+(`web_url_facts`, WHATWG semantics) and consumed by both the Elixir gateway
+and the Bun worker, so alternate literal encodings such as hex or integer
+IPv4 canonicalize before classification and the two runtimes cannot drift.
+
+Cloud metadata endpoints are rejected regardless of this setting: `metadata`,
+`metadata.google.internal`, `169.254.169.254`, `169.254.169.250`,
+`169.254.169.251`, `fd00:ec2::254`, and IPv6 link-local addresses. Credential
+surfaces are not intranet assets.
+
+This policy is a model input filter, not a network-layer control. It checks
+the literal URLs the model supplies. Page-driven navigation — real clicks, JS
+redirects, and page-provided hrefs — does not pass through it, and DNS names
+are not resolved at validation time, so a public-looking hostname may still
+resolve to a private address. Deployments that need a hard guarantee must
+enforce it at the worker network layer.
 
 ## Browser Runtime
 

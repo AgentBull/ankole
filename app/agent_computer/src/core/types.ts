@@ -22,10 +22,6 @@ export type {
   ImageContent,
   ContentPart,
   ToolCall,
-  ToolDefinition,
-  ToolSet,
-  ModelCallResult,
-  CallModelOptions,
   StatefulResponseContext
 } from './llm'
 

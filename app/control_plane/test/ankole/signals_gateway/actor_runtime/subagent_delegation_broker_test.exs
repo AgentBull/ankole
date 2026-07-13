@@ -47,6 +47,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDelegationBrokerTest do
     assert delegation.reply_route["binding_name"] == "bot"
     refute delegation.reply_route["binding_name"] == "spoofed"
     assert delegation.metadata["worker_route"] == route
+    assert is_binary(delegation.metadata["brain_parent_conversation_id"])
   end
 
   test "RPC authorization rejects an unassigned route and delegation-turn mutations from a parent turn" do
@@ -135,7 +136,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDelegationBrokerTest do
       "query" => "prior decisions"
     }
 
-    assert {:ok, rejected} =
+    assert {:ok, ignored_spoof} =
              RPCLane.handle_request(
                %{
                  "request_id" => "memory-wrong-scope",
@@ -149,7 +150,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDelegationBrokerTest do
                route
              )
 
-    assert rpc_error(rejected)["code"] == "subagent_memory_scope_mismatch"
+    assert rpc_payload(ignored_spoof)["status"] == "ok"
 
     assert {:ok, accepted} =
              RPCLane.handle_request(

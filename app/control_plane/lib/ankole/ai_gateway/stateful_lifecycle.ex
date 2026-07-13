@@ -163,7 +163,8 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
            resolve_stateful_request_conversation(
              subject_uid,
              conversation_id,
-             previous_response_id
+             previous_response_id,
+             public_request_metadata(request)
            ),
          :ok <- StatefulResponses.validate_response_anchor(conversation.id, previous_response_id),
          effective_previous_response_id <-
@@ -189,7 +190,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
       previous_response_id = compaction.previous_response_id
 
       current_input =
-        Compaction.maybe_inject_memory_pre_compaction_nudge(
+        Compaction.maybe_inject_brain_pre_compaction_nudge(
           current_input,
           compaction.run_metadata
         )
@@ -233,17 +234,30 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
 
   defp public_request_metadata(_request), do: %{}
 
-  defp resolve_stateful_request_conversation(subject_uid, conversation_id, _previous_response_id)
+  defp resolve_stateful_request_conversation(
+         subject_uid,
+         conversation_id,
+         _previous_response_id,
+         _metadata
+       )
        when not is_nil(conversation_id) do
     with :ok <- validate_external_conversation_id(conversation_id) do
       StatefulResponses.get_conversation_for_subject(subject_uid, decode_conv_id(conversation_id))
     end
   end
 
-  defp resolve_stateful_request_conversation(subject_uid, nil, nil),
-    do: StatefulResponses.create_managed_stateful_responses_conversation(subject_uid)
+  defp resolve_stateful_request_conversation(subject_uid, nil, nil, metadata),
+    do:
+      StatefulResponses.create_managed_stateful_responses_conversation(subject_uid,
+        metadata: metadata
+      )
 
-  defp resolve_stateful_request_conversation(subject_uid, nil, previous_response_id) do
+  defp resolve_stateful_request_conversation(
+         subject_uid,
+         nil,
+         previous_response_id,
+         _metadata
+       ) do
     case StatefulResponses.get_message(previous_response_id) do
       %{status: "complete", conversation_id: conversation_id} ->
         case StatefulResponses.get_conversation_for_subject(subject_uid, conversation_id) do

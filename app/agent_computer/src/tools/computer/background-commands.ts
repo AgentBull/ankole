@@ -51,7 +51,7 @@ export class BackgroundCommandRegistry {
 
     const workspaceRoot = resolve(scope.workspaceRoot)
     const cwd = input.cwd ? workspacePath(workspaceRoot, input.cwd) : workspaceRoot
-    const env = commandEnv(input.env)
+    const env = commandEnv(input.env, { workerEnv: input.workerEnv })
     const argv = bubblewrapArgv({
       workspaceRoot,
       cwd,

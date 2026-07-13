@@ -449,6 +449,30 @@ really directed at the agent, and supplying exact mention prefixes when the
 shared command parser needs them. The command names and actor event semantics
 remain code-defined by SignalsGateway and the actor runtime.
 
+### Webhook Ingress Surface
+
+Providers without an outbound long connection push events over HTTPS. The host
+owns one standardized front door for those pushes:
+
+```text
+POST /webhooks/v1/:handler_id/:instance_id/:kind
+```
+
+Plugins plug into it with `signals_gateway.webhook_handler` declarations:
+`%{contract_id, id, plugin_id, module, kinds}`. The host resolves `handler_id`
+against declared handlers, enforces the declared `kinds` whitelist (an
+undeclared kind is a 404 without payload echo), and passes the handler a
+request map with the instance segment, query params, parsed body, and headers.
+Everything else — provider authentication (connector JWT, shared secrets),
+payload interpretation, instance resolution, and fan-out to chat or identity
+consumers — belongs to the handler module, which is the webhook analog of a
+long-connection owner. The route sits outside every browser and token
+pipeline; a webhook HTTP response is transport `ack`, never an agent reply.
+
+The Microsoft 365 plugin registers the first two handlers: `teams/messages`
+for Bot Framework activities and `entra-id/directory` for Graph directory
+change notifications.
+
 ## Core User Stories
 
 For IM traffic, SignalsGateway does not turn every provider message directly
@@ -766,6 +790,17 @@ actor events. Choose channel granularity from the user story:
 - metadata and raw provider payload;
 - timestamps.
 
+For provider-backed IM groups, the associated AuthZ group's metadata also
+carries SignalsGateway's host-owned current binding-membership projection under
+`signals_gateway.binding_memberships`. Entries are keyed by `agent_uid +
+binding_name` and record `joined` or `left` plus the observation time. Lark,
+Slack, Teams, and future adapters project this same fact through
+`SignalsGateway.BindingMembership`; provider-specific metadata paths are never
+visibility predicates. `SignalsGateway.Visibility` combines these facts with
+enabled binding state, human AuthZ membership, and historically observed
+non-group channels for Brain recall and dreaming. This fact describes whether
+the adapter binding is currently in an IM group, not provider online presence.
+
 `signal_gateway_entries` stores one row per `(signal_channel_id, source_entry_id)` and
 uses that pair as its primary key. `source_entry_id` means the
 adapter-normalized entry id stored in the mirror; it is not necessarily the raw
@@ -797,10 +832,10 @@ Vector storage, embedding profiles, ranking, and re-embedding workers belong to
 the recall/search subsystem. SignalsGateway only reserves the stable entry-side
 fields that subsystem will need.
 
-`signal_gateway_entries` must not be treated as TTL runtime state. Memory/search
+`signal_gateway_entries` must not be treated as TTL runtime state. Brain/search
 retention, redaction, delete, and recall behavior are product/privacy policy,
 not actor-runtime cleanup. Actor-runtime recovery tables may be compacted; this
-provider observation surface is the durable source that memory systems can build
+provider observation surface is the durable source that Brain can build
 from.
 
 For providers that do not expose a message-like entry id, the adapter must
@@ -824,7 +859,14 @@ Provider mirror behavior:
   mirror row.
 - Unsupported or unserializable raw values are sanitized instead of crashing the
   mirror path.
-- Inbound edit events are not part of the current SignalsGateway contract.
+- Inbound message edits are intentionally out of the SignalsGateway contract.
+  Only entry removal is supported: provider delete (e.g. Slack
+  `message_deleted`) and provider recall (e.g. Feishu/Lark
+  `im.message.recalled_v1`) both flow through the single `entry_removed`
+  capability. No provider exposes an inbound edit as a removable signal, and
+  no `entry_edit` capability exists; after a user edits a message, the mirrored
+  entry may go stale until the next receive or removal fact. This is a settled
+  v1 boundary, not a gap.
 
 Provider mirror time semantics are deliberately small:
 
@@ -1853,7 +1895,9 @@ The gateway user-story surface includes these contract cases:
   an entry must not suppress the accepted actor event write for the current
   binding.
 - `ignore` does not mirror ignored IM group traffic.
-- Inbound edit events are not supported by the current gateway contract.
+- Inbound edit events are out of the current gateway contract by decision, not
+  by omission. Only `entry_removed` is supported; provider delete and recall are
+  the only removal signals (see mirror behavior above).
 - A provider-side removal refreshes a tombstone and updates current provider
   mirror/search projection; stored AI output changes only through the deletion
   mapping, and provider-visible agent output is never removed by inference.

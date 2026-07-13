@@ -96,6 +96,33 @@ import type {
   AnkoleWebAuthControllerOauthTokenData,
   AnkoleWebAuthControllerOauthTokenErrors,
   AnkoleWebAuthControllerOauthTokenResponses,
+  AnkoleWebBrainControllerApplyOperationsData,
+  AnkoleWebBrainControllerApplyOperationsErrors,
+  AnkoleWebBrainControllerApplyOperationsResponses,
+  AnkoleWebBrainControllerAuditIndexData,
+  AnkoleWebBrainControllerAuditIndexErrors,
+  AnkoleWebBrainControllerAuditIndexResponses,
+  AnkoleWebBrainControllerAuditLogData,
+  AnkoleWebBrainControllerAuditLogErrors,
+  AnkoleWebBrainControllerAuditLogResponses,
+  AnkoleWebBrainControllerIndexData,
+  AnkoleWebBrainControllerIndexErrors,
+  AnkoleWebBrainControllerIndexResponses,
+  AnkoleWebBrainControllerRestoreAuditData,
+  AnkoleWebBrainControllerRestoreAuditErrors,
+  AnkoleWebBrainControllerRestoreAuditResponses,
+  AnkoleWebBrainControllerRestoreAuditsData,
+  AnkoleWebBrainControllerRestoreAuditsErrors,
+  AnkoleWebBrainControllerRestoreAuditsResponses,
+  AnkoleWebBrainControllerRunDreamingData,
+  AnkoleWebBrainControllerRunDreamingErrors,
+  AnkoleWebBrainControllerRunDreamingResponses,
+  AnkoleWebBrainControllerShowData,
+  AnkoleWebBrainControllerShowErrors,
+  AnkoleWebBrainControllerShowResponses,
+  AnkoleWebBrainControllerSourceData,
+  AnkoleWebBrainControllerSourceErrors,
+  AnkoleWebBrainControllerSourceResponses,
   AnkoleWebCodexAccountControllerCreateData,
   AnkoleWebCodexAccountControllerCreateErrors,
   AnkoleWebCodexAccountControllerCreateResponses,
@@ -167,6 +194,33 @@ import type {
   AnkoleWebSubagentDelegationControllerShowData,
   AnkoleWebSubagentDelegationControllerShowErrors,
   AnkoleWebSubagentDelegationControllerShowResponses,
+  AnkoleWebWorkerEnvControllerDecryptData,
+  AnkoleWebWorkerEnvControllerDecryptErrors,
+  AnkoleWebWorkerEnvControllerDecryptForAgentData,
+  AnkoleWebWorkerEnvControllerDecryptForAgentErrors,
+  AnkoleWebWorkerEnvControllerDecryptForAgentResponses,
+  AnkoleWebWorkerEnvControllerDecryptResponses,
+  AnkoleWebWorkerEnvControllerDeleteData,
+  AnkoleWebWorkerEnvControllerDeleteErrors,
+  AnkoleWebWorkerEnvControllerDeleteForAgentData,
+  AnkoleWebWorkerEnvControllerDeleteForAgentErrors,
+  AnkoleWebWorkerEnvControllerDeleteForAgentResponses,
+  AnkoleWebWorkerEnvControllerDeleteResponses,
+  AnkoleWebWorkerEnvControllerIndexData,
+  AnkoleWebWorkerEnvControllerIndexErrors,
+  AnkoleWebWorkerEnvControllerIndexForAgentData,
+  AnkoleWebWorkerEnvControllerIndexForAgentErrors,
+  AnkoleWebWorkerEnvControllerIndexForAgentResponses,
+  AnkoleWebWorkerEnvControllerIndexResponses,
+  AnkoleWebWorkerEnvControllerShowData,
+  AnkoleWebWorkerEnvControllerShowErrors,
+  AnkoleWebWorkerEnvControllerShowResponses,
+  AnkoleWebWorkerEnvControllerUpdateData,
+  AnkoleWebWorkerEnvControllerUpdateErrors,
+  AnkoleWebWorkerEnvControllerUpdateForAgentData,
+  AnkoleWebWorkerEnvControllerUpdateForAgentErrors,
+  AnkoleWebWorkerEnvControllerUpdateForAgentResponses,
+  AnkoleWebWorkerEnvControllerUpdateResponses,
   AnkoleWebWorkerFileControllerDeleteData,
   AnkoleWebWorkerFileControllerDeleteErrors,
   AnkoleWebWorkerFileControllerDeleteResponses,
@@ -273,6 +327,28 @@ export const ankoleWebScheduleControllerPauseCron = <ThrowOnError extends boolea
   })
 
 /**
+ * List the audit trail for one Brain entry
+ */
+export const ankoleWebBrainControllerAuditLog = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebBrainControllerAuditLogData, ThrowOnError>
+): RequestResult<AnkoleWebBrainControllerAuditLogResponses, AnkoleWebBrainControllerAuditLogErrors, ThrowOnError> =>
+  (options.client ?? client).get<
+    AnkoleWebBrainControllerAuditLogResponses,
+    AnkoleWebBrainControllerAuditLogErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/brain/entries/{id}/audit-log',
+    ...options
+  })
+
+/**
  * List console-visible AppConfigure entries
  */
 export const ankoleWebAppConfigurationControllerIndex = <ThrowOnError extends boolean = false>(
@@ -295,6 +371,32 @@ export const ankoleWebAppConfigurationControllerIndex = <ThrowOnError extends bo
       }
     ],
     url: '/api/v1/app-configurations',
+    ...options
+  })
+
+/**
+ * Restore the state captured by one Brain audit record
+ */
+export const ankoleWebBrainControllerRestoreAudit = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebBrainControllerRestoreAuditData, ThrowOnError>
+): RequestResult<
+  AnkoleWebBrainControllerRestoreAuditResponses,
+  AnkoleWebBrainControllerRestoreAuditErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebBrainControllerRestoreAuditResponses,
+    AnkoleWebBrainControllerRestoreAuditErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/brain/audit-log/{audit_id}/restorations',
     ...options
   })
 
@@ -377,6 +479,28 @@ export const ankoleWebSubagentDelegationControllerShow = <ThrowOnError extends b
       }
     ],
     url: '/api/v1/delegations/{delegation_id}',
+    ...options
+  })
+
+/**
+ * Open one current Brain entry projection
+ */
+export const ankoleWebBrainControllerShow = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebBrainControllerShowData, ThrowOnError>
+): RequestResult<AnkoleWebBrainControllerShowResponses, AnkoleWebBrainControllerShowErrors, ThrowOnError> =>
+  (options.client ?? client).get<
+    AnkoleWebBrainControllerShowResponses,
+    AnkoleWebBrainControllerShowErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/brain/entries/{id}',
     ...options
   })
 
@@ -487,6 +611,38 @@ export const ankoleWebAiGatewayControllerResponses = <ThrowOnError extends boole
       }
     ],
     url: '/api/v1/ai-gateway/responses',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Atomically restore an explicit Brain audit selection
+ *
+ * The caller previews audit records first, submits their exact ids, and the server restores them newest-first in one transaction.
+ */
+export const ankoleWebBrainControllerRestoreAudits = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebBrainControllerRestoreAuditsData, ThrowOnError>
+): RequestResult<
+  AnkoleWebBrainControllerRestoreAuditsResponses,
+  AnkoleWebBrainControllerRestoreAuditsErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebBrainControllerRestoreAuditsResponses,
+    AnkoleWebBrainControllerRestoreAuditsErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/brain/audit-log/restorations',
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -957,6 +1113,58 @@ export const ankoleWebAiGatewayControllerCompactResponse = <ThrowOnError extends
   })
 
 /**
+ * Reveal the encrypted worker shell variable effective for one agent
+ */
+export const ankoleWebWorkerEnvControllerDecryptForAgent = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebWorkerEnvControllerDecryptForAgentData, ThrowOnError>
+): RequestResult<
+  AnkoleWebWorkerEnvControllerDecryptForAgentResponses,
+  AnkoleWebWorkerEnvControllerDecryptForAgentErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebWorkerEnvControllerDecryptForAgentResponses,
+    AnkoleWebWorkerEnvControllerDecryptForAgentErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/worker-envs/{name}/decryptions',
+    ...options
+  })
+
+/**
+ * Reveal one encrypted installation-wide worker shell variable
+ */
+export const ankoleWebWorkerEnvControllerDecrypt = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebWorkerEnvControllerDecryptData, ThrowOnError>
+): RequestResult<
+  AnkoleWebWorkerEnvControllerDecryptResponses,
+  AnkoleWebWorkerEnvControllerDecryptErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebWorkerEnvControllerDecryptResponses,
+    AnkoleWebWorkerEnvControllerDecryptErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/worker-envs/{name}/decryptions',
+    ...options
+  })
+
+/**
  * Enqueue one identity-provider full directory sync
  */
 export const ankoleWebIdentityProviderControllerRunSync = <ThrowOnError extends boolean = false>(
@@ -1263,6 +1471,28 @@ export const ankoleWebSignalBindingControllerDelete = <ThrowOnError extends bool
   })
 
 /**
+ * Resolve a Brain src citation to its mirrored original message
+ */
+export const ankoleWebBrainControllerSource = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebBrainControllerSourceData, ThrowOnError>
+): RequestResult<AnkoleWebBrainControllerSourceResponses, AnkoleWebBrainControllerSourceErrors, ThrowOnError> =>
+  (options.client ?? client).get<
+    AnkoleWebBrainControllerSourceResponses,
+    AnkoleWebBrainControllerSourceErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/brain/sources/{document_id}',
+    ...options
+  })
+
+/**
  * Cancel one pending checkback wakeup
  */
 export const ankoleWebScheduleControllerCancelCheckback = <ThrowOnError extends boolean = false>(
@@ -1489,6 +1719,98 @@ export const ankoleWebCodexAccountControllerUpdate = <ThrowOnError extends boole
   })
 
 /**
+ * List Brain entries for one owner
+ */
+export const ankoleWebBrainControllerIndex = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebBrainControllerIndexData, ThrowOnError>
+): RequestResult<AnkoleWebBrainControllerIndexResponses, AnkoleWebBrainControllerIndexErrors, ThrowOnError> =>
+  (options.client ?? client).get<
+    AnkoleWebBrainControllerIndexResponses,
+    AnkoleWebBrainControllerIndexErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/brain/entries',
+    ...options
+  })
+
+/**
+ * Delete one installation-wide worker shell variable
+ */
+export const ankoleWebWorkerEnvControllerDelete = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebWorkerEnvControllerDeleteData, ThrowOnError>
+): RequestResult<AnkoleWebWorkerEnvControllerDeleteResponses, AnkoleWebWorkerEnvControllerDeleteErrors, ThrowOnError> =>
+  (options.client ?? client).delete<
+    AnkoleWebWorkerEnvControllerDeleteResponses,
+    AnkoleWebWorkerEnvControllerDeleteErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/worker-envs/{name}',
+    ...options
+  })
+
+/**
+ * Read one installation-wide worker shell variable
+ */
+export const ankoleWebWorkerEnvControllerShow = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebWorkerEnvControllerShowData, ThrowOnError>
+): RequestResult<AnkoleWebWorkerEnvControllerShowResponses, AnkoleWebWorkerEnvControllerShowErrors, ThrowOnError> =>
+  (options.client ?? client).get<
+    AnkoleWebWorkerEnvControllerShowResponses,
+    AnkoleWebWorkerEnvControllerShowErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/worker-envs/{name}',
+    ...options
+  })
+
+/**
+ * Store one installation-wide worker shell variable
+ */
+export const ankoleWebWorkerEnvControllerUpdate = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebWorkerEnvControllerUpdateData, ThrowOnError>
+): RequestResult<AnkoleWebWorkerEnvControllerUpdateResponses, AnkoleWebWorkerEnvControllerUpdateErrors, ThrowOnError> =>
+  (options.client ?? client).put<
+    AnkoleWebWorkerEnvControllerUpdateResponses,
+    AnkoleWebWorkerEnvControllerUpdateErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/worker-envs/{name}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
  * Clear the current browser admin session
  */
 export const ankoleWebAuthControllerDeleteSession = <ThrowOnError extends boolean = false>(
@@ -1528,6 +1850,28 @@ export const ankoleWebAiGatewayControllerRerank = <ThrowOnError extends boolean 
       'Content-Type': 'application/json',
       ...options.headers
     }
+  })
+
+/**
+ * List installation-wide worker shell variables
+ */
+export const ankoleWebWorkerEnvControllerIndex = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebWorkerEnvControllerIndexData, ThrowOnError>
+): RequestResult<AnkoleWebWorkerEnvControllerIndexResponses, AnkoleWebWorkerEnvControllerIndexErrors, ThrowOnError> =>
+  (options?.client ?? client).get<
+    AnkoleWebWorkerEnvControllerIndexResponses,
+    AnkoleWebWorkerEnvControllerIndexErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/worker-envs',
+    ...options
   })
 
 /**
@@ -1644,6 +1988,60 @@ export const ankoleWebSubagentDelegationControllerIndex = <ThrowOnError extends 
   })
 
 /**
+ * Run principal-level Brain curation now
+ *
+ * Manually starts the same Stage B path used by the scheduled Brain curation job.
+ */
+export const ankoleWebBrainControllerRunDreaming = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebBrainControllerRunDreamingData, ThrowOnError>
+): RequestResult<
+  AnkoleWebBrainControllerRunDreamingResponses,
+  AnkoleWebBrainControllerRunDreamingErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebBrainControllerRunDreamingResponses,
+    AnkoleWebBrainControllerRunDreamingErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/brain/dreaming-runs',
+    ...options
+  })
+
+/**
+ * List effective worker shell variables for one agent
+ */
+export const ankoleWebWorkerEnvControllerIndexForAgent = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebWorkerEnvControllerIndexForAgentData, ThrowOnError>
+): RequestResult<
+  AnkoleWebWorkerEnvControllerIndexForAgentResponses,
+  AnkoleWebWorkerEnvControllerIndexForAgentErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebWorkerEnvControllerIndexForAgentResponses,
+    AnkoleWebWorkerEnvControllerIndexForAgentErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/worker-envs',
+    ...options
+  })
+
+/**
  * Cancel one queued or active subagent delegation
  */
 export const ankoleWebSubagentDelegationControllerCancel = <ThrowOnError extends boolean = false>(
@@ -1666,6 +2064,28 @@ export const ankoleWebSubagentDelegationControllerCancel = <ThrowOnError extends
       }
     ],
     url: '/api/v1/delegations/{delegation_id}/cancel',
+    ...options
+  })
+
+/**
+ * Preview filtered Brain audit records for supervision or batch recovery
+ */
+export const ankoleWebBrainControllerAuditIndex = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebBrainControllerAuditIndexData, ThrowOnError>
+): RequestResult<AnkoleWebBrainControllerAuditIndexResponses, AnkoleWebBrainControllerAuditIndexErrors, ThrowOnError> =>
+  (options.client ?? client).get<
+    AnkoleWebBrainControllerAuditIndexResponses,
+    AnkoleWebBrainControllerAuditIndexErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/brain/audit-log',
     ...options
   })
 
@@ -1744,6 +2164,92 @@ export const ankoleWebAppConfigurationControllerUpdate = <ThrowOnError extends b
       }
     ],
     url: '/api/v1/app-configurations/{key}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Apply structured human Brain entry operations
+ */
+export const ankoleWebBrainControllerApplyOperations = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebBrainControllerApplyOperationsData, ThrowOnError>
+): RequestResult<
+  AnkoleWebBrainControllerApplyOperationsResponses,
+  AnkoleWebBrainControllerApplyOperationsErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebBrainControllerApplyOperationsResponses,
+    AnkoleWebBrainControllerApplyOperationsErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/brain/entry-operations',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Delete one agent-tier worker shell variable
+ */
+export const ankoleWebWorkerEnvControllerDeleteForAgent = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebWorkerEnvControllerDeleteForAgentData, ThrowOnError>
+): RequestResult<
+  AnkoleWebWorkerEnvControllerDeleteForAgentResponses,
+  AnkoleWebWorkerEnvControllerDeleteForAgentErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).delete<
+    AnkoleWebWorkerEnvControllerDeleteForAgentResponses,
+    AnkoleWebWorkerEnvControllerDeleteForAgentErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/worker-envs/{name}',
+    ...options
+  })
+
+/**
+ * Store one agent-tier worker shell variable
+ */
+export const ankoleWebWorkerEnvControllerUpdateForAgent = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebWorkerEnvControllerUpdateForAgentData, ThrowOnError>
+): RequestResult<
+  AnkoleWebWorkerEnvControllerUpdateForAgentResponses,
+  AnkoleWebWorkerEnvControllerUpdateForAgentErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).put<
+    AnkoleWebWorkerEnvControllerUpdateForAgentResponses,
+    AnkoleWebWorkerEnvControllerUpdateForAgentErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/worker-envs/{name}',
     ...options,
     headers: {
       'Content-Type': 'application/json',

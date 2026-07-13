@@ -30,6 +30,7 @@ import {
 } from './worker/active_turns'
 import { workerLogger } from './worker/logging'
 import {
+  appendSkillOverlay,
   replaceSkillOverlay,
   requestAgentConversationContext,
   requestAIGatewayAPIKey,
@@ -350,6 +351,7 @@ async function runActiveTurn(
     internalSkillsRoot: config.internalSkillsRoot,
     requestAIGatewayAPIKey: (request, options) => requestAIGatewayAPIKey(rpcClient, request, options),
     requestAppConfigure: request => rpcClient.request(rpcMethods.appConfigureResolve, request),
+    requestWorkerEnv: request => rpcClient.request(rpcMethods.workerEnvResolve, request),
     resolveCodexAccount: request => rpcClient.request(rpcMethods.codexAccountResolve, request),
     updateCodexAccountAuth: request => rpcClient.request(rpcMethods.codexAccountAuthUpdate, request),
     createSubagentDelegation: request => rpcClient.request(rpcMethods.subagentDelegationCreate, request),
@@ -363,6 +365,7 @@ async function runActiveTurn(
     requestScheduleRPC: throwingRPCRequester(rpcClient, 'schedule RPC failed'),
     requestMemoryRPC: throwingRPCRequester(rpcClient, 'memory RPC failed'),
     requestSkillOverlay: request => requestSkillOverlay(rpcClient, request),
+    appendSkillOverlay: request => appendSkillOverlay(rpcClient, request),
     replaceSkillOverlay: request => replaceSkillOverlay(rpcClient, request),
     pollSteering: () => active.steeringUpdates.splice(0),
     onSteeringApplied: update =>

@@ -172,3 +172,8 @@ mix ankole.actor_runtime.worker_bootstrap --endpoint tcp://127.0.0.1:6010 --work
 ```
 
 生产 bootstrap config 使用 `DATABASE_URL`、`SECRET_KEY_BASE` 这样的通用基础设施名称。运行时应用配置属于 Ankole 的 PostgreSQL-backed AppConfigure 表面，而不是 process-local environment variables。
+
+Brain 要求 PostgreSQL 18、启动时 preload `pg_search`，并安装 `pg_search` 与
+`vector`。模型 profile、破坏性重建与增量迁移的边界见
+[Brain 部署与运维手册](docs/operations/Brain.zh-Hans.md)。专用真实模型验收命令是
+`tools/e2e/run --brain-real-llm`；它不进入默认 test gate，也不进入 `--all`。

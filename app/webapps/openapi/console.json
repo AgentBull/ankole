@@ -34,6 +34,41 @@
         "title": "AIGatewayProviderListResponse",
         "type": "object"
       },
+      "BrainEntryRelation": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "inserted_at": {
+            "format": "date_time",
+            "type": "string"
+          },
+          "predicate": {
+            "type": "string"
+          },
+          "source_entry_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "source_name": {
+            "nullable": true,
+            "type": "string"
+          },
+          "target_entry_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "target_name": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": ["id", "source_entry_id", "predicate", "target_entry_id", "inserted_at"],
+        "title": "BrainEntryRelation",
+        "type": "object"
+      },
       "WorkerFileListData": {
         "additionalProperties": false,
         "properties": {
@@ -69,6 +104,21 @@
         "title": "AppConfigurationResponse",
         "type": "object"
       },
+      "BrainEntryOperationsRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "operations": {
+            "items": {
+              "$ref": "#/components/schemas/BrainEntryOperation"
+            },
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": ["operations"],
+        "title": "BrainEntryOperationsRequest",
+        "type": "object"
+      },
       "LocalizedText": {
         "additionalProperties": {
           "type": "string"
@@ -93,6 +143,17 @@
         "title": "AuthSessionDeleteResponse",
         "type": "object"
       },
+      "WorkerEnvDecryptionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "decrypted_value": {
+            "$ref": "#/components/schemas/WorkerEnvDecryptionValue"
+          }
+        },
+        "required": ["decrypted_value"],
+        "title": "WorkerEnvDecryptionResponse",
+        "type": "object"
+      },
       "SubagentDelegationResponse": {
         "additionalProperties": false,
         "properties": {
@@ -108,6 +169,17 @@
         "description": "Any JSON-compatible value. AppConfigure validates the concrete key schema.",
         "nullable": true,
         "title": "JSONValue"
+      },
+      "BrainAuditRestorationResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "restoration": {
+            "$ref": "#/components/schemas/JSONValue"
+          }
+        },
+        "required": ["restoration"],
+        "title": "BrainAuditRestorationResponse",
+        "type": "object"
       },
       "AgentUpdateRequest": {
         "additionalProperties": false,
@@ -150,6 +222,20 @@
         },
         "required": ["relative_path", "kind", "size", "modified_unix_ms"],
         "title": "WorkerFileEntry",
+        "type": "object"
+      },
+      "WorkerEnvListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "worker_envs": {
+            "items": {
+              "$ref": "#/components/schemas/WorkerEnvItem"
+            },
+            "type": "array"
+          }
+        },
+        "required": ["worker_envs"],
+        "title": "WorkerEnvListResponse",
         "type": "object"
       },
       "ConsoleApiErrorEnvelope": {
@@ -219,6 +305,24 @@
         "title": "ModelProfileResponse",
         "type": "object"
       },
+      "BrainEntryListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/BrainEntry"
+            },
+            "type": "array"
+          },
+          "next_cursor": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": ["entries"],
+        "title": "BrainEntryListResponse",
+        "type": "object"
+      },
       "IdentityProviderListResponse": {
         "additionalProperties": false,
         "properties": {
@@ -231,6 +335,67 @@
         },
         "required": ["identity_providers"],
         "title": "IdentityProviderListResponse",
+        "type": "object"
+      },
+      "BrainEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "inserted_at": {
+            "format": "date_time",
+            "type": "string"
+          },
+          "lock_version": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner_uid": {
+            "type": "string"
+          },
+          "properties": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "store_key": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date_time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "owner_uid",
+          "store_key",
+          "name",
+          "type",
+          "summary",
+          "aliases",
+          "properties",
+          "lock_version",
+          "inserted_at",
+          "updated_at"
+        ],
+        "title": "BrainEntry",
         "type": "object"
       },
       "AIGatewayProviderItem": {
@@ -274,6 +439,24 @@
           "provider_metadata"
         ],
         "title": "AIGatewayProviderItem",
+        "type": "object"
+      },
+      "BrainAuditLogResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "audit_log": {
+            "items": {
+              "$ref": "#/components/schemas/BrainAuditLog"
+            },
+            "type": "array"
+          },
+          "next_cursor": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": ["audit_log"],
+        "title": "BrainAuditLogResponse",
         "type": "object"
       },
       "ScheduleCronScheduleResponse": {
@@ -337,6 +520,69 @@
         },
         "required": ["present"],
         "title": "AIGatewayProviderEncryptedOptionProjection",
+        "type": "object"
+      },
+      "BrainAuditLog": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "actor_kind": {
+            "enum": ["human", "agent", "dreaming"],
+            "nullable": true,
+            "type": "string"
+          },
+          "actor_uid": {
+            "nullable": true,
+            "type": "string"
+          },
+          "after": {
+            "additionalProperties": true,
+            "nullable": true,
+            "type": "object"
+          },
+          "before": {
+            "additionalProperties": true,
+            "nullable": true,
+            "type": "object"
+          },
+          "block_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "entry_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "inserted_at": {
+            "format": "date_time",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "owner_uid": {
+            "type": "string"
+          },
+          "relation_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "store_key": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "owner_uid", "store_key", "action", "metadata", "inserted_at"],
+        "title": "BrainAuditLog",
         "type": "object"
       },
       "IdentityProviderResponse": {
@@ -429,6 +675,24 @@
         },
         "required": ["signal_adapters"],
         "title": "SignalAdapterListResponse",
+        "type": "object"
+      },
+      "WorkerEnvUpdateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "nullable": true,
+            "type": "string"
+          },
+          "secret": {
+            "type": "boolean"
+          },
+          "value": {
+            "$ref": "#/components/schemas/JSONValue"
+          }
+        },
+        "required": ["value"],
+        "title": "WorkerEnvUpdateRequest",
         "type": "object"
       },
       "SignalBindingResponse": {
@@ -1038,6 +1302,70 @@
         "title": "ScheduleCronWriteRequest",
         "type": "object"
       },
+      "BrainEntryResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "backlinks": {
+            "items": {
+              "$ref": "#/components/schemas/BrainEntryRelation"
+            },
+            "type": "array"
+          },
+          "blocks": {
+            "items": {
+              "$ref": "#/components/schemas/BrainEntryBlock"
+            },
+            "type": "array"
+          },
+          "entry": {
+            "$ref": "#/components/schemas/BrainEntry"
+          },
+          "markdown": {
+            "type": "string"
+          },
+          "relations": {
+            "items": {
+              "$ref": "#/components/schemas/BrainEntryRelation"
+            },
+            "type": "array"
+          }
+        },
+        "required": ["entry", "blocks", "relations", "backlinks", "markdown"],
+        "title": "BrainEntryResponse",
+        "type": "object"
+      },
+      "WorkerEnvResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "worker_env": {
+            "$ref": "#/components/schemas/WorkerEnvItem"
+          }
+        },
+        "required": ["worker_env"],
+        "title": "WorkerEnvResponse",
+        "type": "object"
+      },
+      "BrainEntryOperationsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/JSONValue"
+            },
+            "type": "array"
+          },
+          "touched_entry_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": ["results", "touched_entry_ids"],
+        "title": "BrainEntryOperationsResponse",
+        "type": "object"
+      },
       "CodexAccountUpdateRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1090,6 +1418,41 @@
         },
         "required": ["value"],
         "title": "AppConfigurationUpdateRequest",
+        "type": "object"
+      },
+      "BrainDreamingRun": {
+        "additionalProperties": false,
+        "properties": {
+          "material_count": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "operation_count": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "run_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "skill_update_count": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "status": {
+            "enum": ["completed", "no_new_material", "already_running", "disabled"],
+            "type": "string"
+          },
+          "touched_entry_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": ["status"],
+        "title": "BrainDreamingRun",
         "type": "object"
       },
       "AIGatewayProviderKindItem": {
@@ -1199,6 +1562,108 @@
         "title": "CodexAccountItem",
         "type": "object"
       },
+      "BrainSourceEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "attachments": {
+            "items": {
+              "$ref": "#/components/schemas/JSONValue"
+            },
+            "type": "array"
+          },
+          "author": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "formatted_content": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/JSONValue"
+            },
+            "type": "array"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "provider_time": {
+            "format": "date_time",
+            "nullable": true,
+            "type": "string"
+          },
+          "signal_channel_id": {
+            "type": "string"
+          },
+          "source_entry_id": {
+            "type": "string"
+          },
+          "text": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_id",
+          "signal_channel_id",
+          "source_entry_id",
+          "formatted_content",
+          "attachments",
+          "links",
+          "author",
+          "metadata"
+        ],
+        "title": "BrainSourceEntry",
+        "type": "object"
+      },
+      "WorkerEnvItem": {
+        "additionalProperties": false,
+        "properties": {
+          "declared_key": {
+            "nullable": true,
+            "type": "string"
+          },
+          "description": {
+            "nullable": true,
+            "type": "string"
+          },
+          "editable": {
+            "type": "boolean"
+          },
+          "error": {
+            "nullable": true,
+            "type": "string"
+          },
+          "kind": {
+            "enum": ["declared", "custom"],
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "present": {
+            "type": "boolean"
+          },
+          "secret": {
+            "type": "boolean"
+          },
+          "source": {
+            "enum": ["default", "global", "agent", "missing", "error"],
+            "type": "string"
+          },
+          "value": {
+            "$ref": "#/components/schemas/JSONValue"
+          }
+        },
+        "required": ["name", "kind", "secret", "present", "source", "editable"],
+        "title": "WorkerEnvItem",
+        "type": "object"
+      },
       "AgentListResponse": {
         "additionalProperties": false,
         "properties": {
@@ -1211,6 +1676,20 @@
         },
         "required": ["agents"],
         "title": "AgentListResponse",
+        "type": "object"
+      },
+      "WorkerEnvDecryptionValue": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "$ref": "#/components/schemas/JSONValue"
+          }
+        },
+        "required": ["name", "value"],
+        "title": "WorkerEnvDecryptionValue",
         "type": "object"
       },
       "IdentityProviderAdapterListResponse": {
@@ -1323,6 +1802,17 @@
         "title": "WorkerFileMoveResponse",
         "type": "object"
       },
+      "BrainDreamingRunResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "run": {
+            "$ref": "#/components/schemas/BrainDreamingRun"
+          }
+        },
+        "required": ["run"],
+        "title": "BrainDreamingRunResponse",
+        "type": "object"
+      },
       "AIGatewayProviderResponse": {
         "additionalProperties": false,
         "properties": {
@@ -1381,6 +1871,96 @@
         "title": "IdentityProviderAdapterItem",
         "type": "object"
       },
+      "BrainSourceEntryResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "$ref": "#/components/schemas/BrainSourceEntry"
+          }
+        },
+        "required": ["source"],
+        "title": "BrainSourceEntryResponse",
+        "type": "object"
+      },
+      "BrainEntryOperation": {
+        "additionalProperties": false,
+        "description": "One structured Brain mutation. owner/store/author are intentionally absent and are derived by the server.",
+        "properties": {
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "block_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "entry_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "expected_block_lock_version": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "expected_entry_lock_version": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "operation": {
+            "enum": [
+              "create_entry",
+              "delete_entry",
+              "append_block",
+              "edit_block",
+              "delete_block",
+              "set_property",
+              "add_relation",
+              "remove_relation",
+              "set_summary",
+              "set_aliases"
+            ],
+            "type": "string"
+          },
+          "predicate": {
+            "type": "string"
+          },
+          "properties": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "relation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "target_entry_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "value": {
+            "$ref": "#/components/schemas/JSONValue"
+          }
+        },
+        "required": ["operation"],
+        "title": "BrainEntryOperation",
+        "type": "object"
+      },
       "ConsoleApiErrorDetail": {
         "additionalProperties": true,
         "properties": {
@@ -1434,6 +2014,23 @@
           }
         },
         "title": "AIGatewayProviderWriteRequest",
+        "type": "object"
+      },
+      "BrainAuditRestorationsRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "audit_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 10000,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": ["audit_ids"],
+        "title": "BrainAuditRestorationsRequest",
         "type": "object"
       },
       "ConsoleTokenResponse": {
@@ -1514,6 +2111,67 @@
         },
         "required": ["decrypted_value"],
         "title": "AppConfigurationDecryptionResponse",
+        "type": "object"
+      },
+      "BrainEntryBlock": {
+        "additionalProperties": false,
+        "properties": {
+          "author_kind": {
+            "enum": ["human", "agent", "dreaming"],
+            "type": "string"
+          },
+          "author_uid": {
+            "nullable": true,
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "embedding_error": {
+            "nullable": true,
+            "type": "string"
+          },
+          "embedding_state": {
+            "enum": ["pending", "synced", "failed"],
+            "type": "string"
+          },
+          "entry_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "inserted_at": {
+            "format": "date_time",
+            "type": "string"
+          },
+          "lock_version": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "position": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "updated_at": {
+            "format": "date_time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "entry_id",
+          "position",
+          "body",
+          "author_kind",
+          "embedding_state",
+          "lock_version",
+          "inserted_at",
+          "updated_at"
+        ],
+        "title": "BrainEntryBlock",
         "type": "object"
       },
       "IdentityProviderWriteRequest": {
@@ -1794,6 +2452,148 @@
         "tags": ["Schedule"]
       }
     },
+    "/api/v1/brain/entries/{id}/audit-log": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.BrainController.audit_log",
+        "parameters": [
+          {
+            "description": "Principal whose Brain library is being supervised",
+            "in": "query",
+            "name": "owner_uid",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "store",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "action",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "actor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "run_id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "inserted_after",
+            "required": false,
+            "schema": {
+              "format": "date_time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "inserted_before",
+            "required": false,
+            "schema": {
+              "format": "date_time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrainAuditLogResponse"
+                }
+              }
+            },
+            "description": "Brain audit log"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "List the audit trail for one Brain entry",
+        "tags": ["Brain"]
+      }
+    },
     "/api/v1/app-configurations": {
       "get": {
         "callbacks": {},
@@ -1838,6 +2638,101 @@
         ],
         "summary": "List console-visible AppConfigure entries",
         "tags": ["AppConfigure"]
+      }
+    },
+    "/api/v1/brain/audit-log/{audit_id}/restorations": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.BrainController.restore_audit",
+        "parameters": [
+          {
+            "description": "Principal whose Brain library is being supervised",
+            "in": "query",
+            "name": "owner_uid",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "audit_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrainAuditRestorationResponse"
+                }
+              }
+            },
+            "description": "Restoration result"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Optimistic lock conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Audit record cannot be restored"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Restore the state captured by one Brain audit record",
+        "tags": ["Brain"]
       }
     },
     "/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules": {
@@ -2053,6 +2948,81 @@
         ],
         "summary": "Read one subagent delegation and its event timeline",
         "tags": ["Subagent Delegations"]
+      }
+    },
+    "/api/v1/brain/entries/{id}": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.BrainController.show",
+        "parameters": [
+          {
+            "description": "Principal whose Brain library is being supervised",
+            "in": "query",
+            "name": "owner_uid",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrainEntryResponse"
+                }
+              }
+            },
+            "description": "Brain entry"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Open one current Brain entry projection",
+        "tags": ["Brain"]
       }
     },
     "/api/v1/agent-computer-workers/{worker_id}/files": {
@@ -2418,6 +3388,94 @@
         ],
         "summary": "Create a stateless OpenResponses response",
         "tags": ["AIGateway"]
+      }
+    },
+    "/api/v1/brain/audit-log/restorations": {
+      "post": {
+        "callbacks": {},
+        "description": "The caller previews audit records first, submits their exact ids, and the server restores them newest-first in one transaction.",
+        "operationId": "AnkoleWeb.BrainController.restore_audits",
+        "parameters": [
+          {
+            "description": "Principal whose Brain library is being supervised",
+            "in": "query",
+            "name": "owner_uid",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BrainAuditRestorationsRequest"
+              }
+            }
+          },
+          "description": "Exact audit selection",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrainAuditRestorationResponse"
+                }
+              }
+            },
+            "description": "Batch restoration result"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Audit selection or current state changed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid audit selection"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Atomically restore an explicit Brain audit selection",
+        "tags": ["Brain"]
       }
     },
     "/api/v1/ai-gateway/provider-kinds": {
@@ -3605,6 +4663,167 @@
         "tags": ["AIGateway"]
       }
     },
+    "/api/v1/agents/{agent_uid}/worker-envs/{name}/decryptions": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.WorkerEnvController.decrypt_for_agent",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "agent_uid",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerEnvDecryptionResponse"
+                }
+              }
+            },
+            "description": "Decrypted value"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not encrypted"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Reveal the encrypted worker shell variable effective for one agent",
+        "tags": ["WorkerEnv"]
+      }
+    },
+    "/api/v1/worker-envs/{name}/decryptions": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.WorkerEnvController.decrypt",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerEnvDecryptionResponse"
+                }
+              }
+            },
+            "description": "Decrypted value"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not encrypted"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Reveal one encrypted installation-wide worker shell variable",
+        "tags": ["WorkerEnv"]
+      }
+    },
     "/api/v1/identity-providers/{provider_id}/sync-runs": {
       "post": {
         "callbacks": {},
@@ -4414,6 +5633,72 @@
         "tags": ["Signal Bindings"]
       }
     },
+    "/api/v1/brain/sources/{document_id}": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.BrainController.source",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrainSourceEntryResponse"
+                }
+              }
+            },
+            "description": "Original source message"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Resolve a Brain src citation to its mirrored original message",
+        "tags": ["Brain"]
+      }
+    },
     "/api/v1/agents/{agent_uid}/sessions/{session_id}/checkbacks/{scheduled_event_id}": {
       "delete": {
         "callbacks": {},
@@ -4900,6 +6185,362 @@
         "tags": ["Codex Accounts"]
       }
     },
+    "/api/v1/brain/entries": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.BrainController.index",
+        "parameters": [
+          {
+            "description": "Principal whose Brain library is being supervised",
+            "in": "query",
+            "name": "owner_uid",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "store",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "An author kind (human/agent/dreaming) or exact author UID",
+            "in": "query",
+            "name": "author",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "ISO-8601 lower bound for entry updated_at",
+            "in": "query",
+            "name": "updated",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrainEntryListResponse"
+                }
+              }
+            },
+            "description": "Brain entries"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid filters"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "List Brain entries for one owner",
+        "tags": ["Brain"]
+      }
+    },
+    "/api/v1/worker-envs/{name}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.WorkerEnvController.delete",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerEnvResponse"
+                }
+              }
+            },
+            "description": "Worker env entry"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid name"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Delete one installation-wide worker shell variable",
+        "tags": ["WorkerEnv"]
+      },
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.WorkerEnvController.show",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerEnvResponse"
+                }
+              }
+            },
+            "description": "Worker env entry"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid name"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Read one installation-wide worker shell variable",
+        "tags": ["WorkerEnv"]
+      },
+      "put": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.WorkerEnvController.update",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkerEnvUpdateRequest"
+              }
+            }
+          },
+          "description": "Worker env update",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerEnvResponse"
+                }
+              }
+            },
+            "description": "Worker env entry"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid value"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Store one installation-wide worker shell variable",
+        "tags": ["WorkerEnv"]
+      }
+    },
     "/.internal-apis/session": {
       "delete": {
         "callbacks": {},
@@ -4972,6 +6613,52 @@
         ],
         "summary": "Create a rerank result through AIGateway",
         "tags": ["AIGateway"]
+      }
+    },
+    "/api/v1/worker-envs": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.WorkerEnvController.index",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerEnvListResponse"
+                }
+              }
+            },
+            "description": "Worker env entries"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "List installation-wide worker shell variables",
+        "tags": ["WorkerEnv"]
       }
     },
     "/api/v1/app-configurations/{key}/decryptions": {
@@ -5245,6 +6932,139 @@
         "tags": ["Subagent Delegations"]
       }
     },
+    "/api/v1/brain/dreaming-runs": {
+      "post": {
+        "callbacks": {},
+        "description": "Manually starts the same Stage B path used by the scheduled Brain curation job.",
+        "operationId": "AnkoleWeb.BrainController.run_dreaming",
+        "parameters": [
+          {
+            "description": "Principal whose Brain library is being supervised",
+            "in": "query",
+            "name": "owner_uid",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrainDreamingRunResponse"
+                }
+              }
+            },
+            "description": "Dreaming run result"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Dreaming run failed"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Run principal-level Brain curation now",
+        "tags": ["Brain"]
+      }
+    },
+    "/api/v1/agents/{agent_uid}/worker-envs": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.WorkerEnvController.index_for_agent",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "agent_uid",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerEnvListResponse"
+                }
+              }
+            },
+            "description": "Worker env entries"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Agent not found"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "List effective worker shell variables for one agent",
+        "tags": ["WorkerEnv"]
+      }
+    },
     "/api/v1/delegations/{delegation_id}/cancel": {
       "post": {
         "callbacks": {},
@@ -5309,6 +7129,149 @@
         ],
         "summary": "Cancel one queued or active subagent delegation",
         "tags": ["Subagent Delegations"]
+      }
+    },
+    "/api/v1/brain/audit-log": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.BrainController.audit_index",
+        "parameters": [
+          {
+            "description": "Principal whose Brain library is being supervised",
+            "in": "query",
+            "name": "owner_uid",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "store",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "action",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "actor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "run_id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "inserted_after",
+            "required": false,
+            "schema": {
+              "format": "date_time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "inserted_before",
+            "required": false,
+            "schema": {
+              "format": "date_time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrainAuditLogResponse"
+                }
+              }
+            },
+            "description": "Brain audit log"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid filters"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Preview filtered Brain audit records for supervision or batch recovery",
+        "tags": ["Brain"]
       }
     },
     "/api/v1/app-configurations/{key}": {
@@ -5546,6 +7509,291 @@
         "tags": ["AppConfigure"]
       }
     },
+    "/api/v1/brain/entry-operations": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.BrainController.apply_operations",
+        "parameters": [
+          {
+            "description": "Principal whose Brain library is being supervised",
+            "in": "query",
+            "name": "owner_uid",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required for create-only batches; existing entries derive their store",
+            "in": "query",
+            "name": "store",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BrainEntryOperationsRequest"
+              }
+            }
+          },
+          "description": "Structured Brain operations",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrainEntryOperationsResponse"
+                }
+              }
+            },
+            "description": "Operation results"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Optimistic lock conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid operations"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Apply structured human Brain entry operations",
+        "tags": ["Brain"]
+      }
+    },
+    "/api/v1/agents/{agent_uid}/worker-envs/{name}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.WorkerEnvController.delete_for_agent",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "agent_uid",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerEnvResponse"
+                }
+              }
+            },
+            "description": "Worker env entry"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid name"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Delete one agent-tier worker shell variable",
+        "tags": ["WorkerEnv"]
+      },
+      "put": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.WorkerEnvController.update_for_agent",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "agent_uid",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkerEnvUpdateRequest"
+              }
+            }
+          },
+          "description": "Worker env update",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerEnvResponse"
+                }
+              }
+            },
+            "description": "Worker env entry"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Agent not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid value"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Store one agent-tier worker shell variable",
+        "tags": ["WorkerEnv"]
+      }
+    },
     "/.internal-apis/oauth/token": {
       "post": {
         "callbacks": {},
@@ -5616,6 +7864,10 @@
       "name": "AppConfigure"
     },
     {
+      "description": "Operator-managed environment variables for Agent Computer shells",
+      "name": "WorkerEnv"
+    },
+    {
       "description": "Operator-managed agent principals",
       "name": "Agents"
     },
@@ -5650,6 +7902,10 @@
     {
       "description": "Durable background work delegated to the Codex subagent runtime",
       "name": "Subagent Delegations"
+    },
+    {
+      "description": "Human supervision of current knowledge, provenance, and audit recovery",
+      "name": "Brain"
     }
   ]
 }

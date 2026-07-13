@@ -43,6 +43,77 @@ defmodule Ankole.E2E.SlackTransportTest do
     wait_until(fn -> State.acked?(fake.state, "env-2") end)
   end
 
+  test "error result is not acknowledged so Slack may redeliver" do
+    fake = Server.start!()
+    parent = self()
+
+    dispatcher =
+      Dispatcher.new()
+      |> Dispatcher.on("message", fn _type, event ->
+        send(parent, {:dispatched, event.id})
+        {:error, :simulated_ingress_failure}
+      end)
+
+    client =
+      SlackOpenAPI.Client.new(
+        bot_token: "xoxb-fake",
+        app_token: "xapp-fake",
+        base_url: fake.base_url
+      )
+
+    socket = start_supervised!({Client, client: client, dispatcher: dispatcher})
+
+    wait_until(fn ->
+      Client.status(socket) == :connected and State.connection_count(fake.state) == 1
+    end)
+
+    assert :ok = State.push_event(fake.state, envelope("env-err", "EvErr", "failing"))
+
+    # The handler ran, proving the dispatch path completed with {:error, _}.
+    assert_receive {:dispatched, "EvErr"}, 2_000
+
+    # Give the client a window longer than its own reaction time to (wrongly)
+    # ack. With the fix it must not ack; Slack will redeliver after its timeout.
+    # The happy-path test proves a real ack lands within ~250 retries (5 s), so
+    # 500 ms with no ack is a meaningful negative signal.
+    Process.sleep(500)
+    refute State.acked?(fake.state, "env-err")
+  end
+
+  test "crashing handler is not acknowledged so Slack may redeliver" do
+    fake = Server.start!()
+    parent = self()
+
+    dispatcher =
+      Dispatcher.new()
+      |> Dispatcher.on("message", fn _type, event ->
+        send(parent, {:dispatched, event.id})
+        raise "simulated dispatch crash"
+      end)
+
+    client =
+      SlackOpenAPI.Client.new(
+        bot_token: "xoxb-fake",
+        app_token: "xapp-fake",
+        base_url: fake.base_url
+      )
+
+    socket = start_supervised!({Client, client: client, dispatcher: dispatcher})
+
+    wait_until(fn ->
+      Client.status(socket) == :connected and State.connection_count(fake.state) == 1
+    end)
+
+    assert :ok = State.push_event(fake.state, envelope("env-crash", "EvCrash", "boom"))
+
+    # The handler entered before it crashed.
+    assert_receive {:dispatched, "EvCrash"}, 2_000
+
+    # A crash (:DOWN) gives no commit guarantee; the envelope must not be acked.
+    Process.sleep(500)
+    refute State.acked?(fake.state, "env-crash")
+  end
+
   defp envelope(envelope_id, event_id, text) do
     %{
       "envelope_id" => envelope_id,

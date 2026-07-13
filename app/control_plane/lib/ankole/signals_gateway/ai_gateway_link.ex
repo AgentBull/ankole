@@ -12,13 +12,17 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   alias Ankole.AIGateway
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AIGateway.Schemas.Message
+  alias Ankole.Principals
   alias Ankole.Repo
+  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
   alias Ankole.SignalsGateway.AIReplyText
+  alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.ClarifyPrompt
   alias Ankole.SignalsGateway.ReplyAttachment
 
   @max_chain_depth 500
+  @scheduled_event_types ~w(check_back_later.wakeup cron.fire)
 
   @type completion :: %{
           conversation: Conversation.t(),
@@ -39,23 +43,51 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
         }
 
   @doc false
-  @spec ensure_and_lock_conversation_in_tx(module(), String.t(), String.t()) ::
+  @spec ensure_and_lock_conversation_in_tx(
+          module(),
+          String.t(),
+          String.t(),
+          ActorEvent.t()
+        ) ::
           {:ok, Conversation.t()} | {:error, term()}
-  def ensure_and_lock_conversation_in_tx(repo, subject_uid, conversation_key) do
-    with {:ok, conversation} <-
-           AIGateway.ensure_conversation_in_tx(repo, subject_uid, conversation_key) do
-      case AIGateway.lock_conversation(repo, conversation.id) do
-        %Conversation{} = conversation -> {:ok, conversation}
-        nil -> {:error, :conversation_not_found}
-      end
+  def ensure_and_lock_conversation_in_tx(
+        repo,
+        subject_uid,
+        conversation_key,
+        %ActorEvent{} = actor_event
+      ) do
+    with {:ok, declaration} <- brain_scope_declaration(repo, actor_event),
+         initial_metadata = initial_brain_metadata(declaration),
+         {:ok, conversation} <-
+           AIGateway.ensure_conversation_in_tx(
+             repo,
+             subject_uid,
+             conversation_key,
+             initial_metadata
+           ),
+         %Conversation{} = conversation <- AIGateway.lock_conversation(repo, conversation.id),
+         {:ok, conversation} <- reconcile_brain_scope(repo, conversation, declaration) do
+      {:ok, conversation}
+    else
+      nil -> {:error, :conversation_not_found}
+      {:error, _reason} = error -> error
     end
   end
 
   @doc false
-  @spec ensure_conversation_in_tx(module(), String.t(), String.t()) ::
+  @spec ensure_conversation_in_tx(module(), String.t(), String.t(), map()) ::
           {:ok, Conversation.t()} | {:error, term()}
-  def ensure_conversation_in_tx(repo, subject_uid, conversation_key),
-    do: AIGateway.ensure_conversation_in_tx(repo, subject_uid, conversation_key)
+  def ensure_conversation_in_tx(repo, subject_uid, conversation_key, metadata \\ %{}),
+    do: AIGateway.ensure_conversation_in_tx(repo, subject_uid, conversation_key, metadata)
+
+  @doc false
+  @spec successor_brain_metadata(Conversation.t()) :: map()
+  def successor_brain_metadata(%Conversation{metadata: metadata}) do
+    case Map.get(metadata || %{}, "brain") do
+      %{} = brain -> %{"brain" => Map.delete(brain, "snapshot")}
+      _other -> %{}
+    end
+  end
 
   @doc false
   @spec active_conversation_for_update(module(), String.t(), String.t()) ::
@@ -75,17 +107,109 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
     |> List.first()
   end
 
+  defp brain_scope_declaration(_repo, %ActorEvent{signal_channel_id: nil}), do: {:ok, :undeclared}
+
+  defp brain_scope_declaration(repo, %ActorEvent{} = actor_event) do
+    case repo.get(Channel, actor_event.signal_channel_id) do
+      %Channel{kind: :im_dm} = channel ->
+        with {:ok, peer_uid} <- dm_peer_uid(actor_event, channel) do
+          {:ok,
+           %{
+             "visibility" => "dm",
+             "peer_uid" => peer_uid,
+             "channel_id" => channel.id,
+             "channel_kind" => Atom.to_string(channel.kind)
+           }}
+        end
+
+      %Channel{} = channel ->
+        {:ok,
+         %{
+           "visibility" => "public",
+           "channel_id" => channel.id,
+           "channel_kind" => Atom.to_string(channel.kind)
+         }}
+
+      nil ->
+        if actor_event.type in @scheduled_event_types do
+          {:ok, :undeclared}
+        else
+          {:error, {:brain_scope_channel_not_found, actor_event.signal_channel_id}}
+        end
+    end
+  end
+
+  defp dm_peer_uid(%ActorEvent{} = actor_event, %Channel{} = channel) do
+    peer_uid =
+      get_in(actor_event.payload || %{}, ["data", "entry", "author", "principal_uid"]) ||
+        Map.get(channel.metadata || %{}, "dm_peer_principal_uid")
+
+    case Principals.normalize_uid(peer_uid) do
+      {:ok, peer_uid} -> {:ok, peer_uid}
+      {:error, _reason} -> {:error, {:brain_scope_dm_peer_missing, channel.id}}
+    end
+  end
+
+  defp initial_brain_metadata(:undeclared),
+    do: %{"brain" => %{"visibility" => "public"}}
+
+  defp initial_brain_metadata(%{} = declaration), do: %{"brain" => declaration}
+
+  defp reconcile_brain_scope(repo, %Conversation{} = conversation, declaration) do
+    metadata = conversation.metadata || %{}
+
+    case Map.get(metadata, "brain") do
+      nil ->
+        brain =
+          case declaration do
+            :undeclared -> %{"visibility" => "public"}
+            %{} = declaration -> declaration
+          end
+
+        AIGateway.update_conversation_metadata_in_tx(
+          repo,
+          conversation,
+          Map.put(metadata, "brain", brain)
+        )
+
+      %{} = brain ->
+        verify_brain_scope(brain, declaration, conversation.id)
+        |> case do
+          :ok -> {:ok, conversation}
+          {:error, _reason} = error -> error
+        end
+
+      _invalid ->
+        {:error, {:invalid_conversation_brain_scope, conversation.id}}
+    end
+  end
+
+  defp verify_brain_scope(brain, :undeclared, conversation_id) do
+    case Map.get(brain, "visibility") do
+      visibility when visibility in ["public", "dm"] -> :ok
+      _invalid -> {:error, {:invalid_conversation_brain_scope, conversation_id}}
+    end
+  end
+
+  defp verify_brain_scope(brain, declaration, conversation_id) do
+    keys = ["visibility", "peer_uid", "channel_id"]
+
+    if Map.take(brain, keys) == Map.take(declaration, keys) do
+      :ok
+    else
+      {:error, {:conversation_brain_scope_mismatch, conversation_id}}
+    end
+  end
+
   @doc false
   @spec daily_reset_candidates_in_tx(module(), DateTime.t(), keyword()) :: [Conversation.t()]
   def daily_reset_candidates_in_tx(repo, %DateTime{} = boundary_at, opts \\ []) do
-    repo
-    |> AIGateway.list_active_conversations(
+    AIGateway.list_active_conversations(repo,
       inserted_before: boundary_at,
       exclude_conversation_key_prefixes: ["subagent:"],
       limit: Keyword.get(opts, :limit, 1_000),
       lock: true
     )
-    |> maybe_exclude_provider_owned_cli_sessions(opts)
   end
 
   @doc false
@@ -301,24 +425,6 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
 
   def load_turn_completion(%TurnRef{}, _final_response_id),
     do: {:error, :invalid_final_response_id}
-
-  defp maybe_exclude_provider_owned_cli_sessions(conversations, opts) do
-    case Keyword.get(opts, :include_provider_owned_cli_sessions?, false) do
-      true -> conversations
-      false -> Enum.reject(conversations, &provider_owned_cli_session?/1)
-    end
-  end
-
-  defp provider_owned_cli_session?(%Conversation{metadata: metadata}) when is_map(metadata) do
-    case Map.get(metadata, "provider_owned_cli_session") do
-      true -> true
-      %{"active" => true} -> true
-      %{"session_id" => session_id} when is_binary(session_id) and session_id != "" -> true
-      _value -> false
-    end
-  end
-
-  defp provider_owned_cli_session?(_conversation), do: false
 
   defp generating_responses_for_actor_event_in_tx(repo, actor_key, actor_event_id) do
     case active_conversation_for_update(repo, actor_key.agent_uid, actor_key.session_id) do

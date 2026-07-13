@@ -60,7 +60,17 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
       |> get(~p"/api/v1/identity-provider-adapters")
 
     assert %{"identity_provider_adapters" => adapters} = json_response(conn, 200)
-    assert Enum.map(adapters, & &1["adapter_id"]) == ["lark", "slack"]
+
+    assert Enum.map(adapters, & &1["adapter_id"]) == [
+             "entra-id",
+             "google-workspace",
+             "lark",
+             "slack"
+           ]
+
+    google = Enum.find(adapters, &(&1["adapter_id"] == "google-workspace"))
+    assert google["default_provider_id"] == "google-workspace-main"
+    refute "directory_realtime_sync" in google["capabilities"]
 
     adapter = Enum.find(adapters, &(&1["adapter_id"] == "lark"))
     assert adapter["adapter_id"] == "lark"

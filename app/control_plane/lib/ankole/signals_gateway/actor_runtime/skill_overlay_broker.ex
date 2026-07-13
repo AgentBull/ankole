@@ -22,6 +22,26 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SkillOverlayBroker do
     end)
   end
 
+  @spec handle_append(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
+  def handle_append(%TurnRef{} = turn_ref, request, _route) do
+    with_skill(request, fn request_id, skill_name ->
+      case RPCWire.text(request, "content", trim: false) do
+        content when is_binary(content) ->
+          case Library.skill_append(turn_ref.agent_uid, skill_name, content) do
+            {:ok, overlay} ->
+              {:ok,
+               response(request_id, turn_ref.agent_uid, turn_ref.session_id, skill_name, overlay)}
+
+            {:error, reason} ->
+              error(request_id, reason, %{"skill_name" => skill_name})
+          end
+
+        nil ->
+          error(request_id, :missing_content, %{"skill_name" => skill_name})
+      end
+    end)
+  end
+
   @spec handle_replace(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
   def handle_replace(%TurnRef{} = turn_ref, request, _route) do
     with_skill(request, fn request_id, skill_name ->
@@ -31,13 +51,24 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SkillOverlayBroker do
           _value -> %{"text" => RPCWire.text(request, "content", trim: false) || ""}
         end
 
-      case Library.replace_skill_overlay(turn_ref.agent_uid, skill_name, overlay_json) do
-        {:ok, overlay} ->
-          {:ok,
-           response(request_id, turn_ref.agent_uid, turn_ref.session_id, skill_name, overlay)}
+      case RPCWire.text(request, "expected_content_hash", trim: false) do
+        expected_content_hash when is_binary(expected_content_hash) ->
+          case Library.replace_skill_overlay_cas(
+                 turn_ref.agent_uid,
+                 skill_name,
+                 expected_content_hash,
+                 overlay_json
+               ) do
+            {:ok, overlay} ->
+              {:ok,
+               response(request_id, turn_ref.agent_uid, turn_ref.session_id, skill_name, overlay)}
 
-        {:error, reason} ->
-          error(request_id, reason, %{"skill_name" => skill_name})
+            {:error, reason} ->
+              error(request_id, reason, %{"skill_name" => skill_name})
+          end
+
+        nil ->
+          error(request_id, :missing_expected_content_hash, %{"skill_name" => skill_name})
       end
     end)
   end

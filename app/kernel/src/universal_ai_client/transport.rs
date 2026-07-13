@@ -26,6 +26,7 @@ static ALT_SVC_CACHE: OnceLock<Mutex<HashMap<String, AltSvcEntry>>> = OnceLock::
 
 const MAX_HTTP_CLIENT_CACHE_ENTRIES: usize = 64;
 const MAX_ALT_SVC_CACHE_ENTRIES: usize = 256;
+const HTTP3_AVAILABLE: bool = cfg!(feature = "universal_ai_client_http3");
 
 pub struct HTTPStream {
     pub status: u16,
@@ -80,8 +81,8 @@ async fn open_http_stream_for_upstream(upstream: &UpstreamSpec) -> Result<HTTPSt
         upstream.transport.http_versions.clone()
     };
     let origin = origin_key(&upstream.url);
-    let alt_svc_h3 = origin.as_deref().and_then(cached_alt_svc_h3).is_some();
-    let modes = http_attempt_modes(&preferences, alt_svc_h3);
+    let alt_svc_h3 = HTTP3_AVAILABLE && origin.as_deref().and_then(cached_alt_svc_h3).is_some();
+    let modes = http_attempt_modes(&preferences, alt_svc_h3, HTTP3_AVAILABLE);
 
     let mut last_error = None;
     for mode in modes {
@@ -146,7 +147,9 @@ async fn open_http_stream_with_mode(
 
     let status = response.status().as_u16();
     let version = format!("{:?}", response.version()).to_ascii_lowercase();
-    record_alt_svc(&upstream.url, response.headers());
+    if HTTP3_AVAILABLE {
+        record_alt_svc(&upstream.url, response.headers());
+    }
     let headers = response
         .headers()
         .iter()
@@ -293,6 +296,8 @@ fn client_for(upstream: &UpstreamSpec, mode: ClientMode) -> Result<reqwest::Clie
 }
 
 pub async fn open_websocket(spec: &StreamSpec) -> Result<(UpstreamWebSocket, u16), StreamError> {
+    ensure_rustls_crypto_provider()?;
+
     let mut request = spec
         .upstream
         .url
@@ -342,6 +347,8 @@ pub async fn open_websocket(spec: &StreamSpec) -> Result<(UpstreamWebSocket, u16
 }
 
 fn build_client(upstream: &UpstreamSpec, mode: ClientMode) -> Result<reqwest::Client, StreamError> {
+    ensure_rustls_crypto_provider()?;
+
     let mut builder = reqwest::Client::builder()
         .use_rustls_tls()
         .connect_timeout(upstream.timeout.connect_duration())
@@ -369,7 +376,10 @@ fn build_client(upstream: &UpstreamSpec, mode: ClientMode) -> Result<reqwest::Cl
     }
 
     builder = match mode {
+        #[cfg(feature = "universal_ai_client_http3")]
         ClientMode::H3PriorKnowledge => builder.http3_prior_knowledge(),
+        #[cfg(not(feature = "universal_ai_client_http3"))]
+        ClientMode::H3PriorKnowledge => builder,
         ClientMode::AutoALPN => builder,
         ClientMode::H1Only => builder.http1_only(),
     };
@@ -381,6 +391,24 @@ fn build_client(upstream: &UpstreamSpec, mode: ClientMode) -> Result<reqwest::Cl
             format!("failed to build reqwest client: {reason}"),
         )
     })
+}
+
+fn ensure_rustls_crypto_provider() -> Result<(), StreamError> {
+    #[cfg(feature = "universal_ai_client_ring")]
+    if rustls::crypto::CryptoProvider::get_default().is_none()
+        && rustls::crypto::ring::default_provider()
+            .install_default()
+            .is_err()
+        && rustls::crypto::CryptoProvider::get_default().is_none()
+    {
+        return Err(StreamError::new(
+            "tls_provider_initialization_failed",
+            "connect",
+            "failed to install the rustls ring crypto provider",
+        ));
+    }
+
+    Ok(())
 }
 
 fn method_from_spec(method: &str) -> Result<Method, StreamError> {
@@ -420,10 +448,14 @@ struct HTTPAttempt {
     negotiation: &'static str,
 }
 
-fn http_attempt_modes(preferences: &[HTTPVersionPreference], alt_svc_h3: bool) -> Vec<HTTPAttempt> {
+fn http_attempt_modes(
+    preferences: &[HTTPVersionPreference],
+    alt_svc_h3: bool,
+    http3_available: bool,
+) -> Vec<HTTPAttempt> {
     let has_h1 = preferences.contains(&HTTPVersionPreference::H1);
     let has_h2 = preferences.contains(&HTTPVersionPreference::H2);
-    let has_h3 = preferences.contains(&HTTPVersionPreference::H3);
+    let has_h3 = http3_available && preferences.contains(&HTTPVersionPreference::H3);
     let h3_only = has_h3 && !has_h2 && !has_h1;
     let mut modes = Vec::new();
     let mut added_auto = false;
@@ -629,6 +661,7 @@ mod tests {
                 HTTPVersionPreference::H1,
             ],
             true,
+            true,
         );
 
         assert_eq!(attempts[0].mode, ClientMode::H3PriorKnowledge);
@@ -649,6 +682,7 @@ mod tests {
                 HTTPVersionPreference::H1,
             ],
             false,
+            true,
         );
 
         assert_eq!(attempts[0].mode, ClientMode::AutoALPN);
@@ -659,10 +693,50 @@ mod tests {
 
     #[test]
     fn http_attempts_allow_explicit_h3_only_prior_knowledge() {
-        let attempts = http_attempt_modes(&[HTTPVersionPreference::H3], false);
+        let attempts = http_attempt_modes(&[HTTPVersionPreference::H3], false, true);
 
         assert_eq!(attempts.len(), 1);
         assert_eq!(attempts[0].mode, ClientMode::H3PriorKnowledge);
         assert_eq!(attempts[0].negotiation, "h3_prior_knowledge");
+    }
+
+    #[test]
+    fn http_attempts_skip_h3_when_the_build_does_not_support_it() {
+        let attempts = http_attempt_modes(
+            &[
+                HTTPVersionPreference::H3,
+                HTTPVersionPreference::H2,
+                HTTPVersionPreference::H1,
+            ],
+            true,
+            false,
+        );
+
+        assert_eq!(attempts.len(), 1);
+        assert_eq!(attempts[0].mode, ClientMode::AutoALPN);
+        assert_eq!(attempts[0].negotiation, "alpn_h2_h1");
+    }
+
+    #[test]
+    fn http_attempts_fall_back_to_alpn_when_only_h3_was_requested() {
+        let attempts = http_attempt_modes(&[HTTPVersionPreference::H3], false, false);
+
+        assert_eq!(attempts.len(), 1);
+        assert_eq!(attempts[0].mode, ClientMode::AutoALPN);
+        assert_eq!(attempts[0].negotiation, "alpn_h2_h1");
+    }
+
+    #[cfg(feature = "universal_ai_client_ring")]
+    #[test]
+    fn ring_crypto_provider_initialization_is_concurrent_and_idempotent() {
+        let workers = (0..8)
+            .map(|_| std::thread::spawn(ensure_rustls_crypto_provider))
+            .collect::<Vec<_>>();
+
+        for worker in workers {
+            assert!(worker.join().expect("provider worker panicked").is_ok());
+        }
+
+        assert!(rustls::crypto::CryptoProvider::get_default().is_some());
     }
 }

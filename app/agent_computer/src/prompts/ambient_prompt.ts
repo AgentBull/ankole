@@ -5,11 +5,14 @@
  * so this module stays focused on policy text.
  */
 
+import type { RuntimeBrainSnapshot } from '../lanes/rpc_lane'
+import { formatBrainSnapshot } from './brain_snapshot'
+
 export type AmbientRecognizerSystemPromptInput = {
   currentTime: string
   displayName: string
   groupName?: string
-  memoryNotes?: string[]
+  brainSnapshot?: RuntimeBrainSnapshot
   mission?: string
   platform?: string
   soul: string
@@ -87,7 +90,7 @@ function aboutSection(input: AmbientRecognizerSystemPromptInput): string {
 }
 
 function contextSection(input: AmbientRecognizerSystemPromptInput): string {
-  return ['## Context', '', runtimeContextSection(input), memoryNotesSection(input.memoryNotes)]
+  return ['## Context', '', runtimeContextSection(input), formatBrainSnapshot(input.brainSnapshot)]
     .filter(Boolean)
     .join('\n\n')
 }
@@ -108,12 +111,6 @@ function missionSection(mission: string | undefined): string {
   const content = mission?.trim()
   if (!content) return ''
   return ['<mission>', content, '</mission>'].join('\n')
-}
-
-function memoryNotesSection(memoryNotes: string[] | undefined): string {
-  if (!memoryNotes || memoryNotes.length === 0) return ''
-
-  return ['<memory_notes>', ...memoryNotes.map(note => `- ${note}`), '</memory_notes>'].join('\n')
 }
 
 /**

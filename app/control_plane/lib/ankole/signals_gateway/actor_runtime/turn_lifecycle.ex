@@ -53,7 +53,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
            :ok <- run_admission_in_tx(repo, opts),
            {:ok, turn_start_spec} <- turn_start_spec_result,
            {:ok, activation} <- ensure_activation(repo, actor_key, assignment, now, opts),
-           {:ok, conversation} <- ensure_and_lock_turn_conversation_in_tx(repo, actor_key, opts),
+           {:ok, conversation} <-
+             ensure_and_lock_turn_conversation_in_tx(repo, actor_key, actor_event, opts),
            {:ok, activation} <-
              bind_activation_turn(repo, activation, actor_event.id, now),
            {:ok, delivery} <-
@@ -131,7 +132,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
     end
   end
 
-  defp ensure_and_lock_turn_conversation_in_tx(repo, actor_key, opts) do
+  defp ensure_and_lock_turn_conversation_in_tx(repo, actor_key, actor_event, opts) do
     case Keyword.get(opts, :conversation, :required) do
       :none ->
         {:ok, nil}
@@ -140,7 +141,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
         AIGatewayLink.ensure_and_lock_conversation_in_tx(
           repo,
           actor_key.agent_uid,
-          actor_key.session_id
+          actor_key.session_id,
+          actor_event
         )
     end
   end

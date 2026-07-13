@@ -32,6 +32,9 @@ mod atoms {
         done,
         error,
         aborted,
+        metadata,
+        private,
+        public,
     }
 }
 
@@ -365,6 +368,20 @@ pub fn estimate_o200k_base_tokens(text: Term<'_>) -> NIFResult<u64> {
     Ok(common::estimate_o200k_base_tokens(&text))
 }
 
+/// Combines multiple ordered result ID lists with reciprocal-rank fusion.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn reciprocal_rank_fusion_nif(ranked_lists: Term<'_>, k: Term<'_>) -> NIFResult<String> {
+    let ranked_lists = decode_json(ranked_lists, "ranked_lists")?;
+    let ranked_lists: Vec<Vec<String>> = serde_json::from_value(ranked_lists)
+        .map_err(|_| error_message("ranked_lists must contain a JSON array of string arrays"))?;
+    let k = decode_u64(k, "k")?;
+    let fused = common::reciprocal_rank_fusion(&ranked_lists, k);
+    let fused = serde_json::to_value(fused)
+        .map_err(|reason| error_message(format!("failed to encode RRF results: {reason}")))?;
+
+    encode_json(fused)
+}
+
 /// Computes the non-cryptological XXH3 128-bit observation fingerprint.
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn xxh3_128_hex(input: Term<'_>) -> NIFResult<String> {
@@ -443,6 +460,59 @@ pub fn jwt_verify_nif(token: Term<'_>, key: Term<'_>, validation: Term<'_>) -> N
     let validation = decode_string(validation, "validation")?;
 
     common::jwt_verify(&token, key.as_slice(), &validation).map_err(error)
+}
+
+/// Signs claims with an RSA private key in PEM form and a JWT header.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn jwt_sign_pem_nif(
+    claims: Term<'_>,
+    private_key_pem: Term<'_>,
+    header: Term<'_>,
+) -> NIFResult<String> {
+    let claims = decode_string(claims, "claims")?;
+    let private_key_pem = decode_string(private_key_pem, "private_key_pem")?;
+    let header = decode_string(header, "header")?;
+
+    common::jwt_sign_pem(&claims, &private_key_pem, &header).map_err(error)
+}
+
+/// Verifies an RSA-signed JWT against a JWK document and validation options.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn jwt_verify_jwk_nif(
+    token: Term<'_>,
+    jwk: Term<'_>,
+    validation: Term<'_>,
+) -> NIFResult<String> {
+    let token = decode_string(token, "token")?;
+    let jwk = decode_string(jwk, "jwk")?;
+    let validation = decode_string(validation, "validation")?;
+
+    common::jwt_verify_jwk(&token, &jwk, &validation).map_err(error)
+}
+
+/// Facts about one parsed web URL for the shared web tools URL policy.
+#[derive(rustler::NifMap)]
+struct WebURLFactsNIF {
+    scheme: String,
+    host: Option<String>,
+    host_class: Option<rustler::Atom>,
+}
+
+/// Parses a web URL with WHATWG semantics and classifies its host.
+#[rustler::nif]
+pub fn web_url_facts_nif(url: Term<'_>) -> NIFResult<WebURLFactsNIF> {
+    let url = decode_string(url, "url")?;
+    let facts = common::web_url_facts(&url).map_err(error)?;
+
+    Ok(WebURLFactsNIF {
+        scheme: facts.scheme,
+        host: facts.host,
+        host_class: facts.host_class.map(|host_class| match host_class {
+            common::HostClass::Metadata => atoms::metadata(),
+            common::HostClass::Private => atoms::private(),
+            common::HostClass::Public => atoms::public(),
+        }),
+    })
 }
 
 /// Generates a random 32-byte hex key for kernel cryptographic helpers.

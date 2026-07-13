@@ -14,6 +14,7 @@ import {
   type RPCMethod,
   type RPCRequester,
   type RPCSchemaByMethod,
+  type SkillOverlayAppendRequest,
   type SkillOverlayReplaceRequest,
   type SkillOverlayRequest,
   type SkillOverlayResponse
@@ -91,11 +92,21 @@ export async function requestSkillOverlay(
   return response
 }
 
+/** Appends one note atomically to the DB-backed overlay for an enabled skill. */
+export async function appendSkillOverlay(
+  rpcClient: RuntimeRPCClient,
+  request: SkillOverlayAppendRequest
+): Promise<SkillOverlayResponse> {
+  const response = await rpcClient.request(rpcMethods.skillsOverlayAppend, request)
+  assertRPCResponse<SkillOverlayResponse>(response, 'skill overlay append RPC failed')
+  return response
+}
+
 /**
  * Replaces the DB-backed overlay for an enabled skill.
  *
- * The append tool performs read-modify-write above this layer; this helper keeps
- * the RPC surface narrow and explicit.
+ * The caller supplies the content hash returned by a fresh resolve so the
+ * control plane can reject a stale whole-overlay replacement.
  */
 export async function replaceSkillOverlay(
   rpcClient: RuntimeRPCClient,

@@ -45,8 +45,15 @@ const config: KnipConfig = {
       project: ['src/**/*.ts']
     }
   },
-  // var/ holds dev-worker runtime volumes (browser caches etc.), not source.
-  ignore: ['**/*.d.ts', 'var/**', 'internals/skills/**', 'app/agent_computer/src/ai-gateway-client/**'],
+  // Generated trees are checked through their source schema/codegen workflows,
+  // not app-owned dead-code analysis. var/ holds runtime volumes, not source.
+  ignore: [
+    '**/*.d.ts',
+    '**/generated/**',
+    'var/**',
+    'internals/skills/**',
+    'app/agent_computer/src/ai-gateway-client/**'
+  ],
   ignoreBinaries: ['cargo', 'napi']
 }
 

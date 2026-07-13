@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM rockylinux/rockylinux:9.5
+FROM rockylinux/rockylinux:9.8
 
 LABEL org.opencontainers.image.title="postgres-for-ankole"
 LABEL org.opencontainers.image.description="PostgreSQL 18 image for Ankole Agent with pg_search and pgvector."
@@ -34,4 +34,4 @@ EXPOSE 5432
 VOLUME /var/lib/pgsql/18/data
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-CMD ["postgres"]
+CMD ["postgres", "-c", "shared_preload_libraries=pg_search"]

@@ -256,7 +256,7 @@ export async function browserNavigate(
   },
   options?: BrowserRuntimeOptions
 ): Promise<JSONObject> {
-  assertSafeBrowserURL(args.url)
+  assertSafeBrowserURL(args.url, options)
 
   return withPage(
     args.session,
@@ -772,7 +772,7 @@ export async function browserExtractFromSession(
   },
   options?: BrowserRuntimeOptions
 ): Promise<JSONObject | undefined> {
-  if (args.url) assertSafeBrowserURL(args.url)
+  if (args.url) assertSafeBrowserURL(args.url, options)
 
   const status = await browserStatus({ session: args.session }, options)
   if (status.ok !== true) throw new Error('No active browser session; run browser_navigate first.')

@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript'
 import { repoRootPath, runChildCaptured } from '../../utils'
+import { NAMING_EXTERNAL_PROTOCOL_PATHS } from './config'
 import { canonicalCamelIdentifier, canonicalPascalIdentifier, canonicalSourcePath } from './naming-policy'
 import type { CheckOptions, CheckResult, ExitCode } from './types'
 
@@ -13,6 +14,14 @@ export interface NamingViolation {
 }
 
 const scannedExtensions = new Set(['.ts', '.tsx', '.ex', '.exs', '.rs', '.proto'])
+
+export function isNamingSourcePath(file: string): boolean {
+  return (
+    !NAMING_EXTERNAL_PROTOCOL_PATHS.some(protocolPath =>
+      protocolPath.endsWith('/') ? file.startsWith(protocolPath) : file === protocolPath
+    ) && !file.split('/').some(part => part === 'generated' || part === 'target' || part === 'deps')
+  )
+}
 
 function canonicalIdentifier(value: string): string {
   if (value.includes('_') || value === value.toUpperCase() || value === value.toLowerCase()) return value
@@ -46,7 +55,6 @@ function ownedIdentifier(node: ts.Identifier): boolean {
   if (
     ts.isPropertyDeclaration(parent) ||
     ts.isPropertySignature(parent) ||
-    ts.isPropertyAssignment(parent) ||
     ts.isShorthandPropertyAssignment(parent) ||
     ts.isMethodDeclaration(parent) ||
     ts.isMethodSignature(parent) ||
@@ -143,7 +151,7 @@ export async function runNaming(_options: CheckOptions = {}): Promise<CheckResul
     .filter(Boolean)
     .filter(file => existsSync(path.join(repoRootPath, file)))
     .filter(file => scannedExtensions.has(path.extname(file)))
-    .filter(file => !file.includes('/generated/') && !file.includes('/target/') && !file.includes('/deps/'))
+    .filter(isNamingSourcePath)
   const violations: NamingViolation[] = []
 
   for (const file of files) {

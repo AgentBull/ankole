@@ -216,13 +216,21 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "model" => "primary",
                "input" => "hello",
                "store" => true,
-               "metadata" => %{"request_tag" => "kept"}
+               "metadata" => %{
+                 "request_tag" => "kept",
+                 "brain" => %{"visibility" => "public"}
+               }
              })
 
     provider_request = request.response_context.request
 
     assert provider_request["store"] == false
-    assert provider_request["metadata"] == %{"request_tag" => "kept"}
+
+    assert provider_request["metadata"] == %{
+             "request_tag" => "kept",
+             "brain" => %{"visibility" => "public"}
+           }
+
     refute Map.has_key?(provider_request, "conversation")
     refute Map.has_key?(provider_request, "previous_response_id")
 
@@ -244,7 +252,12 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       )
 
     assert String.starts_with?(conversation.conversation_key, "stateful-responses-api:")
-    assert conversation.metadata == %{"managed_by_stateful_responses_api" => true}
+
+    assert conversation.metadata == %{
+             "managed_by_stateful_responses_api" => true,
+             "request_tag" => "kept",
+             "brain" => %{"visibility" => "public"}
+           }
   end
 
   test "websocket stateful previous_response_id expands history without provider state fields" do
@@ -681,7 +694,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     provider_input = request.response_context.request["input"]
     assert provider_input == message.content
-    refute inspect(provider_input) =~ memory_pre_compaction_nudge_marker()
+    refute inspect(provider_input) =~ brain_pre_compaction_nudge_marker()
   end
 
   test "websocket stateful history auto-compacts before creating the provider request" do
@@ -1257,7 +1270,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     {:ok, m2} =
       start_linked_stateful_message(agent.uid, conversation, m1, "truncate-tail", [
         text_message("user", "tail user"),
-        text_message("assistant", "tail assistant #{memory_pre_compaction_nudge_marker()}")
+        text_message("assistant", "tail assistant #{brain_pre_compaction_nudge_marker()}")
       ])
 
     {:ok, m2} = StatefulResponses.commit_complete(m2, [], usage(20))
@@ -1395,7 +1408,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     {:ok, m3} =
       start_linked_stateful_message(agent.uid, conversation, m2, "tool-truncate-tail", [
-        text_message("user", "latest tail #{memory_pre_compaction_nudge_marker()}")
+        text_message("user", "latest tail #{brain_pre_compaction_nudge_marker()}")
       ])
 
     {:ok, _m3} = StatefulResponses.commit_complete(m3, [], usage(20))
@@ -1477,7 +1490,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     {:ok, m3} =
       start_linked_stateful_message(agent.uid, conversation, m2, "summary-fail-c", [
-        text_message("user", "latest tail #{memory_pre_compaction_nudge_marker()}")
+        text_message("user", "latest tail #{brain_pre_compaction_nudge_marker()}")
       ])
 
     {:ok, m3} = StatefulResponses.commit_complete(m3, [], usage(20))
@@ -2686,13 +2699,13 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         %{"type" => "input_image", "image_url" => image_url},
         %{
           "type" => "input_text",
-          "text" => "[#{memory_pre_compaction_nudge_marker()}]"
+          "text" => "[#{brain_pre_compaction_nudge_marker()}]"
         }
       ]
     }
   end
 
-  defp memory_pre_compaction_nudge_marker, do: "ankole.memory.pre_compaction_nudge.v1"
+  defp brain_pre_compaction_nudge_marker, do: "ankole.brain.pre_compaction_nudge.v1"
 
   defp usage(total_tokens), do: %{"usage" => %{"total_tokens" => total_tokens}}
 

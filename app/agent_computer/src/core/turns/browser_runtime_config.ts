@@ -5,10 +5,12 @@ import type { TextTurnLoopOptions } from './turn_options'
 
 const RemoteBrowserCDPConfigKey = 'worker.remote_browser_cdp_config'
 const LocalBrowserIdleTtlMsKey = 'worker.local_browser_idle_ttl_ms'
+const BlockPrivateNetworkKey = 'web_tools.block_private_network'
 
 export type BrowserRuntimeConfig = {
   remoteCDPConfig: JSONObject | null
   localBrowserIdleTtlMs?: number
+  blockPrivateNetwork: boolean
 }
 
 /** Resolves the browser knobs shared by main-agent and subagent tool bindings. */
@@ -16,12 +18,12 @@ export async function resolveBrowserRuntimeConfig(
   turnStart: TurnStart,
   opts: TextTurnLoopOptions
 ): Promise<BrowserRuntimeConfig> {
-  if (!opts.requestAppConfigure) return { remoteCDPConfig: null }
+  if (!opts.requestAppConfigure) return { remoteCDPConfig: null, blockPrivateNetwork: false }
 
   const response = await opts.requestAppConfigure({
     request_id: `app-configure-browser-${crypto.randomUUID()}`,
     agent_uid: turnStart.turn.actor.agent_uid,
-    keys: [RemoteBrowserCDPConfigKey, LocalBrowserIdleTtlMsKey]
+    keys: [RemoteBrowserCDPConfigKey, LocalBrowserIdleTtlMsKey, BlockPrivateNetworkKey]
   })
   assertRPCResponse<AppConfigureResolveResponse>(response, 'browser runtime config rejected')
 
@@ -30,6 +32,7 @@ export async function resolveBrowserRuntimeConfig(
 
   return {
     remoteCDPConfig: isRecord(remoteCDPConfig) ? remoteCDPConfig : null,
+    blockPrivateNetwork: response.values[BlockPrivateNetworkKey]?.value === true,
     ...(typeof localBrowserIdleTtlMs === 'number' && Number.isFinite(localBrowserIdleTtlMs)
       ? { localBrowserIdleTtlMs }
       : {})

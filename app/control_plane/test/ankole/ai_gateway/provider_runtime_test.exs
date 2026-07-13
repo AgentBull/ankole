@@ -639,7 +639,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
   test "runtime RPCLane resolves agent conversation context and DB-backed skill overlays" do
     %{principal: agent} = agent_fixture()
-    assert {:ok, %{skills: 5}} = Library.sync_agent_skills(agent.uid)
+    assert {:ok, %{skills: 6}} = Library.sync_agent_skills(agent.uid)
     {route, turn} = assign_worker_route(agent.uid, "signal-channel:context")
     mixed_case_turn = put_in(turn, ["actor", "agent_uid"], " #{String.upcase(agent.uid)} ")
 
@@ -652,6 +652,9 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                },
                route
              )
+
+    assert get_in(context_envelope, ["body", "type"]) == "rpc_response",
+           inspect(context_envelope)
 
     context_payload = get_in(context_envelope, ["body", "rpc_response", "payload_json"])
     assert context_payload["agent_uid"] == agent.uid
@@ -672,7 +675,8 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                  "payload_json" => %{
                    "turn" => mixed_case_turn,
                    "skill_name" => "nano-pdf",
-                   "content" => "Prefer page-by-page verification."
+                   "content" => "Prefer page-by-page verification.",
+                   "expected_content_hash" => ""
                  }
                },
                route
@@ -722,7 +726,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
   test "runtime RPCLane accepts overlay writes after active steer bumps revision" do
     %{principal: agent} = agent_fixture()
-    assert {:ok, %{skills: 5}} = Library.sync_agent_skills(agent.uid)
+    assert {:ok, %{skills: 6}} = Library.sync_agent_skills(agent.uid)
     {route, turn} = assign_worker_route(agent.uid, "signal-channel:steered-overlay")
 
     turn["activation_uid"]
@@ -738,13 +742,14 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                  "payload_json" => %{
                    "turn" => turn,
                    "skill_name" => "nano-pdf",
-                   "content" => "Prefer page-by-page verification after steer."
+                   "content" => "Prefer page-by-page verification after steer.",
+                   "expected_content_hash" => ""
                  }
                },
                route
              )
 
-    assert get_in(envelope, ["body", "type"]) == "rpc_response"
+    assert get_in(envelope, ["body", "type"]) == "rpc_response", inspect(envelope)
     payload = get_in(envelope, ["body", "rpc_response", "payload_json"])
     assert payload["has_overlay"]
     assert payload["overlay_json"] == %{"text" => "Prefer page-by-page verification after steer."}
@@ -800,7 +805,13 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
         id: Ecto.UUID.generate(),
         subject_uid: agent_uid,
         conversation_key: session_id,
-        metadata: %{},
+        metadata: %{
+          "brain" => %{
+            "visibility" => "public",
+            "channel_id" => session_id,
+            "channel_kind" => "im_group"
+          }
+        },
         inserted_at: now,
         updated_at: now
       })

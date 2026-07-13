@@ -19,6 +19,8 @@ defmodule Ankole.AIGateway do
   alias Ankole.AIGateway.StatefulLifecycle
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIGateway.UniversalAIRequest
+  alias Ankole.AIGateway.WebToolsPolicy
+  alias Ankole.Kernel, as: NativeKernel
 
   @stateful_http_fields ~w(previous_response_id conversation store)
 
@@ -115,7 +117,11 @@ defmodule Ankole.AIGateway do
     as: :get_conversation_for_subject
 
   @doc false
-  defdelegate ensure_conversation_in_tx(repo, subject_uid, conversation_key), to: Conversations
+  defdelegate ensure_conversation_in_tx(repo, subject_uid, conversation_key, metadata \\ %{}),
+    to: Conversations
+
+  @doc false
+  defdelegate update_conversation_metadata_in_tx(repo, conversation, metadata), to: Conversations
 
   @doc false
   defdelegate active_conversation_for_update(repo, subject_uid, conversation_key),
@@ -372,7 +378,8 @@ defmodule Ankole.AIGateway do
 
   def create_web_fetch(subject_uid, request, opts) when is_map(request) do
     with {:ok, runtime} <- Resolver.resolve_request_model(subject_uid, "web_fetch", request),
-         :ok <- validate_web_fetch_request(request),
+         {:ok, block_private_network?} <- WebToolsPolicy.block_private_network?(subject_uid),
+         :ok <- validate_web_fetch_request(request, block_private_network?),
          request = normalize_request_keys(request),
          {:ok, body} <- execute_web_fetch(runtime, request, opts) do
       {:ok, gateway_response(200, body, runtime)}
@@ -477,14 +484,14 @@ defmodule Ankole.AIGateway do
     end
   end
 
-  defp validate_web_fetch_request(request) do
+  defp validate_web_fetch_request(request, block_private_network?) do
     request = normalize_request_keys(request)
 
     cond do
       not Map.has_key?(request, "urls") ->
         {:error, :missing_urls}
 
-      not valid_extract_urls?(Map.get(request, "urls")) ->
+      not valid_extract_urls?(Map.get(request, "urls"), block_private_network?) ->
         {:error, :invalid_urls}
 
       true ->
@@ -524,58 +531,25 @@ defmodule Ankole.AIGateway do
   defp valid_web_limit?(value) when is_integer(value), do: value >= 1 and value <= 100
   defp valid_web_limit?(_value), do: false
 
-  defp valid_extract_urls?(urls) when is_list(urls) and urls != [] and length(urls) <= 5,
-    do: Enum.all?(urls, &safe_web_url?/1)
+  defp valid_extract_urls?(urls, block_private_network?)
+       when is_list(urls) and urls != [] and length(urls) <= 5,
+       do: Enum.all?(urls, &safe_web_url?(&1, block_private_network?))
 
-  defp valid_extract_urls?(_urls), do: false
+  defp valid_extract_urls?(_urls, _block_private_network?), do: false
 
-  defp safe_web_url?(url) when is_binary(url) do
-    case URI.new(String.trim(url)) do
-      {:ok, %URI{scheme: "https", host: host}} when is_binary(host) and host != "" ->
-        safe_web_host?(String.downcase(host))
-
-      _uri ->
-        false
+  # URL parsing and host classification live in the native kernel so the
+  # provider path and the Agent Computer web/browser guards share one
+  # classifier. Cloud metadata endpoints classify as `:metadata` and are
+  # rejected regardless of the `web_tools.block_private_network` policy.
+  defp safe_web_url?(url, block_private_network?) when is_binary(url) do
+    case NativeKernel.web_url_facts(url) do
+      %{scheme: "https", host_class: :public} -> true
+      %{scheme: "https", host_class: :private} -> not block_private_network?
+      _facts_or_error -> false
     end
   end
 
-  defp safe_web_url?(_url), do: false
-
-  defp safe_web_host?(host) do
-    cond do
-      host in ["localhost", "metadata", "metadata.google.internal"] -> false
-      String.ends_with?(host, ".localhost") -> false
-      ip_address?(host) -> public_ip_address?(host)
-      true -> true
-    end
-  end
-
-  defp ip_address?(host), do: match?({:ok, _address}, :inet.parse_address(to_charlist(host)))
-
-  defp public_ip_address?(host) do
-    case :inet.parse_address(to_charlist(host)) do
-      {:ok, address} -> public_ip_tuple?(address)
-      {:error, _reason} -> false
-    end
-  end
-
-  defp public_ip_tuple?({10, _, _, _}), do: false
-  defp public_ip_tuple?({127, _, _, _}), do: false
-  defp public_ip_tuple?({169, 254, _, _}), do: false
-  defp public_ip_tuple?({172, second, _, _}) when second >= 16 and second <= 31, do: false
-  defp public_ip_tuple?({192, 168, _, _}), do: false
-  defp public_ip_tuple?({0, _, _, _}), do: false
-  defp public_ip_tuple?({100, second, _, _}) when second >= 64 and second <= 127, do: false
-  defp public_ip_tuple?({_, _, _, _}), do: true
-  defp public_ip_tuple?({0, 0, 0, 0, 0, 0, 0, 1}), do: false
-
-  defp public_ip_tuple?({first, _, _, _, _, _, _, _}) when first >= 0xFC00 and first <= 0xFDFF,
-    do: false
-
-  defp public_ip_tuple?({first, _, _, _, _, _, _, _}) when first >= 0xFE80 and first <= 0xFEBF,
-    do: false
-
-  defp public_ip_tuple?({_a, _b, _c, _d, _e, _f, _g, _h}), do: true
+  defp safe_web_url?(_url, _block_private_network?), do: false
 
   defp non_empty_string?(value) when is_binary(value), do: String.trim(value) != ""
   defp non_empty_string?(_value), do: false

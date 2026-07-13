@@ -23,9 +23,12 @@ import type {
   MemoryRPCRequester,
   RPCError,
   ScheduleRPCRequester,
+  SkillOverlayAppendRequest,
   SkillOverlayReplaceRequest,
   SkillOverlayRequest,
-  SkillOverlayResponse
+  SkillOverlayResponse,
+  WorkerEnvResolveRequest,
+  WorkerEnvResolveResponse
 } from '../../lanes/rpc_lane'
 import type { TurnSteerUpdate } from '../../lanes/actor_lane'
 
@@ -44,6 +47,7 @@ export type AgentConversationContextRequester = (
 export type AppConfigureRequester = (
   request: AppConfigureResolveRequest
 ) => Promise<AppConfigureResolveResponse | RPCError>
+export type WorkerEnvRequester = (request: WorkerEnvResolveRequest) => Promise<WorkerEnvResolveResponse | RPCError>
 export type CodexAccountResolveRequester = (
   request: CodexAccountResolveRequest
 ) => Promise<CodexAccountResolveResponse | RPCError>
@@ -72,6 +76,7 @@ export type SubagentDelegationStatusUpdateRequester = (
   request: SubagentDelegationStatusUpdateRequest
 ) => Promise<SubagentDelegationResponse | RPCError>
 export type SkillOverlayRequester = (request: SkillOverlayRequest) => Promise<SkillOverlayResponse>
+export type SkillOverlayAppendRequester = (request: SkillOverlayAppendRequest) => Promise<SkillOverlayResponse>
 export type SkillOverlayReplaceRequester = (request: SkillOverlayReplaceRequest) => Promise<SkillOverlayResponse>
 
 export type TurnHandlerResult =
@@ -92,6 +97,7 @@ export type TextTurnLoopOptions = {
   internalSkillsRoot?: string
   requestAIGatewayAPIKey: AIGatewayAPIKeyRequester
   requestAppConfigure?: AppConfigureRequester
+  requestWorkerEnv?: WorkerEnvRequester
   resolveCodexAccount?: CodexAccountResolveRequester
   updateCodexAccountAuth?: CodexAccountAuthUpdateRequester
   createSubagentDelegation?: SubagentDelegationCreateRequester
@@ -105,6 +111,7 @@ export type TextTurnLoopOptions = {
   requestScheduleRPC?: ScheduleRPCRequester
   requestMemoryRPC?: MemoryRPCRequester
   requestSkillOverlay?: SkillOverlayRequester
+  appendSkillOverlay?: SkillOverlayAppendRequester
   replaceSkillOverlay?: SkillOverlayReplaceRequester
   agentConversationContext?: AgentConversationContext
   pollSteering?: () => TurnSteerUpdate[]

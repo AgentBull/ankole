@@ -11,6 +11,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDelegationBroker do
   alias Ankole.SignalsGateway.ActorRuntime.RPCWire
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
   alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.SignalsGateway.AIGatewayLink
   alias Ankole.Repo
   alias Ankole.SubagentDelegations
   alias Ankole.SubagentDelegations.Schemas.Delegation
@@ -23,19 +24,20 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDelegationBroker do
     request_id = request_id(request, "create")
 
     with :ok <- require_parent_turn(turn_ref),
-         %ActorEvent{} = actor_event <- actor_event_for_turn(turn_ref),
+         {:ok, actor_event} <- fetch_actor_event_for_turn(turn_ref),
+         {:ok, conversation} <- fetch_parent_conversation(turn_ref),
          attrs <-
            request
            |> Map.put("agent_uid", turn_ref.agent_uid)
            |> Map.put("session_id", turn_ref.session_id)
            |> Map.put("actor_event_id", turn_ref.actor_event_id)
            |> Map.put("reply_route", reply_route(actor_event))
-           |> put_worker_route_metadata(route),
+           |> put_worker_route_metadata(route)
+           |> put_parent_brain_conversation(conversation.id),
          {:ok, %{delegation: %Delegation{} = delegation}} <-
            SubagentDelegations.create_with_dispatch(attrs) do
       {:ok, delegation_payload(request_id, delegation)}
     else
-      nil -> error(request_id, turn_ref.agent_uid, :actor_event_not_found)
       {:error, reason} -> error(request_id, turn_ref.agent_uid, reason)
     end
   end
@@ -239,6 +241,20 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDelegationBroker do
     end
   end
 
+  defp fetch_actor_event_for_turn(turn_ref) do
+    case actor_event_for_turn(turn_ref) do
+      %ActorEvent{} = actor_event -> {:ok, actor_event}
+      nil -> {:error, :actor_event_not_found}
+    end
+  end
+
+  defp fetch_parent_conversation(turn_ref) do
+    case AIGatewayLink.active_conversation(turn_ref.agent_uid, turn_ref.session_id) do
+      %{} = conversation -> {:ok, conversation}
+      nil -> {:error, :parent_conversation_not_found}
+    end
+  end
+
   defp reply_route(actor_event) do
     %{
       "binding_name" => actor_event.binding_name,
@@ -336,6 +352,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDelegationBroker do
   end
 
   defp put_worker_route_metadata(map, _route), do: map
+
+  defp put_parent_brain_conversation(map, conversation_id) do
+    metadata = RPCWire.map_value(map, "metadata", %{})
+    Map.put(map, "metadata", Map.put(metadata, "brain_parent_conversation_id", conversation_id))
+  end
 
   defp list_value(map, key, default) do
     case Map.get(map, key) || Map.get(map, String.to_atom(key)) do

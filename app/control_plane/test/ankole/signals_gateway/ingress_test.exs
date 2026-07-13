@@ -10,6 +10,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
   alias Ankole.SignalsGateway.ActorEventTypes
   alias Ankole.SignalsGateway.AdapterContext
   alias Ankole.SignalsGateway.Commands
+  alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.InboundBatch
   alias Ankole.SignalsGateway.Ingress
   alias Ankole.SignalsGateway.IngressFact
@@ -487,6 +488,33 @@ defmodule Ankole.SignalsGatewayIngressTest do
 
       assert dm_input.type == "im.message.addressed"
       assert dm_batch.mode == "addressed"
+
+      assert Repo.get!(Channel, "lark:dm:alice-agent").metadata["dm_peer_principal_uid"] ==
+               "alice"
+
+      # A provider echo authored by the agent itself must not replace the
+      # durable "other participant" identity used by Brain DM routing.
+      assert {:ok, %{status: :accepted}} =
+               Ingress.emit_entry(
+                 agent.uid,
+                 "lark-main",
+                 group_entry(%{
+                   source_event_id: "evt-dm-self-echo",
+                   source_entry_id: "dm-msg-self-echo",
+                   signal_channel_id: "lark:dm:alice-agent",
+                   channel: %{kind: :im_dm, reply_mode: :entry},
+                   author: %{
+                     principal_uid: agent.uid,
+                     id: "provider-agent",
+                     display_name: "Agent"
+                   },
+                   text: "provider echo"
+                 }),
+                 now: DateTime.add(@base_time, 1, :second)
+               )
+
+      assert Repo.get!(Channel, "lark:dm:alice-agent").metadata["dm_peer_principal_uid"] ==
+               "alice"
 
       assert {:ok, %{inbound_batch: mention_batch}} =
                Ingress.emit_entry(
