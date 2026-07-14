@@ -159,6 +159,27 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
     assert Enum.at(elements, 2)["content"] == "这是最终正文。"
   end
 
+  test "a stopped reply without partial text renders metadata without a body or divider" do
+    stopped =
+      ReplyPresentation.new()
+      |> ReplyPresentation.apply_event("plan.snapshot", %{
+        "operation_id" => "todo",
+        "revision" => 1,
+        "items" => [
+          %{"id" => "research", "content" => "研究请求", "status" => "in_progress"}
+        ]
+      })
+      |> ReplyPresentation.terminal("stopped", "")
+      |> Map.put("answer", "")
+
+    assert {:ok, card} = Renderer.render(stopped, mode: :terminal)
+    elements = get_in(card, ["body", "elements"])
+
+    assert Enum.map(elements, & &1["element_id"]) == ["state", "plan"]
+    refute Enum.any?(elements, &(&1["element_id"] == "answer"))
+    refute Enum.any?(elements, &(&1["element_id"] == "separator"))
+  end
+
   test "todo is expanded while work is running and collapsed after completion" do
     working =
       ReplyPresentation.new()

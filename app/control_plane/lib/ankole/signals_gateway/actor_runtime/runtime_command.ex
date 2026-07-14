@@ -34,13 +34,19 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
       _args ->
         with {:ok, rollover} <-
                Repo.transact(fn repo ->
-                 with {:ok, %{stop_controls: stop_controls, cancelled_turn: cancelled_turn}} <-
+                 with {:ok,
+                       %{
+                         stop_controls: stop_controls,
+                         cancelled_turn: cancelled_turn,
+                         cancelled_actor_event_ids: cancelled_actor_event_ids
+                       }} <-
                         end_active_conversation(repo, actor_key, now) do
                    {:ok,
                     %{
                       status: :conversation_rolled_over,
                       stop_controls: stop_controls,
-                      cancelled_turn: cancelled_turn
+                      cancelled_turn: cancelled_turn,
+                      cancelled_actor_event_ids: cancelled_actor_event_ids
                     }}
                  end
                end)
@@ -91,7 +97,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
 
     Repo.transact(fn repo ->
       with %ActorEvent{} = input <- Actors.lock_actor_event_in_tx(repo, input.id),
-           {:ok, %{stop_controls: stop_controls, cancelled_turn: cancelled_turn}} <-
+           {:ok,
+            %{
+              stop_controls: stop_controls,
+              cancelled_turn: cancelled_turn,
+              cancelled_actor_event_ids: cancelled_actor_event_ids
+            }} <-
              cancel_live_turn(repo, actor_key, now, "command.stop"),
            {:ok, completed_event} <- consume_command_without_feedback(repo, input, now) do
         {:ok,
@@ -100,7 +111,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
            command: input.type,
            actor_event: completed_event,
            stop_controls: stop_controls,
-           cancelled_turn: cancelled_turn
+           cancelled_turn: cancelled_turn,
+           cancelled_actor_event_ids: cancelled_actor_event_ids
          }}
       else
         nil -> {:ok, %{status: :idle}}
@@ -205,7 +217,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
   end
 
   defp apply_runtime_command(repo, actor_key, %ActorEvent{type: "command.stop"} = input, now) do
-    with {:ok, %{stop_controls: stop_controls, cancelled_turn: cancelled_turn}} <-
+    with {:ok,
+          %{
+            stop_controls: stop_controls,
+            cancelled_turn: cancelled_turn,
+            cancelled_actor_event_ids: cancelled_actor_event_ids
+          }} <-
            cancel_live_turn(repo, actor_key, now, "command.stop"),
          {:ok, result} <-
            consume_command_feedback(
@@ -217,19 +234,26 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
       {:ok,
        result
        |> Map.put(:stop_controls, stop_controls)
-       |> Map.put(:cancelled_turn, cancelled_turn)}
+       |> Map.put(:cancelled_turn, cancelled_turn)
+       |> Map.put(:cancelled_actor_event_ids, cancelled_actor_event_ids)}
     end
   end
 
   defp apply_runtime_command(repo, actor_key, %ActorEvent{type: "command.new"} = input, now) do
-    with {:ok, %{stop_controls: stop_controls, cancelled_turn: cancelled_turn}} <-
+    with {:ok,
+          %{
+            stop_controls: stop_controls,
+            cancelled_turn: cancelled_turn,
+            cancelled_actor_event_ids: cancelled_actor_event_ids
+          }} <-
            end_active_conversation(repo, actor_key, now),
          {:ok, result} <-
            consume_command_feedback(repo, input, "Started a new conversation.", now) do
       {:ok,
        result
        |> Map.put(:stop_controls, stop_controls)
-       |> Map.put(:cancelled_turn, cancelled_turn)}
+       |> Map.put(:cancelled_turn, cancelled_turn)
+       |> Map.put(:cancelled_actor_event_ids, cancelled_actor_event_ids)}
     end
   end
 
@@ -673,14 +697,17 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
   defp publish_cancelled_turn_event(result), do: result
 
   defp stop_cancelled_previews({:ok, result} = ok) when is_map(result) do
+    control_event_ids =
+      result
+      |> Map.get(:stop_controls, [])
+      |> Enum.map(&get_in(&1, [:turn_ref, "actor_event_id"]))
+
     result
-    |> Map.get(:stop_controls, [])
-    |> Enum.each(fn control ->
-      case get_in(control, [:turn_ref, "actor_event_id"]) do
-        actor_event_id when is_binary(actor_event_id) -> AIReplyPreview.stop(actor_event_id)
-        _missing -> :ok
-      end
-    end)
+    |> Map.get(:cancelled_actor_event_ids, [])
+    |> Kernel.++(control_event_ids)
+    |> Enum.filter(&(is_binary(&1) and &1 != ""))
+    |> Enum.uniq()
+    |> Enum.each(&AIReplyPreview.stop/1)
 
     ok
   end
@@ -689,11 +716,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
 
   defp cancel_live_turn(repo, actor_key, now, reason) do
     live_deliveries = live_deliveries_for_activation(repo, actor_key)
+    actor_event_ids = cancellable_actor_event_ids(repo, actor_key, live_deliveries)
 
-    case live_deliveries do
-      [_delivery | _rest] ->
-        actor_event_id = current_actor_event_id(live_deliveries)
-
+    case actor_event_ids do
+      [actor_event_id | _rest] ->
         stop_controls =
           Enum.map(live_deliveries, &stop_control_for_delivery(actor_key, &1, reason))
 
@@ -705,13 +731,38 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
                  now,
                  reason
                ),
-             {:ok, _completed_events} <-
-               complete_cancelled_turn_events(repo, live_deliveries, now, reason) do
-          {:ok, %{stop_controls: stop_controls, cancelled_turn: cancelled_turn}}
+             {:ok, completed_events} <-
+               complete_cancelled_turn_events(repo, actor_event_ids, now, reason) do
+          {:ok,
+           %{
+             stop_controls: stop_controls,
+             cancelled_turn: cancelled_turn,
+             cancelled_actor_event_ids: Enum.map(completed_events, & &1.id)
+           }}
         end
 
       [] ->
-        {:ok, %{stop_controls: [], cancelled_turn: nil}}
+        {:ok, %{stop_controls: [], cancelled_turn: nil, cancelled_actor_event_ids: []}}
+    end
+  end
+
+  defp cancellable_actor_event_ids(repo, actor_key, live_deliveries) do
+    case live_deliveries |> Enum.map(& &1.actor_event_id) |> Enum.uniq() do
+      [_actor_event_id | _rest] = actor_event_ids ->
+        actor_event_ids
+
+      [] ->
+        case AIGatewayLink.retry_source_in_tx(
+               repo,
+               actor_key.agent_uid,
+               actor_key.session_id
+             ) do
+          {:ok, %{actor_event_id: actor_event_id}} when is_binary(actor_event_id) ->
+            [actor_event_id]
+
+          _missing_or_terminal ->
+            []
+        end
     end
   end
 
@@ -763,19 +814,22 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
     end
   end
 
-  defp complete_cancelled_turn_events(repo, deliveries, now, reason)
-       when is_list(deliveries) and is_binary(reason) do
-    deliveries
-    |> Enum.uniq_by(& &1.actor_event_id)
-    |> Enum.reduce_while({:ok, []}, fn delivery, {:ok, completed_events} ->
-      case Actors.lock_actor_event_in_tx(repo, delivery.actor_event_id) do
-        %ActorEvent{} = event ->
+  defp complete_cancelled_turn_events(repo, actor_event_ids, now, reason)
+       when is_list(actor_event_ids) and is_binary(reason) do
+    actor_event_ids
+    |> Enum.uniq()
+    |> Enum.reduce_while({:ok, []}, fn actor_event_id, {:ok, completed_events} ->
+      case Actors.lock_actor_event_in_tx(repo, actor_event_id) do
+        %ActorEvent{completed_at: nil} = event ->
           with {:ok, _outbox} <- maybe_commit_stopped_preview(repo, event, reason),
                {:ok, completed_event} <- Actors.mark_event_completed_in_tx(repo, event, now) do
             {:cont, {:ok, [completed_event | completed_events]}}
           else
             {:error, error} -> {:halt, {:error, error}}
           end
+
+        %ActorEvent{} ->
+          {:cont, {:ok, completed_events}}
 
         nil ->
           {:cont, {:ok, completed_events}}
@@ -807,49 +861,27 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
     }
   end
 
-  defp current_actor_event_id([
-         %ActorEventDelivery{actor_event_id_fence: actor_event_id} | _rest
-       ]),
-       do: actor_event_id
-
-  defp current_actor_event_id(_deliveries), do: nil
-
   defp end_active_conversation(repo, actor_key, now) do
-    live_deliveries = live_deliveries_for_activation(repo, actor_key)
-
     case AIGatewayLink.active_conversation_for_update(
            repo,
            actor_key.agent_uid,
            actor_key.session_id
          ) do
       %{} ->
-        actor_event_id = current_actor_event_id(live_deliveries)
-
-        stop_controls =
-          Enum.map(live_deliveries, &stop_control_for_delivery(actor_key, &1, "command.new"))
-
-        with {:ok, cancelled_turn} <-
-               TurnLifecycle.cancel_started_turn_in_tx(
-                 repo,
-                 actor_key,
-                 actor_event_id,
-                 now,
-                 "command.new"
-               ),
+        with {:ok, cancellation} <-
+               cancel_live_turn(repo, actor_key, now, "command.new"),
              {:ok, _conversation} <-
                AIGatewayLink.end_active_conversation_in_tx(
                  repo,
                  actor_key.agent_uid,
                  actor_key.session_id,
                  now
-               ),
-             {:ok, _completed_events} <-
-               complete_cancelled_turn_events(repo, live_deliveries, now, "command.new") do
-          {:ok, %{stop_controls: stop_controls, cancelled_turn: cancelled_turn}}
+               ) do
+          {:ok, cancellation}
         end
 
       nil ->
-        {:ok, %{stop_controls: [], cancelled_turn: nil}}
+        {:ok, %{stop_controls: [], cancelled_turn: nil, cancelled_actor_event_ids: []}}
     end
   end
 

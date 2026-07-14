@@ -90,6 +90,65 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
       assert outbox.fallback_visible_text == "已停止。"
     end
 
+    test "stopped preview without partial text stays metadata-only after late checkpoint refresh" do
+      %{event: event} = start_im_visible_response_run()
+
+      assert [{preview_pid, _value}] =
+               Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, event.id)
+
+      preview_monitor = Process.monitor(preview_pid)
+      assert :ok = AIReplyPreview.stop(event.id)
+      assert_receive {:DOWN, ^preview_monitor, :process, ^preview_pid, :normal}
+
+      event =
+        ActorEvent
+        |> Repo.get!(event.id)
+        |> ActorEvent.changeset(%{
+          reply_preview_source_entry_id: "provider-stopped-empty-preview",
+          reply_preview_checkpoint: %{
+            "presentation" => %{
+              "schema_version" => 1,
+              "state" => "working",
+              "answer" => "",
+              "plan" => %{
+                "revision" => 1,
+                "items" => [
+                  %{"id" => "research", "content" => "研究请求", "status" => "in_progress"}
+                ]
+              }
+            }
+          }
+        })
+        |> Repo.update!()
+
+      assert {:ok, outbox} =
+               Outbox.commit_stopped_turn_notice_outbox(event, "任务已停止。", "command.new")
+
+      assert get_in(outbox.payload, ["reply_presentation", "answer"]) == ""
+      parent = self()
+
+      adapter = %{
+        capabilities: [:edit_entry],
+        send: fn dispatched ->
+          send(parent, {:stopped_empty_dispatched, dispatched})
+          {:ok, %{raw_payload: %{}}}
+        end
+      }
+
+      assert {:ok, %OutboxEntry{status: :succeeded}} =
+               SignalsGateway.dispatch_outbox(
+                 outbox.agent_uid,
+                 outbox.binding_name,
+                 outbox.outbound_key,
+                 adapter
+               )
+
+      assert_receive {:stopped_empty_dispatched, dispatched}
+      assert get_in(dispatched.payload, ["reply_presentation", "state"]) == "stopped"
+      assert get_in(dispatched.payload, ["reply_presentation", "answer"]) == ""
+      assert dispatched.fallback_visible_text == "任务已停止。"
+    end
+
     test "turn completion without preview writes a durable reply outbox and mirrors after success" do
       %{message: message, event: event, turn_ref: turn_ref} = start_im_visible_response_run()
       content = assistant_content("final answer")

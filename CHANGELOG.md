@@ -1,5 +1,11 @@
 # Changelog
 
+## Version 26.07.4 (2026-07-14)
+
+- Prevent `/new` and `/stop` from resurrecting retryable turns when a worker failure supersedes the live delivery just before cancellation.
+- Keep stopped CardKit replies with no partial answer metadata-only instead of fabricating an empty body, while preserving the working stream anchor and plain-text fallback.
+- Degrade a failed remote Markdown image to its link after one transport attempt so optional image resolution cannot hold a durable final reply through implicit retries.
+
 ## Version 26.07.3 (2026-07-14)
 
 - Reframe the root README architecture maps around product-facing entry points, AIGateway's external and agent-facing stateless/stateful surfaces, Brain long-term memory, durable Subagent Delegation, and the semantic-state/artifact split.

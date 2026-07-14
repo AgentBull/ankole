@@ -673,10 +673,20 @@ defmodule Ankole.SignalsGateway.Outbox do
 
     latest
     |> ReplyPresentation.terminal(state, answer)
+    |> preserve_empty_stopped_answer(state, answer)
     |> preserve_terminal_field(original, "prompt")
     |> preserve_terminal_field(original, "actions")
     |> merge_terminal_meta(original)
   end
+
+  # A stopped card is useful with status and progress metadata alone. The text
+  # fallback remains available to providers that cannot render the rich card,
+  # but a late preview checkpoint must not turn that fallback concern into a
+  # fabricated CardKit answer.
+  defp preserve_empty_stopped_answer(presentation, "stopped", ""),
+    do: Map.put(presentation, "answer", "")
+
+  defp preserve_empty_stopped_answer(presentation, _state, _answer), do: presentation
 
   defp preserve_terminal_field(presentation, original, key) do
     case Map.fetch(original, key) do

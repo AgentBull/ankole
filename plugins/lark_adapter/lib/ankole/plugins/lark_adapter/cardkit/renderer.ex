@@ -144,7 +144,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
 
     primary =
       []
-      |> append(answer_element(presentation))
+      |> append(answer_element(presentation, mode))
       |> append_all(result_elements(presentation))
       |> append(actions_element(presentation, mode))
 
@@ -214,7 +214,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
 
   defp thought_element(_presentation, _mode), do: nil
 
-  defp answer_element(presentation) do
+  defp answer_element(%{"answer" => ""}, :terminal), do: nil
+
+  defp answer_element(presentation, _mode) do
     answer = presentation["answer"] || ""
 
     %{
