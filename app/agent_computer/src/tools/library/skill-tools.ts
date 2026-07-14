@@ -88,7 +88,7 @@ function createSkillViewTool(opts: CreateSkillToolsOptions): AgentTool<typeof Sk
   return {
     name: 'skill_view',
     description:
-      'Read an enabled skill file. Use SKILL.md first; read referenced files only when needed. This tool cannot enable disabled skills.',
+      'Read an enabled skill file. Read referenced files only when needed. Resolve relative paths from the returned skill directory and use absolute paths for tool calls. This tool cannot enable disabled skills.',
     schema: SkillViewParams,
     executionMode: 'parallel',
     isReadOnly: true,

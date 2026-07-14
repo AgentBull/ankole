@@ -73,15 +73,18 @@ Console 配置；不要把模型 id 或 API key 塞进 Brain 环境变量。
 | `primary` | 正常 agent turn 与 `memory_*` 工具调用 | agent 正常工作必需 |
 | `light` | dreaming 阶段 A 的情景摘要 | 全局 `brain.dreaming.model_agent_uid` 必需 |
 | `heavy` | dreaming 阶段 B 的知识归并 | 每个启用 principal 的 scoped 模型归属方必需 |
-| `embedding` | episode、知识正文块与查询向量 | 全局 `brain.dreaming.model_agent_uid` 必需；失败必须可见，BM25 仍可工作 |
+| `embedding` | episode、知识正文块与查询向量 | 共享 episode 使用全局模型归属方；知识正文块与查询可回退到 owner agent 的 profile |
 | `rerank` | 可选的检索精排 | 只在 `brain.search.rerank_enabled=true` 时配置 |
 
-全局 `brain.dreaming.model_agent_uid` 必须指向同时具有 `light` 与 `embedding`
-profile 的模型归属方；阶段 A、正文块索引和查询向量统一使用它，保证存储向量与查询
-向量可比较。每个启用阶段 B 的 principal 再通过 scoped
-`brain.dreaming.model_agent_uid` 指向具有 `heavy` profile 的模型归属方，两者可以是同一
-agent。缺 profile 是明确的 unavailable 状态，游标不能假装成功而推进。启用 rerank
-时，`brain.search` 还必须指向具有 `rerank` profile 的模型归属方。
+启用共享 channel episode 时，全局 `brain.dreaming.model_agent_uid` 应指向同时具有
+`light` 与 `embedding` profile 的模型归属方；阶段 A 和 episode 查询向量使用该
+owner。知识正文块索引和知识查询在配置了全局 owner 时同样使用它；未配置时，如果
+知识 owner 本身是具有 `embedding` profile 的 agent，则回退到该 agent。每个启用
+阶段 B 的 principal 仅在自己不是模型归属 agent 时，才需要通过 scoped
+`brain.dreaming.model_agent_uid` 指向具有 `heavy` profile 的 agent；agent owner 默认
+回退到自己的 `heavy` profile。缺 profile 是明确的 unavailable 状态，游标不能假装
+成功而推进。启用 rerank 时，`brain.search` 还必须指向具有 `rerank` profile 的模型
+归属方。
 
 ## 阶段 B 的预算与游标安全
 

@@ -1,6 +1,6 @@
 import type { TurnStart } from '../../lanes/actor_lane'
 import { runAgentLoop } from '../agent-loop'
-import { buildAgentSystemPrompt } from '../../prompts/system_prompt'
+import { systemPromptForConversation } from '../../prompts/system_prompt'
 import { createComputerTools } from '../../tools/computer'
 import { createSkillTools, type SkillFileRoots } from '../../tools/library/skill-tools'
 import { createMemoryTools } from '../../tools/memory/memory-tools'
@@ -13,7 +13,11 @@ import { assistantText, userMessage } from '../llm'
 import { currentChannelFromTurnStart, statefulTruncationFromActorEventPayload } from './actor_event_text'
 import { actorEventUserContent } from './actor_event_content'
 import { acquireTurnAIGatewayAccess } from './turn_ai_gateway_access'
-import { actorEventEnvironmentInfoLines, prependEnvironmentInfoLinesToUserMessage } from './message_context'
+import {
+  actorEventEnvironmentInfoLines,
+  prependEnvironmentInfoLinesToUserMessage,
+  turnRequestEnvironmentInfoLines
+} from './message_context'
 import { steeringMessages } from './turn_control'
 import { createTurnActivity } from './turn_activity'
 import { resolveAgentConversationContext } from './turn_context'
@@ -79,16 +83,11 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
 
     const todoStore = new TodoStore()
     const actorEvent = turnStart.actor_event
-    const prompt = prependEnvironmentInfoLinesToUserMessage(
-      userMessage(
-        await actorEventUserContent(actorEvent.payload_json, actorEvent.type, modelRef, {
-          workspaceRoot: opts.workspaceRoot,
-          visionFallbackModel,
-          abortSignal: turnActivity.signal
-        })
-      ),
-      actorEventEnvironmentInfoLines(actorEvent.payload_json, {
-        timezone: agentConversationContext.conversation?.timezone
+    const userPrompt = userMessage(
+      await actorEventUserContent(actorEvent.payload_json, actorEvent.type, modelRef, {
+        workspaceRoot: opts.workspaceRoot,
+        visionFallbackModel,
+        abortSignal: turnActivity.signal
       })
     )
 
@@ -131,13 +130,20 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       })
     ]
 
-    const systemPrompt = buildAgentSystemPrompt({
+    const promptOptions = {
       workspaceRoot: opts.workspaceRoot,
       turnStart,
       agentConversationContext,
       currentChannel: currentChannelFromTurnStart(turnStart),
       availableToolNames: tools.map(tool => tool.name)
-    })
+    }
+    const systemPrompt = systemPromptForConversation(promptOptions)
+    const prompt = prependEnvironmentInfoLinesToUserMessage(userPrompt, [
+      ...actorEventEnvironmentInfoLines(actorEvent.payload_json, {
+        timezone: agentConversationContext.conversation?.timezone
+      }),
+      ...turnRequestEnvironmentInfoLines(turnStart)
+    ])
 
     const latest = await runAgentLoop({
       model,

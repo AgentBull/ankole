@@ -1,6 +1,6 @@
 import { batch, createModel, signal } from '@preact/signals-react'
 
-export const PROFILE_NAMES = ['primary', 'light', 'heavy', 'coding', 'embedding', 'rerank'] as const
+export const PROFILE_NAMES = ['primary', 'light', 'heavy', 'coding', 'embedding', 'rerank', 'web_search'] as const
 export type ProfileName = (typeof PROFILE_NAMES)[number]
 
 export type ProfileDraft = {

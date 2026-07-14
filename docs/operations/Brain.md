@@ -81,17 +81,20 @@ keys into Brain environment variables.
 | `primary` | Normal agent turns that call `memory_*` tools | Required for the agent's normal work |
 | `light` | Dreaming stage A episode summarization | Required on the global `brain.dreaming.model_agent_uid` |
 | `heavy` | Dreaming stage B knowledge consolidation | Required on each enabled principal's scoped model owner |
-| `embedding` | Episode, knowledge-block, and query vectors | Required on the global `brain.dreaming.model_agent_uid`; failures remain visible and BM25 continues |
+| `embedding` | Episode, knowledge-block, and query vectors | Shared episodes use the global model owner; knowledge blocks and queries fall back to the owner agent's profile |
 | `rerank` | Optional search reranking | Configure only when `brain.search.rerank_enabled=true` |
 
 Set the global `brain.dreaming.model_agent_uid` to one model owner with `light`
-and `embedding` profiles. Stage A, block indexing, and query embeddings all use
-that same owner so stored and query vectors are comparable. For each principal
-whose stage B is enabled, configure its scoped `brain.dreaming.model_agent_uid`
-with a `heavy` profile; it may be the same owner. Missing profiles are an
-explicit unavailable state: cursors must not advance as if work succeeded. If
-reranking is enabled, `brain.search` must also name a model owner with a
-`rerank` profile.
+and `embedding` profiles when shared channel episodes are enabled. Stage A and
+episode query vectors use that owner. Knowledge-block indexing and knowledge
+query vectors use the same global owner when configured; when it is omitted,
+they fall back to the knowledge owner if that owner is an agent with an
+`embedding` profile. For each principal whose stage B is enabled, configure its
+scoped `brain.dreaming.model_agent_uid` with a `heavy` profile when the
+principal is not itself the model-owning agent; an agent owner otherwise falls
+back to its own `heavy` profile. Missing profiles are an explicit unavailable
+state: cursors must not advance as if work succeeded. If reranking is enabled,
+`brain.search` must also name a model owner with a `rerank` profile.
 
 ## Stage B budgeting and cursor safety
 

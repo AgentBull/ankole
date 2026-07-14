@@ -5,7 +5,7 @@
  * block is only an index, so the prompt tells the model to call `skill_view(name)`
  * when a listed skill covers work it is already about to do. The catalog can grow
  * large, so this module keeps Ankole's hard size caps and graceful degradation:
- * first count-limit, then name-only compact mode, then prefix trimming.
+ * first count-limit, then description compaction, then prefix trimming.
  */
 export type SkillPromptEntry = {
   name: string
@@ -14,12 +14,14 @@ export type SkillPromptEntry = {
   disableModelInvocation?: boolean
 }
 
-// The char cap is the real guardrail; the count cap is a cheap first cut. The
-// warning overhead reserves room for the truncation line so adding the warning
-// cannot push the block back over budget.
-const MAX_SKILLS_IN_PROMPT = 1_000
-const MAX_SKILLS_PROMPT_CHARS = 1_000_000
-const COMPACT_WARNING_OVERHEAD = 150
+// The char cap is the real guardrail; the count cap is a cheap first cut. Every
+// candidate is measured after rendering so framing and warnings stay in-budget.
+const MAX_SKILLS_IN_PROMPT = 150
+const MAX_SKILLS_PROMPT_CHARS = 18_000
+const COMPACT_DESCRIPTION_MAX_CHARS = 220
+const COMPACT_DESCRIPTION_MIN_CHARS = 4
+
+type SkillsPromptFormat = { kind: 'full' } | { kind: 'compact'; descriptionMaxChars: number }
 
 /**
  * Builds the model-visible skill index as a compact catalog under a `## Skills` heading.
@@ -29,11 +31,16 @@ const COMPACT_WARNING_OVERHEAD = 150
  * the caller omit the section entirely.
  */
 export function formatSkillsForSystemPrompt(skills: SkillPromptEntry[]): string {
-  const visibleSkills = skills.filter(skill => !skill.disableModelInvocation)
+  const visibleSkills = skills.filter(skill => !skill.disableModelInvocation).toSorted(compareSkills)
   if (visibleSkills.length === 0) return ''
 
   const limited = applySkillsPromptLimits(visibleSkills)
-  const categories = groupSkillsByCategory(limited.skills)
+  return renderSkillsPrompt(limited.skills, visibleSkills.length, limited.format)
+}
+
+/** Renders one exact prompt candidate so budget checks include all framing and warnings. */
+function renderSkillsPrompt(skills: SkillPromptEntry[], totalSkills: number, format: SkillsPromptFormat): string {
+  const categories = groupSkillsByCategory(skills)
 
   const lines = [
     '## Skills',
@@ -43,17 +50,16 @@ Before performing a task or subtask you are already going to do, call \`skill_vi
     '<available_skills>'
   ]
 
-  if (limited.truncated) lines.push(`  # Skills list truncated to ${limited.skills.length} entries.`)
+  const limitNote = skillsLimitNote(skills.length, totalSkills, format)
+  if (limitNote) lines.push(`  # ${limitNote}`)
 
   for (const [category, categorySkills] of categories) {
     lines.push(`  ${formatPromptScalar(category)}:`)
 
     for (const skill of categorySkills) {
       const name = formatPromptScalar(skill.name)
-      const description = formatPromptScalar(skill.description)
-      // In compact mode descriptions are sacrificed before entries so the model
-      // can still see as many callable skill names as possible.
-      lines.push(limited.compact || !description ? `    - ${name}` : `    - ${name}: ${description}`)
+      const description = skillDescriptionForFormat(skill.description, format)
+      lines.push(description ? `    - ${name}: ${formatPromptScalar(description)}` : `    - ${name}`)
     }
   }
 
@@ -62,65 +68,87 @@ Before performing a task or subtask you are already going to do, call \`skill_vi
 }
 
 /**
- * Fits the skill list into the budget through three escalating stages:
- * count cap, compact form, then largest-fitting-prefix search.
+ * Fits the skill list into the budget while preserving skill identities before
+ * spending the remaining space on trigger descriptions.
  */
 function applySkillsPromptLimits(skills: SkillPromptEntry[]): {
   skills: SkillPromptEntry[]
-  truncated: boolean
-  compact: boolean
+  format: SkillsPromptFormat
 } {
   const byCount = skills.slice(0, MAX_SKILLS_IN_PROMPT)
   let selected = byCount
-  let truncated = skills.length > byCount.length
-  let compact = false
+  const fits = (candidate: SkillPromptEntry[], format: SkillsPromptFormat): boolean =>
+    renderSkillsPrompt(candidate, skills.length, format).length <= MAX_SKILLS_PROMPT_CHARS
 
-  if (formatSkills(selected, false).length <= MAX_SKILLS_PROMPT_CHARS) {
-    return { skills: selected, truncated, compact }
+  if (fits(selected, { kind: 'full' })) {
+    return { skills: selected, format: { kind: 'full' } }
   }
 
-  compact = true
-  const compactBudget = MAX_SKILLS_PROMPT_CHARS - COMPACT_WARNING_OVERHEAD
-  if (formatSkills(selected, true).length <= compactBudget) {
-    return { skills: selected, truncated, compact }
-  }
+  if (!fits(selected, { kind: 'compact', descriptionMaxChars: 0 })) {
+    // The predicate is monotonic because appending a skill only grows the
+    // rendered catalog, so this finds the largest identity-only prefix.
+    let lo = 0
+    let hi = selected.length
 
-  // The predicate is monotonic because appending a skill only grows the string,
-  // so binary search finds the largest compact prefix that fits.
-  let lo = 0
-  let hi = selected.length
-
-  while (lo < hi) {
-    const mid = Math.ceil((lo + hi) / 2)
-    if (formatSkills(selected.slice(0, mid), true).length <= compactBudget) {
-      lo = mid
-    } else {
-      hi = mid - 1
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2)
+      if (fits(selected.slice(0, mid), { kind: 'compact', descriptionMaxChars: 0 })) {
+        lo = mid
+      } else {
+        hi = mid - 1
+      }
     }
+
+    selected = selected.slice(0, lo)
   }
 
-  selected = selected.slice(0, lo)
-  truncated = true
-  return { skills: selected, truncated, compact }
+  let descriptionMaxChars = 0
+  if (selected.length > 0 && fits(selected, { kind: 'compact', descriptionMaxChars: COMPACT_DESCRIPTION_MIN_CHARS })) {
+    let lo = COMPACT_DESCRIPTION_MIN_CHARS
+    let hi = COMPACT_DESCRIPTION_MAX_CHARS
+
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2)
+      if (fits(selected, { kind: 'compact', descriptionMaxChars: mid })) {
+        lo = mid
+      } else {
+        hi = mid - 1
+      }
+    }
+
+    descriptionMaxChars = lo
+  }
+
+  return { skills: selected, format: { kind: 'compact', descriptionMaxChars } }
 }
 
-/**
- * Cheap size proxy used by the budget search. It only needs to grow with the
- * same inputs as the final catalog, not reproduce it exactly.
- */
-function formatSkills(skills: SkillPromptEntry[], compact: boolean): string {
-  return skills
-    .map(skill => `${skill.category ?? 'general'}\n${skill.name}\n${compact ? '' : skill.description}`)
-    .join('\n')
+/** Explains only material catalog degradation to the model. */
+function skillsLimitNote(included: number, total: number, format: SkillsPromptFormat): string {
+  const descriptionNote =
+    format.kind === 'compact'
+      ? format.descriptionMaxChars > 0
+        ? ' Descriptions shortened.'
+        : ' Descriptions omitted.'
+      : ''
+
+  if (included < total) return `Skills list truncated to ${included} of ${total} entries.${descriptionNote}`
+  return format.kind === 'compact' ? `Skills catalog compacted.${descriptionNote}` : ''
 }
 
-/**
- * Groups and sorts skills deterministically so truncation is stable across runs.
- */
+/** Returns the full or bounded description selected by the prompt budget. */
+function skillDescriptionForFormat(description: string, format: SkillsPromptFormat): string {
+  const normalized = description.replace(/\s+/g, ' ').trim()
+  if (format.kind === 'full' || normalized.length <= format.descriptionMaxChars) return normalized
+  if (format.descriptionMaxChars === 0) return ''
+  if (format.descriptionMaxChars <= 3) return normalized.slice(0, format.descriptionMaxChars)
+  return `${normalized.slice(0, format.descriptionMaxChars - 3).trimEnd()}...`
+}
+
+/** Groups the already-sorted skills without changing their deterministic order. */
 function groupSkillsByCategory(skills: SkillPromptEntry[]): Array<[string, SkillPromptEntry[]]> {
   const grouped = new Map<string, SkillPromptEntry[]>()
 
-  for (const skill of [...skills].sort(compareSkills)) {
+  for (const skill of skills) {
     const category = skill.category?.trim() || 'general'
     const bucket = grouped.get(category)
     if (bucket) {

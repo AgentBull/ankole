@@ -71,7 +71,13 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
 
     {:ok, response} = StatefulResponses.commit_complete(response, [])
 
-    assert {:ok, %{actor_event_id: "event-retry", message_id: message_id, text: "retry me"}} =
+    assert {:ok,
+            %{
+              actor_event_id: "event-retry",
+              message_id: message_id,
+              status: "complete",
+              text: "retry me"
+            }} =
              Repo.transact(fn repo ->
                AIGatewayLink.retry_source_in_tx(
                  repo,
@@ -81,6 +87,76 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
              end)
 
     assert message_id == response.id
+  end
+
+  test "retracts only the current actor-correlated visible suffix" do
+    %{principal: subject} = agent_fixture()
+    {:ok, conversation} = StatefulResponses.ensure_conversation(subject.uid, "link-retry-retract")
+
+    {:ok, predecessor} =
+      start_response(subject.uid, conversation.id, %{"actor_event_id" => "event-before"})
+
+    {:ok, predecessor} = StatefulResponses.commit_complete(predecessor, [])
+
+    {:ok, first} =
+      StatefulResponses.start_response_run(%{
+        subject_uid: subject.uid,
+        previous_response_id: "resp_#{predecessor.id}",
+        metadata: %{"request_metadata" => %{"actor_event_id" => "event-retry"}}
+      })
+
+    {:ok, first} = StatefulResponses.commit_complete(first, [])
+
+    {:ok, second} =
+      StatefulResponses.start_response_run(%{
+        subject_uid: subject.uid,
+        previous_response_id: "resp_#{first.id}",
+        metadata: %{"request_metadata" => %{"actor_event_id" => "event-retry"}}
+      })
+
+    {:ok, second} = StatefulResponses.commit_complete(second, [])
+
+    assert {:ok, %{status: :retracted, retracted_count: 2}} =
+             Repo.transact(fn repo ->
+               AIGatewayLink.retract_visible_turn_suffix_in_tx(
+                 repo,
+                 subject.uid,
+                 conversation.conversation_key,
+                 "event-retry",
+                 DateTime.utc_now(:microsecond)
+               )
+             end)
+
+    assert Repo.get!(Message, predecessor.id).status == "complete"
+    assert Repo.get!(Message, first.id).status == "retracted"
+    assert Repo.get!(Message, second.id).status == "retracted"
+    assert StatefulResponses.latest_visible_leaf(conversation.id) == predecessor.id
+  end
+
+  test "reads the exact system prompt from the conversation's first provider run" do
+    %{principal: subject} = agent_fixture()
+    {:ok, conversation} = StatefulResponses.ensure_conversation(subject.uid, "link-system-prompt")
+
+    {:ok, first} =
+      StatefulResponses.start_response_run(%{
+        subject_uid: subject.uid,
+        conversation_id: conversation.id,
+        metadata: %{"instructions" => "first prompt\nkept byte-for-byte"}
+      })
+
+    {:ok, first} = StatefulResponses.commit_complete(first, [])
+
+    {:ok, second} =
+      StatefulResponses.start_response_run(%{
+        subject_uid: subject.uid,
+        previous_response_id: "resp_#{first.id}",
+        metadata: %{"instructions" => "later rebuilt prompt"}
+      })
+
+    {:ok, _second} = StatefulResponses.commit_complete(second, [])
+
+    assert AIGatewayLink.system_prompt_snapshot(conversation) ==
+             "first prompt\nkept byte-for-byte"
   end
 
   test "selects an actor-correlated visible suffix before calling generic deletion" do

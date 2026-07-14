@@ -90,6 +90,29 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   end
 
   @doc false
+  @spec system_prompt_snapshot(Conversation.t()) :: String.t() | nil
+  def system_prompt_snapshot(%Conversation{id: conversation_id}) do
+    Message
+    |> where([message], message.conversation_id == ^conversation_id)
+    |> where([message], message.type == "message")
+    |> where(
+      [message],
+      fragment("jsonb_typeof(?->'instructions') = 'string'", message.metadata)
+    )
+    |> order_by([message], asc: message.inserted_at, asc: message.id)
+    |> limit(1)
+    |> select([message], message.metadata)
+    |> Repo.one()
+    |> case do
+      %{"instructions" => instructions} when is_binary(instructions) and instructions != "" ->
+        instructions
+
+      _missing ->
+        nil
+    end
+  end
+
+  @doc false
   @spec active_conversation_for_update(module(), String.t(), String.t()) ::
           Conversation.t() | nil
   def active_conversation_for_update(repo, subject_uid, conversation_key),
@@ -401,7 +424,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
              statuses: ["complete", "error"]
            ) do
       responses
-      |> Enum.take(20)
+      |> Enum.take(@max_chain_depth)
       |> Enum.find_value(&retry_source_from_response/1)
       |> case do
         %{text: text} = source when is_binary(text) and text != "" -> {:ok, source}
@@ -434,6 +457,30 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
 
       nil ->
         {:ok, suffix_delete_noop(:conversation_not_found)}
+    end
+  end
+
+  @doc false
+  @spec retract_visible_turn_suffix_in_tx(
+          module(),
+          String.t(),
+          String.t(),
+          String.t(),
+          DateTime.t()
+        ) :: {:ok, map()} | {:error, term()}
+  def retract_visible_turn_suffix_in_tx(
+        repo,
+        subject_uid,
+        conversation_key,
+        actor_event_id,
+        %DateTime{} = now
+      ) do
+    case active_conversation_for_update(repo, subject_uid, conversation_key) do
+      %Conversation{} = conversation ->
+        retract_visible_turn_suffix(repo, conversation, actor_event_id, now)
+
+      nil ->
+        {:ok, suffix_retraction_noop(:conversation_not_found)}
     end
   end
 
@@ -563,6 +610,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
       %{
         actor_event_id: actor_event_id,
         message_id: response.id,
+        status: response.status,
         text: text
       }
     else
@@ -625,21 +673,12 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
              lock: true
            ) do
       complete_responses = Enum.filter(responses, &(&1.status == "complete"))
-      suffix = visible_actor_suffix(complete_responses, actor_event_id)
-      visible_chain = current_visible_chain(complete_responses)
 
-      case suffix do
-        [] ->
-          reason =
-            if Enum.any?(visible_chain, &(response_actor_event_id(&1) == actor_event_id)) do
-              :not_visible_tail
-            else
-              :actor_event_not_visible
-            end
-
+      case select_visible_actor_suffix(complete_responses, actor_event_id) do
+        {:noop, reason} ->
           {:ok, suffix_delete_noop(reason)}
 
-        [_response | _rest] ->
+        {:ok, suffix} ->
           generating_responses =
             Enum.filter(responses, fn response ->
               response.status == "generating" and
@@ -677,6 +716,53 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
              })}
           end
       end
+    end
+  end
+
+  defp retract_visible_turn_suffix(repo, %Conversation{} = conversation, actor_event_id, now) do
+    with {:ok, responses} <-
+           AIGateway.list_conversation_responses_in_tx(
+             repo,
+             conversation.subject_uid,
+             conversation.id,
+             statuses: ["complete"],
+             lock: true
+           ) do
+      case select_visible_actor_suffix(responses, actor_event_id) do
+        {:noop, reason} ->
+          {:ok, suffix_retraction_noop(reason)}
+
+        {:ok, suffix} ->
+          AIGateway.retract_visible_suffix_in_tx(
+            repo,
+            conversation.subject_uid,
+            conversation.id,
+            Enum.map(suffix, &response_id/1),
+            reason: "command.retry",
+            retracted_at: now
+          )
+      end
+    end
+  end
+
+  defp select_visible_actor_suffix(complete_responses, actor_event_id) do
+    suffix = visible_actor_suffix(complete_responses, actor_event_id)
+
+    case suffix do
+      [] ->
+        visible_chain = current_visible_chain(complete_responses)
+
+        reason =
+          if Enum.any?(visible_chain, &(response_actor_event_id(&1) == actor_event_id)) do
+            :not_visible_tail
+          else
+            :actor_event_not_visible
+          end
+
+        {:noop, reason}
+
+      [_response | _rest] ->
+        {:ok, suffix}
     end
   end
 
@@ -767,6 +853,15 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
       reason: reason,
       deleted_message_ids: [],
       deleted_count: 0
+    }
+  end
+
+  defp suffix_retraction_noop(reason) do
+    %{
+      status: :noop,
+      reason: reason,
+      retracted_message_ids: [],
+      retracted_count: 0
     }
   end
 

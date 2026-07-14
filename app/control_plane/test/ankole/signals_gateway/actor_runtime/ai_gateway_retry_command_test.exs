@@ -180,7 +180,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
     assert %DateTime{} = Repo.get!(ActorEvent, retry_command.id).completed_at
   end
 
-  test "retry command after a completed response appends a retry input without command feedback" do
+  test "retry command retracts the completed response before appending a regeneration input" do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :ignore)
 
@@ -218,6 +218,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
     assert retry_entry["retry_of_actor_event_id"] == input.id
     assert retry_entry["retry_of_message_id"] == completed.id
 
+    retracted = Repo.get!(Ankole.AIGateway.Schemas.Message, completed.id)
+    assert retracted.status == "retracted"
+    assert retracted.metadata["retraction"]["reason"] == "command.retry"
+
     assert %DateTime{} = Repo.get!(ActorEvent, retry_command.id).completed_at
 
     refute Repo.exists?(
@@ -235,6 +239,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
     retry_actor_event = retry_envelope["body"]["turn_start"]["actor_event"]
     assert retry_actor_event["actor_event_id"] == retry_event.id
     assert retry_actor_event["payload_json"]["data"]["entry"]["text"] == "PING"
+
+    {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, input.session_id)
+    assert is_nil(StatefulResponses.latest_visible_leaf(conversation.id))
   end
 
   test "retry command cancels the active AIGateway generating row and retries the actor event" do

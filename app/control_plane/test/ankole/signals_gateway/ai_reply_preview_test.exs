@@ -377,6 +377,52 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert is_binary(checkpoint["conversation_id"])
   end
 
+  test "stop drains an in-flight rich provider mutation before terminal outbox takes over" do
+    %{subject: subject, actor_event: actor_event} = addressed_actor_event("rich-stop-drain")
+    %{pid: pid} = start_dispatched_preview(subject.uid, actor_event)
+    owner = self()
+
+    adapter = %ReplyPreviewAdapter{
+      open_fun: fn _request -> {:ok, %{}} end,
+      update_fun: fn _request ->
+        send(owner, {:rich_update_started, self()})
+
+        receive do
+          :finish_rich_update -> {:ok, %{}}
+        end
+      end,
+      finalize_fun: fn _request -> {:ok, %{}} end
+    }
+
+    :sys.replace_state(pid, fn state ->
+      %{state | reply_preview_adapter: adapter, silent_rich_pending: false}
+    end)
+
+    assert :ok =
+             AIReplyPreview.presentation_event(actor_event.id, %{
+               "kind" => "plan.snapshot",
+               "payload" => %{
+                 "operation_id" => "todo",
+                 "revision" => 1,
+                 "items" => [
+                   %{"id" => "inspect", "content" => "检查卡片", "status" => "in_progress"}
+                 ]
+               }
+             })
+
+    assert :sys.get_state(pid).dirty
+    send(pid, :flush_edit)
+    assert_receive {:rich_update_started, task_pid}
+
+    monitor = Process.monitor(pid)
+    assert :ok = AIReplyPreview.stop(actor_event.id)
+    refute_receive {:DOWN, ^monitor, :process, ^pid, _reason}, 100
+    assert Process.alive?(task_pid)
+
+    send(task_pid, :finish_rich_update)
+    assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}
+  end
+
   defp addressed_actor_event(suffix) do
     %{principal: subject} = agent_fixture()
     binding_fixture(subject.uid, "mock", :ignore, adapter: "mock-provider")

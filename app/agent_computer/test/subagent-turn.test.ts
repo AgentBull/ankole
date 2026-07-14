@@ -99,6 +99,7 @@ describe('@ankole/agent-computer subagent turn', () => {
         codex_user_agent: 'codex-cli 0.144.0',
         browser_execution_scope: `subagent:${delegationID}`,
         projected_tool_names: [
+          'web_search',
           'web_fetch',
           'browser_navigate',
           'browser_snapshot',

@@ -838,6 +838,41 @@ defmodule Ankole.AIGateway.StatefulResponses do
     end
   end
 
+  @doc """
+  Retracts an explicitly selected, contiguous visible response suffix.
+
+  Unlike hard deletion, retraction preserves every row as an audit fact while
+  excluding it from future history expansion and automatic continuation.
+  `response_ids` must be ordered newest-first and exactly match the current
+  complete leaf suffix.
+  """
+  @spec retract_visible_suffix_in_tx(
+          module(),
+          String.t(),
+          binary(),
+          [binary()],
+          keyword()
+        ) ::
+          {:ok,
+           %{
+             required(:status) => :retracted | :noop,
+             required(:retracted_message_ids) => [binary()],
+             required(:retracted_count) => non_neg_integer(),
+             optional(:reason) => atom()
+           }}
+          | {:error, term()}
+  def retract_visible_suffix_in_tx(repo, subject_uid, conversation_id, response_ids, opts \\ []) do
+    with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid),
+         {:ok, conversation_id} <- cast_uuid(conversation_id),
+         {:ok, message_ids} <- decode_response_ids(response_ids),
+         %Conversation{} <- lock_owned_conversation(repo, subject_uid, conversation_id) do
+      retract_visible_suffix(repo, conversation_id, message_ids, opts)
+    else
+      nil -> {:ok, tail_retraction_noop(:conversation_not_found)}
+      {:error, _reason} -> {:error, :invalid_response_suffix}
+    end
+  end
+
   defp latest_visible_leaf_for_uuid(repo, conversation_id) do
     Message
     |> where([message], message.conversation_id == ^conversation_id)
@@ -868,9 +903,63 @@ defmodule Ankole.AIGateway.StatefulResponses do
     do: {:ok, tail_delete_noop(:empty_suffix)}
 
   defp delete_visible_suffix(repo, conversation_id, message_ids) do
+    case validate_current_visible_suffix(repo, conversation_id, message_ids) do
+      :ok ->
+        {deleted_count, _} =
+          Message
+          |> where([message], message.id in ^message_ids)
+          |> repo.delete_all()
+
+        {:ok,
+         %{
+           status: :deleted,
+           deleted_message_ids: message_ids,
+           deleted_count: deleted_count
+         }}
+
+      {:noop, reason} ->
+        {:ok, tail_delete_noop(reason)}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp retract_visible_suffix(_repo, _conversation_id, [], _opts),
+    do: {:ok, tail_retraction_noop(:empty_suffix)}
+
+  defp retract_visible_suffix(repo, conversation_id, message_ids, opts) do
+    case validate_current_visible_suffix(repo, conversation_id, message_ids) do
+      :ok ->
+        retraction = %{
+          "reason" => Keyword.get(opts, :reason, "unspecified"),
+          "retracted_at" =>
+            opts
+            |> Keyword.get(:retracted_at, DateTime.utc_now(:microsecond))
+            |> DateTime.to_iso8601()
+        }
+
+        with {:ok, retracted} <- retract_response_rows(repo, message_ids, retraction) do
+          {:ok,
+           %{
+             status: :retracted,
+             retracted_message_ids: message_ids,
+             retracted_count: length(retracted)
+           }}
+        end
+
+      {:noop, reason} ->
+        {:ok, tail_retraction_noop(reason)}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp validate_current_visible_suffix(repo, conversation_id, message_ids) do
     case latest_visible_leaf_for_uuid(repo, conversation_id) do
       nil ->
-        {:ok, tail_delete_noop(:no_visible_leaf)}
+        {:noop, :no_visible_leaf}
 
       leaf_id ->
         visible_suffix =
@@ -880,27 +969,42 @@ defmodule Ankole.AIGateway.StatefulResponses do
 
         cond do
           visible_suffix != message_ids ->
-            {:ok, tail_delete_noop(:not_visible_suffix)}
+            {:noop, :not_visible_suffix}
 
-          not deletable_response_rows?(repo, conversation_id, message_ids) ->
+          not complete_response_rows?(repo, conversation_id, message_ids) ->
             {:error, :invalid_response_suffix}
 
           response_suffix_has_external_children?(repo, conversation_id, message_ids) ->
             {:error, :response_suffix_has_descendants}
 
           true ->
-            {deleted_count, _} =
-              Message
-              |> where([message], message.id in ^message_ids)
-              |> repo.delete_all()
-
-            {:ok,
-             %{
-               status: :deleted,
-               deleted_message_ids: message_ids,
-               deleted_count: deleted_count
-             }}
+            :ok
         end
+    end
+  end
+
+  defp retract_response_rows(repo, message_ids, retraction) do
+    messages =
+      Message
+      |> where([message], message.id in ^message_ids)
+      |> lock("FOR UPDATE")
+      |> repo.all()
+      |> Map.new(&{&1.id, &1})
+
+    Enum.reduce_while(message_ids, {:ok, []}, fn message_id, {:ok, retracted} ->
+      message = Map.fetch!(messages, message_id)
+      metadata = Map.put(message.metadata || %{}, "retraction", retraction)
+
+      case message
+           |> Message.changeset(%{status: "retracted", metadata: metadata})
+           |> repo.update() do
+        {:ok, message} -> {:cont, {:ok, [message | retracted]}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, retracted} -> {:ok, Enum.reverse(retracted)}
+      {:error, _reason} = error -> error
     end
   end
 
@@ -912,7 +1016,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
     |> repo.one()
   end
 
-  defp deletable_response_rows?(repo, conversation_id, message_ids) do
+  defp complete_response_rows?(repo, conversation_id, message_ids) do
     count =
       Message
       |> where([message], message.id in ^message_ids)
@@ -959,6 +1063,15 @@ defmodule Ankole.AIGateway.StatefulResponses do
       reason: reason,
       deleted_message_ids: [],
       deleted_count: 0
+    }
+  end
+
+  defp tail_retraction_noop(reason) do
+    %{
+      status: :noop,
+      reason: reason,
+      retracted_message_ids: [],
+      retracted_count: 0
     }
   end
 

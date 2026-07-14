@@ -3,7 +3,12 @@ import type {
   AiGatewayProviderItem as AIGatewayProviderItem,
   AiGatewayProviderKindItem as AIGatewayProviderKindItem
 } from '../api/generated/types.gen'
-import { modelOptionsForProfile, providersForProfile } from '../pages/model-profile-options'
+import {
+  modelOptionsForProfile,
+  modelProfileRequestFields,
+  profileUsesConfigurableModel,
+  providersForProfile
+} from '../pages/model-profile-options'
 
 function provider(providerID: string, providerKind: string): AIGatewayProviderItem {
   return {
@@ -30,12 +35,30 @@ function kind(providerKind: string, capabilities: string[]): AIGatewayProviderKi
 }
 
 describe('model profile options', () => {
+  test('keeps web search provider-only while adapting the backend write contract', () => {
+    expect(profileUsesConfigurableModel('web_search')).toBe(false)
+    expect(modelProfileRequestFields('web_search', { model: 'ignored', contextLength: '131072' })).toEqual({
+      model: 'default'
+    })
+    expect(modelProfileRequestFields('primary', { model: 'gpt-5', contextLength: '131072' })).toEqual({
+      model: 'gpt-5',
+      context_length: 131072
+    })
+  })
+
   test('filters configured providers by the profile capability declared in ProviderDSL', () => {
-    const providers = [provider('openai-main', 'openai'), provider('jina-main', 'jina')]
-    const kinds = [kind('openai', ['llm']), kind('jina', ['embedding', 'rerank'])]
+    const providers = [
+      provider('openai-main', 'openai'),
+      provider('jina-main', 'jina'),
+      provider('jina-search-main', 'jina_search')
+    ]
+    const kinds = [kind('openai', ['llm']), kind('jina', ['embedding', 'rerank']), kind('jina_search', ['web_search'])]
 
     expect(providersForProfile(providers, kinds, 'primary').map(item => item.provider_id)).toEqual(['openai-main'])
     expect(providersForProfile(providers, kinds, 'embedding').map(item => item.provider_id)).toEqual(['jina-main'])
+    expect(providersForProfile(providers, kinds, 'web_search').map(item => item.provider_id)).toEqual([
+      'jina-search-main'
+    ])
   })
 
   test('turns catalog selectors into provider-local model choices', () => {

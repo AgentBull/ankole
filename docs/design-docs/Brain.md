@@ -627,6 +627,12 @@ The operator configures a model-owning Principal. Stage A resolves that Principa
 `light` and `embedding` profiles. Missing configuration reports unavailable and does
 not advance the cursor.
 
+Knowledge-block indexing and knowledge query vectors share one model-owner resolver.
+They use the global Stage A model owner when one is configured and otherwise fall back
+to the knowledge owner when it is an agent with an `embedding` profile. The provider
+and model remain ModelProfiles data; `brain.dreaming` stores policy and an optional
+agent-owner override, not an upstream model id.
+
 **Stage B: Principal-level knowledge consolidation.** Stage B runs by default at local
 04:30 for enabled Principals. The schedule is configurable and independent from Actor
 Runtime daily reset.

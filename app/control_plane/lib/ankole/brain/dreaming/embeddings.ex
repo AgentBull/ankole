@@ -8,36 +8,49 @@ defmodule Ankole.Brain.Dreaming.Embeddings do
   alias Ankole.Brain.Schemas.EntryBlock
   alias Ankole.Repo
 
-  @spec status() :: {:ok, map()} | {:unavailable, String.t()}
-  def status do
-    case Embedding.resolve_model_agent_uid() do
-      {:ok, model_uid} -> {:ok, %{"model_agent_uid" => model_uid}}
-      {:error, :brain_dreaming_disabled} -> {:unavailable, "brain.dreaming disabled"}
-      {:error, _reason} -> {:unavailable, "brain.dreaming embedding model is not configured"}
-    end
-  end
-
   @spec embed_pending_blocks(non_neg_integer()) ::
           {:ok, non_neg_integer()} | {:unavailable, String.t()}
   def embed_pending_blocks(limit \\ 50) when is_integer(limit) and limit >= 0 do
-    with {:ok, %{"model_agent_uid" => model_uid}} <- status() do
-      blocks =
-        EntryBlock
-        |> join(:inner, [block], entry in Entry, on: entry.id == block.entry_id)
-        |> where([block, _entry], block.embedding_state == :pending)
-        |> order_by([block, _entry], asc: block.updated_at, asc: block.id)
-        |> limit(^limit)
-        |> select([block, entry], %{
-          id: block.id,
-          name: entry.name,
-          type: entry.type,
-          body: block.body,
-          lock_version: block.lock_version
-        })
-        |> Repo.all()
+    blocks =
+      EntryBlock
+      |> join(:inner, [block], entry in Entry, on: entry.id == block.entry_id)
+      |> where([block, _entry], block.embedding_state == :pending)
+      |> order_by([block, _entry], asc: block.updated_at, asc: block.id)
+      |> limit(^limit)
+      |> select([block, entry], %{
+        id: block.id,
+        owner_uid: block.owner_uid,
+        name: entry.name,
+        type: entry.type,
+        body: block.body,
+        lock_version: block.lock_version
+      })
+      |> Repo.all()
 
-      Enum.each(blocks, &embed_block(model_uid, &1))
-      {:ok, length(blocks)}
+    model_by_owner =
+      blocks
+      |> Enum.map(& &1.owner_uid)
+      |> Enum.uniq()
+      |> Map.new(&{&1, Embedding.resolve_model_agent_uid(&1)})
+
+    {attempted_count, unavailable} =
+      Enum.reduce(blocks, {0, []}, fn block, {count, unavailable} ->
+        case Map.fetch!(model_by_owner, block.owner_uid) do
+          {:ok, model_uid} ->
+            embed_block(model_uid, block)
+            {count + 1, unavailable}
+
+          {:error, reason} ->
+            {count, [{block.owner_uid, reason} | unavailable]}
+        end
+      end)
+
+    case {attempted_count, unavailable} do
+      {0, [{owner_uid, reason} | _rest]} ->
+        {:unavailable, "brain embedding unavailable for #{owner_uid}: #{inspect(reason)}"}
+
+      _result ->
+        {:ok, attempted_count}
     end
   end
 

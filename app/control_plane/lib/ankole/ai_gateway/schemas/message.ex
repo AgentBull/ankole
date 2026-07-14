@@ -13,8 +13,8 @@ defmodule Ankole.AIGateway.Schemas.Message do
     - `status = "generating"`: a provider response is still in progress.
     - `status = "complete"`: row can enter normal model-chain projection.
     - `status = "error"`: terminal failure; content/metadata.error preserves audit facts.
-    - `status = "retracted"`: reserved for future audit/recovery facts and
-      excluded from normal history/anchor when present.
+    - `status = "retracted"`: superseded response preserved for audit and
+      excluded from normal history/anchor projection.
   """
 
   use Ecto.Schema
@@ -37,8 +37,8 @@ defmodule Ankole.AIGateway.Schemas.Message do
   # Row-level type separates ordinary message facts from compaction checkpoints.
   @types ~w(message checkpoint)
   # A message row is `generating` while still in an active Responses loop,
-  # `complete` once final, `error` on terminal failure, or `retracted` for
-  # future audit/recovery facts. v1 IM deletion does not write `retracted`.
+  # `complete` once final, `error` on terminal failure, or `retracted` after a
+  # user-requested regeneration supersedes a completed visible suffix.
   @statuses ~w(generating complete error retracted)
 
   schema "ai_gateway_messages" do

@@ -7,15 +7,15 @@ defmodule Ankole.Brain.Embedding do
 
   @float32_max 3.4028234663852886e38
 
-  @spec resolve_model_agent_uid() :: {:ok, String.t()} | {:error, term()}
-  def resolve_model_agent_uid do
-    with {:ok, %{"enabled" => enabled, "model_agent_uid" => model_uid}}
-         when enabled in [nil, true] and is_binary(model_uid) <- Config.dreaming(),
+  @spec resolve_model_agent_uid(String.t()) :: {:ok, String.t()} | {:error, term()}
+  def resolve_model_agent_uid(fallback_agent_uid) when is_binary(fallback_agent_uid) do
+    with {:ok, %{"enabled" => enabled} = config} when enabled in [nil, true] <-
+           Config.dreaming(),
+         model_uid = config["model_agent_uid"] || fallback_agent_uid,
          {:ok, _profile} <- ModelProfiles.resolve_runtime_profile(model_uid, "embedding") do
       {:ok, model_uid}
     else
       {:ok, %{"enabled" => false}} -> {:error, :brain_dreaming_disabled}
-      {:ok, _config} -> {:error, :brain_embedding_model_not_configured}
       {:error, reason} -> {:error, {:brain_embedding_model_not_configured, reason}}
     end
   end

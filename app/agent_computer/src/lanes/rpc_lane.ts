@@ -196,6 +196,8 @@ export type AgentConversationContext = {
   }
   soul?: string
   mission?: string
+  /** Exact system instructions captured by the first stored Response in this conversation. */
+  system_prompt_snapshot?: string
   brain_snapshot?: RuntimeBrainSnapshot
   skills?: RuntimeSkillSummary[]
 }

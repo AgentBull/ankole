@@ -184,7 +184,7 @@ function createMemorySearchTool(
   return {
     name: 'memory_search',
     description:
-      'Search Brain chat history, curated knowledge, or both. Knowledge hits are returned before chat hits. Use channel_scope=all_channels only when cross-channel history is needed; unavailable routes are reported explicitly.',
+      'Search Brain chat history, curated knowledge, or both when the current conversation and saved durable context do not establish the answer, or when newer state or exact provenance matters. Knowledge hits are returned before chat hits. Use channel_scope=all_channels only when cross-channel history is needed. Check status, result_completeness, and degraded_reasons before trusting the result: an incomplete empty result does not prove that no matching memory exists. Narrow or change the search route when useful, otherwise state the retrieval limitation instead of guessing.',
     schema: MemorySearchParams,
     executionMode: 'sequential',
     isReadOnly: true,

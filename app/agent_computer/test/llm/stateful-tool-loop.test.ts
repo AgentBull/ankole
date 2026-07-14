@@ -3,6 +3,7 @@ import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import { z } from 'zod'
 import { runAgentLoop } from '../../src/core/agent-loop'
 import { createModel } from '../../src/core/llm'
+import { createClarifyTool } from '../../src/tools/clarify/clarify-tool'
 import {
   FakeResponseSocket,
   fakeResponseSocket,
@@ -12,6 +13,94 @@ import {
 } from '../support/llm'
 
 describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations', () => {
+  it('records a turn-ending clarify result without making another empty model call', async () => {
+    const sentPayloads: JSONObject[] = []
+    let sideEffectCalls = 0
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
+            const payload = JSON.parse(data) as JSONObject
+            sentPayloads.push(payload)
+
+            if (payload.type === 'response.tool_results.record') {
+              return [toolResultsRecordedFrame('resp_clarify_result')]
+            }
+
+            if (sentPayloads.filter(sent => sent.type === 'response.create').length > 1) {
+              throw new Error('clarify must not trigger another model call')
+            }
+
+            return [
+              {
+                type: 'response.completed',
+                response: {
+                  id: 'resp_clarify_call',
+                  status: 'completed',
+                  output: [
+                    {
+                      type: 'function_call',
+                      id: 'fc_clarify',
+                      call_id: 'call_clarify',
+                      name: 'clarify',
+                      arguments: '{"question":"Which market?","choices":["A shares","US stocks"]}'
+                    },
+                    {
+                      type: 'function_call',
+                      id: 'fc_after_clarify',
+                      call_id: 'call_after_clarify',
+                      name: 'side_effect',
+                      arguments: '{}'
+                    }
+                  ]
+                }
+              }
+            ]
+          })
+      }
+    })
+
+    const final = await runAgentLoop({
+      model,
+      maxModelIterations: 90,
+      messages: [{ role: 'user', content: 'analyze the market' }],
+      stateful: {
+        actorEventID: '00000000-0000-0000-0000-000000000012',
+        conversationID: '12121212-1212-1212-1212-121212121212'
+      },
+      tools: [
+        createClarifyTool(),
+        {
+          name: 'side_effect',
+          description: 'A side effect that must not run after a turn-ending result.',
+          schema: z.object({}),
+          executionMode: 'sequential',
+          isReadOnly: false,
+          isDestructive: true,
+          execute: async () => {
+            sideEffectCalls += 1
+            return { content: [{ type: 'text' as const, text: 'changed' }], details: { ok: true } }
+          }
+        }
+      ]
+    })
+
+    expect(final.responseID).toBe('resp_clarify_result')
+    expect(sideEffectCalls).toBe(0)
+    expect(sentPayloads.map(payload => payload.type)).toEqual(['response.create', 'response.tool_results.record'])
+    expect(sentPayloads[1]).toMatchObject({
+      previous_response_id: 'resp_clarify_call',
+      input: [{ type: 'function_call_output', call_id: 'call_clarify' }]
+    })
+    expect(sentPayloads[1]!.input).toHaveLength(1)
+  })
+
   it('anchors stateful tool-loop continuations without replaying local transcript', async () => {
     const sentPayloads: JSONObject[] = []
     const sockets: FakeResponseSocket[] = []

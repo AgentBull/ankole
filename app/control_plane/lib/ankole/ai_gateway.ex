@@ -170,6 +170,16 @@ defmodule Ankole.AIGateway do
               ),
               to: StatefulResponses
 
+  @doc false
+  defdelegate retract_visible_suffix_in_tx(
+                repo,
+                subject_uid,
+                conversation_id,
+                response_ids,
+                opts \\ []
+              ),
+              to: StatefulResponses
+
   @doc """
   Subscribes to generic live events after validating conversation ownership.
   """

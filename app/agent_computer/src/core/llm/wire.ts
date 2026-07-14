@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer'
+import { createHash } from 'node:crypto'
 import { match, P, type JsonObject as JSONObject } from '@pleisto/active-support'
 import type {
   ResponseCreateParams,
@@ -15,27 +16,52 @@ import type {
 } from './types'
 import { zodToJSONSchema } from './tool-schema'
 
+const PROMPT_CACHE_ROUTING_PREFIX_CHARACTERS = 4_096
+
 export function buildResponseCreateParams(model: ModelConfig, options: CallModelOptions): ResponseCreateParams {
   const input = toResponseInput(options.messages)
   const tools = options.tools
-    ? Object.values(options.tools).map(t => ({
-        type: 'function' as const,
-        name: t.name,
-        description: t.description,
-        parameters: zodToJSONSchema(t.parameters),
-        strict: false
-      }))
+    ? Object.values(options.tools)
+        .toSorted((left, right) => left.name.localeCompare(right.name))
+        .map(t => ({
+          type: 'function' as const,
+          name: t.name,
+          description: t.description,
+          parameters: zodToJSONSchema(t.parameters),
+          strict: false
+        }))
     : undefined
+  const promptCacheKey = reusablePromptCacheKey(options.instructions, tools)
 
   return {
     model: model.selector,
     input,
     ...(options.instructions ? { instructions: options.instructions } : {}),
     ...(tools?.length ? { tools } : {}),
+    ...(promptCacheKey ? { prompt_cache_key: promptCacheKey } : {}),
     ...(options.maxOutputTokens ? { max_output_tokens: options.maxOutputTokens } : {}),
     ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
     ...(options.text ? { text: options.text } : {})
   }
+}
+
+/**
+ * Routes requests that share a long leading instruction/tool prefix together.
+ *
+ * This is a routing hint, not the cache identity: the provider still requires
+ * an exact prefix match. Hashing only the leading cacheable region lets
+ * conversation-specific suffixes share a route without weakening correctness.
+ * User messages stay out of the key because they are the dynamic suffix.
+ */
+export function reusablePromptCacheKey(
+  instructions: string | undefined,
+  tools: unknown[] | undefined
+): string | undefined {
+  if (!instructions && !tools?.length) return undefined
+
+  const renderedPrefix = JSON.stringify({ instructions: instructions ?? '', tools: tools ?? [] })
+  const routingPrefix = renderedPrefix.slice(0, PROMPT_CACHE_ROUTING_PREFIX_CHARACTERS)
+  return `ankole_${createHash('sha256').update(routingPrefix).digest('hex').slice(0, 32)}`
 }
 
 export function toResponseInput(messages: Message[]): ResponseInputItem[] {

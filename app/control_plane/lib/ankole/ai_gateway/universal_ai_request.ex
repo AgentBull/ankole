@@ -184,8 +184,9 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
           t() | [{binary(), binary()}]
   def bearer_auth(request_or_headers, credential_or_key \\ :api_key)
 
-  def bearer_auth(%__MODULE__{} = request, key) when is_atom(key),
-    do: bearer_auth(request, setting(request.ctx, key))
+  def bearer_auth(%__MODULE__{} = request, key) when is_atom(key) do
+    put_header(request, "authorization", bearer_value(setting(request.ctx, key)))
+  end
 
   def bearer_auth(%__MODULE__{} = request, credential),
     do: put_header(request, "authorization", bearer_value(credential))
@@ -203,8 +204,9 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
           t() | [{binary(), binary()}]
   def api_key_header(request_or_headers, name, credential_or_key \\ :api_key)
 
-  def api_key_header(%__MODULE__{} = request, name, key) when is_atom(key),
-    do: api_key_header(request, name, setting(request.ctx, key))
+  def api_key_header(%__MODULE__{} = request, name, key) when is_atom(key) do
+    put_header(request, name, setting(request.ctx, key))
+  end
 
   def api_key_header(%__MODULE__{} = request, name, credential),
     do: put_header(request, name, credential)

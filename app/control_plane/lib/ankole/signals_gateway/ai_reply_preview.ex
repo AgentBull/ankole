@@ -289,6 +289,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       rich_task_presentation: nil,
       rich_retry_ms: 1_000,
       rich_retry_at: nil,
+      stopping: false,
       silent_success_allowed: ScheduledTurn.silent_success_allowed?(event),
       # Worker phase and tool events arrive before a quiet scheduled turn can
       # choose `<silent_success/>`. Do not let those events open a visible card.
@@ -301,10 +302,9 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
   @impl GenServer
   def handle_cast(:stop, state) do
-    shutdown_rich_task(state.rich_task)
-    checkpoint_latest_rich_presentation(state)
-
-    {:stop, :normal, %{state | rich_task: nil, rich_task_presentation: nil, dirty: false}}
+    state
+    |> Map.merge(%{stopping: true, rich_retry_at: nil})
+    |> settle_rich_stop()
   end
 
   def handle_cast(:cleanup_thought, %{reply_preview_adapter: %ReplyPreviewAdapter{}} = state) do
@@ -349,6 +349,17 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   end
 
   @impl GenServer
+  def handle_info(:flush_edit, %{stopping: true} = state) do
+    case settle_rich_stop(state) do
+      {:noreply, _state} = result ->
+        Process.send_after(self(), :flush_edit, @cardkit_flush_interval_ms)
+        result
+
+      {:stop, _reason, _state} = result ->
+        result
+    end
+  end
+
   def handle_info(:flush_edit, state) do
     if match?(%ReplyPreviewAdapter{}, state.reply_preview_adapter) do
       state = maybe_start_rich_sync(state)
@@ -361,11 +372,15 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
   def handle_info({ref, result}, %{rich_task: %Task{ref: ref}} = state) do
     Process.demonitor(ref, [:flush])
-    {:noreply, finish_rich_sync(state, result)}
+    state = finish_rich_sync(state, result)
+
+    if state.stopping, do: settle_rich_stop(state), else: {:noreply, state}
   end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{rich_task: %Task{ref: ref}} = state) do
-    {:noreply, finish_rich_sync(state, {:error, {:reply_preview_task_exit, reason}})}
+    state = finish_rich_sync(state, {:error, {:reply_preview_task_exit, reason}})
+
+    if state.stopping, do: settle_rich_stop(state), else: {:noreply, state}
   end
 
   def handle_info(_msg, state), do: {:noreply, state}
@@ -701,6 +716,37 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   end
 
   defp checkpoint_latest_rich_presentation(_state), do: :ok
+
+  # A normal Actor lifecycle stop is also the ownership handoff from the
+  # transient preview to the durable terminal outbox. Never interrupt an
+  # in-flight provider mutation at that boundary: the provider may commit it
+  # before the task persists its acknowledged checkpoint, leaving terminal
+  # delivery to diff against stale state and create duplicate elements or
+  # messages. Drain the latest dirty projection (including retryable failures)
+  # and stop only after no rich mutation remains in flight.
+  defp settle_rich_stop(
+         %{
+           reply_preview_adapter: %ReplyPreviewAdapter{},
+           silent_rich_pending: false,
+           preview_disabled: false
+         } = state
+       ) do
+    state = maybe_start_rich_sync(state)
+
+    case {state.rich_task, state.dirty} do
+      {%Task{}, _dirty} -> {:noreply, state}
+      {nil, true} -> {:noreply, state}
+      {nil, false} -> finish_rich_stop(state)
+    end
+  end
+
+  defp settle_rich_stop(state), do: finish_rich_stop(state)
+
+  defp finish_rich_stop(state) do
+    checkpoint_latest_rich_presentation(state)
+
+    {:stop, :normal, %{state | rich_task: nil, rich_task_presentation: nil, dirty: false}}
+  end
 
   defp shutdown_rich_task(%Task{} = task) do
     _ = Task.shutdown(task, 5_000)

@@ -150,7 +150,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDelegationBrokerTest do
                route
              )
 
-    assert rpc_payload(ignored_spoof)["status"] == "ok"
+    ignored_spoof_payload = rpc_payload(ignored_spoof)
+    assert ignored_spoof_payload["status"] in ["ok", "degraded"]
+
+    if ignored_spoof_payload["status"] == "degraded" do
+      assert ignored_spoof_payload["result_completeness"] == "incomplete"
+      assert ignored_spoof_payload["degraded_reasons"] != []
+    end
 
     assert {:ok, accepted} =
              RPCLane.handle_request(
@@ -166,7 +172,20 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDelegationBrokerTest do
                route
              )
 
-    assert rpc_payload(accepted)["status"] == "ok"
+    accepted_payload = rpc_payload(accepted)
+
+    assert Map.take(accepted_payload, [
+             "status",
+             "result_completeness",
+             "results",
+             "degraded_reasons"
+           ]) ==
+             Map.take(ignored_spoof_payload, [
+               "status",
+               "result_completeness",
+               "results",
+               "degraded_reasons"
+             ])
   end
 
   test "delegation turn resolves its frozen Codex account and writes back refreshed auth" do

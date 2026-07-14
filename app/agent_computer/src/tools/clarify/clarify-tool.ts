@@ -1,11 +1,16 @@
-import { isRecord } from '@pleisto/active-support'
 import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../../core'
 import { jsonToolResult } from '../../core/tool-result'
 
-const RawChoice = z.union([z.string(), z.record(z.string(), z.unknown())])
+const RawChoice = z.union([
+  z.string().trim().min(1).max(200).describe('Choice label.'),
+  z.object({
+    label: z.string().trim().min(1).max(200).describe('Short choice label.'),
+    description: z.string().trim().min(1).max(500).optional().describe('What selecting this choice means.')
+  })
+])
 const ClarifyParams = z.object({
-  question: z.string().min(1).max(2_000).describe('One concrete question for the user.'),
+  question: z.string().trim().min(1).max(2_000).describe('One concrete question for the user.'),
   choices: z
     .array(RawChoice)
     .max(4)
@@ -14,6 +19,7 @@ const ClarifyParams = z.object({
 })
 
 type ClarifyParams = z.output<typeof ClarifyParams>
+type ClarifyChoiceInput = z.output<typeof RawChoice>
 type NormalizedChoice = { label: string; description?: string }
 type ClarifyDetails = {
   tool: 'clarify'
@@ -25,8 +31,7 @@ type ClarifyDetails = {
 const DESCRIPTION = [
   'Ask the user one decision question when ambiguity materially changes the result.',
   'Use for real tradeoffs, missing requirements, and post-task feedback; do not ask when a safe low-risk default is available.',
-  'Provide at most four choices. The delivery UI always adds Other/free input.',
-  'This is turn-ending: after calling clarify, add at most one short lead-in sentence or end the answer. Do not repeat the question or choices. The user reply arrives as the next user message.'
+  'On success it returns the normalized question and choices, records them durably, and ends the current turn. Do not emit another answer or call more tools; the user reply arrives as the next user message.'
 ].join('\n')
 
 export function createClarifyTool(): AgentTool<typeof ClarifyParams, ClarifyDetails> {
@@ -41,31 +46,21 @@ export function createClarifyTool(): AgentTool<typeof ClarifyParams, ClarifyDeta
       const details: ClarifyDetails = {
         tool: 'clarify',
         ok: true,
-        question: params.question.trim(),
+        question: params.question,
         choices: (params.choices ?? []).map(normalizeChoice).filter(choice => choice.label !== '')
       }
 
-      return jsonToolResult(details)
+      return jsonToolResult(details, { terminate: true })
     }
   }
 }
 
-function normalizeChoice(value: string | Record<string, unknown>): NormalizedChoice {
-  if (typeof value === 'string') return { label: value.trim() }
-  if (!isRecord(value)) return { label: '' }
-
-  const label = firstText(value, ['label', 'text', 'title', 'description'])
-  const description = firstText(value, ['description', 'detail', 'help'])
+function normalizeChoice(value: ClarifyChoiceInput): NormalizedChoice {
+  if (typeof value === 'string') return { label: value }
+  const label = value.label
+  const description = value.description
   return {
-    label: label ?? '',
+    label,
     ...(description && description !== label ? { description } : {})
   }
-}
-
-function firstText(value: Record<string, unknown>, keys: string[]): string | undefined {
-  for (const key of keys) {
-    const candidate = value[key]
-    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim()
-  }
-  return undefined
 }

@@ -127,6 +127,9 @@ defmodule Ankole.Brain.RecallTest do
              })
 
     assert result["history_notice"] =~ "untrusted historical content"
+    assert result["status"] == "degraded"
+    assert result["result_completeness"] == "incomplete"
+    assert result["degraded_reasons"] != []
     assert [%{"layer" => "knowledge", "entry_id" => entry_id} | _rest] = result["results"]
     assert entry_id == public_entry.id
 
@@ -238,8 +241,7 @@ defmodule Ankole.Brain.RecallTest do
 
   test "episode navigation disappears when any source message is withdrawn" do
     %{principal: agent} = agent_fixture()
-    %{principal: model_agent} = agent_fixture()
-    configure_recall_embedding!(model_agent)
+    configure_recall_embedding!(agent)
     binding_fixture(agent.uid, "brain-episode-withdrawal", :record_only)
 
     assert {:ok, %{signal_entry: source}} =
@@ -361,23 +363,10 @@ defmodule Ankole.Brain.RecallTest do
                connection_options: %{"api_key" => "sk-brain-recall-test"}
              })
 
-    for profile <- ["light", "embedding"] do
-      assert {:ok, _profile} =
-               ModelProfiles.put_model_profile(model_agent.uid, profile, %{
-                 provider_id: provider_id,
-                 model: "openai/brain-recall-test"
-               })
-    end
-
-    assert {:ok, config} = Config.dreaming()
-
-    assert {:ok, _stored} =
-             AppConfigure.put_global(
-               Config.dreaming_definition(),
-               Map.merge(config, %{
-                 "enabled" => true,
-                 "model_agent_uid" => model_agent.uid
-               })
-             )
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(model_agent.uid, "embedding", %{
+               provider_id: provider_id,
+               model: "openai/brain-recall-test"
+             })
   end
 end

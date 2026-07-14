@@ -61,17 +61,9 @@ type TodoParams = z.output<typeof TodoParams>
 // are the contract the rest of the runtime relies on when it renders or
 // summarizes the plan; they are instructions to the model, not enforced here.
 const DESCRIPTION = [
-  'Manage your task list for the current session. Use for complex tasks with 3+ steps or when the user provides multiple tasks. Call with no parameters to read the current list.',
-  '',
-  'Writing:',
-  "- Provide 'todos' array to create/update items",
-  '- merge=false (default): replace the entire list with a fresh plan',
-  '- merge=true: update existing items by id, add any new ones',
-  '',
-  'Each item: {id: string, content: string, status: pending|in_progress|completed|cancelled}',
+  'Manage your task list for the current session. Use for complex tasks with 3+ steps or when the user provides multiple tasks.',
   'List order is priority. Only ONE item in_progress at a time.',
   'Mark items completed immediately when done. If something fails, cancel it and add a revised item.',
-  '',
   'Always returns the full current list.'
 ].join('\n')
 

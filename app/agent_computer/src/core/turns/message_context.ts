@@ -1,4 +1,5 @@
 import { recordValue, type JsonObject as JSONObject } from '@pleisto/active-support'
+import type { TurnStart } from '../../lanes/actor_lane'
 import type { TextContent, UserMessage } from '../llm'
 
 const AGENT_ENVIRONMENT_INFO_OPEN = '<agent_environment_info>'
@@ -42,6 +43,36 @@ export function actorEventEnvironmentInfoLines(
 
   const lifecycleKind = stringValue(lifecycle.kind)
   if (lifecycleKind) lines.push(`entry_lifecycle: ${lifecycleKind}`)
+
+  return lines
+}
+
+/**
+ * Projects per-turn schedule facts into the trusted current-message context.
+ * The interpretation rules stay in the stable system prompt; this block carries
+ * only values that can legitimately change between turns in one conversation.
+ */
+export function turnRequestEnvironmentInfoLines(turnStart: TurnStart): string[] {
+  const context = recordValue(turnStart.request_context)
+  const origin = recordValue(context?.schedule_origin)
+  if (!origin) return []
+
+  const lines = [
+    `schedule_turn_mode: ${stringValue(context?.turn_mode) ?? 'unknown'}`,
+    `schedule_event_id: ${stringValue(origin.scheduled_event_id) ?? 'unknown'}`,
+    `schedule_due_at: ${stringValue(origin.due_at) ?? 'unknown'}`,
+    `schedule_fired_at: ${stringValue(origin.fired_at) ?? 'unknown'}`,
+    `schedule_timezone: ${stringValue(origin.timezone) ?? 'unknown'}`,
+    `schedule_silent_success_allowed: ${context?.silent_success_allowed === true}`
+  ]
+
+  const cronScheduleID = stringValue(origin.cron_schedule_id)
+  const cronScheduleName = stringValue(origin.cron_schedule_name)
+  if (cronScheduleID) lines.push(`cron_schedule_id: ${cronScheduleID}`)
+  if (cronScheduleName) lines.push(`cron_schedule_name: ${cronScheduleName}`)
+
+  const payload = recordValue(origin.payload)
+  if (payload && Object.keys(payload).length > 0) lines.push(`schedule_payload: ${JSON.stringify(payload)}`)
 
   return lines
 }

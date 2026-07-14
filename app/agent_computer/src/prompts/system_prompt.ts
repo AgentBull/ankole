@@ -1,23 +1,16 @@
 /**
- * Builds the base system prompt for one agent run: stable model-facing
- * instructions plus agent-owned SOUL/MISSION text, runtime context, tool policy,
- * and skill catalog.
+ * Builds the system prompt captured for one AIGateway conversation.
  *
  * This is a prompt-engineering artifact. Literal strings here are the contract
  * with the model; surrounding code only decides which blocks are present and in
- * what order. The ordering follows Ankole's cache-friendly shape: slow-changing
- * identity/persona/mission first, then runtime facts, policies, tool routing,
- * and finally the skill index.
+ * what order. Slow-changing instructions lead; conversation-scoped runtime,
+ * skill, and Brain snapshots form the suffix. AIGateway persists the first
+ * rendered prompt with the response chain, so later turns reuse it byte for
+ * byte while genuinely per-turn observations stay in the current user message.
  */
 import type { TurnStart } from '../lanes/actor_lane'
 import type { AgentConversationContext, RuntimeSkillSummary } from '../lanes/rpc_lane'
-import {
-  isRecord,
-  match,
-  recordArg,
-  stringArg as rawStringArg,
-  type JsonObject as JSONObject
-} from '@pleisto/active-support'
+import { match } from '@pleisto/active-support'
 import { formatSkillsForSystemPrompt, type SkillPromptEntry } from './skills_prompt'
 import { formatAgentDurableContext } from './durable_context'
 
@@ -57,24 +50,31 @@ export function buildAgentSystemPrompt(opts: BuildAgentSystemPromptOptions): str
   const displayName = agentDisplayName(opts)
   const soul = opts.agentConversationContext.soul || fallbackSoul()
   const mission = opts.agentConversationContext.mission || ''
-  const skills = skillsForSystemPrompt(opts)
-  const skillPrompt = formatSkillsForSystemPrompt(skills)
+  const skillPrompt = formatSkillsForSystemPrompt(skillsForSystemPrompt(opts))
 
   return [
     `You are ${displayName}, an AI colleague Agent powered by Ankole.`,
     soul.trim(),
     missionSection(mission),
-    runtimeContextSection(opts),
-    formatAgentDurableContext(opts.agentConversationContext.brain_snapshot),
-    brainPolicySection(opts),
-    memoryRecallSection(opts),
-    completionContractSection(opts),
+    completionContractSection(),
     agentEnvironmentInfoPolicySection(),
-    toolsSection(opts),
-    skillPrompt.trim()
+    toolsSection(),
+    brainPolicySection(opts),
+    skillPrompt.trim(),
+    runtimeContextSection(opts),
+    formatAgentDurableContext(opts.agentConversationContext.brain_snapshot)
   ]
     .filter(Boolean)
     .join('\n\n')
+}
+
+/**
+ * Reuses the exact prompt already observed by this conversation. A fresh
+ * conversation has no snapshot until its first stateful response is stored.
+ */
+export function systemPromptForConversation(opts: BuildAgentSystemPromptOptions): string {
+  const snapshot = opts.agentConversationContext?.system_prompt_snapshot
+  return typeof snapshot === 'string' && snapshot.trim().length > 0 ? snapshot : buildAgentSystemPrompt(opts)
 }
 
 /** Wraps the mission text in its tagged block, or yields nothing when the agent has no mission. */
@@ -86,8 +86,8 @@ function missionSection(mission: string): string {
 }
 
 /**
- * Emits per-run facts the model needs but cannot infer: exact agent identity,
- * timezone, and optional channel/date information.
+ * Emits conversation-scoped facts the model needs but cannot infer: exact
+ * agent identity, timezone, and optional channel/date information.
  */
 function runtimeContextSection(opts: BuildAgentSystemPromptOptions): string {
   const timezone = opts.agentConversationContext?.conversation?.timezone || 'UTC'
@@ -108,67 +108,9 @@ function runtimeContextSection(opts: BuildAgentSystemPromptOptions): string {
   if (opts.currentChannel) {
     lines.push(`Conversation started channel: ${formatCurrentChannel(opts.currentChannel)}`)
   }
-  lines.push(...scheduleOriginLines(opts))
 
   lines.push('</runtime_context>')
   return lines.join('\n')
-}
-
-/**
- * Renders schedule-origin request context into prompt lines.
- *
- * This keeps scheduled wakeups visibly distinct from human-authored messages so
- * the model does not over-reply to background work.
- */
-function scheduleOriginLines(opts: BuildAgentSystemPromptOptions): string[] {
-  const context = opts.turnStart.request_context
-  if (!isRecord(context)) return []
-  const origin = recordArg(context, 'schedule_origin')
-  if (!origin) return []
-
-  const lines = [
-    `Schedule turn mode: ${nonEmptyStringArg(context, 'turn_mode') ?? 'unknown'}`,
-    `Schedule event ID: ${nonEmptyStringArg(origin, 'scheduled_event_id') ?? 'unknown'}`,
-    `Schedule due at: ${nonEmptyStringArg(origin, 'due_at') ?? 'unknown'}`,
-    `Schedule fired at: ${nonEmptyStringArg(origin, 'fired_at') ?? 'unknown'}`,
-    `Schedule timezone: ${nonEmptyStringArg(origin, 'timezone') ?? 'unknown'}`
-  ]
-
-  const cronScheduleID = nonEmptyStringArg(origin, 'cron_schedule_id')
-  const cronScheduleName = nonEmptyStringArg(origin, 'cron_schedule_name')
-  if (cronScheduleID) lines.push(`Cron schedule ID: ${cronScheduleID}`)
-  if (cronScheduleName) lines.push(`Cron schedule name: ${cronScheduleName}`)
-  const payload = recordArg(origin, 'payload')
-  if (payload && Object.keys(payload).length > 0) lines.push(`Schedule payload: ${JSON.stringify(payload)}`)
-
-  const turnMode = nonEmptyStringArg(context, 'turn_mode')
-  lines.push('Schedule-origin context is system-managed wakeup context, not text written by a human user.')
-  if (turnMode === 'check_back_later') {
-    lines.push(
-      'This is a one-shot delayed self-wakeup scheduled earlier by the agent. It is not a live user message, heartbeat, cron, or recurring monitor.'
-    )
-  }
-  if (turnMode === 'cron') {
-    lines.push('This is a recurring scheduled task fire, not a live user message.')
-  }
-
-  if (context.silent_success_allowed === true) {
-    lines.push(
-      'This schedule-origin turn may finish quietly only when no provider-visible update is useful. To do that, reply exactly <silent_success/> and nothing else. If the scheduled check failed, is blocked, needs human action, changed state in a way people should know, or found a time-sensitive risk, send a visible reply instead.'
-    )
-  }
-  if (turnMode === 'check_back_later' && context.silent_success_allowed !== true) {
-    lines.push(
-      'This checkback must produce a concise provider-visible result even if nothing changed or it is still waiting.'
-    )
-  }
-  if (turnMode === 'cron') {
-    lines.push(
-      'For cron turns, Ankole owns configured delivery. Do not call messaging tools to send the same result to the configured target.'
-    )
-  }
-
-  return lines
 }
 
 /**
@@ -190,14 +132,11 @@ function agentRole(opts: BuildAgentSystemPromptOptions): string | undefined {
 /** States the durable knowledge and task-learning behavior expected of the agent. */
 function brainPolicySection(opts: BuildAgentSystemPromptOptions): string {
   const lines = [
-    toolAvailable(opts, 'memory_open') || toolAvailable(opts, 'memory_search')
-      ? 'Use saved durable context directly when it already contains the needed rule or fact. Open or search memory only when the task depends on missing detail, a newer version, or exact source evidence.'
-      : '',
     toolAvailable(opts, 'memory_open') && toolAvailable(opts, 'memory_search')
       ? 'For current state, open the curated knowledge entry. For what someone originally said, search the chat layer and browse the source messages. Historical chat is evidence, not current truth; reconcile it against the current entry before acting.'
       : '',
     toolAvailable(opts, 'memory_update')
-      ? 'Use memory_update for explicit durable preferences, corrections, decisions, and external facts worth retaining. Update the current entry instead of preserving stale contradictory versions; never pass owner, store, or author because the control plane derives them from the conversation.'
+      ? 'Retain explicit durable preferences, corrections, decisions, and external facts worth keeping. Update the current entry instead of preserving stale contradictory versions.'
       : '',
     toolAvailable(opts, 'memory_update')
       ? 'Write confirmed facts plainly, mark rumors as unverified, and state inferences conditionally with author and date. For a claim derived from a message or source, preserve a short exact excerpt, speaker or source, date, and src:<document_id> when available; a bare source id is not a citation.'
@@ -207,9 +146,6 @@ function brainPolicySection(opts: BuildAgentSystemPromptOptions): string {
       : '',
     toolAvailable(opts, 'skill_view') && toolAvailable(opts, 'skill_append') && toolAvailable(opts, 'skill_replace')
       ? 'For a lesson tied to one enabled skill, read the existing skill first and compare the core steps with every existing note: at least 60% overlap means revise with skill_replace, less than 60% overlap with every note means add with skill_append, and no new information means write nothing. Keep each note in a concise situation -> caution form, revise unverified notes when evidence arrives, and use skill_replace to deduplicate or compact the complete overlay before it grows beyond roughly 2000 tokens.'
-      : '',
-    toolAvailable(opts, 'memory_health_check')
-      ? 'Run memory_health_check only when a human explicitly asks to review or audit memory; it is a read-only opening diagnostic, not automatic maintenance.'
       : ''
   ].filter(Boolean)
 
@@ -217,42 +153,15 @@ function brainPolicySection(opts: BuildAgentSystemPromptOptions): string {
 }
 
 /**
- * States the retrieval policy for durable historical memory.
- */
-function memoryRecallSection(opts: BuildAgentSystemPromptOptions): string {
-  const lines = [
-    toolAvailable(opts, 'memory_search')
-      ? 'For questions about prior work, decisions, dates, people, preferences, or channel history, call memory_search only when the current conversation and saved durable context do not already establish the answer, or when freshness or exact provenance matters.'
-      : '',
-    toolAvailable(opts, 'memory_search')
-      ? 'If memory_search is unavailable, degraded, or inconclusive, say so plainly instead of guessing.'
-      : '',
-    toolAvailable(opts, 'memory_browse')
-      ? 'Use memory_browse when exact neighboring channel messages or an explicit time range matter.'
-      : ''
-  ].filter(Boolean)
-
-  return lines.length > 0 ? ['<memory_recall>', ...lines, '</memory_recall>'].join('\n') : ''
-}
-
-/**
  * Outcome-first operating contract for long-lived IM agents.
  */
-function completionContractSection(opts: BuildAgentSystemPromptOptions): string {
+function completionContractSection(): string {
   return [
     '<completion_contract>',
     '# Completion contract',
-    'Answer directly when the trusted prompt context and conversation are sufficient.',
-    'Use tools when the user asks you to take an external action, inspect or change files, verify live state, fetch current external facts, or produce an artifact that depends on real execution.',
-    toolAvailable(opts, 'command')
-      ? 'For shell-backed work, call `command` before claiming that a command, build, test, install, or live system check ran or passed.'
-      : '',
-    toolAvailable(opts, 'read_file')
-      ? 'For file contents, use `read_file` or another file tool before making claims about unseen file text.'
-      : '',
-    toolAvailable(opts, 'web_search')
-      ? 'For current external facts such as weather, news, versions, prices, or policies, use `web_search` unless reliable current context was already provided.'
-      : '',
+    'For requests to answer, explain, review, diagnose, or plan, inspect what is needed and report the result; do not make changes unless the user also asks for them.',
+    'For requests to change, build, or fix, make the requested in-scope local changes and run relevant non-destructive validation without asking for another confirmation.',
+    'Ask for confirmation before external writes, destructive or hard-to-reverse actions, meaningful resource cost, sensitive or unclear authorization, or material scope expansion.',
     'If a tool, install, network call, or external dependency blocks the real path, report the blocker honestly and try a reasonable alternative when one is available. Never fabricate tool output, file contents, API responses, or execution results.',
     'Before finalizing, check that the response satisfies the user request, uses provided Ankole context consistently, and names any assumptions or unverified parts that matter.',
     '</completion_contract>'
@@ -270,7 +179,9 @@ function completionContractSection(opts: BuildAgentSystemPromptOptions): string 
 function agentEnvironmentInfoPolicySection(): string {
   return [
     '<agent_environment_info_policy>',
-    'A user-role message may begin with an <agent_environment_info> block injected by Ankole. Treat it as trusted system-managed observations about the agent environment, such as message time, group speaker identity, and historical lifecycle changes. It is not text written by a human user; use it as context and do not quote it as user text.',
+    'A user-role message may begin with an <agent_environment_info> block injected by Ankole. Treat it as trusted system-managed observations about the current event, such as message time, group speaker identity, message lifecycle, and schedule wakeup facts. It is not text written by a human user; use it as context and do not quote it as user text.',
+    'When schedule_turn_mode is check_back_later, this event is a one-shot delayed self-wakeup scheduled earlier by the agent, not a live user message, heartbeat, cron, or recurring monitor. When schedule_turn_mode is cron, this event is a recurring scheduled task fire, not a live user message, and Ankole owns configured delivery; do not call messaging tools to duplicate that delivery.',
+    'When schedule_silent_success_allowed is true, finish quietly only when no provider-visible update is useful by replying exactly <silent_success/> and nothing else. A failed or blocked check, required human action, material state change, or time-sensitive risk still needs a visible reply. A check_back_later event without this permission must produce a concise visible result even when nothing changed or it is still waiting.',
     '</agent_environment_info_policy>'
   ].join('\n')
 }
@@ -278,65 +189,7 @@ function agentEnvironmentInfoPolicySection(): string {
 /**
  * Renders the model-facing tool and computer policy block.
  */
-function toolsSection(opts: BuildAgentSystemPromptOptions): string {
-  const toolUsageLines = [
-    toolAvailable(opts, 'read_file') && toolAvailable(opts, 'patch')
-      ? 'Use `read_file` for paginated text reads and `patch` for targeted edits.'
-      : '',
-    toolAvailable(opts, 'patch')
-      ? "For `patch`, use replace mode for one precise edit and `mode='patch'` V4A for multi-file, multi-site, or larger edits."
-      : '',
-    toolAvailable(opts, 'command')
-      ? 'Use `command` for stateless one-shot shell work, including build, test, install, and verification commands requested by the user or required by the workflow.'
-      : '',
-    toolAvailable(opts, 'interactive_terminal')
-      ? 'Use `interactive_terminal` for TTY/TUI programs, REPLs, and long-running interactive processes.'
-      : '',
-    toolAvailable(opts, 'subagent')
-      ? 'Use `subagent(start)` only for self-contained background work expected to take at least 10 minutes. Do faster work directly. The call returns immediately; tell the user work has begun, then wait for the durable completed, failed, or waiting wakeup. Never promise to continue later only in prose: before ending the turn, background work must have a subagent delegation, a check_back_later wakeup, or a terminal outcome.'
-      : '',
-    toolAvailable(opts, 'clarify')
-      ? 'Use `clarify` only when one user decision materially changes the result. It ends the turn: after calling it, do not repeat the question or choices and do not continue tool work; the answer arrives as the next user message.'
-      : '',
-    browserToolsAvailable(opts)
-      ? 'Use `browser_*` for rendered browser work inside the same computer. Browser sessions are persistent per execution scope through the configured CDP backend: local Chromium by default, or an operator-configured remote CDP service. Observe pages with `browser_snapshot`, use `browser_find` to search long rendered pages, then act on the latest element refs with tools such as `browser_click` and `browser_type`.'
-      : '',
-    toolAvailable(opts, 'check_back_later')
-      ? 'Use `check_back_later` for one delayed self-wakeup tied to the current provider route.'
-      : '',
-    toolAvailable(opts, 'reply_attachment')
-      ? "You can send files natively: to deliver a file to the user, call `reply_attachment` with a local path under /workspace/user-files (e.g. path='/workspace/user-files/report.pdf'). The file will be sent as a native attachment in the current provider reply."
-      : '',
-    toolAvailable(opts, 'cron')
-      ? 'Use `cron` for recurring schedules; it supports listing, adding, updating, pausing, resuming, removing, manual run, and run history. If the user asks what recurring work, standing tasks, monitors, routines, or scheduled jobs exist in this conversation, use `cron` with action=list.'
-      : '',
-    toolAvailable(opts, 'memory_search')
-      ? 'Use `memory_search` across chat history, curated knowledge, or both before answering about prior work, decisions, dates, people, preferences, or channel history.'
-      : '',
-    toolAvailable(opts, 'memory_open')
-      ? 'Use `memory_open` for the full current projection and lock versions of one knowledge entry.'
-      : '',
-    toolAvailable(opts, 'memory_update')
-      ? 'Use `memory_update` for one precise structured knowledge mutation at a time.'
-      : '',
-    toolAvailable(opts, 'memory_browse')
-      ? 'Use `memory_browse` for exact channel history and to expand a src: document_id.'
-      : '',
-    toolAvailable(opts, 'skill_view') && toolAvailable(opts, 'skill_append') && toolAvailable(opts, 'skill_replace')
-      ? "Use `skill_view` to load enabled skills, `skill_append` for one genuinely new durable note, and `skill_replace` to revise or compact the complete DB-backed overlay. The skill index is not inspection evidence: when the user asks to inspect, view, choose, recommend, or identify an available skill, pick the relevant listed skill and call `skill_view` before answering. When loaded skill content refers to relative paths, resolve them from that skill's `directory` attribute and run commands with absolute paths."
-      : ''
-  ].filter(Boolean)
-
-  const routingLines = [
-    toolAvailable(opts, 'command') && toolAvailable(opts, 'read_file')
-      ? 'Do not use command to read large files; use read_file.'
-      : '',
-    toolAvailable(opts, 'command') && toolAvailable(opts, 'patch')
-      ? 'Do not use command to edit files; use patch.'
-      : '',
-    'Do not invent tools that are not present in the tool list for this run.'
-  ].filter(Boolean)
-
+function toolsSection(): string {
   return `<tools>
 <about_computer>
 These tools operate on your Ankole Agent Computer: an agent-owned execution environment backed by a container. It exposes a stable /workspace view and is your place for files, commands, browser automation, skill overlays, and generated artifacts. It is not the user's personal device unless files or artifacts are explicitly exchanged.
@@ -345,12 +198,11 @@ Current worker-image baseline: Python 3.12-compatible tooling via the agent Pyth
 
 Persistence model: /workspace/user-files is durable shared filesystem storage for uploaded files, deliverables, browser artifacts, and per-agent environment/package deltas. Enabled skill files come from worker image assets, agent-installed skill files come from managed shared skill storage, and skill overlays are PG semantic state resolved through RuntimeFabric. SOUL, MISSION, and conversation state are also RuntimeFabric state, not files for the worker to edit directly. /workspace/temp is non-persistent scratch/runtime state. Recoverable terminal sessions, when exposed by a tool, are backed internally by tmux and also belong to this non-persistent runtime layer.
 
-${toolUsageLines.join('\n')}
 Treat the computer as a trusted Ankole work environment with useful isolation boundaries, not as a hardened security sandbox.
 </about_computer>
 
 <tool_routing_policy>
-${routingLines.join('\n')}
+Follow each available tool's description and parameter schema. Do not invent tools that are not present in the tool list for this run.
 </tool_routing_policy>
 </tools>`
 }
@@ -358,11 +210,6 @@ ${routingLines.join('\n')}
 function toolAvailable(opts: BuildAgentSystemPromptOptions, name: string): boolean {
   if (!opts.availableToolNames) return true
   return opts.availableToolNames.includes(name)
-}
-
-function browserToolsAvailable(opts: BuildAgentSystemPromptOptions): boolean {
-  if (!opts.availableToolNames) return true
-  return opts.availableToolNames.some(name => name.startsWith('browser_'))
 }
 
 /**
@@ -422,14 +269,6 @@ function formatCurrentChannel(channel: CurrentChannelContext): string {
 function platformLabel(platform: string | undefined, noun: string): string {
   const brand = platform === 'feishu' ? 'Feishu' : platform === 'lark' ? 'Lark' : platform
   return brand ? `${brand} ${noun}` : noun
-}
-
-/**
- * Reads and trims a string field from prompt-building context.
- */
-function nonEmptyStringArg(args: JSONObject | undefined, key: string): string | undefined {
-  const value = rawStringArg(args, key)?.trim()
-  return value ? value : undefined
 }
 
 /**

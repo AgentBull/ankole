@@ -578,8 +578,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
       {:aigateway, retry_source} ->
         append_aigateway_retry_event(repo, command_event, retry_source, now)
 
-      {:actor_event, source, retry_message_id} ->
-        append_actor_event_retry(repo, command_event, source, retry_message_id, now)
+      {:actor_event, source, retry_source} ->
+        append_actor_event_retry(repo, command_event, source, retry_source, now)
 
       :nothing_to_retry ->
         {:ok, :nothing_to_retry}
@@ -593,7 +593,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
          {:ok, %{actor_event_id: actor_event_id} = source},
          %ActorEvent{id: actor_event_id} = event
        ),
-       do: {:actor_event, event, source.message_id}
+       do: {:actor_event, event, source}
 
   defp choose_retry_source(_aigateway_source, %ActorEvent{} = source),
     do: {:actor_event, source, nil}
@@ -605,35 +605,47 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
        do: :nothing_to_retry
 
   defp append_aigateway_retry_event(repo, command_event, retry_source, now) do
-    Actors.append_actor_event_in_tx(repo, %{
-      agent_uid: command_event.agent_uid,
-      binding_name: command_event.binding_name,
-      session_id: command_event.session_id,
-      source_event_id: "retry:#{command_event.id}",
-      signal_channel_id: command_event.signal_channel_id,
-      provider_thread_id: command_event.provider_thread_id,
-      source_entry_id: command_event.source_entry_id,
-      type: "im.message.addressed",
-      available_at: now,
-      sender_key: command_event.sender_key,
-      payload: %{
-        "type" => "im.message.addressed",
-        "data" => %{
-          "entry" => %{
-            "text" => retry_source.text,
-            "retry_of_actor_event_id" => retry_source.actor_event_id,
-            "retry_of_message_id" => retry_source.message_id
+    case prepare_retry_response_graph(repo, command_event, retry_source, now) do
+      :ok ->
+        Actors.append_actor_event_in_tx(repo, %{
+          agent_uid: command_event.agent_uid,
+          binding_name: command_event.binding_name,
+          session_id: command_event.session_id,
+          source_event_id: "retry:#{command_event.id}",
+          signal_channel_id: command_event.signal_channel_id,
+          provider_thread_id: command_event.provider_thread_id,
+          source_entry_id: command_event.source_entry_id,
+          type: "im.message.addressed",
+          available_at: now,
+          sender_key: command_event.sender_key,
+          payload: %{
+            "type" => "im.message.addressed",
+            "data" => %{
+              "entry" => %{
+                "text" => retry_source.text,
+                "retry_of_actor_event_id" => retry_source.actor_event_id,
+                "retry_of_message_id" => retry_source.message_id
+              }
+            }
           }
-        }
-      }
-    })
+        })
+
+      {:noop, _reason} ->
+        {:ok, :nothing_to_retry}
+
+      {:error, _reason} = error ->
+        error
+    end
   end
 
-  defp append_actor_event_retry(repo, command_event, source, retry_message_id, now) do
+  defp append_actor_event_retry(repo, command_event, source, retry_source, now) do
     retry_metadata =
-      case retry_message_id do
-        message_id when is_binary(message_id) -> %{"retry_of_message_id" => message_id}
-        nil -> %{}
+      case retry_source do
+        %{message_id: message_id} when is_binary(message_id) ->
+          %{"retry_of_message_id" => message_id}
+
+        _missing ->
+          %{}
       end
 
     payload =
@@ -642,20 +654,50 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
       |> Map.put("id", "retry:#{command_event.id}")
       |> Map.put("time", DateTime.to_iso8601(now))
 
-    Actors.append_actor_event_in_tx(repo, %{
-      agent_uid: command_event.agent_uid,
-      binding_name: command_event.binding_name,
-      session_id: command_event.session_id,
-      source_event_id: "retry:#{command_event.id}",
-      signal_channel_id: command_event.signal_channel_id,
-      provider_thread_id: command_event.provider_thread_id,
-      source_entry_id: command_event.source_entry_id,
-      type: source.type,
-      available_at: now,
-      sender_key: command_event.sender_key,
-      payload: payload
-    })
+    case prepare_retry_response_graph(repo, command_event, retry_source, now) do
+      :ok ->
+        Actors.append_actor_event_in_tx(repo, %{
+          agent_uid: command_event.agent_uid,
+          binding_name: command_event.binding_name,
+          session_id: command_event.session_id,
+          source_event_id: "retry:#{command_event.id}",
+          signal_channel_id: command_event.signal_channel_id,
+          provider_thread_id: command_event.provider_thread_id,
+          source_entry_id: command_event.source_entry_id,
+          type: source.type,
+          available_at: now,
+          sender_key: command_event.sender_key,
+          payload: payload
+        })
+
+      {:noop, _reason} ->
+        {:ok, :nothing_to_retry}
+
+      {:error, _reason} = error ->
+        error
+    end
   end
+
+  defp prepare_retry_response_graph(
+         repo,
+         command_event,
+         %{actor_event_id: actor_event_id, status: "complete"},
+         now
+       ) do
+    case AIGatewayLink.retract_visible_turn_suffix_in_tx(
+           repo,
+           command_event.agent_uid,
+           command_event.session_id,
+           actor_event_id,
+           now
+         ) do
+      {:ok, %{status: :retracted}} -> :ok
+      {:ok, %{status: :noop, reason: reason}} -> {:noop, reason}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp prepare_retry_response_graph(_repo, _command_event, _retry_source, _now), do: :ok
 
   defp latest_completed_retry_source(repo, actor_key, command_event) do
     candidate_types = Enum.uniq(["command.new" | AIReplyPreview.im_visible_event_types()])

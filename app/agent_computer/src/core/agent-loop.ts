@@ -66,7 +66,6 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
   let modelIterations = 0
   let sawToolResults = false
   let nudgedEmptyAfterTools = false
-  let clarifyExecuted = false
   const repeatedFailureState: RepeatedToolFailureState = { count: 0 }
   const maxModelIterations = config.maxModelIterations
   const toolByName = config.tools?.length ? agentToolMap(config.tools) : undefined
@@ -147,7 +146,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
 
       // If no tool calls, the loop is done.
       if (!result.hasToolCalls || !latestAssistant.toolCalls?.length) {
-        if (shouldNudgeEmptyAfterTools(latestAssistant, sawToolResults, nudgedEmptyAfterTools, clarifyExecuted)) {
+        if (shouldNudgeEmptyAfterTools(latestAssistant, sawToolResults, nudgedEmptyAfterTools)) {
           nudgedEmptyAfterTools = true
           pendingMessages = [{ role: 'user', content: EMPTY_AFTER_TOOL_NUDGE_TEXT }]
           continue
@@ -162,7 +161,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
             executeToolCalls(toolCalls, toolByName, config, emitPresentationEvent)
           )
         : await executeToolCalls(toolCalls, toolByName, config, emitPresentationEvent)
-      clarifyExecuted ||= executedToolCalls.some(result => result.toolName === 'clarify' && !result.failure)
+      const turnTerminated = executedToolCalls.some(result => result.terminate && !result.failure)
       const toolResults = executedToolCalls.map(result => result.resultMsg)
       const toolFollowUpMessages = [
         ...executedToolCalls.flatMap(result => result.followUpMessages),
@@ -180,7 +179,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
       // next model call should anchor to that response id instead of sending the
       // same function_call_output messages again.
       if (toolJournalMessages.length > 0) {
-        await withRetry(
+        const recorded = await withRetry(
           () => {
             config.onActivity?.('tool_results_record_start')
             return modelTurn
@@ -194,8 +193,11 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
           }
         )
 
+        latestResponseID = requiredResponseID(recorded.responseID)
         nextMessages = []
       }
+
+      if (turnTerminated) break
 
       const steeringMessages = config.getSteeringMessages ? await config.getSteeringMessages() : []
       pendingMessages = [...nextMessages, ...steeringMessages]
@@ -241,16 +243,9 @@ function agentToolMap(tools: AgentTool[]): Map<string, AgentTool> {
 export function shouldNudgeEmptyAfterTools(
   message: AssistantMessage,
   sawToolResults: boolean,
-  alreadyNudged: boolean,
-  clarifyExecuted: boolean
+  alreadyNudged: boolean
 ): boolean {
-  return (
-    sawToolResults &&
-    !alreadyNudged &&
-    !clarifyExecuted &&
-    message.stopReason === 'stop' &&
-    assistantText(message).trim().length === 0
-  )
+  return sawToolResults && !alreadyNudged && message.stopReason === 'stop' && assistantText(message).trim().length === 0
 }
 
 /**
@@ -267,6 +262,7 @@ interface ExecutedToolCall {
   toolName: string
   resultMsg: ToolResultMessage
   followUpMessages: UserMessage[]
+  terminate: boolean
   failure?: {
     key: string
     toolName: string
@@ -344,7 +340,9 @@ async function executeToolCalls(
 
   const results: ExecutedToolCall[] = []
   for (const toolCall of toolCalls) {
-    results.push(await executeOne(toolCall))
+    const result = await executeOne(toolCall)
+    results.push(result)
+    if (result.terminate && !result.failure) break
   }
   return results
 }
@@ -400,6 +398,7 @@ async function executeToolCall(
         result: wrapUntrustedToolOutput(formatToolError(message))
       },
       followUpMessages: [],
+      terminate: false,
       failure: {
         key: toolCallFailureKey(toolCall, 'unknown_tool', toolCall.arguments),
         toolName: toolCall.name
@@ -424,6 +423,7 @@ async function executeToolCall(
         result: wrapUntrustedToolOutput(formatToolError(message))
       },
       followUpMessages: [],
+      terminate: false,
       failure: {
         key: toolCallFailureKey(toolCall, 'invalid_arguments', toolCall.arguments),
         toolName: toolCall.name
@@ -473,6 +473,7 @@ async function executeToolCall(
       result: wrapUntrustedToolOutput(resultText || safeJSONStringify(toolResult.details))
     },
     followUpMessages,
+    terminate: toolResult.terminate === true,
     failure
   }
 }

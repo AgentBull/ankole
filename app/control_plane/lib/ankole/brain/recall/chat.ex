@@ -3,7 +3,6 @@ defmodule Ankole.Brain.Recall.Chat do
 
   import Ecto.Query, warn: false
 
-  alias Ankole.Brain.Dreaming.StageA
   alias Ankole.Brain.Embedding
   alias Ankole.Brain.Recall.Channels
   alias Ankole.Brain.Recall.Parallel
@@ -50,6 +49,7 @@ defmodule Ankole.Brain.Recall.Chat do
              vector_search(
                request.query,
                allowed_channels,
+               scope.owner_uid,
                dreaming_config,
                request.limit,
                request.time_range
@@ -246,14 +246,13 @@ defmodule Ankole.Brain.Recall.Chat do
     end
   end
 
-  defp vector_search(_query, [], _config, _limit, _range), do: {:ok, []}
+  defp vector_search(_query, [], _owner_uid, _config, _limit, _range), do: {:ok, []}
 
-  defp vector_search(_query, _channels, %{"enabled" => false}, _limit, _range),
+  defp vector_search(_query, _channels, _owner_uid, %{"enabled" => false}, _limit, _range),
     do: {:error, :brain_dreaming_disabled}
 
-  defp vector_search(query, channels, %{"model_agent_uid" => model_uid}, limit, {from, to})
-       when is_binary(model_uid) do
-    with {:ok, _status} <- StageA.stage_a_status(),
+  defp vector_search(query, channels, owner_uid, _config, limit, {from, to}) do
+    with {:ok, model_uid} <- Embedding.resolve_model_agent_uid(owner_uid),
          {:ok, vector, dimensions} <- Embedding.create(model_uid, query) do
       vector_literal = Embedding.to_pgvector(vector)
 
@@ -284,9 +283,6 @@ defmodule Ankole.Brain.Recall.Chat do
       end
     end
   end
-
-  defp vector_search(_query, _channels, _config, _limit, _range),
-    do: {:error, :brain_dreaming_model_not_configured}
 
   defp fuse(keyword_results, vector_results, limit) do
     by_id = Map.new(keyword_results ++ vector_results, &{result_id(&1), &1})

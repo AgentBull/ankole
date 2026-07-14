@@ -10,7 +10,7 @@ function textOf(result: { content: Array<{ type: string; text?: string }> }): st
 }
 
 describe('web tools', () => {
-  it('omits unavailable web tools', async () => {
+  it('keeps the tool catalog stable and reports unavailable providers at execution time', async () => {
     const client: AIGatewayHTTPClient = {
       baseURL: 'https://control.test/api/v1/ai-gateway',
       fetch: async () =>
@@ -24,8 +24,31 @@ describe('web tools', () => {
     }
 
     const tools = await createWebTools({ aiGateway: client })
+    const webSearch = tools.find(tool => tool.name === 'web_search')
+    const webFetch = tools.find(tool => tool.name === 'web_fetch')
 
-    expect(tools.map(tool => tool.name)).toEqual([])
+    expect(tools.map(tool => tool.name)).toEqual(['web_search', 'web_fetch'])
+    await expect(webSearch!.execute('call-search', { query: 'ankole' })).rejects.toThrow(
+      'web_search is unavailable: model_profile_not_configured'
+    )
+    await expect(webFetch!.execute('call-fetch', { urls: ['https://example.com'] })).rejects.toThrow(
+      'web_fetch is unavailable: model_profile_not_configured'
+    )
+  })
+
+  it('surfaces availability lookup failures without silently shrinking the tool catalog', async () => {
+    const client: AIGatewayHTTPClient = {
+      baseURL: 'https://control.test/api/v1/ai-gateway',
+      fetch: async () => jsonResponse({ error: { code: 'temporarily_unavailable', message: 'try again' } }, 503)
+    }
+
+    const tools = await createWebTools({ aiGateway: client })
+    const webSearch = tools.find(tool => tool.name === 'web_search')
+
+    expect(tools.map(tool => tool.name)).toEqual(['web_search', 'web_fetch'])
+    await expect(webSearch!.execute('call-search', { query: 'ankole' })).rejects.toThrow(
+      'AIGateway web tool request failed with HTTP 503: temporarily_unavailable: try again'
+    )
   })
 
   it('registers local browser web_fetch when provider-backed fetch is unavailable', async () => {

@@ -112,15 +112,27 @@ defmodule Ankole.SignalsGateway.ClarifyPrompt do
 
   defp required_text(map, key) do
     case Map.get(map, key) do
-      value when is_binary(value) and value != "" -> {:ok, String.trim(value)}
-      _value -> {:error, {String.to_atom(key), :required}}
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> {:error, {String.to_atom(key), :required}}
+          value -> {:ok, value}
+        end
+
+      _value ->
+        {:error, {String.to_atom(key), :required}}
     end
   end
 
   defp optional_text(map, key) do
     case Map.get(map, key) do
-      value when is_binary(value) and value != "" -> String.trim(value)
-      _value -> nil
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> nil
+          value -> value
+        end
+
+      _value ->
+        nil
     end
   end
 

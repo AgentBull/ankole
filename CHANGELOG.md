@@ -1,5 +1,18 @@
 # Changelog
 
+## Version 26.07.6 (2026-07-15)
+
+- Make `/retry` a true regeneration by retracting the completed visible Response suffix while preserving its audit rows, then continuing from the predecessor.
+- End clarification turns immediately after durably recording a nonblank schema-validated question, preserve degraded Brain-search completeness instead of presenting partial emptiness as absence, and move tool-specific operating rules into tool descriptions and schemas.
+- Keep one byte-stable system prompt per AIGateway conversation, leave only current-event observations in the trusted user environment block, sort tool definitions deterministically, route shared leading prefixes with a stable prompt cache key, and keep the web-tool catalog fixed while resolving provider availability lazily at execution time.
+- Route BullX Financial Data MCP calls directly from the skill intent table and inspect only a selected tool schema when its parameters are genuinely uncertain.
+- Point repository guidance at the real root changelog while preserving the pending-change append versus clean-tree next-version rule.
+- Bound the model-visible skill catalog with identity-first description compaction and clarify when requested local changes proceed without another approval versus actions that still require confirmation.
+- Expose the backend-supported `web_search` profile in Console as provider routing with ProviderDSL options, keeping its backend-only default-model placeholder and context length out of the operator UI.
+- Avoid recursive credential lookup when an optional provider API key is absent, so unauthenticated providers such as Yuma web search prepare and execute normally.
+- Drain in-flight CardKit preview mutations before terminal outbox handoff so a provider-committed update cannot race a stale checkpoint into a duplicate final reply.
+- Fall back to an agent owner's `embedding` ModelProfile when Brain has no global dreaming model owner, and resolve pending knowledge blocks per owner so indexing and queries use the same model route.
+
 ## Version 26.07.5 (2026-07-14)
 
 - Align Auth, Setup, and Console around a Carbon-inspired shell, page header, resource table, and dedicated editor hierarchy while retaining the Ankole UI kit and magenta brand.

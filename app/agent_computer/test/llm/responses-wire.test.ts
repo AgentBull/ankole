@@ -1,12 +1,79 @@
 import { describe, expect, it } from 'bun:test'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import { z } from 'zod'
 import { runAgentLoop } from '../../src/core/agent-loop'
 import { callModel, createModel } from '../../src/core/llm'
 import { classifyLLMError, isLocallyRetryableLLMError } from '../../src/core/llm-error-classifier'
+import { buildResponseCreateParams } from '../../src/core/llm/wire'
 
 import { fakeResponseSocket } from '../support/llm'
 
 describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire shape', () => {
+  it('keys the reusable prompt prefix independently of dynamic messages and tool insertion order', () => {
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary'
+    })
+    const first = buildResponseCreateParams(model, {
+      instructions: 'stable instructions',
+      messages: [{ role: 'user', content: 'first dynamic message' }],
+      tools: {
+        zebra: { name: 'zebra', description: 'Zebra tool', parameters: z.object({}) },
+        alpha: { name: 'alpha', description: 'Alpha tool', parameters: z.object({ q: z.string() }) }
+      }
+    })
+    const second = buildResponseCreateParams(model, {
+      instructions: 'stable instructions',
+      messages: [{ role: 'user', content: 'different dynamic message' }],
+      tools: {
+        alpha: { name: 'alpha', description: 'Alpha tool', parameters: z.object({ q: z.string() }) },
+        zebra: { name: 'zebra', description: 'Zebra tool', parameters: z.object({}) }
+      }
+    })
+
+    expect(first.prompt_cache_key).toMatch(/^ankole_[0-9a-f]{32}$/)
+    expect(second.prompt_cache_key).toBe(first.prompt_cache_key)
+    expect(first.tools?.map(tool => ('name' in tool ? tool.name : undefined))).toEqual(['alpha', 'zebra'])
+    expect(second.tools?.map(tool => ('name' in tool ? tool.name : undefined))).toEqual(['alpha', 'zebra'])
+    expect(JSON.stringify({ instructions: first.instructions, tools: first.tools })).toBe(
+      JSON.stringify({ instructions: second.instructions, tools: second.tools })
+    )
+
+    const longStablePrefix = 'stable policy '.repeat(400)
+    const firstSuffix = buildResponseCreateParams(model, {
+      instructions: `${longStablePrefix}runtime suffix one`,
+      messages: [{ role: 'user', content: 'first dynamic message' }],
+      tools: {
+        zebra: { name: 'zebra', description: 'Zebra tool', parameters: z.object({}) },
+        alpha: { name: 'alpha', description: 'Alpha tool', parameters: z.object({ q: z.string() }) }
+      }
+    })
+    const secondSuffix = buildResponseCreateParams(model, {
+      instructions: `${longStablePrefix}runtime suffix two`,
+      messages: [{ role: 'user', content: 'different dynamic message' }],
+      tools: {
+        alpha: { name: 'alpha', description: 'Alpha tool', parameters: z.object({ q: z.string() }) },
+        zebra: { name: 'zebra', description: 'Zebra tool', parameters: z.object({}) }
+      }
+    })
+
+    expect(secondSuffix.prompt_cache_key).toBe(firstSuffix.prompt_cache_key)
+    expect(
+      buildResponseCreateParams(model, {
+        instructions: 'changed instructions',
+        messages: [{ role: 'user', content: 'first dynamic message' }],
+        tools: {
+          zebra: { name: 'zebra', description: 'Zebra tool', parameters: z.object({}) },
+          alpha: { name: 'alpha', description: 'Alpha tool', parameters: z.object({ q: z.string() }) }
+        }
+      }).prompt_cache_key
+    ).not.toBe(first.prompt_cache_key)
+    expect(
+      buildResponseCreateParams(model, { messages: [{ role: 'user', content: 'no reusable prefix' }] }).prompt_cache_key
+    ).toBeUndefined()
+  })
+
   it('passes image input through as Responses input_image content', async () => {
     const bodies: JSONObject[] = []
     const model = createModel({

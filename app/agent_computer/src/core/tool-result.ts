@@ -3,6 +3,7 @@ import type { AgentToolResult, ReplyPresentationEvent } from './types'
 export interface JSONToolResultOptions {
   textPrefix?: string
   presentation?: ReplyPresentationEvent[]
+  terminate?: boolean
 }
 
 export function jsonToolResult<TDetails>(
@@ -13,6 +14,7 @@ export function jsonToolResult<TDetails>(
   return {
     content: [{ type: 'text', text: `${opts.textPrefix ?? ''}${text ?? 'undefined'}` }],
     details,
-    ...(opts.presentation ? { presentation: opts.presentation } : {})
+    ...(opts.presentation ? { presentation: opts.presentation } : {}),
+    ...(opts.terminate ? { terminate: true } : {})
   }
 }

@@ -34,7 +34,12 @@ import type {
 import { ErrorBlock } from '../console-primitives'
 import { LabeledField } from '../console-shell'
 import { ModelProfilesModel, PROFILE_NAMES, type ProfileDraft, type ProfileName } from '../state/model-profiles-model'
-import { modelOptionsForProfile, providersForProfile } from './model-profile-options'
+import {
+  modelOptionsForProfile,
+  modelProfileRequestFields,
+  profileUsesConfigurableModel,
+  providersForProfile
+} from './model-profile-options'
 import { ProviderSettingField } from './provider-setting-field'
 import {
   buildSettingOptions,
@@ -121,12 +126,10 @@ export function ModelProfilesEditor({
       updateDraft(profile, { error: builtOptions.error })
       return
     }
-    const contextLength = draft.contextLength.trim() ? Number.parseInt(draft.contextLength, 10) : undefined
     saveProfile.mutate({
       body: {
         provider_id: draft.providerID,
-        model: draft.model,
-        context_length: Number.isFinite(contextLength) ? contextLength : undefined,
+        ...modelProfileRequestFields(profile, draft),
         provider_options: builtOptions.value
       },
       path: { agent_uid: agent.uid, profile }
@@ -151,8 +154,11 @@ export function ModelProfilesEditor({
           const optionSettings = requestSettings(selectedKind)
           const basicOptionSettings = optionSettings.filter(setting => !setting.advanced)
           const advancedOptionSettings = optionSettings.filter(setting => setting.advanced)
-          const modelOptions = modelOptionsForProfile(modelCatalog, providerID, profile)
-          const configured = Boolean(draft.codexAccountID.value || (draft.providerID.value && draft.model.value))
+          const configurableModel = profileUsesConfigurableModel(profile)
+          const modelOptions = configurableModel ? modelOptionsForProfile(modelCatalog, providerID, profile) : []
+          const configured = Boolean(
+            draft.codexAccountID.value || (draft.providerID.value && (!configurableModel || draft.model.value))
+          )
           const subscriptionCoding = profile === 'coding' && Boolean(draft.codexAccountID.value)
           const renderOptionSetting = (setting: ProviderSetting) => (
             <div key={setting.key} className={setting.type === 'map' ? 'md:col-span-2' : undefined}>
@@ -223,7 +229,10 @@ export function ModelProfilesEditor({
               ) : null}
               {!subscriptionCoding ? (
                 <>
-                  <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_128px]">
+                  <div
+                    className={
+                      configurableModel ? 'grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_128px]' : 'grid gap-4'
+                    }>
                     <LabeledField label={t('console.models.provider')}>
                       <Select
                         value={draft.providerID.value}
@@ -235,8 +244,7 @@ export function ModelProfilesEditor({
                               ? { providerID: nextProviderID }
                               : {
                                   providerID: nextProviderID,
-                                  model: '',
-                                  contextLength: '',
+                                  ...(configurableModel ? { model: '', contextLength: '' } : {}),
                                   providerOptions: {},
                                   error: undefined
                                 }
@@ -254,23 +262,27 @@ export function ModelProfilesEditor({
                         </SelectContent>
                       </Select>
                     </LabeledField>
-                    <LabeledField label={t('console.models.model')}>
-                      <CreatableCombobox
-                        options={modelOptions}
-                        placeholder={t('console.models.model_placeholder')}
-                        emptyLabel={t('console.models.model_empty')}
-                        createLabel={value => t('console.models.model_use', { model: value })}
-                        value={draft.model.value}
-                        onValueChange={value => updateDraft(profile, { model: value, error: undefined })}
-                      />
-                    </LabeledField>
-                    <LabeledField label={t('console.models.context')}>
-                      <Input
-                        inputMode="numeric"
-                        value={draft.contextLength.value}
-                        onChange={event => updateDraft(profile, { contextLength: event.target.value })}
-                      />
-                    </LabeledField>
+                    {configurableModel ? (
+                      <>
+                        <LabeledField label={t('console.models.model')}>
+                          <CreatableCombobox
+                            options={modelOptions}
+                            placeholder={t('console.models.model_placeholder')}
+                            emptyLabel={t('console.models.model_empty')}
+                            createLabel={value => t('console.models.model_use', { model: value })}
+                            value={draft.model.value}
+                            onValueChange={value => updateDraft(profile, { model: value, error: undefined })}
+                          />
+                        </LabeledField>
+                        <LabeledField label={t('console.models.context')}>
+                          <Input
+                            inputMode="numeric"
+                            value={draft.contextLength.value}
+                            onChange={event => updateDraft(profile, { contextLength: event.target.value })}
+                          />
+                        </LabeledField>
+                      </>
+                    ) : null}
                   </div>
                   <div className="grid gap-3">
                     <h4 className="text-sm font-medium">{t('console.models.provider_options')}</h4>

@@ -4,7 +4,7 @@ import type { RuntimeBrainSnapshot, RuntimeBrainSnapshotEntry } from '../lanes/r
 export function formatAgentDurableContext(snapshot: RuntimeBrainSnapshot | undefined): string {
   return formatDurableContext(
     snapshot,
-    'Apply this saved context directly. Use memory tools only for missing detail, newer state, or exact source evidence.',
+    'This is saved durable context for the current agent and channel. Apply it directly.',
     'Some saved context was omitted for length. Retrieve current memory before relying on omitted details.'
   )
 }

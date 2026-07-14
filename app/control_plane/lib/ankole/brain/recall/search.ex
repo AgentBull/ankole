@@ -27,15 +27,19 @@ defmodule Ankole.Brain.Recall.Search do
         |> Enum.take(request.limit)
         |> take_with_token_budget(@result_token_budget)
 
+      degraded_reasons = Enum.uniq(knowledge_degraded ++ chat_degraded)
+      complete? = degraded_reasons == []
+
       {:ok,
        %{
-         "status" => "ok",
+         "status" => if(complete?, do: "ok", else: "degraded"),
+         "result_completeness" => if(complete?, do: "complete", else: "incomplete"),
          "query" => request.query,
          "layer" => request.layer,
          "channel_scope" => request.channel_scope,
          "results" => results,
          "history_notice" => @history_notice,
-         "degraded_reasons" => Enum.uniq(knowledge_degraded ++ chat_degraded)
+         "degraded_reasons" => degraded_reasons
        }}
     end
   end

@@ -8,13 +8,16 @@ import { actorEventUserContent } from '../../src/core/turns/actor_event_content'
 import { actorEventText } from '../../src/core/turns/actor_event_text'
 import {
   actorEventEnvironmentInfoLines,
-  prependEnvironmentInfoLinesToUserMessage
+  prependEnvironmentInfoLinesToUserMessage,
+  turnRequestEnvironmentInfoLines
 } from '../../src/core/turns/message_context'
 import { modelConfigFromAIGatewayAPIKey } from '../../src/core/ai_gateway_transport'
 import { acquireTurnAIGatewayAccess } from '../../src/core/turns/turn_ai_gateway_access'
 import { textTurnResultFromAssistantReply } from '../../src/core/turns/text_turn'
 import { steeringMessages } from '../../src/core/turns/turn_control'
-import type { AIGatewayAPIKeyResponse } from '../../src/lanes/rpc_lane'
+import { buildAgentSystemPrompt, systemPromptForConversation } from '../../src/prompts/system_prompt'
+import type { TurnStart } from '../../src/lanes/actor_lane'
+import type { AgentConversationContext, AIGatewayAPIKeyResponse } from '../../src/lanes/rpc_lane'
 import {
   FakeResponseSocket,
   fakeResponseSocket,
@@ -559,6 +562,97 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
 
     expect(dm).toEqual(['send_at: 2026-07-04T02:03:04.000Z'])
     expect(chatbotGroup).toEqual(['speaker: Alice (chatbot)'])
+  })
+
+  it('keeps durable context in the system suffix and reuses the stored conversation prompt verbatim', () => {
+    const turnStart = turnStartForTest() as TurnStart
+    const context: AgentConversationContext = {
+      request_id: 'context-1',
+      agent_uid: 'agent-1',
+      session_id: 'session-1',
+      turn: turnStart.turn,
+      agent: { display_name: 'Research Agent', role: 'Analyst' },
+      conversation: {
+        id: 'conversation-1',
+        key: 'session-1',
+        started_at: '2026-07-15T01:00:00Z',
+        timezone: 'Asia/Shanghai'
+      },
+      soul: 'Be precise.',
+      mission: 'Help with research.',
+      brain_snapshot: {
+        pinned_memo: { resident_text: 'Prefer concise evidence.', truncated: false }
+      },
+      skills: [{ skill_name: 'financial-data', description: 'Read current market data.' }]
+    }
+    const options = {
+      workspaceRoot: '/workspace',
+      turnStart,
+      agentConversationContext: context,
+      currentChannel: { kind: 'external_dm' as const, id: 'dm-1', platform: 'feishu' },
+      availableToolNames: ['memory_search', 'skill_view']
+    }
+
+    const instructions = buildAgentSystemPrompt(options)
+    const changedContext: AgentConversationContext = {
+      ...context,
+      conversation: { ...context.conversation, id: 'conversation-2', timezone: 'UTC' },
+      brain_snapshot: {
+        pinned_memo: { resident_text: 'Prefer detailed explanations.', truncated: false }
+      },
+      skills: [{ skill_name: 'documents', description: 'Create documents.' }]
+    }
+    const changedOptions = {
+      ...options,
+      agentConversationContext: { ...changedContext, system_prompt_snapshot: instructions },
+      currentChannel: { kind: 'external_group' as const, id: 'group-2', platform: 'feishu' }
+    }
+
+    expect(instructions).toContain('Asia/Shanghai')
+    expect(instructions).toContain('Prefer concise evidence.')
+    expect(instructions).toContain('financial-data')
+    expect(buildAgentSystemPrompt(changedOptions)).not.toBe(instructions)
+    expect(systemPromptForConversation(changedOptions)).toBe(instructions)
+    expect(instructions.indexOf('<completion_contract>')).toBeLessThan(instructions.indexOf('<runtime_context>'))
+    expect(instructions.indexOf('<runtime_context>')).toBeLessThan(instructions.indexOf('<durable_context>'))
+  })
+
+  it('keeps schedule values in the current event block while system policy owns their meaning', () => {
+    const turnStart = {
+      ...turnStartForTest(),
+      request_context: {
+        turn_mode: 'check_back_later',
+        silent_success_allowed: false,
+        schedule_origin: {
+          scheduled_event_id: 'schedule-1',
+          due_at: '2026-07-15T02:00:00Z',
+          fired_at: '2026-07-15T02:00:01Z',
+          timezone: 'Asia/Shanghai',
+          payload: { symbol: '600519.SH' }
+        }
+      }
+    } as TurnStart
+
+    const lines = turnRequestEnvironmentInfoLines(turnStart)
+    expect(lines).toContain('schedule_turn_mode: check_back_later')
+    expect(lines).toContain('schedule_silent_success_allowed: false')
+    expect(lines).toContain('schedule_payload: {"symbol":"600519.SH"}')
+
+    const context: AgentConversationContext = {
+      request_id: 'context-schedule',
+      agent_uid: 'agent-1',
+      session_id: 'session-1',
+      turn: turnStart.turn,
+      conversation: { id: 'conversation-1', key: 'session-1', timezone: 'Asia/Shanghai' }
+    }
+    const instructions = buildAgentSystemPrompt({
+      workspaceRoot: '/workspace',
+      turnStart,
+      agentConversationContext: context,
+      availableToolNames: []
+    })
+    expect(instructions).toContain('When schedule_turn_mode is check_back_later')
+    expect(instructions).not.toContain('schedule_event_id: schedule-1')
   })
 
   it('builds multipart actor-event content when the main model supports image input', async () => {

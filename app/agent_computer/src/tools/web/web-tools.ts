@@ -30,6 +30,8 @@ interface WebToolsResponse {
   web_fetch?: WebToolAvailability
 }
 
+type WebToolsAvailabilityResolver = (signal?: AbortSignal) => Promise<WebToolsResponse>
+
 export interface CreateWebToolsOptions {
   aiGateway: AIGatewayHTTPClient
   abortSignal?: AbortSignal
@@ -61,31 +63,27 @@ const WebFetchParams = z.object({
 })
 
 /**
- * Creates web tools based on AIGateway-reported provider availability.
+ * Creates a stable web-tool catalog and resolves provider availability lazily.
  *
- * The local browser can provide web_fetch as a fallback, but web_search remains
+ * Provider configuration may change between turns, but the model-facing tool
+ * definitions must not. Each turn memoizes the first availability lookup;
+ * web_fetch can fall back to the local browser, while web_search remains
  * provider-backed because the worker does not own a search index.
  */
 export async function createWebTools(opts: CreateWebToolsOptions): Promise<AgentTool<any>[]> {
-  const availability = await fetchWebToolsAvailability(opts.aiGateway, opts.abortSignal)
-  const tools: AgentTool<any>[] = []
-
-  if (availability.web_search?.available && availability.web_search.model) {
-    tools.push(createWebSearchTool(opts.aiGateway, availability.web_search.model))
+  let availabilityPromise: Promise<WebToolsResponse> | undefined
+  const resolveAvailability: WebToolsAvailabilityResolver = signal => {
+    availabilityPromise ??= fetchWebToolsAvailability(opts.aiGateway, signal ?? opts.abortSignal)
+    return availabilityPromise
   }
 
-  const providerFetchModel =
-    availability.web_fetch?.available && availability.web_fetch.model ? availability.web_fetch.model : undefined
-  if (providerFetchModel || opts.localBrowser) {
-    tools.push(
-      createWebFetchTool(opts.aiGateway, {
-        providerModel: providerFetchModel,
-        localBrowser: opts.localBrowser
-      })
-    )
-  }
-
-  return tools
+  return [
+    createWebSearchTool(opts.aiGateway, resolveAvailability),
+    createWebFetchTool(opts.aiGateway, {
+      resolveAvailability,
+      localBrowser: opts.localBrowser
+    })
+  ]
 }
 
 /**
@@ -93,7 +91,7 @@ export async function createWebTools(opts: CreateWebToolsOptions): Promise<Agent
  */
 function createWebSearchTool(
   aiGateway: AIGatewayHTTPClient,
-  model: string
+  resolveAvailability: WebToolsAvailabilityResolver
 ): AgentTool<typeof WebSearchParams, WebToolDetails> {
   return {
     name: 'web_search',
@@ -103,6 +101,8 @@ function createWebSearchTool(
     isReadOnly: true,
     isDestructive: false,
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<WebToolDetails>> {
+      const availability = await resolveAvailability(signal)
+      const model = configuredProviderModel('web_search', availability.web_search)
       const body = await postAIGatewayJSON(
         aiGateway,
         '/web_search',
@@ -132,43 +132,43 @@ function createWebSearchTool(
 function createWebFetchTool(
   aiGateway: AIGatewayHTTPClient,
   config: {
-    providerModel?: string
+    resolveAvailability: WebToolsAvailabilityResolver
     localBrowser?: LocalBrowserWebFetchOptions
   }
 ): AgentTool<typeof WebFetchParams, WebToolDetails> {
-  const description = config.providerModel
-    ? 'Fetch readable text from HTTPS web pages through AIGateway, falling back to the local browser when available. Pass all needed URLs in one call.'
-    : 'Fetch readable text from HTTPS web pages through the local browser. Pass all needed URLs in one call.'
-
   return {
     name: 'web_fetch',
-    description,
+    description:
+      'Fetch readable text from HTTPS web pages through AIGateway, falling back to the local browser when available. Pass all needed URLs in one call.',
     schema: WebFetchParams,
     executionMode: 'sequential',
     isReadOnly: true,
     isDestructive: false,
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<WebToolDetails>> {
       let body: unknown
+      let providerModel: string | undefined
 
-      if (config.providerModel) {
+      try {
+        const availability = await config.resolveAvailability(signal)
+        providerModel = optionalProviderModel(availability.web_fetch)
+        if (!providerModel && !config.localBrowser) {
+          configuredProviderModel('web_fetch', availability.web_fetch)
+        }
+      } catch (error) {
+        if (signal?.aborted || !config.localBrowser) throw error
+        body = await localBrowserFetch(params.urls, config.localBrowser, signal, errorMessage(error))
+      }
+
+      if (body === undefined && providerModel) {
         try {
-          body = await postAIGatewayJSON(
-            aiGateway,
-            '/web_fetch',
-            { model: config.providerModel, urls: params.urls },
-            signal
-          )
+          body = await postAIGatewayJSON(aiGateway, '/web_fetch', { model: providerModel, urls: params.urls }, signal)
         } catch (error) {
           if (signal?.aborted) throw error
           if (!config.localBrowser) throw error
           body = await localBrowserFetch(params.urls, config.localBrowser, signal, errorMessage(error))
         }
-      } else if (config.localBrowser) {
+      } else if (body === undefined && config.localBrowser) {
         body = await localBrowserFetch(params.urls, config.localBrowser, signal)
-      } else {
-        throw new Error(
-          'web_fetch is unavailable: no AIGateway provider profile or local browser fallback is configured'
-        )
       }
 
       return {
@@ -177,6 +177,20 @@ function createWebFetchTool(
       }
     }
   }
+}
+
+/** Returns a configured provider model or explains why the tool cannot run. */
+function configuredProviderModel(name: 'web_search' | 'web_fetch', availability?: WebToolAvailability): string {
+  const model = optionalProviderModel(availability)
+  if (model) return model
+
+  const reason = availability?.reason?.trim()
+  throw new Error(`${name} is unavailable: ${reason || 'no AIGateway provider model is configured'}`)
+}
+
+/** Reads a usable provider model from one availability entry. */
+function optionalProviderModel(availability?: WebToolAvailability): string | undefined {
+  return availability?.available && availability.model?.trim() ? availability.model.trim() : undefined
 }
 
 /**
@@ -283,14 +297,16 @@ async function fetchWebToolsAvailability(
   aiGateway: AIGatewayHTTPClient,
   signal?: AbortSignal
 ): Promise<WebToolsResponse> {
-  try {
-    const response = await aiGateway.fetch(aiGatewayURL(aiGateway, '/web_tools'), { signal })
-    if (!response.ok) return {}
-    const body = await response.json()
-    return isRecord(body) ? (body as WebToolsResponse) : {}
-  } catch {
-    return {}
+  const response = await aiGateway.fetch(aiGatewayURL(aiGateway, '/web_tools'), { signal })
+  const text = await response.text()
+  const body = parseJSON(text)
+
+  if (!response.ok) {
+    throw new Error(gatewayErrorMessage(body, response.status))
   }
+  if (!isRecord(body)) throw new Error('AIGateway web tool availability returned a non-object response')
+
+  return body as WebToolsResponse
 }
 
 /**

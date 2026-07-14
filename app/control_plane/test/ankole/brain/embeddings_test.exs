@@ -21,6 +21,40 @@ defmodule Ankole.Brain.EmbeddingsTest do
     :ok
   end
 
+  test "an agent owner falls back to its embedding profile when dreaming has no model owner" do
+    %{principal: owner} = agent_fixture()
+
+    configure_embedding_profile!(owner, fn
+      %{path: "v1/embeddings"} -> embedding_response([0.7, 0.3])
+      request -> flunk("unexpected embedding request: #{inspect(request)}")
+    end)
+
+    assert {:ok, owner.uid} == Embedding.resolve_model_agent_uid(owner.uid)
+
+    {:ok, scope} = Scope.for_store(owner.uid, "public")
+    block = pending_block!(scope, owner.uid, "Owner profile fallback", "stored vector content")
+
+    assert {:ok, 1} = Brain.embed_pending_blocks(1)
+
+    assert %EntryBlock{embedding_state: :synced, embedding_dimensions: 2} =
+             Repo.get!(EntryBlock, block.id)
+
+    assert {:ok,
+            %{
+              "status" => "ok",
+              "result_completeness" => "complete",
+              "degraded_reasons" => [],
+              "results" => [%{"entry_id" => entry_id, "route" => route} | _rest]
+            }} =
+             Brain.search(scope, %{
+               "query" => "semantically related words absent from the stored text",
+               "layer" => "knowledge"
+             })
+
+    assert entry_id == block.entry_id
+    assert String.contains?(route, "vector")
+  end
+
   test "pending blocks become searchable vectors and body edits invalidate the old vector" do
     %{principal: owner} = agent_fixture()
     %{principal: model_agent} = agent_fixture()
@@ -207,7 +241,13 @@ defmodule Ankole.Brain.EmbeddingsTest do
 
     assert error =~ "invalid_embedding_vector"
 
-    assert {:ok, %{"results" => results, "degraded_reasons" => degraded}} =
+    assert {:ok,
+            %{
+              "status" => "degraded",
+              "result_completeness" => "incomplete",
+              "results" => results,
+              "degraded_reasons" => degraded
+            }} =
              Brain.search(scope, %{
                "query" => "Malformed Vector Topic",
                "layer" => "knowledge"
@@ -218,6 +258,21 @@ defmodule Ankole.Brain.EmbeddingsTest do
   end
 
   defp configure_embedding_model!(model_agent, handler) do
+    configure_embedding_profile!(model_agent, handler)
+
+    assert {:ok, config} = Config.dreaming()
+
+    assert {:ok, _stored} =
+             AppConfigure.put_global(
+               Config.dreaming_definition(),
+               Map.merge(config, %{
+                 "enabled" => true,
+                 "model_agent_uid" => model_agent.uid
+               })
+             )
+  end
+
+  defp configure_embedding_profile!(model_agent, handler) do
     base_url = start_upstream_server(handler)
     provider_id = "brain-block-embedding-#{System.unique_integer([:positive])}"
 
@@ -234,17 +289,6 @@ defmodule Ankole.Brain.EmbeddingsTest do
                provider_id: provider_id,
                model: "openai/embedding-test"
              })
-
-    assert {:ok, config} = Config.dreaming()
-
-    assert {:ok, _stored} =
-             AppConfigure.put_global(
-               Config.dreaming_definition(),
-               Map.merge(config, %{
-                 "enabled" => true,
-                 "model_agent_uid" => model_agent.uid
-               })
-             )
   end
 
   defp pending_block!(scope, owner_uid, name, body) do

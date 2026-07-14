@@ -12,6 +12,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentConversationContextBroker do
   alias Ankole.Brain.Snapshot
   alias Ankole.SignalsGateway.ActorRuntime.RPCWire
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
+  alias Ankole.SignalsGateway.AIGatewayLink
   alias Ankole.Principals.Agent, as: PrincipalAgent
   alias Ankole.Principals.Principal
   alias Ankole.Repo
@@ -30,6 +31,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentConversationContextBroker do
          {:ok, mission} <- Library.get_mission(turn_ref.agent_uid),
          {:ok, skills} <- Library.skills_for_system_prompt(turn_ref.agent_uid) do
       timezone = installation_timezone()
+      system_prompt_snapshot = AIGatewayLink.system_prompt_snapshot(context.conversation)
 
       {:ok,
        %{
@@ -43,7 +45,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentConversationContextBroker do
          "mission" => mission,
          "skills" => skills,
          "brain_snapshot" => brain_snapshot
-       }}
+       }
+       |> maybe_put("system_prompt_snapshot", system_prompt_snapshot)}
     else
       {:error, reason} -> error(request_id, reason)
     end
@@ -90,6 +93,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentConversationContextBroker do
   defp datetime(%DateTime{} = value), do: DateTime.to_iso8601(value)
   defp datetime(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
   defp datetime(_value), do: nil
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp error(request_id, reason) do
     {:error,

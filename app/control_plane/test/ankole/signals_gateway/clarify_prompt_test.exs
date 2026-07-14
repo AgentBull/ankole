@@ -78,6 +78,42 @@ defmodule Ankole.SignalsGateway.ClarifyPromptTest do
              ])
   end
 
+  test "rejects whitespace-only questions and choice labels at the durable projection boundary" do
+    assert {:error, {:invalid_clarify_output, "call-empty-question", {:question, :required}}} =
+             ClarifyPrompt.from_response_items([
+               %{
+                 "type" => "function_call",
+                 "call_id" => "call-empty-question",
+                 "name" => "clarify",
+                 "arguments" => "{}"
+               },
+               %{
+                 "type" => "function_call_output",
+                 "call_id" => "call-empty-question",
+                 "output" => %{"tool" => "clarify", "question" => "   ", "choices" => []}
+               }
+             ])
+
+    assert {:error, {:invalid_clarify_output, "call-empty-choice", {:label, :required}}} =
+             ClarifyPrompt.from_response_items([
+               %{
+                 "type" => "function_call",
+                 "call_id" => "call-empty-choice",
+                 "name" => "clarify",
+                 "arguments" => "{}"
+               },
+               %{
+                 "type" => "function_call_output",
+                 "call_id" => "call-empty-choice",
+                 "output" => %{
+                   "tool" => "clarify",
+                   "question" => "Choose one",
+                   "choices" => [%{"label" => "   "}]
+                 }
+               }
+             ])
+  end
+
   defp untrusted_tool_output(text) do
     nonce = "clarify-test"
 

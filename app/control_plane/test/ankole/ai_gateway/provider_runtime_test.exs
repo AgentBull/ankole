@@ -7,6 +7,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ProviderConfigs.Provider
   alias Ankole.AIGateway.ProviderRuntime
+  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AIGateway.Schemas.Message
@@ -680,6 +681,33 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert Enum.any?(context_payload["skills"], &(&1["skill_name"] == "nano-pdf"))
     refute Map.has_key?(context_payload, "request_context")
     refute get_in(context_payload, ["conversation", "messages"])
+    refute Map.has_key?(context_payload, "system_prompt_snapshot")
+
+    assert {:ok, prompt_response} =
+             StatefulResponses.start_response_run(%{
+               subject_uid: agent.uid,
+               conversation_id: context_payload["conversation"]["id"],
+               metadata: %{"instructions" => "persisted system prompt"}
+             })
+
+    assert {:ok, _prompt_response} = StatefulResponses.commit_complete(prompt_response, [])
+
+    assert {:ok, resumed_context_envelope} =
+             RPCLane.handle_request(
+               %{
+                 "request_id" => "turn-context-resumed",
+                 "method" => "agent_conversation.context.resolve",
+                 "payload_json" => %{"turn" => mixed_case_turn}
+               },
+               route
+             )
+
+    assert get_in(resumed_context_envelope, [
+             "body",
+             "rpc_response",
+             "payload_json",
+             "system_prompt_snapshot"
+           ]) == "persisted system prompt"
 
     assert {:ok, replace_envelope} =
              RPCLane.handle_request(

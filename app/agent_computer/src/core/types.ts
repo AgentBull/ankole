@@ -134,6 +134,8 @@ export interface AgentToolResult<T> {
   content: ContentPart[]
   details: T
   presentation?: ReplyPresentationEvent[]
+  /** Finish the current Agent turn after this result is durably recorded. */
+  terminate?: boolean
 }
 
 /**

@@ -79,6 +79,35 @@ describe('Brain memory tools', () => {
     })
   })
 
+  it('preserves degraded search completeness so an empty result is not presented as trusted absence', async () => {
+    const tools = createMemoryTools({
+      turnStart: turnStartForMemoryTool(),
+      requestMemoryRPC: async (): Promise<JSONObject> => ({
+        status: 'degraded',
+        result_completeness: 'incomplete',
+        results: [],
+        degraded_reasons: ['chat vector unavailable']
+      })
+    })
+
+    const result = await execute(tools, 'memory_search', {
+      query: 'prior launch decision',
+      layer: 'all',
+      channel_scope: 'current_channel'
+    })
+    const output = JSON.parse(result.content[0]?.type === 'text' ? result.content[0].text : '')
+
+    expect(output).toMatchObject({
+      status: 'degraded',
+      result_completeness: 'incomplete',
+      results: [],
+      degraded_reasons: ['chat vector unavailable']
+    })
+    expect(toolNamed(tools, 'memory_search').description).toContain(
+      'an incomplete empty result does not prove that no matching memory exists'
+    )
+  })
+
   it('opens by id or name and requires one of them', async () => {
     const calls: Array<{ method: string; payload: JSONObject }> = []
     const tools = createMemoryTools({

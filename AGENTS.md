@@ -8,9 +8,9 @@ Other agents may work on the same branch. Treat unrelated diffs and unexpected f
 
 ## Changelog
 
-Update `app/CHANGELOG.md` after every completed change. Changelog versions use `YY.MM.N`, where `YY` and `MM` are two-digit year and month values and `N` is a monthly sequence starting at `0`.
+Update `CHANGELOG.md` after every completed change. Changelog versions use `YY.MM.N`, where `YY` and `MM` are two-digit year and month values and `N` is a monthly sequence starting at `0`.
 
-One Git commit corresponds to exactly one changelog version. Before editing the changelog, check whether `app/CHANGELOG.md` already has uncommitted changes, including staged, unstaged, or untracked changes. If it does, append the new change summary to the current latest version because it belongs to the same pending commit. If the changelog is clean relative to `HEAD`, add the next version and record the change there.
+One Git commit corresponds to exactly one changelog version. Before editing the changelog, check whether `CHANGELOG.md` already has uncommitted changes, including staged, unstaged, or untracked changes. If it does, append the new change summary to the current latest version because it belongs to the same pending commit. If the changelog is clean relative to `HEAD`, add the next version and record the change there.
 
 ## Core discipline
 

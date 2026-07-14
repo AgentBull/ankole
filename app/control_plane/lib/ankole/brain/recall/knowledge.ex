@@ -145,7 +145,7 @@ defmodule Ankole.Brain.Recall.Knowledge do
   end
 
   defp vector_search(scope, request) do
-    with {:ok, model_uid} <- Embedding.resolve_model_agent_uid(),
+    with {:ok, model_uid} <- Embedding.resolve_model_agent_uid(scope.owner_uid),
          {:ok, vector, dimensions} <- Embedding.create(model_uid, request.query) do
       {all_stores, stores} = stores(request.store_keys)
       literal = Embedding.to_pgvector(vector)

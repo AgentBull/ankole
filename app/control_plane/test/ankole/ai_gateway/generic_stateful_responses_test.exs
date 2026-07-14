@@ -182,6 +182,64 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
     assert %{status: "error", previous_message_id: nil} = Repo.get!(Message, failed_child.id)
   end
 
+  test "visible suffix retraction preserves audit rows and resumes from the predecessor" do
+    %{principal: subject} = human_fixture()
+    {:ok, conversation} = StatefulResponses.ensure_conversation(subject.uid, "suffix-retract")
+
+    {:ok, predecessor} =
+      StatefulResponses.start_response_run(%{
+        subject_uid: subject.uid,
+        conversation_id: conversation.id
+      })
+
+    {:ok, predecessor} = StatefulResponses.commit_complete(predecessor, [])
+
+    {:ok, first} =
+      StatefulResponses.start_response_run(%{
+        subject_uid: subject.uid,
+        previous_response_id: "resp_#{predecessor.id}"
+      })
+
+    {:ok, first} = StatefulResponses.commit_complete(first, [])
+
+    {:ok, second} =
+      StatefulResponses.start_response_run(%{
+        subject_uid: subject.uid,
+        previous_response_id: "resp_#{first.id}"
+      })
+
+    {:ok, second} = StatefulResponses.commit_complete(second, [])
+    retracted_at = DateTime.utc_now(:microsecond)
+
+    assert {:ok,
+            %{
+              status: :retracted,
+              retracted_count: 2,
+              retracted_message_ids: [second_id, first_id]
+            }} =
+             Repo.transact(fn repo ->
+               AIGateway.retract_visible_suffix_in_tx(
+                 repo,
+                 subject.uid,
+                 conversation.id,
+                 ["resp_#{second.id}", "resp_#{first.id}"],
+                 reason: "command.retry",
+                 retracted_at: retracted_at
+               )
+             end)
+
+    assert [second_id, first_id] == [second.id, first.id]
+
+    for response <- [first, second] do
+      stored = Repo.get!(Message, response.id)
+      assert stored.status == "retracted"
+      assert stored.metadata["retraction"]["reason"] == "command.retry"
+      assert stored.metadata["retraction"]["retracted_at"] == DateTime.to_iso8601(retracted_at)
+    end
+
+    assert StatefulResponses.latest_visible_leaf(conversation.id) == predecessor.id
+  end
+
   test "facade publishes a generic terminal event after an in-transaction failure" do
     %{principal: subject} = human_fixture()
     {:ok, conversation} = StatefulResponses.ensure_conversation(subject.uid, "facade-publish")

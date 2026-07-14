@@ -4,14 +4,33 @@ import type {
   AiGatewayProviderItem as AIGatewayProviderItem,
   AiGatewayProviderKindItem as AIGatewayProviderKindItem
 } from '../api/generated/types.gen'
-import type { ProfileName } from '../state/model-profiles-model'
+import type { ProfileDraft, ProfileName } from '../state/model-profiles-model'
 
-export type ModelProfileCapability = 'llm' | 'embedding' | 'rerank'
+export type ModelProfileCapability = 'llm' | 'embedding' | 'rerank' | 'web_search'
 
 export function profileCapability(profile: ProfileName): ModelProfileCapability {
   if (profile === 'embedding') return 'embedding'
   if (profile === 'rerank') return 'rerank'
+  if (profile === 'web_search') return 'web_search'
   return 'llm'
+}
+
+export function profileUsesConfigurableModel(profile: ProfileName): boolean {
+  return profileCapability(profile) !== 'web_search'
+}
+
+/** Adapts provider-only profiles to the backend's existing model-profile write shape. */
+export function modelProfileRequestFields(
+  profile: ProfileName,
+  draft: Pick<ProfileDraft, 'model' | 'contextLength'>
+): { model: string; context_length?: number } {
+  if (!profileUsesConfigurableModel(profile)) return { model: 'default' }
+
+  const contextLength = draft.contextLength.trim() ? Number.parseInt(draft.contextLength, 10) : undefined
+  return {
+    model: draft.model,
+    context_length: Number.isFinite(contextLength) ? contextLength : undefined
+  }
 }
 
 /** Keeps only configured providers whose DSL declares the profile's capability. */
