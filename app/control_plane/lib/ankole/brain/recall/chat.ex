@@ -149,16 +149,14 @@ defmodule Ankole.Brain.Recall.Chat do
     else
       {hot_cutoff, hot_document_ids} = hot_exclusion(current_channel, event, config)
       current_channel_id = if is_map(current_channel), do: current_channel.id, else: nil
+      channel_name_query = like_query(normalized)
 
       sql = """
       SELECT
         e.signal_channel_id,
         e.source_entry_id,
         e.document_id,
-        e.search_text,
-        e.metadata_text,
         e.text,
-        e.fallback_visible_text,
         e.author,
         e.provider_time,
         e.last_seen_at,
@@ -169,7 +167,12 @@ defmodule Ankole.Brain.Recall.Chat do
       FROM signal_gateway_entries e
       JOIN signal_gateway_channels c ON c.id = e.signal_channel_id
       WHERE e.signal_channel_id = ANY($2::text[])
-        AND (e.search_text @@@ $1 OR e.metadata_text @@@ $1)
+        AND (
+          e.text @@@ $1
+          OR e.author @@@ $1
+          OR e.metadata @@@ $1
+          OR e.provider_thread_id @@@ $1
+        )
         AND ($7::timestamptz IS NULL OR COALESCE(e.provider_time, e.last_seen_at, e.inserted_at) >= $7)
         AND ($8::timestamptz IS NULL OR COALESCE(e.provider_time, e.last_seen_at, e.inserted_at) <= $8)
         AND ($3::text IS NULL OR NOT (
@@ -183,17 +186,61 @@ defmodule Ankole.Brain.Recall.Chat do
       LIMIT $6
       """
 
-      case Repo.query(sql, [
-             normalized,
-             channels,
-             current_channel_id,
-             hot_cutoff,
-             hot_document_ids,
-             limit * 3,
-             from,
-             to
-           ]) do
-        {:ok, %{rows: rows}} -> {:ok, Enum.map(rows, &keyword_projection/1)}
+      channel_sql = """
+      SELECT
+        e.signal_channel_id,
+        e.source_entry_id,
+        e.document_id,
+        e.text,
+        e.author,
+        e.provider_time,
+        e.last_seen_at,
+        e.inserted_at,
+        c.kind,
+        c.name,
+        NULL::real AS score
+      FROM signal_gateway_entries e
+      JOIN signal_gateway_channels c ON c.id = e.signal_channel_id
+      WHERE e.signal_channel_id = ANY($1::text[])
+        AND c.name ILIKE $8 ESCAPE '\\'
+        AND ($6::timestamptz IS NULL OR COALESCE(e.provider_time, e.last_seen_at, e.inserted_at) >= $6)
+        AND ($7::timestamptz IS NULL OR COALESCE(e.provider_time, e.last_seen_at, e.inserted_at) <= $7)
+        AND ($2::text IS NULL OR NOT (
+          e.signal_channel_id = $2
+          AND (
+            ($3::timestamptz IS NOT NULL AND COALESCE(e.provider_time, e.last_seen_at, e.inserted_at) >= $3)
+            OR e.document_id = ANY($4::text[])
+          )
+        ))
+      ORDER BY COALESCE(e.provider_time, e.last_seen_at, e.inserted_at) DESC
+      LIMIT $5
+      """
+
+      with {:ok, %{rows: bm25_rows}} <-
+             Repo.query(sql, [
+               normalized,
+               channels,
+               current_channel_id,
+               hot_cutoff,
+               hot_document_ids,
+               limit * 3,
+               from,
+               to
+             ]),
+           {:ok, %{rows: channel_rows}} <-
+             Repo.query(channel_sql, [
+               channels,
+               current_channel_id,
+               hot_cutoff,
+               hot_document_ids,
+               limit * 3,
+               from,
+               to,
+               channel_name_query
+             ]) do
+        rows = Enum.uniq_by(bm25_rows ++ channel_rows, &Enum.at(&1, 2))
+        {:ok, Enum.map(rows, &keyword_projection/1)}
+      else
         {:error, reason} -> {:error, {:brain_chat_bm25_failed, reason}}
       end
     end
@@ -313,10 +360,7 @@ defmodule Ankole.Brain.Recall.Chat do
          channel_id,
          source_entry_id,
          document_id,
-         search_text,
-         metadata_text,
          text,
-         fallback_visible_text,
          author,
          provider_time,
          last_seen_at,
@@ -334,8 +378,7 @@ defmodule Ankole.Brain.Recall.Chat do
       "observed_at" => datetime(provider_time || last_seen_at || inserted_at),
       "channel" => %{"kind" => to_string(kind || ""), "name" => name},
       "speaker" => author_name(author),
-      "text" => search_text || text || fallback_visible_text || "",
-      "metadata_text" => metadata_text
+      "text" => text || ""
     }
   end
 
@@ -484,6 +527,16 @@ defmodule Ankole.Brain.Recall.Chat do
     |> Enum.join(" ")
   end
 
+  defp like_query(query) do
+    escaped =
+      query
+      |> String.replace("\\", "\\\\")
+      |> String.replace("%", "\\%")
+      |> String.replace("_", "\\_")
+
+    "%#{escaped}%"
+  end
+
   defp maybe_after(query, nil), do: query
 
   defp maybe_after(query, from) do
@@ -543,8 +596,7 @@ defmodule Ankole.Brain.Recall.Chat do
       "document_id" => entry.document_id,
       "observed_at" => datetime(observed_at(entry)),
       "speaker" => author_name(entry.author),
-      "text" => entry.search_text || entry.text || entry.fallback_visible_text || "",
-      "metadata_text" => entry.metadata_text,
+      "text" => entry.text || "",
       "anchor" => entry.document_id == anchor_document_id
     }
   end

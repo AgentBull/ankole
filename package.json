@@ -50,7 +50,7 @@
     "analyze:topology": "bun run kit analyze topology"
   },
   "dependencies": {
-    "turbo": "^2.10.4"
+    "turbo": "^2.10.5"
   },
   "devDependencies": {
     "@types/bun": "latest",

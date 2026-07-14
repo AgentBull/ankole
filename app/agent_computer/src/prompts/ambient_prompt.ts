@@ -6,7 +6,7 @@
  */
 
 import type { RuntimeBrainSnapshot } from '../lanes/rpc_lane'
-import { formatBrainSnapshot } from './brain_snapshot'
+import { formatAmbientDurableContext } from './durable_context'
 
 export type AmbientRecognizerSystemPromptInput = {
   currentTime: string
@@ -90,7 +90,7 @@ function aboutSection(input: AmbientRecognizerSystemPromptInput): string {
 }
 
 function contextSection(input: AmbientRecognizerSystemPromptInput): string {
-  return ['## Context', '', runtimeContextSection(input), formatBrainSnapshot(input.brainSnapshot)]
+  return ['## Context', '', runtimeContextSection(input), formatAmbientDurableContext(input.brainSnapshot)]
     .filter(Boolean)
     .join('\n\n')
 }

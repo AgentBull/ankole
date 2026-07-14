@@ -4,7 +4,7 @@
 //! to parse and classify URLs separately (Elixir `URI` + `:inet`, Bun
 //! `new URL` + `node:net`), leaving the policy a comment-level "mirror". This
 //! module owns the parse and the host classification once; runtime bindings
-//! keep only scheme rules, the `web_tools.block_private_network` toggle, and
+//! keep only scheme rules, the `security.ssrf_filter` toggle, and
 //! error shapes.
 
 use std::net::{Ipv4Addr, Ipv6Addr};
@@ -19,7 +19,7 @@ pub enum HostClass {
     /// Cloud metadata endpoints; rejected regardless of policy.
     Metadata,
     /// Localhost names and non-public literal IP addresses; rejected only when
-    /// `web_tools.block_private_network` is enabled.
+    /// `security.ssrf_filter` is enabled.
     Private,
     /// Everything else, including DNS names that are only resolved later.
     Public,

@@ -35,7 +35,7 @@ const router = createBrowserRouter(
       path: '/',
       element: <ConsoleLayout />,
       children: [
-        { index: true, element: <Navigate to="agents" replace /> },
+        { index: true, element: <Navigate to="/agents" replace /> },
         { path: 'agents', element: <AgentsListPage /> },
         { path: 'agents/new', element: <AgentEditorPage /> },
         { path: 'agents/:uid', element: <AgentEditorPage /> },
@@ -63,7 +63,7 @@ const router = createBrowserRouter(
         { path: 'brain/audit/:id', element: <BrainEntryAuditPage /> },
         { path: 'brain/:id', element: <BrainEntryEditorPage /> },
         { path: 'brain/sources/:documentID', element: <BrainSourcePage /> },
-        { path: '*', element: <Navigate to="agents" replace /> }
+        { path: '*', element: <Navigate to="/agents" replace /> }
       ]
     }
   ],

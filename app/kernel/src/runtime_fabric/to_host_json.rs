@@ -76,6 +76,10 @@ fn worker_ready_to_json(payload: &proto::AgentComputerWorkerReady) -> KernelResu
         ("runtime", Value::from(payload.runtime.clone())),
         ("version", Value::from(payload.version.clone())),
         ("capacity_json", bytes_to_json(&payload.capacity_json)?),
+        (
+            "incarnation_id",
+            Value::from(payload.incarnation_id.clone()),
+        ),
     ]))
 }
 
@@ -84,6 +88,10 @@ fn worker_heartbeat_to_json(payload: &proto::AgentComputerWorkerHeartbeat) -> Ke
         ("worker_id", Value::from(payload.worker_id.clone())),
         ("monotonic_ms", Value::from(payload.monotonic_ms)),
         ("load_json", bytes_to_json(&payload.load_json)?),
+        (
+            "incarnation_id",
+            Value::from(payload.incarnation_id.clone()),
+        ),
     ]))
 }
 
@@ -95,6 +103,10 @@ fn worker_capacity_to_json(payload: &proto::AgentComputerWorkerCapacity) -> Kern
         (
             "available_turn_slots",
             Value::from(payload.available_turn_slots),
+        ),
+        (
+            "incarnation_id",
+            Value::from(payload.incarnation_id.clone()),
         ),
     ]))
 }

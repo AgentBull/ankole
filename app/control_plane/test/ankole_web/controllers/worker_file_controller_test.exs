@@ -470,6 +470,7 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
     worker =
       Repo.insert!(%AgentComputerWorker{
         worker_id: worker_id,
+        incarnation_id: Ecto.UUID.generate(),
         status: status,
         version: "test",
         capacity: %{},

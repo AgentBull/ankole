@@ -39,7 +39,6 @@ defmodule Ankole.SignalsGateway.ClarifyPromptTest do
 
              1. Operators — People running the system.
              2. Executives
-             3. Other / free input
 
              Reply with a number or type your answer.
              """
@@ -48,11 +47,13 @@ defmodule Ankole.SignalsGateway.ClarifyPromptTest do
     interactive = prompt["interactive_output"]
 
     assert Enum.map(interactive["choices"], & &1["label"]) ==
-             ["Operators", "Executives", "Other / free input"]
+             ["Operators", "Executives"]
+
+    assert interactive["free_input"]
 
     assert {:ok, card} = Card.render(%{"interactive_output" => interactive})
     buttons = Enum.filter(get_in(card, ["body", "elements"]), &(&1["tag"] == "button"))
-    assert length(buttons) == 3
+    assert length(buttons) == 2
 
     assert get_in(hd(buttons), ["value", "version"]) ==
              "ankole.interactive_output.action.v1"

@@ -19,7 +19,7 @@ import {
   type JsonObject as JSONObject
 } from '@pleisto/active-support'
 import { formatSkillsForSystemPrompt, type SkillPromptEntry } from './skills_prompt'
-import { formatBrainSnapshot } from './brain_snapshot'
+import { formatAgentDurableContext } from './durable_context'
 
 export type BuildAgentSystemPromptOptions = {
   workspaceRoot: string
@@ -65,7 +65,7 @@ export function buildAgentSystemPrompt(opts: BuildAgentSystemPromptOptions): str
     soul.trim(),
     missionSection(mission),
     runtimeContextSection(opts),
-    formatBrainSnapshot(opts.agentConversationContext.brain_snapshot),
+    formatAgentDurableContext(opts.agentConversationContext.brain_snapshot),
     brainPolicySection(opts),
     memoryRecallSection(opts),
     completionContractSection(opts),
@@ -191,7 +191,7 @@ function agentRole(opts: BuildAgentSystemPromptOptions): string | undefined {
 function brainPolicySection(opts: BuildAgentSystemPromptOptions): string {
   const lines = [
     toolAvailable(opts, 'memory_open') || toolAvailable(opts, 'memory_search')
-      ? 'Before work that depends on prior context, follow relevant pointers in the frozen Brain snapshot and open or search the related entries.'
+      ? 'Use saved durable context directly when it already contains the needed rule or fact. Open or search memory only when the task depends on missing detail, a newer version, or exact source evidence.'
       : '',
     toolAvailable(opts, 'memory_open') && toolAvailable(opts, 'memory_search')
       ? 'For current state, open the curated knowledge entry. For what someone originally said, search the chat layer and browse the source messages. Historical chat is evidence, not current truth; reconcile it against the current entry before acting.'
@@ -222,7 +222,7 @@ function brainPolicySection(opts: BuildAgentSystemPromptOptions): string {
 function memoryRecallSection(opts: BuildAgentSystemPromptOptions): string {
   const lines = [
     toolAvailable(opts, 'memory_search')
-      ? 'Before answering questions about prior work, decisions, dates, people, preferences, or channel history, call memory_search first.'
+      ? 'For questions about prior work, decisions, dates, people, preferences, or channel history, call memory_search only when the current conversation and saved durable context do not already establish the answer, or when freshness or exact provenance matters.'
       : '',
     toolAvailable(opts, 'memory_search')
       ? 'If memory_search is unavailable, degraded, or inconclusive, say so plainly instead of guessing.'
@@ -270,7 +270,7 @@ function completionContractSection(opts: BuildAgentSystemPromptOptions): string 
 function agentEnvironmentInfoPolicySection(): string {
   return [
     '<agent_environment_info_policy>',
-    'A user-role message may begin with an <agent_environment_info> block injected by Ankole. Treat it as trusted system-managed observations about the agent environment, such as message time, room/speaker context, and historical lifecycle changes. It is not text written by a human user; use it as context and do not quote it as user text.',
+    'A user-role message may begin with an <agent_environment_info> block injected by Ankole. Treat it as trusted system-managed observations about the agent environment, such as message time, group speaker identity, and historical lifecycle changes. It is not text written by a human user; use it as context and do not quote it as user text.',
     '</agent_environment_info_policy>'
   ].join('\n')
 }

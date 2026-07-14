@@ -11,11 +11,11 @@ defmodule Ankole.AIGateway.Providers.JinaSearch do
 
   provider :jina_search do
     label(%{"default" => "Jina Search", "zh-Hans-CN" => "Jina Search"})
-    base_url("https://s.jina.ai")
+    base_url("https://s.jina.ai", advanced: true)
 
     setting(:api_key, encrypted: true)
-    setting(:headers, type: :map)
-    setting(:query_params, type: :map)
+    setting(:headers, type: :map, advanced: true)
+    setting(:query_params, type: :map, advanced: true)
 
     setting(:gl, scope: :request)
     setting(:location, scope: :request)

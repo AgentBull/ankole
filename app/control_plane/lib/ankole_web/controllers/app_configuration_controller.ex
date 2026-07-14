@@ -128,12 +128,12 @@ defmodule AnkoleWeb.AppConfigurationController do
 
   Writes the "global" layer of AppConfigure, on top of the compiled-in default.
   The value is validated against the key's own schema downstream in the context.
+  Omitting `value` is a no-op only when a present encrypted value is being kept.
   """
   def update(conn, params) do
     with {:ok, key} <- key_param(params),
          :ok <- ConsolePolicy.authorize(conn, "app_configuration:#{key}", "update"),
-         {:ok, value} <- request_value(conn.body_params),
-         {:ok, item} <- AppConfigure.console_put_global_by_key(key, value) do
+         {:ok, item} <- AppConfigure.console_update_global_by_key(key, conn.body_params) do
       json(conn, %{app_configuration: item})
     else
       {:error, reason} -> error(conn, reason)
@@ -176,10 +176,6 @@ defmodule AnkoleWeb.AppConfigurationController do
   defp key_param(%{"key" => key}) when is_binary(key), do: {:ok, key}
   defp key_param(%{key: key}) when is_binary(key), do: {:ok, key}
   defp key_param(_params), do: {:error, :missing_key}
-
-  defp request_value(%{"value" => value}), do: {:ok, value}
-  defp request_value(%{value: value}), do: {:ok, value}
-  defp request_value(_body), do: {:error, :missing_value}
 
   # Translates AppConfigure context errors into the console error envelope with a
   # stable machine `code`. The `ambiguous_key`/`pattern_key_not_editable` cases

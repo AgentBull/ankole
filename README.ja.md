@@ -1,7 +1,7 @@
 # Ankole - 共有 AI 同僚のためのオープン AgentOS
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-red.svg?logo=apache&label=License)](LICENSE)
-![Status](https://img.shields.io/badge/status-early_engineering_distribution-yellow)
+![Status](https://img.shields.io/badge/status-mvp_early_production-yellow)
 ![Runtime](https://img.shields.io/badge/runtime-Bun%20%2B%20Phoenix%2FOTP%20%2B%20Rust-blue)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/AgentBull/ankole)
 
@@ -65,43 +65,84 @@ Runtime は 5 つの technical bets に基づきます。
 
 ```mermaid
 flowchart LR
-  Providers["Chats / webhooks / schedules"] --> SG["SignalsGateway"]
-  Console["Web UI / operator APIs"] --> CP["Control Plane<br/>Phoenix / OTP"]
+  subgraph CP["Control Plane · Phoenix / OTP"]
+    direction TB
+    Platform["Principal / AuthZ<br/>AppConfigure / plugins"]
+    SG["SignalsGateway<br/>ingress / mirror / outbox"]
+    AR["ActorRuntime<br/>sessions / fences / scheduling"]
+    AI["AIGateway<br/>stateful Responses / providers"]
+    Brain["Brain<br/>long-term memory / recall / dreaming"]
+    Delegation["Subagent Delegation<br/>durable jobs / parent wakeups"]
 
-  SG --> CP
-  CP --> PG[("PostgreSQL<br/>durable truth")]
+    SG --> AR
+    SG -->|"chat evidence"| Brain
+    Brain -->|"embedding / rerank / dreaming"| AI
+    Delegation -->|"dispatch / parent wake"| AR
+  end
 
-  CP <-->|"RuntimeFabric<br/>live routing"| Worker["Agent Computer<br/>Bun / TypeScript worker"]
+  subgraph AC["Agent Computer workers · Bun / TypeScript"]
+    direction TB
+    Main["Main-agent loop<br/>tools / skills / sandbox"]
+    Task["Task-worker turn"]
+    Codex["Codex subagent<br/>enabled skills / projected tools"]
+    Task --> Codex
+  end
 
-  Worker --> Tools["Tools<br/>browser / terminal / files / model calls"]
-  CP --> Kernel["Rust Kernel<br/>AuthZ / runtime primitives"]
+  Channels["Chats / webhooks / schedules"] <-->|"events / replies"| SG
+  Console["Web UI / operator APIs"] --> Platform
+  AR <-->|"RuntimeFabric · Rust / ZeroMQ<br/>turns / live control / RPC"| Main
+  Main -->|"Responses · WebSocket"| AI
+  Main -->|"memory_* · RPC"| Brain
+  Main -->|"subagent(start) · RPC"| Delegation
+  AR -->|"delegated turn"| Task
+  Task -->|"fenced status / audit · RPC"| Delegation
+  AI <--> Models["LLM / embedding / rerank / web providers"]
+
+  Platform --> PG[("PostgreSQL<br/>all durable semantic truth")]
+  SG --> PG
+  AR --> PG
+  AI --> PG
+  Brain --> PG
+  Delegation --> PG
 ```
 
 全体像：
 
-- **SignalsGateway** は provider ingress を受け付け、durable actor event に正規化します。
-- **Control Plane** は durable state、actor orchestration、configuration、identity、authorization を担います。
-- **RuntimeFabric** は ZeroMQ 上で actor、worker、RPC lane を接続し live 実行を支えます。PostgreSQL は durable replay、fence、reconciliation、final commit の source of truth であり続けます。
-- **Agent Computer** は隔離された worker container 内で turn と tools を実行します。
-- **PostgreSQL** は受け入れた event、state、fence、final commit の durable record であり続けます。
+- **Control Plane** は durable domain state、actor orchestration、provider routing、identity、authorization、configuration、operator surfaces を担います。
+- **SignalsGateway と ActorRuntime** は provider event を durable work に変換し、fence 付き session turn を schedule し、provider-visible な final reply を commit します。
+- **AIGateway** は provider credential と stateful Responses log を所有します。Worker は upstream credential を受け取らず、WebSocket 経由で利用します。
+- **Brain** は curated knowledge、chat recall、dreaming、human oversight を統合した long-term memory subsystem です。Main agent と subagent は conversation-scoped な `memory_*` tools から利用し、PostgreSQL が source of truth であり続けます。
+- **Agent Computer** は隔離 worker 内で main-agent loop と local tools を実行します。RuntimeFabric は共有 Rust/ZeroMQ data plane 上で live turn、control、RPC を運びます。
+- **Subagent Delegation** は長時間の background work を PostgreSQL に永続化し、隔離された task-worker turn を dispatch し、waiting または terminal transition で parent session を wake します。現在の task worker は Codex で、parent turn で有効な skills を native mount し、allowlist 内の tools だけを project します。
+- **Rust Kernel** は Elixir と Bun の process 内にロードされ、shared transport、crypto、authorization evaluation、codec、AI data-plane primitives を提供します。Durable domain state は所有しません。
+- **PostgreSQL** は event、conversation、long-term memory、delegation、fence、audit、final commit の唯一の durable semantic truth です。
 
 ## 現状
 
-Ankole は早期 engineering distribution であり、polished end-user product や hosted SaaS ではありません。以下の subsystem は今日この repository に動くコードとして存在します — 正直な caveat は polish と API 安定性であり、vaporware ではありません。
+Ankole は、完全なセルフホスト可能な AgentOS であり、production で稼働しています。Control plane、Agent Computer、kernel、運用 console が end to end で動きます。
+
+- **多数の model provider。** OpenAI、Azure OpenAI、Claude、Google AI Studio、OpenRouter、その他の OpenAI-compatible endpoint が第一級で、compaction、stateful conversation、reasoning-effort 制御、provider ごとの usage 取り扱いを伴います。
+- **本物の IM 連携。** Lark/Feishu と Slack は第一級 provider として統合され、lifecycle、transport、main flow、real-LLM の end-to-end までカバーします。
+- **Brain。** curated knowledge、chat recall、dreaming（オフライン統合）、human review、recovery が 1 つの subsystem にまとまり、PostgreSQL の全文検索と vector 検索で支えられます。
+- **長時間 actor runtime。** Session は wake、checkpoint、stream progress、hibernate、context を保った recover が可能。steering と cancel は request/response ではなく live-control 操作です。
+- **運用 console。** Agents、providers、model profiles、identity、signals、workers、worker 環境、brain entries、delegations はすべて組み込み web console から管理できます。
+- **実条件向けテスト。** Unit suite に加え、Lark と Slack の main flow、transport、lifecycle、real-LLM、scheduling、worker computer、chaos recovery、concurrency/performance の専用 end-to-end suite。
+
+Ankole の public API には現時点で互換性契約がなく、リリース間で breaking change が発生します。
 
 | 領域 | 状態 |
 | --- | --- |
-| Control plane | `app/control_plane` の Phoenix/OTP application。durable state、configuration、actor orchestration、Principal/AuthZ、API を担います。 |
+| Control plane | `app/control_plane` の Phoenix/OTP application。durable state、configuration、actor orchestration、Principal/AuthZ、AIGateway、Brain、SignalsGateway、運用 API を担います。 |
 | Agent Computer | `app/agent_computer` の Bun/TypeScript worker runtime。隔離された Linux worker image 内で agent loop と local tools を実行します。standalone CLI ではありません。 |
 | Kernel | `app/kernel` の Rust crate。Elixir (Rustler) と Bun (N-API) が読み込み、crypto、identifier、AuthZ evaluation、ZeroMQ transport を担います。 |
-| Frontend | `app/webapps` の Vite + React surfaces。Phoenix static shell に build されます。 |
+| Frontend | `app/webapps` の Vite + React console、auth、setup surfaces。Phoenix static shell に build されます。 |
 | ローカルサービス | PostgreSQL は devkit Docker Compose で提供されます。 |
 | 設計ドキュメント | アーキテクチャと runtime 設計ドキュメントは `docs/design-docs` にあります。 |
-| Public API 安定性 | 内部 API はまだ進化中で、リリース間で breaking change が起きます。 |
+| Production readiness | production で稼働中。durable パス、live control、運用 surface は完成しており、public API には現時点で互換性契約はありません。 |
 
 ## 現在のリポジトリ
 
-このリポジトリは、現在アクティブな Ankole control-plane and runtime workspace です。まだ polished end-user release ではなく、engineering distribution の段階です。
+このリポジトリは、現在アクティブな Ankole control-plane and runtime workspace です。
 
 - `app/control_plane` - Principal/AuthZ、AppConfigure、setup、console、plugin registry、I18n、SignalsGateway、actor runtime、RuntimeFabric、PostgreSQL-owned durable state を担う Phoenix/OTP control plane。
 - `app/kernel` - Elixir と Bun が読み込む shared Rust foundation。crypto、identifier、phone/JWT helpers、AuthZ evaluation、protobuf envelopes、ZeroMQ RuntimeFabric transport を担います。

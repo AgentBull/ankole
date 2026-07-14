@@ -175,6 +175,7 @@ function testEnvelope(): RuntimeFabricEnvelope {
       type: 'worker_ready',
       worker_ready: {
         worker_id: 'worker-a',
+        incarnation_id: '11111111-1111-4111-8111-111111111111',
         runtime: 'bun',
         version: 'test',
         capacity_json: { available_turn_slots: 1 }

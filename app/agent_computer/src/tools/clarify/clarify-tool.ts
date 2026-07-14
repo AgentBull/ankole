@@ -1,6 +1,7 @@
 import { isRecord } from '@pleisto/active-support'
 import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../../core'
+import { jsonToolResult } from '../../core/tool-result'
 
 const RawChoice = z.union([z.string(), z.record(z.string(), z.unknown())])
 const ClarifyParams = z.object({
@@ -44,15 +45,7 @@ export function createClarifyTool(): AgentTool<typeof ClarifyParams, ClarifyDeta
         choices: (params.choices ?? []).map(normalizeChoice).filter(choice => choice.label !== '')
       }
 
-      return {
-        content: [
-          {
-            type: 'text',
-            text: 'Clarification queued for delivery. This turn ends here — the reply will arrive as the next user message.'
-          }
-        ],
-        details
-      }
+      return jsonToolResult(details)
     }
   }
 }

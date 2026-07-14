@@ -104,6 +104,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
                ActorRuntime.handle_worker_heartbeat(
                  %{
                    "worker_id" => worker.worker_id,
+                   "incarnation_id" => worker.incarnation_id,
                    "monotonic_ms" => 123,
                    "load_json" => %{"active_turns" => 1}
                  },
@@ -116,6 +117,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
                ActorRuntime.handle_worker_capacity(
                  %{
                    "worker_id" => worker.worker_id,
+                   "incarnation_id" => worker.incarnation_id,
                    "available_turn_slots" => 2,
                    "capacity_json" => %{"available_turn_slots" => 2},
                    "load_json" => %{"active_turns" => 0}
@@ -126,10 +128,20 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
       assert capacity_worker.capacity == %{"available_turn_slots" => 2}
       assert capacity_worker.load == %{"active_turns" => 0}
 
+      assert {:error, :stale_worker_incarnation} =
+               ActorRuntime.handle_worker_heartbeat(
+                 %{
+                   "worker_id" => worker.worker_id,
+                   "incarnation_id" => "replaced-incarnation"
+                 },
+                 %{authenticated?: true, transport_route: route}
+               )
+
       assert {:error, :stale_transport_route} =
                ActorRuntime.handle_worker_heartbeat(
                  %{
-                   "worker_id" => worker.worker_id
+                   "worker_id" => worker.worker_id,
+                   "incarnation_id" => worker.incarnation_id
                  },
                  %{authenticated?: true, transport_route: route <> "-stale"}
                )
@@ -151,6 +163,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
                ActorRuntime.handle_worker_heartbeat(
                  %{
                    "worker_id" => worker.worker_id,
+                   "incarnation_id" => worker.incarnation_id,
                    "monotonic_ms" => 123,
                    "load_json" => %{"active_turns" => 0}
                  },
@@ -174,7 +187,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
 
       assert {:ok, still_stale} =
                ActorRuntime.handle_worker_heartbeat(
-                 %{"worker_id" => worker.worker_id},
+                 %{
+                   "worker_id" => worker.worker_id,
+                   "incarnation_id" => worker.incarnation_id
+                 },
                  %{authenticated?: true, transport_route: route}
                )
 
@@ -407,6 +423,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
                ActorRuntime.admit_worker_ready(
                  %{
                    worker_id: "other-worker-route",
+                   incarnation_id: "incarnation-other-worker-route",
                    runtime: "bun",
                    version: "test",
                    capacity: %{"available_turn_slots" => 1}
@@ -418,6 +435,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
                ActorRuntime.admit_worker_ready(
                  %{
                    worker_id: worker.worker_id,
+                   incarnation_id: worker.incarnation_id,
                    runtime: "bun",
                    version: "test",
                    capacity: %{"available_turn_slots" => 2}
@@ -430,13 +448,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
       assert refreshed_worker.capacity == %{"available_turn_slots" => 2}
     end
 
-    test "worker admission requires runtime and version identity fields" do
+    test "worker admission requires runtime, version, and incarnation identity fields" do
       route = unique_route()
 
       assert {:error, {:missing, "runtime"}} =
                ActorRuntime.admit_worker_ready(
                  %{
                    worker_id: "worker-missing-runtime",
+                   incarnation_id: "incarnation-missing-runtime",
                    version: "test",
                    capacity: %{"available_turn_slots" => 1}
                  },
@@ -447,7 +466,19 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
                ActorRuntime.admit_worker_ready(
                  %{
                    worker_id: "worker-missing-version",
+                   incarnation_id: "incarnation-missing-version",
                    runtime: "bun",
+                   capacity: %{"available_turn_slots" => 1}
+                 },
+                 %{authenticated?: true, transport_route: route}
+               )
+
+      assert {:error, {:missing, "incarnation_id"}} =
+               ActorRuntime.admit_worker_ready(
+                 %{
+                   worker_id: "worker-missing-incarnation",
+                   runtime: "bun",
+                   version: "test",
                    capacity: %{"available_turn_slots" => 1}
                  },
                  %{authenticated?: true, transport_route: route}

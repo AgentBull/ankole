@@ -36,6 +36,34 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
              ) == 1
     end
 
+    test "moves a successful activation to warm idle and stops it normally at idle expiry" do
+      %{agent: agent, event: event, turn_ref: turn_ref} =
+        start_accepted_turn("activation-idle")
+
+      final = complete_response(agent.uid, event, "done")
+
+      assert {:ok, %{status: :turn_completed}} = complete_turn(turn_ref, final)
+
+      activation =
+        Repo.get_by!(ActorSessionActivation, activation_uid: turn_ref["activation_uid"])
+
+      assert activation.status == "active"
+      assert is_nil(activation.current_actor_event_id)
+      assert is_nil(activation.stopped_at)
+      assert is_nil(activation.stop_reason)
+
+      assert {:ok, %ActorSessionActivation{} = stopped} =
+               ActorRuntime.fail_activation_if_expired(
+                 activation.activation_uid,
+                 now: DateTime.add(activation.lease_expires_at, 1, :second)
+               )
+
+      assert stopped.status == "stopped"
+      assert stopped.stop_reason == ":activation_idle_timeout"
+      assert is_nil(stopped.current_actor_event_id)
+      assert %DateTime{} = Repo.get!(ActorEvent, event.id).completed_at
+    end
+
     test "accepts an older main delivery when an accepted steer advances the completion revision" do
       %{agent: agent, event: event, turn_ref: initial_turn_ref} = start_accepted_turn("steer")
 
@@ -159,7 +187,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
       assert outbox.payload["text"] =~ "Who should receive the report?"
 
       assert Enum.map(outbox.payload["interactive_output"]["choices"], & &1["label"]) ==
-               ["Operators", "Executives", "Other / free input"]
+               ["Operators", "Executives"]
+
+      assert outbox.payload["interactive_output"]["free_input"]
 
       assert %DateTime{} = Repo.get!(ActorEvent, event.id).completed_at
     end

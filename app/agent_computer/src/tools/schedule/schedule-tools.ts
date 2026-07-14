@@ -41,8 +41,15 @@ const CheckBackLaterParams = z
         unit: z.enum(['millisecond', 'second', 'minute', 'hour', 'day', 'week'])
       })
       .optional()
-      .describe('Relative delay. Mutually exclusive with at.'),
-    at: z.string().optional().describe('Absolute ISO datetime, or local ISO datetime with timezone.'),
+      .describe(
+        'Relative delay for genuinely relative requests. Mutually exclusive with at. Do not round a known clock time, market close, deadline, or timezone-converted instant into an approximate delay; use at instead.'
+      ),
+    at: z
+      .string()
+      .optional()
+      .describe(
+        'Exact absolute ISO datetime, or local ISO datetime with timezone. Prefer at whenever the requested event has a known clock time or deadline.'
+      ),
     timezone: z.string().optional().describe('Timezone for local at values.'),
     quiet_success: z
       .boolean()
@@ -107,7 +114,7 @@ function createCheckBackLaterTool(
   return {
     name: 'check_back_later',
     description:
-      'Schedule one delayed self-wakeup for this conversation. Use when the user asks you to wait, remind yourself, follow up later, or re-check something after time passes. Checkbacks are visible by default. Set quiet_success=true only when the user explicitly asked not to be notified for normal or unchanged outcomes. If another quiet checkback is needed later, opt in again. After scheduling, tell the user when you will check and whether a normal outcome will be reported.',
+      'Schedule one delayed self-wakeup for this conversation. Use when the user asks you to wait, remind yourself, follow up later, or re-check something after time passes. Use at for a named clock time, market close, deadline, or any exact instant you can calculate; use after only for a genuinely relative delay, and never round a known instant into whole delay units. Checkbacks are visible by default. Set quiet_success=true only when the user explicitly asked not to be notified for normal or unchanged outcomes. If another quiet checkback is needed later, opt in again. After scheduling, tell the user when you will check and whether a normal outcome will be reported.',
     schema: CheckBackLaterParams,
     executionMode: 'sequential',
     isReadOnly: false,
@@ -135,7 +142,20 @@ function createCheckBackLaterTool(
         reply_route: replyRoute
       })
 
-      return jsonToolResult(response)
+      return jsonToolResult(response, {
+        presentation: [
+          {
+            kind: 'effect.receipt',
+            payload: {
+              operation_id: toolCallID,
+              phase: 'confirmed',
+              summary: '已安排后续检查',
+              scope: checkBackScheduleScope(params),
+              follow_up: params.quiet_success === true ? '仅在异常、阻塞或有变化时通知' : '到时会反馈检查结果'
+            }
+          }
+        ]
+      })
     }
   }
 }
@@ -178,7 +198,7 @@ function createCronTool(opts: CreateScheduleToolsOptions): AgentTool<typeof Cron
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
-    async execute(_toolCallId, params): Promise<AgentToolResult<ScheduleToolDetails>> {
+    async execute(toolCallID, params): Promise<AgentToolResult<ScheduleToolDetails>> {
       rejectCronOriginMutation(params, opts.turnStart)
       const call = opts.requestScheduleRPC!
       const base: TurnScopedRPCRequest = {
@@ -205,9 +225,78 @@ function createCronTool(opts: CreateScheduleToolsOptions): AgentTool<typeof Cron
         )
         .exhaustive()
 
-      return jsonToolResult(response)
+      return jsonToolResult(response, {
+        presentation: cronEffectPresentation(toolCallID, params)
+      })
     }
   }
+}
+
+function checkBackScheduleScope(params: z.output<typeof CheckBackLaterParams>): string {
+  if (params.at) return params.timezone ? `${params.at} (${params.timezone})` : params.at
+
+  const after = params.after!
+  const unit =
+    {
+      millisecond: '毫秒',
+      second: '秒',
+      minute: '分钟',
+      hour: '小时',
+      day: '天',
+      week: '周'
+    }[after.unit] ?? after.unit
+
+  return `${after.value} ${unit}后`
+}
+
+function cronEffectPresentation(
+  operationID: string,
+  params: z.output<typeof CronParams>
+): AgentToolResult<ScheduleToolDetails>['presentation'] {
+  const summaries: Partial<Record<z.output<typeof CronParams>['action'], string>> = {
+    add: '已创建定期任务',
+    update: '已更新定期任务',
+    pause: '已暂停定期任务',
+    resume: '已恢复定期任务',
+    remove: '已删除定期任务',
+    run: '已启动一次定期任务运行'
+  }
+  const summary = summaries[params.action]
+
+  if (!summary) return []
+
+  return [
+    {
+      kind: 'effect.receipt',
+      payload: compactRecord({
+        operation_id: operationID,
+        phase: 'confirmed',
+        summary,
+        target: params.name?.trim() || undefined,
+        scope: cronScheduleScope(params.schedule),
+        follow_up: params.delivery?.quiet_success === true ? '常规成功时保持安静，异常或变化会通知' : undefined
+      })
+    }
+  ]
+}
+
+function cronScheduleScope(schedule: z.output<typeof EverySchedule> | z.output<typeof CronSchedule> | undefined) {
+  if (!schedule) return undefined
+  if (schedule.kind === 'every') return `每 ${humanInterval(schedule.every_ms)}`
+  return schedule.timezone ? `${schedule.expression} (${schedule.timezone})` : schedule.expression
+}
+
+function humanInterval(milliseconds: number): string {
+  const units = [
+    { milliseconds: 7 * 24 * 60 * 60 * 1000, label: '周' },
+    { milliseconds: 24 * 60 * 60 * 1000, label: '天' },
+    { milliseconds: 60 * 60 * 1000, label: '小时' },
+    { milliseconds: 60 * 1000, label: '分钟' },
+    { milliseconds: 1000, label: '秒' }
+  ]
+
+  const exact = units.find(unit => milliseconds >= unit.milliseconds && milliseconds % unit.milliseconds === 0)
+  return exact ? `${milliseconds / exact.milliseconds} ${exact.label}` : `${milliseconds} 毫秒`
 }
 
 /**

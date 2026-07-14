@@ -133,7 +133,9 @@ defmodule Ankole.AIGateway.Providers do
       "provider_kind" => provider.provider_kind,
       "label" => stringify_label(provider.label),
       "capabilities" => capability_names(provider),
-      "settings" => Enum.map(provider.settings, &setting_projection/1),
+      "settings" => [
+        base_url_setting_projection(provider) | Enum.map(provider.settings, &setting_projection/1)
+      ],
       "capability_specs" => Enum.map(provider.capabilities, &capability_projection/1),
       "default_base_url" => provider.base_url,
       "connection_options" => connection_option_keys(provider),
@@ -154,7 +156,8 @@ defmodule Ankole.AIGateway.Providers do
 
     with {:ok, provider} <- fetch(provider_kind),
          :ok <-
-           reject_unknown_keys(options, connection_option_keys(provider), :connection_options) do
+           reject_unknown_keys(options, connection_option_keys(provider), :connection_options),
+         :ok <- validate_setting_options(provider, :connection, options, :connection_options) do
       {:ok, options}
     end
   end
@@ -167,8 +170,12 @@ defmodule Ankole.AIGateway.Providers do
   """
   @spec validate_runtime_provider_options(String.t(), map()) :: :ok | {:error, term()}
   def validate_runtime_provider_options(provider_kind, options) when is_map(options) do
-    with {:ok, provider} <- fetch(provider_kind) do
-      reject_unknown_keys(options, runtime_provider_option_keys(provider), :provider_options)
+    options = normalize_option_keys(options)
+
+    with {:ok, provider} <- fetch(provider_kind),
+         :ok <-
+           reject_unknown_keys(options, runtime_provider_option_keys(provider), :provider_options) do
+      validate_setting_options(provider, :request, options, :provider_options)
     end
   end
 
@@ -516,12 +523,22 @@ defmodule Ankole.AIGateway.Providers do
   defp setting_projection(%Setting{} = setting) do
     %{
       "key" => Atom.to_string(setting.key),
-      "type" => setting.type && Atom.to_string(setting.type),
+      "type" => Atom.to_string(setting.type || :string),
       "required" => setting.required?,
       "encrypted" => setting.encrypted?,
+      "advanced" => setting.advanced?,
       "scope" => Atom.to_string(setting.scope),
-      "default" => setting.default
+      "default" => setting.default,
+      "options" => setting.options
     }
+  end
+
+  defp base_url_setting_projection(%ProviderDefinition{} = provider) do
+    setting_projection(%Setting{
+      key: :base_url,
+      default: provider.base_url,
+      advanced?: provider.base_url_advanced?
+    })
   end
 
   defp capability_projection(%Capability{} = capability) do
@@ -530,6 +547,26 @@ defmodule Ankole.AIGateway.Providers do
       "upstream" => Atom.to_string(capability.upstream),
       "api_resolver" => Atom.to_string(capability.api_resolver)
     }
+  end
+
+  defp validate_setting_options(provider, scope, options, error_tag) do
+    provider.settings
+    |> Enum.filter(&(&1.scope == scope and &1.type == :select))
+    |> Enum.reduce_while(:ok, fn setting, :ok ->
+      key = Atom.to_string(setting.key)
+
+      case Map.fetch(options, key) do
+        :error ->
+          {:cont, :ok}
+
+        {:ok, value} ->
+          if value in setting.options do
+            {:cont, :ok}
+          else
+            {:halt, {:error, {error_tag, {:invalid_value, key, value, setting.options}}}}
+          end
+      end
+    end)
   end
 
   defp stringify_label(label) when is_map(label) do

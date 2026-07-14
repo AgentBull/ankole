@@ -14,18 +14,24 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
 
     setting(:api_key, encrypted: true)
     setting(:endpoint_kind, default: "chat_completions")
-    setting(:headers, type: :map)
-    setting(:query_params, type: :map)
-    setting(:api_version, default: "2025-04-01-preview")
+    setting(:headers, type: :map, advanced: true)
+    setting(:query_params, type: :map, advanced: true)
+    setting(:api_version, default: "2025-04-01-preview", advanced: true)
     setting(:deployment)
     setting(:auth_scheme, default: "api_key")
 
-    setting(:reasoningEffort, scope: :request)
+    setting(:reasoningEffort,
+      type: :select,
+      default: ReasoningEffort.default(),
+      options: ReasoningEffort.values(),
+      scope: :request
+    )
+
     setting(:reasoningSummary, scope: :request)
-    setting(:serviceTier, scope: :request)
-    setting(:strictJSONSchema, scope: :request)
+    setting(:serviceTier, scope: :request, advanced: true)
+    setting(:strictJSONSchema, type: :boolean, scope: :request, advanced: true)
     setting(:textVerbosity, scope: :request)
-    setting(:truncation, scope: :request)
+    setting(:truncation, scope: :request, advanced: true)
 
     language_model do
       upstream(:sse)
@@ -51,7 +57,7 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
         include_model: include_model?
       )
       |> put_auth(ctx)
-      |> ReasoningEffort.put_provider_options(ctx)
+      |> ReasoningEffort.put_provider_options(ctx, target: target_for_endpoint(endpoint_mode))
     end
   end
 
@@ -82,6 +88,9 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
 
   defp resolver_for_endpoint("responses"), do: :openai_responses
   defp resolver_for_endpoint(_mode), do: :openai_chat_completions
+
+  defp target_for_endpoint("responses"), do: :reasoning
+  defp target_for_endpoint(_mode), do: :reasoning_effort
 
   # Azure deployments may use either bearer tokens or the legacy `api-key`
   # header. A credential already prefixed with `Bearer ` is treated as bearer

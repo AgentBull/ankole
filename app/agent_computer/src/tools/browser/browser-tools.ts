@@ -438,7 +438,7 @@ function browserRuntimeOptions(context: ComputerToolContext): BrowserRuntimeOpti
     workspaceRoot: context.workspaceRoot,
     remoteCDPConfig: context.browserRemoteCDPConfig ?? null,
     localBrowserIdleTtlMs: context.localBrowserIdleTtlMs,
-    blockPrivateNetwork: context.blockPrivateNetwork
+    ssrfFilter: context.ssrfFilter
   }
 }
 

@@ -21,6 +21,9 @@ import type { CurrentChannelContext } from '../../prompts/system_prompt'
  * text, and specialized wakeups get purpose-built text.
  */
 export function actorEventText(payload: JSONObject | undefined, fallbackType: string): string {
+  if (fallbackType === 'signal.action.invoked') {
+    return actionInputText(payload)
+  }
   if (fallbackType === 'check_back_later.wakeup') {
     return checkBackLaterInputText(payload)
   }
@@ -42,6 +45,24 @@ export function actorEventText(payload: JSONObject | undefined, fallbackType: st
   const attachments = attachmentText(payload)
   const base = text || `Handle actor event of type ${fallbackType}.`
   return attachments ? `${base}\n\nAttachments:\n${attachments}` : base
+}
+
+function actionInputText(payload: JSONObject | undefined): string {
+  const action = objectPath(payload, ['data', 'action'])
+  const value = objectPath(action, ['value'])
+  const optionValue = stringArg(value, 'optionValue')
+  const selectedOptionID = stringArg(value, 'selectedOptionId')
+  const interactionID = stringArg(value, 'interactionId')
+
+  return [
+    'The user invoked a structured card action.',
+    interactionID ? `Interaction: ${interactionID}` : undefined,
+    selectedOptionID ? `Selected option id: ${selectedOptionID}` : undefined,
+    optionValue ? `Selected value: ${optionValue}` : undefined,
+    'Continue the conversation using this explicit user choice. Do not ask them to repeat it.'
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n')
 }
 
 function subagentWakeupInputText(payload: JSONObject | undefined, type: string): string {

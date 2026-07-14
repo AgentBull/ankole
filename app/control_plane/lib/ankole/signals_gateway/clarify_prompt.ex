@@ -7,7 +7,6 @@ defmodule Ankole.SignalsGateway.ClarifyPrompt do
   alias Ankole.SignalsGateway.ToolOutput
 
   @tool_name "clarify"
-  @other_label "Other / free input"
 
   @spec from_response_items(term()) :: {:ok, map() | nil} | {:error, term()}
   def from_response_items(items) when is_list(items) do
@@ -48,10 +47,6 @@ defmodule Ankole.SignalsGateway.ClarifyPrompt do
   defp normalize_output(%{"tool" => @tool_name} = output, call_id) do
     with {:ok, question} <- required_text(output, "question"),
          {:ok, choices} <- normalize_choices(Map.get(output, "choices", [])) do
-      choices =
-        choices ++
-          [%{"id" => "other", "label" => @other_label, "value" => @other_label}]
-
       fallback = fallback_text(question, choices)
 
       {:ok,
@@ -64,6 +59,8 @@ defmodule Ankole.SignalsGateway.ClarifyPrompt do
            "interaction_id" => "clarify:#{call_id}",
            "control_id" => "clarify-choice",
            "version" => 1,
+           "free_input" => true,
+           "free_input_hint" => "You can also reply in your own words.",
            "choices" => choices
          }
        }}

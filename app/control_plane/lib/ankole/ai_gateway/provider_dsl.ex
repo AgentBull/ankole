@@ -52,10 +52,14 @@ defmodule Ankole.AIGateway.ProviderDSL do
 
   @doc """
   Declares the default base URL used when an operator does not override it.
+
+  Set `advanced: true` when Console should keep the override in its collapsed
+  advanced section.
   """
-  defmacro base_url(value) do
-    quote do
-      @ai_provider_base_url unquote(value)
+  defmacro base_url(value, opts \\ []) do
+    quote bind_quoted: [value: value, opts: opts] do
+      @ai_provider_base_url value
+      @ai_provider_base_url_advanced Keyword.get(opts, :advanced, false)
     end
   end
 
@@ -63,6 +67,8 @@ defmodule Ankole.AIGateway.ProviderDSL do
   Declares one accepted provider option.
 
   Settings are metadata for validation, projection, encryption, and defaults.
+  Set `advanced: true` for operator fields that Console should collapse by
+  default. Select fields declare their accepted string values with `options`.
   They do not define request transformation logic; provider prepare functions
   remain ordinary Elixir code.
   """
@@ -140,6 +146,7 @@ defmodule Ankole.AIGateway.ProviderDSL do
 
     label = Module.get_attribute(env.module, :ai_provider_label) || %{}
     base_url = Module.get_attribute(env.module, :ai_provider_base_url)
+    base_url_advanced? = Module.get_attribute(env.module, :ai_provider_base_url_advanced) || false
     settings = Module.get_attribute(env.module, :ai_provider_settings) |> Enum.reverse()
     capabilities = Module.get_attribute(env.module, :ai_provider_capabilities) |> Enum.reverse()
 
@@ -148,6 +155,7 @@ defmodule Ankole.AIGateway.ProviderDSL do
       label: normalize_label(label),
       module: env.module,
       base_url: base_url,
+      base_url_advanced?: base_url_advanced?,
       settings: settings,
       capabilities: capabilities
     }
@@ -166,8 +174,10 @@ defmodule Ankole.AIGateway.ProviderDSL do
       key: normalize_setting_key(key),
       type: Keyword.get(opts, :type),
       default: Keyword.get(opts, :default),
+      options: normalize_setting_options(Keyword.get(opts, :options, [])),
       required?: Keyword.get(opts, :required, false),
       encrypted?: Keyword.get(opts, :encrypted, false),
+      advanced?: Keyword.get(opts, :advanced, false),
       scope: Keyword.get(opts, :scope, :connection)
     }
 
@@ -228,4 +238,17 @@ defmodule Ankole.AIGateway.ProviderDSL do
 
   defp normalize_setting_key(key) when is_atom(key), do: key
   defp normalize_setting_key(key) when is_binary(key), do: String.to_atom(key)
+
+  defp normalize_setting_options(options) when is_list(options) do
+    Enum.map(options, fn
+      value when is_binary(value) ->
+        value
+
+      value when is_atom(value) ->
+        Atom.to_string(value)
+
+      value ->
+        raise ArgumentError, "provider setting options must be strings, got: #{inspect(value)}"
+    end)
+  end
 end

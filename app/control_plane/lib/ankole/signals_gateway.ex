@@ -20,6 +20,7 @@ defmodule Ankole.SignalsGateway do
   alias Ankole.SignalsGateway.Projection
   alias Ankole.SignalsGateway.Binding
   alias Ankole.SignalsGateway.StateCleanup
+  alias Ankole.SignalsGateway.AIReplyPreview
   alias Ankole.SignalsGateway.Utils
   alias Ankole.SignalsGateway.Visibility
 
@@ -35,6 +36,12 @@ defmodule Ankole.SignalsGateway do
 
   @doc false
   defdelegate process_actor_session_ready(actor_key), to: SessionController, as: :process_ready
+
+  @doc false
+  defdelegate recover_reply_preview(actor_event_id), to: AIReplyPreview, as: :recover
+
+  @doc false
+  defdelegate cleanup_reply_preview(actor_event_id), to: AIReplyPreview, as: :cleanup_due
 
   @doc false
   defdelegate list_workers(), to: ActorRuntime

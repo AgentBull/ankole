@@ -5,7 +5,6 @@ export type AgentEditorDraft = {
   displayName: string
   avatarURL: string
   role: string
-  options: string
 }
 
 export const AgentEditorModel = createModel(() => {
@@ -14,7 +13,6 @@ export const AgentEditorModel = createModel(() => {
   const displayName = signal('')
   const avatarURL = signal('')
   const role = signal('Research Analyst')
-  const options = signal('{}')
   const validationError = signal<string>()
 
   return {
@@ -23,7 +21,6 @@ export const AgentEditorModel = createModel(() => {
     displayName,
     avatarURL,
     role,
-    options,
     validationError,
     initialize(nextSourceKey: string, draft: AgentEditorDraft) {
       if (sourceKey.value === nextSourceKey) return
@@ -33,7 +30,6 @@ export const AgentEditorModel = createModel(() => {
         displayName.value = draft.displayName
         avatarURL.value = draft.avatarURL
         role.value = draft.role
-        options.value = draft.options
         validationError.value = undefined
       })
     },

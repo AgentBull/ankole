@@ -9,11 +9,11 @@ defmodule Ankole.AIGateway.Providers.Jina do
 
   provider :jina do
     label(%{"default" => "Jina AI", "zh-Hans-CN" => "Jina AI"})
-    base_url("https://api.jina.ai/v1")
+    base_url("https://api.jina.ai/v1", advanced: true)
 
     setting(:api_key, encrypted: true)
-    setting(:headers, type: :map)
-    setting(:query_params, type: :map)
+    setting(:headers, type: :map, advanced: true)
+    setting(:query_params, type: :map, advanced: true)
 
     setting(:embedding_type, scope: :request)
     setting(:task, scope: :request)

@@ -14,8 +14,8 @@ defmodule Ankole.AIGateway.Providers.AgentBullCloud do
     base_url("https://serp.yuma.host")
 
     setting(:api_key, encrypted: true)
-    setting(:headers, type: :map)
-    setting(:query_params, type: :map)
+    setting(:headers, type: :map, advanced: true)
+    setting(:query_params, type: :map, advanced: true)
 
     setting(:sources, scope: :request)
     setting(:timeRange, scope: :request)

@@ -43,6 +43,9 @@ describe('@ankole/agent-computer runtime', () => {
     expect(ready.body.type).toBe('worker_ready')
     expect(heartbeat.body.type).toBe('worker_heartbeat')
     expect(capacity.body.type).toBe('worker_capacity')
+    expect(ready.body.worker_ready).toMatchObject({ incarnation_id: 'incarnation-a' })
+    expect(heartbeat.body.worker_heartbeat).toMatchObject({ incarnation_id: 'incarnation-a' })
+    expect(capacity.body.worker_capacity).toMatchObject({ incarnation_id: 'incarnation-a' })
     expect(JSON.stringify(ready)).not.toContain('agent_uid')
     expect(JSON.stringify(ready)).not.toContain('actor_epoch')
     expect((ready.body.worker_ready as { capacity_json: unknown }).capacity_json).toMatchObject({
@@ -98,6 +101,20 @@ describe('@ankole/agent-computer runtime', () => {
       summary: 'turn in progress',
       refs_json: { stage: 'llm' }
     })
+    expect(runtimeFabricEncodeEnvelope(envelope)).toBeInstanceOf(Buffer)
+  })
+
+  it('encodes renderer-safe reply presentation progress for the control plane', () => {
+    const turn = actorTurnRef()
+    const envelope = workerProgressEnvelope(turn, 'reply_presentation', 'reply presentation updated', 'turn-start-1', {
+      presentation_event: {
+        kind: 'plan.snapshot',
+        payload: { operation_id: 'todo', revision: 1 }
+      }
+    })
+
+    expect(envelope.lane).toBe('LANE_PROGRESS')
+    expect(envelope.durability).toBe('CONTROL_EPHEMERAL')
     expect(runtimeFabricEncodeEnvelope(envelope)).toBeInstanceOf(Buffer)
   })
 
@@ -570,6 +587,7 @@ function workerConfig(): WorkerConfig {
     endpoint: 'tcp://127.0.0.1:6010',
     workerAuthKey: 'secret',
     workerID: 'worker-a',
+    incarnationID: 'incarnation-a',
     workspaceRoot: '/workspace',
     workspaceSessionsRoot: '/workspace/.sessions',
     sharedFsRoot: '/workspace/shared',
@@ -598,6 +616,7 @@ function workerConfigForRoot(root: string): WorkerConfig {
     endpoint: 'tcp://127.0.0.1:6010',
     workerAuthKey: 'secret',
     workerID: 'worker-a',
+    incarnationID: 'incarnation-a',
     workspaceRoot: join(root, 'workspace'),
     workspaceSessionsRoot: join(root, 'workspace/.sessions'),
     sharedFsRoot: join(root, 'shared'),

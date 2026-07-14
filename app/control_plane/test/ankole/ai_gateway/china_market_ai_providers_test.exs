@@ -94,8 +94,9 @@ defmodule Ankole.AIGateway.ChinaMarketAIProvidersTest do
     end
 
     volcengine_keys = setting_keys(VolcengineArk.provider_definition())
-    assert "thinking" in volcengine_keys
-    refute "reasoningEffort" in volcengine_keys
+    assert "reasoningEffort" in volcengine_keys
+    refute "reasoning" in volcengine_keys
+    refute "thinking" in volcengine_keys
     refute "textVerbosity" in volcengine_keys
     refute "strictJSONSchema" in volcengine_keys
   end
@@ -105,7 +106,7 @@ defmodule Ankole.AIGateway.ChinaMarketAIProvidersTest do
              prepared_spec(VolcengineArk,
                model: "doubao-seed-1-6",
                connection_options: %{"api_key" => "ark-key"},
-               provider_options: %{"thinking" => %{"type" => "enabled"}},
+               provider_options: %{"reasoningEffort" => "medium"},
                request: %{"input" => "hello"},
                stream?: true
              )
@@ -116,7 +117,7 @@ defmodule Ankole.AIGateway.ChinaMarketAIProvidersTest do
     assert headers(spec)["authorization"] == "Bearer ark-key"
     assert spec.response_context.model == "doubao-seed-1-6"
     assert spec.response_context.stream == true
-    assert spec.response_context.provider_options == %{"thinking" => %{"type" => "enabled"}}
+    assert spec.response_context.provider_options == %{"reasoning_effort" => "medium"}
   end
 
   test "alibaba cn preserves DashScope request options for the OpenAI chat resolver" do

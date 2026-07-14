@@ -26,6 +26,33 @@ defmodule Ankole.RuntimeEvents.Handlers do
     end
   end
 
+  def handle(%Event{kind: :reply_preview_checkpoint, channel: channel, payload: payload}) do
+    with {:ok, actor_event_id} <- fetch_text(payload, "actor_event_id") do
+      case SignalsGateway.recover_reply_preview(actor_event_id) do
+        :ok -> :ok
+        {:error, :reply_preview_not_recoverable} -> :ok
+        {:error, :actor_event_not_found} -> :ok
+        {:error, reason} -> log_handler_error(channel, payload, reason)
+      end
+    else
+      {:error, reason} -> log_handler_error(channel, payload, reason)
+    end
+  end
+
+  def handle(%Event{kind: :reply_preview_cleanup, channel: channel, payload: payload}) do
+    with {:ok, actor_event_id} <- fetch_text(payload, "actor_event_id") do
+      case SignalsGateway.cleanup_reply_preview(actor_event_id) do
+        :ok -> :ok
+        {:error, :reply_preview_cleanup_not_due} -> :ok
+        {:error, :reply_preview_not_recoverable} -> :ok
+        {:error, :actor_event_not_found} -> :ok
+        {:error, reason} -> log_handler_error(channel, payload, reason)
+      end
+    else
+      {:error, reason} -> log_handler_error(channel, payload, reason)
+    end
+  end
+
   def handle(%Event{kind: :outbox_due, channel: channel, payload: payload}) do
     with {:ok, key} <- outbox_key(payload) do
       case SignalsGateway.dispatch_outbox_by_key(
@@ -37,6 +64,7 @@ defmodule Ankole.RuntimeEvents.Handlers do
         {:error, :outbox_not_dispatchable} -> :ok
         {:error, :outbox_not_due} -> :ok
         {:error, :outbox_send_in_progress} -> :ok
+        {:error, :outbox_operator_action_required} -> :ok
         {:error, :outbox_not_found} -> :ok
         {:error, reason} -> log_handler_error(channel, payload, reason)
       end

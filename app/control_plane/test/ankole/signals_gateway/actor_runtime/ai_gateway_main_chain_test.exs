@@ -483,7 +483,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
     assert outbox.payload["text"] =~ "Who should this brief target?"
 
     assert Enum.map(outbox.payload["interactive_output"]["choices"], & &1["label"]) ==
-             ["Operators", "Executives", "Other / free input"]
+             ["Operators", "Executives"]
+
+    assert outbox.payload["interactive_output"]["free_input"]
 
     assert Repo.aggregate(
              from(entry in OutboxEntry,

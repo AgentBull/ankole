@@ -139,6 +139,7 @@ defmodule Ankole.PluginFixtures.MockSignalProvider.Outbox do
   @behaviour Ankole.SignalsGateway.OutboxAdapter
 
   @recipient_key {__MODULE__, :recipient}
+  @send_result_key {__MODULE__, :send_result}
   @reconcile_result_key {__MODULE__, :reconcile_result}
 
   @doc false
@@ -146,6 +147,12 @@ defmodule Ankole.PluginFixtures.MockSignalProvider.Outbox do
 
   @doc false
   def delete_recipient, do: :persistent_term.erase(@recipient_key)
+
+  @doc false
+  def put_send_result(result), do: :persistent_term.put(@send_result_key, result)
+
+  @doc false
+  def delete_send_result, do: :persistent_term.erase(@send_result_key)
 
   @doc false
   def put_reconcile_result(result), do: :persistent_term.put(@reconcile_result_key, result)
@@ -160,11 +167,14 @@ defmodule Ankole.PluginFixtures.MockSignalProvider.Outbox do
       _value -> :ok
     end
 
-    {:ok,
-     %{
-       created_source_entry_id: "mock-reply-#{System.unique_integer([:positive])}",
-       raw_payload: %{"provider" => "mock-signal-provider"}
-     }}
+    :persistent_term.get(
+      @send_result_key,
+      {:ok,
+       %{
+         created_source_entry_id: "mock-reply-#{System.unique_integer([:positive])}",
+         raw_payload: %{"provider" => "mock-signal-provider"}
+       }}
+    )
   end
 
   @impl true

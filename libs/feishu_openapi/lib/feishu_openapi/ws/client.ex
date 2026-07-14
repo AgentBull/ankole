@@ -14,8 +14,11 @@ defmodule FeishuOpenAPI.WS.Client do
     * Calls `POST {base_url}/callback/ws/endpoint` to discover the WS URL and
       runtime config (ping interval, reconnect parameters).
     * Uses `mint_web_socket` for the connection.
-    * Sends a `ping` control frame every `ping_interval` seconds (default
-      120s, overridable by the server via a `pong` payload).
+    * Sends a `pbbp2` application ping immediately after upgrade, then every
+      `ping_interval` seconds (default 120s, overridable by its application
+      pong payload).
+    * Echoes every RFC 6455 WebSocket ping payload in a transport pong; Mint
+      deliberately leaves that protocol housekeeping to its caller.
     * Re-assembles fragmented messages (headers `sum > 1`, `seq`, `message_id`)
       with a 5-second window.
     * Dispatches `event` and `card` messages to the dispatcher as trusted
@@ -162,7 +165,7 @@ defmodule FeishuOpenAPI.WS.Client do
 
     case do_connect(state) do
       {:ok, state} ->
-        {:noreply, schedule_ping(state)}
+        {:noreply, state}
 
       {:error, reason, fatal?} ->
         Logger.error("feishu_openapi ws connect failed: #{inspect(reason)} fatal?=#{fatal?}")
@@ -178,11 +181,7 @@ defmodule FeishuOpenAPI.WS.Client do
   end
 
   def handle_info(:ping, state) do
-    state =
-      case send_ping(state) do
-        {:ok, s} -> s
-        {:error, _reason, s} -> s
-      end
+    state = handle_send_result(send_ping(state), state, "ping")
 
     {:noreply, schedule_ping(state)}
   end
@@ -413,9 +412,14 @@ defmodule FeishuOpenAPI.WS.Client do
            upgrade_headers
          ) do
       {:ok, conn, websocket} ->
-        Logger.info("feishu_openapi ws connected app_id=#{state.client.app_id}")
         state = %{state | conn: conn, websocket: websocket, status: :connected}
-        handle_responses(rest, state)
+
+        Logger.info(
+          "feishu_openapi ws connected app_id=#{state.client.app_id} service_id=#{state.service_id} ping_interval_s=#{state.ping_interval_s}"
+        )
+
+        state = handle_send_result(send_ping(state), state, "ping")
+        handle_responses(rest, schedule_ping(state))
 
       {:error, conn, reason} ->
         state = %{state | conn: conn} |> drop_conn()
@@ -460,6 +464,20 @@ defmodule FeishuOpenAPI.WS.Client do
         state
     end
   end
+
+  # RFC 6455 requires the pong payload to exactly echo the ping payload. Unlike
+  # the higher-level `pbbp2` heartbeat below, Mint deliberately does not perform
+  # this protocol housekeeping for callers.
+  defp handle_ws_frame({:ping, payload}, state) when is_binary(payload) do
+    handle_send_result(
+      send_websocket_frame({:pong, payload}, state),
+      state,
+      "transport pong"
+    )
+  end
+
+  # A peer pong is proof of life but carries no application-level config.
+  defp handle_ws_frame({:pong, _payload}, state), do: state
 
   defp handle_ws_frame({:close, code, reason}, state) do
     # Peer-initiated close is a recoverable event (e.g. server rotation), so drop
@@ -708,7 +726,11 @@ defmodule FeishuOpenAPI.WS.Client do
   end
 
   defp send_frame(bin, state) do
-    case Mint.WebSocket.encode(state.websocket, {:binary, bin}) do
+    send_websocket_frame({:binary, bin}, state)
+  end
+
+  defp send_websocket_frame(frame, state) do
+    case Mint.WebSocket.encode(state.websocket, frame) do
       {:ok, websocket, data} ->
         case Mint.WebSocket.stream_request_body(state.conn, state.request_ref, data) do
           {:ok, conn} -> {:ok, %{state | conn: conn, websocket: websocket}}
@@ -722,8 +744,8 @@ defmodule FeishuOpenAPI.WS.Client do
 
   # Timers / lifecycle helpers ----------------------------------------
 
-  defp schedule_ping(%{ping_interval_s: ping_interval_s} = state)
-       when is_integer(ping_interval_s) and ping_interval_s > 0 do
+  defp schedule_ping(%{websocket: websocket, ping_interval_s: ping_interval_s} = state)
+       when not is_nil(websocket) and is_integer(ping_interval_s) and ping_interval_s > 0 do
     if state.ping_timer, do: Process.cancel_timer(state.ping_timer)
     ref = Process.send_after(self(), :ping, :timer.seconds(state.ping_interval_s))
     %{state | ping_timer: ref}
@@ -795,6 +817,15 @@ defmodule FeishuOpenAPI.WS.Client do
   defp clear_reconnect_timer(state) do
     if state.reconnect_timer, do: Process.cancel_timer(state.reconnect_timer)
     %{state | reconnect_timer: nil}
+  end
+
+  defp handle_send_result({:ok, state}, _old_state, kind)
+       when kind in ["ping", "pong", "transport pong"] do
+    Logger.debug(
+      "feishu_openapi ws #{kind} sent app_id=#{state.client.app_id} service_id=#{state.service_id}"
+    )
+
+    state
   end
 
   defp handle_send_result({:ok, state}, _old_state, _kind), do: state

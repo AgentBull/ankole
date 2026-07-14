@@ -20,7 +20,7 @@ defmodule Ankole.Brain.StageBTest do
   alias Ankole.Brain.Knowledge
   alias Ankole.Brain.Schemas.Cursor
   alias Ankole.Brain.Scope
-  alias Ankole.SignalsGateway.{AdapterContext, BindingMembership, Channel}
+  alias Ankole.SignalsGateway.{ActorEvent, AdapterContext, BindingMembership, Channel}
   alias Ankole.SignalsGateway.Entry, as: SignalEntry
   alias Ankole.SystemConfig
 
@@ -33,38 +33,34 @@ defmodule Ankole.Brain.StageBTest do
 
   test "mutation failures do not advance the baseline and a new entry can receive a dreaming block" do
     %{principal: agent} = agent_fixture()
-    message = conversation_material!(agent.uid, "stage-b-new-entry", "I now prefer vegetables")
+    source = visible_signal_material!(agent.uid, "I now prefer vegetables", "stage-b-diet")
 
     plan = %{
-      "store_batches" => [
+      "operations" => [
         %{
-          "store_key" => "public",
-          "operations" => [
-            %{
-              "operation" => "create_entry",
-              "client_ref" => "diet",
-              "name" => "Diet preference",
-              "type" => "preference",
-              "summary" => "Current dietary preference",
-              "aliases" => [],
-              "properties" => %{}
-            },
-            %{
-              "operation" => "append_block",
-              "entry_ref" => "diet",
-              "body" => "The current preference is vegetarian."
-            }
-          ]
+          "operation" => "create_entry",
+          "client_ref" => "diet",
+          "name" => "Diet preference",
+          "type" => "preference",
+          "summary" => "Current dietary preference",
+          "aliases" => [],
+          "properties" => %{}
+        },
+        %{
+          "operation" => "append_block",
+          "entry_ref" => "diet",
+          "body" =>
+            "Alice said “I now prefer vegetables” on the observed date. src:#{source.document_id}"
         }
       ],
       "skill_updates" => []
     }
 
-    configure_model!(agent, fn _request -> response_summary(plan, fenced: true) end)
+    configure_model!(agent, fn _request -> response_summary(plan) end)
     configure_dreaming!(agent.uid, agent.uid, %{"mutation_limit" => 1})
 
     assert {:error, :dreaming_mutation_budget_exceeded} = StageB.run(agent.uid)
-    refute principal_cursor!(agent.uid).metadata["conversation_message_id"]
+    refute principal_cursor!(agent.uid).metadata["signal_document_id"]
 
     configure_dreaming!(agent.uid, agent.uid, %{"mutation_limit" => 2})
 
@@ -76,25 +72,26 @@ defmodule Ankole.Brain.StageBTest do
               skill_update_count: 0
             }} = StageB.run(agent.uid)
 
-    assert principal_cursor!(agent.uid).metadata["conversation_message_id"] == message.id
+    assert principal_cursor!(agent.uid).metadata["signal_document_id"] == source.document_id
 
     {:ok, scope} = Scope.for_store(agent.uid, "public")
     assert {:ok, [entry]} = Knowledge.list_entries(scope, limit: 20)
     assert entry.name == "Diet preference"
     assert {:ok, projection} = Knowledge.open(scope, entry.id, block_limit: :all)
 
-    assert [%{body: "The current preference is vegetarian.", author_kind: :dreaming}] =
-             projection.blocks
+    assert [%{body: body, author_kind: :dreaming}] = projection.blocks
+    assert body =~ "I now prefer vegetables"
+    assert body =~ "src:#{source.document_id}"
 
     assert {:ok, %{status: :no_new_material, material_count: 0}} = StageB.run(agent.uid)
   end
 
-  test "a fully undeclared conversation window advances the cursor instead of pinning it" do
+  test "an unprojectable task window advances the cursor instead of pinning it" do
     %{principal: agent} = agent_fixture()
 
     undeclared =
       for index <- 1..3 do
-        undeclared_conversation_material!(
+        unroutable_task_outcome!(
           agent.uid,
           "stage-b-undeclared",
           "external api message #{index}"
@@ -107,19 +104,19 @@ defmodule Ankole.Brain.StageBTest do
     assert {:ok, %{status: :no_new_material, material_count: 0}} = StageB.run(agent.uid)
 
     skipped = principal_cursor!(agent.uid)
-    assert skipped.metadata["conversation_message_id"] == List.last(undeclared).id
+    assert skipped.metadata["task_actor_event_id"] == List.last(undeclared).id
 
-    declared = conversation_material!(agent.uid, "stage-b-declared", "durable preference appears")
+    declared = task_outcome_material!(agent.uid, "stage-b-declared", "durable preference appears")
 
     assert {:ok, %{status: :completed, material_count: 1}} = StageB.run(agent.uid)
-    assert principal_cursor!(agent.uid).metadata["conversation_message_id"] == declared.id
+    assert principal_cursor!(agent.uid).metadata["task_actor_event_id"] == declared.id
   end
 
-  test "an undeclared conversation window is skipped even when signal material commits" do
+  test "an unprojectable task window is skipped even when signal material commits" do
     %{principal: agent} = agent_fixture()
 
     undeclared =
-      undeclared_conversation_material!(agent.uid, "stage-b-undeclared-mixed", "external only")
+      unroutable_task_outcome!(agent.uid, "stage-b-undeclared-mixed", "external only")
 
     signal = visible_signal_material!(agent.uid, "durable signal fact", "stage-b-mixed-hash")
 
@@ -129,30 +126,25 @@ defmodule Ankole.Brain.StageBTest do
     assert {:ok, %{status: :completed, material_count: 1}} = StageB.run(agent.uid)
 
     metadata = principal_cursor!(agent.uid).metadata
-    assert metadata["conversation_message_id"] == undeclared.id
+    assert metadata["task_actor_event_id"] == undeclared.id
     assert metadata["signal_document_id"] == signal.document_id
   end
 
   test "an invalid curator mutation is retried before the material cursor advances" do
     %{principal: agent} = agent_fixture()
-    message = conversation_material!(agent.uid, "stage-b-curator-retry", "durable topic")
+    message = task_outcome_material!(agent.uid, "stage-b-curator-retry", "durable topic")
     attempts = :atomics.new(1, signed: false)
 
     configure_model!(agent, fn _request ->
       case :atomics.add_get(attempts, 1, 1) do
         1 ->
           response_summary(%{
-            "store_batches" => [
+            "operations" => [
               %{
-                "store_key" => "public",
-                "operations" => [
-                  %{
-                    "operation" => "add_relation",
-                    "entry_id" => Ecto.UUID.generate(),
-                    "predicate" => "depends on",
-                    "expected_entry_lock_version" => 1
-                  }
-                ]
+                "operation" => "add_relation",
+                "entry_id" => Ecto.UUID.generate(),
+                "predicate" => "depends on",
+                "expected_entry_lock_version" => 1
               }
             ],
             "skill_updates" => []
@@ -166,12 +158,12 @@ defmodule Ankole.Brain.StageBTest do
     configure_dreaming!(agent.uid, agent.uid)
     assert {:ok, %{status: :completed, material_count: 1}} = StageB.run(agent.uid)
     assert :atomics.get(attempts, 1) == 2
-    assert principal_cursor!(agent.uid).metadata["conversation_message_id"] == message.id
+    assert principal_cursor!(agent.uid).metadata["task_actor_event_id"] == message.id
   end
 
   test "the principal cursor is a cross-node single-flight lease and advances only after commit" do
     %{principal: agent} = agent_fixture()
-    message = conversation_material!(agent.uid, "stage-b-single-flight", "one external fact")
+    message = task_outcome_material!(agent.uid, "stage-b-single-flight", "one external fact")
     test_pid = self()
 
     configure_model!(agent, fn request ->
@@ -189,7 +181,7 @@ defmodule Ankole.Brain.StageBTest do
 
     cursor = principal_cursor!(agent.uid)
     assert is_binary(cursor.metadata["stage_b_run_id"])
-    refute cursor.metadata["conversation_message_id"]
+    refute cursor.metadata["task_actor_event_id"]
     assert {:ok, %{status: :already_running}} = StageB.run(agent.uid)
 
     assert {:snooze, 60} =
@@ -199,7 +191,7 @@ defmodule Ankole.Brain.StageBTest do
     assert {:ok, %{status: :completed, material_count: 1}} = Task.await(task, 10_000)
 
     cursor = principal_cursor!(agent.uid)
-    assert cursor.metadata["conversation_message_id"] == message.id
+    assert cursor.metadata["task_actor_event_id"] == message.id
     refute cursor.metadata["stage_b_run_id"]
     refute_receive {:curator_waiting, _pid, _request}, 100
   end
@@ -208,45 +200,45 @@ defmodule Ankole.Brain.StageBTest do
     %{principal: agent} = agent_fixture()
 
     first =
-      conversation_material!(agent.uid, "stage-b-token-budget", "a", inserted_at: @base_time)
+      task_outcome_material!(agent.uid, "stage-b-token-budget", "a", completed_at: @base_time)
 
     second =
-      conversation_material!(agent.uid, "stage-b-token-budget", String.duplicate("long ", 25_000),
-        inserted_at: DateTime.add(@base_time, 1, :second)
+      task_outcome_material!(agent.uid, "stage-b-token-budget", String.duplicate("long ", 25_000),
+        completed_at: DateTime.add(@base_time, 1, :second)
       )
 
     configure_model!(agent, fn _request -> response_summary(empty_plan()) end)
     configure_dreaming!(agent.uid, agent.uid, %{"token_limit" => 20_000})
 
     assert {:ok, %{status: :completed, material_count: 1}} = StageB.run(agent.uid)
-    assert principal_cursor!(agent.uid).metadata["conversation_message_id"] == first.id
+    assert principal_cursor!(agent.uid).metadata["task_actor_event_id"] == first.id
 
     assert {:error, :dreaming_token_limit_too_small} = StageB.run(agent.uid)
-    assert principal_cursor!(agent.uid).metadata["conversation_message_id"] == first.id
+    assert principal_cursor!(agent.uid).metadata["task_actor_event_id"] == first.id
 
     configure_dreaming!(agent.uid, agent.uid, %{"token_limit" => 0})
     assert {:ok, %{status: :completed, material_count: 1}} = StageB.run(agent.uid)
-    assert principal_cursor!(agent.uid).metadata["conversation_message_id"] == second.id
+    assert principal_cursor!(agent.uid).metadata["task_actor_event_id"] == second.id
   end
 
   test "locator can skip noise while the cursor consumes the complete scanned batch" do
     %{principal: agent} = agent_fixture()
 
     first =
-      conversation_material!(agent.uid, "stage-b-locator-prefix", "first material",
-        inserted_at: @base_time
+      task_outcome_material!(agent.uid, "stage-b-locator-prefix", "first material",
+        completed_at: @base_time
       )
 
     second =
-      conversation_material!(agent.uid, "stage-b-locator-prefix", "second material",
-        inserted_at: DateTime.add(@base_time, 1, :second)
+      task_outcome_material!(agent.uid, "stage-b-locator-prefix", "second material",
+        completed_at: DateTime.add(@base_time, 1, :second)
       )
 
     configure_model!(
       agent,
       fn request ->
         payload = curator_payload(request)
-        assert Enum.map(payload["materials"], & &1["message_id"]) == [second.id]
+        assert Enum.map(payload["materials"], & &1["material_id"]) == [second.id]
         response_summary(empty_plan())
       end,
       locator: fn request ->
@@ -266,7 +258,7 @@ defmodule Ankole.Brain.StageBTest do
              StageB.run(agent.uid)
 
     cursor = principal_cursor!(agent.uid)
-    assert cursor.metadata["conversation_message_id"] == second.id
+    assert cursor.metadata["task_actor_event_id"] == second.id
     assert {:ok, %{status: :no_new_material}} = StageB.run(agent.uid)
   end
 
@@ -274,13 +266,13 @@ defmodule Ankole.Brain.StageBTest do
     %{principal: agent} = agent_fixture()
 
     first =
-      conversation_material!(agent.uid, "stage-b-empty-locator", "routine acknowledgement",
-        inserted_at: @base_time
+      task_outcome_material!(agent.uid, "stage-b-empty-locator", "routine acknowledgement",
+        completed_at: @base_time
       )
 
     second =
-      conversation_material!(agent.uid, "stage-b-empty-locator", "another acknowledgement",
-        inserted_at: DateTime.add(@base_time, 1, :second)
+      task_outcome_material!(agent.uid, "stage-b-empty-locator", "another acknowledgement",
+        completed_at: DateTime.add(@base_time, 1, :second)
       )
 
     test_pid = self()
@@ -301,10 +293,214 @@ defmodule Ankole.Brain.StageBTest do
     assert {:ok, %{status: :completed, material_count: 2, operation_count: 0}} =
              StageB.run(agent.uid)
 
-    assert principal_cursor!(agent.uid).metadata["conversation_message_id"] == second.id
+    assert principal_cursor!(agent.uid).metadata["task_actor_event_id"] == second.id
     refute_receive {:unexpected_curator, _request}, 100
     assert {:ok, %{status: :no_new_material}} = StageB.run(agent.uid)
     assert first.id != second.id
+  end
+
+  test "locator and curator requests use phase-specific structured output contracts" do
+    %{principal: agent} = agent_fixture()
+    _message = task_outcome_material!(agent.uid, "stage-b-response-format", "durable preference")
+    test_pid = self()
+
+    configure_model!(
+      agent,
+      fn request ->
+        send(test_pid, {:stage_b_response_format, :curator, request.body["text"]})
+        response_summary(empty_plan())
+      end,
+      locator: fn request ->
+        send(test_pid, {:stage_b_response_format, :locator, request.body["text"]})
+        select_all_locator_response(request)
+      end
+    )
+
+    configure_dreaming!(agent.uid, agent.uid)
+    assert {:ok, %{status: :completed}} = StageB.run(agent.uid)
+
+    assert_receive {:stage_b_response_format, :locator,
+                    %{
+                      "format" => %{
+                        "type" => "json_schema",
+                        "name" => "brain_stage_b_locator",
+                        "strict" => true,
+                        "schema" => locator_schema
+                      }
+                    }}
+
+    assert locator_schema["required"] == ["material_ids", "topics"]
+
+    assert_receive {:stage_b_response_format, :curator,
+                    %{
+                      "format" => %{
+                        "type" => "json_schema",
+                        "name" => "brain_stage_b_curator",
+                        "strict" => false,
+                        "schema" => curator_schema
+                      }
+                    }}
+
+    assert curator_schema["required"] == ["operations", "skill_updates"]
+
+    operation_names =
+      get_in(curator_schema, [
+        "properties",
+        "operations",
+        "items",
+        "properties",
+        "operation",
+        "enum"
+      ])
+
+    assert "create_entry" in operation_names
+    assert "remove_relation" in operation_names
+  end
+
+  test "a completed actor turn becomes one task outcome without raw tool arguments or outputs" do
+    %{principal: agent} = agent_fixture()
+
+    actor_event =
+      task_outcome_material!(agent.uid, "stage-b-task-evidence", "Remember the workflow lesson",
+        completed_at: @base_time,
+        response_rows: [
+          [
+            %{
+              "type" => "function_call",
+              "call_id" => "call-1",
+              "name" => "web_search",
+              "arguments" => ~s({"query":"RATE_CUT_QUERY"})
+            }
+          ],
+          [
+            %{
+              "type" => "function_call_output",
+              "call_id" => "call-1",
+              "output" => "SECRET_TOOL_OUTPUT_1"
+            },
+            %{
+              "type" => "function_call",
+              "call_id" => "call-2",
+              "name" => "web_search",
+              "arguments" => ~s({"query":"VALUATION_QUERY"})
+            }
+          ],
+          [
+            %{
+              "type" => "function_call_output",
+              "call_id" => "call-2",
+              "output" => "SECRET_TOOL_OUTPUT_2"
+            },
+            %{
+              "type" => "function_call",
+              "call_id" => "call-3",
+              "name" => "memory_search",
+              "arguments" => ~s({"query":"PRIVATE_RECALL_QUERY"})
+            }
+          ],
+          [
+            %{
+              "type" => "function_call_output",
+              "call_id" => "call-3",
+              "output" => "SECRET_TOOL_OUTPUT_3"
+            },
+            %{
+              "type" => "message",
+              "role" => "assistant",
+              "content" => [%{"type" => "output_text", "text" => "Workflow captured."}]
+            }
+          ]
+        ]
+      )
+
+    assert {:ok, _timezone} = SystemConfig.put_timezone("Asia/Singapore")
+    on_exit(fn -> AppConfigure.delete_global(SystemConfig.timezone_definition()) end)
+
+    configure_model!(
+      agent,
+      fn request ->
+        payload = request_payload(request)
+        assert [material] = payload["materials"]
+        assert material["material_id"] == actor_event.id
+        assert material["kind"] == "task_outcome"
+        assert material["completed_at"] == "2026-07-13 08:00:00 (Asia/Singapore)"
+
+        assert material["request"] == [
+                 %{"speaker" => "Alice", "text" => "Remember the workflow lesson"}
+               ]
+
+        assert material["final_response"] == "Workflow captured."
+
+        assert material["tools_used"] == [
+                 %{"name" => "memory_search", "call_count" => 1, "result_count" => 1},
+                 %{"name" => "web_search", "call_count" => 2, "result_count" => 2}
+               ]
+
+        encoded = Ankole.JSON.encode!(material)
+        refute encoded =~ "function_call"
+        refute encoded =~ "RATE_CUT_QUERY"
+        refute encoded =~ "VALUATION_QUERY"
+        refute encoded =~ "PRIVATE_RECALL_QUERY"
+        refute encoded =~ "SECRET_TOOL_OUTPUT"
+        refute encoded =~ "call-1"
+        refute Map.has_key?(material, "store_key")
+        response_summary(empty_plan())
+      end,
+      locator: fn request ->
+        payload = request_payload(request)
+        assert [material] = payload["material_index"]
+        assert material["material_id"] == actor_event.id
+        assert material["kind"] == "task_outcome"
+        assert material["preview"] =~ "Remember the workflow lesson"
+
+        encoded = Ankole.JSON.encode!(material)
+        refute encoded =~ "RATE_CUT_QUERY"
+        refute encoded =~ "SECRET_TOOL_OUTPUT"
+        select_all_locator_response(request)
+      end
+    )
+
+    configure_dreaming!(agent.uid, agent.uid)
+    assert {:ok, %{status: :completed, material_count: 1}} = StageB.run(agent.uid)
+    assert principal_cursor!(agent.uid).metadata["task_actor_event_id"] == actor_event.id
+  end
+
+  test "a complete AIGateway row without a completed Actor turn is not Dreaming evidence" do
+    %{principal: agent} = agent_fixture()
+
+    {:ok, conversation} =
+      Conversations.ensure_conversation(agent.uid, "stage-b-raw-response",
+        metadata: %{"brain" => %{"visibility" => "public"}}
+      )
+
+    %Message{}
+    |> Message.changeset(%{
+      subject_uid: agent.uid,
+      conversation_id: conversation.id,
+      type: "message",
+      role: "assistant",
+      status: "complete",
+      content: [
+        %{
+          "type" => "function_call",
+          "call_id" => "raw-call",
+          "name" => "web_search",
+          "arguments" => ~s({"query":"RAW_RESPONSE_QUERY"})
+        },
+        %{
+          "type" => "function_call_output",
+          "call_id" => "raw-call",
+          "output" => "RAW_RESPONSE_OUTPUT"
+        }
+      ],
+      metadata: %{}
+    })
+    |> Repo.insert!()
+
+    configure_dreaming!(agent.uid, agent.uid)
+
+    assert {:ok, %{status: :no_new_material, material_count: 0}} = StageB.run(agent.uid)
+    refute principal_cursor!(agent.uid).metadata["task_actor_event_id"]
   end
 
   test "token budget counts locator and curator requests across public and private stores" do
@@ -312,16 +508,16 @@ defmodule Ankole.Brain.StageBTest do
     %{principal: peer} = human_fixture()
 
     public_message =
-      conversation_material!(agent.uid, "stage-b-budget-public", "small public material",
-        inserted_at: @base_time
+      task_outcome_material!(agent.uid, "stage-b-budget-public", "small public material",
+        completed_at: @base_time
       )
 
     private_message =
-      conversation_material!(
+      task_outcome_material!(
         agent.uid,
         "stage-b-budget-private",
         String.duplicate("private ", 25_000),
-        inserted_at: DateTime.add(@base_time, 1, :second),
+        completed_at: DateTime.add(@base_time, 1, :second),
         brain: %{
           "visibility" => "dm",
           "peer_uid" => peer.uid,
@@ -347,33 +543,28 @@ defmodule Ankole.Brain.StageBTest do
     configure_dreaming!(agent.uid, agent.uid, %{"token_limit" => 20_000})
 
     assert {:ok, %{status: :completed, material_count: 1}} = StageB.run(agent.uid)
-    assert principal_cursor!(agent.uid).metadata["conversation_message_id"] == public_message.id
+    assert principal_cursor!(agent.uid).metadata["task_actor_event_id"] == public_message.id
 
     requests = receive_budgeted_requests([])
     assert length(requests) == 2
     assert Enum.sum(Enum.map(requests, &request_token_cost/1)) <= 20_000
 
     assert {:error, :dreaming_token_limit_too_small} = StageB.run(agent.uid)
-    assert principal_cursor!(agent.uid).metadata["conversation_message_id"] == public_message.id
+    assert principal_cursor!(agent.uid).metadata["task_actor_event_id"] == public_message.id
 
     configure_dreaming!(agent.uid, agent.uid, %{"token_limit" => 0})
     assert {:ok, %{status: :completed, material_count: 1}} = StageB.run(agent.uid)
-    assert principal_cursor!(agent.uid).metadata["conversation_message_id"] == private_message.id
+    assert principal_cursor!(agent.uid).metadata["task_actor_event_id"] == private_message.id
   end
 
   test "curator output rejects noncanonical operations and envelopes without advancing" do
     %{principal: agent} = agent_fixture()
-    _message = conversation_material!(agent.uid, "stage-b-json-envelope", "external material")
+    _message = task_outcome_material!(agent.uid, "stage-b-json-envelope", "external material")
     configure_dreaming!(agent.uid, agent.uid)
     json = Ankole.JSON.encode!(empty_plan())
 
     invalid_sentinel = %{
-      "store_batches" => [
-        %{
-          "store_key" => "public",
-          "operations" => [%{"operation" => "nil", "reason" => "not sure"}]
-        }
-      ],
+      "operations" => [%{"operation" => "nil", "reason" => "not sure"}],
       "skill_updates" => []
     }
 
@@ -385,19 +576,14 @@ defmodule Ankole.Brain.StageBTest do
              StageB.run(agent.uid)
 
     assert fields == ["operation", "reason"]
-    refute principal_cursor!(agent.uid).metadata["conversation_message_id"]
+    refute principal_cursor!(agent.uid).metadata["task_actor_event_id"]
 
     alias_operation = %{
-      "store_batches" => [
+      "operations" => [
         %{
-          "store_key" => "public",
-          "operations" => [
-            %{
-              "op" => "create_entry",
-              "name" => "Compatibility residue",
-              "type" => "topic"
-            }
-          ]
+          "op" => "create_entry",
+          "name" => "Compatibility residue",
+          "type" => "topic"
         }
       ],
       "skill_updates" => []
@@ -411,16 +597,16 @@ defmodule Ankole.Brain.StageBTest do
              StageB.run(agent.uid)
 
     assert alias_fields == ["name", "op", "type"]
-    refute principal_cursor!(agent.uid).metadata["conversation_message_id"]
+    refute principal_cursor!(agent.uid).metadata["task_actor_event_id"]
 
     configure_model!(agent, fn _request -> response_text("Explanation:\n#{json}") end)
     assert {:error, _invalid_json} = StageB.run(agent.uid)
-    refute principal_cursor!(agent.uid).metadata["conversation_message_id"]
+    refute principal_cursor!(agent.uid).metadata["task_actor_event_id"]
 
     multiple = "```json\n#{json}\n```\n```json\n#{json}\n```"
     configure_model!(agent, fn _request -> response_text(multiple) end)
     assert {:error, _invalid_multiple_payload} = StageB.run(agent.uid)
-    refute principal_cursor!(agent.uid).metadata["conversation_message_id"]
+    refute principal_cursor!(agent.uid).metadata["task_actor_event_id"]
   end
 
   test "source hashes are rechecked under the write transaction after model inference" do
@@ -429,31 +615,35 @@ defmodule Ankole.Brain.StageBTest do
     test_pid = self()
 
     plan = %{
-      "store_batches" => [
+      "operations" => [
         %{
-          "store_key" => "public",
-          "operations" => [
-            %{
-              "operation" => "create_entry",
-              "client_ref" => "source-check",
-              "name" => "Source check",
-              "type" => "topic",
-              "summary" => "",
-              "aliases" => [],
-              "properties" => %{}
-            },
-            %{
-              "operation" => "append_block",
-              "entry_ref" => "source-check",
-              "body" => "Quoted evidence src:#{source.document_id}"
-            }
-          ]
+          "operation" => "create_entry",
+          "client_ref" => "source-check",
+          "name" => "Source check",
+          "type" => "topic",
+          "summary" => "",
+          "aliases" => [],
+          "properties" => %{}
+        },
+        %{
+          "operation" => "append_block",
+          "entry_ref" => "source-check",
+          "body" => "Quoted evidence src:#{source.document_id}"
         }
       ],
       "skill_updates" => []
     }
 
     configure_model!(agent, fn request ->
+      assert [material] = request_payload(request)["materials"]
+      assert material["material_id"] == source.document_id
+      assert material["kind"] == "signal_message"
+      assert material["speaker"] == "Alice"
+      assert material["text"] == "source before edit"
+      assert material["observed_at"] =~ ~r/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \(.+\)$/
+      refute Map.has_key?(material, "content_hash")
+      refute Map.has_key?(material, "source_entry_id")
+      refute Map.has_key?(material, "store_key")
       send(test_pid, {:source_curator_waiting, self(), request})
 
       receive do
@@ -469,7 +659,6 @@ defmodule Ankole.Brain.StageBTest do
     source
     |> Ecto.Changeset.change(
       text: "source after edit",
-      search_text: "source after edit",
       content_hash: "hash-v2"
     )
     |> Repo.update!()
@@ -490,13 +679,13 @@ defmodule Ankole.Brain.StageBTest do
     %{principal: peer} = human_fixture()
 
     public_message =
-      conversation_material!(agent.uid, "stage-b-mixed-public", "PUBLIC_ONLY_MARKER",
-        inserted_at: @base_time
+      task_outcome_material!(agent.uid, "stage-b-mixed-public", "PUBLIC_ONLY_MARKER",
+        completed_at: @base_time
       )
 
     dm_message =
-      conversation_material!(agent.uid, "stage-b-mixed-dm", "PRIVATE_ONLY_MARKER",
-        inserted_at: DateTime.add(@base_time, 1, :second),
+      task_outcome_material!(agent.uid, "stage-b-mixed-dm", "PRIVATE_ONLY_MARKER",
+        completed_at: DateTime.add(@base_time, 1, :second),
         brain: %{
           "visibility" => "dm",
           "peer_uid" => peer.uid,
@@ -509,25 +698,27 @@ defmodule Ankole.Brain.StageBTest do
 
     configure_model!(agent, fn request ->
       payload = curator_payload(request)
-      [store_key] = payload["materials"] |> Enum.map(& &1["store_key"]) |> Enum.uniq()
-      send(test_pid, {:store_curator_payload, store_key, payload})
+      encoded = Ankole.JSON.encode!(payload)
 
-      name = if store_key == "public", do: "Public topic", else: "Private topic"
+      store_label =
+        cond do
+          encoded =~ "PUBLIC_ONLY_MARKER" -> "public"
+          encoded =~ "PRIVATE_ONLY_MARKER" -> "dm:#{peer.uid}"
+        end
+
+      send(test_pid, {:store_curator_payload, store_label, payload})
+
+      name = if store_label == "public", do: "Public topic", else: "Private topic"
 
       response_summary(%{
-        "store_batches" => [
+        "operations" => [
           %{
-            "store_key" => store_key,
-            "operations" => [
-              %{
-                "operation" => "create_entry",
-                "name" => name,
-                "type" => "topic",
-                "summary" => "",
-                "aliases" => [],
-                "properties" => %{}
-              }
-            ]
+            "operation" => "create_entry",
+            "name" => name,
+            "type" => "topic",
+            "summary" => "",
+            "aliases" => [],
+            "properties" => %{}
           }
         ],
         "skill_updates" => []
@@ -541,7 +732,7 @@ defmodule Ankole.Brain.StageBTest do
     assert_store_payload_isolation!(first_payloads, peer.uid)
 
     cursor = principal_cursor!(agent.uid)
-    refute cursor.metadata["conversation_message_id"]
+    refute cursor.metadata["task_actor_event_id"]
     {:ok, all_scope} = Scope.for_console(agent.uid, :all)
     assert {:ok, []} = Knowledge.list_entries(all_scope, limit: 20)
 
@@ -554,8 +745,8 @@ defmodule Ankole.Brain.StageBTest do
     assert_store_payload_isolation!(second_payloads, peer.uid)
 
     cursor = principal_cursor!(agent.uid)
-    assert cursor.metadata["conversation_message_id"] == dm_message.id
-    refute cursor.metadata["conversation_message_id"] == public_message.id
+    assert cursor.metadata["task_actor_event_id"] == dm_message.id
+    refute cursor.metadata["task_actor_event_id"] == public_message.id
 
     assert {:ok, entries} = Knowledge.list_entries(all_scope, limit: 20)
 
@@ -583,7 +774,7 @@ defmodule Ankole.Brain.StageBTest do
     %{principal: peer} = human_fixture()
 
     _message =
-      conversation_material!(agent.uid, "stage-b-private-skill", "private correction",
+      task_outcome_material!(agent.uid, "stage-b-private-skill", "private correction",
         brain: %{
           "visibility" => "dm",
           "peer_uid" => peer.uid,
@@ -599,7 +790,7 @@ defmodule Ankole.Brain.StageBTest do
       send(test_pid, {:private_skill_payload, payload})
 
       response_summary(%{
-        "store_batches" => [],
+        "operations" => [],
         "skill_updates" => [
           %{"skill_name" => "research", "mode" => "append", "content" => "secret lesson"}
         ]
@@ -608,16 +799,21 @@ defmodule Ankole.Brain.StageBTest do
 
     configure_dreaming!(agent.uid, agent.uid)
     assert {:error, :private_skill_updates_forbidden} = StageB.run(agent.uid)
-    refute principal_cursor!(agent.uid).metadata["conversation_message_id"]
+    refute principal_cursor!(agent.uid).metadata["task_actor_event_id"]
 
     assert_receive {:private_skill_payload, payload}, 1_000
     assert payload["enabled_skills"] == []
-    assert Enum.map(payload["materials"], & &1["store_key"]) == ["dm:#{peer.uid}"]
+    refute Enum.any?(payload["materials"], &Map.has_key?(&1, "store_key"))
   end
 
-  test "curator receives authoritative maintenance and learning policy" do
+  test "curator receives only dynamic run context and local model-facing timestamps" do
     %{principal: agent} = agent_fixture()
-    _message = conversation_material!(agent.uid, "stage-b-policy", "corrected workflow lesson")
+
+    _message =
+      task_outcome_material!(agent.uid, "stage-b-policy", "corrected workflow lesson",
+        completed_at: ~U[2026-07-13 20:30:00.000000Z]
+      )
+
     test_pid = self()
 
     on_exit(fn ->
@@ -652,40 +848,45 @@ defmodule Ankole.Brain.StageBTest do
              "timezone" => "Asia/Singapore"
            }
 
-    assert get_in(payload, ["curation_policy", "induction", "minimum_evidence_count"]) == 2
-
-    assert get_in(payload, ["curation_policy", "skill_updates", "overlap_revision_threshold"]) ==
-             0.6
-
-    assert get_in(payload, ["curation_policy", "skill_updates", "required_shape"]) ==
-             "situation -> caution"
-
-    assert get_in(payload, ["curation_policy", "task_lessons", "triggers"]) ==
-             ["error_recovery", "human_correction", "non_obvious_multistep_success"]
-
-    assert get_in(payload, ["curation_policy", "entry_maintenance", "recheck_after_body_edit"]) ==
-             ["summary", "aliases"]
+    refute Map.has_key?(payload, "curation_policy")
+    refute Map.has_key?(payload, "locator_topics")
+    assert [%{"completed_at" => "2026-07-14 04:30:00 (Asia/Singapore)"}] = payload["materials"]
   end
 
   test "overlapping skill append requires replace and does not consume material" do
     %{principal: agent} = agent_fixture()
-    message = conversation_material!(agent.uid, "stage-b-overlap", "repeated PDF lesson")
+    message = task_outcome_material!(agent.uid, "stage-b-overlap", "repeated PDF lesson")
     existing = "Large PDF review -> verify each rendered page before delivery."
 
     assert {:ok, overlay} = Library.skill_append(agent.uid, "nano-pdf", existing)
 
     plan = %{
-      "store_batches" => [],
+      "operations" => [],
       "skill_updates" => [
         %{"skill_name" => "nano-pdf", "mode" => "append", "content" => existing}
       ]
     }
 
-    configure_model!(agent, fn _request -> response_summary(plan) end)
+    configure_model!(agent, fn request ->
+      skill =
+        request
+        |> request_payload()
+        |> Map.fetch!("enabled_skills")
+        |> Enum.find(&(&1["skill_name"] == "nano-pdf"))
+
+      assert Map.keys(skill) |> Enum.sort() ==
+               ["current_overlay", "description", "skill_name"]
+
+      assert skill["current_overlay"] == existing
+      refute Ankole.JSON.encode!(skill) =~ "content_hash"
+      refute Ankole.JSON.encode!(skill) =~ "skill_root"
+      response_summary(plan)
+    end)
+
     configure_dreaming!(agent.uid, agent.uid)
 
     assert {:error, :dreaming_skill_append_requires_replace} = StageB.run(agent.uid)
-    refute principal_cursor!(agent.uid).metadata["conversation_message_id"] == message.id
+    refute principal_cursor!(agent.uid).metadata["task_actor_event_id"] == message.id
 
     assert {:ok, current} = Library.skill_overlay(agent.uid, "nano-pdf")
     assert current.id == overlay.id
@@ -694,12 +895,12 @@ defmodule Ankole.Brain.StageBTest do
 
   test "skill append conflicts with a concurrent overlay change and does not consume material" do
     %{principal: agent} = agent_fixture()
-    message = conversation_material!(agent.uid, "stage-b-skill-cas", "new PDF lesson")
+    message = task_outcome_material!(agent.uid, "stage-b-skill-cas", "new PDF lesson")
     assert {:ok, _overlay} = Library.skill_append(agent.uid, "nano-pdf", "Existing guidance.")
     test_pid = self()
 
     plan = %{
-      "store_batches" => [],
+      "operations" => [],
       "skill_updates" => [
         %{
           "skill_name" => "nano-pdf",
@@ -726,7 +927,7 @@ defmodule Ankole.Brain.StageBTest do
 
     send(upstream_pid, :release_skill_curator)
     assert {:error, :skill_overlay_conflict} = Task.await(task, 10_000)
-    refute principal_cursor!(agent.uid).metadata["conversation_message_id"] == message.id
+    refute principal_cursor!(agent.uid).metadata["task_actor_event_id"] == message.id
 
     assert {:ok, current} = Library.skill_overlay(agent.uid, "nano-pdf")
     assert current.overlay_json["text"] =~ "Concurrent operator guidance."
@@ -735,7 +936,7 @@ defmodule Ankole.Brain.StageBTest do
 
   test "locator topics retrieve an old relevant entry instead of the latest directory slice" do
     %{principal: agent} = agent_fixture()
-    _message = conversation_material!(agent.uid, "stage-b-relevant-knowledge", "verdant quokka")
+    _message = task_outcome_material!(agent.uid, "stage-b-relevant-knowledge", "verdant quokka")
     {:ok, scope} = Scope.for_store(agent.uid, "public")
 
     relevant_id = create_knowledge_entry!(scope, agent.uid, "Verdant quokka dossier")
@@ -776,34 +977,44 @@ defmodule Ankole.Brain.StageBTest do
     assert {:ok, %{status: :completed}} = StageB.run(agent.uid)
     assert_receive {:knowledge_payload, payload}, 1_000
 
-    assert Enum.any?(payload["current_knowledge"], fn context ->
-             get_in(context, ["entry", "id"]) == relevant_id
-           end)
+    context =
+      Enum.find(payload["current_knowledge"], fn context ->
+        get_in(context, ["entry", "id"]) == relevant_id
+      end)
+
+    assert context
+    refute Map.has_key?(context["entry"], "store_key")
+    refute Map.has_key?(context["entry"], "lock_version")
   end
 
   test "curator operations use the exact projection fence supplied by the server" do
     %{principal: agent} = agent_fixture()
 
     _message =
-      conversation_material!(agent.uid, "stage-b-projection-fence", "verdant quokka update")
+      task_outcome_material!(agent.uid, "stage-b-projection-fence", "verdant quokka update")
 
     {:ok, scope} = Scope.for_store(agent.uid, "public")
     entry_id = create_knowledge_entry!(scope, agent.uid, "Verdant quokka dossier")
 
     configure_model!(
       agent,
-      fn _request ->
+      fn request ->
+        context =
+          request
+          |> request_payload()
+          |> Map.fetch!("current_knowledge")
+          |> Enum.find(&(get_in(&1, ["entry", "id"]) == entry_id))
+
+        refute Map.has_key?(context["entry"], "lock_version")
+        refute Map.has_key?(context["entry"], "store_key")
+
         response_summary(%{
-          "store_batches" => [
+          "operations" => [
             %{
-              "store_key" => "public",
-              "operations" => [
-                %{
-                  "operation" => "set_summary",
-                  "entry_id" => entry_id,
-                  "summary" => "Current verdant quokka evidence"
-                }
-              ]
+              "operation" => "set_summary",
+              "entry_id" => entry_id,
+              "expected_entry_lock_version" => 999,
+              "summary" => "Current verdant quokka evidence"
             }
           ],
           "skill_updates" => []
@@ -906,51 +1117,86 @@ defmodule Ankole.Brain.StageBTest do
              AppConfigure.put_for_agent(owner_uid, Config.dreaming_definition(), config)
   end
 
-  defp conversation_material!(owner_uid, key, text, opts \\ []) do
+  defp task_outcome_material!(owner_uid, key, text, opts \\ []) do
     brain = Keyword.get(opts, :brain, %{"visibility" => "public"})
 
     {:ok, conversation} =
       Conversations.ensure_conversation(owner_uid, key, metadata: %{"brain" => brain})
 
-    inserted_at = Keyword.get(opts, :inserted_at)
+    completed_at = Keyword.get(opts, :completed_at, DateTime.utc_now(:microsecond))
+    speaker = Keyword.get(opts, :speaker, "Alice")
 
-    %Message{inserted_at: inserted_at, updated_at: inserted_at}
-    |> Message.changeset(%{
-      subject_uid: owner_uid,
-      conversation_id: conversation.id,
-      type: "message",
-      role: "user",
-      status: "complete",
-      content: [
-        %{
-          "type" => "message",
-          "role" => "user",
-          "content" => [%{"type" => "input_text", "text" => text}]
+    actor_event =
+      %ActorEvent{}
+      |> ActorEvent.changeset(%{
+        agent_uid: owner_uid,
+        binding_name: "brain-stage-b",
+        session_id: key,
+        source_event_id: "stage-b-#{Ecto.UUID.generate()}",
+        signal_channel_id: brain["channel_id"],
+        type: "im.message.addressed",
+        available_at: completed_at,
+        queue_sequence: System.unique_integer([:positive]),
+        input_state: "open",
+        completed_at: completed_at,
+        payload: %{
+          "data" => %{
+            "entry" => %{
+              "text" => text,
+              "author" => %{"display_name" => speaker}
+            }
+          }
         }
-      ],
-      metadata: %{}
-    })
-    |> Repo.insert!()
+      })
+      |> Repo.insert!()
+
+    response_rows =
+      Keyword.get(opts, :response_rows, [
+        [
+          %{
+            "type" => "message",
+            "role" => "assistant",
+            "content" => [%{"type" => "output_text", "text" => "Task completed."}]
+          }
+        ]
+      ])
+
+    response_rows
+    |> Enum.with_index()
+    |> Enum.each(fn {response_items, index} ->
+      row_time = DateTime.add(completed_at, index - length(response_rows), :microsecond)
+
+      %Message{inserted_at: row_time, updated_at: row_time}
+      |> Message.changeset(%{
+        subject_uid: owner_uid,
+        conversation_id: conversation.id,
+        type: "message",
+        role: "assistant",
+        status: "complete",
+        content: response_items,
+        metadata: %{"request_metadata" => %{"actor_event_id" => actor_event.id}}
+      })
+      |> Repo.insert!()
+    end)
+
+    actor_event
   end
 
-  defp undeclared_conversation_material!(owner_uid, key, text) do
-    {:ok, conversation} = Conversations.ensure_conversation(owner_uid, key, metadata: %{})
+  defp unroutable_task_outcome!(owner_uid, key, text) do
+    completed_at = DateTime.utc_now(:microsecond)
 
-    %Message{}
-    |> Message.changeset(%{
-      subject_uid: owner_uid,
-      conversation_id: conversation.id,
-      type: "message",
-      role: "user",
-      status: "complete",
-      content: [
-        %{
-          "type" => "message",
-          "role" => "user",
-          "content" => [%{"type" => "input_text", "text" => text}]
-        }
-      ],
-      metadata: %{}
+    %ActorEvent{}
+    |> ActorEvent.changeset(%{
+      agent_uid: owner_uid,
+      binding_name: "brain-stage-b",
+      session_id: key,
+      source_event_id: "stage-b-unroutable-#{Ecto.UUID.generate()}",
+      type: "im.message.addressed",
+      available_at: completed_at,
+      queue_sequence: System.unique_integer([:positive]),
+      input_state: "open",
+      completed_at: completed_at,
+      payload: %{"data" => %{"entry" => %{"text" => text}}}
     })
     |> Repo.insert!()
   end
@@ -999,7 +1245,6 @@ defmodule Ankole.Brain.StageBTest do
       signal_channel_id: channel.id,
       source_entry_id: "message-#{suffix}",
       text: text,
-      formatted_content: %{},
       attachments: [],
       links: [],
       author: %{"display_name" => "Alice"},
@@ -1007,12 +1252,9 @@ defmodule Ankole.Brain.StageBTest do
       metadata: %{},
       raw_payload: %{},
       provider_time: now,
-      fallback_visible_text: text,
       reactions: %{},
       raw_reaction_keys: %{},
       document_id: "signal-gateway-entry:#{String.replace(suffix, "-", "_")}",
-      search_text: text,
-      metadata_text: "",
       content_hash: content_hash,
       first_seen_at: now,
       last_seen_at: now
@@ -1024,7 +1266,7 @@ defmodule Ankole.Brain.StageBTest do
     Repo.get_by!(Cursor, scope_kind: :principal, scope_key: owner_uid)
   end
 
-  defp empty_plan, do: %{"store_batches" => [], "skill_updates" => []}
+  defp empty_plan, do: %{"operations" => [], "skill_updates" => []}
 
   defp select_all_locator_response(request) do
     materials = request_payload(request)["material_index"]
@@ -1061,7 +1303,8 @@ defmodule Ankole.Brain.StageBTest do
 
   defp request_token_cost(request) do
     input_tokens =
-      request.body["input"]
+      request.body
+      |> Map.take(["input", "text"])
       |> Ankole.JSON.encode!()
       |> Ankole.Kernel.estimate_o200k_base_tokens()
 
@@ -1087,8 +1330,8 @@ defmodule Ankole.Brain.StageBTest do
 
     public_payload = payloads["public"]
     private_payload = payloads["dm:#{peer_uid}"]
-    assert Enum.map(public_payload["materials"], & &1["store_key"]) == ["public"]
-    assert Enum.map(private_payload["materials"], & &1["store_key"]) == ["dm:#{peer_uid}"]
+    refute Enum.any?(public_payload["materials"], &Map.has_key?(&1, "store_key"))
+    refute Enum.any?(private_payload["materials"], &Map.has_key?(&1, "store_key"))
     assert Ankole.JSON.encode!(public_payload) =~ "PUBLIC_ONLY_MARKER"
     refute Ankole.JSON.encode!(public_payload) =~ "PRIVATE_ONLY_MARKER"
     assert Ankole.JSON.encode!(private_payload) =~ "PRIVATE_ONLY_MARKER"
@@ -1114,11 +1357,7 @@ defmodule Ankole.Brain.StageBTest do
     entry_id
   end
 
-  defp response_summary(plan, opts \\ []) do
-    text = Ankole.JSON.encode!(plan)
-    text = if Keyword.get(opts, :fenced, false), do: "```json\n#{text}\n```", else: text
-    response_text(text)
-  end
+  defp response_summary(plan), do: plan |> Ankole.JSON.encode!() |> response_text()
 
   defp response_text(text) do
     {:json, 200,

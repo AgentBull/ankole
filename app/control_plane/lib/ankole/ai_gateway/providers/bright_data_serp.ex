@@ -11,15 +11,15 @@ defmodule Ankole.AIGateway.Providers.BrightDataSERP do
 
   provider :bright_data_serp do
     label(%{"default" => "Bright Data SERP", "zh-Hans-CN" => "Bright Data SERP"})
-    base_url("https://api.brightdata.com")
+    base_url("https://api.brightdata.com", advanced: true)
 
     setting(:api_key, encrypted: true)
     setting(:zone, required: true)
     setting(:country)
     setting(:language)
     setting(:google_domain)
-    setting(:headers, type: :map)
-    setting(:query_params, type: :map)
+    setting(:headers, type: :map, advanced: true)
+    setting(:query_params, type: :map, advanced: true)
 
     setting(:country, scope: :request)
     setting(:language, scope: :request)

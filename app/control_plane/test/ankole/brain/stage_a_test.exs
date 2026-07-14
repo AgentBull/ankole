@@ -98,6 +98,7 @@ defmodule Ankole.Brain.StageATest do
 
   test "summarize_channel persists valid episodes without consuming the deferred tail" do
     %{principal: model_agent} = agent_fixture()
+    test_pid = self()
 
     summary = %{
       "episodes" => [
@@ -113,6 +114,7 @@ defmodule Ankole.Brain.StageATest do
 
     configure_brain_model!(model_agent, fn
       %{path: "v1/chat/completions", body: body} ->
+        send(test_pid, {:stage_a_response_format, body["response_format"]})
         {:json, 200, chat_completion_body(body["model"], Ankole.JSON.encode!(summary))}
 
       request ->
@@ -140,6 +142,22 @@ defmodule Ankole.Brain.StageATest do
     )
 
     assert :ok = Brain.summarize_channel(channel.id)
+
+    assert_receive {:stage_a_response_format,
+                    %{
+                      "type" => "json_schema",
+                      "json_schema" => %{
+                        "name" => "brain_stage_a_episode_summary",
+                        "strict" => true,
+                        "schema" => schema
+                      }
+                    }}
+
+    assert schema["required"] == [
+             "episodes",
+             "noise_source_entry_ids",
+             "deferred_source_entry_ids"
+           ]
 
     assert [
              %Episode{
@@ -232,7 +250,6 @@ defmodule Ankole.Brain.StageATest do
       signal_channel_id: channel.id,
       source_entry_id: source_entry_id,
       text: text,
-      formatted_content: %{},
       attachments: [],
       links: [],
       author: %{"display_name" => "Alice"},
@@ -240,12 +257,9 @@ defmodule Ankole.Brain.StageATest do
       metadata: %{},
       raw_payload: %{},
       provider_time: provider_time,
-      fallback_visible_text: text,
       reactions: %{},
       raw_reaction_keys: %{},
       document_id: Projection.entry_document_id(channel.id, source_entry_id),
-      search_text: text,
-      metadata_text: "Alice",
       content_hash: Projection.entry_content_hash([text, "Alice"]),
       first_seen_at: provider_time,
       last_seen_at: provider_time

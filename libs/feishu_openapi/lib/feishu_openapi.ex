@@ -211,16 +211,23 @@ defmodule FeishuOpenAPI do
     * `{:path, "/abs/path", "override.ext"}` — override the filename
     * `{:iodata, iodata_or_binary, "name.ext"}` — in-memory content
 
+  `:file_field` selects the multipart field name. It defaults to `:file`;
+  Feishu's image upload endpoint requires `:image`.
+
   All other `opts` are forwarded to `request/4`.
   """
   @spec upload(Client.t(), String.t(), keyword()) ::
           {:ok, map()} | {:error, Error.t()}
   def upload(%Client{} = client, path, opts) do
     with {:ok, fields} <- build_multipart_fields(Keyword.get(opts, :fields, [])),
-         {:ok, file_part} <- build_file_part(Keyword.fetch!(opts, :file)) do
+         {:ok, file_part} <-
+           build_file_part(
+             Keyword.fetch!(opts, :file),
+             Keyword.get(opts, :file_field, :file)
+           ) do
       forwarded =
         opts
-        |> Keyword.drop([:fields, :file, :body])
+        |> Keyword.drop([:fields, :file, :file_field, :body])
         |> Keyword.put(:form_multipart, fields ++ [file_part])
 
       request(client, :post, path, forwarded)
@@ -530,25 +537,28 @@ defmodule FeishuOpenAPI do
     end
   end
 
-  defp build_file_part({:path, path}) do
-    build_streaming_file_part(path, Path.basename(path))
+  defp build_file_part({:path, path}, field) do
+    build_streaming_file_part(path, Path.basename(path), field)
   end
 
-  defp build_file_part({:path, path, name}) do
-    build_streaming_file_part(path, name)
+  defp build_file_part({:path, path, name}, field) do
+    build_streaming_file_part(path, name, field)
   end
 
-  defp build_file_part({:iodata, data, name}),
-    do: {:ok, {:file, {IO.iodata_to_binary(data), filename: name}}}
+  defp build_file_part({:iodata, data, name}, field) when field in [:file, :image],
+    do: {:ok, {field, {IO.iodata_to_binary(data), filename: name}}}
 
-  defp build_streaming_file_part(path, name) do
+  defp build_file_part(_file, field) when field not in [:file, :image],
+    do: {:error, Error.transport({:invalid_multipart_file_field, field})}
+
+  defp build_streaming_file_part(path, name, field) when field in [:file, :image] do
     case File.stat(path) do
       {:ok, %File.Stat{type: :regular, size: size}} ->
         # Req can stream regular files with a known size. Rejecting directories
         # and special files avoids hanging uploads or provider-side body errors.
         # 64KB chunks keep large uploads off the heap; `size:` lets Req set a
         # correct Content-Length instead of falling back to chunked encoding.
-        {:ok, {:file, {File.stream!(path, 64_000, []), filename: name, size: size}}}
+        {:ok, {field, {File.stream!(path, 64_000, []), filename: name, size: size}}}
 
       {:ok, %File.Stat{type: type}} ->
         {:error,
@@ -562,6 +572,9 @@ defmodule FeishuOpenAPI do
         {:error, %Error{code: :bad_file, msg: format_file_error(reason), details: reason}}
     end
   end
+
+  defp build_streaming_file_part(_path, _name, field),
+    do: {:error, Error.transport({:invalid_multipart_file_field, field})}
 
   defp build_multipart_fields(fields) when is_list(fields) do
     fields

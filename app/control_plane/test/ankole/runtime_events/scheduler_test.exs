@@ -140,6 +140,16 @@ defmodule Ankole.RuntimeEvents.SchedulerTest do
     end
   end
 
+  test "rounds future deadlines up so handlers never run before the durable due time" do
+    now = ~U[2026-07-13 15:37:57.146641Z]
+
+    assert Scheduler.delay_ms_until(DateTime.add(now, 1, :microsecond), now) == 1
+    assert Scheduler.delay_ms_until(DateTime.add(now, 999, :microsecond), now) == 1
+    assert Scheduler.delay_ms_until(DateTime.add(now, 1_000, :microsecond), now) == 1
+    assert Scheduler.delay_ms_until(DateTime.add(now, 1_001, :microsecond), now) == 2
+    assert Scheduler.delay_ms_until(DateTime.add(now, -1, :microsecond), now) == 0
+  end
+
   defp capture_mock_outbox do
     MockOutbox.put_recipient(self())
 

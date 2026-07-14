@@ -28,12 +28,12 @@ export function redactBrowserJSON<T>(value: T): T {
 }
 
 export interface BrowserURLPolicy {
-  blockPrivateNetwork?: boolean
+  ssrfFilter?: boolean
 }
 
 /**
  * Rejects model-supplied navigation URLs: cloud metadata surfaces always, and
- * non-public hosts when the `web_tools.block_private_network` policy is on.
+ * non-public hosts when the `security.ssrf_filter` policy is on.
  *
  * Parsing and host classification come from the native kernel, so this guard
  * and the AIGateway `web_fetch` validation share one classifier. Page-driven
@@ -50,8 +50,8 @@ export function assertSafeBrowserURL(rawURL: string, policy?: BrowserURLPolicy):
   if (facts.hostClass === 'metadata') {
     throw new Error('blocked browser navigation to cloud metadata endpoint')
   }
-  if (policy?.blockPrivateNetwork === true && facts.hostClass === 'private') {
-    throw new Error('blocked non-public URL by the web_tools.block_private_network policy')
+  if (policy?.ssrfFilter === true && facts.hostClass === 'private') {
+    throw new Error('blocked non-public URL by the security.ssrf_filter policy')
   }
 }
 

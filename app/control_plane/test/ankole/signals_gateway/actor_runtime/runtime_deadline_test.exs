@@ -5,6 +5,63 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
   alias Ankole.SubagentDelegations
 
   describe "exact runtime deadlines" do
+    test "a new incarnation of the same worker releases accepted work immediately" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+
+      assert {:ok, worker} = admit_worker(route)
+
+      assert {:ok, %{actor_event: input}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "PING", explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, %{turn_ref: first_turn_ref}} =
+               process_ready_events_once(
+                 now: DateTime.add(@base_time, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_lane, _first_envelope}
+
+      assert {:ok, [%ActorEventDelivery{state: "accepted"}]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{"turn" => first_turn_ref}
+               })
+
+      assert {:ok, replacement} =
+               admit_worker(route, %{
+                 worker_id: worker.worker_id,
+                 incarnation_id: "replacement-incarnation"
+               })
+
+      assert replacement.status == "ready"
+      assert replacement.incarnation_id == "replacement-incarnation"
+      assert Repo.get!(ActorEvent, input.id).input_state == "open"
+
+      assert %ActorEventDelivery{state: "superseded"} =
+               Repo.one!(
+                 from(delivery in ActorEventDelivery,
+                   where: delivery.actor_event_id_fence == ^input.id
+                 )
+               )
+
+      assert {:ok, %{turn_ref: second_turn_ref}} =
+               process_ready_events_once(now: DateTime.add(@base_time, 2, :second))
+
+      assert second_turn_ref["actor_event_id"] == input.id
+      assert second_turn_ref["actor_epoch"] == first_turn_ref["actor_epoch"] + 1
+      assert_receive {:actor_lane, second_envelope}
+      assert second_envelope["body"]["turn_start"]["turn"] == second_turn_ref
+    end
+
     test "stale worker deadline supersedes one worker's turn and retries through another worker" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)

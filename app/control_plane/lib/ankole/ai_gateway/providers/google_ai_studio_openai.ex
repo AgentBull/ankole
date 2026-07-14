@@ -17,24 +17,31 @@ defmodule Ankole.AIGateway.Providers.GoogleAIStudioOpenAI do
 
   provider "google_ai_studio_openai" do
     label(%{
-      "default" => "Google AI Studio OpenAI Compatibility",
-      "zh-Hans-CN" => "Google AI Studio OpenAI 兼容"
+      "default" => "Google AI Studio",
+      "zh-Hans-CN" => "Google AI Studio"
     })
 
-    base_url("https://generativelanguage.googleapis.com/v1beta/openai")
+    base_url("https://generativelanguage.googleapis.com/v1beta/openai", advanced: true)
 
     setting(:api_key, encrypted: true)
-    setting(:headers, type: :map)
-    setting(:query_params, type: :map)
+    setting(:headers, type: :map, advanced: true)
+    setting(:query_params, type: :map, advanced: true)
 
-    setting(:user, scope: :request)
-    setting(:reasoningEffort, scope: :request)
+    setting(:user, scope: :request, advanced: true)
+
+    setting(:reasoningEffort,
+      type: :select,
+      default: ReasoningEffort.default(),
+      options: ReasoningEffort.values(@reasoning_effort_map),
+      scope: :request
+    )
+
     setting(:textVerbosity, scope: :request)
-    setting(:strictJSONSchema, scope: :request)
-    setting(:taskType, scope: :request)
-    setting(:title, scope: :request)
-    setting(:outputDimensionality, scope: :request)
-    setting(:autoTruncate, scope: :request)
+    setting(:strictJSONSchema, type: :boolean, scope: :request, advanced: true)
+    setting(:taskType, scope: :request, advanced: true)
+    setting(:title, scope: :request, advanced: true)
+    setting(:outputDimensionality, type: :integer, scope: :request, advanced: true)
+    setting(:autoTruncate, type: :boolean, scope: :request, advanced: true)
 
     language_model do
       upstream(:sse)
@@ -61,7 +68,10 @@ defmodule Ankole.AIGateway.Providers.GoogleAIStudioOpenAI do
     |> UniversalAIRequest.new("chat/completions", :openai_chat_completions)
     |> UniversalAIRequest.put_new_header("x-goog-api-client", "ankole-ai-gateway/0.1")
     |> UniversalAIRequest.bearer_auth()
-    |> ReasoningEffort.put_provider_options(ctx, map: @reasoning_effort_map)
+    |> ReasoningEffort.put_provider_options(ctx,
+      target: :reasoning_effort,
+      map: @reasoning_effort_map
+    )
   end
 
   @doc """

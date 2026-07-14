@@ -24,6 +24,14 @@ defmodule Ankole.Brain.Supervision do
   @max_page_limit 100
   @surface_metadata %{"surface" => "console_rest"}
 
+  @fitness_default_horizon_days 7
+  @fitness_min_horizon_days 1
+  @fitness_max_horizon_days 90
+  @fitness_default_lookback_days 90
+  @fitness_min_lookback_days 1
+  @fitness_max_lookback_days 365
+  @fitness_max_runs 100
+
   @type page_cursor :: {DateTime.t(), Ecto.UUID.t()}
   @type page :: %{required(:next_cursor) => page_cursor() | nil}
 
@@ -152,6 +160,179 @@ defmodule Ankole.Brain.Supervision do
       nil -> {:error, :not_found}
     end
   end
+
+  @doc """
+  Reads dreaming block writes as a selection-pressure signal over the audit log.
+
+  A dreaming block write (`append_block`/`edit_block`, signed `dreaming`) is
+  "corrected" when a human `edit_block`/`delete_block` lands on the same block
+  within the horizon, with no intervening dreaming write of that block (so the
+  correction is attributed to the dreaming output it actually overrode; restores
+  already land as human deletes). Survival is only judged on writes whose full
+  horizon has elapsed; more recent writes are reported as `pending`, not as
+  survivors, so the rate stays longitudinally honest. Attribution is per run_id.
+  """
+  @spec dreaming_fitness(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def dreaming_fitness(owner_uid, opts \\ [])
+
+  def dreaming_fitness(owner_uid, opts) when is_binary(owner_uid) and is_list(opts) do
+    with {:ok, scope} <- Scope.for_console(owner_uid, :all),
+         {:ok, horizon_days} <- fitness_horizon(opts),
+         {:ok, lookback_days} <- fitness_lookback(opts) do
+      now = DateTime.utc_now()
+      lookback_start = shift_naive(now, -lookback_days)
+      matured_before = shift_naive(now, -horizon_days)
+
+      rows =
+        fitness_run_rows(scope.owner_uid, lookback_start, matured_before, horizon_days)
+
+      {:ok, fitness_projection(rows, horizon_days, lookback_days, now)}
+    end
+  end
+
+  def dreaming_fitness(_owner_uid, _opts), do: {:error, :invalid_arguments}
+
+  defp fitness_horizon(opts),
+    do:
+      bounded_days(
+        Keyword.get(opts, :horizon_days),
+        @fitness_default_horizon_days,
+        @fitness_min_horizon_days,
+        @fitness_max_horizon_days,
+        :invalid_horizon_days
+      )
+
+  defp fitness_lookback(opts),
+    do:
+      bounded_days(
+        Keyword.get(opts, :lookback_days),
+        @fitness_default_lookback_days,
+        @fitness_min_lookback_days,
+        @fitness_max_lookback_days,
+        :invalid_lookback_days
+      )
+
+  defp bounded_days(nil, default, _min, _max, _error), do: {:ok, default}
+
+  defp bounded_days(value, _default, min, max, _error)
+       when is_integer(value) and value >= min and value <= max,
+       do: {:ok, value}
+
+  defp bounded_days(_value, _default, _min, _max, error), do: {:error, error}
+
+  defp shift_naive(%DateTime{} = now, days) do
+    now
+    |> DateTime.add(days * 86_400, :second)
+    |> DateTime.to_naive()
+  end
+
+  # One owner's dreaming block writes in the lookback, each judged corrected only
+  # if a human overrode the same block within the horizon before any later
+  # dreaming write of that block. Grouped by the run that produced them.
+  defp fitness_run_rows(owner_uid, lookback_start, matured_before, horizon_days) do
+    sql = """
+    SELECT
+      dp.run_id,
+      count(*) AS produced,
+      count(*) FILTER (WHERE dp.matured) AS matured,
+      count(*) FILTER (WHERE dp.matured AND dp.corrected) AS corrected,
+      min(dp.inserted_at) AS first_at,
+      max(dp.inserted_at) AS last_at
+    FROM (
+      SELECT
+        p.metadata ->> 'run_id' AS run_id,
+        (p.inserted_at <= $3) AS matured,
+        EXISTS (
+          SELECT 1
+          FROM brain_audit_log h
+          WHERE h.owner_uid = $1
+            AND h.actor_kind = 'human'
+            AND h.action IN ('edit_block', 'delete_block')
+            AND h.block_id = p.block_id
+            AND h.inserted_at > p.inserted_at
+            AND h.inserted_at <= p.inserted_at + ($4 * INTERVAL '1 day')
+            AND NOT EXISTS (
+              SELECT 1
+              FROM brain_audit_log later
+              WHERE later.owner_uid = $1
+                AND later.actor_kind = 'dreaming'
+                AND later.action IN ('append_block', 'edit_block')
+                AND later.block_id = p.block_id
+                AND later.inserted_at > p.inserted_at
+                AND later.inserted_at < h.inserted_at
+            )
+        ) AS corrected,
+        p.inserted_at
+      FROM brain_audit_log p
+      WHERE p.owner_uid = $1
+        AND p.actor_kind = 'dreaming'
+        AND p.action IN ('append_block', 'edit_block')
+        AND p.block_id IS NOT NULL
+        AND p.inserted_at >= $2
+    ) dp
+    GROUP BY dp.run_id
+    ORDER BY max(dp.inserted_at) DESC
+    LIMIT $5
+    """
+
+    case Repo.query(sql, [
+           owner_uid,
+           lookback_start,
+           matured_before,
+           horizon_days,
+           @fitness_max_runs
+         ]) do
+      {:ok, %{rows: rows}} -> Enum.map(rows, &fitness_run_row/1)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp fitness_run_row([run_id, produced, matured, corrected, first_at, last_at]) do
+    survived = matured - corrected
+
+    %{
+      run_id: run_id,
+      produced_block_writes: produced,
+      matured_block_writes: matured,
+      pending_block_writes: produced - matured,
+      corrected_block_writes: corrected,
+      survived_block_writes: survived,
+      survival_rate: survival_rate(survived, matured),
+      first_written_at: datetime(first_at),
+      last_written_at: datetime(last_at)
+    }
+  end
+
+  defp fitness_projection({:error, _reason}, horizon_days, lookback_days, now) do
+    base_fitness_projection([], horizon_days, lookback_days, now)
+  end
+
+  defp fitness_projection(runs, horizon_days, lookback_days, now) do
+    base_fitness_projection(runs, horizon_days, lookback_days, now)
+  end
+
+  defp base_fitness_projection(runs, horizon_days, lookback_days, now) do
+    matured = Enum.sum(Enum.map(runs, & &1.matured_block_writes))
+    corrected = Enum.sum(Enum.map(runs, & &1.corrected_block_writes))
+    produced = Enum.sum(Enum.map(runs, & &1.produced_block_writes))
+    survived = matured - corrected
+
+    %{
+      horizon_days: horizon_days,
+      lookback_days: lookback_days,
+      generated_at: datetime(now),
+      produced_block_writes: produced,
+      matured_block_writes: matured,
+      pending_block_writes: produced - matured,
+      corrected_block_writes: corrected,
+      survived_block_writes: survived,
+      survival_rate: survival_rate(survived, matured),
+      runs: runs
+    }
+  end
+
+  defp survival_rate(_survived, 0), do: nil
+  defp survival_rate(survived, matured), do: Float.round(survived / matured, 4)
 
   defp operation_store(repo, owner_uid, requested_store, operations) do
     with {:ok, entry_ids, block_ids} <- operation_target_ids(operations),
@@ -344,7 +525,7 @@ defmodule Ankole.Brain.Supervision do
       signal_channel_id: entry.signal_channel_id,
       source_entry_id: entry.source_entry_id,
       text: entry.text,
-      formatted_content: json_safe(entry.formatted_content || %{}),
+      rich_content: json_safe(entry.rich_content),
       attachments: json_safe(entry.attachments || []),
       links: json_safe(entry.links || []),
       author: json_safe(entry.author || %{}),

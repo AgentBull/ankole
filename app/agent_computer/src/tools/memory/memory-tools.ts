@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { TurnStart } from '../../lanes/actor_lane'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import type { AgentTool, AgentToolResult } from '../../core'
+import type { ReplyPresentationEvent } from '../../core/types'
 import { jsonToolResult } from '../../core/tool-result'
 import {
   rpcMethods,
@@ -54,7 +55,7 @@ const LockVersion = z.preprocess(
   z.number().int().positive()
 )
 
-const MemoryUpdateParams = z.discriminatedUnion('operation', [
+const MemoryUpdateOperationParams = z.discriminatedUnion('operation', [
   z.object({
     operation: z.literal('create_entry'),
     name: z.string().min(1),
@@ -121,6 +122,48 @@ const MemoryUpdateParams = z.discriminatedUnion('operation', [
   })
 ])
 
+// OpenAI-compatible function tools require the parameters schema itself to be
+// an object. Keep the precise per-operation validator above for execution, but
+// expose one object-shaped model boundary instead of a root-level `oneOf`.
+const MemoryUpdateParams = z
+  .object({
+    operation: z.enum([
+      'create_entry',
+      'delete_entry',
+      'append_block',
+      'edit_block',
+      'delete_block',
+      'set_property',
+      'add_relation',
+      'remove_relation',
+      'set_summary',
+      'set_aliases'
+    ]),
+    name: z.string().min(1).optional(),
+    type: z.string().min(1).optional(),
+    summary: z.string().optional(),
+    aliases: z.array(z.string().min(1)).optional(),
+    properties: z.record(z.string(), z.unknown()).optional(),
+    entry_id: EntryID.optional(),
+    expected_entry_lock_version: LockVersion.optional(),
+    body: z.string().min(1).optional(),
+    block_id: EntryID.optional(),
+    expected_block_lock_version: LockVersion.optional(),
+    key: z.string().min(1).optional(),
+    value: z.unknown().optional(),
+    target_entry_id: EntryID.optional(),
+    predicate: z.string().min(1).optional(),
+    relation_id: EntryID.optional()
+  })
+  .superRefine((params, context) => {
+    const result = MemoryUpdateOperationParams.safeParse(params)
+    if (!result.success) {
+      for (const issue of result.error.issues) {
+        context.addIssue({ code: 'custom', path: issue.path, message: issue.message })
+      }
+    }
+  })
+
 const MemoryHealthCheckParams = z.object({})
 
 /** Creates the Brain tools only when the turn runtime provides its RPC seam. */
@@ -146,12 +189,12 @@ function createMemorySearchTool(
     executionMode: 'sequential',
     isReadOnly: true,
     isDestructive: false,
-    async execute(_toolCallID, params): Promise<AgentToolResult<MemoryToolDetails>> {
+    async execute(toolCallID, params): Promise<AgentToolResult<MemoryToolDetails>> {
       const response = await opts.requestMemoryRPC!(rpcMethods.memorySearch, {
         ...memoryRequest(opts.turnStart),
         ...compactRecord(params)
       })
-      return memoryToolResult(response)
+      return memoryToolResult(response, [memoryLookupEvent(toolCallID, '回忆相关上下文', response)])
     }
   }
 }
@@ -165,13 +208,13 @@ function createMemoryOpenTool(opts: CreateMemoryToolsOptions): AgentTool<typeof 
     executionMode: 'sequential',
     isReadOnly: true,
     isDestructive: false,
-    async execute(_toolCallID, params): Promise<AgentToolResult<MemoryToolDetails>> {
+    async execute(toolCallID, params): Promise<AgentToolResult<MemoryToolDetails>> {
       if (!params.entry_id && !params.name?.trim()) throw new Error('memory_open requires entry_id or name')
       const response = await opts.requestMemoryRPC!(rpcMethods.memoryOpen, {
         ...memoryRequest(opts.turnStart),
         ...compactRecord(params)
       })
-      return memoryToolResult(response)
+      return memoryToolResult(response, [memoryLookupEvent(toolCallID, '读取记忆内容', response)])
     }
   }
 }
@@ -188,13 +231,14 @@ function createMemoryUpdateTool(
     isReadOnly: false,
     isDestructive: true,
     async execute(toolCallID, params): Promise<AgentToolResult<MemoryToolDetails>> {
+      const operationParams = MemoryUpdateOperationParams.parse(params)
       const request = {
         ...memoryRequest(opts.turnStart),
-        ...params,
+        ...operationParams,
         tool_call_id: toolCallID
       } as MemoryUpdateRequest
       const response = await opts.requestMemoryRPC!(rpcMethods.memoryUpdate, request)
-      return memoryToolResult(response)
+      return memoryToolResult(response, [memoryMutationReceipt(toolCallID, operationParams.operation)])
     }
   }
 }
@@ -210,12 +254,12 @@ function createMemoryBrowseTool(
     executionMode: 'sequential',
     isReadOnly: true,
     isDestructive: false,
-    async execute(_toolCallID, params): Promise<AgentToolResult<MemoryToolDetails>> {
+    async execute(toolCallID, params): Promise<AgentToolResult<MemoryToolDetails>> {
       const response = await opts.requestMemoryRPC!(rpcMethods.memoryBrowse, {
         ...memoryRequest(opts.turnStart),
         ...compactRecord(params)
       })
-      return memoryToolResult(response)
+      return memoryToolResult(response, [memoryLookupEvent(toolCallID, '浏览对话记忆', response)])
     }
   }
 }
@@ -246,7 +290,69 @@ function memoryRequest(turnStart: TurnStart): MemoryRPCRequestBase {
   }
 }
 
-function memoryToolResult(details: JSONObject): AgentToolResult<MemoryToolDetails> {
+function memoryToolResult(
+  details: JSONObject,
+  presentation: ReplyPresentationEvent[] = []
+): AgentToolResult<MemoryToolDetails> {
   const notice = typeof details.history_notice === 'string' ? `Brain notice: ${details.history_notice}\n` : ''
-  return jsonToolResult(details, { textPrefix: notice })
+  return jsonToolResult(details, { textPrefix: notice, presentation })
+}
+
+function memoryLookupEvent(operationID: string, label: string, details: JSONObject): ReplyPresentationEvent {
+  return {
+    kind: 'memory.lookup',
+    payload: {
+      operation_id: operationID,
+      phase: 'completed',
+      label,
+      source_count: memorySourceCount(details)
+    }
+  }
+}
+
+function memorySourceCount(details: JSONObject): number {
+  for (const key of ['results', 'entries', 'blocks']) {
+    const value = details[key]
+    if (Array.isArray(value)) return value.length
+  }
+  return details.entry && typeof details.entry === 'object' && !Array.isArray(details.entry) ? 1 : 0
+}
+
+function memoryMutationReceipt(operationID: string, operation: string): ReplyPresentationEvent {
+  return {
+    kind: 'memory.mutation_receipt',
+    payload: {
+      operation_id: operationID,
+      phase: 'confirmed',
+      summary: memoryMutationSummary(operation),
+      scope: 'Brain 记忆'
+    }
+  }
+}
+
+function memoryMutationSummary(operation: string): string {
+  switch (operation) {
+    case 'create_entry':
+      return '已创建记忆条目'
+    case 'delete_entry':
+      return '已删除记忆条目'
+    case 'append_block':
+      return '已追加记忆内容'
+    case 'edit_block':
+      return '已更正记忆内容'
+    case 'delete_block':
+      return '已删除记忆内容'
+    case 'set_property':
+      return '已更新记忆属性'
+    case 'add_relation':
+      return '已建立记忆关联'
+    case 'remove_relation':
+      return '已移除记忆关联'
+    case 'set_summary':
+      return '已更新记忆摘要'
+    case 'set_aliases':
+      return '已更新记忆别名'
+    default:
+      return '已更新记忆'
+  }
 }

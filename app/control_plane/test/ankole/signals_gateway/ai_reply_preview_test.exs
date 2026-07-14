@@ -12,12 +12,18 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
   alias Ankole.Repo
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.AIReplyPreview
+  alias Ankole.SignalsGateway.ReplyPreviewAdapter
 
   setup :use_mock_signal_provider_plugin
 
   setup do
     MockSignalProviderOutbox.put_recipient(self())
-    on_exit(fn -> MockSignalProviderOutbox.delete_recipient() end)
+
+    on_exit(fn ->
+      MockSignalProviderOutbox.delete_recipient()
+      MockSignalProviderOutbox.delete_send_result()
+    end)
+
     :ok
   end
 
@@ -33,7 +39,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert_receive {:mock_provider_outbox_sent, initial}
     assert initial.operation == :reply
     assert initial.fallback_visible_text == "draft answer"
-    assert initial.idempotency_key == "ai-preview:#{actor_event.id}:initial"
+    assert initial.idempotency_key == "ai-preview:#{actor_event.id}"
 
     state = :sys.get_state(pid)
     assert state.subject_uid == subject.uid
@@ -201,7 +207,51 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert initial.fallback_visible_text == "answer"
   end
 
-  test "scheduled noop marker stays invisible until explicit lifecycle stop" do
+  test "an initial provider rejection disables preview retries for later deltas" do
+    %{subject: subject, actor_event: actor_event} = addressed_actor_event("provider-rejection")
+    %{response: response, pid: pid} = start_dispatched_preview(subject.uid, actor_event)
+
+    MockSignalProviderOutbox.put_send_result({:error, :provider_rejected})
+
+    assert :ok = Events.publish(response, :output_text_delta, %{text: "first"})
+    assert_receive {:mock_provider_outbox_sent, first_attempt}
+    assert first_attempt.fallback_visible_text == "first"
+
+    assert :ok = Events.publish(response, :output_text_delta, %{text: " second"})
+    refute_receive {:mock_provider_outbox_sent, _retry}, 100
+
+    state = :sys.get_state(pid)
+    assert state.preview_disabled
+    refute state.preview_established
+  end
+
+  test "an edit rejection disables later preview edits for the turn" do
+    %{subject: subject, actor_event: actor_event} = addressed_actor_event("edit-rejection")
+    %{response: response, pid: pid} = start_dispatched_preview(subject.uid, actor_event)
+
+    assert :ok = Events.publish(response, :output_text_delta, %{text: "first"})
+    assert_receive {:mock_provider_outbox_sent, initial}
+    assert initial.operation == :reply
+
+    MockSignalProviderOutbox.put_send_result({:error, :provider_rejected})
+
+    assert :ok = Events.publish(response, :output_text_delta, %{text: " second"})
+    send(pid, :flush_edit)
+
+    assert_receive {:mock_provider_outbox_sent, failed_edit}
+    assert failed_edit.operation == :edit
+    assert failed_edit.fallback_visible_text == "first second"
+
+    state = :sys.get_state(pid)
+    assert state.preview_disabled
+    assert state.preview_established
+
+    assert :ok = Events.publish(response, :output_text_delta, %{text: " third"})
+    send(pid, :flush_edit)
+    refute_receive {:mock_provider_outbox_sent, _retry}, 100
+  end
+
+  test "quiet scheduled CardKit work suppresses phase, tool, reasoning, and noop output" do
     %{principal: subject} = agent_fixture()
     binding_fixture(subject.uid, "mock", :ignore, adapter: "mock-provider")
 
@@ -212,9 +262,48 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
 
     %{response: response, pid: pid} = start_dispatched_preview(subject.uid, actor_event)
 
+    adapter = %ReplyPreviewAdapter{
+      open_fun: fn _request -> {:ok, %{}} end,
+      update_fun: fn _request -> {:ok, %{}} end,
+      finalize_fun: fn _request -> {:ok, %{}} end
+    }
+
+    :sys.replace_state(pid, fn state ->
+      %{state | reply_preview_adapter: adapter, silent_rich_pending: true}
+    end)
+
+    assert :ok =
+             AIReplyPreview.presentation_event(actor_event.id, %{
+               "kind" => "turn.phase",
+               "payload" => %{"revision" => 1, "state" => "working"}
+             })
+
+    assert :ok =
+             AIReplyPreview.presentation_event(actor_event.id, %{
+               "kind" => "tool.activity",
+               "payload" => %{
+                 "operation_id" => "quiet-tool",
+                 "revision" => 2,
+                 "phase" => "running",
+                 "label" => "检查状态"
+               }
+             })
+
+    assert :ok = Events.publish(response, :reasoning_delta, %{text: "过程思考"})
+
+    state = :sys.get_state(pid)
+    assert state.silent_rich_pending
+    refute state.dirty
+    assert state.presentation["revision"] == 0
+    refute state.presentation["thought"]
+
     assert :ok = Events.publish(response, :output_text_delta, %{text: "<silent_"})
     assert :ok = Events.publish(response, :output_text_delta, %{text: "success/>"})
     refute_receive {:mock_provider_outbox_sent, _outbox}, 100
+
+    state = :sys.get_state(pid)
+    assert state.silent_rich_pending
+    refute state.dirty
 
     assert :ok = Events.publish(response, :response_completed, %{content: []})
     assert Process.alive?(pid)
@@ -222,6 +311,25 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
 
     monitor = Process.monitor(pid)
     assert :ok = AIReplyPreview.stop(actor_event.id)
+    assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}
+  end
+
+  test "lifecycle stop returns while the preview process is busy" do
+    %{subject: subject, actor_event: actor_event} = addressed_actor_event("nonblocking-stop")
+    %{pid: pid} = start_dispatched_preview(subject.uid, actor_event)
+    parent = self()
+    monitor = Process.monitor(pid)
+
+    :ok = :sys.suspend(pid)
+
+    spawn(fn ->
+      send(parent, {:stop_returned, AIReplyPreview.stop(actor_event.id)})
+    end)
+
+    assert_receive {:stop_returned, :ok}, 500
+    assert Process.alive?(pid)
+
+    :ok = :sys.resume(pid)
     assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}
   end
 
@@ -253,7 +361,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert :ok =
              AIReplyPreview.maybe_start_for(actor_event, subject_uid, conversation.id)
 
-    on_exit(fn -> AIReplyPreview.stop(actor_event.id) end)
+    on_exit(fn -> stop_preview_and_wait(actor_event.id) end)
 
     {:ok, response} =
       StatefulResponses.start_response_run(%{
@@ -270,6 +378,23 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
   end
 
   defp request_metadata(metadata), do: %{"request_metadata" => metadata}
+
+  defp stop_preview_and_wait(actor_event_id) do
+    case Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, actor_event_id) do
+      [{pid, _value}] ->
+        monitor = Process.monitor(pid)
+        :ok = AIReplyPreview.stop(actor_event_id)
+
+        receive do
+          {:DOWN, ^monitor, :process, ^pid, _reason} -> :ok
+        after
+          1_000 -> Process.exit(pid, :kill)
+        end
+
+      [] ->
+        :ok
+    end
+  end
 
   defp use_mock_signal_provider_plugin(_context) do
     original_state = :sys.get_state(Ankole.Plugins.Registry)

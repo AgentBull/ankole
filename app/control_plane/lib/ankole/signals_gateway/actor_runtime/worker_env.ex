@@ -151,8 +151,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
   Stores one installation-wide value by name.
 
   Declared names validate through their AppConfigure definition (any JSON
-  value the schema accepts); custom names require a string value and accept
-  an optional `secret` flag and `description`.
+  value the schema accepts); custom names require a string for creation or
+  replacement and accept an optional `secret` flag and `description`. A
+  present encrypted value may be omitted to preserve its stored ciphertext.
   """
   @spec console_put_global(String.t(), map()) :: {:ok, console_item()} | {:error, term()}
   def console_put_global(name, attrs) when is_map(attrs) do
@@ -170,7 +171,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
 
   For declared names this writes the AppConfigure `agent:<uid>` override; for
   custom names it writes an agent row that wins over the global row of the
-  same name.
+  same name. An existing encrypted agent value may be omitted to preserve it.
   """
   @spec console_put_for_agent(String.t(), String.t(), map()) ::
           {:ok, console_item()} | {:error, term()}
@@ -338,17 +339,48 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
   end
 
   defp put_declared_global(definition, attrs) do
-    with {:ok, _value} <- AppConfigure.put_global_by_key(definition.key, Map.get(attrs, "value")) do
-      {:ok, declared_item(definition, nil)}
+    case Map.fetch(attrs, "value") do
+      {:ok, value} ->
+        with {:ok, _value} <- AppConfigure.put_global_by_key(definition.key, value) do
+          {:ok, declared_item(definition, nil)}
+        end
+
+      :error ->
+        preserve_declared_global(definition)
     end
   end
 
   defp put_declared_for_agent(agent_uid, definition, attrs) do
-    with {:ok, _value} <-
-           AppConfigure.put_for_agent_by_key(agent_uid, definition.key, Map.get(attrs, "value")) do
-      {:ok, declared_item(definition, agent_uid)}
+    case Map.fetch(attrs, "value") do
+      {:ok, value} ->
+        with {:ok, _value} <-
+               AppConfigure.put_for_agent_by_key(agent_uid, definition.key, value) do
+          {:ok, declared_item(definition, agent_uid)}
+        end
+
+      :error ->
+        preserve_declared_for_agent(definition, agent_uid)
     end
   end
+
+  defp preserve_declared_global(%Definition{encrypted: true} = definition) do
+    case declared_item(definition, nil) do
+      %{present: true} = item -> {:ok, item}
+      _item -> {:error, :invalid_worker_env_value}
+    end
+  end
+
+  defp preserve_declared_global(%Definition{}), do: {:error, :invalid_worker_env_value}
+
+  defp preserve_declared_for_agent(%Definition{encrypted: true} = definition, agent_uid) do
+    case declared_item(definition, agent_uid) do
+      %{present: true, source: "agent"} = item -> {:ok, item}
+      _item -> {:error, :invalid_worker_env_value}
+    end
+  end
+
+  defp preserve_declared_for_agent(%Definition{}, _agent_uid),
+    do: {:error, :invalid_worker_env_value}
 
   defp decrypt_declared(%Definition{encrypted: false}, _agent_uid), do: {:error, :not_encrypted}
 
@@ -427,17 +459,33 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
     do: Crypto.unseal(row.value, row.scope, row.name)
 
   defp upsert_custom(scope, name, attrs, existing) do
-    with {:ok, value} <- custom_value(attrs),
-         {:ok, secret} <- custom_secret(attrs, existing),
+    with {:ok, secret} <- custom_secret(attrs, existing),
          {:ok, description} <- custom_description(attrs, existing),
-         {:ok, stored_value} <- stored_value(value, secret, scope, name),
+         {:ok, stored_value} <- custom_stored_value(attrs, existing, secret, scope, name),
          {:ok, row} <- upsert_row(scope, name, secret, stored_value, description) do
       {:ok, custom_item(row, custom_source(row))}
     end
   end
 
-  defp custom_value(%{"value" => value}) when is_binary(value), do: {:ok, value}
-  defp custom_value(_attrs), do: {:error, :invalid_worker_env_value}
+  defp custom_stored_value(attrs, existing, secret, scope, name) do
+    case Map.fetch(attrs, "value") do
+      {:ok, value} when is_binary(value) -> stored_value(value, secret, scope, name)
+      {:ok, _value} -> {:error, :invalid_worker_env_value}
+      :error -> preserve_custom_stored_value(existing, secret, scope, name)
+    end
+  end
+
+  defp preserve_custom_stored_value(nil, _secret, _scope, _name),
+    do: {:error, :invalid_worker_env_value}
+
+  defp preserve_custom_stored_value(%EnvVar{secret: secret, value: value}, secret, _scope, _name),
+    do: {:ok, value}
+
+  defp preserve_custom_stored_value(%EnvVar{} = existing, secret, scope, name) do
+    with {:ok, value} <- row_value(existing) do
+      stored_value(value, secret, scope, name)
+    end
+  end
 
   # Flipping secret on an existing row re-seals or re-exposes on this write;
   # an absent flag keeps the stored state instead of silently decrypting.

@@ -1273,6 +1273,51 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
            }
   end
 
+  test "provider-visible reasoning is published live without entering durable response items" do
+    {agent, conversation, actor_event, message} =
+      stateful_message("socket-reasoning-live", [
+        %{
+          "type" => "message",
+          "role" => "user",
+          "content" => [%{"type" => "input_text", "text" => "think"}]
+        }
+      ])
+
+    :ok = Events.subscribe(agent.uid, conversation.id)
+
+    ref = make_ref()
+    active = active_stream(ref, message, actor_event)
+
+    chunk = %{
+      "type" => "response.reasoning_summary_text.delta",
+      "sequence_number" => 8,
+      "delta" => "Checking the evidence."
+    }
+
+    pushed =
+      first_pushed_text(
+        AIGatewayResponsesSocket.handle_info(
+          {:universal_ai_client, ref, :chunk, 8, :websocket_text, Ankole.JSON.encode!(chunk)},
+          %{active_stream: active}
+        )
+      )
+
+    assert ^chunk = Ankole.JSON.decode!(pushed)
+
+    assert_receive {:ai_gateway_event, :reasoning_delta, event}
+    assert event.response_id == "resp_#{message.id}"
+
+    assert event.payload == %{
+             text: "Checking the evidence.",
+             source: "response.reasoning_summary_text.delta",
+             seq: 8
+           }
+
+    stored = Repo.get!(Message, message.id)
+    assert stored.content == message.content
+    refute inspect(stored) =~ "Checking the evidence."
+  end
+
   test "provider stream errors preserve accumulated partial response items" do
     {_agent, _conversation, actor_event, message} =
       stateful_message("socket-error-partial", [

@@ -142,34 +142,35 @@ defmodule Ankole.SignalsGateway.Projection do
   end
 
   def receive_entry_attrs(fact, now) do
-    search_text = Map.get(fact, :text) || Map.get(fact, :fallback_visible_text)
-    metadata_text = entry_metadata_text(fact)
+    rich_content = rich_content(fact.text, fact.formatted_content)
+    metadata = signal_entry_metadata(fact)
 
     %{
       signal_channel_id: fact.signal_channel_id,
       source_entry_id: fact.source_entry_id,
+      provider_thread_id: Map.get(fact, :provider_thread_id),
       text: fact.text,
-      formatted_content: fact.formatted_content,
+      rich_content: rich_content,
       attachments: fact.attachments,
       links: fact.links,
       author: fact.author,
       mentions: fact.mentions,
-      metadata: signal_entry_metadata(fact),
+      metadata: metadata,
       raw_payload: fact.raw_payload,
       provider_time: fact.provider_time,
-      fallback_visible_text: fact.text,
       reactions: %{},
       raw_reaction_keys: %{},
       document_id: entry_document_id(fact.signal_channel_id, fact.source_entry_id),
-      search_text: search_text,
-      metadata_text: metadata_text,
       content_hash:
         entry_content_hash([
-          search_text,
-          metadata_text,
-          fact.formatted_content,
+          fact.text,
+          rich_content,
           fact.attachments,
-          fact.links
+          fact.links,
+          fact.author,
+          fact.mentions,
+          metadata,
+          Map.get(fact, :provider_thread_id)
         ]),
       first_seen_at: now,
       last_seen_at: now,
@@ -179,10 +180,23 @@ defmodule Ankole.SignalsGateway.Projection do
 
   def signal_entry_metadata(fact) do
     fact.metadata
-    |> Map.put_new("provider_thread_id", Map.get(fact, :provider_thread_id))
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
   end
+
+  # `formatted_content` is an ingress representation. Store only structure that
+  # adds information beyond the canonical plain text instead of persisting the
+  # common `%{"format" => "markdown", "body" => text}` wrapper N times.
+  def rich_content(text, formatted_content) when is_map(formatted_content) do
+    case formatted_content do
+      %{"format" => "markdown", "body" => ^text} when map_size(formatted_content) == 2 -> nil
+      %{format: "markdown", body: ^text} when map_size(formatted_content) == 2 -> nil
+      map when map == %{} -> nil
+      map -> map
+    end
+  end
+
+  def rich_content(_text, _formatted_content), do: nil
 
   def upsert_tombstone(repo, fact, now) do
     attrs = %{
@@ -390,25 +404,6 @@ defmodule Ankole.SignalsGateway.Projection do
     SQL.query!(repo, "SELECT pg_advisory_xact_lock(hashtext($1))", [key])
     :ok
   end
-
-  def entry_metadata_text(fact) do
-    [fact.author, fact.metadata, fact.channel_name]
-    |> List.flatten()
-    |> Enum.map(&metadata_text_part/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.join("\n")
-  end
-
-  defp metadata_text_part(value) when is_binary(value), do: value
-
-  defp metadata_text_part(value) when is_map(value),
-    do: value |> Map.values() |> Enum.map(&metadata_text_part/1) |> Enum.join(" ")
-
-  defp metadata_text_part(value) when is_list(value),
-    do: value |> Enum.map(&metadata_text_part/1) |> Enum.join(" ")
-
-  defp metadata_text_part(value) when is_number(value), do: to_string(value)
-  defp metadata_text_part(_value), do: ""
 
   # Stable, opaque per-entry id derived from its identity (channel + provider
   # entry). `content_hash` instead digests the entry's *content* so a re-receive

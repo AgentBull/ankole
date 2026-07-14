@@ -15,7 +15,7 @@ export interface ComputerToolsBinding {
   workspaceRoot: string
   browserRemoteCDPConfig?: JSONObject | null
   localBrowserIdleTtlMs?: number
-  blockPrivateNetwork?: boolean
+  ssrfFilter?: boolean
   /** Operator-managed shell variables resolved for this turn's agent. */
   workerEnv?: Record<string, string>
 }
@@ -52,7 +52,7 @@ export function createComputerToolContext(binding: ComputerToolsBinding): Comput
     executionScopeID,
     browserRemoteCDPConfig: binding.browserRemoteCDPConfig,
     localBrowserIdleTtlMs: binding.localBrowserIdleTtlMs,
-    blockPrivateNetwork: binding.blockPrivateNetwork,
+    ssrfFilter: binding.ssrfFilter,
     getComputer: async () => computer
   }
 }

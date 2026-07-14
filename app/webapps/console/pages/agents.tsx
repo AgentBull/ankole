@@ -12,13 +12,15 @@ import {
   ankoleWebAgentControllerIndexOptions,
   ankoleWebAgentControllerIndexModelProfilesOptions,
   ankoleWebAgentControllerUpdateMutation,
+  ankoleWebAiGatewayControllerModelsOptions,
   ankoleWebAiGatewayProviderControllerIndexOptions as ankoleWebAIGatewayProviderControllerIndexOptions,
+  ankoleWebAiGatewayProviderControllerProviderKindsOptions as ankoleWebAIGatewayProviderControllerProviderKindsOptions,
   ankoleWebCodexAccountControllerIndexOptions
 } from '../api/generated/@tanstack/react-query.gen'
 import type { AgentItem } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
-import { blankToNull, formatJSON, parseObjectDraft } from '../console-primitives'
-import { JSONField, LabeledField, ResourceEditorPage, ResourceListPage, RowActions } from '../console-shell'
+import { blankToNull } from '../console-primitives'
+import { LabeledField, ResourceEditorPage, ResourceListPage, RowActions } from '../console-shell'
 import { AgentEditorModel, type AgentEditorDraft } from '../state/agent-editor-model'
 import { ModelProfilesEditor } from './model-profiles-editor'
 import { WorkerEnvAgentSection } from './worker-env-agent-section'
@@ -86,6 +88,14 @@ export function AgentEditorPage() {
 
   const agents = useQuery(ankoleWebAgentControllerIndexOptions())
   const providers = useQuery(ankoleWebAIGatewayProviderControllerIndexOptions())
+  const providerKinds = useQuery({
+    ...ankoleWebAIGatewayProviderControllerProviderKindsOptions(),
+    enabled: Boolean(uid)
+  })
+  const modelCatalog = useQuery({
+    ...ankoleWebAiGatewayControllerModelsOptions(),
+    enabled: Boolean(uid)
+  })
   const codexAccounts = useQuery(ankoleWebCodexAccountControllerIndexOptions())
   const selectedAgent = agents.data?.agents.find(agent => agent.uid === uid)
   const modelProfiles = useQuery({
@@ -106,7 +116,7 @@ export function AgentEditorPage() {
       toast.success(t('console.agents.saved', { id: response.agent.uid }))
       refresh()
       // Land on the new agent's editor so model profiles can be configured next.
-      navigate(`../${encodeURIComponent(response.agent.uid)}`)
+      navigate(`/agents/${encodeURIComponent(response.agent.uid)}`)
     }
   })
   const updateAgent = useMutation({
@@ -119,16 +129,10 @@ export function AgentEditorPage() {
 
   const submit = () => {
     model.clearValidation()
-    const parsed = parseObjectDraft(model.options.value, 'options')
-    if (!parsed.ok) {
-      model.validationError.value = parsed.error
-      return
-    }
     const body = {
       display_name: blankToNull(model.displayName.value),
       avatar_url: blankToNull(model.avatarURL.value),
-      role: model.role.value.trim(),
-      options: parsed.value
+      role: model.role.value.trim()
     }
     if (mode === 'new') {
       createAgent.mutate({ body: { ...body, uid: model.uid.value.trim() } })
@@ -141,7 +145,7 @@ export function AgentEditorPage() {
     <ResourceEditorPage
       title={mode === 'new' ? t('console.agents.new') : (uid ?? '')}
       description={t('console.agents.editor_description')}
-      backTo=".."
+      backTo="/agents"
       error={model.validationError.value ?? createAgent.error ?? updateAgent.error}
       submitting={createAgent.isPending || updateAgent.isPending}
       onSubmit={submit}>
@@ -167,13 +171,6 @@ export function AgentEditorPage() {
       <LabeledField label={t('console.agents.avatar_url')}>
         <Input value={model.avatarURL.value} onChange={event => (model.avatarURL.value = event.target.value)} />
       </LabeledField>
-      <JSONField
-        label={t('console.agents.options')}
-        description={t('console.agents.options_hint')}
-        value={model.options.value}
-        onChange={value => (model.options.value = value)}
-      />
-
       {mode === 'edit' && selectedAgent ? (
         <>
           <Separator />
@@ -183,6 +180,8 @@ export function AgentEditorPage() {
             loading={modelProfiles.isLoading}
             profiles={recordValue(modelProfiles.data?.model_profiles) ?? {}}
             providers={providers.data?.ai_gateway_providers ?? []}
+            providerKinds={providerKinds.data?.provider_kinds ?? []}
+            modelCatalog={modelCatalog.data}
             codexAccounts={codexAccounts.data?.codex_accounts ?? []}
             onChanged={refresh}
           />
@@ -199,8 +198,7 @@ function emptyAgentForm(): AgentEditorDraft {
     uid: '',
     displayName: '',
     avatarURL: '',
-    role: 'Research Analyst',
-    options: '{}'
+    role: 'Research Analyst'
   }
 }
 
@@ -209,7 +207,6 @@ function formFromAgent(agent: AgentItem): AgentEditorDraft {
     uid: agent.uid,
     displayName: agent.display_name ?? '',
     avatarURL: agent.avatar_url ?? '',
-    role: agent.role,
-    options: formatJSON(agent.options)
+    role: agent.role
   }
 }

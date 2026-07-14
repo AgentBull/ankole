@@ -4,7 +4,7 @@ Ankole takes the security of our software products and services seriously. If yo
 
 ## Supported Versions
 
-Ankole is still in early engineering distribution. Only the latest `main` line receives security updates.
+Ankole is a complete, self-hostable AgentOS in production. Its public APIs do not yet carry a compatibility contract. Only the latest `main` line receives security updates.
 
 | Version | Supported          |
 | ------- | ------------------ |

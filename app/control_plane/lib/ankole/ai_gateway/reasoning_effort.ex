@@ -10,7 +10,21 @@ defmodule Ankole.AIGateway.ReasoningEffort do
   alias Ankole.AIGateway.UniversalAIRequest
 
   @openai_values ~w(none minimal low medium high xhigh)
+  @native_keys ~w(reasoning reasoning_effort output_config)
   @default_effort "high"
+
+  @typedoc "Provider-native location for the aligned reasoning effort value."
+  @type target :: :reasoning | :reasoning_effort | :output_config
+
+  @doc "Returns the canonical values accepted by Ankole, optionally narrowed by a provider map."
+  @spec values(map() | nil) :: [String.t()]
+  def values(map \\ nil)
+  def values(nil), do: @openai_values
+  def values(map) when is_map(map), do: Enum.filter(@openai_values, &Map.has_key?(map, &1))
+
+  @doc "Returns the effective effort used when a model profile does not choose one."
+  @spec default() :: String.t()
+  def default, do: @default_effort
 
   @doc """
   Normalizes one public OpenAI-style reasoning effort value.
@@ -19,7 +33,7 @@ defmodule Ankole.AIGateway.ReasoningEffort do
   language-model calls as high-effort unless a caller asks otherwise.
   """
   @spec normalize(term()) :: {:ok, String.t()} | {:error, term()}
-  def normalize(nil), do: {:ok, @default_effort}
+  def normalize(nil), do: {:ok, default()}
   def normalize(value) when is_atom(value), do: value |> Atom.to_string() |> normalize()
 
   def normalize(value) when is_binary(value) do
@@ -36,13 +50,13 @@ defmodule Ankole.AIGateway.ReasoningEffort do
   @doc """
   Applies normalized reasoning effort to a prepared UniversalAIClient request.
 
-  OpenAI-compatible providers use the default target key and no value map.
-  Provider-specific modules pass `:target_key`, `:map`, or `:skip_if_present`
-  only when their upstream API differs from OpenAI's public option.
+  Each provider must name its native target explicitly. There is no native-key
+  escape path: request profiles expose only `reasoningEffort`, and this module
+  owns its value normalization and provider wire shape.
   """
   @spec put_provider_options(UniversalAIRequest.t(), map(), keyword()) ::
           UniversalAIRequest.t() | {:error, term()}
-  def put_provider_options(%UniversalAIRequest{} = request, ctx, opts \\ []) when is_map(ctx) do
+  def put_provider_options(%UniversalAIRequest{} = request, ctx, opts) when is_map(ctx) do
     with {:ok, provider_options} <- provider_options(ctx, opts) do
       UniversalAIRequest.put_provider_options(request, provider_options)
     end
@@ -52,32 +66,32 @@ defmodule Ankole.AIGateway.ReasoningEffort do
   Returns provider options with `reasoningEffort` normalized and mapped.
   """
   @spec provider_options(map(), keyword()) :: {:ok, map()} | {:error, term()}
-  def provider_options(ctx, opts \\ []) when is_map(ctx) do
+  def provider_options(ctx, opts) when is_map(ctx) do
     options = ctx |> Map.get(:provider_options, %{}) |> MapUtils.normalize_request_keys()
     public_value = Map.get(options, "reasoningEffort")
-    target_key = opts |> Keyword.get(:target_key, "reasoningEffort") |> to_string()
+    target = Keyword.fetch!(opts, :target)
 
-    cond do
-      present?(public_value) ->
-        put_mapped_effort(options, public_value, target_key, opts)
-
-      provider_native_effort_present?(options, target_key, opts) ->
-        {:ok, options}
-
-      true ->
-        put_mapped_effort(options, nil, target_key, opts)
-    end
+    put_mapped_effort(options, public_value, target, opts)
   end
 
-  defp put_mapped_effort(options, value, target_key, opts) do
+  defp put_mapped_effort(options, value, target, opts) do
     with {:ok, effort} <- normalize(value),
          {:ok, mapped} <- map_effort(effort, Keyword.get(opts, :map)) do
       {:ok,
        options
-       |> Map.delete("reasoningEffort")
-       |> Map.put(target_key, mapped)}
+       |> Map.drop(["reasoningEffort" | @native_keys])
+       |> put_target(target, mapped)}
     end
   end
+
+  defp put_target(options, :reasoning, effort),
+    do: Map.put(options, "reasoning", %{"effort" => effort})
+
+  defp put_target(options, :reasoning_effort, effort),
+    do: Map.put(options, "reasoning_effort", effort)
+
+  defp put_target(options, :output_config, effort),
+    do: Map.put(options, "output_config", %{"effort" => effort})
 
   defp map_effort(effort, nil), do: {:ok, effort}
 
@@ -87,19 +101,7 @@ defmodule Ankole.AIGateway.ReasoningEffort do
         {:ok, mapped}
 
       :error ->
-        {:error, {:reasoning_effort, {:unsupported, effort, Map.keys(map) |> Enum.sort()}}}
+        {:error, {:reasoning_effort, {:unsupported, effort, values(map)}}}
     end
   end
-
-  defp provider_native_effort_present?(options, target_key, opts) do
-    skip_keys = opts |> Keyword.get(:skip_if_present, []) |> Enum.map(&to_string/1)
-
-    Enum.any?([target_key | skip_keys], fn key ->
-      key != "reasoningEffort" and present?(Map.get(options, key))
-    end)
-  end
-
-  defp present?(nil), do: false
-  defp present?(""), do: false
-  defp present?(_value), do: true
 end

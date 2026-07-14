@@ -281,7 +281,8 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
          %CardAction{} = action,
          %Event{} = event
        ) do
-    with {:ok, operator_id} <- operator_actor_key(action.user_id),
+    with {:ok, operator_id} <- operator_actor_key(action.user_id || action.open_id),
+         {:ok, operator_principal_uid} <- observe_card_operator(consumer, operator_id),
          {:ok, chat_id} <- required_text(action, "open_chat_id"),
          {:ok, action_id} <- card_action_id(action, event) do
       input = %{
@@ -295,6 +296,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
           "name" => action_name(action),
           "value" => action_value(action),
           "operator_id" => operator_id,
+          "operator_principal_uid" => operator_principal_uid,
           "source_entry_id" => action.open_message_id
         },
         raw_payload: compact_map(action.raw)
@@ -956,6 +958,19 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
 
   defp operator_actor_key(value) when is_binary(value) and value != "", do: {:ok, value}
   defp operator_actor_key(_value), do: {:error, :missing_operator_id}
+
+  defp observe_card_operator(%{context: context, config: config}, operator_id) do
+    attrs = %{
+      provider: Map.get(config, "platformSubjectNamespace", "lark-main"),
+      external_id: operator_id,
+      uid: operator_id
+    }
+
+    case AdapterContext.observe_platform_subject(context, attrs) do
+      {:ok, %{principal: principal}} -> {:ok, principal.uid}
+      {:error, _reason} = error -> error
+    end
+  end
 
   defp card_action_id(%CardAction{} = action, %Event{} = event) do
     name = action_name(action)

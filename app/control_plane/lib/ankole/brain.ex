@@ -60,6 +60,9 @@ defmodule Ankole.Brain do
   @spec resolve_source(String.t()) :: {:ok, map()} | {:error, :not_found}
   defdelegate resolve_source(document_id), to: Supervision
 
+  @spec dreaming_fitness(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  defdelegate dreaming_fitness(owner_uid, opts \\ []), to: Supervision
+
   @spec health_check(Scope.t()) :: {:ok, map()} | {:error, term()}
   defdelegate health_check(scope), to: HealthCheck, as: :run
 

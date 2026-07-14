@@ -14,14 +14,20 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
 
     setting(:api_key, encrypted: true)
     setting(:endpoint_kind, default: "chat_completions")
-    setting(:headers, type: :map)
-    setting(:query_params, type: :map)
+    setting(:headers, type: :map, advanced: true)
+    setting(:query_params, type: :map, advanced: true)
 
-    setting(:user, scope: :request)
-    setting(:reasoning, scope: :request)
-    setting(:reasoningEffort, scope: :request)
+    setting(:user, scope: :request, advanced: true)
+
+    setting(:reasoningEffort,
+      type: :select,
+      default: ReasoningEffort.default(),
+      options: ReasoningEffort.values(),
+      scope: :request
+    )
+
     setting(:textVerbosity, scope: :request)
-    setting(:strictJSONSchema, scope: :request)
+    setting(:strictJSONSchema, type: :boolean, scope: :request, advanced: true)
 
     language_model do
       upstream(:sse)
@@ -45,13 +51,13 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
         ctx
         |> UniversalAIRequest.new("responses", :openai_responses)
         |> UniversalAIRequest.bearer_auth()
-        |> ReasoningEffort.put_provider_options(ctx)
+        |> ReasoningEffort.put_provider_options(ctx, target: :reasoning)
 
       _endpoint ->
         ctx
         |> UniversalAIRequest.new("chat/completions", :openai_chat_completions)
         |> UniversalAIRequest.bearer_auth()
-        |> ReasoningEffort.put_provider_options(ctx)
+        |> ReasoningEffort.put_provider_options(ctx, target: :reasoning_effort)
     end
   end
 

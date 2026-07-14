@@ -452,6 +452,39 @@ fn rejects_worker_progress_internal_event_kinds() {
 }
 
 #[test]
+fn accepts_worker_reply_presentation_progress() {
+    let envelope = json!({
+        "protocol_version": 1,
+        "message_id": "progress-presentation-1",
+        "correlation_id": "turn-start-1",
+        "lane": "LANE_PROGRESS",
+        "durability": "CONTROL_EPHEMERAL",
+        "body": {
+            "type": "worker_progress",
+            "worker_progress": {
+                "turn": turn_ref(),
+                "kind": "reply_presentation",
+                "summary": "reply presentation updated",
+                "refs_json": {
+                    "presentation_event": {
+                        "kind": "plan.snapshot",
+                        "payload": {"operation_id": "todo", "revision": 1}
+                    }
+                }
+            }
+        }
+    });
+
+    let encoded = encode_envelope(envelope).expect("reply presentation progress must encode");
+    let decoded = decode_envelope(&encoded).expect("reply presentation progress must decode");
+
+    assert_eq!(
+        decoded["body"]["worker_progress"]["kind"],
+        "reply_presentation"
+    );
+}
+
+#[test]
 fn round_trips_rpc_request() {
     let envelope = json!({
         "protocol_version": 1,
@@ -524,6 +557,7 @@ fn worker_ready_does_not_require_actor_fields() {
             "type": "worker_ready",
             "worker_ready": {
                 "worker_id": "worker-a",
+                "incarnation_id": "incarnation-a",
                 "runtime": "bun",
                 "version": "0.1.0",
                 "capacity_json": {"turn_slots": 2}
@@ -549,17 +583,24 @@ fn worker_lifecycle_envelopes_expose_worker_id_for_route_auth() {
             "type": "worker_ready",
             "worker_ready": {
                 "worker_id": "worker-a",
+                "incarnation_id": "incarnation-a",
                 "runtime": "bun",
                 "version": "test"
             }
         }),
         json!({
             "type": "worker_heartbeat",
-            "worker_heartbeat": {"worker_id": "worker-a"}
+            "worker_heartbeat": {
+                "worker_id": "worker-a",
+                "incarnation_id": "incarnation-a"
+            }
         }),
         json!({
             "type": "worker_capacity",
-            "worker_capacity": {"worker_id": "worker-a"}
+            "worker_capacity": {
+                "worker_id": "worker-a",
+                "incarnation_id": "incarnation-a"
+            }
         }),
     ];
 

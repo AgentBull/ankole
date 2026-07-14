@@ -25,6 +25,8 @@ defmodule Ankole.SignalsGateway.Actors do
   alias Ankole.SignalsGateway.InputTombstone
   alias Ankole.SignalsGateway.Outbox
 
+  import Ankole.SignalsGateway.Utils, only: [parse_datetime: 1]
+
   @type append_result ::
           {:ok, ActorEvent.t()}
           | {:error, term()}
@@ -121,6 +123,184 @@ defmodule Ankole.SignalsGateway.Actors do
 
   def record_reply_preview_source_entry(_actor_event_id, _source_entry_id),
     do: {:error, :invalid_reply_preview_source_entry}
+
+  @doc """
+  Persists the provider-neutral recovery checkpoint for one live reply card.
+
+  The checkpoint contains no transient reasoning. CardKit sequence allocation
+  remains a separate atomic operation so a restarted process can safely lease a
+  strictly higher range before mutating the existing provider card.
+  """
+  @spec put_reply_preview_checkpoint(Ecto.UUID.t(), map()) ::
+          {:ok, ActorEvent.t()} | {:error, term()}
+  def put_reply_preview_checkpoint(actor_event_id, checkpoint)
+      when is_binary(actor_event_id) and is_map(checkpoint) do
+    Repo.transact(fn repo ->
+      case lock_actor_event_in_tx(repo, actor_event_id) do
+        %ActorEvent{} = event ->
+          put_reply_preview_checkpoint_in_tx(repo, event, checkpoint)
+
+        nil ->
+          {:error, :actor_event_not_found}
+      end
+    end)
+  end
+
+  def put_reply_preview_checkpoint(_actor_event_id, _checkpoint),
+    do: {:error, :invalid_reply_preview_checkpoint}
+
+  @doc false
+  @spec put_reply_preview_checkpoint_in_tx(module(), ActorEvent.t(), map()) ::
+          {:ok, ActorEvent.t()} | {:error, term()}
+  def put_reply_preview_checkpoint_in_tx(repo, %ActorEvent{} = event, checkpoint)
+      when is_map(checkpoint) do
+    checkpoint =
+      Map.put(
+        checkpoint,
+        "sequence_high_water",
+        max(
+          event.reply_preview_sequence_high_water || 0,
+          checkpoint_sequence(checkpoint)
+        )
+      )
+
+    cleanup_at = parse_datetime(Map.get(checkpoint, "cleanup_at"))
+
+    with {:ok, updated} <-
+           event
+           |> ActorEvent.changeset(%{
+             reply_preview_checkpoint: checkpoint,
+             reply_preview_cleanup_at: cleanup_at
+           })
+           |> repo.update(),
+         :ok <- RuntimeEvents.notify_reply_preview_checkpoint(repo, updated) do
+      {:ok, updated}
+    end
+  end
+
+  @doc """
+  Prepares one durable CardKit mutation without allocating a second sequence on retry.
+
+  The caller supplies a semantic purpose, an actions digest, and a fresh UUID
+  candidate. If the same logical mutation is already pending, its persisted
+  sequence and UUID are returned unchanged. A different desired mutation
+  supersedes the pending one and receives the next sequence.
+  """
+  @spec prepare_reply_preview_mutation(String.t(), String.t(), String.t(), String.t()) ::
+          {:ok, map()} | {:error, term()}
+  def prepare_reply_preview_mutation(actor_event_id, purpose, actions_digest, uuid)
+      when is_binary(actor_event_id) and is_binary(purpose) and purpose != "" and
+             is_binary(actions_digest) and actions_digest != "" and is_binary(uuid) and
+             uuid != "" do
+    Repo.transact(fn repo ->
+      case lock_actor_event_in_tx(repo, actor_event_id) do
+        %ActorEvent{} = event ->
+          checkpoint = event.reply_preview_checkpoint || %{}
+
+          case checkpoint["pending_mutation"] do
+            %{
+              "purpose" => ^purpose,
+              "actions_digest" => ^actions_digest,
+              "sequence" => sequence,
+              "uuid" => persisted_uuid
+            } = mutation
+            when is_integer(sequence) and sequence > 0 and is_binary(persisted_uuid) ->
+              {:ok, mutation}
+
+            _other ->
+              prepare_new_reply_preview_mutation(
+                repo,
+                event,
+                checkpoint,
+                purpose,
+                actions_digest,
+                uuid
+              )
+          end
+
+        nil ->
+          {:error, :actor_event_not_found}
+      end
+    end)
+  end
+
+  def prepare_reply_preview_mutation(_actor_event_id, _purpose, _actions_digest, _uuid),
+    do: {:error, :invalid_reply_preview_mutation}
+
+  defp prepare_new_reply_preview_mutation(
+         repo,
+         event,
+         checkpoint,
+         purpose,
+         actions_digest,
+         uuid
+       ) do
+    sequence = (event.reply_preview_sequence_high_water || 0) + 1
+
+    if sequence > 2_147_483_647 do
+      {:error, :reply_preview_sequence_exhausted}
+    else
+      mutation = %{
+        "purpose" => purpose,
+        "actions_digest" => actions_digest,
+        "sequence" => sequence,
+        "uuid" => uuid
+      }
+
+      checkpoint =
+        checkpoint
+        |> Map.put("pending_mutation", mutation)
+        |> Map.put("sequence_high_water", sequence)
+
+      with {:ok, updated} <-
+             event
+             |> ActorEvent.changeset(%{
+               reply_preview_checkpoint: checkpoint,
+               reply_preview_sequence_high_water: sequence
+             })
+             |> repo.update(),
+           :ok <- RuntimeEvents.notify_reply_preview_checkpoint(repo, updated) do
+        {:ok, mutation}
+      end
+    end
+  end
+
+  @doc false
+  @spec recoverable_reply_preview_events() :: [ActorEvent.t()]
+  def recoverable_reply_preview_events do
+    ActorEvent
+    |> where([event], not is_nil(event.reply_preview_checkpoint))
+    |> where(
+      [event],
+      (event.input_state == "open" and is_nil(event.completed_at) and
+         fragment(
+           "COALESCE(?->>'streaming_state', 'open') NOT IN ('closed', 'replaced')",
+           event.reply_preview_checkpoint
+         )) or
+        fragment(
+          "COALESCE((?->>'refresh_pending')::boolean, false)",
+          event.reply_preview_checkpoint
+        )
+    )
+    |> order_by([event], asc: event.inserted_at)
+    |> Repo.all()
+  end
+
+  @doc false
+  @spec reply_preview_runtime_event(ActorEvent.t()) :: {String.t(), map()}
+  def reply_preview_runtime_event(%ActorEvent{} = event) do
+    {RuntimeEvents.reply_preview_checkpoint_channel(), %{"actor_event_id" => event.id}}
+  end
+
+  @doc false
+  @spec reply_preview_cleanup_runtime_event(ActorEvent.t()) :: {String.t(), map()}
+  def reply_preview_cleanup_runtime_event(%ActorEvent{} = event) do
+    {RuntimeEvents.reply_preview_cleanup_channel(),
+     %{
+       "actor_event_id" => event.id,
+       "due_at" => RuntimeEvents.encode_datetime(event.reply_preview_cleanup_at)
+     }}
+  end
 
   @doc """
   Completes a locked actor event inside a caller-owned transaction.
@@ -423,6 +603,20 @@ defmodule Ankole.SignalsGateway.Actors do
   @doc false
   @spec runtime_event_snapshot() :: [{String.t(), map()}]
   def runtime_event_snapshot do
+    actor_session_runtime_events() ++
+      Enum.map(recoverable_reply_preview_events(), &reply_preview_runtime_event/1) ++
+      reply_preview_cleanup_runtime_events()
+  end
+
+  defp reply_preview_cleanup_runtime_events do
+    ActorEvent
+    |> where([event], not is_nil(event.reply_preview_cleanup_at))
+    |> order_by([event], asc: event.reply_preview_cleanup_at)
+    |> Repo.all()
+    |> Enum.map(&reply_preview_cleanup_runtime_event/1)
+  end
+
+  defp actor_session_runtime_events do
     ActorEvent
     |> where([input], input.input_state == "open")
     |> where([input], is_nil(input.completed_at))
@@ -441,6 +635,13 @@ defmodule Ankole.SignalsGateway.Actors do
          "due_at" => RuntimeEvents.encode_datetime(due_at)
        }}
     end)
+  end
+
+  defp checkpoint_sequence(checkpoint) do
+    case Map.get(checkpoint, "sequence_high_water") || Map.get(checkpoint, :sequence_high_water) do
+      value when is_integer(value) and value >= 0 -> value
+      _value -> 0
+    end
   end
 
   # Accepts an explicit queue sequence for fixtures and replay tools.

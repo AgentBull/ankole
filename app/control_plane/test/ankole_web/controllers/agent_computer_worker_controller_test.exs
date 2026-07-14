@@ -107,6 +107,7 @@ defmodule AnkoleWeb.AgentComputerWorkerControllerTest do
     worker =
       %AgentComputerWorker{
         worker_id: worker_id,
+        incarnation_id: Ecto.UUID.generate(),
         status: opts[:status] || "ready",
         version: "test",
         capacity: %{"available_turn_slots" => 4, "max_turns" => 9},

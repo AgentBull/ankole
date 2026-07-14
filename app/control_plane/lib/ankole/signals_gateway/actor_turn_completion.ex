@@ -15,6 +15,7 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
+  alias Ankole.SignalsGateway.ActorRuntime.TurnLifecycle
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
   alias Ankole.Logging
   alias Ankole.Repo
@@ -114,7 +115,8 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
          {:ok, completed_events} <-
            complete_accepted_events(repo, event, deliveries, turn_ref, now),
          {deleted_count, superseded_count} <-
-           cleanup_deliveries(repo, turn_ref.actor_event_id, now) do
+           cleanup_deliveries(repo, turn_ref.actor_event_id, now),
+         {:ok, activation} <- TurnLifecycle.mark_activation_idle_in_tx(repo, activation, now) do
       {:ok,
        %{
          status: :turn_completed,
@@ -141,7 +143,8 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
     with {:ok, completed_events} <-
            mark_accepted_events_completed(repo, event, deliveries, turn_ref, now),
          {deleted_count, superseded_count} <-
-           cleanup_deliveries(repo, turn_ref.actor_event_id, now) do
+           cleanup_deliveries(repo, turn_ref.actor_event_id, now),
+         {:ok, activation} <- TurnLifecycle.mark_activation_idle_in_tx(repo, activation, now) do
       {:ok,
        %{
          status: :turn_canceled,
@@ -318,7 +321,7 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
         event,
         completion.final_response,
         completion.final_text,
-        opts
+        Keyword.put(opts, :attachment_count, length(completion.attachments))
       )
     else
       {:ok, nil}

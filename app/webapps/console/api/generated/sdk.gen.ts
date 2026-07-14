@@ -105,6 +105,9 @@ import type {
   AnkoleWebBrainControllerAuditLogData,
   AnkoleWebBrainControllerAuditLogErrors,
   AnkoleWebBrainControllerAuditLogResponses,
+  AnkoleWebBrainControllerDreamingFitnessData,
+  AnkoleWebBrainControllerDreamingFitnessErrors,
+  AnkoleWebBrainControllerDreamingFitnessResponses,
   AnkoleWebBrainControllerIndexData,
   AnkoleWebBrainControllerIndexErrors,
   AnkoleWebBrainControllerIndexResponses,
@@ -279,6 +282,34 @@ export const ankoleWebWorkerFileControllerDownload = <ThrowOnError extends boole
       }
     ],
     url: '/api/v1/agent-computer-workers/{worker_id}/files/content',
+    ...options
+  })
+
+/**
+ * Read dreaming output survival as a selection-pressure signal
+ *
+ * Reads the audit log for the share of dreaming block writes that survived human review (no human edit or delete within the horizon), overall and per run. Writes younger than the horizon are reported as pending, not survivors.
+ */
+export const ankoleWebBrainControllerDreamingFitness = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebBrainControllerDreamingFitnessData, ThrowOnError>
+): RequestResult<
+  AnkoleWebBrainControllerDreamingFitnessResponses,
+  AnkoleWebBrainControllerDreamingFitnessErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebBrainControllerDreamingFitnessResponses,
+    AnkoleWebBrainControllerDreamingFitnessErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/brain/dreaming-fitness',
     ...options
   })
 

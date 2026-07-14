@@ -12,6 +12,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.SignalsGateway.ActorRuntime.TurnEnvelope
+  alias Ankole.SignalsGateway.ActorRuntime.TurnStartFailure
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
   alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
   alias Ankole.SignalsGateway.ActorRuntime.WorkerAdmission
@@ -86,6 +87,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
       end
     end)
     |> send_turn_start()
+    |> TurnStartFailure.finalize(actor_event, now)
   end
 
   defp run_admission_in_tx(repo, opts) do
@@ -245,16 +247,33 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
       now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
       lease_seconds = Keyword.get(opts, :lease_seconds, @activation_progress_lease_seconds)
 
-      Repo.transact(fn repo ->
-        with %ActorSessionActivation{} = activation <- activation_for_turn_ref(repo, turn_ref),
-             :ok <- activation_accepts_progress(activation, turn_ref, now) do
-          renew_activation_lease(repo, activation, now, lease_seconds)
-        else
-          nil -> {:error, :actor_runtime_fence_not_found}
-          {:error, _reason} = error -> error
-        end
-      end)
+      with {:ok, activation} <-
+             Repo.transact(fn repo ->
+               with %ActorSessionActivation{} = activation <-
+                      activation_for_turn_ref(repo, turn_ref),
+                    :ok <- activation_accepts_progress(activation, turn_ref, now) do
+                 renew_activation_lease(repo, activation, now, lease_seconds)
+               else
+                 nil -> {:error, :actor_runtime_fence_not_found}
+                 {:error, _reason} = error -> error
+               end
+             end) do
+        forward_reply_presentation(payload, turn_ref, opts)
+        {:ok, activation}
+      end
     end
+  end
+
+  defp forward_reply_presentation(payload, turn_ref, opts) do
+    refs = map_value(payload, "refs_json")
+    event = map_value(refs, "presentation_event")
+
+    if map_text(payload, "kind") == "reply_presentation" and is_map(event) do
+      callback = Keyword.get(opts, :presentation_event_fun, &AIReplyPreview.presentation_event/2)
+      callback.(turn_ref.actor_event_id, event)
+    end
+
+    :ok
   end
 
   @doc """
@@ -273,35 +292,53 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
       now = DateTime.utc_now(:microsecond)
 
       Repo.transact(fn repo ->
-        with %ActorEvent{} = event <- lock_actor_event_for_turn_ref(repo, turn_ref),
-             %ActorSessionActivation{} = activation <- activation_for_turn_ref(repo, turn_ref),
-             :ok <- activation_accepts_progress(activation, turn_ref, now),
-             already_completed? = match?(%DateTime{}, event.completed_at),
-             {:ok, deliveries} <- live_deliveries_for_noop(repo, event, turn_ref),
-             {:ok, _completed_events} <-
-               mark_noop_delivery_events_completed(repo, deliveries, now),
-             {:ok, event} <- mark_noop_event_completed(repo, event, now),
-             {deleted_count, superseded_count} <-
-               cleanup_noop_deliveries(repo, turn_ref.actor_event_id, now, reason),
-             :ok <-
-               Ankole.SubagentDelegations.Lifecycle.finalize_worker_turn_in_tx(
-                 repo,
-                 turn_ref,
-                 now
-               ) do
-          {:ok,
-           %{
-             status: if(already_completed?, do: :already_completed, else: :noop_completed),
-             reason: reason,
-             actor_event: event,
-             activation: activation,
-             delivery_count: length(deliveries),
-             deleted_deliveries: deleted_count,
-             superseded_deliveries: superseded_count
-           }}
-        else
-          nil -> {:error, :actor_runtime_fence_not_found}
-          {:error, _reason} = error -> error
+        case lock_actor_event_for_turn_ref(repo, turn_ref) do
+          %ActorEvent{completed_at: %DateTime{}} = event ->
+            {:ok,
+             %{
+               status: :already_completed,
+               reason: reason,
+               actor_event: event,
+               activation: activation_snapshot_for_turn_ref(repo, turn_ref),
+               delivery_count: 0,
+               deleted_deliveries: 0,
+               superseded_deliveries: 0
+             }}
+
+          %ActorEvent{} = event ->
+            with %ActorSessionActivation{} = activation <-
+                   activation_for_turn_ref(repo, turn_ref),
+                 :ok <- activation_accepts_progress(activation, turn_ref, now),
+                 {:ok, deliveries} <- live_deliveries_for_noop(repo, event, turn_ref),
+                 {:ok, _completed_events} <-
+                   mark_noop_delivery_events_completed(repo, deliveries, now),
+                 {:ok, event} <- mark_noop_event_completed(repo, event, now),
+                 {deleted_count, superseded_count} <-
+                   cleanup_noop_deliveries(repo, turn_ref.actor_event_id, now, reason),
+                 :ok <-
+                   Ankole.SubagentDelegations.Lifecycle.finalize_worker_turn_in_tx(
+                     repo,
+                     turn_ref,
+                     now
+                   ),
+                 {:ok, activation} <- mark_activation_idle_in_tx(repo, activation, now) do
+              {:ok,
+               %{
+                 status: :noop_completed,
+                 reason: reason,
+                 actor_event: event,
+                 activation: activation,
+                 delivery_count: length(deliveries),
+                 deleted_deliveries: deleted_count,
+                 superseded_deliveries: superseded_count
+               }}
+            else
+              nil -> {:error, :actor_runtime_fence_not_found}
+              {:error, _reason} = error -> error
+            end
+
+          nil ->
+            {:error, :actor_runtime_fence_not_found}
         end
       end)
       |> stop_preview_after_terminal(turn_ref.actor_event_id)
@@ -580,6 +617,20 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
     |> notify_activation_deadline(repo)
   end
 
+  @doc false
+  @spec mark_activation_idle_in_tx(module(), ActorSessionActivation.t(), DateTime.t()) ::
+          {:ok, ActorSessionActivation.t()} | {:error, term()}
+  def mark_activation_idle_in_tx(repo, %ActorSessionActivation{} = activation, now) do
+    activation
+    |> ActorSessionActivation.changeset(%{
+      status: "active",
+      current_actor_event_id: nil,
+      lease_expires_at: DateTime.add(now, @activation_progress_lease_seconds, :second)
+    })
+    |> repo.update()
+    |> notify_activation_deadline(repo)
+  end
+
   defp later_datetime(left, right) do
     case DateTime.compare(left, right) do
       :gt -> left
@@ -847,9 +898,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
     end
   end
 
-  defp live_deliveries_for_noop(_repo, %ActorEvent{completed_at: %DateTime{}}, _turn_ref),
-    do: {:ok, []}
-
   defp live_deliveries_for_noop(repo, %ActorEvent{}, turn_ref) do
     live_deliveries_for_turn_ref(repo, turn_ref)
   end
@@ -876,9 +924,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
       end
     end)
   end
-
-  defp mark_noop_event_completed(_repo, %ActorEvent{completed_at: %DateTime{}} = event, _now),
-    do: {:ok, event}
 
   defp mark_noop_event_completed(repo, %ActorEvent{} = event, now) do
     Actors.mark_event_completed_in_tx(repo, event, now)
@@ -1113,37 +1158,58 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
     |> repo.one()
   end
 
-  # Fails an activation that never bound an actor event. There is no AIGateway
-  # generating row or delivery fence to clear, so only the activation projection
-  # is stopped.
+  # A live activation with no current event is warm but idle. Expiry is a normal
+  # stop, not worker failure, so it must not create retry or error evidence.
   defp fail_expired_activation(
          repo,
          %ActorSessionActivation{current_actor_event_id: nil} = activation,
          now
        ) do
-    fail_activation(repo, activation, :activation_lease_expired, now)
+    stop_idle_activation(repo, activation, now)
   end
 
   # Fails an activation with a current turn and clears all related live fences.
   # This lets the same open actor event be selected again on the next pass.
   defp fail_expired_activation(repo, %ActorSessionActivation{} = activation, now) do
-    with {:ok, _failed_message} <-
-           AIGatewayLink.fail_generating_turn_in_tx(
-             repo,
-             activation_actor_key(activation),
-             activation.current_actor_event_id,
-             now,
-             :activation_lease_expired
-           ),
-         {_count, _rows} <-
-           supersede_turn_deliveries_by_actor_event_id(
-             activation.current_actor_event_id,
-             repo,
-             now,
-             :activation_lease_expired
-           ) do
-      fail_activation(repo, activation, :activation_lease_expired, now)
+    if actor_event_completed?(repo, activation.current_actor_event_id) do
+      stop_idle_activation(repo, activation, now)
+    else
+      with {:ok, _failed_message} <-
+             AIGatewayLink.fail_generating_turn_in_tx(
+               repo,
+               activation_actor_key(activation),
+               activation.current_actor_event_id,
+               now,
+               :activation_lease_expired
+             ),
+           {_count, _rows} <-
+             supersede_turn_deliveries_by_actor_event_id(
+               activation.current_actor_event_id,
+               repo,
+               now,
+               :activation_lease_expired
+             ) do
+        fail_activation(repo, activation, :activation_lease_expired, now)
+      end
     end
+  end
+
+  defp actor_event_completed?(repo, actor_event_id) do
+    ActorEvent
+    |> where([event], event.id == ^actor_event_id)
+    |> where([event], not is_nil(event.completed_at))
+    |> repo.exists?()
+  end
+
+  defp stop_idle_activation(repo, %ActorSessionActivation{} = activation, now) do
+    activation
+    |> ActorSessionActivation.changeset(%{
+      status: "stopped",
+      current_actor_event_id: nil,
+      stopped_at: now,
+      stop_reason: inspect(:activation_idle_timeout)
+    })
+    |> repo.update()
   end
 
   defp fail_worker_activation(repo, %ActorSessionActivation{} = activation, now, reason) do

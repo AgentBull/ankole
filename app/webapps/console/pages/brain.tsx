@@ -38,6 +38,7 @@ import {
   ankoleWebBrainControllerApplyOperationsMutation,
   ankoleWebBrainControllerAuditIndexOptions,
   ankoleWebBrainControllerAuditLogOptions,
+  ankoleWebBrainControllerDreamingFitnessOptions,
   ankoleWebBrainControllerIndexOptions,
   ankoleWebBrainControllerRestoreAuditMutation,
   ankoleWebBrainControllerRestoreAuditsMutation,
@@ -45,7 +46,7 @@ import {
   ankoleWebBrainControllerShowOptions,
   ankoleWebBrainControllerSourceOptions
 } from '../api/generated/@tanstack/react-query.gen'
-import type { BrainAuditLog, BrainEntryOperation } from '../api/generated/types.gen'
+import type { BrainAuditLog, BrainDreamingFitnessRun, BrainEntryOperation } from '../api/generated/types.gen'
 import { ErrorBlock, formatJSON, parseObjectDraft } from '../console-primitives'
 import { ConfirmDeleteButton, LabeledField, ResourceEditorPage, ResourceListPage } from '../console-shell'
 import { BlocksEditor, MetadataEditor, RelationsEditor } from './brain-entry-editors'
@@ -352,6 +353,8 @@ export function BrainAuditPage() {
           {t('console.brain.restore_selected', { count: selectedIDs.size })}
         </Button>
       </div>
+
+      <DreamingFitnessCard ownerUID={ownerUID} onSelectRun={runID => setFilter('run', runID)} />
 
       <div className="grid gap-4 border border-border bg-card p-4">
         <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-4">
@@ -853,6 +856,123 @@ function SourceLinks({ markdown, ownerUID, entryID }: { markdown: string; ownerU
   )
 }
 
+function DreamingFitnessCard({ ownerUID, onSelectRun }: { ownerUID: string; onSelectRun: (runID: string) => void }) {
+  const { t } = useTranslation()
+  const [horizonDays, setHorizonDays] = useState(7)
+  const fitness = useQuery({
+    ...ankoleWebBrainControllerDreamingFitnessOptions({
+      query: { owner_uid: ownerUID, horizon_days: horizonDays }
+    }),
+    enabled: Boolean(ownerUID)
+  })
+  const data = fitness.data?.fitness
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="grid gap-1">
+            <CardTitle className="flex items-center gap-2">
+              <RiSparkling2Line />
+              {t('console.brain.fitness_title')}
+            </CardTitle>
+            <CardDescription className="max-w-3xl">{t('console.brain.fitness_description')}</CardDescription>
+          </div>
+          <LabeledField label={t('console.brain.fitness_horizon')}>
+            <Input
+              type="number"
+              min={1}
+              max={90}
+              className="w-28"
+              value={horizonDays}
+              onChange={event => {
+                const next = Number.parseInt(event.target.value, 10)
+                if (Number.isFinite(next) && next >= 1 && next <= 90) setHorizonDays(next)
+              }}
+            />
+          </LabeledField>
+        </div>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <ErrorBlock error={fitness.error} />
+        {fitness.isLoading ? (
+          <Skeleton className="h-24 w-full" />
+        ) : data ? (
+          <>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <FitnessStat
+                label={t('console.brain.fitness_survival_rate')}
+                value={formatPercent(data.survival_rate)}
+                emphasis
+              />
+              <FitnessStat label={t('console.brain.fitness_matured')} value={String(data.matured_block_writes)} />
+              <FitnessStat label={t('console.brain.fitness_corrected')} value={String(data.corrected_block_writes)} />
+              <FitnessStat label={t('console.brain.fitness_pending')} value={String(data.pending_block_writes)} />
+            </div>
+            {data.matured_block_writes === 0 ? (
+              <p className="text-sm text-muted-foreground">{t('console.brain.fitness_no_data')}</p>
+            ) : (
+              <div className="grid gap-px overflow-hidden border border-border bg-border">
+                <div className="grid grid-cols-[2fr_repeat(4,1fr)] gap-3 bg-muted px-3 py-2 text-xs font-medium text-muted-foreground">
+                  <span>{t('console.brain.fitness_run')}</span>
+                  <span className="text-right">{t('console.brain.fitness_survived')}</span>
+                  <span className="text-right">{t('console.brain.fitness_corrected')}</span>
+                  <span className="text-right">{t('console.brain.fitness_survival_rate')}</span>
+                  <span className="text-right">{t('console.brain.fitness_last_written')}</span>
+                </div>
+                {data.runs.map(run => (
+                  <FitnessRunRow key={run.run_id ?? 'unattributed'} run={run} onSelectRun={onSelectRun} />
+                ))}
+              </div>
+            )}
+          </>
+        ) : null}
+      </CardContent>
+    </Card>
+  )
+}
+
+function FitnessStat({ label, value, emphasis }: { label: string; value: string; emphasis?: boolean }) {
+  return (
+    <div className="grid gap-1 border border-border bg-card p-3">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className={cn('font-semibold', emphasis ? 'text-2xl' : 'text-lg')}>{value}</span>
+    </div>
+  )
+}
+
+function FitnessRunRow({ run, onSelectRun }: { run: BrainDreamingFitnessRun; onSelectRun: (runID: string) => void }) {
+  const { t } = useTranslation()
+  return (
+    <div className="grid grid-cols-[2fr_repeat(4,1fr)] items-center gap-3 bg-card px-3 py-2 text-sm">
+      {run.run_id ? (
+        <button
+          type="button"
+          className="truncate text-left font-mono text-xs text-primary hover:underline"
+          title={run.run_id}
+          onClick={() => onSelectRun(run.run_id ?? '')}>
+          {run.run_id}
+        </button>
+      ) : (
+        <span className="truncate font-mono text-xs text-muted-foreground">
+          {t('console.brain.fitness_unattributed')}
+        </span>
+      )}
+      <span className="text-right tabular-nums">
+        {run.survived_block_writes}/{run.matured_block_writes}
+      </span>
+      <span className="text-right tabular-nums">{run.corrected_block_writes}</span>
+      <span className="text-right tabular-nums">{formatPercent(run.survival_rate)}</span>
+      <span className="text-right text-xs text-muted-foreground">{formatDate(run.last_written_at)}</span>
+    </div>
+  )
+}
+
+function formatPercent(rate?: number | null): string {
+  if (rate === null || rate === undefined) return '—'
+  return `${(rate * 100).toFixed(1)}%`
+}
+
 function AuditTrail({
   rows,
   loading,
@@ -996,7 +1116,7 @@ export function BrainSourcePage() {
               </summary>
               <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-all bg-muted p-3 text-xs">
                 {formatJSON({
-                  formatted_content: item.formatted_content,
+                  rich_content: item.rich_content,
                   attachments: item.attachments,
                   links: item.links,
                   metadata: item.metadata

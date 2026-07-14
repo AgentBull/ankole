@@ -6,11 +6,15 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
   @behaviour Ankole.SignalsGateway.OutboxAdapter
 
   alias Ankole.Plugins.LarkAdapter.Card
+  alias Ankole.Plugins.LarkAdapter.CardKit
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.Emoji
   alias Ankole.Plugins.LarkAdapter.MapHelpers
   alias Ankole.SignalsGateway
+  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.OutboxEntry
+  alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
+  alias Ankole.Repo
   alias Ankole.WorkerFiles
   alias FeishuOpenAPI.Error
 
@@ -24,8 +28,54 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     ]
 
   @max_text_message_chars 4_000
+  @final_edit_fallback_codes [230_072, 230_075]
+  # Feishu caps the message `uuid` at 50 characters. Keep Ankole's full key in
+  # the outbox and derive only the provider-facing value when it is too long.
+  @max_message_uuid_chars 50
+  @message_uuid_prefix "ankole-"
+
+  @doc false
+  @spec provider_message_uuid(String.t() | nil) :: String.t() | nil
+  def provider_message_uuid(nil), do: nil
+
+  def provider_message_uuid(idempotency_key) when is_binary(idempotency_key) do
+    if String.length(idempotency_key) <= @max_message_uuid_chars do
+      idempotency_key
+    else
+      digest = :crypto.hash(:sha256, idempotency_key) |> Base.encode16(case: :lower)
+      digest_chars = @max_message_uuid_chars - String.length(@message_uuid_prefix)
+      @message_uuid_prefix <> String.slice(digest, 0, digest_chars)
+    end
+  end
 
   @impl true
+  def send(
+        %OutboxEntry{
+          payload: %{"reply_presentation" => presentation},
+          source_actor_event_id: actor_event_id
+        } = outbox
+      )
+      when is_map(presentation) and is_binary(actor_event_id) do
+    case Repo.get(ActorEvent, actor_event_id) do
+      %ActorEvent{} = event ->
+        checkpoint = event.reply_preview_checkpoint || %{}
+
+        CardKit.finalize(%Request{
+          actor_event: event,
+          presentation: presentation,
+          previous_presentation: checkpoint["presentation"],
+          checkpoint: checkpoint,
+          subject_uid: checkpoint["subject_uid"],
+          conversation_id: checkpoint["conversation_id"],
+          outbox: outbox,
+          mode: :terminal
+        })
+
+      nil ->
+        {:error, :actor_event_not_found}
+    end
+  end
+
   def send(%OutboxEntry{} = outbox) do
     with {:ok, config} <- config_for_outbox(outbox),
          client <- Config.client(config),
@@ -34,10 +84,15 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
       requests
       |> perform_requests(client, outbox)
       |> with_materialized_payload(outbox.payload)
+      |> normalize_delivery_error()
     end
   end
 
   @impl true
+  def reconcile(%OutboxEntry{payload: %{"reply_presentation" => presentation}} = outbox)
+      when is_map(presentation),
+      do: send(outbox)
+
   def reconcile(%OutboxEntry{created_source_entry_id: nil}), do: :unknown
 
   def reconcile(%OutboxEntry{} = outbox) do
@@ -155,12 +210,16 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     request
     |> perform(client)
     |> maybe_reply_fallback(client, outbox, request)
+    |> maybe_final_edit_fallback(client, outbox, request)
   end
 
   defp perform_requests(requests, client, outbox) when is_list(requests) do
     requests
     |> Enum.reduce_while([], fn request, results ->
-      case request |> perform(client) |> maybe_reply_fallback(client, outbox, request) do
+      case request
+           |> perform(client)
+           |> maybe_reply_fallback(client, outbox, request)
+           |> maybe_final_edit_fallback(client, outbox, request) do
         {:ok, result} -> {:cont, [result | results]}
         {:error, _reason} = error -> {:halt, error}
       end
@@ -202,8 +261,33 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
 
   defp maybe_reply_fallback(result, _client, _outbox, _request), do: result
 
+  defp maybe_final_edit_fallback(
+         {:error, %Error{code: code}},
+         client,
+         %OutboxEntry{operation: :edit, ai_message_id: ai_message_id} = outbox,
+         %{method: :put, body: body}
+       )
+       when code in @final_edit_fallback_codes and is_binary(ai_message_id) do
+    # Text previews can consume Feishu's per-message edit budget before the
+    # durable terminal reply arrives. Only that durable AI reply may degrade to
+    # a new message; transient preview edits must remain best-effort edits or
+    # they would create a new message for every subsequent delta.
+    :post
+    |> message_request("im/v1/messages", outbox, body)
+    |> perform(client)
+    |> with_delivered_operation(:post)
+  end
+
+  defp maybe_final_edit_fallback(result, _client, _outbox, _request), do: result
+
+  defp with_delivered_operation({:ok, result}, operation) when is_map(result),
+    do: {:ok, Map.put(result, :delivered_operation, operation)}
+
+  defp with_delivered_operation(result, _operation), do: result
+
+  @doc false
   @spec target_gone_error?(Error.t()) :: boolean()
-  defp target_gone_error?(%Error{code: code, msg: msg}) do
+  def target_gone_error?(%Error{code: code, msg: msg}) do
     code in [23_000, 23_002, 23_006] or
       (is_binary(msg) and
          String.contains?(String.downcase(msg), ["withdraw", "not exist", "not found"]))
@@ -230,6 +314,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     %{
       created_source_entry_id: first[:created_source_entry_id],
       provider_thread_id: first[:provider_thread_id],
+      delivered_operation: first[:delivered_operation],
       raw_payload: %{
         "split" => true,
         "chunks" => Enum.map(results, &raw_payload/1)
@@ -246,6 +331,20 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
 
   defp with_materialized_payload(result, _payload), do: result
 
+  defp normalize_delivery_error({:error, %Error{} = error}) do
+    {:error,
+     {:provider_error,
+      %{
+        code: error.code,
+        msg: error.msg,
+        http_status: error.http_status,
+        log_id: error.log_id
+      }
+      |> compact_map()}}
+  end
+
+  defp normalize_delivery_error(result), do: result
+
   defp message_request(method, path, outbox, body, opts \\ []) do
     reply_to = Keyword.get(opts, :reply_to)
     path = if is_binary(reply_to), do: "im/v1/messages/:message_id/reply", else: path
@@ -255,7 +354,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
       if is_binary(reply_to), do: Map.put(path_params, :message_id, reply_to), else: path_params
 
     idempotency_key = Keyword.get(opts, :idempotency_key, outbox.idempotency_key)
-    base_body = maybe_put(body, :uuid, idempotency_key)
+    base_body = maybe_put(body, :uuid, provider_message_uuid(idempotency_key))
 
     # Replies and new messages use different Lark API shapes. Keeping the branch
     # here makes every outbox operation share one idempotency/body path.
@@ -285,7 +384,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     text =
       outbox.fallback_visible_text
       |> to_string()
-      |> split_lark_text()
+      |> split_text()
 
     text
     |> Enum.with_index(1)
@@ -324,7 +423,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     chunks =
       outbox.fallback_visible_text
       |> to_string()
-      |> split_lark_text()
+      |> split_text()
 
     chunks
     |> Enum.with_index(1)
@@ -355,7 +454,9 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     end)
   end
 
-  defp split_lark_text(text) do
+  @doc false
+  @spec split_text(String.t()) :: [String.t()]
+  def split_text(text) when is_binary(text) do
     text
     |> String.graphemes()
     |> Enum.chunk_every(@max_text_message_chars)
@@ -366,9 +467,11 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     end
   end
 
-  defp chunk_idempotency_key(nil, _index), do: nil
-  defp chunk_idempotency_key(key, 1), do: key
-  defp chunk_idempotency_key(key, index), do: "#{key}:part:#{index}"
+  @doc false
+  @spec chunk_idempotency_key(String.t() | nil, pos_integer()) :: String.t() | nil
+  def chunk_idempotency_key(nil, _index), do: nil
+  def chunk_idempotency_key(key, 1), do: key
+  def chunk_idempotency_key(key, index), do: "#{key}:part:#{index}"
 
   defp card_message_request(%OutboxEntry{} = outbox, card, index) do
     chunk_outbox = %OutboxEntry{
@@ -410,11 +513,17 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
   end
 
   defp attachment_body(%{} = attachment) do
-    case optional_text(attachment, "provider_file_key") || optional_text(attachment, "file_key") do
-      file_key when is_binary(file_key) ->
+    cond do
+      image_key =
+          optional_text(attachment, "provider_image_key") ||
+            optional_text(attachment, "image_key") ->
+        {:ok, %{msg_type: "image", content: Ankole.JSON.encode!(%{image_key: image_key})}}
+
+      file_key =
+          optional_text(attachment, "provider_file_key") || optional_text(attachment, "file_key") ->
         {:ok, %{msg_type: "file", content: Ankole.JSON.encode!(%{file_key: file_key})}}
 
-      _missing ->
+      true ->
         {:error, :outbound_attachment_not_uploaded}
     end
   end
@@ -425,7 +534,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
         {:ok, outbox}
 
       [attachment] ->
-        with {:ok, attachment} <- ensure_provider_file_key(attachment, client) do
+        with {:ok, attachment} <- ensure_provider_attachment_key(attachment, client) do
           {:ok, %OutboxEntry{outbox | payload: Map.put(payload, "attachments", [attachment])}}
         end
 
@@ -434,13 +543,46 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     end
   end
 
-  defp ensure_provider_file_key(%{} = attachment, client) do
-    case optional_text(attachment, "provider_file_key") || optional_text(attachment, "file_key") do
-      file_key when is_binary(file_key) ->
-        {:ok, Map.put(attachment, "provider_file_key", file_key)}
+  defp ensure_provider_attachment_key(%{} = attachment, client) do
+    if image_attachment?(attachment) do
+      case optional_text(attachment, "provider_image_key") ||
+             optional_text(attachment, "image_key") do
+        image_key when is_binary(image_key) ->
+          {:ok, Map.put(attachment, "provider_image_key", image_key)}
 
-      _missing ->
-        upload_worker_file_attachment(attachment, client)
+        _missing ->
+          upload_worker_image_attachment(attachment, client)
+      end
+    else
+      case optional_text(attachment, "provider_file_key") || optional_text(attachment, "file_key") do
+        file_key when is_binary(file_key) ->
+          {:ok, Map.put(attachment, "provider_file_key", file_key)}
+
+        _missing ->
+          upload_worker_file_attachment(attachment, client)
+      end
+    end
+  end
+
+  defp upload_worker_image_attachment(attachment, client) do
+    with relative_path when is_binary(relative_path) <- attachment_relative_path(attachment),
+         {:ok, %{"content" => content}} <- WorkerFiles.get("user_files", relative_path),
+         name <- attachment_name(attachment, relative_path),
+         {:ok, %{"data" => data}} <-
+           FeishuOpenAPI.upload(client, "im/v1/images",
+             fields: [image_type: "message"],
+             file_field: :image,
+             file: {:iodata, content, name}
+           ),
+         image_key when is_binary(image_key) <- data["image_key"] do
+      {:ok,
+       attachment
+       |> Map.put("provider_image_key", image_key)
+       |> Map.put_new("name", name)}
+    else
+      nil -> {:error, :outbound_attachment_path_missing}
+      {:error, _reason} = error -> error
+      _value -> {:error, :outbound_image_upload_failed}
     end
   end
 
@@ -479,6 +621,22 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
   defp attachment_name(attachment, relative_path) do
     optional_text(attachment, "name") || Path.basename(relative_path)
   end
+
+  defp image_attachment?(attachment) do
+    case optional_text(attachment, "mime_type") do
+      "image/" <> _subtype -> true
+      _other -> image_filename?(optional_text(attachment, "name"))
+    end
+  end
+
+  defp image_filename?(name) when is_binary(name) do
+    name
+    |> Path.extname()
+    |> String.downcase()
+    |> then(&(&1 in ~w(.png .jpg .jpeg .gif .webp .bmp .tif .tiff)))
+  end
+
+  defp image_filename?(_name), do: false
 
   defp divider_i18n(%{"i18n" => i18n}) when is_map(i18n) do
     i18n

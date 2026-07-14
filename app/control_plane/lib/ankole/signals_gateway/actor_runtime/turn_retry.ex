@@ -357,8 +357,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
 
   defp maybe_put_retry_metadata(payload, _turn, _reason, _extra), do: payload
 
-  defp put_retry_metadata(payload, retry_actor_event_id, reason, extra)
-       when is_map(payload) do
+  @doc false
+  @spec put_retry_metadata(map(), String.t(), String.t(), map()) :: map()
+  def put_retry_metadata(payload, retry_actor_event_id, reason, extra)
+      when is_map(payload) do
     entry =
       payload
       |> get_in(["data", "entry"])
@@ -378,7 +380,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
     Map.put(payload, "data", data)
   end
 
-  defp put_retry_metadata(_payload, retry_actor_event_id, reason, extra) do
+  def put_retry_metadata(_payload, retry_actor_event_id, reason, extra) do
     put_retry_metadata(
       %{"data" => %{"entry" => %{}}},
       retry_actor_event_id,

@@ -21,7 +21,6 @@ defmodule Ankole.SignalsGateway.AIReplyText do
   def normalize_visible_text(text) when is_binary(text) do
     case String.trim(text) do
       "" -> ""
-      @silent_success_marker -> ""
       text -> text
     end
   end

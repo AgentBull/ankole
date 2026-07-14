@@ -78,18 +78,23 @@ directly.
 
 An operator connects one agent binding to one Feishu/Lark self-built app. The
 operator provides app credentials, chooses Feishu or Lark domain, chooses how
-unaddressed group messages behave, and decides whether the adapter should use
-streaming cards for assistant output.
+unaddressed group messages behave, and grants the CardKit permissions required
+for assistant output. CardKit is the primary Feishu/Lark AI-reply surface, not
+an optional second-phase enhancement. A plain message is a failure fallback,
+not a parallel product mode.
 
 A human sends the agent a DM or a structured group mention. The adapter
 normalizes the provider message into a SignalsGateway entry receive fact.
 SignalsGateway mirrors the visible message and appends `im.message.addressed`.
 The agent's streamed answer is delivered live through the gateway's AI-reply
-preview (a streaming card when the adapter supports it). That preview is only
-transient progress. When Agent Computer explicitly reports `turn_completed`,
-SignalsGateway writes the adopted final send or edit as a durable outbox
-operation; provider success is then mirrored into `signal_gateway_entries` with
-the final Response backref.
+preview as one logical CardChain of CardKit JSON 2.0 cards. A normal answer has
+one card; content that exceeds a safe card budget seals the current card and
+continues in an ordered tail card without discarding Markdown. The adapter never
+posts a temporary text reply and later replaces it with a card. That preview is
+only transient progress. When Agent Computer explicitly reports `turn_completed`,
+SignalsGateway writes the adopted final CardKit finalize-or-create operation as
+a durable outbox operation; provider success is then mirrored into
+`signal_gateway_entries` with the final Response backref.
 Explicit side effects — attachments, reactions, dividers, command feedback —
 still execute through `signal_gateway_outbox_entries` rows.
 
@@ -242,10 +247,15 @@ the dispatcher inside a running `FeishuOpenAPI.WS.Client`.
 
 Fatal provider configuration errors should stop only the per-key owner and mark
 the affected runtime unavailable. Nonfatal transport loss is handled by
-`FeishuOpenAPI.WS.Client` reconnect. The supervised child should avoid a tight
-restart loop on fatal credential or permission errors. One practical shape is to
-wrap the WebSocket child spec with transient restart semantics for fatal
-shutdowns while letting unexpected crashes restart normally.
+`FeishuOpenAPI.WS.Client` reconnect. After each successful WebSocket upgrade the
+client sends the `pbbp2` application-level ping immediately, then follows the
+provider-supplied interval; its proto2 envelope includes all required scalar
+fields even when their values are zero. Separately, every RFC 6455 ping from the
+provider is answered with a transport pong that echoes the same payload. The
+supervised child should avoid a tight restart loop on fatal credential or
+permission errors. One practical shape is to wrap the WebSocket child spec with
+transient restart semantics for fatal shutdowns while letting unexpected
+crashes restart normally.
 
 Chat ingress and identity realtime sync share the same connection owner when
 they use the same `domain + appId`. If the same key is
@@ -603,7 +613,10 @@ but any durable map field must already be JSON-serializable.
 Text output posts to the chat with `receive_id_type = chat_id`. Reply output
 uses Feishu/Lark message reply when the outbox provides a target entry or the
 thread root id is usable. Outbox idempotency keys are passed through as provider
-UUIDs when the Feishu/Lark API supports them.
+UUIDs when the Feishu/Lark API supports them. Feishu limits that UUID to 50
+characters, so the adapter preserves a short key verbatim and deterministically
+hashes a longer key into a 50-character provider value. The full Ankole key
+remains unchanged in the durable outbox row.
 
 Regular text and card replies should stay in the normal chat surface. They
 should not request provider thread-only delivery. Streaming-card replies may
@@ -685,77 +698,495 @@ path before provider success is confirmed.
 
 ## Streaming Cards
 
-When runtime preview streaming is enabled, the adapter streams an assistant answer through a
-Feishu/Lark CardKit card. The stream is driven by SignalsGateway's
-`AIReplyPreview` process, which subscribes to a conversation-scoped AIGateway
-event stream, filters by the opaque ActorEvent metadata, and calls the adapter's
-streaming surface; the adapter owns only the provider mechanics. Each
-`response_started` event resets the current-round buffer. Response terminal
-events never end the preview or decide that the Agent Turn finished. With
-`FeishuOpenAPI`, this is a REST flow:
+This section is the conformance contract for direct CardKit delivery. An
+adapter that still implements preview as ordinary text send/edit does not
+satisfy it, even if a standalone CardKit experiment succeeds.
 
-1. `POST cardkit/v1/cards` with `type = "card_json"` and the initial card JSON;
+Feishu/Lark assistant output uses one evolving logical CardChain per visible
+Agent Turn. Its usual shape is one CardKit JSON 2.0 card. When the cumulative
+Markdown crosses the safe per-card budget, completed prefix cards become
+immutable and the active tail continues streaming. The chain is a work surface,
+not a transcript of model events. At any time it should answer three human
+questions: whether the request was received, what is happening or still needed,
+and what result or next action is available. Continuity matters more than
+animation, so the same chain moves from working to terminal state instead of
+posting a trail of status messages.
+
+CardKit is the first visible surface. The adapter never starts with a text
+placeholder and replaces it with a card later. A short creation debounce may
+avoid flashing a working shell for a sub-second answer; if the turn finishes
+during that window, its first visible object is the finalized CardKit card.
+Plain markdown is reserved for terminal delivery recovery after CardKit itself
+cannot be delivered.
+
+### Interaction principles
+
+Human attention, agency, and trust are the design constraints:
+
+- Show progress only when it reduces uncertainty. Token motion and every
+  function call are not useful progress by themselves.
+- Preserve the answer as the dominant surface. Status, plan, evidence, and
+  receipts support the answer instead of competing with it.
+- Expose a control only when it changes real system state. Internal Agent todo
+  items must not look like user-owned checkboxes.
+- Distinguish a claim, the evidence used to support it, and a side effect that
+  actually happened. A successful tool invocation is not automatically a
+  successful user outcome.
+- Use progressive disclosure. The current step stays visible; verbose activity
+  and diagnostics live in collapsible panels or an authorized trace.
+- End with unambiguous closure. A terminal card never continues to look busy,
+  and it does not retain transient reasoning merely to demonstrate effort.
+
+### Visible lifecycle
+
+The preview lifecycle belongs to SignalsGateway's `AIReplyPreview` process.
+Response terminal events do not decide that the Agent Turn is finished.
+`turn_completed`, explicit stop, an interaction request, or the owned failure
+path moves the visible card into a terminal or waiting state.
+
+| State | Visible treatment | Allowed transition |
+| --- | --- | --- |
+| `debouncing` | No provider message for at most 500ms. | Open a working card, or create the final card directly. |
+| `working` | Compact status, optional plan, streamed answer, and folded activity. | Complete, fail, stop, or ask for input. |
+| `awaiting_input` | Streaming is closed; the question and real buttons or a form become primary. | A callback records one answer and disables all controls. |
+| `completed` | Final answer and useful result blocks remain; process detail is folded or removed. | No further model updates. |
+| `failed` | Preserve useful partial output, label it incomplete, and offer a retry when safe. | A retry starts a new Agent Turn. |
+| `stopped` | Preserve useful partial output and show `已停止`. | Continue or retry starts a new Agent Turn. |
+| `scheduled` | Show a durable receipt describing what will run and when. | The later run reports through its own event or turn. |
+
+The stable working-card skeleton uses short CardKit element ids such as
+`state`, `plan`, `thought`, `answer`, `results`, `receipts`, `activity`,
+`actions`, and `meta`. Stable ids let the renderer update one semantic region
+without rebuilding unrelated content. Empty regions are omitted rather than
+rendered as headings with no content.
+
+The order is status, current plan, transient thought, answer, rich results,
+side-effect receipts, folded activity, actions, and a quiet metadata footer.
+Once answer text exists, the status visually recedes. The footer may show
+elapsed time and source count; model name, tokens, and raw tool names are debug
+information and do not belong in the normal card.
+
+### Reasoning and activity
+
+If the upstream model API explicitly emits provider-visible reasoning text, the
+working card may stream that original text into a collapsible `思考草稿` panel.
+It is labeled as provisional and may change. This rule does not synthesize or
+request hidden chain-of-thought from a model that did not expose it.
+
+The `thought` element exists only while `working`. It is deleted before
+`awaiting_input`, `completed`, `failed`, or `stopped` is rendered, rather than
+merely collapsed. The presentation layer must not copy it into the terminal
+outbox payload, message mirror, search index, card summary, or fallback text.
+Long reasoning uses a bounded rolling display so it cannot consume the card's
+content budget. An authorized sealed trace may retain other redacted
+diagnostics, but it does not retain or link to this reasoning projection.
+
+Because a provider card outlives its Preview process, visible thought is a
+leased state. Creating the `thought` element also records an idempotent cleanup
+deadline in the PostgreSQL preview checkpoint. Normal finalization clears that
+marker; owner restart, turn expiry, or recovery removes the element and closes
+streaming. CardKit's automatic stream close is not sufficient because it would
+leave the last thought text visible.
+
+Function calling is projected as human-readable activity, not raw protocol.
+The presentation maps calls to verbs such as `检索资料`, `分析数据`,
+`生成文件`, `更新记忆`, or `等待后续检查`. Parallel calls are grouped into
+one status such as `正在同时处理 3 项`. Fast, low-value reads are coalesced;
+long or consequential work gets an activity row. Raw names, arguments, outputs,
+provider payloads, and stack traces remain in the authorized trace after
+redaction.
+
+A side-effecting tool leaves a terminal receipt only after its owning subsystem
+confirms the effect. The receipt states what changed, where, and whether a
+follow-up is pending. Read-only tools normally disappear into the answer or a
+source count. Tool failure remains visible only when it changes the result or
+the user can act on it; otherwise the agent may recover without creating alarm
+noise.
+
+### Todo and memory semantics
+
+The Agent's internal todo tool is a live plan, not a user task list. It emits a
+full, revisioned `plan.snapshot` keyed by stable item ids. The card shows the
+current item, `x / y` progress, at most a few surrounding items, and one
+in-progress marker. Repeated todo calls replace the snapshot instead of
+appending logs. At completion, a successful internal plan becomes one folded
+execution summary; incomplete or failed items remain visible only when they
+explain a limitation or require user action.
+
+An internal todo never uses CardKit checker controls. A checker is appropriate
+only for a real user-owned task whose callback updates the durable task through
+an authorized, idempotent command. In that case it is a product interaction,
+not a visual rendering of the model's scratchpad.
+
+Memory reads show a restrained live state such as `正在回忆相关上下文` only
+after a latency threshold. On success, the answer may say that relevant memory
+was used or show a small source count; it does not expose embeddings, similarity
+scores, raw search queries, or internal ids.
+
+Memory creation, correction, and deletion are consequential side effects, so a
+terminal receipt states exactly what was remembered, updated, or forgotten and
+its scope. Any `查看`, `更正`, or `删除` action carries a durable memory id,
+expected revision, principal context, and idempotency key. The callback
+re-authorizes the acting Principal; a visually present button is never treated
+as authority.
+
+The same projection rule applies across common tool classes:
+
+| Semantic work | While it runs | What may remain at terminal |
+| --- | --- | --- |
+| Internal todo | Current item and bounded plan context. | Folded completion summary, or an actionable incomplete item. |
+| Memory lookup | Delayed, quiet recall status. | Optional source count; no internal retrieval data. |
+| Memory mutation | `正在更新记忆` with the affected scope. | Confirmed create, update, or delete receipt. |
+| Search or read | A status only when latency is noticeable. | Sources that materially support the answer. |
+| Computation | Human description of the calculation. | Typed table, chart, or concise result with units. |
+| Artifact creation | Artifact name and meaningful generation stage. | Preview plus open/download action. |
+| External write | Target and pending state without claiming success. | Confirmed effect receipt or actionable failure. |
+| Deferred work | Scheduling or delegation state. | Durable schedule/delegation receipt, never an indefinite spinner. |
+
+### Component policy
+
+Components are selected from typed presentation data. The renderer never
+scrapes arbitrary Markdown, tool stdout, or model JSON to guess that a table,
+chart, form, or action should exist, and the model never emits trusted CardKit
+JSON directly.
+
+- **Markdown** is the default answer and explanation surface. Preserve standard
+  headings, lists, links, tables, and fenced code blocks. During an incomplete
+  fence or table, the preview renderer buffers at a safe boundary or supplies a
+  display-only closing delimiter; the exact final Markdown replaces it.
+- **Collapsible panels** contain transient thought, detailed activity, sources,
+  or an execution summary. The answer itself is never hidden inside one.
+- **Buttons** are reserved for stop, retry, approve, clarify, open artifact, or
+  open an authorized trace. Use one primary action and a small number of
+  secondary actions. Clarification and approval controls appear only after
+  streaming is closed. A stop button may remain available while working, but
+  its callback closes streaming before it changes or updates card state.
+- **Tables** render typed, comparison-oriented results with a bounded row and
+  column count. Large data becomes an attached artifact with a small preview.
+  Generic tool output is never poured into a table.
+- **Charts** render typed numeric series with units, labels, provenance, and a
+  textual takeaway. Prefer one decisive chart over a dashboard, and provide a
+  text or table fallback for clients where the chart is inaccessible.
+- **Forms** are used only when the Agent needs several structured fields at
+  once. A single choice uses buttons and free-form clarification uses the normal
+  reply composer. Forms never collect secrets.
+- **Images** show a generated artifact or evidence that materially improves the
+  answer. Typed image results already carry an uploaded Feishu image key. For a
+  remote HTTP(S) Markdown image, the adapter resolves redirects, classifies
+  every hop with the shared kernel URL classifier, downloads the image, uploads
+  it to Feishu, and replaces only the rendered URL with the resulting image key.
+  This resolution is always available: `security.ssrf_filter` controls whether
+  private and intranet targets are rejected, defaults to `false`, and never
+  permits cloud metadata endpoints. The durable checkpoint stores the URL-to-key
+  result so a restart does not fetch or upload the same image again. A failed
+  image remains ordinary Markdown instead of failing the answer.
+- **Column sets** group a few comparable metrics or actions and must degrade
+  cleanly to a single mobile column. Tables and forms are not nested in them.
+- **Recycling containers** are not part of the direct runtime renderer while
+  they remain a card-builder/template capability rather than a CardKit Card
+  JSON component. The renderer does not introduce a second template pipeline
+  merely to obtain that layout.
+
+### Provider-neutral presentation
+
+Raw model events do not carry enough meaning to produce this UI. Agent Computer
+therefore emits turn-fenced, renderer-safe presentation events around owned
+tool execution. They use the existing worker progress transport, including the
+full TurnRef, rather than inventing durable control-plane state in the worker.
+Useful event kinds include:
+
+- `turn.phase` and `reasoning.delta` for transient state;
+- `plan.snapshot` for internal todo state;
+- `tool.activity` for a safe human summary and phase;
+- `memory.lookup` and `memory.mutation_receipt` for memory semantics;
+- `result.table`, `result.chart`, and `artifact.available` for typed results;
+- `interaction.request` for an owned clarification or approval; and
+- `effect.receipt` for a confirmed external side effect.
+
+Every event carries a stable operation or call id, phase, revision, and semantic
+projection. The control plane fences stale turns and merges the events into a
+provider-neutral `ReplyPresentation` snapshot. Lark maps that snapshot to
+CardKit; adapters without rich output render its fallback text. Tool-specific
+code owns the safe projection because only that code knows which arguments,
+results, and effects are meaningful.
+
+Live progress may remain ephemeral, but terminal rich output cannot depend on a
+Preview process surviving. At `turn_completed` the worker supplies, or the
+control plane reconstructs from durable domain truth, a bounded terminal
+`ReplyPresentation`. The durable outbox stores that provider-neutral snapshot
+and `fallback_visible_text`. CardKit JSON is a rendering of that truth, not the
+only copy of it. Transient `reasoning.delta` content is explicitly excluded.
+
+### Recovery boundary
+
+Card recovery is conditional process recovery, not infrastructure durability.
+Ankole promises to reuse the same provider card after its own worker or control
+plane process crashes when PostgreSQL still contains the preview checkpoint and
+Feishu/Lark still retains the card entity. Temporary PostgreSQL or provider
+unavailability is recovered when the cost is low: checkpoint writes and final
+outbox delivery wait and retry, while CardKit operations resume after the
+provider returns. Permanent database state loss, provider card deletion, and
+provider-side state corruption remain outside same-card recovery. Redis failure
+would have the same boundary, so adding Redis would not improve this guarantee.
+
+Temporary unavailability and permanent state loss are different cases:
+
+- During a PostgreSQL outage, a live owner may keep a bounded in-memory preview
+  and retry its checkpoint. If that owner also crashes before PostgreSQL accepts
+  the checkpoint, losing the uncommitted preview state is allowed.
+- During a Feishu/Lark outage, PostgreSQL retains the provider identities,
+  checkpoint, and terminal outbox intent. Preview updates pause after a bounded
+  fast retry budget; terminal delivery continues at low frequency after that
+  budget rather than becoming a silent permanent failure.
+- When the provider returns, an existing card is updated or finalized in place.
+  A missing, expired, recalled, or otherwise unusable card becomes a new
+  finalized CardKit message linked to the same terminal outbox intent.
+
+The live text, reasoning, and tool-event stream remains in-process. PostgreSQL
+stores only a bounded recovery checkpoint: provider identities, AIGateway
+conversation identity, CardKit sequence allocation, stream deadline, structural
+presentation state, and a coalesced answer snapshot. It does not store every
+token or raw reasoning. Losing changes since the last checkpoint is acceptable;
+the next cumulative answer update or terminal `ReplyPresentation` repairs the
+card.
+
+A worker crash normally does not kill the control-plane Preview owner, so the
+same `CardSession` stays attached while ActorRuntime retries the open
+ActorEvent. A control-plane crash does kill that owner. On boot, preview
+recovery follows the existing PostgreSQL event pattern:
+
+1. `LISTEN` for preview-checkpoint changes and commit the subscription;
+2. snapshot open ActorEvents that already have an active preview checkpoint;
+3. adopt each eligible card through the current ActorRuntime owner and recover
+   any pending logical mutation with its exact CardKit sequence and UUID; and
+4. use later notifications only as wakeups, always reading current row state.
+
+`LISTEN/NOTIFY` is not the recovery log. Notifications can be missed while the
+listener is down, which is why subscription is followed by a database snapshot
+and every wakeup re-reads PostgreSQL. Phoenix.PubSub remains the local live-delta
+fanout. Neither mechanism needs Redis Streams because exact replay of transient
+preview deltas is outside the guarantee.
+
+### Provider constraints
+
+The renderer treats CardKit's limits as product behavior rather than late API
+errors:
+
+- [Streaming CardKit](https://open.feishu.cn/document/cardkit-v1/streaming-updates-openapi-overview)
+  requires Card JSON 2.0 and a Feishu/Lark 7.20-or-newer client. Older clients
+  show the platform upgrade fallback, so installation diagnostics must state
+  that client requirement instead of pretending that the rich answer rendered.
+- One card accepts at most ten CardKit mutations per second and streaming mode
+  automatically closes after ten minutes. The session coalesces below that
+  rate and begins an orderly terminal or continuation transition before the
+  deadline.
+- [Card creation](https://open.feishu.cn/document/cardkit-v1/card/create)
+  requires `update_multi = true`, permits one send per card entity, and keeps
+  the entity operable for 14 days. A card therefore has shared visible state;
+  per-user authorization still happens on every callback.
+- Card JSON stays below 30KB and 200 total elements. Containers stay within five
+  levels, and every mutable `element_id` uses only letters, digits, and
+  underscores, starts with a letter, and is at most 20 characters.
+- Every component, content, batch, and settings mutation shares one strictly
+  increasing positive int32 `sequence`. One logical retry reuses its UUID but
+  never allocates a second sequence.
+- An open streaming card cannot directly update itself through an interaction
+  callback. The callback path first closes streaming through CardKit, then
+  records and renders the authorized interaction result.
+
+### CardKit session and update flow
+
+`AIReplyPreview` owns the turn lifecycle and calls an explicit adapter preview
+contract: open, apply a semantic presentation revision, and finalize. The Lark
+adapter owns one serialized CardChain session per logical reply. It is the only
+owner that assigns CardKit sequence numbers, seals prefix cards, advances the
+active tail, or mutates elements and settings; status, answer, rollover, and
+finalization writes may not race through independent tasks.
+
+With `FeishuOpenAPI`, the initial REST flow is:
+
+1. `POST cardkit/v1/cards` with `type = "card_json"` and the working or final
+   Card JSON;
 2. send or reply an `im/v1/messages` interactive message whose content is
    `{type: "card", data: {card_id}}`;
-3. update the status element with `PATCH cardkit/v1/cards/:card_id/elements/:id`;
-4. update cumulative answer text with
-   `PUT cardkit/v1/cards/:card_id/elements/:id/content` when the new text is a
-   suffix of the last confirmed text;
-5. replace the markdown element with `PATCH .../elements/:id` when the final
-   text is not a suffix of the preview;
-6. close streaming mode on finish with
-   `PATCH cardkit/v1/cards/:card_id/settings`.
+3. apply cumulative answer text with
+   `PUT cardkit/v1/cards/:card_id/elements/:id/content`;
+4. patch one element for a local semantic change, or use a batch update when
+   card structure changes;
+5. when the answer crosses the page budget, close the current card, persist its
+   source range, create and send the next continuation card, then continue only
+   on that active tail; and
+6. close streaming in its own ordered mutation, perform any best-effort stale
+   element cleanup, then batch-render the terminal structure with later
+   sequence numbers.
 
-The initial status text is `思考中…` in the provider card. If a trace URL is
-present, the card includes a `查看推理` button that opens the sealed trace link.
-That button is a direct Card JSON 2.0 button element with `open_url` behavior,
-not an action-wrapper element.
-
-The card send prefers a reply anchored to the trigger message when possible. If
-the trigger was recalled, it falls back to a chat-level card post just like
-normal replies. Streaming replies pass `reply_in_thread: false` so the answer
+The card send prefers a reply anchored to the trigger message. If the trigger
+was recalled, it falls back to a chat-level card post for the known
+withdrawn/not-found errors. It passes `reply_in_thread: false` so the answer
 stays in the normal chat surface.
 
-Streaming updates are best-effort progress, not final output truth. The adapter
-throttles updates by interval, accumulated new characters, and natural text
-boundaries. It keeps sequence numbers strictly increasing across element and
-settings writes. It merges overlapping text deltas into cumulative text, so a
-late suffix update does not duplicate already shown content.
+The process-recoverable preview checkpoint contains at least its schema version,
+ordered card ledger, active-tail index, each provider `card_id` and `message_id`,
+per-page answer byte range and digest, AIGateway conversation id, streaming
+state, stream deadline, resolved Markdown image map, last checkpointed
+`ReplyPresentation` without reasoning, retry UUID, and a CardKit sequence
+high-water mark. It lives with the ActorEvent preview state, not in AIGateway
+metadata. Before each coalesced provider mutation, the session atomically
+persists its purpose, content digest, next sequence, and UUID under the
+ActorEvent row lock. A retry or process restart with the same logical mutation
+reuses that exact sequence and UUID; a changed mutation receives the next
+sequence. Gaps are valid, sequence reuse is not.
+
+Answer text is cumulative. Prefix growth on the active tail uses the content API
+for CardKit's typewriter behavior; a correction replaces that tail element.
+Crossing the page budget first closes the old tail, persists its exact source
+prefix, creates the next card, and sends it as a normal top-level continuation.
+Only the active tail carries transient thought, progress, rich results, or
+actions. A later answer that rewrites an already sealed prefix cannot be made
+visually consistent, so terminal delivery sends one complete durable fallback
+rather than silently leaving contradictory cards. Status and plan updates are
+semantic snapshots. The session coalesces rapid revisions, flushes on natural
+boundaries, and stays comfortably below CardKit's per-card update limit rather
+than treating that limit as a target.
 
 The provider can briefly reject a newly created `card_id` as not visible yet.
-The adapter retries only that known invalid-card-id race, using the same retry
-budget as Bun: 250ms, 750ms, 1500ms, 3000ms, and 5000ms. Other provider errors
-are not hidden behind that retry rule.
+The adapter retries only that known invalid-card-id race, using 250ms, 750ms,
+1500ms, 3000ms, and 5000ms with the same logical UUID. Other errors are
+classified explicitly. If the initial send fails, preview attempts stop for the
+turn instead of retrying on every delta; durable terminal delivery remains
+active.
 
-Provider write failures during streaming are isolated. Preview writes may fail
-and later writes may recover. The first successful preview send stores its
-provider entry id on the ActorEvent; it is not stored in AIGateway metadata.
-After `turn_completed` passes SignalsGateway's Response-chain and fence checks,
-the same transaction writes the adopted final text, clarify, or attachment as a
-durable outbox operation and completes the ActorEvent. A known preview entry id
-selects an edit; otherwise the outbox sends a new entry. Provider success then
-mirrors into `signal_gateway_entries` with the final Response backref. A dead
-preview may leave a stale card temporarily, but no Response-terminal recovery
-scanner guesses that a completed Response ended an Agent Turn.
+Provider failures map to recovery actions rather than one generic retry count:
 
-The card finish surface supports three renderings: cancelled output displays
-`已停止`, failed output displays `出错了`, and empty final text displays
-`（无内容）`. Under the current control-plane policy, a failed generation does
-not create a final outbox operation, while explicit stop terminates its preview;
-no new provider message is posted merely because a Response failed. The failure
-renderings remain adapter capability for callers that do close a stream with
-those outcomes. Failing to disable card streaming mode after final text is a
-visual blemish, not a state rollback.
+- Network failures, timeouts, rate limits, retryable server errors such as
+  `300120`, and ambiguous acknowledgements retry the same logical mutation with
+  the same UUID and sequence. Preview pauses after its fast retry budget, while
+  the terminal outbox intent remains pending with capped low-frequency backoff.
+- When streaming has timed out or closed (`200850` or `300309`), an active turn
+  reopens streaming before continuing. A terminal turn updates and finalizes the
+  active tail without typewriter effects.
+- A missing or expired card entity (`200740` or `200750`) cannot satisfy
+  same-card recovery. Terminal delivery creates a new finalized card from the
+  persisted outbox intent and records the replacement provider identities.
+- Authentication, permission, and invalid-payload failures are
+  operator-actionable rather than transient. Preview stops, while terminal
+  delivery retains a visible blocked intent that configuration repair can wake;
+  it does not discard the answer.
 
-Streaming-card markdown should convert fenced code blocks into line-wise inline
-code because Feishu/Lark card markdown does not reliably accept ordinary fenced
-blocks in that update path.
+An ambiguous CardKit acknowledgement may leave PostgreSQL conservatively
+recording a transient element that Feishu never created. Terminal cleanup
+therefore treats provider error `300314` for a missing `element_id` as an
+idempotent delete outcome. Cleanup is sequenced separately from terminal answer,
+state, result, and action mutations, so one absent optional element cannot
+reject the durable result.
 
-The final CardKit summary is a whitespace-collapsed preview capped at about 80
-characters. It is only provider UI metadata; it is not the answer body.
+The renderer keeps a soft budget below the provider maximum, currently 24KB and
+160 elements. Answer Markdown is segmented at semantic or Unicode-safe
+boundaries into approximately 12KB source pages; fenced code receives
+display-only closing and reopening fences while the durable source remains
+byte-for-byte lossless. Optional thought and activity disappear first, then
+oversized typed detail and plan summaries degrade before the answer. It never
+truncates the final answer silently. Before CardKit's streaming lifetime is
+exhausted, it removes leased thought and may close streaming; if the provider
+closes the stream first, a later delta reopens streaming on the active tail with
+a higher persisted sequence. Plain-text chunks are reserved for deterministic
+provider failure or an impossible sealed-prefix rewrite, not normal long output.
 
-Reasoning trace links inside cards are authorized by sealed trace tokens. The
-adapter does not rely on user-agent checks to decide whether the link is valid.
+### Terminal delivery and recovery
+
+Finalization is a provider operation with an observable commit point:
+
+1. flush the exact final answer and required rich results;
+2. close streaming mode;
+3. batch-render the terminal status, receipts, metadata, and actions while
+   deleting `thought` and other transient regions;
+4. record provider acknowledgement against the durable outbox entry; and
+5. mirror the final Response only after durable delivery succeeds.
+
+If final content is confirmed but closing or terminal decoration fails, recovery
+continues on the same CardChain without posting a duplicate answer. If the
+active preview card is missing or cannot be finalized, the durable AI-reply
+operation creates and sends a new finalized CardKit card. A deterministic CardKit-specific
+rejection may then degrade to a new plain-markdown message when ordinary message
+delivery is still available. Generic provider unavailability does not cycle
+through both formats; it leaves the same durable intent pending. Preview code
+never posts this fallback, so errors such as an expired message-edit window
+cannot lose the result or create a burst of duplicates.
+
+Retryable provider unavailability keeps a durable AI-reply outbox entry pending
+with capped low-frequency backoff. It does not become a silent permanent failure
+only because the generic `max_attempts` budget was exhausted. A permanent
+contract, authentication, or authorization error moves the entry to an
+operator-visible blocked state; a relevant configuration change explicitly
+wakes it for another attempt. Preview updates may stop retrying much earlier
+because their latest cumulative snapshot and terminal reply supersede missed
+intermediate frames.
+
+This policy extends the existing outbox instead of adding a broker. The commit
+path marks terminal assistant delivery with an explicit durable-AI-reply
+delivery class. Its existing payload, idempotency key, attempt counter,
+`next_attempt_at`, error, and recovery fields carry the retry. For this class,
+`max_attempts` ends only the fast retry phase and enters capped long-tail retry;
+generic side effects keep their finite retry ceiling. An operator-actionable
+failure may reuse `failed` with no deadline plus structured recovery state, so a
+new status value is not required merely to implement the recovery guarantee.
+
+A completed card shows the exact answer, useful results, effect receipts, and a
+whitespace-collapsed summary of about 80 characters. A stopped card preserves
+useful partial output and shows `已停止`. When `/stop` or `/new` cancels an
+active turn that already owns a preview, SignalsGateway commits that stopped
+presentation through the durable AI-reply outbox and finalizes the same card;
+the cancelled worker's later completion is fenced. A failed card preserves
+useful partial output, marks it incomplete, and exposes a safe retry when
+appropriate. Empty final output displays `（无内容）`. Failing to close streaming
+mode is a recoverable provider-delivery defect, not a successful finalization.
+
+CardKit entities always use `update_multi = true` as required by the create API.
+Callbacks acknowledge promptly, verify Principal authority and expected
+revision, record an idempotent command, and perform slow work asynchronously.
+Streaming is closed before the callback updates the card, accepted controls
+become disabled, and duplicate or stale callbacks return the current state
+without repeating a side effect.
+
+Card Markdown and action values are sanitized at the renderer boundary. The
+model cannot create trusted mentions or callback commands. Remote Markdown
+images pass through the adapter-owned resolver and shared SSRF classifier; the
+model never supplies a Feishu upload credential or bypasses URL validation.
+Visual state is not conveyed by color alone, interactive
+elements have useful labels, images have alt text, and the layout is tested in
+both desktop and narrow mobile clients. Diagnostic trace links are authorized by
+sealed trace tokens rather than user-agent checks. Those traces do not
+restore transient `reasoning.delta` content after the working state ends.
+
+### Verification contract
+
+Provider-independent tests prove semantic merging, stale-turn fencing, plan
+snapshot replacement, reasoning removal at every non-working state, action
+authorization, Markdown byte-lossless pagination, URL/image policy, and
+fallback-text parity. A recording CardKit client proves one serialized mutation
+stream, ordered multi-card continuation, strictly increasing sequence values
+across restart, UUID reuse on an ambiguous tail send, content-budget
+degradation, and finalize-without-duplicate recovery.
+
+Environment-backed Feishu tests cover a fast final answer, long Markdown with
+partial code fences, parallel tools, todo revision, memory read and mutation,
+typed table/chart/image output, clarification buttons and free-form replies,
+stop, provider
+disconnect, control-plane process restart while thought is visible, worker
+restart, the ten-minute boundary, a recalled trigger, and a finalization error
+that must fall back to a new message. The test passes only when the user sees a
+terminal result and SignalsGateway mirrors that same Response; a green provider
+call alone is not sufficient.
+
+Recovery tests leave PostgreSQL and Feishu intact, kill and restart the worker
+or control-plane owner, then require reuse of the same `card_id`. They also hold
+Feishu unavailable across both the fast retry budget and the generic outbox
+attempt budget, then require eventual terminal delivery after recovery. A short
+outage resumes the existing card; a stream timeout or close (`200850` or
+`300309`) reopens or finalizes that card; a missing or expired card (`200740` or
+`200750`) creates exactly one replacement final card. Permanent PostgreSQL data
+loss, permanent provider-state loss, and exact replay of uncheckpointed preview
+deltas remain outside this contract.
 
 ## Identity Provider
 

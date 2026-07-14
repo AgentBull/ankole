@@ -15,19 +15,25 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
 
   provider :openrouter do
     label(%{"default" => "OpenRouter", "zh-Hans-CN" => "OpenRouter"})
-    base_url("https://openrouter.ai/api/v1")
+    base_url("https://openrouter.ai/api/v1", advanced: true)
 
     setting(:api_key, encrypted: true)
-    setting(:headers, type: :map)
-    setting(:query_params, type: :map)
-    setting(:app_referer, default: @default_referer)
-    setting(:app_title, default: @default_title)
+    setting(:headers, type: :map, advanced: true)
+    setting(:query_params, type: :map, advanced: true)
+    setting(:app_referer, default: @default_referer, advanced: true)
+    setting(:app_title, default: @default_title, advanced: true)
 
-    setting(:user, scope: :request)
-    setting(:reasoning, scope: :request)
-    setting(:reasoningEffort, scope: :request)
+    setting(:user, scope: :request, advanced: true)
+
+    setting(:reasoningEffort,
+      type: :select,
+      default: ReasoningEffort.default(),
+      options: ReasoningEffort.values(),
+      scope: :request
+    )
+
     setting(:textVerbosity, scope: :request)
-    setting(:strictJSONSchema, scope: :request)
+    setting(:strictJSONSchema, type: :boolean, scope: :request, advanced: true)
 
     language_model do
       upstream(:sse)
@@ -60,7 +66,7 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
     |> UniversalAIRequest.new("chat/completions", :openai_chat_completions)
     |> common_headers(ctx)
     |> UniversalAIRequest.bearer_auth()
-    |> ReasoningEffort.put_provider_options(ctx, skip_if_present: ["reasoning"])
+    |> ReasoningEffort.put_provider_options(ctx, target: :reasoning)
   end
 
   @doc """

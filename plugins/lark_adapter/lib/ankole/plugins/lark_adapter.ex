@@ -12,6 +12,7 @@ defmodule Ankole.Plugins.LarkAdapter do
   alias Ankole.Plugins.LarkAdapter.IMGroups
   alias Ankole.Plugins.LarkAdapter.Inbound
   alias Ankole.Plugins.LarkAdapter.Outbox
+  alias Ankole.Plugins.LarkAdapter.CardKit
 
   @impl true
   def plugin_id, do: "lark-adapter"
@@ -54,6 +55,7 @@ defmodule Ankole.Plugins.LarkAdapter do
         supported_group_message_modes: ["addressed_only", "observe_all", "may_intervene"],
         ingress_module: Inbound,
         outbox_module: Outbox,
+        reply_preview_module: CardKit,
         connection_supervisor: ConnectionSupervisor,
         binding_saved_module: IMGroups,
         inbound_capabilities: [

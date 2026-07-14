@@ -53,11 +53,8 @@ describe('@ankole/agent-computer subagent runtime files', () => {
       mission: 'MISSION: Deliver reliable work.',
       brainSnapshot: {
         pinned_memo: {
-          entry_id: '00000000-0000-7000-8000-000000000021',
-          name: 'Agent memo',
-          markdown: 'Always verify the final artifact.',
-          truncated: false,
-          store: 'public'
+          resident_text: 'Always verify the final artifact.',
+          truncated: false
         }
       },
       background: 'The audience is the operations team.',
@@ -97,7 +94,6 @@ describe('@ankole/agent-computer subagent runtime files', () => {
       expect(agents).toContain('# Existing project guidance')
       expect(agents).toContain('## SOUL\n\nSOUL: Evidence first.')
       expect(agents).toContain('## MISSION\n\nMISSION: Deliver reliable work.')
-      expect(agents).toContain('## Frozen Brain Snapshot')
       expect(agents).toContain('Always verify the final artifact.')
       expect(agents).toContain('Projected Brain tools may read and write durable memory')
       expect(agents).toContain('## Background\n\nThe audience is the operations team.')

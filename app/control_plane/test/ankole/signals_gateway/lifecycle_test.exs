@@ -466,7 +466,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
   end
 
   describe "negative storage assertions" do
-    test "gateway storage does not contain resolver, observation, lifecycle, or second outbox abstractions" do
+    test "gateway storage keeps only canonical thread identity and no duplicate abstractions" do
       columns =
         SQL.query!(
           Repo,
@@ -481,7 +481,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
       refute Enum.any?(columns, fn [_table, column] -> column == "resolver_key" end)
       refute Enum.any?(columns, fn [_table, column] -> column == "observed_only" end)
 
-      refute Enum.any?(columns, fn [table, column] ->
+      assert Enum.any?(columns, fn [table, column] ->
                table == "signal_gateway_entries" and column == "provider_thread_id"
              end)
 

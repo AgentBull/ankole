@@ -19,8 +19,8 @@ defmodule Ankole.AIGateway do
   alias Ankole.AIGateway.StatefulLifecycle
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIGateway.UniversalAIRequest
-  alias Ankole.AIGateway.WebToolsPolicy
   alias Ankole.Kernel, as: NativeKernel
+  alias Ankole.Security.SSRFFilter
 
   @stateful_http_fields ~w(previous_response_id conversation store)
 
@@ -378,8 +378,8 @@ defmodule Ankole.AIGateway do
 
   def create_web_fetch(subject_uid, request, opts) when is_map(request) do
     with {:ok, runtime} <- Resolver.resolve_request_model(subject_uid, "web_fetch", request),
-         {:ok, block_private_network?} <- WebToolsPolicy.block_private_network?(subject_uid),
-         :ok <- validate_web_fetch_request(request, block_private_network?),
+         {:ok, ssrf_filter?} <- SSRFFilter.enabled?(subject_uid),
+         :ok <- validate_web_fetch_request(request, ssrf_filter?),
          request = normalize_request_keys(request),
          {:ok, body} <- execute_web_fetch(runtime, request, opts) do
       {:ok, gateway_response(200, body, runtime)}
@@ -484,14 +484,14 @@ defmodule Ankole.AIGateway do
     end
   end
 
-  defp validate_web_fetch_request(request, block_private_network?) do
+  defp validate_web_fetch_request(request, ssrf_filter?) do
     request = normalize_request_keys(request)
 
     cond do
       not Map.has_key?(request, "urls") ->
         {:error, :missing_urls}
 
-      not valid_extract_urls?(Map.get(request, "urls"), block_private_network?) ->
+      not valid_extract_urls?(Map.get(request, "urls"), ssrf_filter?) ->
         {:error, :invalid_urls}
 
       true ->
@@ -531,25 +531,25 @@ defmodule Ankole.AIGateway do
   defp valid_web_limit?(value) when is_integer(value), do: value >= 1 and value <= 100
   defp valid_web_limit?(_value), do: false
 
-  defp valid_extract_urls?(urls, block_private_network?)
+  defp valid_extract_urls?(urls, ssrf_filter?)
        when is_list(urls) and urls != [] and length(urls) <= 5,
-       do: Enum.all?(urls, &safe_web_url?(&1, block_private_network?))
+       do: Enum.all?(urls, &safe_web_url?(&1, ssrf_filter?))
 
-  defp valid_extract_urls?(_urls, _block_private_network?), do: false
+  defp valid_extract_urls?(_urls, _ssrf_filter?), do: false
 
   # URL parsing and host classification live in the native kernel so the
   # provider path and the Agent Computer web/browser guards share one
   # classifier. Cloud metadata endpoints classify as `:metadata` and are
-  # rejected regardless of the `web_tools.block_private_network` policy.
-  defp safe_web_url?(url, block_private_network?) when is_binary(url) do
+  # rejected regardless of the `security.ssrf_filter` policy.
+  defp safe_web_url?(url, ssrf_filter?) when is_binary(url) do
     case NativeKernel.web_url_facts(url) do
       %{scheme: "https", host_class: :public} -> true
-      %{scheme: "https", host_class: :private} -> not block_private_network?
+      %{scheme: "https", host_class: :private} -> not ssrf_filter?
       _facts_or_error -> false
     end
   end
 
-  defp safe_web_url?(_url, _block_private_network?), do: false
+  defp safe_web_url?(_url, _ssrf_filter?), do: false
 
   defp non_empty_string?(value) when is_binary(value), do: String.trim(value) != ""
   defp non_empty_string?(_value), do: false

@@ -1418,6 +1418,7 @@ defmodule Ankole.ScheduleTest do
       Map.merge(
         %{
           worker_id: "worker-" <> route,
+          incarnation_id: "incarnation-" <> route,
           runtime: "bun",
           version: "test",
           capacity: %{"available_turn_slots" => 4}

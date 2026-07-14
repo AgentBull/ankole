@@ -382,7 +382,7 @@ model through the `web_fetch` capability and dispatches only to
 provider-backed extraction. Literal cloud metadata-host URLs are always
 rejected before provider dispatch; literal localhost, private, link-local,
 loopback, and CGNAT URLs are additionally rejected when the
-`web_tools.block_private_network` AppConfigure key is enabled (default off;
+`security.ssrf_filter` AppConfigure key is enabled (default off;
 see the WebTools design doc). Responses are
 normalized to `success` plus `results`, where each result includes at least the
 requested `url` and may include `title`, `content`, `text`, `markdown`,
@@ -827,6 +827,12 @@ Nothing in the stateful path assumes a long-lived process. Recovery rules:
 - There is no half-stream recovery. The current version keeps no stable item
   snapshots and no content version counter. A broken stream costs one round:
   the stale row goes to `error`, and the round is re-sent.
+- A control-plane crash can persist a function call before its function output
+  reaches the message chain. Before replay, AIGateway detects each dangling
+  call and appends a synthetic `function_call_output` whose structured error is
+  `tool_execution_interrupted`. This restores a provider-valid chain without
+  claiming that the tool succeeded; the resumed model may retry or explain the
+  interruption.
 - A worker reconnect restores tool-execution context only. The worker does not
   repair history; it continues from ids it holds or its owning runtime starts a
   new execution. Failed rows keep their audit content under `status = "error"`.

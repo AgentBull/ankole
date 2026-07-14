@@ -179,30 +179,30 @@ describe('@ankole/agent-computer browser CDP runtime', () => {
     ).rejects.toThrow('cloud metadata')
   })
 
-  it('blocks non-public navigation before any browser backend work when the policy is on', async () => {
+  it('blocks non-public navigation before any browser backend work when SSRF filtering is on', async () => {
     await expect(
       browser.browserNavigate(
         { session: `private-block-${Date.now()}`, url: 'https://10.0.0.8/internal' },
-        { blockPrivateNetwork: true }
+        { ssrfFilter: true }
       )
-    ).rejects.toThrow('web_tools.block_private_network')
+    ).rejects.toThrow('security.ssrf_filter')
 
     await expect(
       browser.browserExtractFromSession(
         { session: `private-block-extract-${Date.now()}`, url: 'https://localhost/internal' },
-        { blockPrivateNetwork: true }
+        { ssrfFilter: true }
       )
-    ).rejects.toThrow('web_tools.block_private_network')
+    ).rejects.toThrow('security.ssrf_filter')
   })
 
-  it('applies the private-network URL policy only when enabled', () => {
+  it('applies SSRF filtering only when enabled', () => {
     expect(() => assertSafeBrowserURL('https://10.0.0.8/internal')).not.toThrow()
-    expect(() => assertSafeBrowserURL('https://10.0.0.8/internal', { blockPrivateNetwork: false })).not.toThrow()
-    expect(() => assertSafeBrowserURL('https://10.0.0.8/internal', { blockPrivateNetwork: true })).toThrow(
-      'web_tools.block_private_network'
+    expect(() => assertSafeBrowserURL('https://10.0.0.8/internal', { ssrfFilter: false })).not.toThrow()
+    expect(() => assertSafeBrowserURL('https://10.0.0.8/internal', { ssrfFilter: true })).toThrow(
+      'security.ssrf_filter'
     )
-    expect(() => assertSafeBrowserURL('https://example.com/page', { blockPrivateNetwork: true })).not.toThrow()
-    expect(() => assertSafeBrowserURL('https://169.254.169.254/latest', { blockPrivateNetwork: false })).toThrow(
+    expect(() => assertSafeBrowserURL('https://example.com/page', { ssrfFilter: true })).not.toThrow()
+    expect(() => assertSafeBrowserURL('https://169.254.169.254/latest', { ssrfFilter: false })).toThrow(
       'cloud metadata'
     )
   })
@@ -210,14 +210,14 @@ describe('@ankole/agent-computer browser CDP runtime', () => {
   it('rejects URLs through the shared kernel classifier, including canonicalized literals', () => {
     // The classification vector matrix lives in the kernel's Rust tests; this
     // proves the guard consumes that classifier, not a local reimplementation.
-    const blocked = { blockPrivateNetwork: true }
+    const blocked = { ssrfFilter: true }
     for (const url of [
       'https://localhost/x',
       'https://[::1]/x',
       'https://0x7f000001/x',
       'https://[::ffff:10.0.0.1]/x'
     ]) {
-      expect(() => assertSafeBrowserURL(url, blocked)).toThrow('web_tools.block_private_network')
+      expect(() => assertSafeBrowserURL(url, blocked)).toThrow('security.ssrf_filter')
     }
     expect(() => assertSafeBrowserURL('https://intranet-wiki/x', blocked)).not.toThrow()
     expect(() => assertSafeBrowserURL('https://[fd00:ec2::254]/x')).toThrow('cloud metadata')

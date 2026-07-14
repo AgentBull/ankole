@@ -1,6 +1,6 @@
 defmodule Ankole.SignalsGateway.Entry do
   @moduledoc """
-  Latest observed provider entry mirror keyed by channel and provider entry id.
+  Latest observed provider entry mirror keyed by its stable document id.
 
   An "entry" is a single provider message/post. This row mirrors the latest
   observed state of that external fact (text, attachments, reactions, author) so
@@ -9,10 +9,10 @@ defmodule Ankole.SignalsGateway.Entry do
   this mirror for its own outbound posts after a successful send, so an entry the
   agent produced and an entry a human produced share one shape.
 
-  `search_text` / `metadata_text` / `content_hash` are denormalized for search
-  and change detection; `document_id` is a stable per-entry digest. The
-  composite `{signal_channel_id, source_entry_id}` primary key is what makes
-  re-delivery idempotent (upsert the same entry instead of duplicating it).
+  PostgreSQL searches the canonical `text`, `author`, `metadata`, and
+  `provider_thread_id` fields directly. `content_hash` supports change detection;
+  the unique `{signal_channel_id, source_entry_id}` identity keeps provider
+  re-delivery idempotent.
   """
 
   use Ecto.Schema
@@ -23,7 +23,7 @@ defmodule Ankole.SignalsGateway.Entry do
   alias Ankole.Ecto.JSONPayload
   alias Ankole.SignalsGateway.Channel
 
-  @primary_key false
+  @primary_key {:document_id, :string, autogenerate: false}
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
 
@@ -31,12 +31,12 @@ defmodule Ankole.SignalsGateway.Entry do
     belongs_to :channel, Channel,
       foreign_key: :signal_channel_id,
       references: :id,
-      type: :string,
-      primary_key: true
+      type: :string
 
-    field :source_entry_id, :string, primary_key: true
+    field :source_entry_id, :string
+    field :provider_thread_id, :string
     field :text, :string
-    field :formatted_content, :map, default: %{}
+    field :rich_content, :map
     field :attachments, {:array, :map}, default: []
     field :links, {:array, :map}, default: []
     field :author, :map, default: %{}
@@ -44,12 +44,8 @@ defmodule Ankole.SignalsGateway.Entry do
     field :metadata, :map, default: %{}
     field :raw_payload, :map, default: %{}
     field :provider_time, :utc_datetime_usec
-    field :fallback_visible_text, :string
     field :reactions, :map, default: %{}
     field :raw_reaction_keys, :map, default: %{}
-    field :document_id, :string
-    field :search_text, :string
-    field :metadata_text, :string
     field :content_hash, :string
     field :first_seen_at, :utc_datetime_usec
     field :last_seen_at, :utc_datetime_usec
@@ -70,8 +66,9 @@ defmodule Ankole.SignalsGateway.Entry do
     |> cast(attrs, [
       :signal_channel_id,
       :source_entry_id,
+      :provider_thread_id,
       :text,
-      :formatted_content,
+      :rich_content,
       :attachments,
       :links,
       :author,
@@ -79,12 +76,9 @@ defmodule Ankole.SignalsGateway.Entry do
       :metadata,
       :raw_payload,
       :provider_time,
-      :fallback_visible_text,
       :reactions,
       :raw_reaction_keys,
       :document_id,
-      :search_text,
-      :metadata_text,
       :content_hash,
       :first_seen_at,
       :last_seen_at,
@@ -93,17 +87,14 @@ defmodule Ankole.SignalsGateway.Entry do
     |> normalize_blank([
       :signal_channel_id,
       :source_entry_id,
+      :provider_thread_id,
       :text,
-      :fallback_visible_text,
       :document_id,
-      :search_text,
-      :metadata_text,
       :content_hash
     ])
     |> validate_required([
       :signal_channel_id,
       :source_entry_id,
-      :formatted_content,
       :attachments,
       :links,
       :author,
@@ -118,11 +109,11 @@ defmodule Ankole.SignalsGateway.Entry do
     ])
     |> foreign_key_constraint(:signal_channel_id)
     |> unique_constraint([:signal_channel_id, :source_entry_id],
-      name: :signal_gateway_entries_pkey
+      name: :signal_gateway_entries_source_identity_index
     )
     |> check_constraint(:source_entry_id, name: :signal_gateway_entries_source_entry_id_present)
     |> check_constraint(:document_id, name: :signal_gateway_entries_document_id_present)
-    |> JSONPayload.validate_map(:formatted_content, allow_datetime: true)
+    |> validate_optional_rich_content()
     |> JSONPayload.validate_list(:attachments, allow_datetime: true)
     |> JSONPayload.validate_list(:links, allow_datetime: true)
     |> JSONPayload.validate_map(:author, allow_datetime: true)
@@ -131,5 +122,12 @@ defmodule Ankole.SignalsGateway.Entry do
     |> JSONPayload.validate_map(:raw_payload, allow_datetime: true)
     |> JSONPayload.validate_map(:reactions)
     |> JSONPayload.validate_map(:raw_reaction_keys)
+  end
+
+  defp validate_optional_rich_content(changeset) do
+    case get_change(changeset, :rich_content, :unchanged) do
+      value when value in [:unchanged, nil] -> changeset
+      _value -> JSONPayload.validate_map(changeset, :rich_content, allow_datetime: true)
+    end
   end
 end

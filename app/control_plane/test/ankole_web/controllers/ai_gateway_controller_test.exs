@@ -10,7 +10,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.Schemas.CompactionArtifact
   alias Ankole.AIGateway.Schemas.Message
-  alias Ankole.AIGateway.WebToolsPolicy
+  alias Ankole.Security.SSRFFilter
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.Repo
@@ -592,7 +592,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     refute Map.has_key?(extract_request.body, "model")
   end
 
-  test "web_fetch rejects non-public URLs before provider dispatch when the private-network block is on",
+  test "web_fetch rejects non-public URLs before provider dispatch when SSRF filtering is on",
        %{conn: conn} do
     %{principal: agent} = agent_fixture()
 
@@ -609,10 +609,10 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                model: "default"
              })
 
-    assert :ok = WebToolsPolicy.ensure_registered()
+    assert :ok = SSRFFilter.ensure_registered()
 
     assert {:ok, _value} =
-             AppConfigure.put_global(WebToolsPolicy.block_private_network_definition(), true)
+             AppConfigure.put_global(SSRFFilter.definition(), true)
 
     on_exit(fn -> AppConfigureCache.clear_for_test() end)
 

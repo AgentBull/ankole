@@ -16,6 +16,7 @@ defmodule AnkoleWeb.BrainController do
   alias AnkoleWeb.Schemas.BrainConsoleAPI.EntryOperationsRequest
   alias AnkoleWeb.Schemas.BrainConsoleAPI.EntryOperationsResponse
   alias AnkoleWeb.Schemas.BrainConsoleAPI.EntryResponse
+  alias AnkoleWeb.Schemas.BrainConsoleAPI.DreamingFitnessResponse
   alias AnkoleWeb.Schemas.BrainConsoleAPI.DreamingRunResponse
   alias AnkoleWeb.Schemas.BrainConsoleAPI.SourceEntryResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
@@ -203,6 +204,35 @@ defmodule AnkoleWeb.BrainController do
     ]
   )
 
+  operation(:dreaming_fitness,
+    summary: "Read dreaming output survival as a selection-pressure signal",
+    description:
+      "Reads the audit log for the share of dreaming block writes that survived human review (no human edit or delete within the horizon), overall and per run. Writes younger than the horizon are reported as pending, not survivors.",
+    parameters:
+      @owner_parameter ++
+        [
+          horizon_days: [
+            in: :query,
+            schema: %Schema{type: :integer, minimum: 1, maximum: 90},
+            required: false,
+            description:
+              "Days a dreaming write must survive human review to count as survived (default 7)"
+          ],
+          lookback_days: [
+            in: :query,
+            schema: %Schema{type: :integer, minimum: 1, maximum: 365},
+            required: false,
+            description: "How far back to read dreaming writes (default 90)"
+          ]
+        ],
+    responses: [
+      ok: {"Dreaming fitness signal", "application/json", DreamingFitnessResponse},
+      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
+      unprocessable_entity: {"Invalid filters", "application/json", ErrorEnvelope}
+    ]
+  )
+
   def index(conn, params) do
     with {:ok, owner_uid} <- Adapter.required_text(params, "owner_uid"),
          :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "read"),
@@ -300,6 +330,16 @@ defmodule AnkoleWeb.BrainController do
     end
   end
 
+  def dreaming_fitness(conn, params) do
+    with {:ok, owner_uid} <- Adapter.required_text(params, "owner_uid"),
+         :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "read"),
+         {:ok, payload} <- Adapter.dreaming_fitness(owner_uid, params) do
+      json(conn, payload)
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
   defp current_principal_uid(%Plug.Conn{assigns: %{current_principal_uid: uid}})
        when is_binary(uid),
        do: {:ok, uid}
@@ -348,6 +388,14 @@ defmodule AnkoleWeb.BrainController do
 
   defp error(conn, {:invalid_datetime, key}) do
     ConsoleErrors.render(conn, 422, "validation_failed", "#{key} must be an ISO-8601 datetime")
+  end
+
+  defp error(conn, {:invalid_integer, key}) do
+    ConsoleErrors.render(conn, 422, "validation_failed", "#{key} must be a positive integer")
+  end
+
+  defp error(conn, reason) when reason in [:invalid_horizon_days, :invalid_lookback_days] do
+    ConsoleErrors.render(conn, 422, "validation_failed", "#{reason} is out of range")
   end
 
   defp error(conn, %Ecto.Changeset{} = changeset) do

@@ -6,6 +6,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
   alias Ankole.AIGateway.Compaction
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.Providers
+  alias Ankole.AIGateway.StatefulLifecycle
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AIGateway.Schemas.CompactionArtifact
@@ -88,7 +89,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert request.body["stream"] == false
     assert request.body["input"] == "hello"
     assert request.body["store"] == false
-    assert request.body["reasoningEffort"] == "minimal"
+    assert request.body["reasoning"] == %{"effort" => "minimal"}
+    refute Map.has_key?(request.body, "reasoningEffort")
     refute Map.has_key?(request.body, "service_tier")
     assert request.body["prompt_cache_key"] == "cache-a"
 
@@ -399,6 +401,74 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                    "content" => [%{"type" => "input_text", "text" => "next user as a string"}]
                  }
                ]
+  end
+
+  test "automatic stateful continuation closes tool calls interrupted before durable output" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-stateful-interrupted-tool",
+               provider_kind: "openai",
+               base_url: "https://api.openai.test/v1",
+               connection_options: %{
+                 "api_key" => "sk-openai",
+                 "upstream_transport" => "websocket"
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-stateful-interrupted-tool",
+               model: "gpt-5.5"
+             })
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "dispatch-interrupted-tool")
+
+    original_input = [text_message("user", "run the long command")]
+
+    {:ok, call_response} =
+      start_stateful_message(
+        agent.uid,
+        conversation,
+        "dispatch-interrupted-tool-call",
+        original_input
+      )
+
+    function_call = %{
+      "type" => "function_call",
+      "call_id" => "call_interrupted",
+      "name" => "command",
+      "arguments" => Ankole.JSON.encode!(%{"command" => "sleep 40"})
+    }
+
+    {:ok, call_response} = StatefulResponses.commit_complete(call_response, [function_call])
+    retry_input = [text_message("user", "run the long command")]
+
+    assert {:ok, prepared, run_attrs} =
+             StatefulLifecycle.prepare_websocket_provider_request(agent.uid, %{
+               "model" => "primary",
+               "input" => retry_input,
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "metadata" => %{"actor_event_id" => "interrupted-tool-retry"}
+             })
+
+    [recovered_output | persisted_retry_input] = run_attrs.request_items
+
+    assert recovered_output["type"] == "function_call_output"
+    assert recovered_output["call_id"] == "call_interrupted"
+    assert recovered_output["output"] =~ "tool_execution_interrupted"
+    assert persisted_retry_input == retry_input
+
+    assert run_attrs.metadata["recovered_interrupted_tool_call_ids"] == [
+             "call_interrupted"
+           ]
+
+    assert prepared.response_context.request["input"] ==
+             Enum.map(call_response.content, &Map.delete(&1, "id")) ++
+               [recovered_output] ++ retry_input
   end
 
   test "websocket stateful instructions are request-scoped and are not inherited" do
@@ -1555,7 +1625,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert request.path == "v1/responses"
     assert request.body["model"] == "gpt-5.5"
     assert request.body["input"] == "hello"
-    assert request.body["reasoningEffort"] == "minimal"
+    assert request.body["reasoning"] == %{"effort" => "minimal"}
+    refute Map.has_key?(request.body, "reasoningEffort")
     refute Map.has_key?(request.body, "provider_options")
 
     assert body["model"] == "gpt-5.5"
@@ -1607,7 +1678,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     assert_receive {:gateway_request, request}
-    assert request.body["reasoningEffort"] == "medium"
+    assert request.body["reasoning"] == %{"effort" => "medium"}
+    refute Map.has_key?(request.body, "reasoningEffort")
     refute Map.has_key?(request.body, "provider_options")
     assert body["model"] == "gpt-5.5"
   end
@@ -1908,7 +1980,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert request.headers["http-referer"] == "https://github.com/agentbull/ankole"
     assert request.headers["x-title"] == "Ankole"
     assert request.headers["x-openrouter-title"] == "Ankole"
-    assert request.body["reasoningEffort"] == "high"
+    assert request.body["reasoning"] == %{"effort" => "high"}
+    refute Map.has_key?(request.body, "reasoningEffort")
     assert body["model"] == "openai/gpt-5.5"
   end
 
@@ -2192,7 +2265,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert request.headers["authorization"] == "Bearer gemini-key"
     assert request.headers["x-goog-api-client"] == "ankole-ai-gateway/0.1"
     assert request.body["model"] == "gemini-2.5-pro"
-    assert request.body["reasoningEffort"] == "high"
+    assert request.body["reasoning_effort"] == "high"
+    refute Map.has_key?(request.body, "reasoningEffort")
     assert body["model"] == "gemini-2.5-pro"
 
     assert {:ok, %{body: embedding_body}} =
@@ -2248,7 +2322,9 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                model: "gemini-2.5-pro"
              })
 
-    assert {:error, {:reasoning_effort, {:unsupported, "minimal", ["high", "low", "medium"]}}} =
+    assert {:error,
+            {:provider_options,
+             {:invalid_value, "reasoningEffort", "minimal", ["low", "medium", "high"]}}} =
              AIGateway.create_response(agent.uid, %{
                "model" => "primary",
                "input" => "hello",
@@ -2314,6 +2390,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     assert_receive {:gateway_request, request}
     assert request.path == "chat/completions"
+    assert request.body["reasoning_effort"] == "high"
+    refute Map.has_key?(request.body, "reasoningEffort")
 
     assert get_in(http1_body, ["output", Access.at(0), "content", Access.at(0), "text"]) ==
              "http1"
@@ -2358,7 +2436,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert request.headers["anthropic-version"] == "2023-06-01"
     assert request.body["model"] == "claude-sonnet-4-5"
     assert request.body["stream"] == true
-    assert request.body["effort"] == "high"
+    assert request.body["output_config"] == %{"effort" => "high"}
+    refute Map.has_key?(request.body, "effort")
 
     assert [%{"role" => "user", "content" => [%{"type" => "text", "text" => "hello"}]}] =
              request.body["messages"]
@@ -2423,7 +2502,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert request.headers["anthropic-version"] == "2023-06-01"
     assert request.body["model"] == "anthropic/claude-sonnet-4.5"
     assert request.body["max_tokens"] == 32
-    assert request.body["effort"] == "max"
+    assert request.body["output_config"] == %{"effort" => "max"}
+    refute Map.has_key?(request.body, "effort")
 
     assert body["model"] == "anthropic/claude-sonnet-4.5"
 
@@ -2479,6 +2559,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert request.headers["api-key"] == "azure-key"
     refute Map.has_key?(request.headers, "authorization")
     refute Map.has_key?(request.body, "model")
+    assert request.body["reasoning_effort"] == "high"
+    refute Map.has_key?(request.body, "reasoningEffort")
     assert get_in(body, ["output", Access.at(0), "content", Access.at(0), "text"]) == "azure"
 
     assert {:ok, _openai_path_provider} =
@@ -2548,6 +2630,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     refute Map.has_key?(request.headers, "api-key")
     assert request.body["model"] == "gpt-5.5"
     assert request.body["store"] == false
+    assert request.body["reasoning"] == %{"effort" => "high"}
+    refute Map.has_key?(request.body, "reasoningEffort")
     assert List.last(events)["type"] == "response.completed"
     assert v1_body["id"] == "resp_azure_v1"
   end

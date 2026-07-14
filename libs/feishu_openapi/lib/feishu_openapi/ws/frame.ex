@@ -13,6 +13,9 @@ defmodule FeishuOpenAPI.WS.Frame do
     8. `payload` — bytes, length-delimited
     9. `LogIDNew` — string, length-delimited
 
+  The first four fields are required proto2 scalars, so their tags remain on
+  the wire even when the value is zero.
+
   Only these field numbers are recognized; unknown fields are skipped for
   forward-compat. `headers` are exposed as a `[{key, value}]` list.
   """
@@ -50,13 +53,14 @@ defmodule FeishuOpenAPI.WS.Frame do
   @doc "Encode a `%Frame{}` into its wire binary form."
   @spec encode(t()) :: binary()
   def encode(%__MODULE__{} = f) do
-    # Protobuf omits scalar fields whose value equals the default (0 / ""), so we
-    # skip them here. `method` is emitted unconditionally because 0 is its
-    # meaningful "control frame" value, not an absent field.
+    # Feishu's pbbp2 schema is proto2: SeqID, LogID, service, and method are all
+    # required fields. Unlike optional proto3 scalars, their zero values must be
+    # present on the wire. In particular, a heartbeat has SeqID=0 and LogID=0;
+    # omitting those tags makes it an invalid control frame to the provider.
     [
-      if(f.seq_id != 0, do: varint_field(1, f.seq_id), else: []),
-      if(f.log_id != 0, do: varint_field(2, f.log_id), else: []),
-      if(f.service != 0, do: varint_field(3, f.service), else: []),
+      varint_field(1, f.seq_id),
+      varint_field(2, f.log_id),
+      varint_field(3, f.service),
       varint_field(4, f.method),
       Enum.map(f.headers, &encode_header/1),
       bytes_field_optional(6, f.payload_encoding),

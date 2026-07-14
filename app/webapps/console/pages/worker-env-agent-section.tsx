@@ -24,7 +24,7 @@ import {
 import type { WorkerEnvItem } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
 import { ErrorBlock } from '../console-primitives'
-import { SecretInput } from '../console-shell'
+import { ENCRYPTED_VALUE_MASK, EncryptedValueInput, isEncryptedValueMask } from '../encrypted-value-input'
 import { WORKER_ENV_NAME_FORMAT, WorkerEnvSourceBadge, workerEnvValueText } from './worker-envs'
 
 type OverrideDraft = { name: string; value: string; secret: boolean }
@@ -74,10 +74,14 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
     gcTime: 0,
     onSuccess: response => {
       const value = response.decrypted_value.value
+      const displayedValue = typeof value === 'string' ? value : (JSON.stringify(value) ?? '')
       setRevealed(current => ({
         ...current,
-        [response.decrypted_value.name]: typeof value === 'string' ? value : JSON.stringify(value)
+        [response.decrypted_value.name]: displayedValue
       }))
+      setDraft(current =>
+        current.name === response.decrypted_value.name ? { ...current, value: displayedValue } : current
+      )
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -86,7 +90,11 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
     setEditing(item.name)
     setDraft({
       name: item.name,
-      value: item.secret ? '' : typeof item.value === 'string' ? item.value : '',
+      value: item.secret
+        ? (revealed[item.name] ?? (item.source === 'agent' ? ENCRYPTED_VALUE_MASK : ''))
+        : typeof item.value === 'string'
+          ? item.value
+          : '',
       secret: item.secret
     })
     setDraftError(undefined)
@@ -103,7 +111,10 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
       return
     }
     save.mutate({
-      body: { value: draft.value, secret: draft.secret },
+      body: {
+        ...(isEncryptedValueMask(draft.value) ? {} : { value: draft.value }),
+        secret: draft.secret
+      },
       path: { agent_uid: agentUID, name }
     })
   }
@@ -114,7 +125,7 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
         {mode === 'add' ? (
           <Input
             className="font-mono"
-            placeholder="NPM_TOKEN"
+            placeholder="SOME_ENV_VAR"
             spellCheck={false}
             value={draft.name}
             onChange={event => setDraft(current => ({ ...current, name: event.target.value }))}
@@ -124,10 +135,15 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
         )}
       </TableCell>
       <TableCell colSpan={2}>
-        {draft.secret ? (
-          <SecretInput
+        {draft.secret || isEncryptedValueMask(draft.value) ? (
+          <EncryptedValueInput
+            className="font-mono"
+            revealLabel={t('console.worker_envs.reveal')}
+            revealed={revealed[draft.name] !== undefined && !isEncryptedValueMask(draft.value)}
+            revealing={decrypt.isPending}
             value={draft.value}
             onChange={event => setDraft(current => ({ ...current, value: event.target.value }))}
+            onReveal={editing ? () => decrypt.mutate({ path: { agent_uid: agentUID, name: editing } }) : undefined}
           />
         ) : (
           <Input

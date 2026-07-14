@@ -395,33 +395,40 @@ conversation is declared public.
 ### 7.1 Resident Injection: the Agent Pinned Memo
 
 Every agent has one `type=agent_system_pinned_memo` entry in its public store. It is an
-ordinary entry with one special behavior: its whole projection is injected when a new
+ordinary curated entry whose body supplies the agent's resident brief when a new
 conversation starts.
 
-The memo has a hard budget, default 1,500 tokens. Counting uses the kernel's fixed
-o200k estimator, so the budget does not change when the conversation model changes.
+The model does not receive the generic entry projection used by `memory_open`. Snapshot
+construction emits only resident body text, falling back to the summary when an entry
+has no body. Entry and block IDs, store/type/lock metadata, audit authors, database
+timestamps, properties, relations, and backlinks remain control-plane data.
 
-If the memo exceeds the budget, only a truncated projection is injected. Dreaming must
+The resident text has a hard budget, default 1,500 tokens. Counting uses the kernel's
+fixed o200k estimator, so the budget does not change when the conversation model
+changes.
+
+If the memo exceeds the budget, only truncated resident text is injected. Dreaming must
 rewrite it back under budget. Review also reports the violation.
 
 Only one entry is resident because every injected token is paid on every conversation.
-The memo combines three writing conventions:
+Every resident item must be self-contained and actionable without retrieval: it states
+enough subject or scope, trigger, required behavior, and relevant failure behavior for
+the agent to apply it directly. Topic labels, entry names, knowledge/rule pointers,
+directories, and counts are not resident information. An instruction to open a
+specific entry belongs here only when opening it is itself the required behavior.
 
-- short, critical discipline lives directly on the page;
-- other knowledge appears as one-line pointers that say when to open the target;
-- one sentence explains that named entries can be opened or searched.
-
-Do not enumerate every entry or include counts. Counts contain no useful model context.
-
-This is progressive disclosure, the same shape used by skills: one-line descriptions
-stay resident and full content loads only when needed.
+Larger or infrequent knowledge remains available through search and open. This keeps
+progressive disclosure, but its directory belongs to the retrieval system rather than
+the resident prompt.
 
 When a group channel has a channel entry, that entry is injected too. Its stable link
 is `properties.channel_id`; a display-name change does not break lookup.
 
-Pinned and channel entries become frozen snapshots at conversation start. Writes during
+Pinned and channel entries become saved context at conversation start. Writes during
 the conversation persist immediately but do not mutate that conversation's system
-prompt.
+prompt. The model is told what the saved context is for, that it may not include later
+changes, and when freshness or exact provenance justifies retrieval; it is not shown
+the storage-oriented "Brain snapshot" envelope.
 
 These surfaces are high-risk because malicious instructions would persist across every
 future conversation. Writes therefore pass a best-effort threat scan for prompt
@@ -570,9 +577,11 @@ Self-improvement stops at knowledge and skill notes.
 
 The chat layer answers "what happened?" It preserves four capabilities from Memory v1.
 
-**Original-message search.** A `pg_search` BM25 index covers
-`signal_gateway_entries.search_text` and `metadata_text`, keyed by `document_id`.
-Chinese fields use `pdb.jieba`.
+**Original-message search.** A `pg_search` BM25 index is keyed by
+`signal_gateway_entries.document_id` and searches the canonical `text`,
+structured JSONB `author` and `metadata`, and `provider_thread_id` fields
+directly. Chinese text fields use `pdb.jieba`; channel-name matching joins the
+owning channel instead of copying its name into every entry.
 
 A hit expands two messages before and after the anchor as local context.
 
@@ -624,9 +633,19 @@ Runtime daily reset.
 
 An operator may also trigger it manually from Console or the command line.
 
-Stage B reads material after its last high-water marks: visible channel messages and
-the Principal's own AIGateway conversations. DM material stays in the matching peer DM
-store; other material goes to `public`.
+Stage B reads material after two high-water marks: visible channel messages and
+explicitly completed Actor turns. It never treats an arbitrary AIGateway Message row as
+one unit of evidence. DM material stays in the matching peer DM store; other material
+goes to `public`.
+
+The two material kinds have different authority. A `signal_message` is original source
+evidence for claims about people, teams, channels, preferences, decisions, and the
+external world. A `task_outcome` is a semantic projection of one completed Actor turn:
+the normalized request, final visible reply, and tool names with call/result counts. It
+exists only to recover reusable workflow lessons. Provider request metadata, tool
+arguments, search queries, tool outputs, call IDs, and intermediate Response items are
+not Dreaming evidence, and the task outcome may not support claims about the user or
+world.
 
 Stage B performs four jobs.
 
@@ -637,23 +656,36 @@ Stage B performs four jobs.
    unresolved."
 3. **Induce patterns.** Cross-message and cross-time conclusions become attributed
    blocks with dates and source ids. A valid pattern needs multiple pieces of evidence.
-4. **Maintain navigation.** Stage B compacts the pinned memo, updates pointers, merges
-   skill notes, and refreshes summaries or aliases made stale by body edits.
+4. **Maintain navigation.** Stage B compacts the pinned memo into self-contained
+   resident rules, merges skill notes, and refreshes summaries or aliases made stale
+   by body edits.
 
 Induction also covers the agent's work process. A task has one immediate chance to save
 a lesson and one later dreaming pass to catch a missed correction or recovery.
 
 Stage B follows these constraints:
 
-- It runs only when external material is new. Dreaming blocks and conversations with
-  the `brain.dreaming:` key prefix do not count as new input.
+- It runs only when a visible signal or completed Actor turn is new. Dreaming traces do
+  not have an Actor-turn completion fence and do not count as task input.
 - It reads Stage A episodes first, then hydrates original evidence only for topics worth
   processing.
-- It opens entries through the same projection used by `memory_open`, including
-  relations and backlinks.
+- It opens complete entry state, including relations and backlinks, but gives the model
+  only semantic content and opaque edit handles. Store routing, audit fields, database
+  timestamps, hashes, and lock versions remain server-side; the server attaches current
+  concurrency fences after model output.
 - Before writing a `src:` citation, it rechecks that the mirror row still exists and
   that its `content_hash` is unchanged.
 - It resolves the model-owning Principal's `heavy` profile.
+- Stage A, the Stage B locator, and the Stage B curator declare their JSON envelopes
+  through AIGateway structured output rather than prompt examples. Fixed outputs use
+  strict schemas; the curator's dynamic operation values remain subject to the same
+  server-side operation and domain validation before any write.
+- Each curator call already owns one server-selected store, so its output contains only
+  `operations` and `skill_updates`; the model never echoes a store key. Enabled skills
+  expose only name, description, and current overlay, while overlay hashes remain
+  server-side for compare-and-swap.
+- Model-facing evidence timestamps use the configured local timezone. UTC instants and
+  cursor ordering remain server-side.
 - Each run has limits for material, model tokens, and mutations. The defaults are 240
   material items, unlimited tokens, and unlimited mutations; zero means unlimited.
 - Every output is attributed to `dreaming` and can be filtered or recovered by author
@@ -1163,8 +1195,10 @@ optional rerank apply after fusion.
 ### 17.5 Dreaming and Withdrawal
 
 `brain_cursors` uses `(scope_kind, scope_key)`. Stage A owns channel rows. Stage B owns
-Principal rows with separate watermarks for visible mirror messages and AIGateway
-conversation material.
+Principal rows with separate watermarks for visible mirror messages and completed Actor
+turns. The task cursor advances by `(completed_at, actor_event_id)`, including past
+completed events that cannot produce a routable task outcome, but never past the first
+routable outcome not consumed by the run's material/token prefix.
 
 Dreaming conversations use the `brain.dreaming:` key prefix and do not count as future
 material. Entry-side trigger checks also exclude dreaming-authored blocks.

@@ -14,7 +14,7 @@ import { join, relative } from 'node:path'
 import type { ActorTurnRef } from '../../lanes/actor_lane'
 import type { RuntimeBrainSnapshot, RuntimeSkillSummary } from '../../lanes/rpc_lane'
 import type { SkillOverlayRequester } from '../../core/turns/turn_options'
-import { formatBrainSnapshot } from '../../prompts/brain_snapshot'
+import { formatAgentDurableContext } from '../../prompts/durable_context'
 import { insideWorkspace, WORKSPACE_MODEL_ROOT, WORKSPACE_USER_FILES_ROOT } from '../../core/workspace-paths'
 import {
   assertValidSkillName,
@@ -256,7 +256,7 @@ function renderTaskAgents(input: {
     '# Ankole Subagent Context',
     section('SOUL', input.soul),
     section('MISSION', input.mission),
-    section('Frozen Brain Snapshot', formatBrainSnapshot(input.brainSnapshot)),
+    section('Durable Context', formatAgentDurableContext(input.brainSnapshot)),
     section('Background', input.background),
     section('Notes', input.notes),
     section('Execution Context', executionContext)

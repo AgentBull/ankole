@@ -11,28 +11,34 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
 
   provider :openai do
     label(%{"default" => "OpenAI", "zh-Hans-CN" => "OpenAI"})
-    base_url("https://api.openai.com/v1")
+    base_url("https://api.openai.com/v1", advanced: true)
 
     setting(:api_key, encrypted: true)
-    setting(:endpoint_kind, default: "responses")
-    setting(:upstream_transport)
-    setting(:organization)
-    setting(:project)
-    setting(:headers, type: :map)
-    setting(:query_params, type: :map)
+    setting(:endpoint_kind, default: "responses", advanced: true)
+    setting(:upstream_transport, advanced: true)
+    setting(:organization, advanced: true)
+    setting(:project, advanced: true)
+    setting(:headers, type: :map, advanced: true)
+    setting(:query_params, type: :map, advanced: true)
 
-    setting(:reasoningEffort, scope: :request)
+    setting(:reasoningEffort,
+      type: :select,
+      default: ReasoningEffort.default(),
+      options: ReasoningEffort.values(),
+      scope: :request
+    )
+
     setting(:reasoningSummary, scope: :request)
-    setting(:promptCacheKey, scope: :request)
-    setting(:promptCacheRetention, scope: :request)
-    setting(:serviceTier, scope: :request)
-    setting(:strictJSONSchema, scope: :request)
+    setting(:promptCacheKey, scope: :request, advanced: true)
+    setting(:promptCacheRetention, scope: :request, advanced: true)
+    setting(:serviceTier, scope: :request, advanced: true)
+    setting(:strictJSONSchema, type: :boolean, scope: :request, advanced: true)
     setting(:textVerbosity, scope: :request)
-    setting(:truncation, scope: :request)
-    setting(:systemMessageMode, scope: :request)
-    setting(:forceReasoning, scope: :request)
-    setting(:contextManagement, scope: :request)
-    setting(:allowedTools, scope: :request)
+    setting(:truncation, scope: :request, advanced: true)
+    setting(:systemMessageMode, scope: :request, advanced: true)
+    setting(:forceReasoning, type: :boolean, scope: :request, advanced: true)
+    setting(:contextManagement, type: :map, scope: :request, advanced: true)
+    setting(:allowedTools, scope: :request, advanced: true)
 
     language_model do
       upstream(:sse)
@@ -58,7 +64,7 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
         )
         |> openai_headers()
         |> UniversalAIRequest.bearer_auth()
-        |> ReasoningEffort.put_provider_options(ctx)
+        |> ReasoningEffort.put_provider_options(ctx, target: :reasoning)
 
       _endpoint ->
         prepare_sse_language_model(ctx)
@@ -95,14 +101,14 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
         |> UniversalAIRequest.new("chat/completions", :openai_chat_completions)
         |> openai_headers()
         |> UniversalAIRequest.bearer_auth()
-        |> ReasoningEffort.put_provider_options(ctx)
+        |> ReasoningEffort.put_provider_options(ctx, target: :reasoning_effort)
 
       _endpoint_kind ->
         ctx
         |> UniversalAIRequest.new("responses", :openai_responses)
         |> openai_headers()
         |> UniversalAIRequest.bearer_auth()
-        |> ReasoningEffort.put_provider_options(ctx)
+        |> ReasoningEffort.put_provider_options(ctx, target: :reasoning)
     end
   end
 

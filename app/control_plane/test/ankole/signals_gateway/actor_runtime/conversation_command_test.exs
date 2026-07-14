@@ -666,6 +666,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
       old_run = start_aigateway_run_for_turn!(old_turn_ref)
       :ok = Events.subscribe(agent.uid, old_conversation.id)
 
+      assert :ok =
+               Actors.record_reply_preview_source_entry(old_input.id, "old-preview-message")
+
       assert {:ok, %{actor_event: new_input}} =
                emit_entry(
                  agent.uid,
@@ -707,6 +710,21 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
       assert Repo.get!(Message, old_run.id).status == "error"
       assert %DateTime{} = Repo.get!(ActorEvent, old_input.id).completed_at
       assert Repo.get!(ActorEvent, new_input.id).input_state == "open"
+
+      stopped_outbox =
+        Repo.get_by!(OutboxEntry,
+          agent_uid: agent.uid,
+          binding_name: "bot",
+          outbound_key: "ai-turn-stopped:#{old_input.id}"
+        )
+
+      assert stopped_outbox.operation == :edit
+      assert stopped_outbox.target_source_entry_id == "old-preview-message"
+      assert stopped_outbox.delivery_class == :durable_ai_reply
+      assert get_in(stopped_outbox.payload, ["reply_presentation", "state"]) == "stopped"
+      assert get_in(stopped_outbox.payload, ["reply_presentation", "answer"]) == ""
+      assert get_in(stopped_outbox.payload, ["metadata", "source"]) == "actor_turn_stopped"
+      assert get_in(stopped_outbox.payload, ["metadata", "reason"]) == "command.new"
     end
 
     test "new command with args waits for a worker and is retried as an open input" do

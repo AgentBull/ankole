@@ -17,8 +17,9 @@ import type { WorkerConfig } from './config'
 /**
  * Proves the container filesystem contract before the worker advertises ready.
  *
- * These checks catch bad mounts early: the turn loop assumes shared files,
- * installed skills, built-in skills, and `zstd` are available once ready is sent.
+ * These checks catch bad mounts early: the turn loop assumes shared files and
+ * configured skill roots are accessible once ready is sent. `task_worker` also
+ * requires the Codex app server executable.
  */
 export function verifyWorkerFilesystem(config: WorkerConfig): void {
   assertDirectory(config.sharedFsRoot, 'ANKOLE_SHARED_FS_ROOT', true)
@@ -29,9 +30,7 @@ export function verifyWorkerFilesystem(config: WorkerConfig): void {
   if (config.internalSkillsRoot) {
     assertDirectory(config.internalSkillsRoot, 'ANKOLE_INTERNAL_SKILLS_ROOT', false)
   }
-  assertExecutable('zstd')
   assertExecutable('codex')
-  assertExecutable('gh')
 }
 
 /**
@@ -86,7 +85,7 @@ function assertDirectory(path: string, label: string, writable: boolean): void {
 }
 
 /**
- * Verifies an external runtime command the file lane depends on.
+ * Verifies the Codex executable required by `task_worker`.
  */
 function assertExecutable(command: string): void {
   const result = spawnSync(command, ['--version'], { encoding: 'utf8' })

@@ -88,6 +88,16 @@ defmodule AnkoleWeb.WorkerEnvControllerTest do
     assert item["secret"] == true
     refute Map.has_key?(item, "value")
 
+    conn =
+      conn
+      |> recycle_api()
+      |> put(~p"/api/v1/worker-envs/#{name}", %{"description" => "metadata only"})
+
+    assert %{"worker_env" => preserved} = json_response(conn, 200)
+    assert preserved["secret"] == true
+    assert preserved["description"] == "metadata only"
+    refute Map.has_key?(preserved, "value")
+
     conn = conn |> recycle_api() |> post(~p"/api/v1/worker-envs/#{name}/decryptions", %{})
 
     assert %{"decrypted_value" => %{"name" => ^name, "value" => "hunter2"}} =
@@ -192,6 +202,9 @@ defmodule AnkoleWeb.WorkerEnvControllerTest do
     assert %{"error" => %{"code" => "validation_failed"}} = json_response(conn, 422)
 
     conn = conn |> recycle_api() |> put(~p"/api/v1/worker-envs/OK_NAME", %{"value" => 42})
+    assert %{"error" => %{"code" => "validation_failed"}} = json_response(conn, 422)
+
+    conn = conn |> recycle_api() |> put(~p"/api/v1/worker-envs/OK_NAME", %{})
     assert %{"error" => %{"code" => "validation_failed"}} = json_response(conn, 422)
 
     conn = conn |> recycle_api() |> get(~p"/api/v1/worker-envs/MISSING_NAME")

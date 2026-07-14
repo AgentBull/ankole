@@ -169,7 +169,7 @@ defmodule AnkoleWeb.Schemas.BrainConsoleAPI do
           signal_channel_id: %Schema{type: :string},
           source_entry_id: %Schema{type: :string},
           text: %Schema{type: :string, nullable: true},
-          formatted_content: %Schema{type: :object, additionalProperties: true},
+          rich_content: %Schema{type: :object, additionalProperties: true, nullable: true},
           attachments: %Schema{type: :array, items: JSONValue},
           links: %Schema{type: :array, items: JSONValue},
           author: %Schema{type: :object, additionalProperties: true},
@@ -180,7 +180,6 @@ defmodule AnkoleWeb.Schemas.BrainConsoleAPI do
           :document_id,
           :signal_channel_id,
           :source_entry_id,
-          :formatted_content,
           :attachments,
           :links,
           :author,
@@ -446,6 +445,97 @@ defmodule AnkoleWeb.Schemas.BrainConsoleAPI do
         type: :object,
         properties: %{run: DreamingRun},
         required: [:run],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule DreamingFitnessRun do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "BrainDreamingFitnessRun",
+        type: :object,
+        description: "One dreaming run's block writes and how they fared under human review.",
+        properties: %{
+          run_id: %Schema{type: :string, format: :uuid, nullable: true},
+          produced_block_writes: %Schema{type: :integer, minimum: 0},
+          matured_block_writes: %Schema{type: :integer, minimum: 0},
+          pending_block_writes: %Schema{type: :integer, minimum: 0},
+          corrected_block_writes: %Schema{type: :integer, minimum: 0},
+          survived_block_writes: %Schema{type: :integer, minimum: 0},
+          survival_rate: %Schema{type: :number, minimum: 0, maximum: 1, nullable: true},
+          first_written_at: %Schema{type: :string, format: :date_time, nullable: true},
+          last_written_at: %Schema{type: :string, format: :date_time, nullable: true}
+        },
+        required: [
+          :produced_block_writes,
+          :matured_block_writes,
+          :pending_block_writes,
+          :corrected_block_writes,
+          :survived_block_writes
+        ],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule DreamingFitness do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "BrainDreamingFitness",
+        type: :object,
+        description:
+          "Share of dreaming block writes that survived human review, overall and per run. Survival is judged only on writes older than the horizon; younger writes are pending.",
+        properties: %{
+          horizon_days: %Schema{type: :integer, minimum: 1},
+          lookback_days: %Schema{type: :integer, minimum: 1},
+          generated_at: %Schema{type: :string, format: :date_time},
+          produced_block_writes: %Schema{type: :integer, minimum: 0},
+          matured_block_writes: %Schema{type: :integer, minimum: 0},
+          pending_block_writes: %Schema{type: :integer, minimum: 0},
+          corrected_block_writes: %Schema{type: :integer, minimum: 0},
+          survived_block_writes: %Schema{type: :integer, minimum: 0},
+          survival_rate: %Schema{type: :number, minimum: 0, maximum: 1, nullable: true},
+          runs: %Schema{type: :array, items: DreamingFitnessRun}
+        },
+        required: [
+          :horizon_days,
+          :lookback_days,
+          :generated_at,
+          :produced_block_writes,
+          :matured_block_writes,
+          :pending_block_writes,
+          :corrected_block_writes,
+          :survived_block_writes,
+          :runs
+        ],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule DreamingFitnessResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "BrainDreamingFitnessResponse",
+        type: :object,
+        properties: %{fitness: DreamingFitness},
+        required: [:fitness],
         additionalProperties: false
       },
       struct?: false

@@ -44,7 +44,7 @@ export interface BrowserRuntimeOptions {
   workspaceRoot?: string
   remoteCDPConfig?: JSONObject | RemoteBrowserCDPConfig | null
   localBrowserIdleTtlMs?: number
-  blockPrivateNetwork?: boolean
+  ssrfFilter?: boolean
 }
 
 export interface BrowserConnection {

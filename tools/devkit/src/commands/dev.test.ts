@@ -1,4 +1,6 @@
 import path from 'node:path'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { describe, expect, test } from 'bun:test'
 import {
   buildControlPlaneEnv,
@@ -94,32 +96,53 @@ describe('managed worker cleanup args', () => {
 
 describe('buildWorkerDockerArgs', () => {
   test('mounts workspace plus local worker source and runs Bun watch mode', () => {
-    const repoRoot = path.resolve('/tmp/ankole')
-    const args = buildWorkerDockerArgs(spec, { repoRoot, containerName: 'ankole-dev-agent-computer' })
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'ankole-dev-'))
 
-    expect(args.slice(0, 7)).toEqual([
-      'run',
-      '--rm',
-      '--name',
-      'ankole-dev-agent-computer',
-      '--label',
-      'ankole.dev.managed=true',
-      '--label'
-    ])
-    expect(args).toContain('ankole.dev.worker_id=local-dev-worker')
-    expect(args).toContain('SYS_ADMIN')
-    expect(args).toContain('host.docker.internal=host-gateway')
-    expect(args).toContain('WORKER_ID=local-dev-worker')
-    expect(args).toContain('RUNTIME_FABRIC_URL=tcp://:secret@host.docker.internal:6010')
-    expect(args).toContain('type=bind,src=/repo/var/ankole-dev/worker/shared,dst=/workspace/shared')
-    expect(args).toContain(
-      `type=bind,src=${path.join(repoRoot, 'app', 'agent_computer', 'src')},dst=/repo/app/agent_computer/src,readonly`
-    )
-    expect(args.slice(-4)).toEqual([
-      'ankole-agent-computer:0.1.0',
-      '/bin/sh',
-      '-lc',
-      'cd /repo/app/agent_computer && exec bun --watch src/main.ts'
-    ])
+    try {
+      const args = buildWorkerDockerArgs(spec, { repoRoot, containerName: 'ankole-dev-agent-computer' })
+
+      expect(args.slice(0, 7)).toEqual([
+        'run',
+        '--rm',
+        '--name',
+        'ankole-dev-agent-computer',
+        '--label',
+        'ankole.dev.managed=true',
+        '--label'
+      ])
+      expect(args).toContain('ankole.dev.worker_id=local-dev-worker')
+      expect(args).toContain('SYS_ADMIN')
+      expect(args).toContain('host.docker.internal=host-gateway')
+      expect(args).toContain('WORKER_ID=local-dev-worker')
+      expect(args).toContain('RUNTIME_FABRIC_URL=tcp://:secret@host.docker.internal:6010')
+      expect(args).not.toContain('ANKOLE_INTERNAL_SKILLS_ROOT=/repo/internals/skills')
+      expect(args).toContain('type=bind,src=/repo/var/ankole-dev/worker/shared,dst=/workspace/shared')
+      expect(args).toContain(
+        `type=bind,src=${path.join(repoRoot, 'app', 'agent_computer', 'src')},dst=/repo/app/agent_computer/src,readonly`
+      )
+      expect(args.slice(-4)).toEqual([
+        'ankole-agent-computer:0.1.0',
+        '/bin/sh',
+        '-lc',
+        'cd /repo/app/agent_computer && exec bun --watch src/main.ts'
+      ])
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true })
+    }
+  })
+
+  test('mounts private skills when the local internal skill root exists', () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'ankole-dev-internal-'))
+    const internalSkillsRoot = path.join(repoRoot, 'internals', 'skills')
+    mkdirSync(internalSkillsRoot, { recursive: true })
+
+    try {
+      const args = buildWorkerDockerArgs(spec, { repoRoot })
+
+      expect(args).toContain('ANKOLE_INTERNAL_SKILLS_ROOT=/repo/internals/skills')
+      expect(args).toContain(`type=bind,src=${internalSkillsRoot},dst=/repo/internals/skills,readonly`)
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true })
+    }
   })
 })

@@ -3,7 +3,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBrowserConfigTest do
 
   import Ecto.Query
 
-  alias Ankole.AIGateway.WebToolsPolicy
+  alias Ankole.Security.SSRFFilter
   alias Ankole.SignalsGateway.ActorRuntime.WorkerBrowserConfig
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.AppConfig
@@ -13,11 +13,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBrowserConfigTest do
   setup do
     allow_cache_database_access()
     :ok = WorkerBrowserConfig.ensure_registered()
-    :ok = WebToolsPolicy.ensure_registered()
+    :ok = SSRFFilter.ensure_registered()
 
     remote_definition = WorkerBrowserConfig.remote_cdp_config_definition()
     ttl_definition = WorkerBrowserConfig.local_browser_idle_ttl_ms_definition()
-    policy_definition = WebToolsPolicy.block_private_network_definition()
+    policy_definition = SSRFFilter.definition()
     :ok = AppConfigure.delete_global(remote_definition)
     :ok = AppConfigure.delete_global(ttl_definition)
     :ok = AppConfigure.delete_global(policy_definition)

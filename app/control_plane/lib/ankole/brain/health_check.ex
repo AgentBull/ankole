@@ -152,8 +152,8 @@ defmodule Ankole.Brain.HealthCheck do
 
     SignalEntry
     |> where([signal], signal.signal_channel_id in ^visible_channel_ids)
-    |> where([signal], not is_nil(signal.search_text))
-    |> where([signal], fragment("? ILIKE ANY(?)", signal.search_text, ^like_terms(terms)))
+    |> where([signal], not is_nil(signal.text))
+    |> where([signal], fragment("? ILIKE ANY(?)", signal.text, ^like_terms(terms)))
     |> select(
       [signal],
       max(

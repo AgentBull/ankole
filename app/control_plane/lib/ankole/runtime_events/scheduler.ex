@@ -122,7 +122,7 @@ defmodule Ankole.RuntimeEvents.Scheduler do
         key = event.timer_key
         state = cancel_existing_timer(state, key)
         ref = make_ref()
-        delay_ms = max(DateTime.diff(due_at, now, :millisecond), 0)
+        delay_ms = delay_ms_until(due_at, now)
         timer = Process.send_after(self(), {:deadline, key, ref}, delay_ms)
 
         put_in(state, [:timers, key], %{
@@ -144,6 +144,15 @@ defmodule Ankole.RuntimeEvents.Scheduler do
     end
 
     %{state | timers: Map.delete(state.timers, key)}
+  end
+
+  @doc false
+  @spec delay_ms_until(DateTime.t(), DateTime.t()) :: non_neg_integer()
+  def delay_ms_until(%DateTime{} = due_at, %DateTime{} = now) do
+    due_at
+    |> DateTime.diff(now, :microsecond)
+    |> max(0)
+    |> then(&div(&1 + 999, 1_000))
   end
 
   defp run_handler(state, %Event{} = event) do

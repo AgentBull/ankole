@@ -19,12 +19,6 @@ On a fresh macOS or Linux machine, bootstrap those prerequisites with:
 bash tools/devkit/scripts/env-setup.sh
 ```
 
-After Bun is available, the same installer is exposed through the devkit:
-
-```sh
-bun kit env-setup
-```
-
 Windows hosts are not supported by this installer yet; use WSL2 or GitHub Codespaces.
 
 GitHub Codespaces uses the repository's `.devcontainer/` configuration. It builds an Ubuntu-based development container, installs the same Bun/Rust/Elixir toolchain, enables Docker-in-Docker for worker images and devkit services, and runs `bun install` after creation.
@@ -35,7 +29,6 @@ GitHub Codespaces uses the repository's `.devcontainer/` configuration. It build
 bun install              # install deps; also sets core.hooksPath via the prepare script
 bun run services:start   # start local PostgreSQL (devkit Docker Compose)
 bun run control-plane:setup   # mix setup: deps.get + ecto.create + ecto.migrate + seeds
-bun run control-plane:dev     # start the Phoenix control plane with hot reload
 ```
 
 The control plane owns durable state through Ecto migrations under `app/control_plane/priv/repo/migrations`. To drop, recreate, and migrate the local database, run `bun run control-plane:ecto:reset`. The devkit Compose file lives at `tools/devkit/external-services.docker-compose.yml`.

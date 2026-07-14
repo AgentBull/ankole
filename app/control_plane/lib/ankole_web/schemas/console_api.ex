@@ -412,6 +412,8 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
 
     require OpenAPISpex
 
+    # Existing encrypted values may omit `value` to preserve the stored secret.
+    # Plaintext and unset values still require a value in the owning context.
     OpenAPISpex.schema(
       %{
         title: "AppConfigurationUpdateRequest",
@@ -419,7 +421,6 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         properties: %{
           value: JSONValue
         },
-        required: [:value],
         additionalProperties: false
       },
       struct?: false
@@ -545,8 +546,9 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     require OpenAPISpex
 
     # `value` must be a string for custom variables; declared variables accept
-    # whatever JSON their AppConfigure schema validates. `secret` only applies
-    # to custom variables and keeps its stored state when omitted.
+    # whatever JSON their AppConfigure schema validates. Existing encrypted
+    # values may omit `value` to preserve the stored secret. `secret` only
+    # applies to custom variables and keeps its stored state when omitted.
     OpenAPISpex.schema(
       %{
         title: "WorkerEnvUpdateRequest",
@@ -556,7 +558,6 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           secret: %Schema{type: :boolean},
           description: %Schema{type: :string, nullable: true}
         },
-        required: [:value],
         additionalProperties: false
       },
       struct?: false
@@ -1226,6 +1227,35 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
 
     require OpenAPISpex
 
+    defmodule Setting do
+      @moduledoc false
+
+      require OpenAPISpex
+
+      OpenAPISpex.schema(
+        %{
+          title: "AIGatewayProviderSetting",
+          type: :object,
+          properties: %{
+            key: %Schema{type: :string},
+            type: %Schema{
+              type: :string,
+              enum: ["boolean", "float", "integer", "map", "select", "string"]
+            },
+            default: JSONValue,
+            options: %Schema{type: :array, items: %Schema{type: :string}},
+            required: %Schema{type: :boolean},
+            encrypted: %Schema{type: :boolean},
+            advanced: %Schema{type: :boolean},
+            scope: %Schema{type: :string, enum: ["connection", "request"]}
+          },
+          required: [:key, :type, :default, :options, :required, :encrypted, :advanced, :scope],
+          additionalProperties: false
+        },
+        struct?: false
+      )
+    end
+
     OpenAPISpex.schema(
       %{
         title: "AIGatewayProviderKindItem",
@@ -1237,7 +1267,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           default_base_url: %Schema{type: :string, nullable: true},
           settings: %Schema{
             type: :array,
-            items: %Schema{type: :object, additionalProperties: true}
+            items: Setting
           },
           capability_specs: %Schema{
             type: :array,

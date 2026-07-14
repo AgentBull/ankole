@@ -895,18 +895,59 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
                  %{
                    "worker_progress" => %{
                      "turn" => turn_ref,
-                     "kind" => "checkpoint",
-                     "summary" => "turn in progress"
+                     "kind" => "reply_presentation",
+                     "summary" => "reply presentation updated",
+                     "refs_json" => %{
+                       "presentation_event" => %{
+                         "kind" => "tool.activity",
+                         "payload" => %{
+                           "operation_id" => "call-1",
+                           "phase" => "running",
+                           "label" => "检索资料",
+                           "revision" => 1
+                         }
+                       }
+                     }
                    }
                  },
                  now: now,
-                 lease_seconds: 300
+                 lease_seconds: 300,
+                 presentation_event_fun: fn actor_event_id, event ->
+                   send(self(), {:reply_presentation_event, actor_event_id, event})
+                 end
                )
+
+      input_id = input.id
+      assert_receive {:reply_presentation_event, ^input_id, %{"kind" => "tool.activity"}}
 
       assert DateTime.compare(activation.lease_expires_at, DateTime.add(now, 299, :second)) ==
                :gt
 
       assert DateTime.compare(activation.last_actor_heartbeat_at, now) == :eq
+
+      stale_turn_ref = Map.put(turn_ref, "activation_uid", "stale-activation")
+
+      assert {:error, :actor_runtime_fence_not_found} =
+               ActorRuntime.handle_worker_progress(
+                 %{
+                   "worker_progress" => %{
+                     "turn" => stale_turn_ref,
+                     "kind" => "reply_presentation",
+                     "refs_json" => %{
+                       "presentation_event" => %{
+                         "kind" => "tool.activity",
+                         "payload" => %{"operation_id" => "stale", "revision" => 2}
+                       }
+                     }
+                   }
+                 },
+                 now: now,
+                 presentation_event_fun: fn actor_event_id, event ->
+                   send(self(), {:stale_reply_presentation_event, actor_event_id, event})
+                 end
+               )
+
+      refute_receive {:stale_reply_presentation_event, _, _}
     end
   end
 

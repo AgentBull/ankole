@@ -1,11 +1,12 @@
 import { match, type JsonObject as JSONObject } from '@pleisto/active-support'
 import { mailboxUpdatedFromEnvelope, turnControlFromEnvelope, turnStartFromEnvelope } from './lanes/actor_lane'
-import { runTurnHandlers } from './core'
+import { runTurnHandlers, type ReplyPresentationEvent } from './core'
 import {
   turnAcceptedEnvelope,
   turnCompletedEnvelope,
   turnErrorEnvelope,
-  turnNoopCompletedEnvelope
+  turnNoopCompletedEnvelope,
+  workerProgressEnvelope
 } from './fabric/envelopes'
 import type { RPCError, RPCRequest, RPCResponse } from './lanes/rpc_lane'
 import { RuntimeRPCClient, handleWorkerRPCRequest, rpcMethods } from './lanes/rpc_lane'
@@ -371,6 +372,7 @@ async function runActiveTurn(
     onSteeringApplied: update =>
       sendEnvelope(turnAcceptedEnvelope(update.turn, update.correlationID ?? active.correlationID)),
     onTurnActivity,
+    onPresentationEvent: event => sendReplyPresentationProgress(sendEnvelope, active, event),
     abortSignal: active.abortController.signal
   })
 
@@ -384,6 +386,30 @@ async function runActiveTurn(
   await sendEnvelope(
     turnCompletedEnvelope(turnStart.turn, result.finalResponseID, result.outcome, active.correlationID)
   )
+}
+
+async function sendReplyPresentationProgress(
+  sendEnvelope: EnvelopeSender,
+  active: ActiveTurn,
+  event: ReplyPresentationEvent
+): Promise<void> {
+  try {
+    await sendEnvelope(
+      workerProgressEnvelope(
+        active.turnStart.turn,
+        'reply_presentation',
+        'reply presentation updated',
+        active.correlationID,
+        { presentation_event: event }
+      )
+    )
+  } catch (error) {
+    workerLogger.warning('worker.reply_presentation_send_failed', 'worker reply presentation event failed', {
+      actor_event_id: active.turnStart.turn.actor_event_id,
+      event_kind: event.kind,
+      error: errorValue(error)
+    })
+  }
 }
 
 function errorValue(error: unknown): unknown {

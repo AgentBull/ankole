@@ -55,8 +55,8 @@ responses into a shared result list with fields such as `title`, `url`,
 `web_fetch` accepts one to five HTTPS URLs. AIGateway always rejects literal
 cloud metadata-host URLs before provider dispatch, and additionally rejects
 literal localhost, loopback, private, link-local, and CGNAT URLs when the
-`web_tools.block_private_network` AppConfigure key is enabled (see Private
-Network Policy below; the default keeps intranet URLs reachable). Provider
+`security.ssrf_filter` AppConfigure key is enabled (see SSRF Filtering below;
+the default keeps intranet URLs reachable). Provider
 responses are normalized into a shared result list with fields such as `url`,
 `title`, `text`, `markdown`, `html`, `links`, `images`, `metadata`, and
 `error` when available.
@@ -79,7 +79,7 @@ The fallback:
 - accepts the same one-to-five HTTPS URL input as provider-backed `web_fetch`
   and applies the same URL policy: cloud metadata endpoints are always
   rejected, and non-public URLs are rejected when
-  `web_tools.block_private_network` is enabled;
+  `security.ssrf_filter` is enabled;
 - starts or reuses the local Chromium singleton through `LocalSidecarManager`;
 - uses its own browser session and Chromium BrowserContext separate from
   interactive `browser_*` sessions;
@@ -93,13 +93,13 @@ The fallback deliberately does not use the operator remote CDP override. It is
 the local-browser safety path for missing or failed provider-backed extraction;
 operator-selected remote browser behavior remains visible through `browser_*`.
 
-## Private Network Policy
+## SSRF Filtering
 
 Ankole is built for digital employees, so reaching intranet services through
 web tools is the expected default. The only restriction switch is:
 
 ```text
-web_tools.block_private_network
+security.ssrf_filter
 ```
 
 Contract:

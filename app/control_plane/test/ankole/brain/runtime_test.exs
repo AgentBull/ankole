@@ -7,6 +7,7 @@ defmodule Ankole.Brain.RuntimeTest do
   alias Ankole.Brain.Knowledge
   alias Ankole.Brain.RPCBroker
   alias Ankole.Brain.RuntimeContext
+  alias Ankole.Brain.Schemas.Entry
   alias Ankole.Brain.Scope
   alias Ankole.Brain.Snapshot
   alias Ankole.Repo
@@ -23,18 +24,24 @@ defmodule Ankole.Brain.RuntimeTest do
 
     assert {:ok, first} = Snapshot.get_or_create(conversation)
     assert first["channel_entry"] == nil
-    assert first["pinned_memo"]["type"] == "agent_system_pinned_memo"
-    refute first["pinned_memo"]["truncated"]
+    assert first["pinned_memo"] == %{"resident_text" => "", "truncated" => false}
 
     {:ok, scope} = Scope.for_store(agent.uid, "public")
-    pinned_id = first["pinned_memo"]["entry_id"]
 
-    assert {:ok, %{entry: pinned}} = Knowledge.open(scope, pinned_id, block_limit: :all)
+    pinned =
+      Repo.get_by!(Entry,
+        owner_uid: agent.uid,
+        store_key: "public",
+        type: "agent_system_pinned_memo"
+      )
+
+    assert {:ok, %{entry: opened_pinned}} = Knowledge.open(scope, pinned.id, block_limit: :all)
+    assert opened_pinned.id == pinned.id
 
     assert {:ok, [bootstrap_audit]} =
              Knowledge.list_audit(scope,
                action: "create_entry",
-               entry_id: pinned_id,
+               entry_id: pinned.id,
                limit: 1
              )
 
@@ -57,7 +64,7 @@ defmodule Ankole.Brain.RuntimeTest do
 
     # The stale caller struct does not bypass the transaction's second check.
     assert {:ok, ^first} = Snapshot.get_or_create(conversation)
-    refute first["pinned_memo"]["markdown"] =~ "durable preference"
+    refute first["pinned_memo"]["resident_text"] =~ "durable preference"
 
     {:ok, successor} =
       Conversations.ensure_conversation(agent.uid, "brain-snapshot-successor",
@@ -65,7 +72,7 @@ defmodule Ankole.Brain.RuntimeTest do
       )
 
     assert {:ok, refreshed} = Snapshot.get_or_create(successor)
-    assert refreshed["pinned_memo"]["markdown"] =~ "durable preference"
+    assert refreshed["pinned_memo"]["resident_text"] == "Remember the durable preference"
   end
 
   test "group snapshot uses channel_id identity and subagents inherit the parent conversation" do
@@ -112,8 +119,11 @@ defmodule Ankole.Brain.RuntimeTest do
       )
 
     assert {:ok, parent_snapshot} = Snapshot.get_or_create(conversation)
-    assert parent_snapshot["channel_entry"]["entry_id"] == entry_id
-    assert parent_snapshot["channel_entry"]["markdown"] =~ "explicit owner"
+
+    assert parent_snapshot["channel_entry"] == %{
+             "resident_text" => "Channel decisions require an explicit owner",
+             "truncated" => false
+           }
 
     delegation =
       %Delegation{}

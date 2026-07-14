@@ -187,6 +187,15 @@ implementation details:
   against the transport route;
 - lifecycle envelopes are admitted against that authenticated route identity.
 
+`worker_id` identifies the stable operator-managed worker slot, not one OS
+process. Every Agent Computer process generates a fresh `incarnation_id` and
+includes it in `worker_ready`, `worker_heartbeat`, and `worker_capacity`.
+Admitting a new incarnation for the same worker atomically supersedes the old
+process projection and releases delivery fences still owned by that old
+incarnation, so a crash/restart can resume immediately instead of waiting for a
+heartbeat timeout. Lifecycle traffic from the superseded incarnation is fenced
+even if delayed packets arrive later.
+
 A router restart creates a fresh in-memory route/auth map. ZAP may authenticate
 the reconnecting DEALER before exposing its route identity, so the router keeps
 that success pending by `worker_id`; the first authenticated `worker_ready`,
@@ -352,7 +361,11 @@ itself have `status = completed`.
 
 SignalsGateway validates the immutable Response chain, then atomically commits
 ActorEvent completion, final/clarify/attachment outbox intents, and delivery
-cleanup. AIGateway's terminal commit closes only one Response and never changes
+cleanup. The same commit clears `current_actor_event_id` and gives the live
+activation a bounded warm-idle lease so a near-term event can reuse its worker
+and actor epoch. Idle expiry is recorded as a normal `stopped` activation;
+lease expiry is `failed` and retryable only while an unfinished event is still
+bound. AIGateway's terminal commit closes only one Response and never changes
 Actor state. There is no completion ACK: if completion handling fails, the
 ActorEvent remains open and ordinary lease/redelivery starts a fresh worker
 execution with a fresh local budget. A turn whose event needs no output still

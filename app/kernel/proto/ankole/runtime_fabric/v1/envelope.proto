@@ -77,6 +77,8 @@ message AgentComputerWorkerReady {
   string runtime = 2;
   string version = 3;
   bytes capacity_json = 4;
+  // Identifies one concrete process lifetime behind the stable worker id.
+  string incarnation_id = 5;
 }
 
 message AgentComputerWorkerHeartbeat {
@@ -85,6 +87,7 @@ message AgentComputerWorkerHeartbeat {
   // compared across workers or process restarts.
   int64 monotonic_ms = 2;
   bytes load_json = 3;
+  string incarnation_id = 4;
 }
 
 message AgentComputerWorkerCapacity {
@@ -92,6 +95,7 @@ message AgentComputerWorkerCapacity {
   bytes capacity_json = 2;
   bytes load_json = 3;
   uint32 available_turn_slots = 4;
+  string incarnation_id = 5;
 }
 
 message ActorEventEnvelope {

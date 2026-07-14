@@ -377,15 +377,12 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                provider_id: "openrouter-main",
                model: "z-ai/glm-5.2",
                context_length: 1_048_576,
-               provider_options: %{
-                 "reasoning" => %{"effort" => "minimal", "exclude" => true},
-                 "reasoningEffort" => "medium"
-               }
+               provider_options: %{"reasoningEffort" => "medium"}
              })
 
     assert profile["provider_id"] == "openrouter-main"
     assert profile["context_length"] == 1_048_576
-    assert profile["provider_options"]["reasoning"] == %{"effort" => "minimal", "exclude" => true}
+    assert profile["provider_options"] == %{"reasoningEffort" => "medium"}
 
     assert {:ok, primary_runtime_profile} =
              ModelProfiles.resolve_runtime_profile(agent.uid, "primary")
@@ -611,11 +608,28 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                provider_options: %{"thinking" => %{"type" => "enabled"}}
              })
 
+    assert {:error, {:provider_options, {:unknown_keys, ["reasoning"]}}} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openrouter-main",
+               model: "z-ai/glm-5.2",
+               provider_options: %{"reasoning" => %{"effort" => "medium"}}
+             })
+
     assert {:ok, _profile} =
              ModelProfiles.put_model_profile(agent.uid, "primary", %{
                provider_id: "openrouter-main",
                model: "z-ai/glm-5.2",
                provider_options: %{"reasoningEffort" => "medium"}
+             })
+
+    assert {:error,
+            {:provider_options,
+             {:invalid_value, "reasoningEffort", "max",
+              ["none", "minimal", "low", "medium", "high", "xhigh"]}}} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openrouter-main",
+               model: "z-ai/glm-5.2",
+               provider_options: %{"reasoningEffort" => "max"}
              })
 
     assert {:ok, _profile} =
@@ -780,6 +794,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     Repo.insert!(%AgentComputerWorker{
       worker_id: worker_id,
+      incarnation_id: Ecto.UUID.generate(),
       status: "ready",
       version: "test",
       capacity: %{},

@@ -68,7 +68,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
         localBrowser: {
           agentUID: turnStart.turn.actor.agent_uid,
           executionScopeID: turnStart.turn.actor.session_id ?? turnStart.turn.actor.agent_uid,
-          blockPrivateNetwork: browserRuntimeConfig.blockPrivateNetwork,
+          ssrfFilter: browserRuntimeConfig.ssrfFilter,
           ...(typeof browserRuntimeConfig.localBrowserIdleTtlMs === 'number'
             ? { localBrowserIdleTtlMs: browserRuntimeConfig.localBrowserIdleTtlMs }
             : {})
@@ -100,7 +100,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
         workspaceRoot: opts.workspaceRoot,
         browserRemoteCDPConfig: browserRuntimeConfig.remoteCDPConfig,
         localBrowserIdleTtlMs: browserRuntimeConfig.localBrowserIdleTtlMs,
-        blockPrivateNetwork: browserRuntimeConfig.blockPrivateNetwork,
+        ssrfFilter: browserRuntimeConfig.ssrfFilter,
         workerEnv
       }),
       ...createScheduleTools({
@@ -155,6 +155,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       tools,
       abortSignal: turnActivity.signal,
       onActivity: turnActivity.touch,
+      onPresentationEvent: opts.onPresentationEvent,
       withActivitySuspended: turnActivity.withSuspended,
       getSteeringMessages: async () => steeringMessages(turnStart, opts.pollSteering?.() ?? [])
     })

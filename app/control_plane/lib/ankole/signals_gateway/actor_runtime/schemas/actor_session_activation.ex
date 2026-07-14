@@ -39,7 +39,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation do
     field :status, :string
     field :controller_node, :string
     # Lease: the activation is only valid while now < lease_expires_at. The
-    # watchdog fails expired activations so the actor event can be retried.
+    # watchdog fails an expired in-flight activation so its actor event can be
+    # retried, but normally stops a warm activation whose current event is nil.
     field :lease_id, :string
     field :lease_expires_at, :utc_datetime_usec
     field :last_actor_heartbeat_at, :utc_datetime_usec

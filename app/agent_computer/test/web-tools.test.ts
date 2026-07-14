@@ -192,7 +192,7 @@ describe('web tools', () => {
     })
   })
 
-  it('rejects private-network URLs in local web_fetch when the policy is on', async () => {
+  it('rejects private-network URLs in local web_fetch when SSRF filtering is on', async () => {
     const fetched: string[] = []
     const client: AIGatewayHTTPClient = {
       baseURL: 'https://control.test/api/v1/ai-gateway',
@@ -207,7 +207,7 @@ describe('web tools', () => {
       localBrowser: {
         agentUID: 'agent-1',
         executionScopeID: 'conversation-1',
-        blockPrivateNetwork: true,
+        ssrfFilter: true,
         fetchURL: async ({ url }) => {
           fetched.push(url)
           return { url, text: 'Fetched public page' }
@@ -227,7 +227,7 @@ describe('web tools', () => {
       results: [
         {
           url: 'https://192.168.1.20/console',
-          error: 'blocked non-public URL by the web_tools.block_private_network policy'
+          error: 'blocked non-public URL by the security.ssrf_filter policy'
         },
         { url: 'https://example.com', text: 'Fetched public page' }
       ]

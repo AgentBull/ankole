@@ -34,7 +34,7 @@ import {
   type ToolCall
 } from './llm'
 import { isLocallyRetryableLLMError, isRetryableLLMError } from './llm-error-classifier'
-import type { AgentLoopConfig, AgentLoopResult, AgentTool, AgentToolResult } from './types'
+import type { AgentLoopConfig, AgentLoopResult, AgentTool, AgentToolResult, ReplyPresentationEvent } from './types'
 import { contentText, imageSummaryBlock, modelImageAdaptation, responseImageUnavailableText } from './vision'
 
 const EMPTY_AFTER_TOOL_NUDGE_TEXT =
@@ -70,6 +70,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
   const repeatedFailureState: RepeatedToolFailureState = { count: 0 }
   const maxModelIterations = config.maxModelIterations
   const toolByName = config.tools?.length ? agentToolMap(config.tools) : undefined
+  const emitPresentationEvent = presentationEmitter(config)
   const modelTurn = createModelTurn(config.model, {
     stateful: config.stateful,
     abortSignal: config.abortSignal,
@@ -81,6 +82,11 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
   })
 
   try {
+    await emitPresentationEvent({
+      kind: 'turn.phase',
+      payload: { operation_id: 'turn', state: 'working', label: '正在理解请求' }
+    })
+
     while (true) {
       if (modelIterations >= maxModelIterations) {
         const synthesized = await synthesizeAfterModelIterationLimit({
@@ -152,8 +158,10 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
 
       const toolCalls = latestAssistant.toolCalls
       const executedToolCalls = config.withActivitySuspended
-        ? await config.withActivitySuspended('tool_execution', () => executeToolCalls(toolCalls, toolByName, config))
-        : await executeToolCalls(toolCalls, toolByName, config)
+        ? await config.withActivitySuspended('tool_execution', () =>
+            executeToolCalls(toolCalls, toolByName, config, emitPresentationEvent)
+          )
+        : await executeToolCalls(toolCalls, toolByName, config, emitPresentationEvent)
       clarifyExecuted ||= executedToolCalls.some(result => result.toolName === 'clarify' && !result.failure)
       const toolResults = executedToolCalls.map(result => result.resultMsg)
       const toolFollowUpMessages = [
@@ -191,6 +199,10 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
 
       const steeringMessages = config.getSteeringMessages ? await config.getSteeringMessages() : []
       pendingMessages = [...nextMessages, ...steeringMessages]
+      await emitPresentationEvent({
+        kind: 'turn.phase',
+        payload: { operation_id: 'turn', state: 'working', label: '正在整理结果' }
+      })
     }
   } finally {
     modelTurn.close()
@@ -322,9 +334,10 @@ function requiredResponseID(responseID: string | undefined): string {
 async function executeToolCalls(
   toolCalls: ToolCall[],
   toolByName: Map<string, AgentTool> | undefined,
-  config: AgentLoopConfig
+  config: AgentLoopConfig,
+  emitPresentationEvent: PresentationEmitter
 ): Promise<ExecutedToolCall[]> {
-  const executeOne = (toolCall: ToolCall) => executeToolCall(toolCall, toolByName, config)
+  const executeOne = (toolCall: ToolCall) => executeToolCall(toolCall, toolByName, config, emitPresentationEvent)
   if (canExecuteToolCallsInParallel(toolCalls, toolByName)) {
     return Promise.all(toolCalls.map(executeOne))
   }
@@ -362,11 +375,23 @@ function canExecuteToolCallInParallel(toolCall: ToolCall, toolByName: Map<string
 async function executeToolCall(
   toolCall: ToolCall,
   toolByName: Map<string, AgentTool> | undefined,
-  config: AgentLoopConfig
+  config: AgentLoopConfig,
+  emitPresentationEvent: PresentationEmitter
 ): Promise<ExecutedToolCall> {
   const tool = toolByName?.get(toolCall.name)
+  const activity = toolActivity(toolCall, tool)
+
+  await emitPresentationEvent({
+    kind: 'tool.activity',
+    payload: { ...activity, phase: 'running' }
+  })
+
   if (!tool) {
     const message = `Unknown tool: ${toolCall.name}`
+    await emitPresentationEvent({
+      kind: 'tool.activity',
+      payload: { ...activity, phase: 'failed' }
+    })
     return {
       toolName: toolCall.name,
       resultMsg: {
@@ -387,6 +412,10 @@ async function executeToolCall(
     parsedArgs = validateToolArguments(toolCall.arguments, tool.schema)
   } catch (error) {
     const message = `Invalid arguments for tool ${toolCall.name}: ${errorMessage(error)}`
+    await emitPresentationEvent({
+      kind: 'tool.activity',
+      payload: { ...activity, phase: 'failed' }
+    })
     return {
       toolName: toolCall.name,
       resultMsg: {
@@ -413,6 +442,9 @@ async function executeToolCall(
     const processed = await processToolResultForModel(toolResult, config)
     resultText = processed.outputText
     followUpMessages = processed.followUpMessages
+    for (const event of toolResult.presentation ?? []) {
+      await emitPresentationEvent(event)
+    }
   } catch (e) {
     const message = `Error: ${errorMessage(e)}`
     toolResult = {
@@ -428,6 +460,11 @@ async function executeToolCall(
     config.onActivity?.(`tool:${toolCall.name}:done`)
   }
 
+  await emitPresentationEvent({
+    kind: 'tool.activity',
+    payload: { ...activity, phase: failure ? 'failed' : 'completed' }
+  })
+
   return {
     toolName: toolCall.name,
     resultMsg: {
@@ -438,6 +475,65 @@ async function executeToolCall(
     followUpMessages,
     failure
   }
+}
+
+type PresentationEmitter = (event: ReplyPresentationEvent) => Promise<void>
+
+/**
+ * Assigns one turn-local monotonic revision and keeps live presentation
+ * delivery best-effort. A transport failure must not turn a successful tool
+ * execution into a failed Agent turn.
+ */
+function presentationEmitter(config: AgentLoopConfig): PresentationEmitter {
+  let revision = 0
+
+  return async event => {
+    if (!config.onPresentationEvent) return
+
+    const next: ReplyPresentationEvent = {
+      kind: event.kind,
+      payload: { ...event.payload, revision: ++revision }
+    }
+
+    try {
+      await config.onPresentationEvent(next)
+    } catch {
+      config.onActivity?.('reply_presentation_event_failed')
+    }
+  }
+}
+
+/**
+ * Projects a provider tool call into a small human vocabulary. The raw tool
+ * name and arguments remain inside the worker/AIGateway trace boundary.
+ */
+function toolActivity(toolCall: ToolCall, tool: AgentTool | undefined): JSONObject {
+  return {
+    operation_id: toolCall.id,
+    label: toolActivityLabel(toolCall.name),
+    consequential: tool?.isDestructive === true
+  }
+}
+
+function toolActivityLabel(name: string): string {
+  if (name === 'todo') return '更新执行计划'
+  if (name === 'memory_search') return '回忆相关上下文'
+  if (name === 'memory_open') return '读取记忆内容'
+  if (name === 'memory_browse') return '浏览对话记忆'
+  if (name === 'memory_update') return '更新记忆'
+  if (name === 'memory_health_check') return '检查记忆状态'
+  if (name === 'web_search') return '检索资料'
+  if (name === 'web_fetch') return '阅读资料'
+  if (name.startsWith('browser')) return '浏览网页'
+  if (name === 'command' || name === 'interactive_terminal') return '操作工作环境'
+  if (name === 'read_file') return '读取文件'
+  if (name === 'patch') return '更新文件'
+  if (name === 'reply_attachment') return '准备交付文件'
+  if (name === 'check_back_later' || name === 'cron') return '安排后续工作'
+  if (name === 'clarify') return '整理需要确认的信息'
+  if (name === 'subagent') return '协调子任务'
+  if (name.startsWith('skill_')) return '加载专业能力'
+  return '处理请求'
 }
 
 function formatToolError(message: string): string {

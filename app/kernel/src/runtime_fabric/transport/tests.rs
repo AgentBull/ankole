@@ -285,6 +285,7 @@ fn worker_ready_envelope() -> serde_json::Value {
             "type": "worker_ready",
             "worker_ready": {
                 "worker_id": "worker-a",
+                "incarnation_id": "incarnation-a",
                 "runtime": "bun",
                 "version": "test",
                 "capacity_json": {"available_turn_slots": 1}

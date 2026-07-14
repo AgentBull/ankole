@@ -7,6 +7,7 @@
  */
 
 import type { z } from 'zod'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import type { AssistantMessage, Message, ModelConfig, ContentPart, StatefulResponseContext } from './llm'
 
 // Re-export the core LLM types so consumers can import from one place.
@@ -72,6 +73,12 @@ export interface AgentLoopConfig {
   /** Called whenever the loop observes model/provider progress for inactivity tracking. */
   onActivity?: (description?: string) => void
 
+  /**
+   * Emits renderer-safe semantic progress for the visible reply surface.
+   * Raw tool names, arguments, outputs, and provider frames do not belong here.
+   */
+  onPresentationEvent?: (event: ReplyPresentationEvent) => void | Promise<void>
+
   /** Runs work that should not count against model/provider inactivity tracking. */
   withActivitySuspended?: <T>(description: string, fn: () => Promise<T>) => Promise<T>
 }
@@ -82,6 +89,32 @@ export type AgentLoopResult = {
   message: AssistantMessage
   responseID: string
   outcome: AgentLoopOutcome
+}
+
+export type ReplyPresentationEventKind =
+  | 'turn.phase'
+  | 'plan.snapshot'
+  | 'tool.activity'
+  | 'memory.lookup'
+  | 'memory.mutation_receipt'
+  | 'effect.receipt'
+  | 'result.table'
+  | 'result.chart'
+  | 'result.image'
+  | 'result.metrics'
+  | 'artifact.available'
+  | 'interaction.request'
+
+/**
+ * Provider-neutral live reply projection emitted by Agent Computer.
+ *
+ * The control plane supplies the turn fence through RuntimeFabric and assigns
+ * no authority to these fields. Every payload is normalized again before a
+ * provider renderer can consume it.
+ */
+export interface ReplyPresentationEvent {
+  kind: ReplyPresentationEventKind
+  payload: JSONObject
 }
 
 /**
@@ -100,6 +133,7 @@ export type AgentMessage = Message | CustomAgentMessages[keyof CustomAgentMessag
 export interface AgentToolResult<T> {
   content: ContentPart[]
   details: T
+  presentation?: ReplyPresentationEvent[]
 }
 
 /**

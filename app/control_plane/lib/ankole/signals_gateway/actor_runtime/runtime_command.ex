@@ -20,6 +20,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
   alias Ankole.SignalsGateway.ActorRuntime.TurnRetry
   alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
   alias Ankole.SignalsGateway.ActorRuntime.WorkerAdmission
+  alias Ankole.SignalsGateway.Outbox
   alias Ankole.Repo
   alias Ankole.SignalsGateway
 
@@ -235,15 +236,28 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
   defp apply_runtime_command(repo, actor_key, %ActorEvent{type: "command.retry"} = input, now) do
     case TurnRetry.retry_live_turn_in_tx(repo, actor_key, input, now) do
       {:ok, :no_live_turn} ->
-        with {:ok, retry_event} <- append_retry_event(repo, actor_key, input, now),
-             {:ok, completed_event} <- consume_command_without_feedback(repo, input, now) do
-          {:ok,
-           %{
-             status: :command_consumed,
-             command: input.type,
-             retry_actor_event: retry_event,
-             actor_event: completed_event
-           }}
+        case append_retry_event(repo, actor_key, input, now) do
+          {:ok, %ActorEvent{} = retry_event} ->
+            with {:ok, completed_event} <- consume_command_without_feedback(repo, input, now) do
+              {:ok,
+               %{
+                 status: :command_consumed,
+                 command: input.type,
+                 retry_actor_event: retry_event,
+                 actor_event: completed_event
+               }}
+            end
+
+          {:ok, :nothing_to_retry} ->
+            consume_command_feedback(
+              repo,
+              input,
+              I18n.t("signals_gateway.reply.nothing_to_retry"),
+              now
+            )
+
+          {:error, _reason} = error ->
+            error
         end
 
       {:ok, %{status: :command_consumed} = result} ->
@@ -527,38 +541,129 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
   end
 
   defp append_retry_event(repo, actor_key, %ActorEvent{} = command_event, now) do
-    with {:ok, retry_source} <-
-           AIGatewayLink.retry_source_in_tx(
-             repo,
-             actor_key.agent_uid,
-             actor_key.session_id
-           ) do
-      Actors.append_actor_event_in_tx(repo, %{
-        agent_uid: command_event.agent_uid,
-        binding_name: command_event.binding_name,
-        session_id: command_event.session_id,
-        source_event_id: "retry:#{command_event.id}",
-        signal_channel_id: command_event.signal_channel_id,
-        provider_thread_id: command_event.provider_thread_id,
-        source_entry_id: command_event.source_entry_id,
-        type: "im.message.addressed",
-        available_at: now,
-        sender_key: command_event.sender_key,
-        payload: %{
-          "type" => "im.message.addressed",
-          "data" => %{
-            "entry" => %{
-              "text" => retry_source.text,
-              "retry_of_actor_event_id" => retry_source.actor_event_id,
-              "retry_of_message_id" => retry_source.message_id
-            }
-          }
-        }
-      })
-    else
-      {:error, _reason} = error -> error
+    aigateway_source =
+      AIGatewayLink.retry_source_in_tx(
+        repo,
+        actor_key.agent_uid,
+        actor_key.session_id
+      )
+
+    actor_source = latest_completed_retry_source(repo, actor_key, command_event)
+
+    case choose_retry_source(aigateway_source, actor_source) do
+      {:aigateway, retry_source} ->
+        append_aigateway_retry_event(repo, command_event, retry_source, now)
+
+      {:actor_event, source, retry_message_id} ->
+        append_actor_event_retry(repo, command_event, source, retry_message_id, now)
+
+      :nothing_to_retry ->
+        {:ok, :nothing_to_retry}
     end
   end
+
+  defp choose_retry_source(_aigateway_source, :conversation_boundary),
+    do: :nothing_to_retry
+
+  defp choose_retry_source(
+         {:ok, %{actor_event_id: actor_event_id} = source},
+         %ActorEvent{id: actor_event_id} = event
+       ),
+       do: {:actor_event, event, source.message_id}
+
+  defp choose_retry_source(_aigateway_source, %ActorEvent{} = source),
+    do: {:actor_event, source, nil}
+
+  defp choose_retry_source({:ok, source}, nil), do: {:aigateway, source}
+
+  defp choose_retry_source({:error, reason}, nil)
+       when reason in [:conversation_not_found, :retry_source_not_found],
+       do: :nothing_to_retry
+
+  defp append_aigateway_retry_event(repo, command_event, retry_source, now) do
+    Actors.append_actor_event_in_tx(repo, %{
+      agent_uid: command_event.agent_uid,
+      binding_name: command_event.binding_name,
+      session_id: command_event.session_id,
+      source_event_id: "retry:#{command_event.id}",
+      signal_channel_id: command_event.signal_channel_id,
+      provider_thread_id: command_event.provider_thread_id,
+      source_entry_id: command_event.source_entry_id,
+      type: "im.message.addressed",
+      available_at: now,
+      sender_key: command_event.sender_key,
+      payload: %{
+        "type" => "im.message.addressed",
+        "data" => %{
+          "entry" => %{
+            "text" => retry_source.text,
+            "retry_of_actor_event_id" => retry_source.actor_event_id,
+            "retry_of_message_id" => retry_source.message_id
+          }
+        }
+      }
+    })
+  end
+
+  defp append_actor_event_retry(repo, command_event, source, retry_message_id, now) do
+    retry_metadata =
+      case retry_message_id do
+        message_id when is_binary(message_id) -> %{"retry_of_message_id" => message_id}
+        nil -> %{}
+      end
+
+    payload =
+      source.payload
+      |> TurnRetry.put_retry_metadata(source.id, "command.retry", retry_metadata)
+      |> Map.put("id", "retry:#{command_event.id}")
+      |> Map.put("time", DateTime.to_iso8601(now))
+
+    Actors.append_actor_event_in_tx(repo, %{
+      agent_uid: command_event.agent_uid,
+      binding_name: command_event.binding_name,
+      session_id: command_event.session_id,
+      source_event_id: "retry:#{command_event.id}",
+      signal_channel_id: command_event.signal_channel_id,
+      provider_thread_id: command_event.provider_thread_id,
+      source_entry_id: command_event.source_entry_id,
+      type: source.type,
+      available_at: now,
+      sender_key: command_event.sender_key,
+      payload: payload
+    })
+  end
+
+  defp latest_completed_retry_source(repo, actor_key, command_event) do
+    candidate_types = Enum.uniq(["command.new" | AIReplyPreview.im_visible_event_types()])
+
+    ActorEvent
+    |> where([event], event.agent_uid == ^actor_key.agent_uid)
+    |> where([event], event.session_id == ^actor_key.session_id)
+    |> where([event], event.queue_sequence < ^command_event.queue_sequence)
+    |> where([event], event.input_state == "open")
+    |> where([event], not is_nil(event.completed_at))
+    |> where([event], event.type in ^candidate_types)
+    |> where(
+      [event],
+      event.type != "command.steer" or
+        fragment("COALESCE(BTRIM(? #>> '{data,command,argsText}'), '') <> ''", event.payload)
+    )
+    |> order_by([event], desc: event.queue_sequence)
+    |> limit(1)
+    |> lock("FOR UPDATE")
+    |> repo.one()
+    |> select_retry_source()
+  end
+
+  defp select_retry_source(%ActorEvent{type: "command.new"} = event) do
+    case command_args(event) do
+      "" -> :conversation_boundary
+      _args -> event
+    end
+  end
+
+  defp select_retry_source(%ActorEvent{} = event), do: event
+  defp select_retry_source(nil), do: nil
 
   defp publish_cancelled_turn_event({:ok, %{cancelled_turn: %{} = response}} = result) do
     _ = AIGatewayLink.publish_failed_response(response)
@@ -601,7 +706,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
                  reason
                ),
              {:ok, _completed_events} <-
-               complete_cancelled_turn_events(repo, live_deliveries, now) do
+               complete_cancelled_turn_events(repo, live_deliveries, now, reason) do
           {:ok, %{stop_controls: stop_controls, cancelled_turn: cancelled_turn}}
         end
 
@@ -658,15 +763,18 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
     end
   end
 
-  defp complete_cancelled_turn_events(repo, deliveries, now) when is_list(deliveries) do
+  defp complete_cancelled_turn_events(repo, deliveries, now, reason)
+       when is_list(deliveries) and is_binary(reason) do
     deliveries
     |> Enum.uniq_by(& &1.actor_event_id)
     |> Enum.reduce_while({:ok, []}, fn delivery, {:ok, completed_events} ->
       case Actors.lock_actor_event_in_tx(repo, delivery.actor_event_id) do
         %ActorEvent{} = event ->
-          case Actors.mark_event_completed_in_tx(repo, event, now) do
-            {:ok, completed_event} -> {:cont, {:ok, [completed_event | completed_events]}}
-            {:error, reason} -> {:halt, {:error, reason}}
+          with {:ok, _outbox} <- maybe_commit_stopped_preview(repo, event, reason),
+               {:ok, completed_event} <- Actors.mark_event_completed_in_tx(repo, event, now) do
+            {:cont, {:ok, [completed_event | completed_events]}}
+          else
+            {:error, error} -> {:halt, {:error, error}}
           end
 
         nil ->
@@ -674,6 +782,22 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
       end
     end)
   end
+
+  defp maybe_commit_stopped_preview(
+         repo,
+         %ActorEvent{reply_preview_source_entry_id: source_entry_id} = event,
+         reason
+       )
+       when is_binary(source_entry_id) and source_entry_id != "" do
+    Outbox.commit_stopped_turn_notice_outbox_in_tx(
+      repo,
+      event,
+      I18n.t("signals_gateway.reply.command_stopped"),
+      reason
+    )
+  end
+
+  defp maybe_commit_stopped_preview(_repo, %ActorEvent{}, _reason), do: {:ok, nil}
 
   defp stop_control_for_delivery(_actor_key, delivery, reason) do
     %{
@@ -720,7 +844,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
                  now
                ),
              {:ok, _completed_events} <-
-               complete_cancelled_turn_events(repo, live_deliveries, now) do
+               complete_cancelled_turn_events(repo, live_deliveries, now, "command.new") do
           {:ok, %{stop_controls: stop_controls, cancelled_turn: cancelled_turn}}
         end
 

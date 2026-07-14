@@ -801,36 +801,36 @@ enabled binding state, human AuthZ membership, and historically observed
 non-group channels for Brain recall and dreaming. This fact describes whether
 the adapter binding is currently in an IM group, not provider online presence.
 
-`signal_gateway_entries` stores one row per `(signal_channel_id, source_entry_id)` and
-uses that pair as its primary key. `source_entry_id` means the
+`signal_gateway_entries` stores one row per `(signal_channel_id, source_entry_id)`.
+That pair is unique for provider redelivery, while the stable `document_id` is
+the row's primary key and Brain citation identity. `source_entry_id` means the
 adapter-normalized entry id stored in the mirror; it is not necessarily the raw
-provider id. `thread_id` is not provider mirror identity; thread scope stays in
-`actor_events` and outbox as `provider_thread_id`, where batching and provider
-delivery need it.
+provider id. A thread that is narrower than the channel is stored once in the
+entry's nullable `provider_thread_id` column and reused by batching, recall, and
+provider delivery.
 
 `signal_gateway_entries.ai_message_id` is a nullable backref column with a partial
 index. When a streamed AI reply's final send or edit succeeds, the mirror row
 records the `ai_gateway_messages.id` of the final output it delivered. The
-column is not part of the primary key — mirror identity stays the provider
-entry identity. Intermediate streaming chunks never write `signal_gateway_entries`;
+column is not part of provider identity. Intermediate streaming chunks never write `signal_gateway_entries`;
 only the confirmed final reply does. The final outbox row owns retries and
 reconciliation; no Response-chain scan infers missing replies.
 
-`signal_gateway_entries` also reserves recall/search fields. These fields are part of
-the mirror row because later full-text and vector recall need a stable searchable
-document identity even when provider ids or normalized payload shapes evolve:
+`signal_gateway_entries` keeps canonical provider facts rather than materialized
+search strings:
 
-- `document_id`: stable opaque id for recall/search indexes. It is not provider
-  identity and does not replace `(signal_channel_id, source_entry_id)`.
-- `search_text`: flattened human-visible content for full-text search.
-- `metadata_text`: flattened searchable side fields, such as author, title,
-  link labels, or provider metadata selected for recall.
-- `content_hash`: hash of recall-relevant content used to detect whether
-  search/vector indexes need refresh.
+- `text` is the only normalized plain-text body.
+- `rich_content` is nullable and exists only when structured content adds
+  information beyond `text`; a markdown wrapper whose body equals `text` is not
+  persisted.
+- `author` and `metadata` remain structured JSONB and are searched directly.
+- `document_id` is the stable opaque primary key for recall and citations.
+- `content_hash` covers canonical content fields for change detection.
 
-Vector storage, embedding profiles, ranking, and re-embedding workers belong to
-the recall/search subsystem. SignalsGateway only reserves the stable entry-side
-fields that subsystem will need.
+The BM25 index reads `text`, `author`, `metadata`, and `provider_thread_id`
+directly. It does not depend on flattened `search_text` or `metadata_text`
+projections. Vector storage, embedding profiles, ranking, and re-embedding
+workers remain owned by the recall/search subsystem.
 
 `signal_gateway_entries` must not be treated as TTL runtime state. Brain/search
 retention, redaction, delete, and recall behavior are product/privacy policy,
@@ -1346,9 +1346,12 @@ deliveries in the established order; validates activation uid, epoch, event,
 session, lease, and revision; checks the provider source tombstone; inserts
 idempotent final/clarify/attachment outbox intents; completes the primary and
 accepted steer events; deletes accepted deliveries; and supersedes remaining
-created/sent deliveries. Only after commit does it terminate Preview. A duplicate
-completion returns `already_completed` and writes no new outbox row. A stale
-fence or invalid Response chain makes zero changes.
+created/sent deliveries. It then clears the activation's current event and starts
+its warm-idle lease. Idle expiry stops that activation normally; only expiry
+while an unfinished event remains bound fails the activation and makes the event
+retryable. Only after commit does it terminate Preview. A duplicate completion
+returns `already_completed` and writes no new outbox row. A stale fence or
+invalid Response chain makes zero changes.
 
 An event with no meaningful output completes only through the worker's explicit
 `turn_noop_completed` marker. `iteration_exhausted` is terminal and

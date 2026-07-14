@@ -7,6 +7,8 @@ defmodule Ankole.RuntimeEventsTest do
   test "registry exposes only notification channels for LISTEN" do
     assert RuntimeEvents.channels() == [
              RuntimeEvents.actor_session_ready_channel(),
+             RuntimeEvents.reply_preview_checkpoint_channel(),
+             RuntimeEvents.reply_preview_cleanup_channel(),
              RuntimeEvents.outbox_due_channel(),
              RuntimeEvents.inbound_batch_due_channel(),
              RuntimeEvents.worker_deadline_channel(),

@@ -21,6 +21,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   alias Ankole.Plugins.LarkAdapter.IMGroups
   alias Ankole.Plugins.LarkAdapter.Inbound
   alias Ankole.Plugins.LarkAdapter.Jobs.RefreshIMGroup
+  alias Ankole.Plugins.LarkAdapter.Outbox
   alias Ankole.Principals
   alias Ankole.Principals.Principal
   alias Ankole.Repo
@@ -29,6 +30,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   alias Ankole.SignalsGateway.BindingMembership
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.Entry
+  alias Ankole.SignalsGateway.OutboxEntry
   alias FeishuOpenAPI.Client
   alias FeishuOpenAPI.Event
   alias FeishuOpenAPI.TokenStore
@@ -219,6 +221,238 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  "appSecret" => "secret",
                  "sync" => %{"pageSize" => 100}
                })
+    end
+  end
+
+  describe "outbound provider constraints" do
+    test "preserves short idempotency keys and hashes long keys into Feishu's UUID limit" do
+      short_key = "reply:short"
+      long_key = "ai-preview:#{Ecto.UUID.generate()}:initial"
+
+      assert Outbox.provider_message_uuid(short_key) == short_key
+
+      provider_uuid = Outbox.provider_message_uuid(long_key)
+      assert String.length(provider_uuid) == 50
+      assert String.starts_with?(provider_uuid, "ankole-")
+      assert provider_uuid == Outbox.provider_message_uuid(long_key)
+      refute provider_uuid == Outbox.provider_message_uuid(long_key <> ":different")
+    end
+
+    test "durable final edit falls back to a new message after Feishu edit budget exhaustion" do
+      parent = self()
+
+      base_url =
+        Ankole.AIGatewayCase.start_upstream_server(fn request ->
+          send(parent, {:lark_outbox_request, request})
+
+          case {request.method, request.request_path} do
+            {:put, "/open-apis/im/v1/messages/om_preview"} ->
+              {:json, 400, %{"code" => 230_072, "msg" => "edit count exceeded"}}
+
+            {:post, "/open-apis/im/v1/messages"} ->
+              {:json, 200,
+               %{
+                 "code" => 0,
+                 "data" => %{
+                   "message_id" => "om_fallback",
+                   "root_id" => "om_fallback"
+                 }
+               }}
+          end
+        end)
+
+      %{principal: agent} = agent_fixture()
+      binding_name = "lark-edit-fallback"
+
+      config =
+        chat_config(%{
+          "appID" => "cli_edit_fallback",
+          "baseURL" => base_url
+        })
+
+      assert {:ok, _config} =
+               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+
+      binding_fixture(agent.uid, binding_name, :ignore)
+      put_tenant_token(config, [])
+      on_exit(fn -> delete_tenant_token(config, []) end)
+
+      outbox = final_edit_outbox(agent.uid, binding_name)
+
+      assert {:ok,
+              %{
+                created_source_entry_id: "om_fallback",
+                delivered_operation: :post
+              }} = Outbox.send(outbox)
+
+      assert_receive {:lark_outbox_request,
+                      %{
+                        method: :put,
+                        request_path: "/open-apis/im/v1/messages/om_preview"
+                      }}
+
+      assert_receive {:lark_outbox_request,
+                      %{
+                        method: :post,
+                        request_path: "/open-apis/im/v1/messages",
+                        body: %{
+                          "receive_id" => "oc_group",
+                          "msg_type" => "text"
+                        }
+                      }}
+    end
+
+    test "durable final edit falls back when Feishu reports the edit window expired" do
+      parent = self()
+
+      base_url =
+        Ankole.AIGatewayCase.start_upstream_server(fn request ->
+          send(parent, {:lark_outbox_request, request})
+
+          case {request.method, request.request_path} do
+            {:put, "/open-apis/im/v1/messages/om_preview"} ->
+              {:json, 400, %{"code" => 230_075, "msg" => "edit window expired"}}
+
+            {:post, "/open-apis/im/v1/messages"} ->
+              {:json, 200,
+               %{
+                 "code" => 0,
+                 "data" => %{
+                   "message_id" => "om_expired_fallback",
+                   "root_id" => "om_expired_fallback"
+                 }
+               }}
+          end
+        end)
+
+      %{principal: agent} = agent_fixture()
+      binding_name = "lark-expired-edit-fallback"
+
+      config =
+        chat_config(%{
+          "appID" => "cli_expired_edit_fallback",
+          "baseURL" => base_url
+        })
+
+      assert {:ok, _config} =
+               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+
+      binding_fixture(agent.uid, binding_name, :ignore)
+      put_tenant_token(config, [])
+      on_exit(fn -> delete_tenant_token(config, []) end)
+
+      assert {:ok,
+              %{
+                created_source_entry_id: "om_expired_fallback",
+                delivered_operation: :post
+              }} =
+               agent.uid
+               |> final_edit_outbox(binding_name)
+               |> Outbox.send()
+
+      assert_receive {:lark_outbox_request, %{method: :put}}
+      assert_receive {:lark_outbox_request, %{method: :post}}
+    end
+
+    test "non-budget edit failures remain errors and expose only safe provider fields" do
+      parent = self()
+
+      base_url =
+        Ankole.AIGatewayCase.start_upstream_server(fn request ->
+          send(parent, {:lark_outbox_request, request})
+          {:json, 400, %{"code" => 230_071, "msg" => "operator is not sender"}}
+        end)
+
+      %{principal: agent} = agent_fixture()
+      binding_name = "lark-edit-no-fallback"
+
+      config =
+        chat_config(%{
+          "appID" => "cli_edit_no_fallback",
+          "baseURL" => base_url
+        })
+
+      assert {:ok, _config} =
+               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+
+      binding_fixture(agent.uid, binding_name, :ignore)
+      put_tenant_token(config, [])
+      on_exit(fn -> delete_tenant_token(config, []) end)
+
+      assert {:error,
+              {:provider_error, %{code: 230_071, http_status: 400, msg: "operator is not sender"}}} =
+               agent.uid
+               |> final_edit_outbox(binding_name)
+               |> Outbox.send()
+
+      assert_receive {:lark_outbox_request, %{method: :put}}
+      refute_receive {:lark_outbox_request, %{method: :post}}, 100
+    end
+
+    test "sends a materialized image attachment as a native Feishu image message" do
+      parent = self()
+
+      base_url =
+        Ankole.AIGatewayCase.start_upstream_server(fn request ->
+          send(parent, {:lark_outbox_request, request})
+
+          {:json, 200,
+           %{
+             "code" => 0,
+             "data" => %{"message_id" => "om_image", "root_id" => "om_image"}
+           }}
+        end)
+
+      %{principal: agent} = agent_fixture()
+      binding_name = "lark-native-image"
+
+      config =
+        chat_config(%{
+          "appID" => "cli_native_image",
+          "baseURL" => base_url
+        })
+
+      assert {:ok, _config} =
+               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+
+      binding_fixture(agent.uid, binding_name, :ignore)
+      put_tenant_token(config, [])
+      on_exit(fn -> delete_tenant_token(config, []) end)
+
+      id = Ecto.UUID.generate()
+
+      outbox = %OutboxEntry{
+        agent_uid: agent.uid,
+        binding_name: binding_name,
+        outbound_key: "native-image:#{id}",
+        operation: :post,
+        signal_channel_id: "lark:oc_group",
+        payload: %{
+          "attachments" => [
+            %{
+              "name" => "chart.png",
+              "mime_type" => "image/png",
+              "provider_image_key" => "img_native"
+            }
+          ]
+        },
+        fallback_visible_text: "chart.png",
+        idempotency_key: "native-image:#{id}"
+      }
+
+      assert {:ok, %{created_source_entry_id: "om_image"}} = Outbox.send(outbox)
+
+      assert_receive {:lark_outbox_request,
+                      %{
+                        method: :post,
+                        request_path: "/open-apis/im/v1/messages",
+                        body: %{
+                          "msg_type" => "image",
+                          "content" => content
+                        }
+                      }}
+
+      assert Ankole.JSON.decode!(content) == %{"image_key" => "img_native"}
     end
   end
 
@@ -1605,6 +1839,28 @@ defmodule Ankole.Plugins.LarkAdapterTest do
     binding
   end
 
+  defp final_edit_outbox(agent_uid, binding_name) do
+    id = Ecto.UUID.generate()
+
+    %OutboxEntry{
+      agent_uid: agent_uid,
+      binding_name: binding_name,
+      outbound_key: "ai-reply:#{id}",
+      operation: :edit,
+      signal_channel_id: "lark:oc_group",
+      target_source_entry_id: "om_preview",
+      source_actor_event_id: Ecto.UUID.generate(),
+      ai_message_id: id,
+      payload: %{},
+      fallback_visible_text: "durable final answer",
+      idempotency_key: "ai-reply:#{id}",
+      attempt_count: 1,
+      max_attempts: 10,
+      last_error: %{},
+      recovery_state: %{}
+    }
+  end
+
   defp adapter_context(agent_uid) do
     AdapterContext.new(
       agent_uid: agent_uid,
@@ -1830,9 +2086,14 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       app_id: "cli_test",
       created_at: @base_time,
       content: %{
-        "open_chat_id" => "oc_group",
-        "open_message_id" => "om_1",
-        "user_id" => "ou_alice",
+        "operator" => %{
+          "user_id" => "ou_alice",
+          "open_id" => "ou_alice_open"
+        },
+        "context" => %{
+          "open_chat_id" => "oc_group",
+          "open_message_id" => "om_1"
+        },
         "action" => %{
           "name" => "approval",
           "value" => %{

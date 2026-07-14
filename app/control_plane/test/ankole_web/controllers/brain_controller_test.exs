@@ -44,6 +44,7 @@ defmodule AnkoleWeb.BrainControllerTest do
     assert Map.has_key?(paths, "/api/v1/brain/audit-log/restorations")
     assert Map.has_key?(paths, "/api/v1/brain/audit-log/{audit_id}/restorations")
     assert Map.has_key?(paths, "/api/v1/brain/dreaming-runs")
+    assert Map.has_key?(paths, "/api/v1/brain/dreaming-fitness")
 
     assert schemas["BrainEntryBlock"]["properties"]["author_kind"]["enum"] ==
              ["human", "agent", "dreaming"]
@@ -142,6 +143,32 @@ defmodule AnkoleWeb.BrainControllerTest do
                "operation_count" => 0
              }
            } = json_response(conn, 200)
+  end
+
+  test "dreaming fitness reads an empty signal and rejects an out-of-range horizon", %{
+    conn: conn,
+    owner_uid: owner_uid
+  } do
+    conn =
+      conn
+      |> recycle_bearer()
+      |> get(~p"/api/v1/brain/dreaming-fitness?owner_uid=#{owner_uid}&horizon_days=14")
+
+    assert %{
+             "fitness" => %{
+               "horizon_days" => 14,
+               "matured_block_writes" => 0,
+               "survival_rate" => nil,
+               "runs" => []
+             }
+           } = json_response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_bearer()
+      |> get(~p"/api/v1/brain/dreaming-fitness?owner_uid=#{owner_uid}&horizon_days=0")
+
+    assert %{"error" => %{"code" => "validation_failed"}} = json_response(conn, 422)
   end
 
   test "block edits derive store from the block when the HTTP request omits store and entry id",
@@ -536,7 +563,6 @@ defmodule AnkoleWeb.BrainControllerTest do
       signal_channel_id: channel_id,
       source_entry_id: "provider-message-1",
       text: "Original source text",
-      formatted_content: %{},
       attachments: [],
       links: [],
       author: %{"display_name" => "Alice", "principal_uid" => "alice"},
@@ -547,8 +573,6 @@ defmodule AnkoleWeb.BrainControllerTest do
       reactions: %{},
       raw_reaction_keys: %{},
       document_id: document_id,
-      search_text: "Original source text",
-      metadata_text: "",
       content_hash: "source-hash",
       first_seen_at: now,
       last_seen_at: now

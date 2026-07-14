@@ -145,6 +145,7 @@ defmodule AnkoleWeb.Router do
     post "/brain/audit-log/restorations", BrainController, :restore_audits
     post "/brain/audit-log/:audit_id/restorations", BrainController, :restore_audit
     post "/brain/dreaming-runs", BrainController, :run_dreaming
+    get "/brain/dreaming-fitness", BrainController, :dreaming_fitness
 
     get "/agent-computer-workers/:worker_id/files", WorkerFileController, :index
 

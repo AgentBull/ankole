@@ -13,7 +13,8 @@ defmodule Ankole.AIGateway.ProviderDefinition do
 
     `encrypted?` is storage metadata only. Provider code still reads the
     decrypted value from the same settings map, so request construction does not
-    need a separate credential abstraction.
+    need a separate credential abstraction. `advanced?` is presentation metadata
+    for operator forms and does not change validation or runtime behavior.
     """
 
     @enforce_keys [:key]
@@ -21,8 +22,10 @@ defmodule Ankole.AIGateway.ProviderDefinition do
       :key,
       :type,
       :default,
+      options: [],
       required?: false,
       encrypted?: false,
+      advanced?: false,
       scope: :connection
     ]
 
@@ -33,8 +36,10 @@ defmodule Ankole.AIGateway.ProviderDefinition do
             key: atom(),
             type: atom() | nil,
             default: term(),
+            options: [String.t()],
             required?: boolean(),
             encrypted?: boolean(),
+            advanced?: boolean(),
             scope: :connection | :request
           }
   end
@@ -80,6 +85,7 @@ defmodule Ankole.AIGateway.ProviderDefinition do
     :label,
     :module,
     :base_url,
+    base_url_advanced?: false,
     settings: [],
     capabilities: []
   ]
@@ -92,6 +98,7 @@ defmodule Ankole.AIGateway.ProviderDefinition do
           label: map(),
           module: module(),
           base_url: String.t() | nil,
+          base_url_advanced?: boolean(),
           settings: [Setting.t()],
           capabilities: [Capability.t()]
         }

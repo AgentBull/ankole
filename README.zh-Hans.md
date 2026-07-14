@@ -1,7 +1,7 @@
 # Ankole - 面向共享 AI 同事的开源 AgentOS
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-red.svg?logo=apache&label=License)](LICENSE)
-![Status](https://img.shields.io/badge/status-early_engineering_distribution-yellow)
+![Status](https://img.shields.io/badge/status-mvp_early_production-yellow)
 ![Runtime](https://img.shields.io/badge/runtime-Bun%20%2B%20Phoenix%2FOTP%20%2B%20Rust-blue)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/AgentBull/ankole)
 
@@ -65,43 +65,84 @@ Runtime 建立在五个技术判断上：
 
 ```mermaid
 flowchart LR
-  Providers["Chat / webhook / 定时任务"] --> SG["SignalsGateway"]
-  Console["Web UI / 运维 API"] --> CP["Control Plane<br/>Phoenix / OTP"]
+  subgraph CP["Control Plane · Phoenix / OTP"]
+    direction TB
+    Platform["Principal / AuthZ<br/>AppConfigure / plugins"]
+    SG["SignalsGateway<br/>入口 / 镜像 / outbox"]
+    AR["ActorRuntime<br/>session / fence / 调度"]
+    AI["AIGateway<br/>有状态 Responses / providers"]
+    Brain["Brain<br/>长期记忆 / 召回 / dreaming"]
+    Delegation["Subagent Delegation<br/>持久任务 / 父会话唤醒"]
 
-  SG --> CP
-  CP --> PG[("PostgreSQL<br/>durable truth")]
+    SG --> AR
+    SG -->|"聊天证据"| Brain
+    Brain -->|"embedding / rerank / dreaming"| AI
+    Delegation -->|"分发 / 唤醒父会话"| AR
+  end
 
-  CP <-->|"RuntimeFabric<br/>live routing"| Worker["Agent Computer<br/>Bun / TypeScript worker"]
+  subgraph AC["Agent Computer workers · Bun / TypeScript"]
+    direction TB
+    Main["主 agent loop<br/>tools / skills / sandbox"]
+    Task["Task-worker turn"]
+    Codex["Codex subagent<br/>已启用 skills / 投影 tools"]
+    Task --> Codex
+  end
 
-  Worker --> Tools["Tools<br/>browser / terminal / files / model calls"]
-  CP --> Kernel["Rust Kernel<br/>AuthZ / runtime primitives"]
+  Channels["Chat / webhook / 定时任务"] <-->|"事件 / 回复"| SG
+  Console["Web UI / 运维 API"] --> Platform
+  AR <-->|"RuntimeFabric · Rust / ZeroMQ<br/>turn / live control / RPC"| Main
+  Main -->|"Responses · WebSocket"| AI
+  Main -->|"memory_* · RPC"| Brain
+  Main -->|"subagent(start) · RPC"| Delegation
+  AR -->|"委托 turn"| Task
+  Task -->|"带 fence 的状态 / 审计 · RPC"| Delegation
+  AI <--> Models["LLM / embedding / rerank / web providers"]
+
+  Platform --> PG[("PostgreSQL<br/>全部持久语义事实")]
+  SG --> PG
+  AR --> PG
+  AI --> PG
+  Brain --> PG
+  Delegation --> PG
 ```
 
 整体上：
 
-- **SignalsGateway** 接收 provider ingress，归一化为 durable actor event。
-- **Control Plane** 拥有 durable state、actor 编排、配置、身份和授权。
-- **RuntimeFabric** 通过 ZeroMQ 连接 actor、worker 和 RPC lane，承担 live 执行；PostgreSQL 仍然是 durable replay、fence、reconciliation 和 final commit 的来源。
-- **Agent Computer** 在隔离的 worker 容器中执行 turn 和 tools。
-- **PostgreSQL** 仍然是已接受 event、state、fence 和 final commit 的 durable 记录。
+- **Control Plane** 拥有持久 domain state、actor 编排、provider 路由、身份、授权、配置和运维 surface。
+- **SignalsGateway 与 ActorRuntime** 把 provider event 变成持久工作，调度带 fence 的 session turn，并提交 provider 可见的最终回复。
+- **AIGateway** 拥有 provider 凭证和有状态 Responses 日志；worker 通过 WebSocket 使用它，不会拿到上游凭证。
+- **Brain** 是长期记忆子系统，统一承载 curated knowledge、聊天召回、dreaming 和人工监督。主 agent 与 subagent 都通过 conversation-scoped `memory_*` tools 使用它，PostgreSQL 仍是事实来源。
+- **Agent Computer** 在隔离 worker 中运行主 agent loop 和本地 tools。RuntimeFabric 通过共享的 Rust/ZeroMQ data plane 承载 live turn、control 和 RPC。
+- **Subagent Delegation** 把长时间后台工作持久化到 PostgreSQL，分发隔离的 task-worker turn，并在等待或终态时唤醒父会话。当前 task worker 是 Codex：原生挂载父 turn 已启用的 skills，只投影 allowlist 内的 tools。
+- **Rust Kernel** 由 Elixir 和 Bun 进程内加载，提供共享 transport、crypto、authorization evaluator、codec 和 AI data-plane primitives；它不拥有持久 domain state。
+- **PostgreSQL** 是 event、conversation、长期记忆、delegation、fence、audit 和 final commit 唯一的持久语义事实来源。
 
 ## 当前状态
 
-Ankole 是早期工程发行版，不是打磨完成的终端用户产品或托管 SaaS。下面这些子系统今天都以可运行的代码存在于这个仓库里——需要坦白的是打磨程度和 API 稳定性，而不是“还没写”。
+Ankole 是一个完整、可自托管的 AgentOS，已在生产环境中运行。Control plane、Agent Computer、kernel 和运维 console 端到端可用。
+
+- **多家模型 provider。** OpenAI、Azure OpenAI、Claude、Google AI Studio、OpenRouter 以及其它 OpenAI-compatible endpoint 都是一等公民，配套 compaction、有状态 conversation、reasoning-effort 控制和按 provider 的 usage 处理。
+- **真实 IM 集成。** Lark/Feishu 和 Slack 作为第一方 provider 集成，覆盖 lifecycle、transport、main flow 和真实 LLM 的端到端测试。
+- **Brain。** curated knowledge、chat recall、dreaming（离线沉淀）、人工复核和 recovery 统一在一个子系统里，后端是 PostgreSQL 全文检索加向量检索。
+- **长时 actor runtime。** Session 可以 wake、checkpoint、stream progress、hibernate、带上下文 recover；steering 和 cancel 是 live-control 操作，不是 request/response。
+- **运维 console。** Agents、providers、model profiles、identity、signals、workers、worker 环境、brain 条目和 delegations 都可以从内置 web console 管理。
+- **面向真实条件测试。** Unit 套件加上 Lark 和 Slack 的 main flow、transport、lifecycle、真实 LLM、调度、worker computer、chaos 恢复和并发/性能的专门端到端套件。
+
+Ankole 的公共 API 目前没有兼容性承诺，版本之间会有 breaking change。
 
 | 领域 | 状态 |
 | --- | --- |
-| Control plane | `app/control_plane` 下的 Phoenix/OTP 应用，拥有 durable state、配置、actor 编排、Principal/AuthZ 和 API。 |
+| Control plane | `app/control_plane` 下的 Phoenix/OTP 应用，拥有 durable state、配置、actor 编排、Principal/AuthZ、AIGateway、Brain、SignalsGateway 和运维 API。 |
 | Agent Computer | `app/agent_computer` 下的 Bun/TypeScript worker runtime，在隔离的 Linux worker 镜像内运行 agent loop 和本地 tools；不是独立 CLI。 |
 | Kernel | `app/kernel` 下的 Rust crate，由 Elixir (Rustler) 和 Bun (N-API) 加载，承载 crypto、identifier、AuthZ evaluator 和 ZeroMQ transport。 |
-| Frontend | `app/webapps` 下的 Vite + React surfaces，构建进 Phoenix static shell。 |
+| Frontend | `app/webapps` 下的 Vite + React console、auth 和 setup surfaces，构建进 Phoenix static shell。 |
 | 本地服务 | PostgreSQL 由 devkit Docker Compose 提供。 |
 | 设计文档 | 架构和 runtime 设计文档位于 `docs/design-docs`。 |
-| 公共 API 稳定性 | 内部 API 仍在演进，版本之间会有 breaking change。 |
+| 生产就绪度 | 已在生产中运行。durable 路径、live control 和运维 surface 已完整；公共 API 目前还没有兼容性承诺。 |
 
 ## 当前仓库
 
-这个仓库是 Ankole 当前活跃的 control-plane 和 runtime workspace，仍是工程发行形态，还不是打磨完成的终端用户发行版。
+这个仓库是 Ankole 当前活跃的 control-plane 和 runtime workspace。
 
 - `app/control_plane` - Phoenix/OTP control plane，承载 Principal/AuthZ、AppConfigure、setup、console、plugin registry、I18n、SignalsGateway、actor runtime、RuntimeFabric 和 PostgreSQL 持久语义状态。
 - `app/kernel` - 被 Elixir 和 Bun 共同加载的 Rust foundation，承载 crypto、identifier、phone/JWT helper、AuthZ evaluator、protobuf envelope 和 ZeroMQ RuntimeFabric transport。

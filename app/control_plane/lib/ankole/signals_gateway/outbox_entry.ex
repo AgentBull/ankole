@@ -40,6 +40,10 @@ defmodule Ankole.SignalsGateway.OutboxEntry do
     field :binding_name, :string, primary_key: true
     field :outbound_key, :string, primary_key: true
 
+    field :delivery_class, Ecto.Enum,
+      values: [:generic, :durable_ai_reply],
+      default: :generic
+
     # The provider-visible action this row represents. `reply_to_source_entry_id`
     # is the entry being replied to; `target_source_entry_id` is the entry an
     # edit/delete/reaction acts on; `created_source_entry_id` is filled in after a
@@ -96,6 +100,7 @@ defmodule Ankole.SignalsGateway.OutboxEntry do
       :agent_uid,
       :binding_name,
       :outbound_key,
+      :delivery_class,
       :operation,
       :status,
       :signal_channel_id,
@@ -120,6 +125,7 @@ defmodule Ankole.SignalsGateway.OutboxEntry do
       :agent_uid,
       :binding_name,
       :outbound_key,
+      :delivery_class,
       :signal_channel_id,
       :provider_thread_id,
       :reply_to_source_entry_id,
@@ -132,6 +138,7 @@ defmodule Ankole.SignalsGateway.OutboxEntry do
       :agent_uid,
       :binding_name,
       :outbound_key,
+      :delivery_class,
       :operation,
       :status,
       :payload,
@@ -156,6 +163,9 @@ defmodule Ankole.SignalsGateway.OutboxEntry do
     )
     |> check_constraint(:attempt_count,
       name: :signal_gateway_outbox_entries_attempts_non_negative
+    )
+    |> check_constraint(:delivery_class,
+      name: :signal_gateway_outbox_entries_delivery_class_check
     )
   end
 end

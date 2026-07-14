@@ -122,13 +122,16 @@ fn validate_body_required_fields(body: &proto::envelope::Body) -> KernelResult<(
         proto::envelope::Body::WorkerReady(payload) => {
             require_non_empty(&payload.worker_id, "worker_ready.worker_id")?;
             require_non_empty(&payload.runtime, "worker_ready.runtime")?;
-            require_non_empty(&payload.version, "worker_ready.version")
+            require_non_empty(&payload.version, "worker_ready.version")?;
+            require_non_empty(&payload.incarnation_id, "worker_ready.incarnation_id")
         }
         proto::envelope::Body::WorkerHeartbeat(payload) => {
-            require_non_empty(&payload.worker_id, "worker_heartbeat.worker_id")
+            require_non_empty(&payload.worker_id, "worker_heartbeat.worker_id")?;
+            require_non_empty(&payload.incarnation_id, "worker_heartbeat.incarnation_id")
         }
         proto::envelope::Body::WorkerCapacity(payload) => {
-            require_non_empty(&payload.worker_id, "worker_capacity.worker_id")
+            require_non_empty(&payload.worker_id, "worker_capacity.worker_id")?;
+            require_non_empty(&payload.incarnation_id, "worker_capacity.incarnation_id")
         }
         proto::envelope::Body::TurnStart(payload) => {
             validate_turn_ref(payload.turn.as_ref(), "turn_start.turn")?;
@@ -285,11 +288,13 @@ fn validate_turn_control(control: &proto::TurnControl) -> KernelResult<()> {
 }
 
 // Allows only progress classes that the control plane can surface without
-// changing durable actor state.
+// changing durable actor state. Reply-presentation events update the ephemeral
+// CardKit preview behind the same full-turn fence as lease keepalives.
 fn validate_worker_progress(progress: &proto::WorkerProgress) -> KernelResult<()> {
     match normalized_name(&progress.kind).as_str() {
         "summary"
         | "checkpoint"
+        | "reply_presentation"
         | "artifact_ref"
         | "cancellation_observed"
         | "retryable_error"

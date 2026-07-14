@@ -112,6 +112,13 @@ export type AgentUpdateRequest = {
 }
 
 /**
+ * BrainDreamingFitnessResponse
+ */
+export type BrainDreamingFitnessResponse = {
+  fitness: BrainDreamingFitness
+}
+
+/**
  * WorkerFileEntry
  */
 export type WorkerFileEntry = {
@@ -284,6 +291,20 @@ export type BrainAuditLog = {
 }
 
 /**
+ * AIGatewayProviderSetting
+ */
+export type AiGatewayProviderSetting = {
+  advanced: boolean
+  default: JsonValue
+  encrypted: boolean
+  key: string
+  options: Array<string>
+  required: boolean
+  scope: 'connection' | 'request'
+  type: 'boolean' | 'float' | 'integer' | 'map' | 'select' | 'string'
+}
+
+/**
  * IdentityProviderResponse
  */
 export type IdentityProviderResponse = {
@@ -323,7 +344,7 @@ export type SignalAdapterListResponse = {
 export type WorkerEnvUpdateRequest = {
   description?: string | null
   secret?: boolean
-  value: JsonValue
+  value?: JsonValue
 }
 
 /**
@@ -583,6 +604,24 @@ export type ModelProfileWriteRequest = {
 }
 
 /**
+ * BrainDreamingFitness
+ *
+ * Share of dreaming block writes that survived human review, overall and per run. Survival is judged only on writes older than the horizon; younger writes are pending.
+ */
+export type BrainDreamingFitness = {
+  corrected_block_writes: number
+  generated_at: string
+  horizon_days: number
+  lookback_days: number
+  matured_block_writes: number
+  pending_block_writes: number
+  produced_block_writes: number
+  runs: Array<BrainDreamingFitnessRun>
+  survival_rate?: number | null
+  survived_block_writes: number
+}
+
+/**
  * ScheduleCronWriteRequest
  */
 export type ScheduleCronWriteRequest = {
@@ -650,7 +689,7 @@ export type OAuthErrorResponse = {
  * AppConfigurationUpdateRequest
  */
 export type AppConfigurationUpdateRequest = {
-  value: JsonValue
+  value?: JsonValue
 }
 
 /**
@@ -680,9 +719,7 @@ export type AiGatewayProviderKindItem = {
   }
   provider_kind: string
   runtime_provider_options: Array<string>
-  settings: Array<{
-    [key: string]: unknown
-  }>
+  settings: Array<AiGatewayProviderSetting>
 }
 
 /**
@@ -719,14 +756,14 @@ export type BrainSourceEntry = {
     [key: string]: unknown
   }
   document_id: string
-  formatted_content: {
-    [key: string]: unknown
-  }
   links: Array<JsonValue>
   metadata: {
     [key: string]: unknown
   }
   provider_time?: string | null
+  rich_content?: {
+    [key: string]: unknown
+  } | null
   signal_channel_id: string
   source_entry_id: string
   text?: string | null
@@ -997,6 +1034,23 @@ export type AppConfigurationDecryptionValue = {
 }
 
 /**
+ * BrainDreamingFitnessRun
+ *
+ * One dreaming run's block writes and how they fared under human review.
+ */
+export type BrainDreamingFitnessRun = {
+  corrected_block_writes: number
+  first_written_at?: string | null
+  last_written_at?: string | null
+  matured_block_writes: number
+  pending_block_writes: number
+  produced_block_writes: number
+  run_id?: string | null
+  survival_rate?: number | null
+  survived_block_writes: number
+}
+
+/**
  * CodexAccountCreateRequest
  */
 export type CodexAccountCreateRequest = {
@@ -1064,6 +1118,54 @@ export type AnkoleWebWorkerFileControllerDownloadResponses = {
 
 export type AnkoleWebWorkerFileControllerDownloadResponse =
   AnkoleWebWorkerFileControllerDownloadResponses[keyof AnkoleWebWorkerFileControllerDownloadResponses]
+
+export type AnkoleWebBrainControllerDreamingFitnessData = {
+  body?: never
+  path?: never
+  query: {
+    /**
+     * Principal whose Brain library is being supervised
+     */
+    owner_uid: string
+    /**
+     * Days a dreaming write must survive human review to count as survived (default 7)
+     */
+    horizon_days?: number
+    /**
+     * How far back to read dreaming writes (default 90)
+     */
+    lookback_days?: number
+  }
+  url: '/api/v1/brain/dreaming-fitness'
+}
+
+export type AnkoleWebBrainControllerDreamingFitnessErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Invalid filters
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebBrainControllerDreamingFitnessError =
+  AnkoleWebBrainControllerDreamingFitnessErrors[keyof AnkoleWebBrainControllerDreamingFitnessErrors]
+
+export type AnkoleWebBrainControllerDreamingFitnessResponses = {
+  /**
+   * Dreaming fitness signal
+   */
+  200: BrainDreamingFitnessResponse
+}
+
+export type AnkoleWebBrainControllerDreamingFitnessResponse =
+  AnkoleWebBrainControllerDreamingFitnessResponses[keyof AnkoleWebBrainControllerDreamingFitnessResponses]
 
 export type AnkoleWebIdentityProviderControllerIndexData = {
   body?: never

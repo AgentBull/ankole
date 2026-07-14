@@ -35,14 +35,10 @@ export function actorEventEnvironmentInfoLines(
   const sendAt = stringValue(entry.provider_time) ?? stringValue(payload?.time)
   if (sendAt) lines.push(`send_at: ${formatTimestamp(sendAt, opts.timezone ?? undefined)}`)
 
-  const room = roomLabel(channel)
-  if (room) lines.push(`room: ${room}`)
-
-  const speaker = speakerLabel(author)
-  if (speaker) lines.push(`speaker: ${speaker}`)
-
-  const senderType = stringValue((recordValue(author.metadata) ?? {}).sender_type)
-  if (senderType) lines.push(`speaker_role: ${senderType}`)
+  if (stringValue(channel.kind) === 'im_group') {
+    const speaker = speakerLabel(author)
+    if (speaker) lines.push(`speaker: ${speaker}`)
+  }
 
   const lifecycleKind = stringValue(lifecycle.kind)
   if (lifecycleKind) lines.push(`entry_lifecycle: ${lifecycleKind}`)
@@ -99,28 +95,20 @@ function isAgentEnvironmentInfoBlock(text: string): boolean {
 }
 
 /**
- * Chooses a compact room label from channel metadata.
- */
-function roomLabel(channel: JSONObject): string | undefined {
-  const name = stringValue(channel.name) ?? stringValue(channel.title)
-  if (name) return name
-
-  const kind = stringValue(channel.kind)
-  const id = stringValue(channel.id)
-  if (kind && id) return `${kind} ${id}`
-  return id ?? kind
-}
-
-/**
- * Chooses the best available speaker label from author metadata.
+ * Chooses the best available group speaker label. A normal user needs no role
+ * suffix; non-user senders keep the role because it changes how to interpret
+ * the message.
  */
 function speakerLabel(author: JSONObject): string | undefined {
-  return (
+  const name =
     stringValue(author.display_name) ??
     stringValue(author.name) ??
     stringValue(author.principal_uid) ??
     stringValue(author.id)
-  )
+  if (!name) return undefined
+
+  const senderType = stringValue((recordValue(author.metadata) ?? {}).sender_type)
+  return senderType && senderType.toLowerCase() !== 'user' ? `${name} (${senderType})` : name
 }
 
 /**

@@ -11,14 +11,35 @@ const SelectThemeContext = React.createContext<{
 function Select<Value, Multiple extends boolean | undefined = false>(
   props: SelectPrimitive.Root.Props<Value, Multiple>
 ) {
+  const { children, items, ...rootProps } = props
   const [theme, setTheme] = React.useState<string | undefined>()
   const themeContext = React.useMemo(() => ({ theme, setTheme }), [theme])
+  const resolvedItems = React.useMemo(() => items ?? collectSelectItems<Value>(children), [children, items])
 
   return (
     <SelectThemeContext.Provider value={themeContext}>
-      <SelectPrimitive.Root {...props} />
+      <SelectPrimitive.Root {...rootProps} items={resolvedItems}>
+        {children}
+      </SelectPrimitive.Root>
     </SelectThemeContext.Provider>
   )
+}
+
+function collectSelectItems<Value>(children: React.ReactNode): ReadonlyArray<{ label: React.ReactNode; value: Value }> {
+  const items: Array<{ label: React.ReactNode; value: Value }> = []
+
+  React.Children.forEach(children, child => {
+    if (!React.isValidElement<{ children?: React.ReactNode; value?: Value }>(child)) return
+
+    if (child.type === SelectItem) {
+      items.push({ label: child.props.children, value: child.props.value as Value })
+      return
+    }
+
+    if (child.props.children) items.push(...collectSelectItems<Value>(child.props.children))
+  })
+
+  return items
 }
 
 function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props) {

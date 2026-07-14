@@ -275,6 +275,22 @@ defmodule Ankole.AppConfigure do
   end
 
   @doc """
+  Applies one console update, preserving a present encrypted value when the
+  request intentionally omits `value`.
+
+  Missing values stay invalid for plaintext or unset configuration so an empty
+  request cannot accidentally look like a successful write.
+  """
+  @spec console_update_global_by_key(String.t(), map()) ::
+          {:ok, console_item()} | {:error, term()}
+  def console_update_global_by_key(key, attrs) when is_binary(key) and is_map(attrs) do
+    case fetch_console_update_value(attrs) do
+      {:ok, value} -> console_put_global_by_key(key, value)
+      :error -> preserve_encrypted_console_value(key)
+    end
+  end
+
+  @doc """
   Deletes one console-editable global value so normal resolution falls back.
   """
   @spec console_delete_global_by_key(String.t()) :: {:ok, console_item()} | {:error, term()}
@@ -296,6 +312,22 @@ defmodule Ankole.AppConfigure do
     else
       {:ok, {_kind, %{encrypted: false}}} -> {:error, :not_encrypted}
       :error -> {:error, :not_found}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp fetch_console_update_value(attrs) do
+    case Map.fetch(attrs, "value") do
+      {:ok, value} -> {:ok, value}
+      :error -> Map.fetch(attrs, :value)
+    end
+  end
+
+  defp preserve_encrypted_console_value(key) do
+    with {:ok, %{encrypted: true, present: true} = item} <- console_detail_by_key(key) do
+      {:ok, item}
+    else
+      {:ok, _item} -> {:error, :missing_value}
       {:error, _reason} = error -> error
     end
   end

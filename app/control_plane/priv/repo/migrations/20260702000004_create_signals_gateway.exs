@@ -184,13 +184,15 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
     # outbound final AI reply is sent, so recovery can distinguish mirrored terminal
     # messages from terminal messages that still need provider reconciliation.
     create table(:signal_gateway_entries, primary_key: false) do
-      add :signal_channel_id,
-          references(:signal_gateway_channels, column: :id, type: :text, on_delete: :delete_all),
-          primary_key: true
+      add :document_id, :text, primary_key: true
 
-      add :source_entry_id, :text, primary_key: true
+      add :signal_channel_id,
+          references(:signal_gateway_channels, column: :id, type: :text, on_delete: :delete_all)
+
+      add :source_entry_id, :text, null: false
+      add :provider_thread_id, :text
       add :text, :text
-      add :formatted_content, :map, null: false, default: %{}
+      add :rich_content, :map
       add :attachments, {:array, :map}, null: false, default: []
       add :links, {:array, :map}, null: false, default: []
       add :author, :map, null: false, default: %{}
@@ -198,12 +200,8 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
       add :metadata, :map, null: false, default: %{}
       add :raw_payload, :map, null: false, default: %{}
       add :provider_time, :utc_datetime_usec
-      add :fallback_visible_text, :text
       add :reactions, :map, null: false, default: %{}
       add :raw_reaction_keys, :map, null: false, default: %{}
-      add :document_id, :text, null: false
-      add :search_text, :text
-      add :metadata_text, :text
       add :content_hash, :text
       add :first_seen_at, :utc_datetime_usec, null: false
       add :last_seen_at, :utc_datetime_usec, null: false
@@ -213,7 +211,10 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
       timestamps(type: :utc_datetime_usec)
     end
 
-    create index(:signal_gateway_entries, [:document_id])
+    create unique_index(:signal_gateway_entries, [:signal_channel_id, :source_entry_id],
+             name: :signal_gateway_entries_source_identity_index
+           )
+
     create index(:signal_gateway_entries, [:last_seen_at])
     # Recovery scans use ai_message_id to prove a final reply already has a provider mirror.
     create index(:signal_gateway_entries, [:ai_message_id],
@@ -237,8 +238,9 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
     comment_columns(:signal_gateway_entries, %{
       signal_channel_id: "Channel that contains this provider entry.",
       source_entry_id: "Provider supplied entry or message identifier within the channel.",
+      provider_thread_id: "Provider thread that contains this entry, when applicable.",
       text: "Plain text extracted from the provider entry when available.",
-      formatted_content: "Structured rich content normalized from the provider entry.",
+      rich_content: "Structured content that carries information beyond plain text.",
       attachments: "Provider attachments normalized for storage and worker handoff.",
       links: "Links extracted or normalized from the entry.",
       author: "Provider author facts for the entry.",
@@ -246,12 +248,9 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
       metadata: "Gateway-owned metadata outside the durable content contract.",
       raw_payload: "Provider payload kept for adapter diagnostics and recovery.",
       provider_time: "Timestamp assigned by the provider for the entry.",
-      fallback_visible_text: "Best effort text shown when structured content cannot be rendered.",
       reactions: "Normalized reaction counts and actors.",
       raw_reaction_keys: "Provider reaction keys retained before normalization.",
       document_id: "Search and recall document id for this entry.",
-      search_text: "Text projection used for search and recall.",
-      metadata_text: "Metadata projection used for search and recall.",
       content_hash: "Hash of the durable content projection.",
       first_seen_at: "Time this entry was first observed by the gateway.",
       last_seen_at: "Time this entry was most recently observed by the gateway.",

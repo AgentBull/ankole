@@ -1,7 +1,8 @@
-import type { AgentToolResult } from './types'
+import type { AgentToolResult, ReplyPresentationEvent } from './types'
 
 export interface JSONToolResultOptions {
   textPrefix?: string
+  presentation?: ReplyPresentationEvent[]
 }
 
 export function jsonToolResult<TDetails>(
@@ -11,6 +12,7 @@ export function jsonToolResult<TDetails>(
   const text = JSON.stringify(details)
   return {
     content: [{ type: 'text', text: `${opts.textPrefix ?? ''}${text ?? 'undefined'}` }],
-    details
+    details,
+    ...(opts.presentation ? { presentation: opts.presentation } : {})
   }
 }

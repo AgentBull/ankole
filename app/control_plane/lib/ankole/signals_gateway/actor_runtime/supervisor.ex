@@ -30,7 +30,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Supervisor do
     :ok = AgentConfig.ensure_registered()
     :ok = WorkerBrowserConfig.ensure_registered()
     :ok = WorkerSubagentConfig.ensure_registered()
-    :ok = Ankole.AIGateway.WebToolsPolicy.ensure_registered()
+    :ok = Ankole.Security.SSRFFilter.ensure_registered()
     :ok = Ankole.Brain.ensure_registered()
     :ok = Ankole.IdentityProviders.Config.ensure_registered()
 

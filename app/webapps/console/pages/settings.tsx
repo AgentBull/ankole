@@ -1,7 +1,6 @@
 import { Badge, Button, TableCell, TableRow, buttonVariants, cn, toast } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { RiEyeLine } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -15,7 +14,8 @@ import {
 } from '../api/generated/@tanstack/react-query.gen'
 import { requestErrorMessage } from '../../common/request-errors'
 import { formatJSON, parseJSON } from '../console-primitives'
-import { JSONField, ResourceEditorPage, ResourceListPage } from '../console-shell'
+import { ENCRYPTED_VALUE_MASK, EncryptedValueInput, isEncryptedValueMask } from '../encrypted-value-input'
+import { JSONField, LabeledField, ResourceEditorPage, ResourceListPage } from '../console-shell'
 import { SettingEditorModel } from '../state/setting-editor-model'
 
 export function SettingsListPage() {
@@ -112,22 +112,28 @@ export function SettingEditorPage() {
   const decrypt = useMutation({
     ...ankoleWebAppConfigurationControllerDecryptMutation(),
     gcTime: 0,
+    onSuccess: response => {
+      model.text.value = JSON.stringify(response.decrypted_value.value) ?? ''
+    },
     onError: mutationError => toast.error(requestErrorMessage(mutationError))
   })
-  const revealed = decrypt.data?.decrypted_value.value
 
   useEffect(() => {
     decrypt.reset()
     if (!item || detail.isLoading) return
     model.initialize(
       `setting:${item.key}`,
-      formatJSON(item.encrypted && item.value === undefined ? {} : (item.value ?? null))
+      item.encrypted ? (item.present ? ENCRYPTED_VALUE_MASK : '') : formatJSON(item.value ?? null)
     )
   }, [detail.isLoading, item, model])
 
   const submit = () => {
     model.clearValidation()
     if (!item) return
+    if (item.encrypted && isEncryptedValueMask(model.text.value)) {
+      update.mutate({ body: {}, path: { key: item.key } })
+      return
+    }
     const parsed = parseJSON(model.text.value, 'value')
     if (!parsed.ok) {
       model.validationError.value = parsed.error
@@ -162,28 +168,31 @@ export function SettingEditorPage() {
         {item?.encrypted ? <Badge variant="destructive">{t('console.status.encrypted')}</Badge> : null}
       </div>
 
-      <JSONField
-        label={t('console.settings.value')}
-        value={model.text.value}
-        minRows={10}
-        onChange={value => (model.text.value = value)}
-      />
-
       {item?.encrypted ? (
-        <Button
-          disabled={decrypt.isPending}
-          size="sm"
-          type="button"
-          variant="outline"
-          onClick={() => decrypt.mutate({ path: { key: item.key } })}>
-          <RiEyeLine data-icon="inline-start" />
-          {t('console.settings.reveal')}
-        </Button>
-      ) : null}
-
-      {revealed !== undefined ? (
-        <pre className="max-h-72 overflow-auto border border-border bg-muted p-3 text-xs">{formatJSON(revealed)}</pre>
-      ) : null}
+        <LabeledField
+          htmlFor="app-configuration-value"
+          label={t('console.settings.value')}
+          description={t('console.settings.encrypted_value_hint')}
+          required>
+          <EncryptedValueInput
+            id="app-configuration-value"
+            className="font-mono"
+            revealLabel={t('console.settings.reveal')}
+            revealed={decrypt.data?.decrypted_value.key === item.key}
+            revealing={decrypt.isPending}
+            value={model.text.value}
+            onChange={event => (model.text.value = event.target.value)}
+            onReveal={() => decrypt.mutate({ path: { key: item.key } })}
+          />
+        </LabeledField>
+      ) : (
+        <JSONField
+          label={t('console.settings.value')}
+          value={model.text.value}
+          minRows={10}
+          onChange={value => (model.text.value = value)}
+        />
+      )}
     </ResourceEditorPage>
   )
 }

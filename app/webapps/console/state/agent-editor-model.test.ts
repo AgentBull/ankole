@@ -9,16 +9,14 @@ describe('AgentEditorModel', () => {
       uid: 'alpha',
       displayName: 'Alpha',
       avatarURL: '',
-      role: 'Research Analyst',
-      options: '{}'
+      role: 'Research Analyst'
     })
     model.displayName.value = 'Edited Alpha'
     model.initialize('agent:alpha', {
       uid: 'alpha',
       displayName: 'Refetched Alpha',
       avatarURL: '',
-      role: 'Research Analyst',
-      options: '{}'
+      role: 'Research Analyst'
     })
 
     expect(model.displayName.value).toBe('Edited Alpha')
@@ -27,8 +25,7 @@ describe('AgentEditorModel', () => {
       uid: 'beta',
       displayName: 'Beta',
       avatarURL: '',
-      role: 'Operator',
-      options: '{"enabled":true}'
+      role: 'Operator'
     })
 
     expect(model.uid.value).toBe('beta')

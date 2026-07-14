@@ -23,7 +23,7 @@ describe('ModelProfilesModel', () => {
       providerID: '',
       model: '',
       contextLength: '',
-      providerOptions: '{}',
+      providerOptions: {},
       error: undefined
     })
     model[Symbol.dispose]()

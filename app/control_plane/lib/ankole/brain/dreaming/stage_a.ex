@@ -7,6 +7,7 @@ defmodule Ankole.Brain.Dreaming.StageA do
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.Brain.Schemas.Cursor
   alias Ankole.Brain.Config
+  alias Ankole.Brain.Dreaming.ResponseFormat
   alias Ankole.Brain.Embedding
   alias Ankole.Brain.Schemas.Episode
   alias Ankole.Principals.Agent
@@ -355,6 +356,7 @@ defmodule Ankole.Brain.Dreaming.StageA do
       "model" => "light",
       "store" => false,
       "max_output_tokens" => 1_024,
+      "text" => ResponseFormat.stage_a(),
       "input" => [
         %{
           "role" => "system",
@@ -362,7 +364,7 @@ defmodule Ankole.Brain.Dreaming.StageA do
             %{
               "type" => "input_text",
               "text" =>
-                "Return strict JSON only: {\"episodes\":[{\"topic\":\"...\",\"summary\":\"...\",\"source_entry_ids\":[\"...\"]}],\"noise_source_entry_ids\":[\"...\"],\"deferred_source_entry_ids\":[\"...\"]}. Use only supplied source_entry_id values. Put trivial/noise entries in noise_source_entry_ids. Put only still-unfinished tail entries in deferred_source_entry_ids."
+                "Summarize the channel window into durable navigation episodes. Use only supplied source_entry_id values. Put trivial or noisy entries in noise_source_entry_ids. Put only still-unfinished tail entries in deferred_source_entry_ids. Classify every supplied entry as episode evidence, noise, or deferred."
             }
           ]
         },
@@ -695,7 +697,7 @@ defmodule Ankole.Brain.Dreaming.StageA do
   defp response_text(_body), do: {:error, :missing_response_text}
 
   defp entry_text(%Entry{} = entry) do
-    entry.search_text || entry.text || entry.fallback_visible_text || ""
+    entry.text || ""
   end
 
   defp observed_at(%Entry{} = entry),

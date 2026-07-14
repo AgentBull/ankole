@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { runAgentLoop } from '../../src/core/agent-loop'
 import { zodToJSONSchema, type ContentPart } from '../../src/core/llm'
 import { actorEventUserContent } from '../../src/core/turns/actor_event_content'
+import { actorEventText } from '../../src/core/turns/actor_event_text'
 import {
   actorEventEnvironmentInfoLines,
   prependEnvironmentInfoLinesToUserMessage
@@ -496,7 +497,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     })
   })
 
-  it('prepends actor event environment info as a separate user message part', () => {
+  it('prepends compact group environment info as a separate user message part', () => {
     const lines = actorEventEnvironmentInfoLines(
       {
         time: '2026-07-04T02:03:04.000Z',
@@ -523,14 +524,41 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
         text: [
           '<agent_environment_info>',
           'send_at: 2026-07-04 10:03:04 (Asia/Shanghai)',
-          'room: Ops',
           'speaker: Alice',
-          'speaker_role: user',
           '</agent_environment_info>'
         ].join('\n')
       },
       { type: 'text', text: 'Deploy status?' }
     ])
+  })
+
+  it('omits DM speaker metadata and appends only a non-user group role', () => {
+    const dm = actorEventEnvironmentInfoLines({
+      time: '2026-07-04T02:03:04.000Z',
+      data: {
+        channel: { kind: 'im_dm', id: 'lark:dm-1' },
+        entry: {
+          author: {
+            display_name: 'Mike',
+            metadata: { sender_type: 'user' }
+          }
+        }
+      }
+    })
+    const chatbotGroup = actorEventEnvironmentInfoLines({
+      data: {
+        channel: { kind: 'im_group', id: 'lark:chat-1', name: 'Ops' },
+        entry: {
+          author: {
+            display_name: 'Alice',
+            metadata: { sender_type: 'chatbot' }
+          }
+        }
+      }
+    })
+
+    expect(dm).toEqual(['send_at: 2026-07-04T02:03:04.000Z'])
+    expect(chatbotGroup).toEqual(['speaker: Alice (chatbot)'])
   })
 
   it('builds multipart actor-event content when the main model supports image input', async () => {
@@ -611,6 +639,36 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     expect(fallbackBodies).toHaveLength(0)
   })
 
+  it('projects a structured reply action as an explicit user choice without raw callback JSON', () => {
+    const text = actorEventText(
+      {
+        data: {
+          action: {
+            name: 'clarify-choice',
+            value: {
+              version: 'ankole.interactive_output.action.v1',
+              interactionId: 'clarify:call-1',
+              interactionVersion: 1,
+              controlId: 'audience',
+              selectedOptionId: 'operators',
+              optionValue: 'Operators',
+              sourceActorEventId: '019f-source'
+            },
+            operator_principal_uid: 'human-1'
+          },
+          raw: { token: 'must-not-reach-the-model' }
+        }
+      },
+      'signal.action.invoked'
+    )
+
+    expect(text).toContain('Selected value: Operators')
+    expect(text).toContain('Continue the conversation using this explicit user choice.')
+    expect(text).not.toContain('must-not-reach-the-model')
+    expect(text).not.toContain('sourceActorEventId')
+    expect(text).not.toContain('operator_principal_uid')
+  })
+
   it('converts Zod tool parameters with zod v4 JSON Schema support', () => {
     const schema = z.object({
       command: z.string(),
@@ -628,6 +686,12 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       required: ['command']
     })
     expect(jsonSchema).toMatchObject({ additionalProperties: false })
+  })
+
+  it('rejects function parameters without a root object schema before provider dispatch', () => {
+    const schema = z.union([z.string(), z.number()])
+
+    expect(() => zodToJSONSchema(schema)).toThrow('function tool parameters must use a root object schema')
   })
 })
 

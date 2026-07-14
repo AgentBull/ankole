@@ -27,6 +27,7 @@ const defaultContainerName = 'ankole-dev-agent-computer'
 const managedLabel = 'ankole.dev.managed'
 const sourceHashLabel = 'ankole.dev.source_hash'
 const workerSourceMountTarget = '/repo/app/agent_computer/src'
+const workerInternalSkillsMountTarget = '/repo/internals/skills'
 const workerDevCommand = 'cd /repo/app/agent_computer && exec bun --watch src/main.ts'
 
 export type WorkerDockerArgsOptions = {
@@ -70,7 +71,19 @@ export function buildWorkerDockerArgs(spec: WorkerBootstrapSpec, opts: WorkerDoc
   const workerID = spec.env.WORKER_ID
   if (!workerID) throw new Error('worker bootstrap contract is missing WORKER_ID')
 
-  return buildDockerRunArgs(spec, {
+  const internalSkillsRoot = path.join(repoRoot, 'internals', 'skills')
+  const internalSkillsAvailable = existsSync(internalSkillsRoot)
+  const workerSpec = internalSkillsAvailable
+    ? {
+        ...spec,
+        env: {
+          ...spec.env,
+          ANKOLE_INTERNAL_SKILLS_ROOT: workerInternalSkillsMountTarget
+        }
+      }
+    : spec
+
+  return buildDockerRunArgs(workerSpec, {
     name: containerName,
     labels: {
       [managedLabel]: 'true',
@@ -81,7 +94,16 @@ export function buildWorkerDockerArgs(spec: WorkerBootstrapSpec, opts: WorkerDoc
         source: path.join(repoRoot, 'app', 'agent_computer', 'src'),
         target: workerSourceMountTarget,
         readonly: true
-      }
+      },
+      ...(internalSkillsAvailable
+        ? [
+            {
+              source: internalSkillsRoot,
+              target: workerInternalSkillsMountTarget,
+              readonly: true
+            }
+          ]
+        : [])
     ],
     command: ['/bin/sh', '-lc', workerDevCommand]
   })

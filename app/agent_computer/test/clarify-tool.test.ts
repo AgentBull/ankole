@@ -26,7 +26,7 @@ describe('@ankole/agent-computer clarify tool', () => {
       ]
     })
     expect(result.content[0]).toMatchObject({ type: 'text' })
-    expect(result.content[0]?.type === 'text' ? result.content[0].text : '').toContain('This turn ends here')
+    expect(JSON.parse(result.content[0]?.type === 'text' ? result.content[0].text : '')).toEqual(result.details)
   })
 
   it('suppresses the empty-after-tools nudge after clarify', () => {

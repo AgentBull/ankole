@@ -60,6 +60,34 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     assert "llm" in openrouter["capabilities"]
     assert "embedding" in openrouter["capabilities"]
     assert "rerank" in openrouter["capabilities"]
+
+    openrouter_settings = Map.new(openrouter["settings"], &{&1["key"], &1})
+
+    assert openrouter_settings["api_key"]["advanced"] == false
+    assert openrouter_settings["base_url"]["advanced"] == true
+    assert openrouter_settings["headers"]["advanced"] == true
+    assert openrouter_settings["query_params"]["advanced"] == true
+    assert openrouter_settings["app_referer"]["advanced"] == true
+    assert openrouter_settings["app_title"]["advanced"] == true
+
+    assert openrouter_settings["reasoningEffort"] == %{
+             "key" => "reasoningEffort",
+             "type" => "select",
+             "default" => "high",
+             "options" => ~w(none minimal low medium high xhigh),
+             "required" => false,
+             "encrypted" => false,
+             "advanced" => false,
+             "scope" => "request"
+           }
+
+    assert openrouter_settings["strictJSONSchema"]["advanced"] == true
+    refute Map.has_key?(openrouter_settings, "reasoning")
+
+    assert Enum.all?(sources, fn source ->
+             Enum.all?(source["settings"], &is_boolean(&1["advanced"]))
+           end)
+
     assert "web_search" in parallel["capabilities"]
     assert "web_fetch" in parallel["capabilities"]
     assert "web_search" in jina_search["capabilities"]

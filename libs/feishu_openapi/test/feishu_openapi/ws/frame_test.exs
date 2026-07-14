@@ -31,9 +31,16 @@ defmodule FeishuOpenAPI.WS.FrameTest do
       assert decoded.log_id_new == frame.log_id_new
     end
 
-    test "a minimal ping frame round-trips" do
+    test "a minimal ping includes the proto2 required zero-valued scalars" do
       frame = %Frame{method: 0, headers: [{"type", "ping"}]}
-      assert {:ok, decoded} = Frame.decode(Frame.encode(frame))
+      encoded = Frame.encode(frame)
+
+      # Matches the official SDK's generated pbbp2 encoder: fields 1..4 are
+      # required and therefore emitted even when every scalar is zero.
+      assert encoded ==
+               <<8, 0, 16, 0, 24, 0, 32, 0, 42, 12, 10, 4, "type", 18, 4, "ping">>
+
+      assert {:ok, decoded} = Frame.decode(encoded)
       assert Frame.type(decoded) == "ping"
       assert decoded.method == 0
     end

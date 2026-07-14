@@ -456,6 +456,7 @@ function workerReadyEnvelope(workerID: string) {
       type: 'worker_ready',
       worker_ready: {
         worker_id: workerID,
+        incarnation_id: '11111111-2222-4333-8444-555555555555',
         runtime: 'bun',
         version: 'test',
         capacity_json: { available_turn_slots: 1 }

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'bun:test'
 import type { TurnStart } from '../src/lanes/actor_lane'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
-import type { AgentTool } from '../src/core'
+import type { AgentTool, AgentToolResult } from '../src/core'
+import { zodToJSONSchema } from '../src/core/llm/tool-schema'
 import { createMemoryTools } from '../src/tools/memory/memory-tools'
 
 describe('Brain memory tools', () => {
@@ -19,6 +20,28 @@ describe('Brain memory tools', () => {
       'memory_health_check'
     ])
     expect(tools.some(tool => tool.name === 'memory_note')).toBe(false)
+  })
+
+  it('exposes memory_update as a provider-compatible root object schema', () => {
+    const tools = createMemoryTools({
+      turnStart: turnStartForMemoryTool(),
+      requestMemoryRPC: async (): Promise<JSONObject> => ({ status: 'ok' })
+    })
+
+    const jsonSchema = zodToJSONSchema(toolNamed(tools, 'memory_update').schema)
+
+    expect(jsonSchema).toMatchObject({
+      type: 'object',
+      properties: {
+        operation: {
+          type: 'string',
+          enum: expect.arrayContaining(['create_entry', 'set_property', 'set_summary'])
+        }
+      },
+      required: ['operation'],
+      additionalProperties: false
+    })
+    expect(jsonSchema.oneOf).toBeUndefined()
   })
 
   it('sends independent search layer/channel scopes and browses a stable document id', async () => {
@@ -167,11 +190,59 @@ describe('Brain memory tools', () => {
     expect(methods).toEqual(['memory_health_check'])
     expect(toolNamed(tools, 'memory_health_check').isReadOnly).toBe(true)
   })
+
+  it('projects lookups and confirmed mutations without exposing query or body text', async () => {
+    const tools = createMemoryTools({
+      turnStart: turnStartForMemoryTool(),
+      requestMemoryRPC: async (method): Promise<JSONObject> =>
+        method === 'memory_search'
+          ? { status: 'ok', results: [{ entry_id: 'one' }, { entry_id: 'two' }] }
+          : { status: 'updated', results: [{ operation: 'append_block' }] }
+    })
+
+    const lookup = await execute(tools, 'memory_search', {
+      query: 'private acquisition codename',
+      layer: 'all',
+      channel_scope: 'current_channel'
+    })
+    const mutation = await execute(tools, 'memory_update', {
+      operation: 'append_block',
+      entry_id: '00000000-0000-7000-8000-000000000013',
+      body: 'private correction body',
+      expected_entry_lock_version: 1
+    })
+
+    expect(lookup.presentation).toEqual([
+      {
+        kind: 'memory.lookup',
+        payload: {
+          operation_id: 'call-memory_search',
+          phase: 'completed',
+          label: '回忆相关上下文',
+          source_count: 2
+        }
+      }
+    ])
+    expect(mutation.presentation).toEqual([
+      {
+        kind: 'memory.mutation_receipt',
+        payload: {
+          operation_id: 'call-memory_update',
+          phase: 'confirmed',
+          summary: '已追加记忆内容',
+          scope: 'Brain 记忆'
+        }
+      }
+    ])
+    const projected = JSON.stringify([lookup.presentation, mutation.presentation])
+    expect(projected).not.toContain('private acquisition codename')
+    expect(projected).not.toContain('private correction body')
+  })
 })
 
-async function execute(tools: AgentTool[], name: string, input: unknown): Promise<void> {
+async function execute(tools: AgentTool[], name: string, input: unknown): Promise<AgentToolResult<unknown>> {
   const tool = toolNamed(tools, name)
-  await tool.execute(`call-${name}`, tool.schema.parse(input))
+  return tool.execute(`call-${name}`, tool.schema.parse(input))
 }
 
 function toolNamed(tools: AgentTool[], name: string): AgentTool {

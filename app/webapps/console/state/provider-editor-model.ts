@@ -9,6 +9,15 @@ export type ProviderEditorDraft = {
 
 const emptyDraft = (): ProviderEditorDraft => ({ providerID: '', providerKind: '', baseURL: '', options: {} })
 
+export function nextProviderID(providerKind: string, existingProviderIDs: Iterable<string>): string {
+  const existing = new Set(existingProviderIDs)
+  if (!existing.has(providerKind)) return providerKind
+
+  let suffix = 2
+  while (existing.has(`${providerKind}-${suffix}`)) suffix += 1
+  return `${providerKind}-${suffix}`
+}
+
 export const ProviderEditorModel = createModel(() => {
   const sourceKey = signal<string>()
   const initial = emptyDraft()
@@ -40,8 +49,8 @@ export const ProviderEditorModel = createModel(() => {
       sourceKey.value = nextSourceKey
       apply(draft)
     },
-    changeKind(draft: Omit<ProviderEditorDraft, 'providerID'>) {
-      apply({ ...draft, providerID: providerID.value })
+    changeKind(draft: ProviderEditorDraft) {
+      apply(draft)
     },
     setOption(key: string, value: string) {
       options.value = { ...options.value, [key]: value }

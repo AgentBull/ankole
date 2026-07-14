@@ -362,6 +362,24 @@ defmodule FeishuOpenAPI.RequestTest do
              )
   end
 
+  test "upload supports Feishu's image multipart field", %{client: client} do
+    Req.Test.stub(FeishuOpenAPI.RequestTest, fn conn ->
+      assert ["multipart/form-data" <> _] = Plug.Conn.get_req_header(conn, "content-type")
+      assert conn.body_params["image_type"] == "message"
+      assert %Plug.Upload{filename: "chart.png", path: upload_path} = conn.body_params["image"]
+      assert File.read!(upload_path) == "png-bytes"
+      refute Map.has_key?(conn.body_params, "file")
+      Req.Test.json(conn, %{"code" => 0, "data" => %{"image_key" => "img_chart"}})
+    end)
+
+    assert {:ok, %{"data" => %{"image_key" => "img_chart"}}} =
+             FeishuOpenAPI.upload(client, "/open-apis/im/v1/images",
+               fields: [image_type: "message"],
+               file_field: :image,
+               file: {:iodata, "png-bytes", "chart.png"}
+             )
+  end
+
   describe "rate limiting" do
     test "HTTP 429 with x-ogw-ratelimit-reset retries after the indicated delay", %{
       client: client

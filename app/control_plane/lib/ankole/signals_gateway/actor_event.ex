@@ -33,6 +33,9 @@ defmodule Ankole.SignalsGateway.ActorEvent do
     field :provider_thread_id, :string
     field :source_entry_id, :string
     field :reply_preview_source_entry_id, :string
+    field :reply_preview_checkpoint, :map
+    field :reply_preview_sequence_high_water, :integer, default: 0
+    field :reply_preview_cleanup_at, :utc_datetime_usec
     field :type, :string
     field :available_at, :utc_datetime_usec
     # Per-session sequence for ordering currently open actor events.
@@ -62,6 +65,9 @@ defmodule Ankole.SignalsGateway.ActorEvent do
       :provider_thread_id,
       :source_entry_id,
       :reply_preview_source_entry_id,
+      :reply_preview_checkpoint,
+      :reply_preview_sequence_high_water,
+      :reply_preview_cleanup_at,
       :type,
       :available_at,
       :queue_sequence,
@@ -96,7 +102,9 @@ defmodule Ankole.SignalsGateway.ActorEvent do
       :payload
     ])
     |> validate_inclusion(:input_state, @states)
+    |> validate_number(:reply_preview_sequence_high_water, greater_than_or_equal_to: 0)
     |> JSONPayload.validate_map(:payload)
+    |> JSONPayload.validate_map(:reply_preview_checkpoint)
     |> foreign_key_constraint(:agent_uid)
     |> unique_constraint([:agent_uid, :binding_name, :source_event_id],
       name: :actor_events_signal_idempotency_index
@@ -105,6 +113,12 @@ defmodule Ankole.SignalsGateway.ActorEvent do
       name: :actor_events_queue_sequence_index
     )
     |> check_constraint(:payload, name: :actor_events_payload_object)
+    |> check_constraint(:reply_preview_checkpoint,
+      name: :actor_events_reply_preview_checkpoint_object
+    )
+    |> check_constraint(:reply_preview_sequence_high_water,
+      name: :actor_events_reply_preview_sequence_non_negative
+    )
     |> check_constraint(:input_state, name: :actor_events_input_state_check)
   end
 end

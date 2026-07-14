@@ -296,7 +296,7 @@ recovery remain later user inputs.
 
 Every dispatch materializes a private, read-only `AGENTS.override.md`. Existing
 same-level Codex guidance is included first, followed by SOUL, MISSION, optional
-frozen Brain snapshot, optional `background`, optional execution `notes`, and
+saved durable context, optional `background`, optional execution `notes`, and
 execution context. When a
 same-level AGENTS file already exists, the merged document overlays that
 existing sandbox mountpoint without changing its host contents. Otherwise,

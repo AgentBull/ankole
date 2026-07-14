@@ -3,6 +3,8 @@ defmodule Ankole.RuntimeEvents.Event do
 
   @type kind ::
           :actor_session_ready
+          | :reply_preview_checkpoint
+          | :reply_preview_cleanup
           | :outbox_due
           | :inbound_batch_due
           | :worker_stale_deadline
@@ -35,6 +37,8 @@ defmodule Ankole.RuntimeEvents do
   alias Ankole.RuntimeEvents.Notifier
 
   @actor_session_ready_channel "ankole_actor_session_ready"
+  @reply_preview_checkpoint_channel "ankole_reply_preview_checkpoint"
+  @reply_preview_cleanup_channel "ankole_reply_preview_cleanup"
   @outbox_due_channel "ankole_outbox_due"
   @inbound_batch_due_channel "ankole_inbound_batch_due"
   @worker_deadline_channel "ankole_worker_deadline"
@@ -46,6 +50,19 @@ defmodule Ankole.RuntimeEvents do
     channel: @actor_session_ready_channel,
     due_at_field: "due_at",
     timer_key_fields: ["agent_uid", "session_id"]
+  }
+
+  @reply_preview_checkpoint %{
+    kind: :reply_preview_checkpoint,
+    channel: @reply_preview_checkpoint_channel,
+    timer_key_fields: ["actor_event_id"]
+  }
+
+  @reply_preview_cleanup %{
+    kind: :reply_preview_cleanup,
+    channel: @reply_preview_cleanup_channel,
+    due_at_field: "due_at",
+    timer_key_fields: ["actor_event_id"]
   }
 
   @outbox_due %{
@@ -100,6 +117,8 @@ defmodule Ankole.RuntimeEvents do
 
   @notification_events [
     @actor_session_ready,
+    @reply_preview_checkpoint,
+    @reply_preview_cleanup,
     @outbox_due,
     @inbound_batch_due,
     @worker_deadline,
@@ -109,6 +128,8 @@ defmodule Ankole.RuntimeEvents do
 
   @handler_events [
     @actor_session_ready,
+    @reply_preview_checkpoint,
+    @reply_preview_cleanup,
     @outbox_due,
     @inbound_batch_due,
     @worker_stale_deadline,
@@ -126,6 +147,12 @@ defmodule Ankole.RuntimeEvents do
 
   @spec actor_session_ready_channel() :: String.t()
   def actor_session_ready_channel, do: channel_for_kind!(:actor_session_ready)
+
+  @spec reply_preview_checkpoint_channel() :: String.t()
+  def reply_preview_checkpoint_channel, do: channel_for_kind!(:reply_preview_checkpoint)
+
+  @spec reply_preview_cleanup_channel() :: String.t()
+  def reply_preview_cleanup_channel, do: channel_for_kind!(:reply_preview_cleanup)
 
   @spec outbox_due_channel() :: String.t()
   def outbox_due_channel, do: channel_for_kind!(:outbox_due)
@@ -166,6 +193,28 @@ defmodule Ankole.RuntimeEvents do
       "due_at" => encode_datetime(due_at)
     })
   end
+
+  @spec notify_reply_preview_checkpoint(module(), map()) :: :ok | {:error, term()}
+  def notify_reply_preview_checkpoint(repo, actor_event) do
+    with :ok <-
+           Notifier.notify_in_tx(repo, reply_preview_checkpoint_channel(), %{
+             "actor_event_id" => actor_event.id
+           }) do
+      notify_reply_preview_cleanup(repo, actor_event)
+    end
+  end
+
+  defp notify_reply_preview_cleanup(
+         repo,
+         %{reply_preview_cleanup_at: %DateTime{} = due_at} = event
+       ) do
+    Notifier.notify_in_tx(repo, reply_preview_cleanup_channel(), %{
+      "actor_event_id" => event.id,
+      "due_at" => encode_datetime(due_at)
+    })
+  end
+
+  defp notify_reply_preview_cleanup(_repo, _event), do: :ok
 
   @spec notify_outbox_due(module(), map(), DateTime.t() | nil) :: :ok | {:error, term()}
   def notify_outbox_due(repo, outbox, due_at \\ nil) do

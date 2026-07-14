@@ -56,6 +56,39 @@ defmodule FeishuOpenAPI.CardActionTest do
       assert action.action == %{"tag" => "button", "value" => %{"confirm" => true}}
     end
 
+    test "normalizes the current schema 2.0 operator and context shape" do
+      payload = %{
+        "schema" => "2.0",
+        "header" => %{
+          "event_type" => "card.action.trigger",
+          "tenant_key" => "tenant_header"
+        },
+        "event" => %{
+          "operator" => %{
+            "user_id" => "user_123",
+            "open_id" => "ou_456",
+            "tenant_key" => "tenant_operator"
+          },
+          "context" => %{
+            "open_message_id" => "om_123",
+            "open_chat_id" => "oc_456"
+          },
+          "token" => "card_update_token",
+          "action" => %{"name" => "choice-1", "value" => %{"choice" => "one"}}
+        }
+      }
+
+      assert %CardAction{} = action = CardAction.from_payload(payload)
+      assert action.user_id == "user_123"
+      assert action.open_id == "ou_456"
+      assert action.open_message_id == "om_123"
+      assert action.open_chat_id == "oc_456"
+      assert action.tenant_key == "tenant_operator"
+      assert action.token == "card_update_token"
+      assert action.type == "card.action.trigger"
+      assert action.action == %{"name" => "choice-1", "value" => %{"choice" => "one"}}
+    end
+
     test "rejects non-challenge requests without signature headers when verification is enabled" do
       body =
         Torque.encode!(%{

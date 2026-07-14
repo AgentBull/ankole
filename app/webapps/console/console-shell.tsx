@@ -71,15 +71,15 @@ type NavItem = {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { to: 'agents', label: 'console.nav.agents', icon: RiRobot2Line },
-  { to: 'providers', label: 'console.nav.providers', icon: RiSparkling2Line },
-  { to: 'identity', label: 'console.nav.identity', icon: RiShieldKeyholeLine },
-  { to: 'signals', label: 'console.nav.signals', icon: RiBroadcastLine },
-  { to: 'workers', label: 'console.nav.workers', icon: RiServerLine },
-  { to: 'delegations', label: 'console.nav.delegations', icon: RiGitBranchLine },
-  { to: 'brain', label: 'console.nav.brain', icon: RiBrainLine },
-  { to: 'worker-envs', label: 'console.nav.worker_envs', icon: RiTerminalBoxLine },
-  { to: 'settings', label: 'console.nav.settings', icon: RiSettings3Line }
+  { to: '/agents', label: 'console.nav.agents', icon: RiRobot2Line },
+  { to: '/providers', label: 'console.nav.providers', icon: RiSparkling2Line },
+  { to: '/identity', label: 'console.nav.identity', icon: RiShieldKeyholeLine },
+  { to: '/signals', label: 'console.nav.signals', icon: RiBroadcastLine },
+  { to: '/workers', label: 'console.nav.workers', icon: RiServerLine },
+  { to: '/delegations', label: 'console.nav.delegations', icon: RiGitBranchLine },
+  { to: '/brain', label: 'console.nav.brain', icon: RiBrainLine },
+  { to: '/worker-envs', label: 'console.nav.worker_envs', icon: RiTerminalBoxLine },
+  { to: '/settings', label: 'console.nav.settings', icon: RiSettings3Line }
 ]
 
 /** Routed console frame: header, sidebar navigation, and the active page outlet. */

@@ -21,26 +21,30 @@ defmodule Ankole.AIGateway.Providers.Claude do
 
   provider :claude do
     label(%{"default" => "Claude", "zh-Hans-CN" => "Claude"})
-    base_url("https://api.anthropic.com")
+    base_url("https://api.anthropic.com", advanced: true)
 
     setting(:api_key, encrypted: true)
-    setting(:auth_mode, default: "api_key")
-    setting(:headers, type: :map)
-    setting(:anthropic_version, default: @anthropic_version)
-    setting(:anthropic_beta)
-    setting(:messages_path, default: "v1/messages")
+    setting(:auth_mode, default: "api_key", advanced: true)
+    setting(:headers, type: :map, advanced: true)
+    setting(:anthropic_version, default: @anthropic_version, advanced: true)
+    setting(:anthropic_beta, advanced: true)
+    setting(:messages_path, default: "v1/messages", advanced: true)
 
-    setting(:reasoningEffort, scope: :request)
-    setting(:thinking, scope: :request)
-    setting(:cacheControl, scope: :request)
-    setting(:structuredOutputMode, scope: :request)
-    setting(:toolStreaming, scope: :request)
-    setting(:effort, scope: :request)
-    setting(:taskBudget, scope: :request)
-    setting(:speed, scope: :request)
-    setting(:inferenceGeo, scope: :request)
-    setting(:anthropicBeta, scope: :request)
-    setting(:contextManagement, scope: :request)
+    setting(:reasoningEffort,
+      type: :select,
+      default: ReasoningEffort.default(),
+      options: ReasoningEffort.values(@reasoning_effort_map),
+      scope: :request
+    )
+
+    setting(:cacheControl, scope: :request, advanced: true)
+    setting(:structuredOutputMode, scope: :request, advanced: true)
+    setting(:toolStreaming, type: :boolean, scope: :request, advanced: true)
+    setting(:taskBudget, scope: :request, advanced: true)
+    setting(:speed, scope: :request, advanced: true)
+    setting(:inferenceGeo, scope: :request, advanced: true)
+    setting(:anthropicBeta, scope: :request, advanced: true)
+    setting(:contextManagement, type: :map, scope: :request, advanced: true)
 
     language_model do
       upstream(:sse)
@@ -63,9 +67,8 @@ defmodule Ankole.AIGateway.Providers.Claude do
     |> maybe_put_beta(ctx.settings[:anthropic_beta])
     |> put_auth(ctx)
     |> ReasoningEffort.put_provider_options(ctx,
-      target_key: "effort",
-      map: @reasoning_effort_map,
-      skip_if_present: ["thinking"]
+      target: :output_config,
+      map: @reasoning_effort_map
     )
   end
 

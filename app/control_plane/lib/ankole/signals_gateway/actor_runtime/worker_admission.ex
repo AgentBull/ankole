@@ -6,8 +6,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
   the transport has authenticated the route, and gets projected into the durable
   `agent_computer_worker` table — the scheduler's single source of worker
   liveness. Lifecycle messages must come from the authenticated worker id and
-  route the projection owns. When a worker dies or its route breaks, its
-  created/sent deliveries are superseded and its assignments released, but the
+  route and process incarnation the projection owns. When a worker dies, is
+  replaced, or its route breaks, all live deliveries are superseded and its
+  assignments released, but the
   underlying actor event rows stay open so the scheduler can simply retry them.
   """
 
@@ -44,8 +45,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
   Admits an authenticated worker-ready message.
 
   Worker readiness is accepted only from the route that the transport already
-  authenticated. The worker payload names the process id; the route proves where
-  replies should be sent.
+  authenticated. The worker payload names the stable worker id and one concrete
+  process incarnation; the route proves where replies should be sent.
   """
   @spec admit_worker_ready(map(), String.t() | map()) ::
           {:ok, AgentComputerWorker.t()} | {:error, term()}
@@ -79,32 +80,18 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
       |> Map.put(:last_worker_heartbeat_at, now)
       |> maybe_put(:transport_route, route)
 
-    # Upsert keyed on worker_id so a repeated ready from the same process refreshes
-    # its route, capacity, and lease in one statement.
     Repo.transact(fn repo ->
       with :ok <- worker_route_available(repo, attrs) do
-        %AgentComputerWorker{}
-        |> AgentComputerWorker.changeset(attrs)
-        |> repo.insert(
-          on_conflict:
-            {:replace,
-             [
-               :status,
-               :version,
-               :capacity,
-               :load,
-               :transport_route,
-               :last_worker_heartbeat_at,
-               :started_at,
-               :stopped_at,
-               :stop_reason,
-               :metadata,
-               :updated_at
-             ]},
-          conflict_target: [:worker_id],
-          returning: true
-        )
-        |> notify_worker_stale_deadline(repo)
+        case lock_worker_by_id(repo, attrs.worker_id) do
+          %AgentComputerWorker{} = worker ->
+            refresh_worker_ready(repo, worker, attrs, now)
+
+          nil ->
+            %AgentComputerWorker{}
+            |> AgentComputerWorker.changeset(attrs)
+            |> repo.insert()
+            |> notify_worker_stale_deadline(repo)
+        end
       end
     end)
   end
@@ -123,8 +110,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
       when is_map(worker_heartbeat) do
     with {:ok, auth} <- authenticated_route(authenticated_route),
          {:ok, worker_id} <- fetch_required_text(worker_heartbeat, "worker_id"),
+         {:ok, incarnation_id} <- fetch_required_text(worker_heartbeat, "incarnation_id"),
          :ok <- authenticated_worker_matches(auth, worker_id) do
-      update_worker_projection(worker_id, auth.route, %{
+      update_worker_projection(worker_id, incarnation_id, auth.route, %{
         last_worker_heartbeat_at: DateTime.utc_now(:microsecond),
         load: fetch_map(worker_heartbeat, "load_json") || %{}
       })
@@ -143,6 +131,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
   def handle_worker_capacity(worker_capacity, authenticated_route) when is_map(worker_capacity) do
     with {:ok, auth} <- authenticated_route(authenticated_route),
          {:ok, worker_id} <- fetch_required_text(worker_capacity, "worker_id"),
+         {:ok, incarnation_id} <- fetch_required_text(worker_capacity, "incarnation_id"),
          :ok <- authenticated_worker_matches(auth, worker_id) do
       # Prefer the structured capacity map; fall back to the scalar
       # available_turn_slots field for older workers that don't send capacity_json.
@@ -157,7 +146,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
             %{"available_turn_slots" => fetch_int(worker_capacity, "available_turn_slots") || 0}
         end
 
-      update_worker_projection(worker_id, auth.route, %{
+      update_worker_projection(worker_id, incarnation_id, auth.route, %{
         capacity: capacity,
         load: fetch_map(worker_capacity, "load_json") || %{},
         last_worker_heartbeat_at: DateTime.utc_now(:microsecond)
@@ -287,11 +276,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
   # route. Authenticated traffic from that same process may revalidate a worker
   # made stale solely because the router restarted; all other stale reasons stay
   # terminal until a fresh worker-ready admission.
-  defp update_worker_projection(worker_id, route, attrs) do
+  defp update_worker_projection(worker_id, incarnation_id, route, attrs) do
     Repo.transact(fn repo ->
       case lock_worker_by_id(repo, worker_id) do
         %AgentComputerWorker{} = worker ->
-          with :ok <- worker_route_matches(worker, route) do
+          with :ok <- worker_route_matches(worker, route),
+               :ok <- worker_incarnation_matches(worker, incarnation_id) do
             worker
             |> AgentComputerWorker.changeset(revalidate_after_router_restart(worker, attrs))
             |> repo.update()
@@ -312,6 +302,36 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
   end
 
   defp revalidate_after_router_restart(_worker, attrs), do: attrs
+
+  defp refresh_worker_ready(repo, %AgentComputerWorker{} = worker, attrs, now) do
+    replacement? = worker.incarnation_id != attrs.incarnation_id
+
+    with :ok <- maybe_release_replaced_worker(repo, worker, attrs.incarnation_id, now) do
+      attrs =
+        if replacement? do
+          attrs
+        else
+          Map.put(attrs, :started_at, worker.started_at || attrs.started_at)
+        end
+
+      worker
+      |> AgentComputerWorker.changeset(attrs)
+      |> repo.update()
+      |> notify_worker_stale_deadline(repo)
+    end
+  end
+
+  defp maybe_release_replaced_worker(
+         _repo,
+         %AgentComputerWorker{incarnation_id: incarnation_id},
+         incarnation_id,
+         _now
+       ),
+       do: :ok
+
+  defp maybe_release_replaced_worker(repo, %AgentComputerWorker{} = worker, _incarnation_id, now) do
+    release_worker_fences(repo, worker, now, "worker_incarnation_replaced")
+  end
 
   # Ensures a live transport route belongs to one worker projection. ROUTER
   # identities are the address used by delivery, so sharing them would break
@@ -342,6 +362,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
     end
   end
 
+  defp worker_incarnation_matches(
+         %AgentComputerWorker{incarnation_id: incarnation_id},
+         incarnation_id
+       ),
+       do: :ok
+
+  defp worker_incarnation_matches(%AgentComputerWorker{}, _incarnation_id),
+    do: {:error, :stale_worker_incarnation}
+
   defp worker_by_route(repo, route) do
     AgentComputerWorker
     |> where([worker], worker.transport_route == ^route)
@@ -360,23 +389,24 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
   # at it. The actor event rows stay open, so the next scheduler pass can retry
   # without changing the user-visible work.
   defp stale_worker_transition(repo, %AgentComputerWorker{} = worker, now, reason) do
+    with {:ok, worker} <- mark_worker_stale(repo, worker, now, reason),
+         :ok <- release_worker_fences(repo, worker, now, reason),
+         :ok <- notify_worker_delete_deadline(repo, worker) do
+      {:ok, worker}
+    end
+  end
+
+  defp release_worker_fences(repo, %AgentComputerWorker{} = worker, now, reason) do
     delivery_actor_keys = worker_actor_keys(repo, worker)
 
-    with {:ok, worker} <- mark_worker_stale(repo, worker, now, reason),
-         {:ok, %{actor_keys: activation_actor_keys}} <-
-           TurnLifecycle.fail_worker_activations_in_tx(
-             repo,
-             worker.worker_id,
-             now,
-             reason
-           ),
+    with {:ok, %{actor_keys: activation_actor_keys}} <-
+           TurnLifecycle.fail_worker_activations_in_tx(repo, worker.worker_id, now, reason),
          {_delivery_count, _rows} <-
            supersede_live_deliveries_for_worker(repo, worker, now, reason),
          {_assignment_count, _rows} <- WorkerPool.release_assignments_for_worker(repo, worker),
-         :ok <- notify_worker_delete_deadline(repo, worker),
          actor_keys = merge_actor_keys(delivery_actor_keys, activation_actor_keys),
          :ok <- notify_actor_keys(repo, actor_keys, now) do
-      {:ok, worker}
+      :ok
     end
   end
 
@@ -391,8 +421,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
   end
 
   # The activation failure path should normally handle accepted deliveries, but
-  # stale-worker recovery must still clear every runtime fence owned by the dead
-  # worker. Otherwise a lost or drifted activation can leave the actor queue
+  # worker recovery must still clear every runtime fence owned by the dead
+  # process. Otherwise a lost or drifted activation can leave the actor queue
   # permanently blocked behind an unusable delivery.
   defp supersede_live_deliveries_for_worker(
          repo,
@@ -552,11 +582,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
   # version stay as observability metadata instead of becoming scheduling axes.
   defp worker_ready_attrs(worker_ready, route) do
     with {:ok, worker_id} <- fetch_required_text(worker_ready, "worker_id"),
+         {:ok, incarnation_id} <- fetch_required_text(worker_ready, "incarnation_id"),
          {:ok, runtime} <- fetch_required_text(worker_ready, "runtime"),
          {:ok, version} <- fetch_required_text(worker_ready, "version") do
       {:ok,
        %{
          worker_id: worker_id,
+         incarnation_id: incarnation_id,
          status: @ready_worker_status,
          version: version,
          capacity:

@@ -35,14 +35,6 @@ defmodule Ankole.Repo.Migrations.CreateBrain do
     execute("DROP TYPE IF EXISTS brain_cursor_scope_kind")
     execute("DROP TYPE IF EXISTS brain_embedding_state")
     execute("DROP TYPE IF EXISTS brain_author_kind")
-
-    drop_if_exists index(:signal_gateway_entries, [:document_id],
-                     name: :signal_gateway_entries_document_id_unique_index
-                   )
-
-    create index(:signal_gateway_entries, [:document_id],
-             name: :signal_gateway_entries_document_id_index
-           )
   end
 
   defp create_enum_types do
@@ -53,34 +45,14 @@ defmodule Ankole.Repo.Migrations.CreateBrain do
 
   defp rebuild_signal_entry_search do
     execute("""
-    DO $$
-    BEGIN
-      IF EXISTS (
-        SELECT 1
-        FROM signal_gateway_entries
-        GROUP BY document_id
-        HAVING count(*) > 1
-      ) THEN
-        RAISE EXCEPTION 'signal_gateway_entries.document_id contains duplicates; cannot use as pg_search key_field';
-      END IF;
-    END $$;
-    """)
-
-    drop_if_exists index(:signal_gateway_entries, [:document_id],
-                     name: :signal_gateway_entries_document_id_index
-                   )
-
-    create unique_index(:signal_gateway_entries, [:document_id],
-             name: :signal_gateway_entries_document_id_unique_index
-           )
-
-    execute("""
     CREATE INDEX signal_gateway_entries_brain_bm25_index
     ON signal_gateway_entries
     USING bm25 (
       document_id,
-      (search_text::pdb.jieba),
-      (metadata_text::pdb.jieba)
+      (text::pdb.jieba),
+      author,
+      metadata,
+      (provider_thread_id::pdb.jieba)
     )
     WITH (key_field='document_id')
     """)

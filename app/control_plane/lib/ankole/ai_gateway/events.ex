@@ -14,6 +14,7 @@ defmodule Ankole.AIGateway.Events do
   @type event_type ::
           :response_started
           | :output_text_delta
+          | :reasoning_delta
           | :tool_call_started
           | :tool_call_completed
           | :response_completed
@@ -38,12 +39,11 @@ defmodule Ankole.AIGateway.Events do
   end
 
   @spec unsubscribe(String.t(), binary()) :: :ok | {:error, :invalid_conversation}
-  def unsubscribe(subject_uid, conversation_id) do
-    with {:ok, conversation} <-
-           StatefulResponses.get_conversation_for_subject(subject_uid, conversation_id) do
-      Phoenix.PubSub.unsubscribe(@pubsub, topic(conversation.subject_uid, conversation.id))
-    end
-  end
+  def unsubscribe(subject_uid, conversation_id)
+      when is_binary(subject_uid) and is_binary(conversation_id),
+      do: Phoenix.PubSub.unsubscribe(@pubsub, topic(subject_uid, conversation_id))
+
+  def unsubscribe(_subject_uid, _conversation_id), do: {:error, :invalid_conversation}
 
   @doc false
   @spec publish(Message.t(), event_type(), map()) :: :ok | {:error, term()}

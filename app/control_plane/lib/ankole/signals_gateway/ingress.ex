@@ -19,6 +19,7 @@ defmodule Ankole.SignalsGateway.Ingress do
   alias Ankole.SignalsGateway.InboundBatches
   alias Ankole.SignalsGateway.IngressPipeline
   alias Ankole.SignalsGateway.Projection
+  alias Ankole.SignalsGateway.ReplyInteractions
   alias Ankole.SignalsGateway.Binding
   alias Ankole.SignalsGateway.Entry
   alias Ankole.Brain.SourceWithdrawal
@@ -130,17 +131,28 @@ defmodule Ankole.SignalsGateway.Ingress do
            IngressPipeline.construct(:action, binding, input, now, &FactNormalizer.action/3),
          :match <- IngressPipeline.filter(binding, fact) do
       Repo.transact(fn repo ->
-        with {:ok, channel} <- Projection.maybe_upsert_channel(repo, fact, now),
-             {:ok, append_result} <-
-               ActorEventEnvelope.append_actor_event(
-                 binding,
-                 fact,
-                 fact.actor_event_type,
-                 channel,
-                 nil,
-                 now
-               ) do
-          {:ok, actor_event_append_result(append_result, %{signal_channel: channel})}
+        with {:ok, acceptance} <- ReplyInteractions.accept_in_tx(repo, binding, fact, now) do
+          case acceptance do
+            :duplicate ->
+              {:ok, %{status: :duplicate_action}}
+
+            :stale ->
+              {:ok, %{status: :stale_action}}
+
+            acceptance when acceptance in [:accepted, :unmanaged] ->
+              with {:ok, channel} <- Projection.maybe_upsert_channel(repo, fact, now),
+                   {:ok, append_result} <-
+                     ActorEventEnvelope.append_actor_event(
+                       binding,
+                       fact,
+                       fact.actor_event_type,
+                       channel,
+                       nil,
+                       now
+                     ) do
+                {:ok, actor_event_append_result(append_result, %{signal_channel: channel})}
+              end
+          end
         end
       end)
     else

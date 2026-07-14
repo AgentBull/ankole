@@ -433,6 +433,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   # Returns {updated_active, client_chunk} where client_chunk is what gets
   # forwarded to the worker/client.
   defp process_provider_chunk(active, chunk_binary, seq) do
+    active = Map.delete(active, :live_reasoning_delta)
     chunk_string = IO.iodata_to_binary(chunk_binary)
 
     # Try to parse as JSON (provider WebSocket frames are SSE-like JSON objects).
@@ -465,6 +466,23 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
       "response.output_text.delta" ->
         delta = chunk["delta"] || ""
         new_active = %{active | text_buffer: active.text_buffer <> delta, seq: seq}
+        {new_active, forward_parsed_chunk(active, chunk, original_string)}
+
+      type
+      when type in ["response.reasoning_summary_text.delta", "response.reasoning_text.delta"] ->
+        delta = chunk["delta"] || ""
+
+        new_active =
+          if is_binary(delta) and delta != "" do
+            Map.put(active, :live_reasoning_delta, %{
+              text: delta,
+              source: type,
+              seq: seq
+            })
+          else
+            active
+          end
+
         {new_active, forward_parsed_chunk(active, chunk, original_string)}
 
       # ── Output item completed ──
@@ -526,6 +544,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
 
   defp maybe_publish_typed_events(%{message: %{} = message}, old_active, new_active, seq) do
     publish_new_tool_calls(message, old_active, new_active, seq)
+    publish_reasoning_delta(message, new_active)
 
     if new_active.text_buffer != old_active.text_buffer do
       delta = text_delta_since(old_active.text_buffer, new_active.text_buffer)
@@ -540,6 +559,13 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
 
     :ok
   end
+
+  defp publish_reasoning_delta(message, %{live_reasoning_delta: payload})
+       when is_map(payload) do
+    Events.publish(message, :reasoning_delta, payload)
+  end
+
+  defp publish_reasoning_delta(_message, _active), do: :ok
 
   defp publish_new_tool_calls(message, old_active, new_active, seq) do
     old_items = Map.get(old_active, :accumulated_items, [])

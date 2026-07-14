@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import { z } from 'zod'
 import { runAgentLoop } from '../../src/core/agent-loop'
+import type { ReplyPresentationEvent } from '../../src/core/types'
 import { createModel } from '../../src/core/llm'
 import { fakeResponseSocket, parallelReadTool, toolResultsRecordedFrame } from '../support/llm'
 
@@ -474,6 +475,128 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
 
     expect(final.message.content).toEqual([{ type: 'text', text: 'mixed handled' }])
     expect(events.indexOf('write_second:start')).toBeGreaterThan(events.indexOf('read_first:end'))
+  })
+
+  it('emits revisioned semantic tool activity without leaking raw names or arguments', async () => {
+    const sentPayloads: JSONObject[] = []
+    const presentation: ReplyPresentationEvent[] = []
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
+            const payload = JSON.parse(data) as JSONObject
+            sentPayloads.push(payload)
+
+            if (payload.type === 'response.tool_results.record') {
+              return [toolResultsRecordedFrame('resp_presentation_results')]
+            }
+
+            if (sentPayloads.filter(sent => sent.type === 'response.create').length === 1) {
+              return [
+                {
+                  type: 'response.completed',
+                  response: {
+                    id: 'resp_presentation_tool',
+                    status: 'completed',
+                    output: [
+                      {
+                        type: 'function_call',
+                        id: 'fc_presentation_tool',
+                        call_id: 'call_presentation_tool',
+                        name: 'secret_admin_shell',
+                        arguments: '{"password":"do-not-leak"}'
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+
+            return [
+              {
+                type: 'response.completed',
+                response: {
+                  id: 'resp_after_presentation_tool',
+                  status: 'completed',
+                  output: [
+                    {
+                      type: 'message',
+                      role: 'assistant',
+                      content: [{ type: 'output_text', text: 'done' }]
+                    }
+                  ]
+                }
+              }
+            ]
+          })
+      }
+    })
+
+    await runAgentLoop({
+      model,
+      maxModelIterations: 90,
+      messages: [{ role: 'user', content: 'perform the operation' }],
+      stateful: {
+        actorEventID: '00000000-0000-0000-0000-000000000023',
+        conversationID: '23232323-2323-2323-2323-232323232323'
+      },
+      tools: [
+        {
+          name: 'secret_admin_shell',
+          description: 'Internal test tool',
+          schema: z.object({ password: z.string() }),
+          isDestructive: true,
+          execute: async () => ({
+            content: [{ type: 'text', text: 'sensitive raw output' }],
+            details: { ok: true },
+            presentation: [
+              {
+                kind: 'effect.receipt',
+                payload: {
+                  operation_id: 'call_presentation_tool',
+                  phase: 'confirmed',
+                  summary: '已确认外部变更'
+                }
+              }
+            ]
+          })
+        }
+      ],
+      onPresentationEvent: event => {
+        presentation.push(event)
+      }
+    })
+
+    expect(presentation.map(event => event.kind)).toEqual([
+      'turn.phase',
+      'tool.activity',
+      'effect.receipt',
+      'tool.activity',
+      'turn.phase'
+    ])
+    expect(presentation[1]).toMatchObject({
+      kind: 'tool.activity',
+      payload: {
+        operation_id: 'call_presentation_tool',
+        label: '处理请求',
+        phase: 'running',
+        consequential: true,
+        revision: 2
+      }
+    })
+    expect(presentation[3]).toMatchObject({
+      kind: 'tool.activity',
+      payload: { label: '处理请求', phase: 'completed', revision: 4 }
+    })
+    expect(JSON.stringify(presentation)).not.toContain('secret_admin_shell')
+    expect(JSON.stringify(presentation)).not.toContain('do-not-leak')
+    expect(JSON.stringify(presentation)).not.toContain('sensitive raw output')
   })
 
   it('rejects duplicate tool names before exposing tools to the model', async () => {

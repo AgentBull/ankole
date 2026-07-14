@@ -104,17 +104,24 @@ defmodule FeishuOpenAPI.CardAction do
   """
   @spec from_payload(map()) :: t()
   def from_payload(payload) when is_map(payload) do
+    content = action_content(payload)
+    operator = map_or_empty(Map.get(content, "operator"))
+    context = map_or_empty(Map.get(content, "context"))
+    header = map_or_empty(Map.get(payload, "header"))
+
     %__MODULE__{
-      open_id: Map.get(payload, "open_id"),
-      user_id: Map.get(payload, "user_id"),
-      open_message_id: Map.get(payload, "open_message_id"),
-      open_chat_id: Map.get(payload, "open_chat_id"),
-      tenant_key: Map.get(payload, "tenant_key"),
-      token: Map.get(payload, "token"),
-      timezone: Map.get(payload, "timezone"),
-      challenge: Map.get(payload, "challenge"),
-      type: Map.get(payload, "type"),
-      action: map_or_nil(Map.get(payload, "action")),
+      open_id: Map.get(content, "open_id") || Map.get(operator, "open_id"),
+      user_id: Map.get(content, "user_id") || Map.get(operator, "user_id"),
+      open_message_id: Map.get(content, "open_message_id") || Map.get(context, "open_message_id"),
+      open_chat_id: Map.get(content, "open_chat_id") || Map.get(context, "open_chat_id"),
+      tenant_key:
+        Map.get(content, "tenant_key") || Map.get(operator, "tenant_key") ||
+          Map.get(header, "tenant_key"),
+      token: Map.get(content, "token") || Map.get(payload, "token"),
+      timezone: Map.get(content, "timezone") || Map.get(payload, "timezone"),
+      challenge: Map.get(content, "challenge") || Map.get(payload, "challenge"),
+      type: Map.get(content, "type") || Map.get(payload, "type") || Map.get(header, "event_type"),
+      action: map_or_nil(Map.get(content, "action")),
       raw: payload
     }
   end
@@ -202,4 +209,10 @@ defmodule FeishuOpenAPI.CardAction do
 
   defp map_or_nil(value) when is_map(value), do: value
   defp map_or_nil(_value), do: nil
+
+  defp map_or_empty(value) when is_map(value), do: value
+  defp map_or_empty(_value), do: %{}
+
+  defp action_content(%{"event" => event}) when is_map(event), do: event
+  defp action_content(payload), do: payload
 end

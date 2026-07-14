@@ -102,7 +102,7 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     localBrowser: {
       agentUID: initial.agent_uid,
       executionScopeID,
-      blockPrivateNetwork: browserRuntimeConfig.blockPrivateNetwork,
+      ssrfFilter: browserRuntimeConfig.ssrfFilter,
       ...(typeof browserRuntimeConfig.localBrowserIdleTtlMs === 'number'
         ? { localBrowserIdleTtlMs: browserRuntimeConfig.localBrowserIdleTtlMs }
         : {})
@@ -115,7 +115,7 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
       workspaceRoot: parentWorkspaceRoot,
       browserRemoteCDPConfig: browserRuntimeConfig.remoteCDPConfig,
       localBrowserIdleTtlMs: browserRuntimeConfig.localBrowserIdleTtlMs,
-      blockPrivateNetwork: browserRuntimeConfig.blockPrivateNetwork
+      ssrfFilter: browserRuntimeConfig.ssrfFilter
     })
   )
   const projectedTools = [

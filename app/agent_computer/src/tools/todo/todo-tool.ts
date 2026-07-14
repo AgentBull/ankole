@@ -193,10 +193,24 @@ export function createTodoTool(store: TodoStore): AgentTool<typeof TodoParams, T
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
-    async execute(_toolCallId, params): Promise<AgentToolResult<TodoToolDetails>> {
+    async execute(toolCallID, params): Promise<AgentToolResult<TodoToolDetails>> {
       if (params.todos !== undefined) store.write(params.todos, params.merge ?? false)
       const details = store.snapshot()
-      return jsonToolResult(details)
+      return jsonToolResult(details, {
+        presentation: [
+          {
+            kind: 'plan.snapshot',
+            payload: {
+              operation_id: toolCallID,
+              items: details.todos.map(item => ({
+                id: item.id,
+                content: item.content,
+                status: item.status
+              }))
+            }
+          }
+        ]
+      })
     }
   }
 }

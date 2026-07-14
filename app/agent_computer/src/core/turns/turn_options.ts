@@ -1,4 +1,4 @@
-import type { AgentMessage } from '../types'
+import type { AgentMessage, ReplyPresentationEvent } from '../types'
 import type {
   AgentConversationContext,
   AgentConversationContextRequest,
@@ -117,6 +117,7 @@ export type TextTurnLoopOptions = {
   pollSteering?: () => TurnSteerUpdate[]
   onSteeringApplied?: (update: TurnSteerUpdate) => Promise<void>
   onTurnActivity?: (description?: string) => void
+  onPresentationEvent?: (event: ReplyPresentationEvent) => void | Promise<void>
   abortSignal?: AbortSignal
   extraMessages?: AgentMessage[]
 }

@@ -203,6 +203,17 @@
         "title": "AgentUpdateRequest",
         "type": "object"
       },
+      "BrainDreamingFitnessResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "fitness": {
+            "$ref": "#/components/schemas/BrainDreamingFitness"
+          }
+        },
+        "required": ["fitness"],
+        "title": "BrainDreamingFitnessResponse",
+        "type": "object"
+      },
       "WorkerFileEntry": {
         "additionalProperties": false,
         "properties": {
@@ -585,6 +596,43 @@
         "title": "BrainAuditLog",
         "type": "object"
       },
+      "AIGatewayProviderSetting": {
+        "additionalProperties": false,
+        "properties": {
+          "advanced": {
+            "type": "boolean"
+          },
+          "default": {
+            "$ref": "#/components/schemas/JSONValue"
+          },
+          "encrypted": {
+            "type": "boolean"
+          },
+          "key": {
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "scope": {
+            "enum": ["connection", "request"],
+            "type": "string"
+          },
+          "type": {
+            "enum": ["boolean", "float", "integer", "map", "select", "string"],
+            "type": "string"
+          }
+        },
+        "required": ["key", "type", "default", "options", "required", "encrypted", "advanced", "scope"],
+        "title": "AIGatewayProviderSetting",
+        "type": "object"
+      },
       "IdentityProviderResponse": {
         "additionalProperties": false,
         "properties": {
@@ -691,7 +739,6 @@
             "$ref": "#/components/schemas/JSONValue"
           }
         },
-        "required": ["value"],
         "title": "WorkerEnvUpdateRequest",
         "type": "object"
       },
@@ -1263,6 +1310,69 @@
         "title": "ModelProfileWriteRequest",
         "type": "object"
       },
+      "BrainDreamingFitness": {
+        "additionalProperties": false,
+        "description": "Share of dreaming block writes that survived human review, overall and per run. Survival is judged only on writes older than the horizon; younger writes are pending.",
+        "properties": {
+          "corrected_block_writes": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "generated_at": {
+            "format": "date_time",
+            "type": "string"
+          },
+          "horizon_days": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "lookback_days": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "matured_block_writes": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "pending_block_writes": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "produced_block_writes": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/BrainDreamingFitnessRun"
+            },
+            "type": "array"
+          },
+          "survival_rate": {
+            "maximum": 1,
+            "minimum": 0,
+            "nullable": true,
+            "type": "number"
+          },
+          "survived_block_writes": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "horizon_days",
+          "lookback_days",
+          "generated_at",
+          "produced_block_writes",
+          "matured_block_writes",
+          "pending_block_writes",
+          "corrected_block_writes",
+          "survived_block_writes",
+          "runs"
+        ],
+        "title": "BrainDreamingFitness",
+        "type": "object"
+      },
       "ScheduleCronWriteRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1416,7 +1526,6 @@
             "$ref": "#/components/schemas/JSONValue"
           }
         },
-        "required": ["value"],
         "title": "AppConfigurationUpdateRequest",
         "type": "object"
       },
@@ -1498,8 +1607,7 @@
           },
           "settings": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/AIGatewayProviderSetting"
             },
             "type": "array"
           }
@@ -1578,10 +1686,6 @@
           "document_id": {
             "type": "string"
           },
-          "formatted_content": {
-            "additionalProperties": true,
-            "type": "object"
-          },
           "links": {
             "items": {
               "$ref": "#/components/schemas/JSONValue"
@@ -1596,6 +1700,11 @@
             "format": "date_time",
             "nullable": true,
             "type": "string"
+          },
+          "rich_content": {
+            "additionalProperties": true,
+            "nullable": true,
+            "type": "object"
           },
           "signal_channel_id": {
             "type": "string"
@@ -1612,7 +1721,6 @@
           "document_id",
           "signal_channel_id",
           "source_entry_id",
-          "formatted_content",
           "attachments",
           "links",
           "author",
@@ -2205,6 +2313,62 @@
         "title": "AppConfigurationDecryptionValue",
         "type": "object"
       },
+      "BrainDreamingFitnessRun": {
+        "additionalProperties": false,
+        "description": "One dreaming run's block writes and how they fared under human review.",
+        "properties": {
+          "corrected_block_writes": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "first_written_at": {
+            "format": "date_time",
+            "nullable": true,
+            "type": "string"
+          },
+          "last_written_at": {
+            "format": "date_time",
+            "nullable": true,
+            "type": "string"
+          },
+          "matured_block_writes": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "pending_block_writes": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "produced_block_writes": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "run_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "survival_rate": {
+            "maximum": 1,
+            "minimum": 0,
+            "nullable": true,
+            "type": "number"
+          },
+          "survived_block_writes": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "produced_block_writes",
+          "matured_block_writes",
+          "pending_block_writes",
+          "corrected_block_writes",
+          "survived_block_writes"
+        ],
+        "title": "BrainDreamingFitnessRun",
+        "type": "object"
+      },
       "CodexAccountCreateRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2350,6 +2514,95 @@
         ],
         "summary": "Download one file from a worker filesystem root",
         "tags": ["Workers"]
+      }
+    },
+    "/api/v1/brain/dreaming-fitness": {
+      "get": {
+        "callbacks": {},
+        "description": "Reads the audit log for the share of dreaming block writes that survived human review (no human edit or delete within the horizon), overall and per run. Writes younger than the horizon are reported as pending, not survivors.",
+        "operationId": "AnkoleWeb.BrainController.dreaming_fitness",
+        "parameters": [
+          {
+            "description": "Principal whose Brain library is being supervised",
+            "in": "query",
+            "name": "owner_uid",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Days a dreaming write must survive human review to count as survived (default 7)",
+            "in": "query",
+            "name": "horizon_days",
+            "required": false,
+            "schema": {
+              "maximum": 90,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "How far back to read dreaming writes (default 90)",
+            "in": "query",
+            "name": "lookback_days",
+            "required": false,
+            "schema": {
+              "maximum": 365,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrainDreamingFitnessResponse"
+                }
+              }
+            },
+            "description": "Dreaming fitness signal"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid filters"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Read dreaming output survival as a selection-pressure signal",
+        "tags": ["Brain"]
       }
     },
     "/api/v1/identity-providers": {

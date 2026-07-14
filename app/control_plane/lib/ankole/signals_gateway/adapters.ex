@@ -10,6 +10,7 @@ defmodule Ankole.SignalsGateway.Adapters do
 
   alias Ankole.Plugins.Registry
   alias Ankole.SignalsGateway.OutboxAdapter
+  alias Ankole.SignalsGateway.ReplyPreviewAdapter
   alias Ankole.SignalsGateway.Utils
 
   @contract_id "signals_gateway.adapter"
@@ -20,6 +21,7 @@ defmodule Ankole.SignalsGateway.Adapters do
     """
 
     alias Ankole.SignalsGateway.OutboxAdapter
+    alias Ankole.SignalsGateway.ReplyPreviewAdapter
 
     @enforce_keys [:id, :display_name, :fields]
     defstruct [
@@ -31,6 +33,7 @@ defmodule Ankole.SignalsGateway.Adapters do
       :binding_saved_module,
       :supported_group_message_modes,
       :outbox_adapter,
+      :reply_preview_adapter,
       fields: []
     ]
 
@@ -43,7 +46,8 @@ defmodule Ankole.SignalsGateway.Adapters do
             config_module: module() | nil,
             binding_saved_module: module() | nil,
             supported_group_message_modes: [String.t()] | nil,
-            outbox_adapter: OutboxAdapter.t() | nil
+            outbox_adapter: OutboxAdapter.t() | nil,
+            reply_preview_adapter: ReplyPreviewAdapter.t() | nil
           }
   end
 
@@ -97,6 +101,26 @@ defmodule Ankole.SignalsGateway.Adapters do
     end
   end
 
+  @doc """
+  Fetches the optional mutable AI reply surface for one active adapter.
+  """
+  @spec fetch_reply_preview(String.t(), GenServer.server()) ::
+          {:ok, ReplyPreviewAdapter.t()}
+          | {:error,
+             :signal_adapter_registry_unavailable
+             | {:signal_adapter_not_found, term()}
+             | {:signal_adapter_reply_preview_unavailable, term()}
+             | term()}
+  def fetch_reply_preview(adapter_id, server \\ Registry) do
+    with {:ok, %Definition{reply_preview_adapter: reply_preview_adapter}} <-
+           fetch(adapter_id, server) do
+      case reply_preview_adapter do
+        %ReplyPreviewAdapter{} = adapter -> {:ok, adapter}
+        nil -> {:error, {:signal_adapter_reply_preview_unavailable, adapter_id}}
+      end
+    end
+  end
+
   @doc false
   @spec validate_declaration(map()) :: :ok | {:error, term()}
   def validate_declaration(declaration) when is_map(declaration) do
@@ -141,7 +165,8 @@ defmodule Ankole.SignalsGateway.Adapters do
              :binding_saved_module,
              :handle_binding_saved,
              2
-           ) do
+           ),
+         {:ok, reply_preview_adapter} <- resolve_reply_preview_adapter(declaration) do
       {:ok,
        %Definition{
          id: adapter_id,
@@ -153,7 +178,8 @@ defmodule Ankole.SignalsGateway.Adapters do
          binding_saved_module: value(declaration, :binding_saved_module),
          supported_group_message_modes:
            optional_list_value(declaration, :supported_group_message_modes),
-         outbox_adapter: outbox_adapter
+         outbox_adapter: outbox_adapter,
+         reply_preview_adapter: reply_preview_adapter
        }}
     else
       {:error, _reason} = error -> error
@@ -206,6 +232,14 @@ defmodule Ankole.SignalsGateway.Adapters do
         with {:ok, module} <- declaration_module(declaration, :outbox_module) do
           OutboxAdapter.from_module(module, capabilities)
         end
+    end
+  end
+
+  defp resolve_reply_preview_adapter(declaration) do
+    case declaration_module(declaration, :reply_preview_module) do
+      {:ok, module} -> ReplyPreviewAdapter.from_module(module)
+      {:error, {:missing_adapter_module, :reply_preview_module}} -> {:ok, nil}
+      {:error, reason} -> {:error, reason}
     end
   end
 

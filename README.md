@@ -1,7 +1,7 @@
 # Ankole - Open AgentOS for Shared AI Colleagues
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-red.svg?logo=apache&label=License)](LICENSE)
-![Status](https://img.shields.io/badge/status-early_engineering_distribution-yellow)
+![Status](https://img.shields.io/badge/status-mvp_early_production-yellow)
 ![Runtime](https://img.shields.io/badge/runtime-Bun%20%2B%20Phoenix%2FOTP%20%2B%20Rust-blue)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/AgentBull/ankole)
 
@@ -65,43 +65,84 @@ That is the technical bet: actor model for long-lived work identity, OTP for fai
 
 ```mermaid
 flowchart LR
-  Providers["Chats / webhooks / schedules"] --> SG["SignalsGateway"]
-  Console["Web UI / operator APIs"] --> CP["Control Plane<br/>Phoenix / OTP"]
+  subgraph CP["Control Plane · Phoenix / OTP"]
+    direction TB
+    Platform["Principal / AuthZ<br/>AppConfigure / plugins"]
+    SG["SignalsGateway<br/>ingress / mirror / outbox"]
+    AR["ActorRuntime<br/>sessions / fences / scheduling"]
+    AI["AIGateway<br/>stateful Responses / providers"]
+    Brain["Brain<br/>long-term memory / recall / dreaming"]
+    Delegation["Subagent Delegation<br/>durable jobs / parent wakeups"]
 
-  SG --> CP
-  CP --> PG[("PostgreSQL<br/>durable truth")]
+    SG --> AR
+    SG -->|"chat evidence"| Brain
+    Brain -->|"embedding / rerank / dreaming"| AI
+    Delegation -->|"dispatch / parent wake"| AR
+  end
 
-  CP <-->|"RuntimeFabric<br/>live routing"| Worker["Agent Computer<br/>Bun / TypeScript worker"]
+  subgraph AC["Agent Computer workers · Bun / TypeScript"]
+    direction TB
+    Main["Main-agent loop<br/>tools / skills / sandbox"]
+    Task["Task-worker turn"]
+    Codex["Codex subagent<br/>enabled skills / projected tools"]
+    Task --> Codex
+  end
 
-  Worker --> Tools["Tools<br/>browser / terminal / files / model calls"]
-  CP --> Kernel["Rust Kernel<br/>AuthZ / runtime primitives"]
+  Channels["Chats / webhooks / schedules"] <-->|"events / replies"| SG
+  Console["Web UI / operator APIs"] --> Platform
+  AR <-->|"RuntimeFabric · Rust / ZeroMQ<br/>turns / live control / RPC"| Main
+  Main -->|"Responses · WebSocket"| AI
+  Main -->|"memory_* · RPC"| Brain
+  Main -->|"subagent(start) · RPC"| Delegation
+  AR -->|"delegated turn"| Task
+  Task -->|"fenced status / audit · RPC"| Delegation
+  AI <--> Models["LLM / embedding / rerank / web providers"]
+
+  Platform --> PG[("PostgreSQL<br/>all durable semantic truth")]
+  SG --> PG
+  AR --> PG
+  AI --> PG
+  Brain --> PG
+  Delegation --> PG
 ```
 
 At a high level:
 
-- **SignalsGateway** accepts provider ingress and normalizes it into durable actor events.
-- **Control Plane** owns durable state, actor orchestration, configuration, identity, and authorization.
-- **RuntimeFabric** connects actors, workers, and RPC lanes for live execution over ZeroMQ while PostgreSQL remains the durable source of replay, fences, reconciliation, and final commits.
-- **Agent Computer** executes turns and tools in an isolated worker container.
-- **PostgreSQL** remains the durable record for accepted events, state, fences, and final commits.
+- **Control Plane** owns durable domain state, actor orchestration, provider routing, identity, authorization, configuration, and operator surfaces.
+- **SignalsGateway and ActorRuntime** turn provider events into durable work, schedule fenced session turns, and commit provider-visible replies.
+- **AIGateway** owns provider credentials and the stateful Responses log; workers reach it over WebSocket without receiving upstream credentials.
+- **Brain** is the long-term memory subsystem for curated knowledge, chat recall, dreaming, and human oversight. Main agents and subagents use conversation-scoped `memory_*` tools while PostgreSQL remains the source of truth.
+- **Agent Computer** runs the main-agent loop and local tools in isolated workers. RuntimeFabric carries live turns, control, and RPC over the shared Rust/ZeroMQ data plane.
+- **Subagent Delegation** stores long-running background work in PostgreSQL, dispatches isolated task-worker turns, and wakes the parent session on waiting or terminal transitions. Codex is the current task worker, with enabled parent skills mounted natively and only an allowlisted tool projection.
+- **Rust Kernel** is loaded in-process by Elixir and Bun for shared transport, crypto, authorization evaluation, codecs, and AI data-plane primitives; it is not a durable domain owner.
+- **PostgreSQL** is the only durable semantic truth for events, conversations, memory, delegations, fences, audit, and final commits.
 
 ## Current Status
 
-Ankole is an early engineering distribution, not a polished end-user product or hosted SaaS. The subsystems below exist as working code in this repository today — the honest caveat is polish and API stability, not vaporware.
+Ankole is a complete, self-hostable AgentOS in production. The control plane, Agent Computer, kernel, and operator console run end to end.
+
+- **Many model providers.** OpenAI, Azure OpenAI, Claude, Google AI Studio, OpenRouter, and other OpenAI-compatible endpoints are first-class, with compaction, stateful conversations, reasoning-effort control, and per-provider usage handling.
+- **Real IM integration.** Lark/Feishu and Slack are integrated as first-party providers with lifecycle, transport, main-flow, and real-LLM end-to-end coverage.
+- **Brain.** Curated knowledge, chat recall, dreaming (offline consolidation), human review, and recovery live in one subsystem backed by PostgreSQL full-text and vector search.
+- **Long-running actor runtime.** Sessions wake, checkpoint, stream progress, hibernate, and recover with context; steering and cancellation are live-control operations, not request/response.
+- **Operator console.** Agents, providers, model profiles, identity, signals, workers, worker environments, brain entries, and delegations are all managed from a built-in web console.
+- **Tested for real conditions.** Unit suites plus dedicated end-to-end suites for Lark and Slack main flows, transport, lifecycle, real-LLM, scheduling, worker computer, chaos recovery, and concurrency/performance.
+
+Ankole's public APIs do not yet carry a compatibility contract; expect breaking changes between releases.
 
 | Area | Status |
 | --- | --- |
-| Control plane | Phoenix/OTP application under `app/control_plane`. Owns durable state, configuration, actor orchestration, Principal/AuthZ, and APIs. |
+| Control plane | Phoenix/OTP application under `app/control_plane`. Owns durable state, configuration, actor orchestration, Principal/AuthZ, AIGateway, Brain, SignalsGateway, and operator APIs. |
 | Agent Computer | Bun/TypeScript worker runtime under `app/agent_computer`. Runs the agent loop and local tools inside an isolated Linux worker image; not a standalone CLI. |
 | Kernel | Rust crate under `app/kernel`, loaded by Elixir (Rustler) and Bun (N-API) for crypto, identifiers, AuthZ evaluation, and ZeroMQ transport. |
-| Frontend | Vite + React surfaces under `app/webapps`, built into the Phoenix static shell. |
+| Frontend | Vite + React console, auth, and setup surfaces under `app/webapps`, built into the Phoenix static shell. |
 | Local services | PostgreSQL is provided through the devkit Docker Compose setup. |
 | Design docs | Architecture and runtime design documents live under `docs/design-docs`. |
-| Public API stability | Internal APIs are still evolving. Expect breaking changes between releases. |
+| Production readiness | Running in production. The durable path, live control, and operator surfaces are complete; the public API has no compatibility contract yet. |
 
 ## Current Repository
 
-This repository is the active Ankole control-plane and runtime workspace. It is still an engineering distribution, not a polished end-user release.
+This repository is the active Ankole control-plane and runtime workspace.
 
 - `app/control_plane` - Phoenix/OTP control plane for Principal/AuthZ, AppConfigure, setup, console, plugin registry, I18n, SignalsGateway, actor runtime, RuntimeFabric, and PostgreSQL-owned durable state.
 - `app/kernel` - shared Rust foundation loaded by Elixir and Bun for crypto, identifiers, phone/JWT helpers, AuthZ evaluation, protobuf envelopes, and ZeroMQ RuntimeFabric transport.

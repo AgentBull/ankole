@@ -38,6 +38,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
   alias Ankole.Logging
 
   @type handler :: (map() -> term()) | pid()
+  @mandatory_call_timeout_ms 5_000
   @default_rpc_timeout_ms 60_000
 
   @doc """
@@ -108,7 +109,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
           {:ok, :sent_or_queued} | {:error, :unknown_route | term()}
   def send_mandatory(transport_route, envelope)
       when is_binary(transport_route) and is_map(envelope) do
-    GenServer.call(__MODULE__, {:send_mandatory, transport_route, envelope})
+    try do
+      GenServer.call(
+        __MODULE__,
+        {:send_mandatory, transport_route, envelope},
+        @mandatory_call_timeout_ms
+      )
+    catch
+      :exit, {:timeout, _call} -> {:error, :broker_timeout}
+      :exit, _reason -> {:error, :broker_unavailable}
+    end
   end
 
   @doc """

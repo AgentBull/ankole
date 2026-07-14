@@ -114,6 +114,13 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
     conn =
       conn
       |> recycle_api()
+      |> put(~p"/api/v1/app-configurations/#{definition.key}", %{})
+
+    assert %{"error" => %{"code" => "validation_failed"}} = json_response(conn, 422)
+
+    conn =
+      conn
+      |> recycle_api()
       |> get(~p"/api/v1/app-configurations/#{definition.key}")
 
     assert %{"app_configuration" => %{"value" => 7, "source" => "global"}} =
@@ -166,6 +173,16 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
 
     assert %{"app_configuration" => encrypted_detail} = json_response(conn, 200)
     refute Map.has_key?(encrypted_detail, "value")
+
+    conn =
+      conn
+      |> recycle_api()
+      |> put(~p"/api/v1/app-configurations/#{definition.key}", %{})
+
+    assert %{"app_configuration" => preserved_item} = json_response(conn, 200)
+    assert preserved_item["encrypted"] == true
+    assert preserved_item["present"] == true
+    refute Map.has_key?(preserved_item, "value")
 
     conn =
       conn

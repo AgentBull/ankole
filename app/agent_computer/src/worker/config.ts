@@ -13,6 +13,7 @@ export type WorkerConfig = {
   endpoint: string
   workerAuthKey: string
   workerID: string
+  incarnationID: string
   workspaceRoot: string
   workspaceSessionsRoot: string
   sharedFsRoot: string
@@ -49,6 +50,7 @@ export function parseWorkerEnv(env: Record<string, string | undefined> = Bun.env
   return {
     ...parseRuntimeFabricURL(requiredEnv(env, 'RUNTIME_FABRIC_URL')),
     workerID: requiredEnv(env, 'WORKER_ID'),
+    incarnationID: crypto.randomUUID(),
     workspaceRoot: optionalEnv(env, 'ANKOLE_WORKSPACE_ROOT', WORKSPACE_MODEL_ROOT),
     workspaceSessionsRoot: optionalEnv(env, 'ANKOLE_WORKSPACE_SESSIONS_ROOT', WORKSPACE_SESSIONS_ROOT),
     sharedFsRoot: optionalEnv(env, 'ANKOLE_SHARED_FS_ROOT', WORKSPACE_SHARED_ROOT),
@@ -151,6 +153,7 @@ export function workerReadyEnvelope(
       type: 'worker_ready',
       worker_ready: {
         worker_id: config.workerID,
+        incarnation_id: config.incarnationID,
         runtime: 'bun',
         version: '0.1.0',
         capacity_json: {
@@ -182,6 +185,7 @@ export function workerHeartbeatEnvelope(
       type: 'worker_heartbeat',
       worker_heartbeat: {
         worker_id: config.workerID,
+        incarnation_id: config.incarnationID,
         monotonic_ms: monotonicMs,
         load_json: {
           active_turns: activeTurns
@@ -213,6 +217,7 @@ export function workerCapacityEnvelope(
       type: 'worker_capacity',
       worker_capacity: {
         worker_id: config.workerID,
+        incarnation_id: config.incarnationID,
         available_turn_slots: available,
         capacity_json: {
           max_turns: config.maxConcurrentTurns,

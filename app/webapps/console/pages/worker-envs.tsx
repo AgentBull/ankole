@@ -1,7 +1,17 @@
-import { Badge, Button, Checkbox, Input, TableCell, TableRow, toast } from '@ankole/uikit'
+import {
+  Badge,
+  Button,
+  Checkbox,
+  Field,
+  FieldDescription,
+  FieldLabel,
+  Input,
+  TableCell,
+  TableRow,
+  toast
+} from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { RiEyeLine } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -15,14 +25,8 @@ import {
 import type { WorkerEnvItem } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
 import { blankToNull, formatJSON, parseJSON } from '../console-primitives'
-import {
-  JSONField,
-  LabeledField,
-  ResourceEditorPage,
-  ResourceListPage,
-  RowActions,
-  SecretInput
-} from '../console-shell'
+import { ENCRYPTED_VALUE_MASK, EncryptedValueInput, isEncryptedValueMask } from '../encrypted-value-input'
+import { JSONField, LabeledField, ResourceEditorPage, ResourceListPage, RowActions } from '../console-shell'
 import { WorkerEnvEditorModel } from '../state/worker-env-editor-model'
 
 export const WORKER_ENV_NAME_FORMAT = /^[A-Za-z_][A-Za-z0-9_]*$/
@@ -152,12 +156,17 @@ export function WorkerEnvEditorPage() {
     gcTime: 0,
     onSuccess: response => {
       const revealed = response.decrypted_value.value
-      model.value.value = typeof revealed === 'string' ? revealed : formatJSON(revealed)
+      model.value.value = declared
+        ? (JSON.stringify(revealed) ?? '')
+        : typeof revealed === 'string'
+          ? revealed
+          : (JSON.stringify(revealed) ?? '')
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
 
   useEffect(() => {
+    decrypt.reset()
     if (mode === 'new') {
       model.initialize('worker-env:new', { name: '', value: '', secret: false, description: '' })
       return
@@ -165,7 +174,13 @@ export function WorkerEnvEditorPage() {
     if (!item || list.isLoading) return
     model.initialize(`worker-env:${item.name}`, {
       name: item.name,
-      value: item.secret ? '' : typeof item.value === 'string' ? item.value : formatJSON(item.value ?? null),
+      value: item.secret
+        ? item.present
+          ? ENCRYPTED_VALUE_MASK
+          : ''
+        : typeof item.value === 'string'
+          ? item.value
+          : formatJSON(item.value ?? null),
       secret: item.secret,
       description: item.description ?? ''
     })
@@ -180,6 +195,10 @@ export function WorkerEnvEditorPage() {
     }
 
     if (declared) {
+      if (isEncryptedValueMask(model.value.value)) {
+        update.mutate({ body: {}, path: { name: submittedName } })
+        return
+      }
       const parsed = parseJSON(model.value.value, 'value')
       if (!parsed.ok) {
         model.validationError.value = parsed.error
@@ -195,7 +214,7 @@ export function WorkerEnvEditorPage() {
     }
     update.mutate({
       body: {
-        value: model.value.value,
+        ...(isEncryptedValueMask(model.value.value) ? {} : { value: model.value.value }),
         secret: model.secret.value,
         description: blankToNull(model.description.value)
       },
@@ -235,9 +254,15 @@ export function WorkerEnvEditorPage() {
       ) : null}
 
       {mode === 'new' ? (
-        <LabeledField label={t('console.worker_envs.name')} description={t('console.worker_envs.name_hint')} required>
+        <LabeledField
+          htmlFor="worker-env-name"
+          label={t('console.worker_envs.name')}
+          description={t('console.worker_envs.name_hint')}
+          required>
           <Input
-            placeholder="NPM_TOKEN"
+            id="worker-env-name"
+            className="font-mono"
+            placeholder="SOME_ENV_VAR"
             spellCheck={false}
             value={model.name.value}
             onChange={event => (model.name.value = event.target.value)}
@@ -245,7 +270,24 @@ export function WorkerEnvEditorPage() {
         </LabeledField>
       ) : null}
 
-      {declared ? (
+      {declared && item.secret ? (
+        <LabeledField
+          htmlFor="worker-env-value"
+          label={t('console.worker_envs.value')}
+          description={t('console.worker_envs.secret_value_hint')}
+          required>
+          <EncryptedValueInput
+            id="worker-env-value"
+            className="font-mono"
+            revealLabel={t('console.worker_envs.reveal')}
+            revealed={decrypt.data?.decrypted_value.name === item.name}
+            revealing={decrypt.isPending}
+            value={model.value.value}
+            onChange={event => (model.value.value = event.target.value)}
+            onReveal={() => decrypt.mutate({ path: { name: item.name } })}
+          />
+        </LabeledField>
+      ) : declared ? (
         <JSONField
           label={t('console.worker_envs.value')}
           description={t('console.worker_envs.declared_value_hint')}
@@ -256,44 +298,59 @@ export function WorkerEnvEditorPage() {
       ) : (
         <>
           <LabeledField
+            htmlFor="worker-env-value"
             label={t('console.worker_envs.value')}
-            description={item?.secret ? t('console.worker_envs.secret_value_hint') : undefined}
+            description={
+              model.secret.value || isEncryptedValueMask(model.value.value)
+                ? t('console.worker_envs.secret_value_hint')
+                : undefined
+            }
             required>
-            {model.secret.value ? (
-              <SecretInput value={model.value.value} onChange={event => (model.value.value = event.target.value)} />
+            {model.secret.value || isEncryptedValueMask(model.value.value) ? (
+              <EncryptedValueInput
+                id="worker-env-value"
+                className="font-mono"
+                revealLabel={t('console.worker_envs.reveal')}
+                revealed={decrypt.data?.decrypted_value.name === item?.name}
+                revealing={decrypt.isPending}
+                value={model.value.value}
+                onChange={event => (model.value.value = event.target.value)}
+                onReveal={item ? () => decrypt.mutate({ path: { name: item.name } }) : undefined}
+              />
             ) : (
               <Input
+                id="worker-env-value"
+                className="font-mono"
                 spellCheck={false}
                 value={model.value.value}
                 onChange={event => (model.value.value = event.target.value)}
               />
             )}
           </LabeledField>
-          <LabeledField label={t('console.worker_envs.secret')} description={t('console.worker_envs.secret_hint')}>
-            <div className="flex h-9 items-center">
-              <Checkbox
-                checked={model.secret.value}
-                onCheckedChange={checked => (model.secret.value = checked === true)}
-              />
+          <Field orientation="horizontal" className="items-center justify-between border border-border bg-muted/30 p-4">
+            <div className="grid gap-1 pr-4">
+              <FieldLabel htmlFor="worker-env-secret">{t('console.worker_envs.secret_storage')}</FieldLabel>
+              <FieldDescription id="worker-env-secret-hint">{t('console.worker_envs.secret_hint')}</FieldDescription>
             </div>
-          </LabeledField>
-          <LabeledField label={t('console.worker_envs.description')}>
-            <Input value={model.description.value} onChange={event => (model.description.value = event.target.value)} />
+            <Checkbox
+              id="worker-env-secret"
+              aria-describedby="worker-env-secret-hint"
+              checked={model.secret.value}
+              onCheckedChange={checked => (model.secret.value = checked === true)}
+            />
+          </Field>
+          <LabeledField
+            htmlFor="worker-env-description"
+            label={t('console.worker_envs.description_label')}
+            description={t('console.worker_envs.description_hint')}>
+            <Input
+              id="worker-env-description"
+              value={model.description.value}
+              onChange={event => (model.description.value = event.target.value)}
+            />
           </LabeledField>
         </>
       )}
-
-      {item?.secret ? (
-        <Button
-          disabled={decrypt.isPending}
-          size="sm"
-          type="button"
-          variant="outline"
-          onClick={() => decrypt.mutate({ path: { name: item.name } })}>
-          <RiEyeLine data-icon="inline-start" />
-          {t('console.worker_envs.reveal')}
-        </Button>
-      ) : null}
     </ResourceEditorPage>
   )
 }

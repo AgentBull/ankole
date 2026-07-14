@@ -40,7 +40,7 @@ export interface LocalBrowserWebFetchOptions {
   agentUID: string
   executionScopeID?: string | null
   localBrowserIdleTtlMs?: number
-  blockPrivateNetwork?: boolean
+  ssrfFilter?: boolean
   fetchURL?: LocalBrowserFetchURL
 }
 
@@ -200,7 +200,7 @@ async function localBrowserFetch(
       if (!isHTTPSURL(url)) throw new Error('Only HTTPS URLs are supported.')
       // Same guard the browser session applies on navigation; checking here
       // fails fast without starting a Chromium sidecar for a rejected URL.
-      assertSafeBrowserURL(url, { blockPrivateNetwork: config.blockPrivateNetwork === true })
+      assertSafeBrowserURL(url, { ssrfFilter: config.ssrfFilter === true })
       const result = await fetchURL({ url, index }, signal)
       results.push(normalizeLocalBrowserFetchResult(url, result))
     } catch (error) {
@@ -234,7 +234,7 @@ function createLocalBrowserFetchURL(config: LocalBrowserWebFetchOptions): LocalB
   const session = `web-fetch-${executionScopeID}`
   const options: BrowserRuntimeOptions = {
     remoteCDPConfig: null,
-    blockPrivateNetwork: config.blockPrivateNetwork === true,
+    ssrfFilter: config.ssrfFilter === true,
     ...(typeof config.localBrowserIdleTtlMs === 'number' ? { localBrowserIdleTtlMs: config.localBrowserIdleTtlMs } : {})
   }
   let sessionReady = false

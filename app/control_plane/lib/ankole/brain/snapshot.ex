@@ -152,38 +152,50 @@ defmodule Ankole.Brain.Snapshot do
 
   defp channel_entry(%Scope{}), do: {:ok, nil}
 
-  defp snapshot_entry(%{entry: entry, markdown: markdown}, budget) do
-    {markdown, truncated, estimated_tokens} = truncate(markdown, budget)
+  defp snapshot_entry(%{entry: entry, blocks: blocks}, budget) do
+    {resident_text, truncated} =
+      entry
+      |> resident_text(blocks)
+      |> truncate(budget)
 
     %{
-      "entry_id" => entry.id,
-      "name" => entry.name,
-      "store" => entry.store_key,
-      "type" => entry.type,
-      "lock_version" => entry.lock_version,
-      "markdown" => markdown,
-      "truncated" => truncated,
-      "estimated_tokens" => estimated_tokens
+      "resident_text" => resident_text,
+      "truncated" => truncated
     }
   end
 
-  defp truncate(markdown, :unlimited) do
-    {markdown, false, estimate_tokens(markdown)}
-  end
+  # Resident context is a model-facing read projection, not the generic
+  # Knowledge Markdown used for browsing and precise edits. Blocks are already
+  # ordered by Knowledge.open/3; a summary is only a fallback for an entry with
+  # no body so it cannot duplicate the actionable text.
+  defp resident_text(entry, blocks) do
+    bodies =
+      blocks
+      |> Enum.map(&String.trim(&1.body))
+      |> Enum.reject(&(&1 == ""))
 
-  defp truncate(markdown, budget) when is_integer(budget) and budget > 0 do
-    tokens = estimate_tokens(markdown)
-
-    if tokens <= budget do
-      {markdown, false, tokens}
-    else
-      truncated = fit_prefix(markdown, budget)
-      {truncated, true, estimate_tokens(truncated)}
+    case bodies do
+      [] -> String.trim(entry.summary || "")
+      _bodies -> Enum.join(bodies, "\n\n")
     end
   end
 
-  defp fit_prefix(markdown, budget) do
-    graphemes = String.graphemes(markdown)
+  defp truncate(text, :unlimited) do
+    {text, false}
+  end
+
+  defp truncate(text, budget) when is_integer(budget) and budget > 0 do
+    tokens = estimate_tokens(text)
+
+    if tokens <= budget do
+      {text, false}
+    else
+      {fit_prefix(text, budget), true}
+    end
+  end
+
+  defp fit_prefix(text, budget) do
+    graphemes = String.graphemes(text)
 
     0..length(graphemes)
     |> Enum.reduce_while({0, length(graphemes), ""}, fn _step, {low, high, best} ->

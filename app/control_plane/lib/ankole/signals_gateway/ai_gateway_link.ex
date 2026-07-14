@@ -315,6 +315,56 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   def actor_event_id(%Message{} = response), do: response_actor_event_id(response)
 
   @doc false
+  @spec complete_responses_by_actor_event(String.t(), [ActorEvent.t()]) :: %{
+          optional(String.t()) => %{
+            required(:conversation) => Conversation.t(),
+            required(:responses) => [Message.t()]
+          }
+        }
+  def complete_responses_by_actor_event(_agent_uid, []), do: %{}
+
+  def complete_responses_by_actor_event(agent_uid, events) when is_list(events) do
+    event_ids = Enum.map(events, & &1.id)
+    session_ids = events |> Enum.map(& &1.session_id) |> Enum.uniq()
+
+    conversations =
+      Conversation
+      |> where([conversation], conversation.subject_uid == ^agent_uid)
+      |> where([conversation], conversation.conversation_key in ^session_ids)
+      |> Repo.all()
+
+    conversations_by_id = Map.new(conversations, &{&1.id, &1})
+    conversation_ids = Map.keys(conversations_by_id)
+
+    case conversation_ids do
+      [] ->
+        %{}
+
+      conversation_ids ->
+        Message
+        |> where([response], response.subject_uid == ^agent_uid)
+        |> where([response], response.conversation_id in ^conversation_ids)
+        |> where([response], response.type == "message" and response.status == "complete")
+        |> where(
+          [response],
+          fragment("?->'request_metadata'->>'actor_event_id'", response.metadata) in ^event_ids
+        )
+        |> order_by([response], asc: response.inserted_at, asc: response.id)
+        |> Repo.all()
+        |> Enum.group_by(&response_actor_event_id/1)
+        |> Map.new(fn {actor_event_id, responses} ->
+          conversation_id = List.last(responses).conversation_id
+
+          {actor_event_id,
+           %{
+             conversation: Map.fetch!(conversations_by_id, conversation_id),
+             responses: Enum.filter(responses, &(&1.conversation_id == conversation_id))
+           }}
+        end)
+    end
+  end
+
+  @doc false
   @spec current_response_row_id(TurnRef.t()) :: Ecto.UUID.t() | nil
   def current_response_row_id(%TurnRef{} = turn_ref) do
     with %Conversation{} = conversation <-

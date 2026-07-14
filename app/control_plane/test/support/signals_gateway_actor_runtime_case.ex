@@ -74,6 +74,7 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
       Map.merge(
         %{
           worker_id: "worker-" <> route,
+          incarnation_id: "incarnation-" <> route,
           runtime: "bun",
           version: "test",
           capacity: %{"available_turn_slots" => 4}
@@ -330,6 +331,7 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
         "type" => "worker_ready",
         "worker_ready" => %{
           "worker_id" => "worker-a",
+          "incarnation_id" => "incarnation-worker-a",
           "runtime" => "bun",
           "version" => "test"
         }

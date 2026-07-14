@@ -3,7 +3,11 @@ import { z } from 'zod'
 import { errorMessage } from '../../common/errors'
 
 export function zodToJSONSchema(schema: z.ZodType): JSONObject {
-  return z.toJSONSchema(schema) as JSONObject
+  const jsonSchema = z.toJSONSchema(schema) as JSONObject
+  if (jsonSchema.type !== 'object') {
+    throw new Error('function tool parameters must use a root object schema')
+  }
+  return jsonSchema
 }
 
 export function validateToolArguments(args: string, schema: z.ZodType): unknown {

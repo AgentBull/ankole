@@ -6,7 +6,14 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.VolcengineArk do
   use Ankole.AIGateway.ProviderDSL
 
   alias Ankole.AIGateway.ProviderConnectionCheck
+  alias Ankole.AIGateway.ReasoningEffort
   alias Ankole.AIGateway.UniversalAIRequest
+
+  @reasoning_effort_map %{
+    "low" => "low",
+    "medium" => "medium",
+    "high" => "high"
+  }
 
   @doubao_metadata [
     %{
@@ -17,7 +24,7 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.VolcengineArk do
       "top_provider" => %{"context_length" => 256_000, "max_completion_tokens" => 32_000},
       "supported_parameters" => ~w(
         temperature top_p max_tokens max_output_tokens response_format tools tool_choice
-        reasoning thinking
+        reasoningEffort
       )
     },
     %{
@@ -28,7 +35,7 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.VolcengineArk do
       "top_provider" => %{"context_length" => 256_000, "max_completion_tokens" => 32_000},
       "supported_parameters" => ~w(
         temperature top_p max_tokens max_output_tokens response_format tools tool_choice
-        reasoning thinking
+        reasoningEffort
       )
     },
     %{
@@ -39,7 +46,7 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.VolcengineArk do
       "top_provider" => %{"context_length" => 256_000, "max_completion_tokens" => 32_000},
       "supported_parameters" => ~w(
         temperature top_p max_tokens max_output_tokens response_format tools tool_choice
-        reasoning thinking
+        reasoningEffort
       )
     },
     %{
@@ -50,22 +57,27 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.VolcengineArk do
       "top_provider" => %{"context_length" => 256_000, "max_completion_tokens" => 128_000},
       "supported_parameters" => ~w(
         temperature top_p max_tokens max_output_tokens response_format tools tool_choice
-        reasoning thinking
+        reasoningEffort
       )
     }
   ]
 
   provider "volcengine_ark" do
     label(%{"default" => "Volcengine Ark", "zh-Hans-CN" => "火山引擎 Ark"})
-    base_url("https://ark.cn-beijing.volces.com/api/v3")
+    base_url("https://ark.cn-beijing.volces.com/api/v3", advanced: true)
 
     setting(:api_key, encrypted: true)
-    setting(:headers, type: :map)
-    setting(:query_params, type: :map)
+    setting(:headers, type: :map, advanced: true)
+    setting(:query_params, type: :map, advanced: true)
 
-    setting(:user, scope: :request)
-    setting(:reasoning, scope: :request)
-    setting(:thinking, type: :map, scope: :request)
+    setting(:user, scope: :request, advanced: true)
+
+    setting(:reasoningEffort,
+      type: :select,
+      default: ReasoningEffort.default(),
+      options: ReasoningEffort.values(@reasoning_effort_map),
+      scope: :request
+    )
 
     language_model do
       upstream(:sse)
@@ -78,6 +90,10 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.VolcengineArk do
     ctx
     |> UniversalAIRequest.new("chat/completions", :openai_chat_completions)
     |> UniversalAIRequest.bearer_auth()
+    |> ReasoningEffort.put_provider_options(ctx,
+      target: :reasoning_effort,
+      map: @reasoning_effort_map
+    )
   end
 
   @impl true

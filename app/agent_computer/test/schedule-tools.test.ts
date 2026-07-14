@@ -27,7 +27,7 @@ describe('schedule tools', () => {
       timezone: 'Etc/UTC'
     }
 
-    await checkBackLater!.execute('call_first', params)
+    const result = await checkBackLater!.execute('call_first', params)
     await checkBackLater!.execute('call_retry', params)
 
     expect(requests).toHaveLength(2)
@@ -39,6 +39,18 @@ describe('schedule tools', () => {
     expect(
       String(requests[0]!.idempotency_key).startsWith('check_back_later:00000000-0000-0000-0000-000000000123:')
     ).toBe(true)
+    expect(result.presentation).toEqual([
+      {
+        kind: 'effect.receipt',
+        payload: {
+          operation_id: 'call_first',
+          phase: 'confirmed',
+          summary: '已安排后续检查',
+          scope: '5 分钟后',
+          follow_up: '到时会反馈检查结果'
+        }
+      }
+    ])
   })
 
   it('keeps visible checkbacks on the old default key and separates explicit quiet checkbacks', async () => {
@@ -114,12 +126,25 @@ describe('schedule tools', () => {
       delivery: { quiet_success: true }
     }
 
-    await cron!.execute('call_first', params)
+    const result = await cron!.execute('call_first', params)
     await cron!.execute('call_retry', params)
 
     expect(requests).toHaveLength(2)
     expect(requests[0]!.idempotency_key).toBe(requests[1]!.idempotency_key)
     expect(String(requests[0]!.idempotency_key).startsWith('cron:add:00000000-0000-0000-0000-000000000123:')).toBe(true)
+    expect(result.presentation).toEqual([
+      {
+        kind: 'effect.receipt',
+        payload: {
+          operation_id: 'call_first',
+          phase: 'confirmed',
+          summary: '已创建定期任务',
+          target: 'market-open-check',
+          scope: '每 1 天',
+          follow_up: '常规成功时保持安静，异常或变化会通知'
+        }
+      }
+    ])
   })
 
   it('keeps explicit cron:add idempotency keys unchanged', async () => {
@@ -181,7 +206,7 @@ describe('schedule tools', () => {
       }
     }).find(tool => tool.name === 'cron')
 
-    await cron!.execute('call_cron_origin_runs', {
+    const result = await cron!.execute('call_cron_origin_runs', {
       action: 'runs',
       cron_schedule_id: '00000000-0000-0000-0000-000000000999'
     })
@@ -189,6 +214,7 @@ describe('schedule tools', () => {
     expect(calls).toHaveLength(1)
     expect(calls[0]!.method).toBe(rpcMethods.scheduleCronRuns)
     expect(calls[0]!.request.cron_schedule_id).toBe('00000000-0000-0000-0000-000000000999')
+    expect(result.presentation).toEqual([])
   })
 
   it('describes cron as conversational standing-work management with confirmation rules', () => {

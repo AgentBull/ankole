@@ -114,6 +114,7 @@ defmodule Ankole.SignalsGateway.AmbientRecall do
   defp recall_signal_observed_messages(attrs, boundary) do
     Entry
     |> where([entry], entry.signal_channel_id == ^boundary.signal_channel_id)
+    |> maybe_where_provider_thread(boundary.provider_thread_id)
     |> where(
       [entry],
       fragment(
@@ -140,16 +141,13 @@ defmodule Ankole.SignalsGateway.AmbientRecall do
     )
     |> limit(@ambient_recall_max_rows)
     |> Repo.all()
-    |> then(fn entries ->
-      for entry <- entries,
-          same_provider_thread?(entry, boundary.provider_thread_id),
-          do: observed_message_from_signal_entry(entry, attrs.provider_thread_id)
-    end)
+    |> Enum.map(&observed_message_from_signal_entry(&1, attrs.provider_thread_id))
   end
 
   defp entries_before_boundary(boundary, limit) do
     Entry
     |> where([entry], entry.signal_channel_id == ^boundary.signal_channel_id)
+    |> maybe_where_provider_thread(boundary.provider_thread_id)
     |> where(
       [entry],
       fragment(
@@ -166,18 +164,17 @@ defmodule Ankole.SignalsGateway.AmbientRecall do
     )
     |> limit(^limit)
     |> Repo.all()
-    |> Enum.filter(&same_provider_thread?(&1, boundary.provider_thread_id))
     |> Enum.reverse()
   end
 
-  defp same_provider_thread?(_entry, nil), do: true
+  defp maybe_where_provider_thread(query, nil), do: query
 
-  defp same_provider_thread?(%Entry{} = entry, provider_thread_id) do
-    case signal_entry_provider_thread_id(entry) do
-      nil -> true
-      ^provider_thread_id -> true
-      _other -> false
-    end
+  defp maybe_where_provider_thread(query, provider_thread_id) do
+    where(
+      query,
+      [entry],
+      is_nil(entry.provider_thread_id) or entry.provider_thread_id == ^provider_thread_id
+    )
   end
 
   defp observed_message_from_entry(entry) when is_map(entry) do
@@ -209,7 +206,7 @@ defmodule Ankole.SignalsGateway.AmbientRecall do
   defp observed_message_from_entry(_entry), do: nil
 
   defp observed_message_from_signal_entry(%Entry{} = entry, provider_thread_id) do
-    text = entry.text || entry.fallback_visible_text
+    text = entry.text
 
     case text do
       text when is_binary(text) ->
@@ -290,8 +287,7 @@ defmodule Ankole.SignalsGateway.AmbientRecall do
   defp signal_entry_sent_at(_entry), do: DateTime.utc_now(:microsecond)
 
   defp signal_entry_provider_thread_id(%Entry{} = entry) do
-    optional_text(entry.metadata || %{}, :provider_thread_id) ||
-      optional_text(entry.raw_payload || %{}, :provider_thread_id)
+    entry.provider_thread_id
   end
 
   defp speaker_name(author) when is_map(author) do
@@ -330,6 +326,4 @@ defmodule Ankole.SignalsGateway.AmbientRecall do
       _value -> nil
     end
   end
-
-  defp optional_text(_map, _key), do: nil
 end

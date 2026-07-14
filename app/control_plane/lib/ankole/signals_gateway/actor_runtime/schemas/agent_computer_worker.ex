@@ -23,6 +23,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker do
 
   schema "agent_computer_workers" do
     field :worker_id, :string
+    field :incarnation_id, :string
     field :status, :string
     field :version, :string
     field :capacity, :map, default: %{}
@@ -45,6 +46,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker do
     worker
     |> cast(attrs, [
       :worker_id,
+      :incarnation_id,
       :status,
       :version,
       :capacity,
@@ -58,6 +60,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker do
     ])
     |> normalize_blank([
       :worker_id,
+      :incarnation_id,
       :status,
       :version,
       :transport_route,
@@ -76,9 +79,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker do
     |> JSONPayload.validate_map(:capacity, allow_datetime: true)
     |> JSONPayload.validate_map(:load, allow_datetime: true)
     |> JSONPayload.validate_map(:metadata, allow_datetime: true)
-    # worker_id is the process identity authenticated by RuntimeFabric, while
+    # worker_id is the stable pool identity authenticated by RuntimeFabric,
+    # incarnation_id identifies one concrete process lifetime, and
     # transport_route is the live ZeroMQ address used for replies. Uniqueness
-    # stops two rows claiming the same route to send to.
+    # stops two rows claiming the same stable identity or route to send to.
     |> unique_constraint([:worker_id], name: :agent_computer_workers_worker_id_index)
     |> unique_constraint([:transport_route], name: :agent_computer_workers_transport_route_index)
   end

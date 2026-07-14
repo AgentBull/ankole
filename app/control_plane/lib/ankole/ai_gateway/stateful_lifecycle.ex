@@ -175,6 +175,8 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
              previous_response_id: effective_previous_response_id,
              protected_tail_items: current_input
            ),
+         {current_input, recovered_call_ids} <-
+           recover_interrupted_tool_calls(history, current_input, previous_response_id),
          request <-
            request_with_effective_previous_response_id(request, effective_previous_response_id),
          {:ok, compaction} <-
@@ -218,6 +220,11 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
                request,
                compaction.run_metadata
              )
+             |> maybe_put(
+               "recovered_interrupted_tool_call_ids",
+               recovered_call_ids,
+               recovered_call_ids != []
+             )
          }}
       end
     end
@@ -233,6 +240,68 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   defp public_request_metadata(%{"metadata" => %{} = metadata}), do: metadata
 
   defp public_request_metadata(_request), do: %{}
+
+  # A process crash can happen after a provider durably returns a function call
+  # but before the worker journals its output. When AIGateway itself chooses the
+  # latest conversation leaf, close those calls with explicit interrupted
+  # outputs before replaying the actor input. Explicit previous_response_id
+  # callers still own their continuation and are never rewritten here.
+  defp recover_interrupted_tool_calls(_history, current_input, previous_response_id)
+       when is_binary(previous_response_id),
+       do: {current_input, []}
+
+  defp recover_interrupted_tool_calls(history, current_input, _automatic_anchor) do
+    history_items = Enum.flat_map(history, &message_content_items/1)
+    output_call_ids = function_call_output_ids(history_items ++ current_input)
+
+    interrupted_calls =
+      history_items
+      |> Enum.reduce([], fn
+        %{"type" => "function_call", "call_id" => call_id} = item, acc
+        when is_binary(call_id) and call_id != "" ->
+          if MapSet.member?(output_call_ids, call_id) or
+               Enum.any?(acc, &(&1["call_id"] == call_id)) do
+            acc
+          else
+            acc ++ [item]
+          end
+
+        _item, acc ->
+          acc
+      end)
+
+    recovered_outputs = Enum.map(interrupted_calls, &interrupted_tool_output/1)
+    {recovered_outputs ++ current_input, Enum.map(interrupted_calls, & &1["call_id"])}
+  end
+
+  defp message_content_items(%Message{content: content}) when is_list(content), do: content
+  defp message_content_items(_message), do: []
+
+  defp function_call_output_ids(items) do
+    Enum.reduce(items, MapSet.new(), fn
+      %{"type" => "function_call_output", "call_id" => call_id}, acc
+      when is_binary(call_id) and call_id != "" ->
+        MapSet.put(acc, call_id)
+
+      _item, acc ->
+        acc
+    end)
+  end
+
+  defp interrupted_tool_output(%{"call_id" => call_id}) do
+    %{
+      "type" => "function_call_output",
+      "call_id" => call_id,
+      "output" =>
+        Ankole.JSON.encode!(%{
+          "error" => %{
+            "code" => "tool_execution_interrupted",
+            "message" =>
+              "The tool process stopped before its result was durably recorded. Treat this call as failed and retry it if the task still requires it."
+          }
+        })
+    }
+  end
 
   defp resolve_stateful_request_conversation(
          subject_uid,

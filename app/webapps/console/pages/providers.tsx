@@ -37,24 +37,17 @@ import type {
 } from '../api/generated/types.gen'
 import i18n from '../../common/i18n'
 import { requestErrorMessage } from '../../common/request-errors'
-import {
-  JSONField,
-  LabeledField,
-  ResourceEditorPage,
-  ResourceListPage,
-  RowActions,
-  SecretInput
-} from '../console-shell'
+import { LabeledField, ResourceEditorPage, ResourceListPage, RowActions } from '../console-shell'
 import {
   buildConnectionOptions,
   connectionSettings,
-  encryptedOptionState,
-  humanizeKey,
   initialSettingValue,
-  type ProviderSetting
+  type ProviderSetting,
+  type SettingValidationError
 } from './provider-settings'
+import { ProviderSettingField } from './provider-setting-field'
 import { CodexAccountEditorModel } from '../state/codex-account-editor-model'
-import { ProviderEditorModel } from '../state/provider-editor-model'
+import { nextProviderID, ProviderEditorModel } from '../state/provider-editor-model'
 
 export function ProvidersListPage() {
   const { t } = useTranslation()
@@ -280,15 +273,16 @@ export function ProviderEditorPage() {
 
   const providers = useQuery(ankoleWebAIGatewayProviderControllerIndexOptions())
   const providerKinds = useQuery(ankoleWebAIGatewayProviderControllerProviderKindsOptions())
+  const configuredProviders = providers.data?.ai_gateway_providers
   const kinds = providerKinds.data?.provider_kinds ?? []
-  const selected = providers.data?.ai_gateway_providers.find(provider => provider.provider_id === providerID)
+  const selected = configuredProviders?.find(provider => provider.provider_id === providerID)
 
   const activeKind = kinds.find(kind => kind.provider_kind === model.providerKind.value)
   const settings = connectionSettings(activeKind)
 
   // Initialize once per edited target (or once kinds load for a new provider).
   // Later query refreshes must not replace the page-scoped draft.
-  const ready = kinds.length > 0 && (mode === 'new' || Boolean(selected))
+  const ready = kinds.length > 0 && (mode === 'new' ? Boolean(configuredProviders) : Boolean(selected))
   useEffect(() => {
     if (!ready) return
     if (mode === 'edit' && selected) {
@@ -302,26 +296,30 @@ export function ProviderEditorPage() {
     } else if (mode === 'new') {
       const kind = kinds[0]
       model.initialize('new', {
-        providerID: '',
+        providerID: nextProviderID(
+          kind?.provider_kind ?? '',
+          configuredProviders?.map(provider => provider.provider_id) ?? []
+        ),
         providerKind: kind?.provider_kind ?? '',
         baseURL: kind?.default_base_url ?? '',
         options: initialOptions(connectionSettings(kind), undefined)
       })
     }
-  }, [kinds, mode, model, providerID, ready, selected])
+  }, [configuredProviders, kinds, mode, model, providerID, ready, selected])
 
   const saveProvider = useMutation({
     ...ankoleWebAIGatewayProviderControllerPutProviderMutation(),
     onSuccess: response => {
       toast.success(t('console.providers.saved', { id: response.ai_gateway_provider.provider_id }))
       void queryClient.invalidateQueries()
-      navigate('..')
+      navigate('/providers')
     }
   })
 
   const changeKind = (providerKind: string) => {
     const kind = kinds.find(item => item.provider_kind === providerKind)
     model.changeKind({
+      providerID: nextProviderID(providerKind, configuredProviders?.map(provider => provider.provider_id) ?? []),
       providerKind,
       baseURL: kind?.default_base_url ?? '',
       options: initialOptions(connectionSettings(kind), undefined)
@@ -336,9 +334,7 @@ export function ProviderEditorPage() {
       return
     }
 
-    const built = buildConnectionOptions(settings, model.options.value, field =>
-      i18n.t('common.must_be_json_object', { field })
-    )
+    const built = buildConnectionOptions(settings, model.options.value, settingValidationMessage)
     if (!built.ok) {
       model.validationError.value = built.error
       return
@@ -355,14 +351,27 @@ export function ProviderEditorPage() {
     })
   }
 
-  const mapSettings = settings.filter(setting => setting.isMap)
-  const plainSettings = settings.filter(setting => !setting.isMap)
+  const baseURLSetting = settings.find(setting => setting.key === 'base_url')
+  const optionSettings = settings.filter(setting => setting.key !== 'base_url')
+  const advancedBaseURL = baseURLSetting?.advanced ?? false
+  const advancedSettings = optionSettings.filter(setting => setting.advanced)
+  const basicSettings = optionSettings.filter(setting => !setting.advanced)
+  const advancedFieldCount = advancedSettings.length + (advancedBaseURL ? 1 : 0)
+  const baseURLField = (
+    <LabeledField label={t('console.providers.base_url')} description={t('console.providers.base_url_hint')}>
+      <Input
+        placeholder={activeKind?.default_base_url ?? 'https://api.example.com/v1'}
+        value={model.baseURL.value}
+        onChange={event => (model.baseURL.value = event.target.value)}
+      />
+    </LabeledField>
+  )
 
   return (
     <ResourceEditorPage
       title={mode === 'new' ? t('console.providers.new') : (providerID ?? '')}
       description={t('console.providers.editor_description')}
-      backTo=".."
+      backTo="/providers"
       error={model.validationError.value ?? saveProvider.error}
       submitting={saveProvider.isPending}
       onSubmit={submit}>
@@ -394,16 +403,10 @@ export function ProviderEditorPage() {
         </LabeledField>
       </div>
 
-      <LabeledField label={t('console.providers.base_url')} description={t('console.providers.base_url_hint')}>
-        <Input
-          placeholder={activeKind?.default_base_url ?? 'https://api.example.com/v1'}
-          value={model.baseURL.value}
-          onChange={event => (model.baseURL.value = event.target.value)}
-        />
-      </LabeledField>
+      {advancedBaseURL ? null : baseURLField}
 
-      {plainSettings.map(setting => (
-        <SettingField
+      {basicSettings.map(setting => (
+        <ProviderSettingField
           key={setting.key}
           setting={setting}
           provider={selected}
@@ -412,18 +415,19 @@ export function ProviderEditorPage() {
         />
       ))}
 
-      {mapSettings.length > 0 ? (
+      {advancedFieldCount > 0 ? (
         <Collapsible className="grid gap-4" defaultOpen={false}>
           <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 border border-border bg-muted/40 px-4 py-3 text-left text-sm font-medium">
             <span>{t('common.advanced_settings')}</span>
             <span className="flex items-center gap-2 text-xs text-muted-foreground">
-              {mapSettings.length}
+              {advancedFieldCount}
               <RiArrowDownSLine className="size-4" aria-hidden />
             </span>
           </CollapsibleTrigger>
           <CollapsibleContent className="grid gap-5">
-            {mapSettings.map(setting => (
-              <SettingField
+            {advancedBaseURL ? baseURLField : null}
+            {advancedSettings.map(setting => (
+              <ProviderSettingField
                 key={setting.key}
                 setting={setting}
                 provider={selected}
@@ -447,55 +451,6 @@ export function ProviderEditorPage() {
   )
 }
 
-function SettingField({
-  onChange,
-  provider,
-  setting,
-  value
-}: {
-  onChange: (value: string) => void
-  provider: AIGatewayProviderItem | undefined
-  setting: ProviderSetting
-  value: string
-}) {
-  const { t } = useTranslation()
-  const label = humanizeKey(setting.key)
-
-  if (setting.encrypted) {
-    const state = encryptedOptionState(provider, setting.key)
-    const description = state?.present
-      ? t('console.providers.secret_keep', { masked: state.masked ?? '••••' })
-      : t('console.providers.secret_hint')
-    return (
-      <LabeledField label={label} description={description} required={setting.required && !state?.present}>
-        <SecretInput placeholder="sk-..." value={value} onChange={event => onChange(event.target.value)} />
-      </LabeledField>
-    )
-  }
-
-  if (setting.isMap) {
-    return (
-      <JSONField
-        label={label}
-        description={t('console.providers.map_hint')}
-        minRows={4}
-        value={value}
-        onChange={onChange}
-      />
-    )
-  }
-
-  return (
-    <LabeledField label={label} required={setting.required}>
-      <Input
-        placeholder={setting.default != null ? String(setting.default) : undefined}
-        value={value}
-        onChange={event => onChange(event.target.value)}
-      />
-    </LabeledField>
-  )
-}
-
 function initialOptions(
   settings: ProviderSetting[],
   provider: AIGatewayProviderItem | undefined
@@ -504,6 +459,20 @@ function initialOptions(
 }
 
 function providerKindLabel(kind: AIGatewayProviderKindItem): string {
-  const label = kind.label.en ?? kind.label['en-US'] ?? kind.label.default ?? kind.provider_kind
-  return `${label} (${kind.provider_kind})`
+  return kind.label.en ?? kind.label['en-US'] ?? kind.label.default ?? kind.provider_kind
+}
+
+function settingValidationMessage(field: string, error: SettingValidationError): string {
+  switch (error) {
+    case 'required':
+      return i18n.t('common.field_required', { field })
+    case 'json_object':
+      return i18n.t('common.must_be_json_object', { field })
+    case 'integer':
+      return i18n.t('common.must_be_integer', { field })
+    case 'number':
+      return i18n.t('common.must_be_number', { field })
+    case 'selection':
+      return i18n.t('common.must_be_valid_selection', { field })
+  }
 }

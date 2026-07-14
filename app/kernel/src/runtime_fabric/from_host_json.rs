@@ -98,6 +98,7 @@ fn worker_ready_from_json(value: &Value) -> KernelResult<proto::AgentComputerWor
         runtime: required_string(object, "runtime")?,
         version: required_string(object, "version")?,
         capacity_json: json_bytes(object.get("capacity_json"))?.unwrap_or_default(),
+        incarnation_id: required_string(object, "incarnation_id")?,
     })
 }
 
@@ -108,6 +109,7 @@ fn worker_heartbeat_from_json(value: &Value) -> KernelResult<proto::AgentCompute
         worker_id: required_string(object, "worker_id")?,
         monotonic_ms: optional_i64(object, "monotonic_ms")?.unwrap_or_default(),
         load_json: json_bytes(object.get("load_json"))?.unwrap_or_default(),
+        incarnation_id: required_string(object, "incarnation_id")?,
     })
 }
 
@@ -119,6 +121,7 @@ fn worker_capacity_from_json(value: &Value) -> KernelResult<proto::AgentComputer
         capacity_json: json_bytes(object.get("capacity_json"))?.unwrap_or_default(),
         load_json: json_bytes(object.get("load_json"))?.unwrap_or_default(),
         available_turn_slots: optional_u32(object, "available_turn_slots")?.unwrap_or_default(),
+        incarnation_id: required_string(object, "incarnation_id")?,
     })
 }
 

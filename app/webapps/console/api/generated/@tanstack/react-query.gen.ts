@@ -42,6 +42,7 @@ import {
   ankoleWebBrainControllerApplyOperations,
   ankoleWebBrainControllerAuditIndex,
   ankoleWebBrainControllerAuditLog,
+  ankoleWebBrainControllerDreamingFitness,
   ankoleWebBrainControllerIndex,
   ankoleWebBrainControllerRestoreAudit,
   ankoleWebBrainControllerRestoreAudits,
@@ -186,6 +187,9 @@ import type {
   AnkoleWebBrainControllerAuditLogData,
   AnkoleWebBrainControllerAuditLogError,
   AnkoleWebBrainControllerAuditLogResponse,
+  AnkoleWebBrainControllerDreamingFitnessData,
+  AnkoleWebBrainControllerDreamingFitnessError,
+  AnkoleWebBrainControllerDreamingFitnessResponse,
   AnkoleWebBrainControllerIndexData,
   AnkoleWebBrainControllerIndexError,
   AnkoleWebBrainControllerIndexResponse,
@@ -384,6 +388,36 @@ export const ankoleWebWorkerFileControllerDownloadOptions = (
       return data
     },
     queryKey: ankoleWebWorkerFileControllerDownloadQueryKey(options)
+  })
+
+export const ankoleWebBrainControllerDreamingFitnessQueryKey = (
+  options: Options<AnkoleWebBrainControllerDreamingFitnessData>
+) => createQueryKey('ankoleWebBrainControllerDreamingFitness', options)
+
+/**
+ * Read dreaming output survival as a selection-pressure signal
+ *
+ * Reads the audit log for the share of dreaming block writes that survived human review (no human edit or delete within the horizon), overall and per run. Writes younger than the horizon are reported as pending, not survivors.
+ */
+export const ankoleWebBrainControllerDreamingFitnessOptions = (
+  options: Options<AnkoleWebBrainControllerDreamingFitnessData>
+) =>
+  queryOptions<
+    AnkoleWebBrainControllerDreamingFitnessResponse,
+    AnkoleWebBrainControllerDreamingFitnessError,
+    AnkoleWebBrainControllerDreamingFitnessResponse,
+    ReturnType<typeof ankoleWebBrainControllerDreamingFitnessQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebBrainControllerDreamingFitness({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebBrainControllerDreamingFitnessQueryKey(options)
   })
 
 export const ankoleWebIdentityProviderControllerIndexQueryKey = (

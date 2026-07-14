@@ -93,6 +93,18 @@ defmodule AnkoleWeb.BrainController.Adapter do
     end
   end
 
+  @spec dreaming_fitness(String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def dreaming_fitness(owner_uid, params) do
+    with {:ok, horizon_days} <- optional_positive_integer(params, "horizon_days"),
+         {:ok, lookback_days} <- optional_positive_integer(params, "lookback_days"),
+         opts =
+           [horizon_days: horizon_days, lookback_days: lookback_days]
+           |> Enum.reject(fn {_key, value} -> is_nil(value) end),
+         {:ok, fitness} <- Brain.dreaming_fitness(owner_uid, opts) do
+      {:ok, %{fitness: json_safe(fitness)}}
+    end
+  end
+
   @spec required_text(map(), String.t()) :: {:ok, String.t()} | {:error, {:missing, String.t()}}
   def required_text(params, key) do
     case param(params, key) do
@@ -148,6 +160,22 @@ defmodule AnkoleWeb.BrainController.Adapter do
 
   defp author_uid(author) when is_binary(author) and author not in @author_kinds, do: author
   defp author_uid(_author), do: nil
+
+  defp optional_positive_integer(params, key) do
+    case param(params, key) do
+      nil -> {:ok, nil}
+      value when is_integer(value) and value > 0 -> {:ok, value}
+      value when is_binary(value) -> parse_positive_integer(value, key)
+      _invalid -> {:error, {:invalid_integer, key}}
+    end
+  end
+
+  defp parse_positive_integer(value, key) do
+    case Integer.parse(value) do
+      {integer, ""} when integer > 0 -> {:ok, integer}
+      _invalid -> {:error, {:invalid_integer, key}}
+    end
+  end
 
   defp optional_datetime(params, key) do
     case optional_text(params, key) do

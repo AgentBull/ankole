@@ -32,11 +32,18 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   alias Ankole.SignalsGateway.Outbox
   alias Ankole.SignalsGateway.OutboxAdapter
   alias Ankole.SignalsGateway.OutboxEntry
+  alias Ankole.SignalsGateway.ReplyPresentation
+  alias Ankole.SignalsGateway.ReplyPreviewAdapter
+  alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
+  alias Ankole.Repo
 
   # How long to wait between IM edit flushes (milliseconds).
   @edit_flush_interval_ms 1_000
+  @cardkit_flush_interval_ms 250
+  @cardkit_creation_debounce_ms 350
+  @cardkit_retry_max_ms 30_000
 
-  @im_visible_event_types ~w(im.message.addressed im.message.may_intervene command.new command.steer check_back_later.wakeup cron.fire subagent.delegation.completed subagent.delegation.failed subagent.delegation.waiting)
+  @im_visible_event_types ~w(im.message.addressed im.message.may_intervene signal.action.invoked command.new command.steer check_back_later.wakeup cron.fire subagent.delegation.completed subagent.delegation.failed subagent.delegation.waiting)
 
   # ─────────────────────────────────────────────────────────────────
   # Public API
@@ -99,14 +106,124 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   def stop(actor_event_id) when is_binary(actor_event_id) do
     case Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, actor_event_id) do
       [{pid, _value}] ->
-        try do
-          GenServer.stop(pid, :normal)
-        catch
-          :exit, _reason -> :ok
-        end
+        GenServer.cast(pid, :stop)
 
       [] ->
         :ok
+    end
+  end
+
+  @doc false
+  @spec presentation_event(Ecto.UUID.t(), map()) :: :ok
+  def presentation_event(actor_event_id, event)
+      when is_binary(actor_event_id) and is_map(event) do
+    case Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, actor_event_id) do
+      [{pid, _value}] -> GenServer.cast(pid, {:presentation_event, event})
+      [] -> :ok
+    end
+  end
+
+  @doc false
+  @spec recover(Ecto.UUID.t()) :: :ok | {:error, term()}
+  def recover(actor_event_id) when is_binary(actor_event_id) do
+    case Repo.get(ActorEvent, actor_event_id) do
+      %ActorEvent{reply_preview_checkpoint: %{"refresh_pending" => true}} = event ->
+        refresh_checkpoint(event)
+
+      %ActorEvent{
+        completed_at: nil,
+        reply_preview_checkpoint: %{
+          "subject_uid" => subject_uid,
+          "conversation_id" => conversation_id
+        }
+      } = event
+      when is_binary(subject_uid) and is_binary(conversation_id) ->
+        maybe_start_for(event, subject_uid, conversation_id)
+
+      %ActorEvent{} ->
+        {:error, :reply_preview_not_recoverable}
+
+      nil ->
+        {:error, :actor_event_not_found}
+    end
+  end
+
+  @doc false
+  @spec cleanup_due(Ecto.UUID.t()) :: :ok | {:error, term()}
+  def cleanup_due(actor_event_id) when is_binary(actor_event_id) do
+    now = DateTime.utc_now(:microsecond)
+
+    case Repo.get(ActorEvent, actor_event_id) do
+      %ActorEvent{reply_preview_cleanup_at: %DateTime{} = due_at} = event ->
+        if DateTime.compare(due_at, now) in [:lt, :eq] do
+          cleanup_due_event(event)
+        else
+          {:error, :reply_preview_cleanup_not_due}
+        end
+
+      %ActorEvent{} ->
+        {:error, :reply_preview_cleanup_not_due}
+
+      nil ->
+        {:error, :actor_event_not_found}
+    end
+  end
+
+  defp cleanup_due_event(%ActorEvent{} = event) do
+    case Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, event.id) do
+      [{pid, _value}] ->
+        GenServer.cast(pid, :cleanup_thought)
+        :ok
+
+      [] ->
+        with {:ok, _event} <- mark_cleanup_refresh_pending(event.id),
+             :ok <- recover(event.id) do
+          :ok
+        end
+    end
+  end
+
+  defp mark_cleanup_refresh_pending(actor_event_id) do
+    Repo.transact(fn repo ->
+      case Actors.lock_actor_event_in_tx(repo, actor_event_id) do
+        %ActorEvent{reply_preview_checkpoint: checkpoint} = event when is_map(checkpoint) ->
+          checkpoint =
+            checkpoint
+            |> Map.delete("cleanup_at")
+            |> Map.put("refresh_pending", true)
+            |> Map.put("refresh_reason", "thought_cleanup")
+
+          Actors.put_reply_preview_checkpoint_in_tx(repo, event, checkpoint)
+
+        %ActorEvent{} ->
+          {:error, :reply_preview_not_recoverable}
+
+        nil ->
+          {:error, :actor_event_not_found}
+      end
+    end)
+  end
+
+  defp refresh_checkpoint(%ActorEvent{} = event) do
+    checkpoint = event.reply_preview_checkpoint || %{}
+
+    with {:ok, binding} <- binding_for_event(event),
+         {:ok, adapter} <- Adapters.fetch_reply_preview(binding.adapter) do
+      presentation = ReplyPresentation.normalize(checkpoint["presentation"])
+
+      ReplyPreviewAdapter.refresh(adapter, %Request{
+        actor_event: event,
+        subject_uid: checkpoint["subject_uid"],
+        conversation_id: checkpoint["conversation_id"],
+        presentation: presentation,
+        previous_presentation: checkpoint["previous_presentation"],
+        checkpoint: checkpoint,
+        mode: if(ReplyPresentation.terminal_state?(presentation), do: :terminal, else: :working)
+      })
+      |> case do
+        {:ok, _result} -> :ok
+        {:error, _reason} = error -> error
+      end
     end
   end
 
@@ -121,8 +238,23 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       {:error, reason} -> raise "cannot subscribe AI reply preview: #{inspect(reason)}"
     end
 
-    # Schedule periodic edit flush.
-    Process.send_after(self(), :flush_edit, @edit_flush_interval_ms)
+    rich_adapter = rich_adapter_for_event(event)
+    rich? = match?(%ReplyPreviewAdapter{}, rich_adapter)
+    checkpoint = event.reply_preview_checkpoint || %{}
+
+    presentation =
+      checkpoint
+      |> Map.get("presentation")
+      |> ReplyPresentation.normalize()
+
+    initial_flush_ms =
+      cond do
+        not rich? -> @edit_flush_interval_ms
+        map_size(checkpoint) > 0 -> 0
+        true -> @cardkit_creation_debounce_ms
+      end
+
+    Process.send_after(self(), :flush_edit, initial_flush_ms)
 
     state = %{
       actor_event: event,
@@ -140,15 +272,65 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       preview_entry_id: nil,
       # Whether the preview has been established (first delta → send IM).
       preview_established: false,
+      # A provider rejection while establishing or editing disables this
+      # best-effort preview for the rest of the turn. Durable terminal output
+      # still uses the outbox path.
+      preview_disabled: false,
       # Monotonic key segment for best-effort preview edits.
       edit_sequence: 0,
       # Dirty flag for edit flush.
-      dirty: false,
-      silent_success_allowed: ScheduledTurn.silent_success_allowed?(event)
+      dirty: rich? and map_size(checkpoint) > 0,
+      reply_preview_adapter: rich_adapter,
+      presentation: presentation,
+      last_synced_presentation: checkpoint["presentation"],
+      rich_task: nil,
+      rich_task_presentation: nil,
+      rich_retry_ms: 1_000,
+      rich_retry_at: nil,
+      silent_success_allowed: ScheduledTurn.silent_success_allowed?(event),
+      # Worker phase and tool events arrive before a quiet scheduled turn can
+      # choose `<silent_success/>`. Do not let those events open a visible card.
+      silent_rich_pending:
+        rich? and ScheduledTurn.silent_success_allowed?(event) and map_size(checkpoint) == 0
     }
 
     {:ok, state}
   end
+
+  @impl GenServer
+  def handle_cast(:stop, state), do: {:stop, :normal, state}
+
+  def handle_cast(:cleanup_thought, %{reply_preview_adapter: %ReplyPreviewAdapter{}} = state) do
+    presentation = Map.delete(state.presentation, "thought")
+    {:noreply, %{state | presentation: presentation, dirty: true}}
+  end
+
+  def handle_cast(:cleanup_thought, state), do: {:noreply, state}
+
+  def handle_cast(
+        {:presentation_event, _event},
+        %{reply_preview_adapter: %ReplyPreviewAdapter{}, silent_rich_pending: true} = state
+      ),
+      do: {:noreply, state}
+
+  def handle_cast(
+        {:presentation_event, event},
+        %{reply_preview_adapter: %ReplyPreviewAdapter{}} = state
+      ) do
+    kind = map_value(event, :kind) || map_value(event, :type)
+    payload = map_value(event, :payload) || event
+
+    presentation =
+      if (is_binary(kind) or is_atom(kind)) and is_map(payload) do
+        ReplyPresentation.apply_event(state.presentation, kind, payload)
+      else
+        state.presentation
+      end
+
+    {:noreply, mark_rich_dirty(state, presentation)}
+  end
+
+  def handle_cast({:presentation_event, _event}, state), do: {:noreply, state}
 
   @impl GenServer
   def handle_info({:ai_gateway_event, event_type, event}, state) when is_map(event) do
@@ -161,6 +343,27 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
   @impl GenServer
   def handle_info(:flush_edit, state) do
+    if match?(%ReplyPreviewAdapter{}, state.reply_preview_adapter) do
+      state = maybe_start_rich_sync(state)
+      Process.send_after(self(), :flush_edit, @cardkit_flush_interval_ms)
+      {:noreply, state}
+    else
+      handle_legacy_flush(state)
+    end
+  end
+
+  def handle_info({ref, result}, %{rich_task: %Task{ref: ref}} = state) do
+    Process.demonitor(ref, [:flush])
+    {:noreply, finish_rich_sync(state, result)}
+  end
+
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{rich_task: %Task{ref: ref}} = state) do
+    {:noreply, finish_rich_sync(state, {:error, {:reply_preview_task_exit, reason}})}
+  end
+
+  def handle_info(_msg, state), do: {:noreply, state}
+
+  defp handle_legacy_flush(state) do
     text = AIReplyText.normalize_visible_text(state.preview_text)
 
     state =
@@ -183,7 +386,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
               })
             )
 
-            %{state | dirty: false, edit_sequence: edit_sequence}
+            disable_preview_after_edit_failure(state, edit_sequence)
         end
       else
         state
@@ -193,9 +396,6 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     Process.send_after(self(), :flush_edit, @edit_flush_interval_ms)
     {:noreply, state}
   end
-
-  @impl GenServer
-  def handle_info(_msg, state), do: {:noreply, state}
 
   defp handle_gateway_event(:response_started, _payload, state) do
     {:noreply, reset_for_response_started(state)}
@@ -209,51 +409,50 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       preview_text = AIReplyText.normalize_visible_text(new_buffer)
       state = %{state | text_buffer: new_buffer, preview_text: preview_text}
 
-      state =
-        cond do
-          state.silent_success_allowed and AIReplyText.silent_success_marker_prefix?(new_buffer) ->
-            state
+      if state.silent_success_allowed and
+           AIReplyText.silent_success_marker_prefix?(new_buffer) do
+        {:noreply, state}
+      else
+        if match?(%ReplyPreviewAdapter{}, state.reply_preview_adapter) do
+          presentation = ReplyPresentation.append_answer(state.presentation, delta)
 
-          not state.preview_established ->
-            if preview_text == "" do
-              state
-            else
-              case establish_preview(state.actor_event, preview_text) do
-                {:ok, entry_id} ->
-                  %{
-                    state
-                    | preview_entry_id: entry_id,
-                      preview_established: true,
-                      dirty: false
-                  }
-
-                {:error, reason} ->
-                  Logging.warning(
-                    "signals_gateway.ai_reply_preview.establish_failed",
-                    "AI reply preview establish failed",
-                    preview_fields(state, %{reason: inspect(reason)})
-                  )
-
-                  state
-              end
-            end
-
-          true ->
-            %{state | dirty: true}
+          {:noreply,
+           state
+           |> Map.put(:silent_rich_pending, false)
+           |> mark_rich_dirty(presentation)}
+        else
+          handle_legacy_output_delta(state, new_buffer, preview_text)
         end
-
+      end
+    else
       {:noreply, state}
+    end
+  end
+
+  defp handle_gateway_event(:reasoning_delta, payload, state) do
+    if match?(%ReplyPreviewAdapter{}, state.reply_preview_adapter) and
+         not state.silent_rich_pending do
+      presentation = ReplyPresentation.apply_event(state.presentation, "reasoning.delta", payload)
+      {:noreply, mark_rich_dirty(state, presentation)}
     else
       {:noreply, state}
     end
   end
 
   defp handle_gateway_event(:tool_call_started, payload, state) do
-    {:noreply, handle_tool_activity(state, :started, payload)}
+    if match?(%ReplyPreviewAdapter{}, state.reply_preview_adapter) do
+      {:noreply, state}
+    else
+      {:noreply, handle_tool_activity(state, :started, payload)}
+    end
   end
 
   defp handle_gateway_event(:tool_call_completed, payload, state) do
-    {:noreply, handle_tool_activity(state, :completed, payload)}
+    if match?(%ReplyPreviewAdapter{}, state.reply_preview_adapter) do
+      {:noreply, state}
+    else
+      {:noreply, handle_tool_activity(state, :completed, payload)}
+    end
   end
 
   defp handle_gateway_event(event_type, _payload, state)
@@ -262,15 +461,200 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
   defp handle_gateway_event(_event_type, _payload, state), do: {:noreply, state}
 
+  defp handle_legacy_output_delta(state, new_buffer, preview_text) do
+    state =
+      cond do
+        state.silent_success_allowed and AIReplyText.silent_success_marker_prefix?(new_buffer) ->
+          state
+
+        state.preview_disabled ->
+          state
+
+        not state.preview_established ->
+          if preview_text == "" do
+            state
+          else
+            case establish_preview(state.actor_event, preview_text) do
+              {:ok, entry_id} ->
+                %{
+                  state
+                  | preview_entry_id: entry_id,
+                    preview_established: true,
+                    dirty: false
+                }
+
+              {:error, reason} ->
+                Logging.warning(
+                  "signals_gateway.ai_reply_preview.establish_failed",
+                  "AI reply preview establish failed",
+                  preview_fields(state, %{reason: inspect(reason)})
+                )
+
+                %{state | preview_disabled: true}
+            end
+          end
+
+        true ->
+          %{state | dirty: true}
+      end
+
+    {:noreply, state}
+  end
+
   @impl GenServer
   def terminate(_reason, state) do
+    shutdown_rich_task(state.rich_task)
     _ = Events.unsubscribe(state.subject_uid, state.conversation_id)
     :ok
   end
 
   defp reset_for_response_started(state) do
-    Map.merge(state, %{text_buffer: "", dirty: false})
+    state = Map.merge(state, %{text_buffer: "", dirty: false})
+
+    if match?(%ReplyPreviewAdapter{}, state.reply_preview_adapter) and
+         not state.silent_rich_pending do
+      presentation =
+        state.presentation
+        |> ReplyPresentation.replace_answer("")
+        |> Map.delete("thought")
+
+      mark_rich_dirty(state, presentation)
+    else
+      state
+    end
   end
+
+  defp mark_rich_dirty(state, presentation) do
+    if presentation == state.presentation do
+      state
+    else
+      %{state | presentation: presentation, dirty: true}
+    end
+  end
+
+  defp maybe_start_rich_sync(%{dirty: true, rich_task: nil, preview_disabled: false} = state) do
+    if rich_retry_due?(state.rich_retry_at) do
+      presentation = state.presentation
+
+      request = %Request{
+        actor_event: state.actor_event,
+        subject_uid: state.subject_uid,
+        conversation_id: state.conversation_id,
+        presentation: presentation,
+        previous_presentation: state.last_synced_presentation,
+        checkpoint: state.actor_event.reply_preview_checkpoint,
+        mode: :working
+      }
+
+      adapter = state.reply_preview_adapter
+
+      task =
+        Task.Supervisor.async_nolink(
+          Ankole.SignalsGateway.PreviewTaskSupervisor,
+          fn -> ReplyPreviewAdapter.update(adapter, request) end
+        )
+
+      %{
+        state
+        | dirty: false,
+          rich_task: task,
+          rich_task_presentation: presentation,
+          rich_retry_at: nil
+      }
+    else
+      state
+    end
+  end
+
+  defp maybe_start_rich_sync(state), do: state
+
+  defp finish_rich_sync(state, {:ok, result}) when is_map(result) do
+    checkpoint =
+      Map.get(result, :reply_preview_checkpoint) ||
+        Map.get(result, "reply_preview_checkpoint") ||
+        state.actor_event.reply_preview_checkpoint
+
+    entry_id = created_source_entry_id(result) || state.preview_entry_id
+
+    actor_event =
+      if is_map(checkpoint) do
+        %{state.actor_event | reply_preview_checkpoint: checkpoint}
+      else
+        state.actor_event
+      end
+
+    %{
+      state
+      | actor_event: actor_event,
+        last_synced_presentation: state.rich_task_presentation,
+        rich_task: nil,
+        rich_task_presentation: nil,
+        rich_retry_ms: 1_000,
+        rich_retry_at: nil,
+        preview_entry_id: entry_id,
+        preview_established: is_binary(entry_id),
+        dirty:
+          state.dirty or
+            presentation_revision(state.presentation) >
+              presentation_revision(state.rich_task_presentation)
+    }
+  end
+
+  defp finish_rich_sync(state, {:error, reason}) do
+    retry? = rich_retryable?(reason)
+
+    Logging.warning(
+      "signals_gateway.ai_reply_preview.cardkit_sync_failed",
+      "AI reply CardKit sync failed",
+      preview_fields(state, %{reason: inspect(reason, limit: 20), retry: retry?})
+    )
+
+    if retry? do
+      retry_ms = min(state.rich_retry_ms * 2, @cardkit_retry_max_ms)
+
+      %{
+        state
+        | rich_task: nil,
+          rich_task_presentation: nil,
+          dirty: true,
+          rich_retry_at: System.monotonic_time(:millisecond) + state.rich_retry_ms,
+          rich_retry_ms: retry_ms
+      }
+    else
+      %{
+        state
+        | rich_task: nil,
+          rich_task_presentation: nil,
+          dirty: false,
+          preview_disabled: true
+      }
+    end
+  end
+
+  defp finish_rich_sync(state, result),
+    do: finish_rich_sync(state, {:error, {:invalid_reply_preview_sync_result, result}})
+
+  defp rich_retryable?({:reply_delivery, :operator_action_required, _error}), do: false
+  defp rich_retryable?({:cardkit_plain_text_fallback, _error}), do: false
+  defp rich_retryable?(:cardkit_replacement_exhausted), do: false
+  defp rich_retryable?(_reason), do: true
+
+  defp rich_retry_due?(nil), do: true
+
+  defp rich_retry_due?(retry_at) when is_integer(retry_at),
+    do: System.monotonic_time(:millisecond) >= retry_at
+
+  defp presentation_revision(presentation) when is_map(presentation),
+    do: Map.get(presentation, "revision", 0)
+
+  defp presentation_revision(_presentation), do: 0
+
+  defp shutdown_rich_task(%Task{} = task) do
+    _ = Task.shutdown(task, 5_000)
+    :ok
+  end
+
+  defp shutdown_rich_task(_task), do: :ok
 
   defp handle_tool_activity(%{silent_success_allowed: true} = state, _stage, _payload),
     do: state
@@ -297,6 +681,9 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
         state = %{state | preview_text: preview_text}
 
         cond do
+          state.preview_disabled ->
+            state
+
           not state.preview_established ->
             case establish_preview(state.actor_event, preview_text) do
               {:ok, entry_id} ->
@@ -309,7 +696,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
                   preview_fields(state, %{reason: inspect(reason)})
                 )
 
-                state
+                %{state | preview_disabled: true}
             end
 
           is_binary(state.preview_entry_id) ->
@@ -331,7 +718,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
                   })
                 )
 
-                %{state | dirty: false, edit_sequence: edit_sequence}
+                disable_preview_after_edit_failure(state, edit_sequence)
             end
 
           true ->
@@ -384,7 +771,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
   # Sends the initial preview message to the provider.
   defp establish_preview(%ActorEvent{} = event, text) do
-    with {:ok, result} <- send_new_reply(event, text, nil, "ai-preview:#{event.id}:initial"),
+    with {:ok, result} <- send_new_reply(event, text, nil, "ai-preview:#{event.id}"),
          entry_id when is_binary(entry_id) <- created_source_entry_id(result),
          :ok <- Actors.record_reply_preview_source_entry(event.id, entry_id) do
       {:ok, entry_id}
@@ -414,6 +801,15 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   defp next_edit_key(state, prefix) do
     edit_sequence = state.edit_sequence + 1
     {edit_sequence, "#{prefix}:#{edit_sequence}"}
+  end
+
+  defp disable_preview_after_edit_failure(state, edit_sequence) do
+    %{
+      state
+      | dirty: false,
+        edit_sequence: edit_sequence,
+        preview_disabled: true
+    }
   end
 
   defp preview_fields(state, extra) do
@@ -481,6 +877,15 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   defp adapter_for_event(%ActorEvent{} = event) do
     with {:ok, binding} <- binding_for_event(event) do
       Adapters.fetch_outbox(binding.adapter)
+    end
+  end
+
+  defp rich_adapter_for_event(%ActorEvent{} = event) do
+    with {:ok, binding} <- binding_for_event(event),
+         {:ok, adapter} <- Adapters.fetch_reply_preview(binding.adapter) do
+      adapter
+    else
+      _unavailable -> nil
     end
   end
 

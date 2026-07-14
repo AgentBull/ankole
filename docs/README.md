@@ -519,8 +519,11 @@ answers after one shell command.
    provider's `prepare/1` plus the kernel `universal_ai_client` then stream
    the upstream call. Chunks go to PubSub, never to the database.
 6. **Live preview.** `SignalsGateway.AIReplyPreview` subscribes to those
-   chunks and drives a streaming Feishu card through the lark adapter's
-   CardKit calls: send on first chunk, edit as text grows.
+   chunks plus worker semantic progress and drives one streaming Feishu
+   CardKit card. Answer growth uses the element-content stream; plan, safe
+   activity, receipts, and typed results use structural mutations. PostgreSQL
+   checkpoints the provider handle and mutation identity so a restarted owner
+   can adopt the same card; transient reasoning is never checkpointed.
 7. **Tool execution.** The model returns a `function_call`; AIGateway commits
    the row `complete` (input items + output items in one `content` array) and
    sends the terminal frame. The worker runs the shell command inside

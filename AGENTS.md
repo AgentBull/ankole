@@ -6,6 +6,12 @@ Ankole is a general-purpose Agent Operating System for long-running digital work
 
 Other agents may work on the same branch. Treat unrelated diffs and unexpected file changes as concurrent work, do not revert or overwrite them, and keep moving. Use `HEY.md` to coordinate when needed, then remove your messages when the coordination is complete.
 
+## Changelog
+
+Update `app/CHANGELOG.md` after every completed change. Changelog versions use `YY.MM.N`, where `YY` and `MM` are two-digit year and month values and `N` is a monthly sequence starting at `0`.
+
+One Git commit corresponds to exactly one changelog version. Before editing the changelog, check whether `app/CHANGELOG.md` already has uncommitted changes, including staged, unstaged, or untracked changes. If it does, append the new change summary to the current latest version because it belongs to the same pending commit. If the changelog is clean relative to `HEAD`, add the next version and record the change there.
+
 ## Core discipline
 
 Do the task that was asked, without silently substituting an easier goal. Correct is better than clever, consistency is better than theoretical completeness, and a useful change is better than a locally elegant one that leaves the system harder to operate.

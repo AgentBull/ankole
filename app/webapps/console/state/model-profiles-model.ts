@@ -8,7 +8,7 @@ export type ProfileDraft = {
   providerID: string
   model: string
   contextLength: string
-  providerOptions: string
+  providerOptions: Record<string, unknown>
   error?: string
 }
 
@@ -20,7 +20,7 @@ export function emptyProfileDraft(): ProfileDraft {
     providerID: '',
     model: '',
     contextLength: '',
-    providerOptions: '{}',
+    providerOptions: {},
     error: undefined
   }
 }

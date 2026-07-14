@@ -41,13 +41,44 @@ defmodule Ankole.SignalsGatewayIngressTest do
       binding_fixture(agent.uid, "lark-main", :record_only)
 
       assert {:ok, %{status: :recorded, signal_entry: entry}} =
-               Ingress.emit_entry(agent.uid, "lark-main", group_entry(), now: @base_time)
+               Ingress.emit_entry(
+                 agent.uid,
+                 "lark-main",
+                 group_entry(%{
+                   formatted_content: %{"format" => "markdown", "body" => "hello"}
+                 }),
+                 now: @base_time
+               )
 
       assert entry.signal_channel_id == "lark:chat:group-a"
       assert entry.source_entry_id == "msg-1"
-      assert entry.search_text == "hello"
+      assert entry.text == "hello"
+      assert entry.rich_content == nil
+      assert entry.provider_thread_id == "thread-1"
       assert Repo.aggregate(ActorEvent, :count) == 0
       assert Repo.aggregate(InboundBatch, :count) == 1
+    end
+
+    test "record_only preserves structured content that adds information beyond text" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark-main", :record_only)
+
+      rich_content = %{
+        "format" => "card",
+        "body" => "hello",
+        "elements" => [%{"type" => "button", "label" => "Open"}]
+      }
+
+      assert {:ok, %{status: :recorded, signal_entry: entry}} =
+               Ingress.emit_entry(
+                 agent.uid,
+                 "lark-main",
+                 group_entry(%{formatted_content: rich_content}),
+                 now: @base_time
+               )
+
+      assert entry.text == "hello"
+      assert entry.rich_content == rich_content
     end
 
     test "may_intervene mirrors and finalizes a delayed ambient observation input" do
@@ -1373,20 +1404,18 @@ defmodule Ankole.SignalsGatewayIngressTest do
     Repo.insert!(%Entry{
       signal_channel_id: "lark:chat:group-a",
       source_entry_id: source_entry_id,
+      provider_thread_id: provider_thread_id,
       text: text,
-      formatted_content: %{},
       attachments: [],
       links: [],
       author: author,
       mentions: [],
-      metadata: %{"provider_thread_id" => provider_thread_id},
+      metadata: %{},
       raw_payload: %{},
       provider_time: provider_time,
       reactions: %{},
       raw_reaction_keys: %{},
       document_id: "doc-#{source_entry_id}",
-      search_text: text,
-      metadata_text: "",
       content_hash: "hash-#{source_entry_id}",
       first_seen_at: provider_time,
       last_seen_at: provider_time,

@@ -10,6 +10,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
   alias Ankole.SignalsGateway.Ingress
   alias Ankole.SignalsGateway.InputTombstone
   alias Ankole.SignalsGateway.OutboxEntry
+  alias Ankole.SignalsGateway.Outbox
   alias Ankole.SignalsGateway.Entry
 
   import Ankole.PrincipalsFixtures
@@ -296,6 +297,137 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                    end
                  },
                  now: due_now
+               )
+    end
+
+    test "durable AI replies continue at low frequency after the generic retry ceiling" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      assert {:ok, %{status: :accepted}} =
+               Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, _created} =
+               SignalsGateway.commit_outbox(%{
+                 agent_uid: agent.uid,
+                 binding_name: "bot",
+                 outbound_key: "durable-retry",
+                 delivery_class: :durable_ai_reply,
+                 max_attempts: 1,
+                 operation: :post,
+                 signal_channel_id: "lark:chat:group-a",
+                 fallback_visible_text: "must eventually arrive"
+               })
+
+      assert {:ok, failed} =
+               SignalsGateway.dispatch_outbox(
+                 agent.uid,
+                 "bot",
+                 "durable-retry",
+                 %{
+                   capabilities: [:post_entry],
+                   send: fn _outbox ->
+                     {:error, {:reply_delivery, :retryable, %{"code" => 300_120}}}
+                   end
+                 },
+                 now: @base_time
+               )
+
+      assert failed.status == :failed
+      assert failed.attempt_count == failed.max_attempts
+      assert %DateTime{} = failed.next_attempt_at
+
+      due_now = DateTime.add(failed.next_attempt_at, 1, :microsecond)
+      assert Enum.any?(due_outbox_events(due_now), &(&1["outbound_key"] == "durable-retry"))
+
+      assert {:ok, %OutboxEntry{status: :succeeded, attempt_count: 2}} =
+               SignalsGateway.dispatch_outbox(
+                 agent.uid,
+                 "bot",
+                 "durable-retry",
+                 %{
+                   capabilities: [:post_entry],
+                   send: fn _outbox ->
+                     {:ok, %{created_source_entry_id: "durable-provider-id"}}
+                   end
+                 },
+                 now: due_now
+               )
+    end
+
+    test "operator-blocked durable replies wake when their binding is saved again" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      assert {:ok, %{status: :accepted}} =
+               Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, _created} =
+               SignalsGateway.commit_outbox(%{
+                 agent_uid: agent.uid,
+                 binding_name: "bot",
+                 outbound_key: "durable-blocked",
+                 delivery_class: :durable_ai_reply,
+                 operation: :post,
+                 signal_channel_id: "lark:chat:group-a",
+                 fallback_visible_text: "blocked until config changes"
+               })
+
+      assert {:ok, blocked} =
+               SignalsGateway.dispatch_outbox(
+                 agent.uid,
+                 "bot",
+                 "durable-blocked",
+                 %{
+                   capabilities: [:post_entry],
+                   send: fn _outbox ->
+                     {:error, {:reply_delivery, :operator_action_required, %{"code" => 300_311}}}
+                   end
+                 },
+                 now: @base_time
+               )
+
+      assert blocked.status == :failed
+      assert blocked.next_attempt_at == nil
+      assert blocked.recovery_state["state"] == "blocked"
+
+      assert {:error, :outbox_operator_action_required} =
+               SignalsGateway.dispatch_outbox(
+                 agent.uid,
+                 "bot",
+                 "durable-blocked",
+                 %{capabilities: [:post_entry], send: fn _outbox -> {:ok, %{}} end},
+                 now: DateTime.add(@base_time, 1, :day)
+               )
+
+      assert :ok = Outbox.wake_blocked_for_binding(agent.uid, "bot")
+
+      woken =
+        Repo.get_by!(OutboxEntry,
+          agent_uid: agent.uid,
+          binding_name: "bot",
+          outbound_key: "durable-blocked"
+        )
+
+      assert %DateTime{} = woken.next_attempt_at
+      assert woken.recovery_state == %{}
+
+      assert {:ok, %OutboxEntry{status: :succeeded}} =
+               SignalsGateway.dispatch_outbox(
+                 agent.uid,
+                 "bot",
+                 "durable-blocked",
+                 %{
+                   capabilities: [:post_entry],
+                   send: fn _outbox ->
+                     {:ok, %{created_source_entry_id: "unblocked-provider-id"}}
+                   end
+                 },
+                 now: DateTime.add(woken.next_attempt_at, 1, :microsecond)
                )
     end
 

@@ -59,9 +59,36 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnvTest do
     row = Repo.one!(from row in EnvVar, where: row.scope == "global" and row.name == ^name)
     assert row.secret
     refute row.value =~ "hunter2"
+    ciphertext = row.value
 
     assert {:ok, "hunter2"} = WorkerEnv.console_decrypt_global(name)
     assert {:ok, "hunter2"} = WorkerEnv.console_decrypt_for_agent(agent.uid, name)
+
+    assert {:ok, preserved} =
+             WorkerEnv.console_put_global(name, %{"description" => "kept without revealing"})
+
+    assert preserved.secret == true
+    refute Map.has_key?(preserved, :value)
+
+    preserved_row =
+      Repo.one!(from row in EnvVar, where: row.scope == "global" and row.name == ^name)
+
+    assert preserved_row.value == ciphertext
+    assert preserved_row.description == "kept without revealing"
+    assert {:ok, "hunter2"} = WorkerEnv.console_decrypt_global(name)
+
+    assert {:ok, exposed_without_retyping} =
+             WorkerEnv.console_put_global(name, %{"secret" => false})
+
+    assert exposed_without_retyping.secret == false
+    assert exposed_without_retyping.value == "hunter2"
+
+    assert {:ok, resealed_without_retyping} =
+             WorkerEnv.console_put_global(name, %{"secret" => true})
+
+    assert resealed_without_retyping.secret == true
+    refute Map.has_key?(resealed_without_retyping, :value)
+    assert {:ok, "hunter2"} = WorkerEnv.console_decrypt_global(name)
 
     # An absent secret flag keeps the stored state: the row stays sealed.
     assert {:ok, still_secret} = WorkerEnv.console_put_global(name, %{"value" => "visible"})
@@ -118,6 +145,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnvTest do
     assert item.kind == "declared"
     assert item.declared_key == definition.key
 
+    assert {:ok, preserved} = WorkerEnv.console_put_global(env_name, %{})
+    assert preserved.secret == true
+    assert preserved.source == "global"
+    assert {:ok, "declared-global"} = WorkerEnv.console_decrypt_global(env_name)
+
+    assert {:error, :invalid_worker_env_value} =
+             WorkerEnv.console_put_for_agent(agent.uid, env_name, %{})
+
     assert {:ok, env} = WorkerEnv.effective_env(agent.uid)
     assert env[env_name] == "declared-global"
 
@@ -125,6 +160,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnvTest do
              WorkerEnv.console_put_for_agent(agent.uid, env_name, %{"value" => "declared-agent"})
 
     assert agent_item.source == "agent"
+
+    assert {:ok, preserved_agent_item} =
+             WorkerEnv.console_put_for_agent(agent.uid, env_name, %{})
+
+    assert preserved_agent_item.source == "agent"
+    assert {:ok, "declared-agent"} = WorkerEnv.console_decrypt_for_agent(agent.uid, env_name)
+
     assert {:ok, env} = WorkerEnv.effective_env(agent.uid)
     assert env[env_name] == "declared-agent"
 

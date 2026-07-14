@@ -9,6 +9,7 @@ defmodule Ankole.SignalsGateway.Bindings do
   alias Ankole.SignalsGateway.Adapters
   alias Ankole.SignalsGateway.Adapters.Definition
   alias Ankole.SignalsGateway.OutboxEntry
+  alias Ankole.SignalsGateway.Outbox
   alias Ankole.SignalsGateway.Binding
   alias Ankole.SignalsGateway.GroupMessageModes
   alias Ankole.SignalsGateway.Utils
@@ -57,7 +58,8 @@ defmodule Ankole.SignalsGateway.Bindings do
              unaddressed_group_message_policy: policy,
              enabled: true
            }),
-         :ok <- maybe_handle_binding_saved(definition, binding, normalized_config) do
+         :ok <- maybe_handle_binding_saved(definition, binding, normalized_config),
+         :ok <- Outbox.wake_blocked_for_binding(principal.uid, binding_name) do
       {:ok, %{binding: binding, config_key: config_key}}
     else
       {:error, :not_found} -> {:error, :agent_not_found}

@@ -18,8 +18,8 @@ export interface ComputerToolContext {
   browserRemoteCDPConfig?: JSONObject | null
   /** Local browser idle release TTL in milliseconds, resolved by AppConfigure. */
   localBrowserIdleTtlMs?: number
-  /** `web_tools.block_private_network` policy: reject model-supplied non-public URLs. */
-  blockPrivateNetwork?: boolean
+  /** `security.ssrf_filter`: reject model-supplied non-public URLs. */
+  ssrfFilter?: boolean
   /** Resolve-or-create the agent's container computer facade (memoized for the run). */
   getComputer: (signal?: AbortSignal) => Promise<ContainerComputer>
 }

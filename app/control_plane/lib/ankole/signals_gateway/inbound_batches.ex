@@ -805,8 +805,6 @@ defmodule Ankole.SignalsGateway.InboundBatches do
       "sent_at" => datetime_iso8601(fact.provider_time) || DateTime.to_iso8601(now),
       "received_at" => DateTime.to_iso8601(now),
       "document_id" => attrs.document_id,
-      "search_text" => attrs.search_text,
-      "metadata_text" => attrs.metadata_text,
       "content_hash" => attrs.content_hash,
       "explicit" => type == "im.message.addressed",
       "policy" => Atom.to_string(policy),

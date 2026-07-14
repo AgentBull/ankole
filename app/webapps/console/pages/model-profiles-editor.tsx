@@ -2,6 +2,10 @@ import { recordValue, type JsonObject as JSONObject } from '@pleisto/active-supp
 import {
   Badge,
   Button,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  CreatableCombobox,
   Input,
   Select,
   SelectContent,
@@ -12,9 +16,10 @@ import {
 } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { RiSave3Line } from '@remixicon/react'
+import { RiArrowDownSLine, RiSave3Line } from '@remixicon/react'
 import { useMutation } from '@tanstack/react-query'
 import { useEffect } from 'react'
+import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import {
   ankoleWebAgentControllerDeleteModelProfileMutation,
@@ -23,11 +28,20 @@ import {
 import type {
   AgentItem,
   AiGatewayProviderItem as AIGatewayProviderItem,
+  AiGatewayProviderKindItem as AIGatewayProviderKindItem,
   CodexAccountItem
 } from '../api/generated/types.gen'
-import { ErrorBlock, formatJSON, parseObjectDraft } from '../console-primitives'
-import { JSONField, LabeledField } from '../console-shell'
+import { ErrorBlock } from '../console-primitives'
+import { LabeledField } from '../console-shell'
 import { ModelProfilesModel, PROFILE_NAMES, type ProfileDraft, type ProfileName } from '../state/model-profiles-model'
+import { modelOptionsForProfile, providersForProfile } from './model-profile-options'
+import { ProviderSettingField } from './provider-setting-field'
+import {
+  buildSettingOptions,
+  requestSettings,
+  type ProviderSetting,
+  type SettingValidationError
+} from './provider-settings'
 
 const REQUIRED_PROFILES = new Set<string>(['primary', 'light', 'heavy'])
 
@@ -38,6 +52,8 @@ export function ModelProfilesEditor({
   onChanged,
   profiles,
   providers,
+  providerKinds,
+  modelCatalog,
   codexAccounts
 }: {
   agent: AgentItem
@@ -46,6 +62,8 @@ export function ModelProfilesEditor({
   onChanged: () => void
   profiles: JSONObject
   providers: AIGatewayProviderItem[]
+  providerKinds: AIGatewayProviderKindItem[]
+  modelCatalog: unknown
   codexAccounts: CodexAccountItem[]
 }) {
   useSignals()
@@ -89,9 +107,18 @@ export function ModelProfilesEditor({
       return
     }
 
-    const parsedOptions = parseObjectDraft(draft.providerOptions, 'provider_options')
-    if (!parsedOptions.ok) {
-      updateDraft(profile, { error: parsedOptions.error })
+    const selectedProvider = providers.find(provider => provider.provider_id === draft.providerID)
+    const selectedKind = providerKinds.find(kind => kind.provider_kind === selectedProvider?.provider_kind)
+    if (!selectedProvider || !selectedKind) {
+      updateDraft(profile, { error: t('console.models.provider_definition_unavailable') })
+      return
+    }
+
+    const builtOptions = buildSettingOptions(requestSettings(selectedKind), draft.providerOptions, (field, reason) =>
+      settingValidationMessage(t, field, reason)
+    )
+    if (!builtOptions.ok) {
+      updateDraft(profile, { error: builtOptions.error })
       return
     }
     const contextLength = draft.contextLength.trim() ? Number.parseInt(draft.contextLength, 10) : undefined
@@ -100,7 +127,7 @@ export function ModelProfilesEditor({
         provider_id: draft.providerID,
         model: draft.model,
         context_length: Number.isFinite(contextLength) ? contextLength : undefined,
-        provider_options: parsedOptions.value
+        provider_options: builtOptions.value
       },
       path: { agent_uid: agent.uid, profile }
     })
@@ -116,9 +143,34 @@ export function ModelProfilesEditor({
       {loading ? <span className="text-xs text-muted-foreground">{t('common.loading')}</span> : null}
       <div className="grid gap-4">
         {PROFILE_NAMES.map(profile => {
-          const draft = model.snapshot(profile)
-          const configured = Boolean(draft.codexAccountID || (draft.providerID && draft.model))
-          const subscriptionCoding = profile === 'coding' && Boolean(draft.codexAccountID)
+          const draft = model.profiles[profile]
+          const providerID = draft.providerID.value
+          const selectedProvider = providers.find(provider => provider.provider_id === providerID)
+          const selectedKind = providerKinds.find(kind => kind.provider_kind === selectedProvider?.provider_kind)
+          const profileProviders = providersForProfile(providers, providerKinds, profile)
+          const optionSettings = requestSettings(selectedKind)
+          const basicOptionSettings = optionSettings.filter(setting => !setting.advanced)
+          const advancedOptionSettings = optionSettings.filter(setting => setting.advanced)
+          const modelOptions = modelOptionsForProfile(modelCatalog, providerID, profile)
+          const configured = Boolean(draft.codexAccountID.value || (draft.providerID.value && draft.model.value))
+          const subscriptionCoding = profile === 'coding' && Boolean(draft.codexAccountID.value)
+          const renderOptionSetting = (setting: ProviderSetting) => (
+            <div key={setting.key} className={setting.type === 'map' ? 'md:col-span-2' : undefined}>
+              <ProviderSettingField
+                setting={setting}
+                value={draft.providerOptions.value[setting.key]}
+                onChange={value =>
+                  updateDraft(profile, {
+                    providerOptions: {
+                      ...draft.providerOptions.value,
+                      [setting.key]: value
+                    },
+                    error: undefined
+                  })
+                }
+              />
+            </div>
+          )
           return (
             <div key={profile} className="grid gap-4 border border-border bg-card p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -143,13 +195,13 @@ export function ModelProfilesEditor({
                   </Button>
                 </div>
               </div>
-              {draft.error ? <ErrorBlock error={draft.error} /> : null}
+              {draft.error.value ? <ErrorBlock error={draft.error.value} /> : null}
               {profile === 'coding' ? (
                 <LabeledField
                   label={t('console.models.coding_runtime')}
                   description={t('console.models.coding_runtime_hint')}>
                   <Select
-                    value={draft.codexAccountID || 'aigateway'}
+                    value={draft.codexAccountID.value || 'aigateway'}
                     onValueChange={value =>
                       updateDraft(profile, {
                         codexAccountID: String(value) === 'aigateway' ? '' : String(value)
@@ -174,13 +226,27 @@ export function ModelProfilesEditor({
                   <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_128px]">
                     <LabeledField label={t('console.models.provider')}>
                       <Select
-                        value={draft.providerID}
-                        onValueChange={value => updateDraft(profile, { providerID: String(value) })}>
+                        value={draft.providerID.value}
+                        onValueChange={value => {
+                          const nextProviderID = String(value)
+                          updateDraft(
+                            profile,
+                            nextProviderID === draft.providerID.value
+                              ? { providerID: nextProviderID }
+                              : {
+                                  providerID: nextProviderID,
+                                  model: '',
+                                  contextLength: '',
+                                  providerOptions: {},
+                                  error: undefined
+                                }
+                          )
+                        }}>
                         <SelectTrigger className="w-full">
                           <SelectValue placeholder={t('console.models.provider_placeholder')} />
                         </SelectTrigger>
                         <SelectContent>
-                          {providers.map(provider => (
+                          {profileProviders.map(provider => (
                             <SelectItem key={provider.provider_id} value={provider.provider_id}>
                               {provider.provider_id}
                             </SelectItem>
@@ -189,26 +255,55 @@ export function ModelProfilesEditor({
                       </Select>
                     </LabeledField>
                     <LabeledField label={t('console.models.model')}>
-                      <Input
-                        placeholder="gpt-5"
-                        value={draft.model}
-                        onChange={event => updateDraft(profile, { model: event.target.value })}
+                      <CreatableCombobox
+                        options={modelOptions}
+                        placeholder={t('console.models.model_placeholder')}
+                        emptyLabel={t('console.models.model_empty')}
+                        createLabel={value => t('console.models.model_use', { model: value })}
+                        value={draft.model.value}
+                        onValueChange={value => updateDraft(profile, { model: value, error: undefined })}
                       />
                     </LabeledField>
                     <LabeledField label={t('console.models.context')}>
                       <Input
                         inputMode="numeric"
-                        value={draft.contextLength}
+                        value={draft.contextLength.value}
                         onChange={event => updateDraft(profile, { contextLength: event.target.value })}
                       />
                     </LabeledField>
                   </div>
-                  <JSONField
-                    label={t('console.models.provider_options')}
-                    minRows={3}
-                    value={draft.providerOptions}
-                    onChange={value => updateDraft(profile, { providerOptions: value })}
-                  />
+                  <div className="grid gap-3">
+                    <h4 className="text-sm font-medium">{t('console.models.provider_options')}</h4>
+                    {!providerID ? (
+                      <p className="text-xs text-muted-foreground">{t('console.models.provider_options_select')}</p>
+                    ) : !selectedKind ? (
+                      <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
+                    ) : optionSettings.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">{t('console.models.provider_options_empty')}</p>
+                    ) : (
+                      <>
+                        {basicOptionSettings.length > 0 ? (
+                          <div className="grid gap-4 md:grid-cols-2">
+                            {basicOptionSettings.map(renderOptionSetting)}
+                          </div>
+                        ) : null}
+                        {advancedOptionSettings.length > 0 ? (
+                          <Collapsible className="grid gap-4" defaultOpen={false}>
+                            <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 border border-border bg-muted/40 px-4 py-3 text-left text-sm font-medium">
+                              <span>{t('common.advanced_settings')}</span>
+                              <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                                {advancedOptionSettings.length}
+                                <RiArrowDownSLine className="size-4" aria-hidden />
+                              </span>
+                            </CollapsibleTrigger>
+                            <CollapsibleContent className="grid gap-4 md:grid-cols-2">
+                              {advancedOptionSettings.map(renderOptionSetting)}
+                            </CollapsibleContent>
+                          </Collapsible>
+                        ) : null}
+                      </>
+                    )}
+                  </div>
                 </>
               ) : null}
             </div>
@@ -225,10 +320,25 @@ function draftFromProfile(profile: JSONObject): ProfileDraft {
     providerID: asString(profile.provider_id),
     model: asString(profile.model),
     contextLength: profile.context_length ? String(profile.context_length) : '',
-    providerOptions: formatJSON(recordValue(profile.provider_options) ?? {})
+    providerOptions: recordValue(profile.provider_options) ?? {}
   }
 }
 
 function asString(value: unknown): string {
   return typeof value === 'string' ? value : ''
+}
+
+function settingValidationMessage(t: TFunction, field: string, error: SettingValidationError): string {
+  switch (error) {
+    case 'required':
+      return t('common.field_required', { field })
+    case 'json_object':
+      return t('common.must_be_json_object', { field })
+    case 'integer':
+      return t('common.must_be_integer', { field })
+    case 'number':
+      return t('common.must_be_number', { field })
+    case 'selection':
+      return t('common.must_be_valid_selection', { field })
+  }
 }

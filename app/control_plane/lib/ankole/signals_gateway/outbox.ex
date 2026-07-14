@@ -14,6 +14,7 @@ defmodule Ankole.SignalsGateway.Outbox do
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Projection
   alias Ankole.SignalsGateway.ReplyAttachment
+  alias Ankole.SignalsGateway.ReplyPresentation
   alias Ankole.SignalsGateway.Sanitizer
   alias Ankole.SignalsGateway.Binding
   alias Ankole.SignalsGateway.Channel
@@ -33,7 +34,16 @@ defmodule Ankole.SignalsGateway.Outbox do
 
   @outbox_base_retry_seconds 5
   @outbox_max_retry_seconds 5 * 60
+  @durable_ai_reply_retry_seconds 15 * 60
   @outbox_in_flight_recovery_seconds 60
+  @reply_preview_settle_timeout_ms 30_000
+  @reply_preview_finalization_sources ~w(
+    actor_dead_letter_notice
+    actor_model_profile_unavailable_notice
+    actor_turn_stopped
+    ai_gateway_clarify
+    ai_gateway_final_reply
+  )
 
   @spec outbox_in_flight_recovery_seconds() :: pos_integer()
   def outbox_in_flight_recovery_seconds, do: @outbox_in_flight_recovery_seconds
@@ -151,8 +161,16 @@ defmodule Ankole.SignalsGateway.Outbox do
                 provider_thread_id: actor_event.provider_thread_id,
                 source_actor_event_id: actor_event.id,
                 ai_message_id: message.id,
+                delivery_class: :durable_ai_reply,
                 payload: %{
                   "text" => final_text,
+                  "reply_presentation" =>
+                    terminal_reply_presentation(
+                      actor_event,
+                      "completed",
+                      final_text,
+                      attachment_count: Keyword.get(opts, :attachment_count, 0)
+                    ),
                   "metadata" => %{
                     "ai_message_id" => message.id,
                     "actor_event_id" => actor_event.id,
@@ -204,9 +222,12 @@ defmodule Ankole.SignalsGateway.Outbox do
             provider_thread_id: actor_event.provider_thread_id,
             source_actor_event_id: actor_event.id,
             ai_message_id: message.id,
+            delivery_class: :durable_ai_reply,
             payload: %{
               "text" => text,
               "interactive_output" => interactive_output,
+              "reply_presentation" =>
+                clarify_reply_presentation(actor_event, text, interactive_output),
               "metadata" => %{
                 "ai_message_id" => message.id,
                 "actor_event_id" => actor_event.id,
@@ -246,13 +267,100 @@ defmodule Ankole.SignalsGateway.Outbox do
   @spec commit_dead_letter_notice_outbox_in_tx(module(), ActorEvent.t(), String.t()) ::
           {:ok, OutboxEntry.t()} | {:error, term()}
   def commit_dead_letter_notice_outbox_in_tx(repo, %ActorEvent{} = actor_event, text) do
+    commit_actor_notice_outbox_in_tx(
+      repo,
+      actor_event,
+      text,
+      "ai-dead-letter",
+      :empty_dead_letter_notice_text,
+      %{"source" => "actor_dead_letter_notice"},
+      "failed"
+    )
+  end
+
+  @doc """
+  Commits a durable stopped-state edit for an existing live reply preview.
+
+  Runtime commands use this only after a provider-visible preview exists. The
+  finalization source participates in the same preview-settle fence as normal
+  AI replies, so the stopped card cannot race a late streaming flush.
+  """
+  @spec commit_stopped_turn_notice_outbox(ActorEvent.t(), String.t(), String.t()) ::
+          {:ok, OutboxEntry.t()} | {:error, term()}
+  def commit_stopped_turn_notice_outbox(%ActorEvent{} = actor_event, text, reason)
+      when is_binary(reason) do
+    Repo.transact(fn repo ->
+      commit_stopped_turn_notice_outbox_in_tx(repo, actor_event, text, reason)
+    end)
+  end
+
+  @doc false
+  @spec commit_stopped_turn_notice_outbox_in_tx(
+          module(),
+          ActorEvent.t(),
+          String.t(),
+          String.t()
+        ) :: {:ok, OutboxEntry.t()} | {:error, term()}
+  def commit_stopped_turn_notice_outbox_in_tx(repo, %ActorEvent{} = actor_event, text, reason)
+      when is_binary(reason) do
+    commit_actor_notice_outbox_in_tx(
+      repo,
+      actor_event,
+      text,
+      "ai-turn-stopped",
+      :empty_stopped_turn_notice_text,
+      %{"source" => "actor_turn_stopped", "reason" => reason},
+      "stopped"
+    )
+  end
+
+  @doc """
+  Commits a durable user notice when a turn cannot start because its model
+  profile is unavailable.
+  """
+  @spec commit_model_profile_unavailable_notice_outbox_in_tx(
+          module(),
+          ActorEvent.t(),
+          String.t(),
+          String.t()
+        ) :: {:ok, OutboxEntry.t()} | {:error, term()}
+  def commit_model_profile_unavailable_notice_outbox_in_tx(
+        repo,
+        %ActorEvent{} = actor_event,
+        profile,
+        text
+      )
+      when is_binary(profile) do
+    commit_actor_notice_outbox_in_tx(
+      repo,
+      actor_event,
+      text,
+      "ai-model-profile-unavailable",
+      :empty_model_profile_unavailable_notice_text,
+      %{
+        "source" => "actor_model_profile_unavailable_notice",
+        "profile" => profile
+      },
+      "failed"
+    )
+  end
+
+  defp commit_actor_notice_outbox_in_tx(
+         repo,
+         %ActorEvent{} = actor_event,
+         text,
+         outbound_key_prefix,
+         empty_text_error,
+         metadata,
+         terminal_state
+       ) do
     case normalize_visible_text(text) do
       "" ->
-        {:error, :empty_dead_letter_notice_text}
+        {:error, empty_text_error}
 
       final_text ->
         with {:ok, operation, operation_attrs} <- final_reply_operation(repo, actor_event) do
-          outbound_key = "ai-dead-letter:#{actor_event.id}"
+          outbound_key = "#{outbound_key_prefix}:#{actor_event.id}"
 
           commit_outbox_in_tx(
             repo,
@@ -265,12 +373,12 @@ defmodule Ankole.SignalsGateway.Outbox do
                 signal_channel_id: actor_event.signal_channel_id,
                 provider_thread_id: actor_event.provider_thread_id,
                 source_actor_event_id: actor_event.id,
+                delivery_class: :durable_ai_reply,
                 payload: %{
                   "text" => final_text,
-                  "metadata" => %{
-                    "actor_event_id" => actor_event.id,
-                    "source" => "actor_dead_letter_notice"
-                  }
+                  "reply_presentation" =>
+                    actor_notice_reply_presentation(actor_event, terminal_state, final_text),
+                  "metadata" => Map.put(metadata, "actor_event_id", actor_event.id)
                 },
                 fallback_visible_text: final_text,
                 idempotency_key: outbound_key
@@ -281,6 +389,18 @@ defmodule Ankole.SignalsGateway.Outbox do
         end
     end
   end
+
+  defp actor_notice_reply_presentation(actor_event, "stopped", _fallback_text) do
+    presentation = reply_presentation_checkpoint(actor_event) |> ReplyPresentation.normalize()
+    partial_answer = presentation["answer"] || ""
+
+    presentation
+    |> ReplyPresentation.terminal("stopped", partial_answer)
+    |> Map.put("answer", partial_answer)
+  end
+
+  defp actor_notice_reply_presentation(actor_event, terminal_state, text),
+    do: terminal_reply_presentation(actor_event, terminal_state, text)
 
   @doc """
   Chooses the provider-visible reply operation for an actor event.
@@ -328,24 +448,26 @@ defmodule Ankole.SignalsGateway.Outbox do
         ) ::
           {:ok, OutboxEntry.t()} | {:error, term()}
   def dispatch_outbox(agent_uid, binding_name, outbound_key, adapter, options \\ []) do
-    now = Keyword.get(options, :now, DateTime.utc_now(:microsecond))
+    with :ok <- await_reply_preview_finalization(agent_uid, binding_name, outbound_key, options) do
+      now = Keyword.get(options, :now, DateTime.utc_now(:microsecond))
 
-    case prepare_outbox_dispatch(agent_uid, binding_name, outbound_key, adapter, now) do
-      {:ok, {:send, outbox, channel, adapter}} ->
-        adapter
-        |> call_adapter_send(outbox)
-        |> finalize_outbox_send(outbox, channel, now)
+      case prepare_outbox_dispatch(agent_uid, binding_name, outbound_key, adapter, now) do
+        {:ok, {:send, outbox, channel, adapter}} ->
+          adapter
+          |> call_adapter_send(outbox)
+          |> finalize_outbox_send(outbox, channel, now)
 
-      {:ok, {:reconcile, outbox, channel, adapter}} ->
-        adapter
-        |> call_adapter_reconcile(outbox)
-        |> finalize_outbox_reconcile(outbox, channel, now)
+        {:ok, {:reconcile, outbox, channel, adapter}} ->
+          adapter
+          |> call_adapter_reconcile(outbox)
+          |> finalize_outbox_reconcile(outbox, channel, now)
 
-      {:ok, %OutboxEntry{} = outbox} ->
-        {:ok, outbox}
+        {:ok, %OutboxEntry{} = outbox} ->
+          {:ok, outbox}
 
-      {:error, _reason} = error ->
-        error
+        {:error, _reason} = error ->
+          error
+      end
     end
   end
 
@@ -372,7 +494,7 @@ defmodule Ankole.SignalsGateway.Outbox do
     |> or_where(
       [entry],
       entry.status == :failed and not is_nil(entry.next_attempt_at) and
-        entry.attempt_count < entry.max_attempts
+        (entry.attempt_count < entry.max_attempts or entry.delivery_class == :durable_ai_reply)
     )
     |> or_where(
       [entry],
@@ -382,11 +504,52 @@ defmodule Ankole.SignalsGateway.Outbox do
     |> Enum.map(&outbox_runtime_event/1)
   end
 
+  @doc false
+  @spec wake_blocked_for_binding(String.t(), String.t()) :: :ok | {:error, term()}
+  def wake_blocked_for_binding(agent_uid, binding_name)
+      when is_binary(agent_uid) and is_binary(binding_name) do
+    now = DateTime.utc_now(:microsecond)
+
+    case Repo.transact(fn repo ->
+           rows =
+             OutboxEntry
+             |> where([entry], entry.agent_uid == ^normalize_uid(agent_uid))
+             |> where([entry], entry.binding_name == ^binding_name)
+             |> where([entry], entry.delivery_class == :durable_ai_reply)
+             |> where([entry], entry.status == :failed)
+             |> where([entry], fragment("?->>'state' = 'blocked'", entry.recovery_state))
+             |> lock("FOR UPDATE")
+             |> repo.all()
+
+           Enum.reduce_while(rows, {:ok, []}, fn outbox, {:ok, acc} ->
+             with {:ok, outbox} <-
+                    outbox
+                    |> OutboxEntry.changeset(%{
+                      next_attempt_at: now,
+                      recovery_state: %{}
+                    })
+                    |> repo.update(),
+                  :ok <- notify_outbox_deadline(repo, outbox) do
+               {:cont, {:ok, [outbox | acc]}}
+             else
+               {:error, reason} -> {:halt, {:error, reason}}
+             end
+           end)
+         end) do
+      {:ok, _rows} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def wake_blocked_for_binding(_agent_uid, _binding_name),
+    do: {:error, :invalid_signal_binding}
+
   defp prepare_outbox_dispatch(agent_uid, binding_name, outbound_key, adapter, now) do
     with {:ok, adapter} <- OutboxAdapter.normalize(adapter) do
       Repo.transact(fn repo ->
         with %OutboxEntry{} = outbox <-
                fetch_outbox_for_update(repo, agent_uid, binding_name, outbound_key),
+             {:ok, outbox} <- adopt_late_reply_preview(repo, outbox),
              {:ok, channel} <- outbox_channel(repo, outbox) do
           case in_flight_recovery_action(outbox, adapter, now) do
             {:in_flight, outbox} ->
@@ -410,9 +573,100 @@ defmodule Ankole.SignalsGateway.Outbox do
     end
   end
 
+  # Actor completion and the transient preview use different transactions. A
+  # very short model response can commit its durable final outbox while the
+  # provider has already accepted the first preview but its entry id is still
+  # waiting to acquire the ActorEvent row lock. Wait for the preview owner to
+  # stop before claiming terminal delivery, then re-read the ActorEvent under
+  # the outbox lock so the final operation edits that preview instead of posting
+  # a duplicate reply. The timeout leaves the durable row in `created`; the
+  # runtime snapshot will retry it without risking a second provider message.
+  defp await_reply_preview_finalization(agent_uid, binding_name, outbound_key, options) do
+    case fetch_outbox(agent_uid, binding_name, outbound_key) do
+      %OutboxEntry{} = outbox ->
+        if reply_preview_finalization?(outbox) do
+          timeout_ms =
+            Keyword.get(
+              options,
+              :reply_preview_settle_timeout_ms,
+              @reply_preview_settle_timeout_ms
+            )
+
+          await_reply_preview_stop(outbox.source_actor_event_id, timeout_ms)
+        else
+          :ok
+        end
+
+      nil ->
+        :ok
+    end
+  end
+
+  defp await_reply_preview_stop(actor_event_id, timeout_ms)
+       when is_binary(actor_event_id) and is_integer(timeout_ms) and timeout_ms >= 0 do
+    case Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, actor_event_id) do
+      [{pid, _value}] ->
+        monitor = Process.monitor(pid)
+
+        receive do
+          {:DOWN, ^monitor, :process, ^pid, _reason} -> :ok
+        after
+          timeout_ms ->
+            Process.demonitor(monitor, [:flush])
+            {:error, :reply_preview_settle_timeout}
+        end
+
+      [] ->
+        :ok
+    end
+  end
+
+  defp await_reply_preview_stop(_actor_event_id, _timeout_ms),
+    do: {:error, :invalid_reply_preview_settle_timeout}
+
+  defp adopt_late_reply_preview(
+         repo,
+         %OutboxEntry{status: status, operation: operation} = outbox
+       )
+       when status in [:created, :failed] and operation in [:post, :reply] do
+    if reply_preview_finalization?(outbox) do
+      case repo.get(ActorEvent, outbox.source_actor_event_id) do
+        %ActorEvent{reply_preview_source_entry_id: source_entry_id}
+        when is_binary(source_entry_id) ->
+          outbox
+          |> OutboxEntry.changeset(%{
+            operation: :edit,
+            reply_to_source_entry_id: nil,
+            target_source_entry_id: source_entry_id
+          })
+          |> repo.update()
+
+        %ActorEvent{} ->
+          {:ok, outbox}
+
+        nil ->
+          {:error, :actor_event_not_found}
+      end
+    else
+      {:ok, outbox}
+    end
+  end
+
+  defp adopt_late_reply_preview(_repo, %OutboxEntry{} = outbox), do: {:ok, outbox}
+
+  defp reply_preview_finalization?(%OutboxEntry{
+         source_actor_event_id: actor_event_id,
+         payload: %{"metadata" => %{"source" => source}}
+       })
+       when is_binary(actor_event_id),
+       do: source in @reply_preview_finalization_sources
+
+  defp reply_preview_finalization?(%OutboxEntry{}), do: false
+
   defp default_outbox_attrs(attrs) do
     attrs
     |> Map.put_new(:status, :created)
+    |> Map.put_new(:delivery_class, :generic)
     |> Map.put_new(:payload, %{})
     |> Map.put_new(:attempt_count, 0)
     |> Map.put_new(:max_attempts, 10)
@@ -465,6 +719,7 @@ defmodule Ankole.SignalsGateway.Outbox do
       # caused this provider-visible side effect.
       source_actor_event_id: actor_event.id,
       ai_message_id: ai_message_id,
+      delivery_class: :durable_ai_reply,
       payload: %{
         "text" => text,
         "attachments" => [attachment],
@@ -512,6 +767,60 @@ defmodule Ankole.SignalsGateway.Outbox do
   end
 
   defp normalize_visible_text(_text), do: ""
+
+  defp terminal_reply_presentation(%ActorEvent{} = actor_event, state, text, opts \\ []) do
+    presentation =
+      actor_event
+      |> reply_presentation_checkpoint()
+      |> ReplyPresentation.terminal(state, text)
+
+    case Keyword.get(opts, :attachment_count, 0) do
+      count when is_integer(count) and count > 0 ->
+        put_in(presentation, ["meta", "attachment_count"], count)
+
+      _count ->
+        presentation
+    end
+  end
+
+  defp clarify_reply_presentation(actor_event, text, interactive_output) do
+    card_visible_text = fetch_value(interactive_output, "body") || text
+
+    presentation =
+      terminal_reply_presentation(actor_event, "awaiting_input", card_visible_text)
+
+    controls =
+      interactive_output
+      |> fetch_list("choices")
+      |> Enum.map(fn choice ->
+        %{
+          "id" => fetch_value(choice, "id"),
+          "type" => "button",
+          "label" => fetch_value(choice, "label"),
+          "source_actor_event_id" => actor_event.id,
+          "interaction_id" => fetch_value(interactive_output, "interaction_id"),
+          "control_id" => fetch_value(interactive_output, "control_id"),
+          "selected_option_id" => fetch_value(choice, "id"),
+          "option_value" => fetch_value(choice, "value"),
+          "revision" => fetch_value(interactive_output, "version")
+        }
+      end)
+
+    ReplyPresentation.apply_event(presentation, "interaction.request", %{
+      "operation_id" => fetch_value(interactive_output, "interaction_id") || "clarify",
+      "revision" => presentation["revision"] + 1,
+      "prompt" => fetch_value(interactive_output, "body") || text,
+      "controls" => controls
+    })
+  end
+
+  defp reply_presentation_checkpoint(%ActorEvent{
+         reply_preview_checkpoint: %{"presentation" => presentation}
+       })
+       when is_map(presentation),
+       do: presentation
+
+  defp reply_presentation_checkpoint(%ActorEvent{}), do: ReplyPresentation.new()
 
   # Channel wants threaded replies and we have an entry to thread under: reply if
   # the adapter supports threaded replies, otherwise degrade to a top-level post
@@ -617,10 +926,21 @@ defmodule Ankole.SignalsGateway.Outbox do
   defp dispatchable_outbox?(%OutboxEntry{status: :created}, _now), do: :ok
 
   defp dispatchable_outbox?(
-         %OutboxEntry{status: :failed, attempt_count: attempts, max_attempts: max},
+         %OutboxEntry{status: :failed, recovery_state: %{"state" => "blocked"}},
+         _now
+       ),
+       do: {:error, :outbox_operator_action_required}
+
+  defp dispatchable_outbox?(
+         %OutboxEntry{
+           status: :failed,
+           delivery_class: delivery_class,
+           attempt_count: attempts,
+           max_attempts: max
+         },
          _now
        )
-       when attempts >= max,
+       when attempts >= max and delivery_class != :durable_ai_reply,
        do: {:error, :outbox_attempts_exhausted}
 
   defp dispatchable_outbox?(%OutboxEntry{status: :failed, next_attempt_at: nil}, _now),
@@ -741,6 +1061,22 @@ defmodule Ankole.SignalsGateway.Outbox do
   end
 
   defp in_flight_recovery_action(_outbox, _adapter, _now), do: :continue
+
+  defp stale_in_flight_recovery_action(
+         %OutboxEntry{
+           delivery_class: :durable_ai_reply,
+           payload: %{"reply_presentation" => presentation}
+         } = outbox,
+         adapter
+       )
+       when is_map(presentation) do
+    capabilities = OutboxAdapter.capabilities(adapter)
+
+    case MapSet.member?(capabilities, :outbound_reconciliation) do
+      true -> {:reconcile, outbox}
+      false -> {:unknown, outbox, %{"reason" => "durable AI reply cannot be reconciled"}}
+    end
+  end
 
   defp stale_in_flight_recovery_action(
          %OutboxEntry{created_source_entry_id: created_source_entry_id} = outbox,
@@ -883,35 +1219,98 @@ defmodule Ankole.SignalsGateway.Outbox do
   defp mark_outbox_succeeded(repo, outbox, result) do
     recovery_state = fetch_value(result, :recovery_state) || %{}
     payload = fetch_value(result, :payload) || outbox.payload
+    delivered_operation_attrs = delivered_operation_attrs(outbox, result)
 
     with {:ok, recovery_state} <-
            JSONPayload.normalize_map(recovery_state, allow_datetime: true),
          {:ok, payload} <- JSONPayload.normalize_map(payload, allow_datetime: true) do
       outbox
-      |> OutboxEntry.changeset(%{
-        status: :succeeded,
-        created_source_entry_id: created_source_entry_id_after_success(outbox, result),
-        payload: payload,
-        last_error: %{},
-        next_attempt_at: nil,
-        recovery_state: recovery_state
-      })
+      |> OutboxEntry.changeset(
+        Map.merge(
+          %{
+            status: :succeeded,
+            created_source_entry_id: created_source_entry_id_after_success(outbox, result),
+            payload: payload,
+            last_error: %{},
+            next_attempt_at: nil,
+            recovery_state: recovery_state
+          },
+          delivered_operation_attrs
+        )
+      )
       |> repo.update()
     end
   end
 
+  # An adapter may intentionally degrade a provider operation after a
+  # deterministic rejection. Persist the operation that actually happened so
+  # the outbox audit row and the local provider mirror keep the same identity.
+  defp delivered_operation_attrs(%OutboxEntry{operation: :edit}, result) do
+    case fetch_value(result, :delivered_operation) do
+      :post ->
+        %{
+          operation: :post,
+          target_source_entry_id: nil,
+          reply_to_source_entry_id: nil
+        }
+
+      :reply ->
+        %{
+          operation: :reply,
+          target_source_entry_id: nil,
+          reply_to_source_entry_id: fetch_value(result, :reply_to_source_entry_id)
+        }
+
+      _operation ->
+        %{}
+    end
+  end
+
+  defp delivered_operation_attrs(_outbox, _result), do: %{}
+
   defp mark_outbox_failed(repo, outbox, reason, now) do
+    {last_error, next_attempt_at, recovery_state} = failure_recovery(outbox, reason, now)
+
     with {:ok, %OutboxEntry{} = outbox} <-
            outbox
            |> OutboxEntry.changeset(%{
              status: :failed,
-             last_error: %{"reason" => Sanitizer.transport(reason)},
-             next_attempt_at: next_outbox_attempt_at(outbox, now)
+             last_error: last_error,
+             next_attempt_at: next_attempt_at,
+             recovery_state: recovery_state
            })
            |> repo.update(),
          :ok <- notify_outbox_deadline(repo, outbox) do
       {:ok, outbox}
     end
+  end
+
+  defp failure_recovery(
+         _outbox,
+         {:reply_delivery, :operator_action_required, detail},
+         _now
+       ) do
+    {
+      %{"reason" => Sanitizer.transport(detail)},
+      nil,
+      %{"state" => "blocked", "reason" => "operator_action_required"}
+    }
+  end
+
+  defp failure_recovery(outbox, {:reply_delivery, :retryable, detail}, now) do
+    {
+      %{"reason" => Sanitizer.transport(detail)},
+      next_outbox_attempt_at(outbox, now),
+      %{}
+    }
+  end
+
+  defp failure_recovery(outbox, reason, now) do
+    {
+      %{"reason" => Sanitizer.transport(reason)},
+      next_outbox_attempt_at(outbox, now),
+      %{}
+    }
   end
 
   defp mark_outbox_unknown(repo, outbox, reason) do
@@ -936,6 +1335,17 @@ defmodule Ankole.SignalsGateway.Outbox do
   # (so 5s, 10s, 20s, 40s, … capped at 300s). Returning nil once attempts are
   # exhausted is what makes the deadline handler no-op on the row — the retry
   # loop ends without a separate "give up" flag.
+  defp next_outbox_attempt_at(
+         %OutboxEntry{
+           delivery_class: :durable_ai_reply,
+           attempt_count: attempts,
+           max_attempts: max
+         },
+         now
+       )
+       when attempts >= max,
+       do: DateTime.add(now, @durable_ai_reply_retry_seconds, :second)
+
   defp next_outbox_attempt_at(%OutboxEntry{attempt_count: attempts, max_attempts: max}, _now)
        when attempts >= max,
        do: nil
@@ -1001,7 +1411,6 @@ defmodule Ankole.SignalsGateway.Outbox do
           source_entry_id: source_entry_id,
           provider_thread_id: outbox.provider_thread_id,
           text: outbox.fallback_visible_text,
-          fallback_visible_text: outbox.fallback_visible_text,
           formatted_content: fetch_map(outbox.payload, :formatted_content, %{}),
           attachments: fetch_list(outbox.payload, :attachments),
           links: [],
@@ -1122,29 +1531,28 @@ defmodule Ankole.SignalsGateway.Outbox do
 
   defp final_reply_edit_attrs(%Entry{} = entry, %OutboxEntry{} = outbox, now) do
     metadata = final_reply_entry_metadata(entry.metadata, outbox)
-
-    metadata_text =
-      Projection.entry_metadata_text(%{
-        author: entry.author || %{"agent_uid" => outbox.agent_uid},
-        metadata: metadata,
-        channel_name: nil
-      })
-
     text = outbox.fallback_visible_text
+
+    rich_content =
+      Projection.rich_content(text, fetch_map(outbox.payload, :formatted_content, %{}))
+
+    provider_thread_id = outbox.provider_thread_id || entry.provider_thread_id
 
     %{
       text: text,
-      fallback_visible_text: text,
-      search_text: text,
+      rich_content: rich_content,
+      provider_thread_id: provider_thread_id,
       metadata: metadata,
-      metadata_text: metadata_text,
       content_hash:
         Projection.entry_content_hash([
           text,
-          metadata_text,
-          entry.formatted_content || %{},
+          rich_content,
           entry.attachments || [],
-          entry.links || []
+          entry.links || [],
+          entry.author || %{},
+          entry.mentions || [],
+          metadata,
+          provider_thread_id
         ]),
       ai_message_id: outbox.ai_message_id || entry.ai_message_id,
       last_seen_at: now
@@ -1154,22 +1562,17 @@ defmodule Ankole.SignalsGateway.Outbox do
   defp final_reply_insert_attrs(%OutboxEntry{} = outbox, result, now) do
     metadata = final_reply_entry_metadata(%{}, outbox)
     author = %{"agent_uid" => outbox.agent_uid}
-
-    metadata_text =
-      Projection.entry_metadata_text(%{
-        author: author,
-        metadata: metadata,
-        channel_name: nil
-      })
-
     text = outbox.fallback_visible_text
+
+    rich_content =
+      Projection.rich_content(text, fetch_map(outbox.payload, :formatted_content, %{}))
 
     %{
       signal_channel_id: outbox.signal_channel_id,
       source_entry_id: outbox.target_source_entry_id,
+      provider_thread_id: outbox.provider_thread_id,
       text: text,
-      fallback_visible_text: text,
-      formatted_content: %{},
+      rich_content: rich_content,
       attachments: [],
       links: [],
       author: author,
@@ -1178,9 +1581,17 @@ defmodule Ankole.SignalsGateway.Outbox do
       raw_payload: fetch_map(result, :raw_payload, %{}),
       document_id:
         Projection.entry_document_id(outbox.signal_channel_id, outbox.target_source_entry_id),
-      search_text: text,
-      metadata_text: metadata_text,
-      content_hash: Projection.entry_content_hash([text, metadata_text, %{}, [], []]),
+      content_hash:
+        Projection.entry_content_hash([
+          text,
+          rich_content,
+          [],
+          [],
+          author,
+          [],
+          metadata,
+          outbox.provider_thread_id
+        ]),
       first_seen_at: now,
       last_seen_at: now,
       ai_message_id: outbox.ai_message_id

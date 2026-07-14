@@ -38,13 +38,21 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnNoopCompletionTest do
                  }
                })
 
-      assert {:ok, %{status: :noop_completed, deleted_deliveries: 1}} =
+      assert {:ok,
+              %{
+                status: :noop_completed,
+                deleted_deliveries: 1,
+                activation: %ActorSessionActivation{} = activation
+              }} =
                ActorRuntime.handle_turn_noop_completed(%{
                  "turn_noop_completed" => %{
                    "turn" => turn_ref,
                    "reason" => "ambient_silent"
                  }
                })
+
+      assert activation.status == "active"
+      assert is_nil(activation.current_actor_event_id)
 
       assert %DateTime{} = Repo.get!(ActorEvent, input.id).completed_at
 

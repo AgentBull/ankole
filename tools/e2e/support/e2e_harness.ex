@@ -135,7 +135,9 @@ defmodule Ankole.E2E.Harness do
       )
 
     {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
-    old_env = Application.fetch_env(:ankole, Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker)
+
+    old_env =
+      Application.fetch_env(:ankole, Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker)
 
     # The Docker worker cannot reach the host's localhost; the broker setting
     # points it at the real Phoenix endpoint exposed on the Docker host gateway.
@@ -146,10 +148,17 @@ defmodule Ankole.E2E.Harness do
     on_exit(fn ->
       case old_env do
         {:ok, value} ->
-          Application.put_env(:ankole, Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker, value)
+          Application.put_env(
+            :ankole,
+            Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker,
+            value
+          )
 
         :error ->
-          Application.delete_env(:ankole, Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker)
+          Application.delete_env(
+            :ankole,
+            Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker
+          )
       end
     end)
   end
@@ -792,9 +801,7 @@ defmodule Ankole.E2E.Harness do
   defp assert_platform_target(message, :reply, target), do: assert(message.reply_to == target)
   defp assert_platform_target(message, :post, chat_id), do: assert(message.chat_id == chat_id)
 
-  defp final_reply_text(%Entry{text: text, fallback_visible_text: fallback}) do
-    text || fallback || ""
-  end
+  defp final_reply_text(%Entry{text: text}), do: text || ""
 
   # -- AI message (Responses) tool-result surface -------------------------------
 

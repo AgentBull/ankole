@@ -384,7 +384,7 @@ defmodule Ankole.Kernel do
 
   `host_class` drives the shared web tools URL policy: `:metadata` hosts are
   cloud credential endpoints Ankole always rejects, `:private` hosts are
-  rejected only when `web_tools.block_private_network` is enabled, and
+  rejected only when `security.ssrf_filter` is enabled, and
   `:public` hosts are allowed. Scheme rules and policy application stay with
   the runtime callers; both Elixir and Bun consume this one classifier.
   """

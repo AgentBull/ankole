@@ -18,13 +18,13 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.ZaiCodingPlan do
 
   provider "zai_coding_plan" do
     label(%{"default" => "Z.AI Coding Plan", "zh-Hans-CN" => "Z.AI Coding Plan"})
-    base_url(@global_base_url)
+    base_url(@global_base_url, advanced: true)
 
     setting(:api_key, encrypted: true)
     setting(:china_server, type: :boolean, default: false)
-    setting(:user_agent, default: @default_user_agent)
-    setting(:headers, type: :map)
-    setting(:query_params, type: :map)
+    setting(:user_agent, default: @default_user_agent, advanced: true)
+    setting(:headers, type: :map, advanced: true)
+    setting(:query_params, type: :map, advanced: true)
 
     setting(:user, scope: :request)
     setting(:thinking, type: :map, scope: :request)

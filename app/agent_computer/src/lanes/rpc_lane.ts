@@ -201,14 +201,8 @@ export type AgentConversationContext = {
 }
 
 export type RuntimeBrainSnapshotEntry = {
-  entry_id: string
-  name: string
-  markdown: string
+  resident_text: string
   truncated: boolean
-  store?: string
-  type?: string
-  lock_version?: number
-  estimated_tokens?: number
 }
 
 export type RuntimeBrainSnapshot = {
