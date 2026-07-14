@@ -11,6 +11,7 @@ import { WorkerFilesPage, WorkersListPage } from './pages/workers'
 import { DelegationsPage } from './pages/delegations'
 import {
   BrainAuditPage,
+  BrainDreamingPage,
   BrainEntriesPage,
   BrainEntryAuditPage,
   BrainEntryCreatePage,
@@ -60,6 +61,7 @@ const router = createBrowserRouter(
         { path: 'brain', element: <BrainEntriesPage /> },
         { path: 'brain/new', element: <BrainEntryCreatePage /> },
         { path: 'brain/audit', element: <BrainAuditPage /> },
+        { path: 'brain/dreaming', element: <BrainDreamingPage /> },
         { path: 'brain/audit/:id', element: <BrainEntryAuditPage /> },
         { path: 'brain/:id', element: <BrainEntryEditorPage /> },
         { path: 'brain/sources/:documentID', element: <BrainSourcePage /> },

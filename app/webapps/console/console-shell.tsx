@@ -8,6 +8,10 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   Empty,
   EmptyDescription,
   EmptyHeader,
@@ -19,6 +23,13 @@ import {
   FieldLabel,
   Input,
   Skeleton,
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
   Table,
   TableBody,
   TableCell,
@@ -26,18 +37,31 @@ import {
   TableHeader,
   TableRow,
   Textarea,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+  Badge,
   cn
 } from '@ankole/uikit'
 import {
   RiArrowLeftLine,
+  RiCheckboxCircleLine,
+  RiCloseLine,
   RiDeleteBin6Line,
+  RiErrorWarningLine,
   RiEyeLine,
   RiEyeOffLine,
+  RiInformationLine,
   RiInboxLine,
   RiLoaderLine,
   RiLogoutBoxRLine,
+  RiMenuLine,
+  RiMore2Fill,
+  RiPencilLine,
   RiRefreshLine,
   RiRobot2Line,
+  RiSearchLine,
   RiSettings3Line,
   RiSparkling2Line,
   RiBroadcastLine,
@@ -48,9 +72,10 @@ import {
   RiTerminalBoxLine
 } from '@remixicon/react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useState, type ComponentProps, type ComponentType, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useState, type ComponentProps, type ComponentType, type FormEvent, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, NavLink, Outlet } from 'react-router'
+import { ThemeToggle } from '../common/theme-toggle'
 import { logoutConsoleSession } from './api/tokens'
 import { ErrorBlock } from './console-primitives'
 
@@ -85,75 +110,115 @@ const NAV_ITEMS: NavItem[] = [
 /** Routed console frame: header, sidebar navigation, and the active page outlet. */
 export function ConsoleLayout() {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
+  const [navigationOpen, setNavigationOpen] = useState(false)
   const logout = useMutation({
     mutationFn: logoutConsoleSession,
     onSettled: () => window.location.assign('/sessions/new')
   })
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-border bg-background/95 px-4 backdrop-blur">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="grid size-9 place-items-center border border-border bg-muted">
-            <RiSettings3Line className="size-4" aria-hidden />
+    <TooltipProvider>
+      <div className="min-h-screen bg-background text-foreground">
+        <header className="sticky top-0 z-30 flex h-12 items-center justify-between border-b border-border bg-background px-3 text-foreground">
+          <div className="flex min-w-0 items-center gap-3">
+            <Sheet open={navigationOpen} onOpenChange={setNavigationOpen}>
+              <SheetTrigger
+                render={
+                  <Button aria-label={t('console.aria.open_navigation')} size="icon-sm" type="button" variant="ghost" />
+                }
+                className="hover:bg-accent hover:text-accent-foreground lg:hidden">
+                <RiMenuLine />
+              </SheetTrigger>
+              <SheetContent
+                side="left"
+                showCloseButton={false}
+                className="w-[min(320px,88vw)] border-border bg-background p-0 text-foreground">
+                <SheetHeader className="flex-row items-center justify-between border-b border-border p-3">
+                  <div className="grid min-w-0 gap-0.5">
+                    <SheetTitle className="truncate text-base text-foreground">{t('console.title')}</SheetTitle>
+                    <SheetDescription className="truncate text-muted-foreground">
+                      {t('console.control_plane')}
+                    </SheetDescription>
+                  </div>
+                  <SheetClose
+                    render={<Button aria-label={t('common.close')} size="icon-sm" type="button" variant="ghost" />}
+                    className="hover:bg-accent hover:text-accent-foreground">
+                    <RiCloseLine />
+                  </SheetClose>
+                </SheetHeader>
+                <ConsoleNavigation onNavigate={() => setNavigationOpen(false)} />
+              </SheetContent>
+            </Sheet>
+            <div className="grid size-8 place-items-center bg-primary text-primary-foreground">
+              <RiSettings3Line className="size-4" aria-hidden />
+            </div>
+            <div className="min-w-0">
+              <h1 className="truncate text-sm font-semibold tracking-normal text-foreground">{t('console.title')}</h1>
+              <p className="hidden truncate text-xs text-muted-foreground sm:block">{t('console.control_plane')}</p>
+            </div>
           </div>
-          <div className="min-w-0">
-            <h1 className="truncate text-base font-semibold tracking-normal">{t('console.title')}</h1>
-            <p className="truncate text-xs text-muted-foreground">{t('console.control_plane')}</p>
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    aria-label={t('console.aria.sign_out')}
+                    disabled={logout.isPending}
+                    size="icon-sm"
+                    type="button"
+                    variant="ghost"
+                  />
+                }
+                className="hover:bg-accent hover:text-accent-foreground"
+                onClick={() => logout.mutate()}>
+                <RiLogoutBoxRLine />
+              </TooltipTrigger>
+              <TooltipContent>{t('console.aria.sign_out')}</TooltipContent>
+            </Tooltip>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            aria-label={t('console.aria.refresh')}
-            size="icon-sm"
-            type="button"
-            variant="outline"
-            onClick={() => void queryClient.invalidateQueries()}>
-            <RiRefreshLine />
-          </Button>
-          <Button
-            aria-label={t('console.aria.sign_out')}
-            disabled={logout.isPending}
-            size="icon-sm"
-            type="button"
-            variant="ghost"
-            onClick={() => logout.mutate()}>
-            <RiLogoutBoxRLine />
-          </Button>
-        </div>
-      </header>
+        </header>
 
-      <div className="grid min-h-[calc(100vh-3.5rem)] grid-cols-1 lg:grid-cols-[248px_minmax(0,1fr)]">
-        <aside className="border-b border-border bg-muted/35 p-3 lg:border-r lg:border-b-0">
-          <nav className="grid gap-1" aria-label={t('console.aria.sections')}>
-            {NAV_ITEMS.map(item => {
-              const Icon = item.icon
-              return (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  className={({ isActive }) =>
-                    cn(
-                      'flex h-10 items-center gap-3 border px-3 text-left text-sm transition-colors',
-                      isActive
-                        ? 'border-primary bg-primary text-primary-foreground'
-                        : 'border-transparent text-muted-foreground hover:border-border hover:bg-background hover:text-foreground'
-                    )
-                  }>
-                  <Icon className="size-4" aria-hidden />
-                  <span className="truncate">{t(item.label)}</span>
-                </NavLink>
-              )
-            })}
-          </nav>
-        </aside>
+        <div className="grid min-h-[calc(100vh-3rem)] lg:grid-cols-[256px_minmax(0,1fr)]">
+          <aside className="sticky top-12 hidden h-[calc(100vh-3rem)] overflow-y-auto border-r border-border bg-background lg:block">
+            <ConsoleNavigation />
+          </aside>
 
-        <main className="min-w-0 p-4 md:p-6 lg:p-8">
-          <Outlet />
-        </main>
+          <main className="min-w-0 p-4 md:p-6 xl:p-8">
+            <Outlet />
+          </main>
+        </div>
       </div>
-    </div>
+    </TooltipProvider>
+  )
+}
+
+function ConsoleNavigation({ onNavigate }: { onNavigate?: () => void }) {
+  const { t } = useTranslation()
+
+  return (
+    <nav className="grid gap-0.5 p-3" aria-label={t('console.aria.sections')}>
+      {NAV_ITEMS.map(item => {
+        const Icon = item.icon
+        return (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            onClick={onNavigate}
+            className={({ isActive }) =>
+              cn(
+                'flex min-h-10 items-center gap-3 border-l-4 px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+                isActive
+                  ? 'border-primary bg-accent text-accent-foreground'
+                  : 'border-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+              )
+            }>
+            <Icon className="size-4 shrink-0" aria-hidden />
+            <span className="truncate">{t(item.label)}</span>
+          </NavLink>
+        )
+      })}
+    </nav>
   )
 }
 
@@ -168,10 +233,12 @@ export function ResourceListPage({
   createLabel,
   createTo,
   description,
+  emptyAction,
   emptyDescription,
   emptyTitle,
   error,
   footer,
+  isFiltered = false,
   isEmpty,
   isLoading,
   title,
@@ -182,52 +249,68 @@ export function ResourceListPage({
   createLabel?: string
   createTo?: string
   description?: string
+  emptyAction?: ReactNode
   emptyDescription?: string
   emptyTitle?: string
   error?: unknown
   footer?: ReactNode
+  isFiltered?: boolean
   isEmpty: boolean
   isLoading: boolean
   title: string
   toolbar?: ReactNode
 }) {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const hasError = Boolean(error)
 
   return (
-    <div className="grid gap-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="grid gap-1">
-          <h2 className="text-2xl font-semibold tracking-normal">{title}</h2>
-          {description ? <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{description}</p> : null}
-        </div>
-        {createTo ? (
-          <Link to={createTo} className={cn(buttonVariants({ size: 'sm' }))}>
-            {createLabel ?? t('common.new')}
-          </Link>
-        ) : null}
-      </div>
+    <div className="grid min-w-0 gap-5">
+      <PageHeader
+        title={title}
+        description={description}
+        actions={
+          <>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button aria-label={t('console.aria.refresh')} size="icon-sm" type="button" variant="outline" />
+                }
+                onClick={() => void queryClient.refetchQueries({ type: 'active' })}>
+                <RiRefreshLine />
+              </TooltipTrigger>
+              <TooltipContent>{t('console.aria.refresh')}</TooltipContent>
+            </Tooltip>
+            {createTo ? (
+              <Link to={createTo} className={cn(buttonVariants({ size: 'sm' }))}>
+                {createLabel ?? t('common.new')}
+              </Link>
+            ) : null}
+          </>
+        }
+      />
 
       {toolbar}
       <ErrorBlock error={error} />
 
-      {isEmpty && !isLoading ? (
-        <Empty className="border border-border bg-card">
-          <EmptyHeader>
+      {!hasError && isEmpty && !isLoading ? (
+        <Empty className="items-start border border-border bg-card text-left">
+          <EmptyHeader className="items-start">
             <EmptyMedia variant="icon">
               <RiInboxLine />
             </EmptyMedia>
-            <EmptyTitle>{emptyTitle ?? t('console.empty.title')}</EmptyTitle>
-            {emptyDescription ? <EmptyDescription>{emptyDescription}</EmptyDescription> : null}
+            <EmptyTitle>
+              {isFiltered ? t('console.empty.no_results_title') : (emptyTitle ?? t('console.empty.title'))}
+            </EmptyTitle>
+            <EmptyDescription>
+              {isFiltered ? t('console.empty.no_results_description') : emptyDescription}
+            </EmptyDescription>
           </EmptyHeader>
-          {createTo ? (
-            <Link to={createTo} className={cn(buttonVariants({ size: 'sm' }))}>
-              {createLabel ?? t('common.new')}
-            </Link>
-          ) : null}
+          {emptyAction}
         </Empty>
-      ) : (
-        <div className="overflow-hidden border border-border bg-card">
-          <Table>
+      ) : !hasError ? (
+        <div className="overflow-x-auto border border-border bg-card">
+          <Table className="min-w-[720px]" aria-busy={isLoading}>
             <TableHeader>
               <TableRow>
                 {columns.map(column => (
@@ -255,8 +338,70 @@ export function ResourceListPage({
             </TableBody>
           </Table>
         </div>
-      )}
+      ) : null}
       {footer}
+    </div>
+  )
+}
+
+export function ResourceSearch({
+  label,
+  onChange,
+  placeholder,
+  value
+}: {
+  label: string
+  onChange: (value: string) => void
+  placeholder?: string
+  value: string
+}) {
+  const { t } = useTranslation()
+
+  return (
+    <div className="flex min-h-14 min-w-0 items-center border border-border bg-card p-2">
+      <div className="relative w-full max-w-xl">
+        <RiSearchLine
+          className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+          aria-hidden
+        />
+        <Input
+          aria-label={label}
+          className="pr-10 pl-10"
+          placeholder={placeholder ?? label}
+          type="search"
+          value={value}
+          onChange={event => onChange(event.target.value)}
+        />
+        {value ? (
+          <button
+            aria-label={t('console.empty.clear_search')}
+            className="absolute inset-y-0 right-0 grid w-10 place-items-center text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+            type="button"
+            onClick={() => onChange('')}>
+            <RiCloseLine />
+          </button>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+export function PageHeader({
+  actions,
+  description,
+  title
+}: {
+  actions?: ReactNode
+  description?: string
+  title: string
+}) {
+  return (
+    <div className="flex min-w-0 flex-wrap items-end justify-between gap-4 border-b border-border pb-5">
+      <div className="grid min-w-0 gap-1">
+        <h2 className="text-2xl font-semibold tracking-normal text-foreground">{title}</h2>
+        {description ? <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{description}</p> : null}
+      </div>
+      {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
     </div>
   )
 }
@@ -275,19 +420,63 @@ export function RowActions({
   editTo: string
   onDelete?: () => void
 }) {
+  const { t } = useTranslation()
+  const [confirmOpen, setConfirmOpen] = useState(false)
+
   return (
-    <TableCell className="text-right">
-      <div className="flex items-center justify-end gap-1">
-        <Link
-          to={editTo}
-          onClick={event => event.stopPropagation()}
-          className={cn(buttonVariants({ size: 'xs', variant: 'ghost' }))}>
-          {editLabel}
-        </Link>
-        {onDelete && deleteConfirm ? (
-          <ConfirmDeleteButton confirm={deleteConfirm} pending={deletePending} onConfirm={onDelete} />
-        ) : null}
-      </div>
+    <TableCell className="w-12 text-right" onClick={event => event.stopPropagation()}>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button
+              aria-label={t('common.more_actions')}
+              title={t('common.more_actions')}
+              size="icon-sm"
+              type="button"
+              variant="ghost"
+            />
+          }>
+          <RiMore2Fill />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuItem render={<Link to={editTo} />}>
+            <RiPencilLine />
+            {editLabel}
+          </DropdownMenuItem>
+          {onDelete && deleteConfirm ? (
+            <DropdownMenuItem variant="destructive" disabled={deletePending} onClick={() => setConfirmOpen(true)}>
+              <RiDeleteBin6Line />
+              {deleteConfirm.confirmLabel}
+            </DropdownMenuItem>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {onDelete && deleteConfirm ? (
+        <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{deleteConfirm.title}</DialogTitle>
+              {deleteConfirm.description ? <DialogDescription>{deleteConfirm.description}</DialogDescription> : null}
+            </DialogHeader>
+            <DialogFooter>
+              <DialogClose className={cn(buttonVariants({ size: 'sm', variant: 'ghost' }))}>
+                {t('common.cancel')}
+              </DialogClose>
+              <Button
+                disabled={deletePending}
+                size="sm"
+                type="button"
+                variant="destructive"
+                onClick={() => {
+                  setConfirmOpen(false)
+                  onDelete()
+                }}>
+                {deleteConfirm.confirmLabel}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      ) : null}
     </TableCell>
   )
 }
@@ -304,6 +493,7 @@ export function ResourceEditorPage({
   error,
   onSubmit,
   secondary,
+  supplementary,
   submitLabel,
   submitting,
   title
@@ -314,6 +504,7 @@ export function ResourceEditorPage({
   error?: unknown
   onSubmit: () => void
   secondary?: ReactNode
+  supplementary?: ReactNode
   submitLabel?: string
   submitting?: boolean
   title: string
@@ -326,7 +517,7 @@ export function ResourceEditorPage({
   }
 
   return (
-    <div className="mx-auto grid max-w-3xl gap-6">
+    <div className="mx-auto grid max-w-4xl gap-6">
       <div className="grid gap-3">
         <Link
           to={backTo}
@@ -356,6 +547,7 @@ export function ResourceEditorPage({
           </Link>
         </div>
       </form>
+      {supplementary}
     </div>
   )
 }
@@ -394,6 +586,17 @@ export function SecretInput({ className, ...props }: ComponentProps<typeof Input
   const { t } = useTranslation()
   const [revealed, setRevealed] = useState(false)
 
+  useEffect(() => {
+    if (!revealed) return
+    const remask = () => setRevealed(false)
+    const timeout = window.setTimeout(remask, 30_000)
+    window.addEventListener('blur', remask)
+    return () => {
+      window.clearTimeout(timeout)
+      window.removeEventListener('blur', remask)
+    }
+  }, [revealed])
+
   return (
     <div className="relative">
       <Input
@@ -405,13 +608,59 @@ export function SecretInput({ className, ...props }: ComponentProps<typeof Input
       />
       <button
         aria-label={revealed ? t('console.aria.hide_secret') : t('console.aria.reveal_secret')}
-        className="absolute inset-y-0 right-0 grid w-10 place-items-center text-muted-foreground hover:text-foreground"
-        tabIndex={-1}
+        className="absolute inset-y-0 right-0 grid w-10 place-items-center text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        title={revealed ? t('console.aria.hide_secret') : t('console.aria.reveal_secret')}
         type="button"
         onClick={() => setRevealed(current => !current)}>
         {revealed ? <RiEyeOffLine className="size-4" /> : <RiEyeLine className="size-4" />}
       </button>
     </div>
+  )
+}
+
+/** Readable, selectable presentation for values that are immutable in this editor. */
+export function ReadOnlyValue({ children, mono = false }: { children: ReactNode; mono?: boolean }) {
+  return (
+    <div
+      className={cn(
+        'min-h-10 border-b border-input bg-background px-4 py-2 text-sm leading-6 text-foreground',
+        mono && 'font-mono text-xs'
+      )}>
+      {children === null || children === undefined || children === '' ? '—' : children}
+    </div>
+  )
+}
+
+/** Semantic status treatment. Brand color stays reserved for selection and primary actions. */
+export function StatusIndicator({
+  children,
+  tone = 'neutral'
+}: {
+  children: ReactNode
+  tone?: 'danger' | 'info' | 'neutral' | 'positive' | 'warning'
+}) {
+  const Icon =
+    tone === 'positive'
+      ? RiCheckboxCircleLine
+      : tone === 'danger' || tone === 'warning'
+        ? RiErrorWarningLine
+        : RiInformationLine
+  const variant =
+    tone === 'positive'
+      ? 'success'
+      : tone === 'danger'
+        ? 'destructive'
+        : tone === 'warning'
+          ? 'warning'
+          : tone === 'info'
+            ? 'info'
+            : 'secondary'
+
+  return (
+    <Badge variant={variant}>
+      <Icon aria-hidden />
+      {children}
+    </Badge>
   )
 }
 
@@ -462,6 +711,7 @@ export function ConfirmDeleteButton({
     <Dialog open={open} onOpenChange={setOpen}>
       <Button
         aria-label={confirm.confirmLabel}
+        title={confirm.confirmLabel}
         disabled={pending}
         size="icon-xs"
         type="button"

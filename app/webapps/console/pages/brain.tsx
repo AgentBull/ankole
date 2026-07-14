@@ -2,6 +2,9 @@ import {
   Badge,
   Button,
   Checkbox,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
   Card,
   CardContent,
   CardDescription,
@@ -23,13 +26,19 @@ import {
   TabsList,
   TabsTrigger,
   Textarea,
-  buttonVariants,
   cn,
   toast
 } from '@ankole/uikit'
-import { RiExternalLinkLine, RiHistoryLine, RiRefreshLine, RiSparkling2Line } from '@remixicon/react'
+import {
+  RiArrowDownSLine,
+  RiExternalLinkLine,
+  RiFilter3Line,
+  RiHistoryLine,
+  RiRefreshLine,
+  RiSparkling2Line
+} from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { requestErrorMessage } from '../../common/request-errors'
@@ -48,7 +57,16 @@ import {
 } from '../api/generated/@tanstack/react-query.gen'
 import type { BrainAuditLog, BrainDreamingFitnessRun, BrainEntryOperation } from '../api/generated/types.gen'
 import { ErrorBlock, formatJSON, parseObjectDraft } from '../console-primitives'
-import { ConfirmDeleteButton, LabeledField, ResourceEditorPage, ResourceListPage } from '../console-shell'
+import {
+  ConfirmDeleteButton,
+  LabeledField,
+  PageHeader,
+  ReadOnlyValue,
+  ResourceEditorPage,
+  ResourceListPage,
+  RowActions,
+  StatusIndicator
+} from '../console-shell'
 import { BlocksEditor, MetadataEditor, RelationsEditor } from './brain-entry-editors'
 import {
   brainCursorPage,
@@ -79,7 +97,6 @@ const RESTORABLE_AUDIT_ACTIONS = new Set([
 
 export function BrainEntriesPage() {
   const { t } = useTranslation()
-  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const agents = useQuery(ankoleWebAgentControllerIndexOptions())
   const ownerUID = searchParams.get('owner') ?? agents.data?.agents[0]?.uid ?? ''
@@ -89,12 +106,8 @@ export function BrainEntriesPage() {
   const author = searchParams.get('author') ?? ''
   const updated = searchParams.get('updated') ?? ''
   const cursor = searchParams.get('cursor') ?? ''
-  const [dreamingOwnerUID, setDreamingOwnerUID] = useState('')
-  const runDreaming = useMutation({
-    ...ankoleWebBrainControllerRunDreamingMutation(),
-    onSuccess: data => toast.success(t('console.brain.dreaming_finished', { status: data.run.status })),
-    onError: error => toast.error(requestErrorMessage(error))
-  })
+  const advancedFilterCount = [entryType, store, author, updated].filter(Boolean).length
+  const isFiltered = Boolean(query || advancedFilterCount)
   const list = useQuery({
     ...ankoleWebBrainControllerIndexOptions({
       query: {
@@ -123,6 +136,18 @@ export function BrainEntriesPage() {
     setSearchParams(setBrainFilter(searchParams, key, value), { replace: true })
   }
 
+  const clearFilters = () => {
+    const next = new URLSearchParams()
+    if (ownerUID) next.set('owner', ownerUID)
+    setSearchParams(next, { replace: true })
+  }
+
+  const clearAdvancedFilters = () => {
+    const next = new URLSearchParams(searchParams)
+    for (const key of ['type', 'store', 'author', 'updated', 'cursor']) next.delete(key)
+    setSearchParams(next, { replace: true })
+  }
+
   return (
     <ResourceListPage
       title={t('console.brain.title')}
@@ -140,99 +165,77 @@ export function BrainEntriesPage() {
       isEmpty={entries.length === 0}
       emptyTitle={t('console.brain.empty_title')}
       emptyDescription={t('console.brain.empty_description')}
-      error={list.error ?? agents.error ?? runDreaming.error}
+      emptyAction={
+        isFiltered ? (
+          <Button type="button" size="sm" variant="outline" onClick={clearFilters}>
+            {t('console.brain.clear_filters')}
+          </Button>
+        ) : undefined
+      }
+      isFiltered={isFiltered}
+      error={list.error ?? agents.error}
       toolbar={
-        <div className="grid gap-4 border border-border bg-card p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="text-sm text-muted-foreground">
-              {runDreaming.data && dreamingOwnerUID === ownerUID
-                ? t('console.brain.dreaming_result', {
-                    status: runDreaming.data.run.status,
-                    materials: runDreaming.data.run.material_count ?? 0,
-                    operations: runDreaming.data.run.operation_count ?? 0
-                  })
-                : t('console.brain.dreaming_description')}
+        <div className="grid gap-4">
+          <BrainTaskNavigation active="entries" ownerUID={ownerUID} store={store || undefined} />
+          <div className="grid gap-4 border border-border bg-card p-4">
+            <div className="grid gap-3 md:grid-cols-2">
+              <LabeledField label={t('console.brain.search')}>
+                <Input
+                  type="search"
+                  value={query}
+                  placeholder={t('console.brain.search_placeholder')}
+                  onChange={event => setFilter('q', event.target.value)}
+                />
+              </LabeledField>
+              <OwnerField
+                id="brain-owner-uids"
+                ownerUID={ownerUID}
+                agents={agents.data?.agents ?? []}
+                onChange={value => setFilter('owner', value)}
+              />
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Link
-                to={`audit?${brainSearch(ownerUID, store || undefined)}`}
-                className={cn(buttonVariants({ size: 'sm', variant: 'outline' }))}>
-                <RiHistoryLine />
-                {t('console.brain.open_audit')}
-              </Link>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={!ownerUID || runDreaming.isPending}
-                onClick={() => {
-                  runDreaming.reset()
-                  setDreamingOwnerUID(ownerUID)
-                  runDreaming.mutate({ query: { owner_uid: ownerUID } })
-                }}>
-                <RiSparkling2Line />
-                {runDreaming.isPending && dreamingOwnerUID === ownerUID
-                  ? t('console.brain.dreaming_running')
-                  : t('console.brain.run_dreaming')}
-              </Button>
-            </div>
+            <FilterDisclosure count={advancedFilterCount} onClear={clearAdvancedFilters}>
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <LabeledField label={t('console.brain.type')}>
+                  <Input value={entryType} onChange={event => setFilter('type', event.target.value)} />
+                </LabeledField>
+                <LabeledField label={t('console.brain.store')}>
+                  <Input
+                    value={store}
+                    placeholder="public"
+                    onChange={event => setFilter('store', event.target.value)}
+                  />
+                </LabeledField>
+                <LabeledField label={t('console.brain.author')}>
+                  <Input
+                    value={author}
+                    placeholder={t('console.brain.author_placeholder')}
+                    onChange={event => setFilter('author', event.target.value)}
+                  />
+                </LabeledField>
+                <LabeledField label={t('console.brain.updated_after')}>
+                  <Input type="date" value={updated} onChange={event => setFilter('updated', event.target.value)} />
+                </LabeledField>
+              </div>
+            </FilterDisclosure>
+            <CursorPagination
+              page={brainCursorPage(searchParams)}
+              hasPrevious={canReturnBrainCursor(searchParams)}
+              nextCursor={list.data?.next_cursor}
+              resultCount={entries.length}
+              onPrevious={() => setSearchParams(previousBrainCursor(searchParams))}
+              onNext={nextCursor => setSearchParams(nextBrainCursor(searchParams, nextCursor))}
+            />
           </div>
-          <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
-            <LabeledField label={t('console.brain.search')}>
-              <Input
-                value={query}
-                placeholder={t('console.brain.search_placeholder')}
-                onChange={event => setFilter('q', event.target.value)}
-              />
-            </LabeledField>
-            <LabeledField label={t('console.brain.owner')}>
-              <Input
-                list="brain-owner-uids"
-                value={ownerUID}
-                placeholder={t('console.brain.owner_placeholder')}
-                onChange={event => setFilter('owner', event.target.value)}
-              />
-              <datalist id="brain-owner-uids">
-                {(agents.data?.agents ?? []).map(agent => (
-                  <option key={agent.uid} value={agent.uid}>
-                    {agent.display_name || agent.uid}
-                  </option>
-                ))}
-              </datalist>
-            </LabeledField>
-            <LabeledField label={t('console.brain.type')}>
-              <Input value={entryType} onChange={event => setFilter('type', event.target.value)} />
-            </LabeledField>
-            <LabeledField label={t('console.brain.store')}>
-              <Input value={store} placeholder="public" onChange={event => setFilter('store', event.target.value)} />
-            </LabeledField>
-            <LabeledField label={t('console.brain.author')}>
-              <Input
-                value={author}
-                placeholder={t('console.brain.author_placeholder')}
-                onChange={event => setFilter('author', event.target.value)}
-              />
-            </LabeledField>
-            <LabeledField label={t('console.brain.updated_after')}>
-              <Input type="date" value={updated} onChange={event => setFilter('updated', event.target.value)} />
-            </LabeledField>
-          </div>
-          <CursorPagination
-            page={brainCursorPage(searchParams)}
-            hasPrevious={canReturnBrainCursor(searchParams)}
-            nextCursor={list.data?.next_cursor}
-            resultCount={entries.length}
-            onPrevious={() => setSearchParams(previousBrainCursor(searchParams))}
-            onNext={nextCursor => setSearchParams(nextBrainCursor(searchParams, nextCursor))}
-          />
         </div>
       }>
       {entries.map(entry => (
-        <TableRow
-          key={entry.id}
-          className="cursor-pointer"
-          onClick={() => navigate(`${entry.id}?${brainSearch(ownerUID, entry.store_key)}`)}>
-          <TableCell className="font-medium">{entry.name}</TableCell>
+        <TableRow key={entry.id}>
+          <TableCell className="font-medium">
+            <Link to={`${entry.id}?${brainSearch(ownerUID, entry.store_key)}`} className="text-primary hover:underline">
+              {entry.name}
+            </Link>
+          </TableCell>
           <TableCell>
             <Badge variant="secondary">{entry.type}</Badge>
           </TableCell>
@@ -241,14 +244,7 @@ export function BrainEntriesPage() {
           <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
             {formatDate(entry.updated_at)}
           </TableCell>
-          <TableCell className="text-right">
-            <Link
-              to={`${entry.id}?${brainSearch(ownerUID, entry.store_key)}`}
-              onClick={event => event.stopPropagation()}
-              className="text-sm text-primary hover:underline">
-              {t('common.edit')}
-            </Link>
-          </TableCell>
+          <RowActions editLabel={t('common.edit')} editTo={`${entry.id}?${brainSearch(ownerUID, entry.store_key)}`} />
         </TableRow>
       ))}
     </ResourceListPage>
@@ -299,6 +295,7 @@ export function BrainAuditPage() {
   const rows = audit.data?.audit_log ?? []
   const restorableRows = rows.filter(row => RESTORABLE_AUDIT_ACTIONS.has(row.action))
   const allPageSelected = restorableRows.length > 0 && restorableRows.every(row => selectedIDs.has(row.id))
+  const advancedFilterCount = [store, action, actor, runID, insertedAfter, insertedBefore].filter(Boolean).length
 
   useEffect(() => {
     if (searchParams.has('owner') || !ownerUID) return
@@ -310,6 +307,13 @@ export function BrainAuditPage() {
   const setFilter = (key: string, value: string) => {
     setSelectedIDs(new Set())
     setSearchParams(setBrainFilter(searchParams, key, value), { replace: true })
+  }
+
+  const clearAdvancedFilters = () => {
+    setSelectedIDs(new Set())
+    const next = new URLSearchParams(searchParams)
+    for (const key of ['store', 'action', 'actor', 'run', 'after', 'before', 'cursor']) next.delete(key)
+    setSearchParams(next, { replace: true })
   }
 
   const toggleRow = (id: string, selected: boolean) => {
@@ -334,80 +338,69 @@ export function BrainAuditPage() {
 
   return (
     <div className="grid gap-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="grid gap-1">
-          <Link
-            to={`/brain?${brainSearch(ownerUID, store || undefined)}`}
-            className="w-fit text-sm text-muted-foreground hover:text-foreground">
-            ← {t('common.back')}
-          </Link>
-          <h2 className="text-2xl font-semibold">{t('console.brain.audit_title')}</h2>
-          <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{t('console.brain.audit_description')}</p>
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          disabled={selectedIDs.size === 0 || restore.isPending}
-          onClick={() => setConfirmOpen(true)}>
-          <RiRefreshLine />
-          {t('console.brain.restore_selected', { count: selectedIDs.size })}
-        </Button>
-      </div>
-
-      <DreamingFitnessCard ownerUID={ownerUID} onSelectRun={runID => setFilter('run', runID)} />
+      <PageHeader
+        title={t('console.brain.audit_title')}
+        description={t('console.brain.audit_description')}
+        actions={
+          <Button
+            type="button"
+            variant="outline"
+            disabled={selectedIDs.size === 0 || restore.isPending}
+            onClick={() => setConfirmOpen(true)}>
+            <RiRefreshLine />
+            {t('console.brain.restore_selected', { count: selectedIDs.size })}
+          </Button>
+        }
+      />
+      <BrainTaskNavigation active="audit" ownerUID={ownerUID} store={store || undefined} />
 
       <div className="grid gap-4 border border-border bg-card p-4">
-        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-4">
-          <LabeledField label={t('console.brain.owner')}>
-            <Input
-              list="brain-audit-owner-uids"
-              value={ownerUID}
-              placeholder={t('console.brain.owner_placeholder')}
-              onChange={event => setFilter('owner', event.target.value)}
-            />
-            <datalist id="brain-audit-owner-uids">
-              {(agents.data?.agents ?? []).map(agent => (
-                <option key={agent.uid} value={agent.uid}>
-                  {agent.display_name || agent.uid}
-                </option>
-              ))}
-            </datalist>
-          </LabeledField>
-          <LabeledField label={t('console.brain.store')}>
-            <Input value={store} placeholder="public" onChange={event => setFilter('store', event.target.value)} />
-          </LabeledField>
-          <LabeledField label={t('console.brain.audit_action')}>
-            <Input
-              list="brain-audit-actions"
-              value={action}
-              onChange={event => setFilter('action', event.target.value)}
-            />
-            <datalist id="brain-audit-actions">
-              {[...RESTORABLE_AUDIT_ACTIONS].map(value => (
-                <option key={value} value={value} />
-              ))}
-            </datalist>
-          </LabeledField>
-          <LabeledField label={t('console.brain.audit_actor')}>
-            <Input
-              value={actor}
-              placeholder={t('console.brain.audit_actor_placeholder')}
-              onChange={event => setFilter('actor', event.target.value)}
-            />
-          </LabeledField>
-          <LabeledField label={t('console.brain.audit_run')}>
-            <Input
-              value={runID}
-              placeholder={t('console.brain.audit_run_placeholder')}
-              onChange={event => setFilter('run', event.target.value)}
-            />
-          </LabeledField>
-          <LabeledField label={t('console.brain.audit_after')}>
-            <Input type="date" value={insertedAfter} onChange={event => setFilter('after', event.target.value)} />
-          </LabeledField>
-          <LabeledField label={t('console.brain.audit_before')}>
-            <Input type="date" value={insertedBefore} onChange={event => setFilter('before', event.target.value)} />
-          </LabeledField>
+        <OwnerField
+          id="brain-audit-owner-uids"
+          ownerUID={ownerUID}
+          agents={agents.data?.agents ?? []}
+          onChange={value => setFilter('owner', value)}
+        />
+        <FilterDisclosure count={advancedFilterCount} onClear={clearAdvancedFilters}>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <LabeledField label={t('console.brain.store')}>
+              <Input value={store} placeholder="public" onChange={event => setFilter('store', event.target.value)} />
+            </LabeledField>
+            <LabeledField label={t('console.brain.audit_action')}>
+              <Input
+                list="brain-audit-actions"
+                value={action}
+                onChange={event => setFilter('action', event.target.value)}
+              />
+              <datalist id="brain-audit-actions">
+                {[...RESTORABLE_AUDIT_ACTIONS].map(value => (
+                  <option key={value} value={value} />
+                ))}
+              </datalist>
+            </LabeledField>
+            <LabeledField label={t('console.brain.audit_actor')}>
+              <Input
+                value={actor}
+                placeholder={t('console.brain.audit_actor_placeholder')}
+                onChange={event => setFilter('actor', event.target.value)}
+              />
+            </LabeledField>
+            <LabeledField label={t('console.brain.audit_run')}>
+              <Input
+                value={runID}
+                placeholder={t('console.brain.audit_run_placeholder')}
+                onChange={event => setFilter('run', event.target.value)}
+              />
+            </LabeledField>
+            <LabeledField label={t('console.brain.audit_after')}>
+              <Input type="date" value={insertedAfter} onChange={event => setFilter('after', event.target.value)} />
+            </LabeledField>
+            <LabeledField label={t('console.brain.audit_before')}>
+              <Input type="date" value={insertedBefore} onChange={event => setFilter('before', event.target.value)} />
+            </LabeledField>
+          </div>
+        </FilterDisclosure>
+        <div className="flex justify-end">
           <label className="flex items-end gap-3 pb-2 text-sm">
             <Checkbox checked={allPageSelected} onCheckedChange={checked => togglePage(checked === true)} />
             <span>{t('console.brain.select_page')}</span>
@@ -423,11 +416,11 @@ export function BrainAuditPage() {
         />
       </div>
 
-      <ErrorBlock error={audit.error ?? agents.error ?? restore.error} />
+      <ErrorBlock error={restore.error} />
       <AuditTrail
         rows={rows}
         loading={audit.isLoading || agents.isLoading}
-        error={undefined}
+        error={audit.error ?? agents.error}
         restoring={restore.isPending}
         selectedIDs={selectedIDs}
         onSelectedChange={toggleRow}
@@ -465,6 +458,93 @@ export function BrainAuditPage() {
   )
 }
 
+export function BrainDreamingPage() {
+  const { t } = useTranslation()
+  const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const agents = useQuery(ankoleWebAgentControllerIndexOptions())
+  const ownerUID = searchParams.get('owner') ?? agents.data?.agents[0]?.uid ?? ''
+  const runDreaming = useMutation({
+    ...ankoleWebBrainControllerRunDreamingMutation(),
+    onSuccess: data =>
+      toast.success(
+        t('console.brain.dreaming_finished', { status: t(`console.brain.dreaming_status_${data.run.status}`) })
+      ),
+    onError: error => toast.error(requestErrorMessage(error))
+  })
+
+  useEffect(() => {
+    if (searchParams.has('owner') || !ownerUID) return
+    const next = new URLSearchParams(searchParams)
+    next.set('owner', ownerUID)
+    setSearchParams(next, { replace: true })
+  }, [ownerUID, searchParams, setSearchParams])
+
+  const run = runDreaming.data?.run
+
+  return (
+    <div className="grid gap-6">
+      <PageHeader
+        title={t('console.brain.dreaming_title')}
+        description={t('console.brain.dreaming_description')}
+        actions={
+          <Button
+            type="button"
+            disabled={!ownerUID || runDreaming.isPending}
+            onClick={() => runDreaming.mutate({ query: { owner_uid: ownerUID } })}>
+            <RiSparkling2Line />
+            {runDreaming.isPending ? t('console.brain.dreaming_running') : t('console.brain.run_dreaming')}
+          </Button>
+        }
+      />
+      <BrainTaskNavigation active="dreaming" ownerUID={ownerUID} />
+
+      <div className="grid gap-4 border border-border bg-card p-4 md:grid-cols-2">
+        <OwnerField
+          id="brain-dreaming-owner-uids"
+          ownerUID={ownerUID}
+          agents={agents.data?.agents ?? []}
+          onChange={value => setSearchParams(setBrainFilter(searchParams, 'owner', value), { replace: true })}
+        />
+        <div className="self-end text-sm leading-6 text-muted-foreground">
+          {t('console.brain.dreaming_owner_description')}
+        </div>
+      </div>
+
+      <ErrorBlock error={agents.error ?? runDreaming.error} />
+      {run ? (
+        <Card>
+          <CardHeader>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="grid gap-1">
+                <CardTitle>{t('console.brain.dreaming_result_title')}</CardTitle>
+                <CardDescription className="break-all font-mono text-xs">{run.run_id || '—'}</CardDescription>
+              </div>
+              <StatusIndicator tone={dreamingStatusTone(run.status)}>
+                {t(`console.brain.dreaming_status_${run.status}`)}
+              </StatusIndicator>
+            </div>
+          </CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-2">
+            <FitnessStat label={t('console.brain.dreaming_materials')} value={String(run.material_count ?? 0)} />
+            <FitnessStat label={t('console.brain.dreaming_operations')} value={String(run.operation_count ?? 0)} />
+          </CardContent>
+        </Card>
+      ) : null}
+
+      <DreamingFitnessCard
+        ownerUID={ownerUID}
+        onSelectRun={runID => {
+          const next = new URLSearchParams()
+          if (ownerUID) next.set('owner', ownerUID)
+          next.set('run', runID)
+          navigate(`/brain/audit?${next.toString()}`)
+        }}
+      />
+    </div>
+  )
+}
+
 export function BrainEntryCreatePage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -483,7 +563,7 @@ export function BrainEntryCreatePage() {
     onSuccess: () => {
       toast.success(t('console.brain.created'))
       void queryClient.invalidateQueries()
-      navigate(`../?${brainSearch(ownerUID, store)}`)
+      navigate(`/brain?${brainSearch(ownerUID, store)}`)
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -521,12 +601,12 @@ export function BrainEntryCreatePage() {
     <ResourceEditorPage
       title={t('console.brain.new')}
       description={t('console.brain.new_description')}
-      backTo={`../?${brainSearch(ownerUID, store)}`}
+      backTo={`/brain?${brainSearch(ownerUID, store)}`}
       error={validationError ?? create.error}
       submitting={create.isPending}
       onSubmit={submit}>
       <LabeledField label={t('console.brain.owner')}>
-        <Input value={ownerUID} disabled />
+        <ReadOnlyValue mono>{ownerUID}</ReadOnlyValue>
       </LabeledField>
       <LabeledField label={t('console.brain.store')}>
         <Input value={store} onChange={event => setStore(event.target.value)} />
@@ -566,14 +646,16 @@ export function BrainEntryEditorPage() {
   const [activeTab, setActiveTab] = useState('edit')
   const detail = useQuery({
     ...ankoleWebBrainControllerShowOptions({ path: { id: entryID }, query: { owner_uid: ownerUID } }),
-    enabled: Boolean(entryID && ownerUID)
+    enabled: Boolean(entryID && ownerUID),
+    retry: false
   })
   const audit = useQuery({
     ...ankoleWebBrainControllerAuditLogOptions({
       path: { id: entryID },
       query: { owner_uid: ownerUID, cursor: auditCursor || undefined, limit: 50 }
     }),
-    enabled: Boolean(entryID && ownerUID && activeTab === 'audit')
+    enabled: Boolean(entryID && ownerUID && activeTab === 'audit'),
+    retry: false
   })
   const relationCandidates = useQuery({
     ...ankoleWebBrainControllerIndexOptions({ query: { owner_uid: ownerUID } }),
@@ -599,7 +681,7 @@ export function BrainEntryEditorPage() {
       toast.success(t('console.brain.restored'))
       void queryClient.invalidateQueries()
       if (restorationAction(data.restoration) === 'create_entry') {
-        navigate(`../?${brainSearch(ownerUID, entry?.store_key)}`)
+        navigate(`/brain?${brainSearch(ownerUID, entry?.store_key)}`)
       }
     },
     onError: error => toast.error(requestErrorMessage(error))
@@ -609,7 +691,7 @@ export function BrainEntryEditorPage() {
     onSuccess: () => {
       toast.success(t('console.brain.deleted'))
       void queryClient.invalidateQueries()
-      navigate(`../audit/${entryID}?${brainSearch(ownerUID, entry?.store_key)}`)
+      navigate(`/brain/audit/${entryID}?${brainSearch(ownerUID, entry?.store_key)}`)
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -659,10 +741,19 @@ export function BrainEntryEditorPage() {
   if (detail.error || !entry) {
     return (
       <div className="mx-auto grid max-w-3xl gap-4">
-        <Link to={`../?${brainSearch(ownerUID)}`} className="w-fit text-sm text-muted-foreground hover:text-foreground">
-          ← {t('common.back')}
-        </Link>
-        <ErrorBlock error={detail.error ?? t('console.brain.entry_unavailable')} />
+        <PageHeader
+          title={t('console.brain.entry_unavailable_title')}
+          description={t('console.brain.entry_unavailable')}
+        />
+        <ErrorBlock
+          title={t('console.brain.entry_unavailable_title')}
+          error={detail.error ?? t('console.brain.entry_unavailable')}
+          action={
+            <Button render={<Link to={`/brain?${brainSearch(ownerUID)}`} />} size="sm" variant="outline">
+              {t('console.brain.back_to_entries')}
+            </Button>
+          }
+        />
       </div>
     )
   }
@@ -671,7 +762,7 @@ export function BrainEntryEditorPage() {
     <ResourceEditorPage
       title={entry.name}
       description={`${entry.type} · ${entry.store_key} · ${t('console.brain.version', { count: entry.lock_version })}`}
-      backTo={`../?${brainSearch(ownerUID, entry.store_key)}`}
+      backTo={`/brain?${brainSearch(ownerUID, entry.store_key)}`}
       error={validationError ?? detail.error ?? apply.error ?? restore.error ?? deleteEntry.error}
       submitting={apply.isPending || deleteEntry.isPending}
       submitLabel={t('console.brain.save_metadata')}
@@ -787,7 +878,8 @@ export function BrainEntryAuditPage() {
       path: { id: entryID },
       query: { owner_uid: ownerUID, cursor: auditCursor || undefined, limit: 50 }
     }),
-    enabled: Boolean(entryID && ownerUID)
+    enabled: Boolean(entryID && ownerUID),
+    retry: false
   })
   const restore = useMutation({
     ...ankoleWebBrainControllerRestoreAuditMutation(),
@@ -795,7 +887,7 @@ export function BrainEntryAuditPage() {
       toast.success(t('console.brain.restored'))
       void queryClient.invalidateQueries()
       if (restorationAction(data.restoration) === 'delete_entry') {
-        navigate(`../../${entryID}?${brainSearch(ownerUID, store)}`)
+        navigate(`/brain/${entryID}?${brainSearch(ownerUID, store)}`)
       }
     },
     onError: error => toast.error(requestErrorMessage(error))
@@ -804,7 +896,7 @@ export function BrainEntryAuditPage() {
   return (
     <div className="mx-auto grid max-w-3xl gap-5">
       <Link
-        to={`../../?${brainSearch(ownerUID, store)}`}
+        to={`/brain?${brainSearch(ownerUID, store)}`}
         className="w-fit text-sm text-muted-foreground hover:text-foreground">
         ← {t('common.back')}
       </Link>
@@ -845,7 +937,7 @@ function SourceLinks({ markdown, ownerUID, entryID }: { markdown: string; ownerU
         {documents.map(documentID => (
           <Link
             key={documentID}
-            to={`../sources/${encodeURIComponent(documentID)}?owner=${encodeURIComponent(ownerUID)}&entry=${encodeURIComponent(entryID)}`}
+            to={`/brain/sources/${encodeURIComponent(documentID)}?owner=${encodeURIComponent(ownerUID)}&entry=${encodeURIComponent(entryID)}`}
             className="flex items-center gap-2 border border-border px-3 py-2 font-mono text-xs text-primary hover:bg-muted">
             <RiExternalLinkLine />
             {documentID}
@@ -854,6 +946,104 @@ function SourceLinks({ markdown, ownerUID, entryID }: { markdown: string; ownerU
       </CardContent>
     </Card>
   )
+}
+
+function BrainTaskNavigation({
+  active,
+  ownerUID,
+  store
+}: {
+  active: 'entries' | 'audit' | 'dreaming'
+  ownerUID: string
+  store?: string
+}) {
+  const { t } = useTranslation()
+  const search = brainSearch(ownerUID, store)
+  const items = [
+    { id: 'entries' as const, label: t('console.brain.entries_tab'), to: `/brain?${search}` },
+    { id: 'audit' as const, label: t('console.brain.audit_tab'), to: `/brain/audit?${search}` },
+    { id: 'dreaming' as const, label: t('console.brain.dreaming_tab'), to: `/brain/dreaming?${brainSearch(ownerUID)}` }
+  ]
+
+  return (
+    <nav aria-label={t('console.brain.task_surfaces')} className="overflow-x-auto border-b border-border">
+      <div className="flex min-w-max">
+        {items.map(item => (
+          <Link
+            key={item.id}
+            to={item.to}
+            aria-current={item.id === active ? 'page' : undefined}
+            className={cn(
+              'border-b-2 px-4 py-3 text-sm font-medium transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+              item.id === active
+                ? 'border-primary bg-muted/50 text-foreground'
+                : 'border-transparent text-muted-foreground'
+            )}>
+            {item.label}
+          </Link>
+        ))}
+      </div>
+    </nav>
+  )
+}
+
+function OwnerField({
+  id,
+  ownerUID,
+  agents,
+  onChange
+}: {
+  id: string
+  ownerUID: string
+  agents: Array<{ uid: string; display_name?: string | null }>
+  onChange: (value: string) => void
+}) {
+  const { t } = useTranslation()
+  return (
+    <LabeledField label={t('console.brain.owner')}>
+      <Input
+        list={id}
+        value={ownerUID}
+        placeholder={t('console.brain.owner_placeholder')}
+        onChange={event => onChange(event.target.value)}
+      />
+      <datalist id={id}>
+        {agents.map(agent => (
+          <option key={agent.uid} value={agent.uid}>
+            {agent.display_name || agent.uid}
+          </option>
+        ))}
+      </datalist>
+    </LabeledField>
+  )
+}
+
+function FilterDisclosure({ count, onClear, children }: { count: number; onClear: () => void; children: ReactNode }) {
+  const { t } = useTranslation()
+  return (
+    <Collapsible defaultOpen={count > 0} className="grid gap-3 border-t border-border pt-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <CollapsibleTrigger className="inline-flex h-9 items-center gap-2 px-2 text-sm font-medium outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40">
+          <RiFilter3Line aria-hidden />
+          {t('console.brain.more_filters')}
+          {count > 0 ? <Badge variant="info">{count}</Badge> : null}
+          <RiArrowDownSLine aria-hidden />
+        </CollapsibleTrigger>
+        {count > 0 ? (
+          <Button type="button" size="xs" variant="ghost" onClick={onClear}>
+            {t('console.brain.clear_filters')}
+          </Button>
+        ) : null}
+      </div>
+      <CollapsibleContent>{children}</CollapsibleContent>
+    </Collapsible>
+  )
+}
+
+function dreamingStatusTone(status: string): 'neutral' | 'positive' | 'warning' {
+  if (status === 'completed') return 'positive'
+  if (status === 'already_running') return 'warning'
+  return 'neutral'
 }
 
 function DreamingFitnessCard({ ownerUID, onSelectRun }: { ownerUID: string; onSelectRun: (runID: string) => void }) {
@@ -912,17 +1102,19 @@ function DreamingFitnessCard({ ownerUID, onSelectRun }: { ownerUID: string; onSe
             {data.matured_block_writes === 0 ? (
               <p className="text-sm text-muted-foreground">{t('console.brain.fitness_no_data')}</p>
             ) : (
-              <div className="grid gap-px overflow-hidden border border-border bg-border">
-                <div className="grid grid-cols-[2fr_repeat(4,1fr)] gap-3 bg-muted px-3 py-2 text-xs font-medium text-muted-foreground">
-                  <span>{t('console.brain.fitness_run')}</span>
-                  <span className="text-right">{t('console.brain.fitness_survived')}</span>
-                  <span className="text-right">{t('console.brain.fitness_corrected')}</span>
-                  <span className="text-right">{t('console.brain.fitness_survival_rate')}</span>
-                  <span className="text-right">{t('console.brain.fitness_last_written')}</span>
+              <div className="overflow-x-auto border border-border">
+                <div className="grid min-w-[720px] gap-px bg-border">
+                  <div className="grid grid-cols-[2fr_repeat(4,1fr)] gap-3 bg-muted px-3 py-2 text-xs font-medium text-muted-foreground">
+                    <span>{t('console.brain.fitness_run')}</span>
+                    <span className="text-right">{t('console.brain.fitness_survived')}</span>
+                    <span className="text-right">{t('console.brain.fitness_corrected')}</span>
+                    <span className="text-right">{t('console.brain.fitness_survival_rate')}</span>
+                    <span className="text-right">{t('console.brain.fitness_last_written')}</span>
+                  </div>
+                  {data.runs.map(run => (
+                    <FitnessRunRow key={run.run_id ?? 'unattributed'} run={run} onSelectRun={onSelectRun} />
+                  ))}
                 </div>
-                {data.runs.map(run => (
-                  <FitnessRunRow key={run.run_id ?? 'unattributed'} run={run} onSelectRun={onSelectRun} />
-                ))}
               </div>
             )}
           </>
@@ -994,10 +1186,10 @@ function AuditTrail({
 }) {
   const { t } = useTranslation()
   if (loading) return <Skeleton className="h-72 w-full" />
+  if (error) return <ErrorBlock error={error} />
+  if (rows.length === 0) return <p className="text-sm text-muted-foreground">{t('console.brain.no_audit')}</p>
   return (
     <div className="grid gap-3">
-      <ErrorBlock error={error} />
-      {rows.length === 0 ? <p className="text-sm text-muted-foreground">{t('console.brain.no_audit')}</p> : null}
       {rows.map(row => {
         const restorable = RESTORABLE_AUDIT_ACTIONS.has(row.action)
         const href = entryHref?.(row)
@@ -1064,14 +1256,48 @@ function AuditTrail({
 }
 
 function AuditSnapshot({ title, value }: { title: string; value?: Record<string, unknown> | null }) {
+  const { t } = useTranslation()
+  const fields = value ? Object.entries(value) : []
   return (
     <section className="grid min-w-0 gap-1">
       <h4 className="text-xs font-medium text-muted-foreground">{title}</h4>
-      <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all border border-border bg-muted p-3 text-xs">
-        {value ? formatJSON(value) : '—'}
-      </pre>
+      {value ? (
+        <div className="border border-border bg-card">
+          <dl className="divide-y divide-border">
+            {fields.map(([key, fieldValue]) => (
+              <div key={key} className="grid gap-1 px-3 py-2 sm:grid-cols-[minmax(8rem,1fr)_2fr] sm:gap-3">
+                <dt className="break-all font-mono text-xs text-muted-foreground">{key}</dt>
+                <dd className="break-all text-xs">{auditValuePreview(fieldValue)}</dd>
+              </div>
+            ))}
+          </dl>
+          <details className="border-t border-border">
+            <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-muted">
+              {t('console.brain.raw_json')}
+            </summary>
+            <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all border-t border-border bg-muted p-3 text-xs">
+              {formatJSON(value)}
+            </pre>
+          </details>
+        </div>
+      ) : (
+        <div className="border border-border bg-muted p-3 text-xs text-muted-foreground">—</div>
+      )}
     </section>
   )
+}
+
+function auditValuePreview(value: unknown): string {
+  if (value === null) return 'null'
+  if (typeof value === 'string') return value || '""'
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (Array.isArray(value)) return `[${value.length}] ${truncateText(JSON.stringify(value), 180)}`
+  if (typeof value === 'object') return truncateText(JSON.stringify(value), 180)
+  return String(value)
+}
+
+function truncateText(value: string, limit: number): string {
+  return value.length <= limit ? value : `${value.slice(0, limit)}…`
 }
 
 export function BrainSourcePage() {
@@ -1083,13 +1309,14 @@ export function BrainSourcePage() {
   const entryID = searchParams.get('entry') ?? ''
   const source = useQuery({
     ...ankoleWebBrainControllerSourceOptions({ path: { document_id: documentID } }),
-    enabled: Boolean(documentID)
+    enabled: Boolean(documentID),
+    retry: false
   })
   const item = source.data?.source
   return (
     <div className="mx-auto grid max-w-3xl gap-5">
       <Link
-        to={entryID ? `../../${entryID}?${brainSearch(ownerUID)}` : '../../'}
+        to={entryID ? `/brain/${entryID}?${brainSearch(ownerUID)}` : '/brain'}
         className="w-fit text-sm text-muted-foreground hover:text-foreground">
         ← {t('common.back')}
       </Link>

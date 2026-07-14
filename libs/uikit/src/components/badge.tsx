@@ -11,6 +11,11 @@ const badgeVariants = cva(
       variant: {
         default:
           'bg-brand-20 text-brand-70 hover:bg-brand-30 [a]:hover:text-brand-80 dark:bg-brand-80 dark:text-brand-20 dark:hover:bg-brand-70',
+        info: 'bg-blue-20 text-blue-70 hover:bg-blue-30 [a]:hover:text-blue-80 dark:bg-blue-80 dark:text-blue-20 dark:hover:bg-blue-70',
+        success:
+          'bg-green-20 text-green-70 hover:bg-green-30 [a]:hover:text-green-80 dark:bg-green-80 dark:text-green-20 dark:hover:bg-green-70',
+        warning:
+          'bg-yellow-20 text-yellow-80 hover:bg-yellow-30 [a]:hover:text-yellow-90 dark:bg-yellow-80 dark:text-yellow-20 dark:hover:bg-yellow-70',
         secondary:
           'bg-gray-20 text-gray-100 hover:bg-gray-30 [a]:hover:text-gray-100 dark:bg-gray-70 dark:text-gray-10 dark:hover:bg-gray-60',
         destructive:

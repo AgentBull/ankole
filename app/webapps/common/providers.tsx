@@ -1,3 +1,4 @@
+import { ThemeProvider } from '@ankole/uikit/components/theme-provider'
 import { Toaster } from '@ankole/uikit/components/sonner'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
@@ -23,13 +24,15 @@ export function createQueryClient() {
 /** Provides shared document-head, i18n, and data-fetching context. */
 export function AppProviders({ children, queryClient }: { children: ReactNode; queryClient: QueryClient }) {
   return (
-    <HelmetProvider>
-      <I18nextProvider i18n={i18n}>
-        <QueryClientProvider client={queryClient}>
-          {children}
-          <Toaster />
-        </QueryClientProvider>
-      </I18nextProvider>
-    </HelmetProvider>
+    <ThemeProvider>
+      <HelmetProvider>
+        <I18nextProvider i18n={i18n}>
+          <QueryClientProvider client={queryClient}>
+            {children}
+            <Toaster />
+          </QueryClientProvider>
+        </I18nextProvider>
+      </HelmetProvider>
+    </ThemeProvider>
   )
 }

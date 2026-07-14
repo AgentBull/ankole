@@ -1,5 +1,5 @@
 import { Field as FormField, Form, useForm } from '@formisch/react'
-import { RiArrowRightSLine, RiLoginCircleLine } from '@remixicon/react'
+import { RiArrowRightSLine, RiCheckLine, RiLock2Line, RiLoginCircleLine } from '@remixicon/react'
 import { Alert, AlertDescription, AlertTitle } from '@ankole/uikit/components/alert'
 import { Button } from '@ankole/uikit/components/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@ankole/uikit/components/card'
@@ -34,6 +34,7 @@ import { requestErrorMessage } from '../common/request-errors'
 import { SetupLayout } from './layout'
 import { IdentitySetupModel, type IdentitySetupDraft } from './state/identity-setup-model'
 import { PluginsStepModel } from './state/plugins-step-model'
+import { setupStepState, type SetupStepID } from './state/setup-progress'
 
 type SetupState = {
   authenticated: boolean
@@ -73,6 +74,7 @@ export function SetupApp() {
   const queryClient = useQueryClient()
   const { t } = useTranslation()
   const [step, setStep] = useState<'plugins' | 'identity'>('plugins')
+  const [pluginsCompleted, setPluginsCompleted] = useState(false)
   const state = useQuery({
     queryKey: ['setup-state'],
     queryFn: () => internalAPIGet<SetupState>('/.internal-apis/setup/state')
@@ -84,40 +86,96 @@ export function SetupApp() {
     if (state.data?.currentLocale) void i18n.changeLanguage(state.data.currentLocale)
   }, [state.data?.currentLocale])
 
+  useEffect(() => {
+    if (state.data?.completed) window.location.assign('/')
+  }, [state.data?.completed])
+
   if (state.data?.completed) {
-    window.location.assign('/')
     return null
   }
+
+  const authenticated = Boolean(state.data?.authenticated)
+  const currentStep: SetupStepID = authenticated ? step : 'bootstrap'
+  const steps: Array<{ id: SetupStepID; label: string }> = [
+    { id: 'bootstrap', label: t('setup.step_bootstrap') },
+    { id: 'plugins', label: t('setup.step_plugins') },
+    { id: 'identity', label: t('setup.step_identity') }
+  ]
 
   return (
     <SetupLayout>
       <section className="grid flex-1 grid-cols-1 gap-6 py-8 lg:grid-cols-[220px_minmax(0,1fr)]">
-        <nav className="h-fit border border-border/70 bg-background/85 p-3 backdrop-blur" aria-label="Setup steps">
+        <nav className="h-fit border border-border bg-background/95 p-3 backdrop-blur" aria-label={t('setup.steps')}>
           <ol className="flex flex-row gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
-            {(['plugins', 'identity'] as const).map((id, index) => (
-              <li key={id} className="min-w-28 lg:min-w-0">
-                <button
-                  type="button"
-                  data-active={state.data?.authenticated && id === step ? true : undefined}
-                  disabled={!state.data?.authenticated}
-                  onClick={() => setStep(id)}
-                  className="flex h-10 w-full items-center gap-3 border border-transparent px-3 text-left text-sm text-muted-foreground data-active:border-primary data-active:bg-primary data-active:text-primary-foreground disabled:cursor-default disabled:opacity-80">
-                  <span className="font-mono text-xs">{String(index + 1).padStart(2, '0')}</span>
-                  <span className="truncate">{t(id === 'plugins' ? 'setup.step_plugins' : 'setup.step_identity')}</span>
-                </button>
-              </li>
-            ))}
+            {steps.map((item, index) => {
+              const itemState = setupStepState(item.id, currentStep, authenticated, pluginsCompleted)
+              const locked = itemState === 'locked'
+              const navigable = authenticated && item.id !== 'bootstrap' && !locked
+              return (
+                <li key={item.id} className="min-w-28 lg:min-w-0">
+                  <button
+                    type="button"
+                    aria-current={itemState === 'current' ? 'step' : undefined}
+                    disabled={!navigable}
+                    onClick={() => item.id !== 'bootstrap' && setStep(item.id)}
+                    className={`flex min-h-12 w-full items-center gap-3 border px-3 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-default ${
+                      itemState === 'current'
+                        ? 'border-primary bg-primary/10 text-foreground'
+                        : itemState === 'completed'
+                          ? 'border-transparent text-foreground'
+                          : 'border-transparent text-muted-foreground opacity-55'
+                    }`}>
+                    <span
+                      className={`grid size-7 shrink-0 place-items-center border font-mono text-xs ${
+                        itemState === 'current' ? 'border-primary bg-primary text-primary-foreground' : 'border-border'
+                      }`}>
+                      {itemState === 'completed' ? (
+                        <RiCheckLine aria-hidden />
+                      ) : itemState === 'locked' ? (
+                        <RiLock2Line aria-hidden />
+                      ) : (
+                        String(index + 1).padStart(2, '0')
+                      )}
+                    </span>
+                    <span className="grid min-w-0 gap-0.5">
+                      <span className="truncate font-medium">{item.label}</span>
+                      <span className="truncate text-xs text-muted-foreground">
+                        {t(`setup.step_state_${itemState}`)}
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              )
+            })}
           </ol>
         </nav>
 
         <div className="min-w-0">
-          {!state.data?.authenticated ? (
+          {state.error ? (
+            <Panel title={t('setup.title')}>
+              <ErrorAlert
+                error={state.error}
+                action={
+                  <Button size="sm" type="button" variant="outline" onClick={() => void state.refetch()}>
+                    {t('common.retry')}
+                  </Button>
+                }
+              />
+            </Panel>
+          ) : state.isLoading ? (
+            <Panel title={t('setup.title')}>{t('common.loading')}</Panel>
+          ) : !authenticated ? (
             <BootstrapGate
               setupState={state.data}
               onAuthenticated={() => queryClient.invalidateQueries({ queryKey: ['setup-state'] })}
             />
           ) : step === 'plugins' ? (
-            <PluginsStep onContinue={() => setStep('identity')} />
+            <PluginsStep
+              onContinue={() => {
+                setPluginsCompleted(true)
+                setStep('identity')
+              }}
+            />
           ) : (
             <IdentityStep />
           )}
@@ -445,7 +503,7 @@ function Panel({ children, title }: { children: ReactNode; title: string }) {
 }
 
 /** Renders request failures in the setup flow without throwing from React. */
-function ErrorAlert({ error }: { error?: unknown }) {
+function ErrorAlert({ action, error }: { action?: ReactNode; error?: unknown }) {
   const { t } = useTranslation()
   if (!error) return null
 
@@ -453,7 +511,8 @@ function ErrorAlert({ error }: { error?: unknown }) {
     <Alert variant="destructive">
       <AlertTitle>{t('common.error')}</AlertTitle>
       <AlertDescription>
-        <pre className="whitespace-pre-wrap text-xs">{requestErrorMessage(error)}</pre>
+        <pre className="break-all whitespace-pre-wrap text-xs">{requestErrorMessage(error)}</pre>
+        {action ? <div className="mt-3">{action}</div> : null}
       </AlertDescription>
     </Alert>
   )

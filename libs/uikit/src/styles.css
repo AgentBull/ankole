@@ -292,13 +292,13 @@
   --chart-up: var(--color-brand-60);
   --chart-down: var(--color-green-50);
 
-  --sidebar: var(--color-gray-100);
-  --sidebar-foreground: var(--color-gray-10);
+  --sidebar: var(--color-gray-10);
+  --sidebar-foreground: var(--text-primary);
   --sidebar-primary: var(--primary);
   --sidebar-primary-foreground: var(--text-on-color);
-  --sidebar-accent: var(--color-gray-80);
-  --sidebar-accent-foreground: var(--color-white);
-  --sidebar-border: var(--color-gray-80);
+  --sidebar-accent: var(--color-gray-20);
+  --sidebar-accent-foreground: var(--text-primary);
+  --sidebar-border: var(--border-subtle);
   --sidebar-ring: var(--ring);
 
   --fg-primary: var(--text-primary);

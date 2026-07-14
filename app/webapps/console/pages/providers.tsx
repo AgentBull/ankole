@@ -18,7 +18,7 @@ import { RiArrowDownSLine } from '@remixicon/react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
+import { useDeferredValue, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router'
 import {
@@ -37,7 +37,15 @@ import type {
 } from '../api/generated/types.gen'
 import i18n from '../../common/i18n'
 import { requestErrorMessage } from '../../common/request-errors'
-import { LabeledField, ResourceEditorPage, ResourceListPage, RowActions } from '../console-shell'
+import {
+  LabeledField,
+  ReadOnlyValue,
+  ResourceEditorPage,
+  ResourceListPage,
+  ResourceSearch,
+  RowActions,
+  StatusIndicator
+} from '../console-shell'
 import {
   buildConnectionOptions,
   connectionSettings,
@@ -48,15 +56,29 @@ import {
 import { ProviderSettingField } from './provider-setting-field'
 import { CodexAccountEditorModel } from '../state/codex-account-editor-model'
 import { nextProviderID, ProviderEditorModel } from '../state/provider-editor-model'
+import { matchesResourceSearch } from '../state/resource-search'
 
 export function ProvidersListPage() {
   const { t } = useTranslation()
-  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const providers = useQuery(ankoleWebAIGatewayProviderControllerIndexOptions())
   const codexAccounts = useQuery(ankoleWebCodexAccountControllerIndexOptions())
-  const rows = providers.data?.ai_gateway_providers ?? []
-  const accounts = codexAccounts.data?.codex_accounts ?? []
+  const [providerQuery, setProviderQuery] = useState('')
+  const [accountQuery, setAccountQuery] = useState('')
+  const deferredProviderQuery = useDeferredValue(providerQuery)
+  const deferredAccountQuery = useDeferredValue(accountQuery)
+  const rows = (providers.data?.ai_gateway_providers ?? []).filter(provider =>
+    matchesResourceSearch(
+      deferredProviderQuery,
+      provider.provider_id,
+      provider.provider_kind,
+      provider.disabled_at ? 'disabled' : 'enabled',
+      Object.keys(provider.encrypted_options).join(' ')
+    )
+  )
+  const accounts = (codexAccounts.data?.codex_accounts ?? []).filter(account =>
+    matchesResourceSearch(deferredAccountQuery, account.name, account.account_id, account.auth_hash)
+  )
   const deleteProvider = useMutation({
     ...ankoleWebAIGatewayProviderControllerDeleteProviderMutation(),
     onSuccess: (_data, variables) => {
@@ -90,13 +112,25 @@ export function ProvidersListPage() {
         isEmpty={accounts.length === 0}
         emptyTitle={t('console.codex_accounts.empty_title')}
         emptyDescription={t('console.codex_accounts.empty_description')}
-        error={codexAccounts.error}>
+        error={codexAccounts.error}
+        isFiltered={Boolean(accountQuery.trim())}
+        toolbar={
+          <ResourceSearch
+            label={t('console.codex_accounts.search')}
+            placeholder={t('console.codex_accounts.search_placeholder')}
+            value={accountQuery}
+            onChange={setAccountQuery}
+          />
+        }>
         {accounts.map(account => (
-          <TableRow
-            key={account.account_id}
-            className="cursor-pointer"
-            onClick={() => navigate(`codex/${encodeURIComponent(account.account_id)}`)}>
-            <TableCell>{account.name}</TableCell>
+          <TableRow key={account.account_id}>
+            <TableCell>
+              <Link
+                className="font-medium text-foreground hover:text-primary hover:underline"
+                to={`codex/${encodeURIComponent(account.account_id)}`}>
+                {account.name}
+              </Link>
+            </TableCell>
             <TableCell className="font-mono text-xs">{account.account_id}</TableCell>
             <TableCell className="max-w-48 truncate font-mono text-xs">{account.auth_hash}</TableCell>
             <RowActions
@@ -129,27 +163,39 @@ export function ProvidersListPage() {
         isEmpty={rows.length === 0}
         emptyTitle={t('console.providers.empty_title')}
         emptyDescription={t('console.providers.empty_description')}
-        error={providers.error}>
+        error={providers.error}
+        isFiltered={Boolean(providerQuery.trim())}
+        toolbar={
+          <ResourceSearch
+            label={t('console.providers.search')}
+            placeholder={t('console.providers.search_placeholder')}
+            value={providerQuery}
+            onChange={setProviderQuery}
+          />
+        }>
         {rows.map(provider => (
-          <TableRow
-            key={provider.provider_id}
-            className="cursor-pointer"
-            onClick={() => navigate(encodeURIComponent(provider.provider_id))}>
-            <TableCell className="font-mono text-xs">{provider.provider_id}</TableCell>
+          <TableRow key={provider.provider_id}>
+            <TableCell className="font-mono text-xs">
+              <Link
+                className="text-foreground hover:text-primary hover:underline"
+                to={encodeURIComponent(provider.provider_id)}>
+                {provider.provider_id}
+              </Link>
+            </TableCell>
             <TableCell>{provider.provider_kind}</TableCell>
             <TableCell>
               <div className="flex flex-wrap gap-1.5">
                 {Object.entries(provider.encrypted_options).map(([key, option]) => (
-                  <Badge key={key} variant={option.present ? 'default' : 'outline'}>
+                  <Badge key={key} variant={option.present ? 'success' : 'outline'}>
                     {key}
                   </Badge>
                 ))}
               </div>
             </TableCell>
             <TableCell>
-              <Badge variant={provider.disabled_at ? 'secondary' : 'default'}>
+              <StatusIndicator tone={provider.disabled_at ? 'neutral' : 'positive'}>
                 {provider.disabled_at ? t('console.status.disabled') : t('console.status.enabled')}
-              </Badge>
+              </StatusIndicator>
             </TableCell>
             <RowActions
               editTo={encodeURIComponent(provider.provider_id)}
@@ -191,7 +237,7 @@ export function CodexAccountEditorPage() {
     onSuccess: response => {
       toast.success(t('console.codex_accounts.saved', { name: response.codex_account.name }))
       void queryClient.invalidateQueries()
-      navigate('../..')
+      navigate('/providers')
     }
   })
   const updateAccount = useMutation({
@@ -199,7 +245,7 @@ export function CodexAccountEditorPage() {
     onSuccess: response => {
       toast.success(t('console.codex_accounts.saved', { name: response.codex_account.name }))
       void queryClient.invalidateQueries()
-      navigate('../..')
+      navigate('/providers')
     }
   })
 
@@ -232,13 +278,13 @@ export function CodexAccountEditorPage() {
     <ResourceEditorPage
       title={mode === 'new' ? t('console.codex_accounts.new') : (selected?.name ?? accountID ?? '')}
       description={t('console.codex_accounts.editor_description')}
-      backTo={mode === 'new' ? '../..' : '../..'}
+      backTo="/providers"
       error={model.validationError.value ?? createAccount.error ?? updateAccount.error}
       submitting={createAccount.isPending || updateAccount.isPending}
       onSubmit={submit}>
       {accountID ? (
         <LabeledField label={t('console.codex_accounts.account_id')}>
-          <Input disabled value={accountID} />
+          <ReadOnlyValue mono>{accountID}</ReadOnlyValue>
         </LabeledField>
       ) : null}
       <LabeledField label={t('console.codex_accounts.name')} required>
@@ -377,29 +423,33 @@ export function ProviderEditorPage() {
       onSubmit={submit}>
       <div className="grid gap-5 md:grid-cols-2">
         <LabeledField label={t('console.providers.provider_id')} description={t('console.providers.provider_id_hint')}>
-          <Input
-            disabled={mode === 'edit'}
-            placeholder="openai"
-            value={model.providerID.value}
-            onChange={event => (model.providerID.value = event.target.value)}
-          />
+          {mode === 'edit' ? (
+            <ReadOnlyValue mono>{model.providerID.value}</ReadOnlyValue>
+          ) : (
+            <Input
+              placeholder="openai"
+              value={model.providerID.value}
+              onChange={event => (model.providerID.value = event.target.value)}
+            />
+          )}
         </LabeledField>
         <LabeledField label={t('console.providers.kind')}>
-          <Select
-            disabled={mode === 'edit'}
-            value={model.providerKind.value}
-            onValueChange={value => changeKind(String(value))}>
-            <SelectTrigger className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {kinds.map(kind => (
-                <SelectItem key={kind.provider_kind} value={kind.provider_kind}>
-                  {providerKindLabel(kind)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {mode === 'edit' ? (
+            <ReadOnlyValue>{activeKind ? providerKindLabel(activeKind) : model.providerKind.value}</ReadOnlyValue>
+          ) : (
+            <Select value={model.providerKind.value} onValueChange={value => changeKind(String(value))}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {kinds.map(kind => (
+                  <SelectItem key={kind.provider_kind} value={kind.provider_kind}>
+                    {providerKindLabel(kind)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </LabeledField>
       </div>
 

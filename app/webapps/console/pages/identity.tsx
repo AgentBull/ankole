@@ -1,5 +1,4 @@
 import {
-  Badge,
   Button,
   Checkbox,
   Input,
@@ -17,9 +16,9 @@ import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { RiRefreshLine } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
+import { useDeferredValue, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate, useParams } from 'react-router'
+import { Link, useNavigate, useParams } from 'react-router'
 import {
   ConfigFields,
   defaultConfig,
@@ -38,14 +37,26 @@ import {
   ankoleWebIdentityProviderControllerRunSyncMutation
 } from '../api/generated/@tanstack/react-query.gen'
 import type { IdentityProviderAdapterItem, IdentityProviderItem } from '../api/generated/types.gen'
-import { LabeledField, ResourceEditorPage, ResourceListPage, RowActions } from '../console-shell'
+import {
+  LabeledField,
+  ReadOnlyValue,
+  ResourceEditorPage,
+  ResourceListPage,
+  ResourceSearch,
+  RowActions,
+  StatusIndicator
+} from '../console-shell'
 import { IdentityEditorModel, type IdentityEditorDraft } from '../state/identity-editor-model'
+import { matchesResourceSearch } from '../state/resource-search'
 
 export function IdentityProvidersListPage() {
   const { t } = useTranslation()
-  const navigate = useNavigate()
   const providers = useQuery(ankoleWebIdentityProviderControllerIndexOptions())
-  const rows = providers.data?.identity_providers ?? []
+  const [query, setQuery] = useState('')
+  const deferredQuery = useDeferredValue(query)
+  const rows = (providers.data?.identity_providers ?? []).filter(provider =>
+    matchesResourceSearch(deferredQuery, provider.provider_id, provider.adapter_id, provider.enabled)
+  )
 
   return (
     <ResourceListPage
@@ -63,23 +74,35 @@ export function IdentityProvidersListPage() {
       isEmpty={rows.length === 0}
       emptyTitle={t('console.identity.empty_title')}
       emptyDescription={t('console.identity.empty_description')}
-      error={providers.error}>
+      error={providers.error}
+      isFiltered={Boolean(query.trim())}
+      toolbar={
+        <ResourceSearch
+          label={t('console.identity.search')}
+          placeholder={t('console.identity.search_placeholder')}
+          value={query}
+          onChange={setQuery}
+        />
+      }>
       {rows.map(provider => (
-        <TableRow
-          key={provider.provider_id}
-          className="cursor-pointer"
-          onClick={() => navigate(encodeURIComponent(provider.provider_id))}>
-          <TableCell className="font-mono text-xs">{provider.provider_id}</TableCell>
+        <TableRow key={provider.provider_id}>
+          <TableCell className="font-mono text-xs">
+            <Link
+              className="text-foreground hover:text-primary hover:underline"
+              to={encodeURIComponent(provider.provider_id)}>
+              {provider.provider_id}
+            </Link>
+          </TableCell>
           <TableCell>{provider.adapter_id}</TableCell>
           <TableCell>
-            <Badge variant={syncEnabled(provider) ? 'default' : 'outline'}>
+            <StatusIndicator tone={syncEnabled(provider) ? 'info' : 'neutral'}>
               {syncEnabled(provider) ? t('console.status.contacts') : t('console.status.off')}
-            </Badge>
+            </StatusIndicator>
           </TableCell>
           <TableCell>
-            <Badge variant={provider.enabled ? 'default' : 'secondary'}>
+            <StatusIndicator tone={provider.enabled ? 'positive' : 'neutral'}>
               {provider.enabled ? t('console.status.enabled') : t('console.status.disabled')}
-            </Badge>
+            </StatusIndicator>
           </TableCell>
           <RowActions editTo={encodeURIComponent(provider.provider_id)} editLabel={t('common.edit')} />
         </TableRow>
@@ -124,7 +147,7 @@ export function IdentityProviderEditorPage() {
     onSuccess: response => {
       toast.success(t('console.identity.saved', { id: response.identity_provider.provider_id }))
       refresh()
-      navigate('..')
+      navigate('/identity')
     }
   })
   const runSync = useMutation({
@@ -168,7 +191,7 @@ export function IdentityProviderEditorPage() {
     <ResourceEditorPage
       title={mode === 'new' ? t('console.identity.new') : (providerID ?? '')}
       description={t('console.identity.editor_description')}
-      backTo=".."
+      backTo="/identity"
       error={model.validationError.value ?? saveProvider.error}
       submitting={saveProvider.isPending}
       onSubmit={submit}
@@ -187,31 +210,38 @@ export function IdentityProviderEditorPage() {
       }>
       <div className="grid gap-5 md:grid-cols-2">
         <LabeledField label={t('console.identity.adapter')}>
-          <Select
-            disabled={mode === 'edit'}
-            value={model.adapterID.value || activeAdapter?.adapter_id || ''}
-            onValueChange={value => changeAdapter(String(value))}>
-            <SelectTrigger className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {identityAdapters.map(adapter => (
-                <SelectItem key={adapter.adapter_id} value={adapter.adapter_id}>
-                  {localizedUnknown(adapter.display_name, locale, adapter.adapter_id)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {mode === 'edit' ? (
+            <ReadOnlyValue>
+              {activeAdapter
+                ? localizedUnknown(activeAdapter.display_name, locale, activeAdapter.adapter_id)
+                : model.adapterID.value}
+            </ReadOnlyValue>
+          ) : (
+            <Select
+              value={model.adapterID.value || activeAdapter?.adapter_id || ''}
+              onValueChange={value => changeAdapter(String(value))}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {identityAdapters.map(adapter => (
+                  <SelectItem key={adapter.adapter_id} value={adapter.adapter_id}>
+                    {localizedUnknown(adapter.display_name, locale, adapter.adapter_id)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </LabeledField>
         <LabeledField
           label={t('console.identity.provider_id')}
           description={t('console.identity.provider_id_hint')}
           required={mode === 'new'}>
-          <Input
-            disabled={mode === 'edit'}
-            value={model.providerID.value}
-            onChange={event => (model.providerID.value = event.target.value)}
-          />
+          {mode === 'edit' ? (
+            <ReadOnlyValue mono>{model.providerID.value}</ReadOnlyValue>
+          ) : (
+            <Input value={model.providerID.value} onChange={event => (model.providerID.value = event.target.value)} />
+          )}
         </LabeledField>
       </div>
 
