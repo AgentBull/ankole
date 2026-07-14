@@ -1,5 +1,10 @@
 # Changelog
 
+## Version 26.07.7 (2026-07-15)
+
+- Query one selected MCP tool schema directly instead of streaming and filtering a server-wide catalog, preventing large BullX schema output from being truncated into invalid JSON or polluting agent trajectories.
+- Route BullX “latest N as of a cutoff” requests to latest-daily-bars with its exact parameter shape, keeping them distinct from explicit start-to-end historical ranges.
+
 ## Version 26.07.6 (2026-07-15)
 
 - Make `/retry` a true regeneration by retracting the completed visible Response suffix while preserving its audit rows, then continuing from the predecessor.

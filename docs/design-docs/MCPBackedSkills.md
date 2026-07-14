@@ -26,9 +26,14 @@ Each MCP-backed skill must:
 1. Pass its config explicitly on every invocation:
 
    ```bash
-   mcporter --config <skill-directory>/config/mcporter.json list <server> --schema
+   mcporter --config <skill-directory>/config/mcporter.json list <server>.<tool> --json
    mcporter --config <skill-directory>/config/mcporter.json call <server>.<tool> --args '<json>' --output json
    ```
+
+   Schema discovery must target one selected tool. A server-wide catalog can
+   be large enough for a CLI or shell transport to truncate its JSON before a
+   downstream filter sees it, and it adds unrelated tool definitions to the
+   model trajectory.
 
 2. Keep stable, non-secret endpoints in the skill config. Secret headers and
    parameters must reference WorkerEnv variables such as `${PROVIDER_API_KEY}`.
