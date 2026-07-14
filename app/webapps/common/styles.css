@@ -3,9 +3,17 @@
 }
 
 .ak-auth-page {
+  display: grid;
   min-height: 100vh;
   padding: 32px;
-  background: linear-gradient(180deg, rgb(247 248 245 / 92%), rgb(247 248 245 / 98%)), url('./setup-workspace.jpg');
+  place-items: center;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--background) 94%, transparent),
+      color-mix(in srgb, var(--background) 98%, transparent)
+    ),
+    url('./setup-workspace.jpg');
   background-position: center;
   background-size: cover;
 }
@@ -20,12 +28,36 @@
 .ak-auth-card p,
 .ak-muted {
   margin: 0;
-  color: #52615a;
+  color: var(--muted-foreground);
   line-height: 1.55;
 }
 
 .ak-auth-card .ak-card-header {
   display: block;
+  border-bottom: 1px solid var(--border);
+}
+
+.ak-auth-heading {
+  display: grid;
+  gap: 2px;
+}
+
+.ak-auth-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.ak-auth-brand > span {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  color: var(--primary-foreground);
+  background: var(--primary);
+  font-size: 14px;
+  font-weight: 700;
 }
 
 .ak-login-list {
@@ -36,51 +68,37 @@
 
 .ak-login-provider {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
-  gap: 12px;
-  padding: 14px;
-  border: 1px solid #e2e7e1;
-  border-radius: 6px;
-  background: #fbfcfa;
-}
-
-.ak-login-provider strong {
-  font-size: 14px;
-}
-
-.ak-login-provider small {
-  color: #647269;
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.ak-login-provider {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  color: #17201b;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  color: var(--foreground);
+  background: var(--card);
   text-align: left;
   cursor: pointer;
 }
 
+.ak-login-provider strong {
+  display: block;
+  font-size: 14px;
+}
+
+.ak-login-provider small {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .ak-login-provider:hover {
-  border-color: #24513f;
+  border-color: var(--primary);
+  background: var(--accent);
 }
 
-.ak-error {
-  display: grid;
-  gap: 4px;
-  margin-top: 16px;
-  padding: 12px;
-  border: 1px solid #d68b8b;
-  border-radius: 6px;
-  color: #7b1f1f;
-  background: #fff4f4;
-  font-size: 13px;
-}
-
-.ak-auth-page {
-  display: grid;
-  place-items: center;
+.ak-login-provider:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
 
 .ak-auth-card {

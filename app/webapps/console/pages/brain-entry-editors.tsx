@@ -13,7 +13,7 @@ import { RiAddLine, RiDeleteBin6Line, RiLinkM } from '@remixicon/react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { BrainEntry, BrainEntryBlock, BrainEntryOperation, BrainEntryRelation } from '../api/generated/types.gen'
-import { LabeledField } from '../console-shell'
+import { LabeledField, ReadOnlyValue } from '../console-shell'
 import type { PropertyDraft } from '../state/brain-editor-model'
 
 export function MetadataEditor({
@@ -44,10 +44,10 @@ export function MetadataEditor({
       <CardContent className="grid gap-5">
         <div className="grid gap-4 md:grid-cols-2">
           <LabeledField label={t('console.brain.name')}>
-            <Input value={entry.name} disabled />
+            <ReadOnlyValue>{entry.name}</ReadOnlyValue>
           </LabeledField>
           <LabeledField label={t('console.brain.type')}>
-            <Input value={entry.type} disabled />
+            <ReadOnlyValue>{entry.type}</ReadOnlyValue>
           </LabeledField>
         </div>
         <LabeledField label={t('console.brain.summary')}>

@@ -1,5 +1,4 @@
 import {
-  Badge,
   Button,
   buttonVariants,
   Dialog,
@@ -9,6 +8,11 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  Input,
   Select,
   SelectContent,
   SelectItem,
@@ -21,14 +25,16 @@ import {
 } from '@ankole/uikit'
 import {
   RiUploadCloud2Line,
+  RiDeleteBin6Line,
   RiFolder3Line,
   RiFileLine,
   RiLinksLine,
   RiDownloadLine,
+  RiMore2Fill,
   RiPencilLine
 } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useDeferredValue, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams, useSearchParams } from 'react-router'
 import {
@@ -41,7 +47,8 @@ import {
 import { ankoleWebWorkerFileControllerDownload } from '../api/generated/sdk.gen'
 import type { AgentComputerWorkerItem, WorkerFileEntry } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
-import { ConfirmDeleteButton, ResourceListPage } from '../console-shell'
+import { ResourceListPage, ResourceSearch, StatusIndicator } from '../console-shell'
+import { matchesResourceSearch } from '../state/resource-search'
 
 const ROOTS = ['workspace_sessions', 'user_files', 'agent_installed_skills'] as const
 type FileRoot = (typeof ROOTS)[number]
@@ -49,7 +56,11 @@ type FileRoot = (typeof ROOTS)[number]
 export function WorkersListPage() {
   const { t } = useTranslation()
   const workers = useQuery(ankoleWebAgentComputerWorkerControllerIndexOptions())
-  const rows = workers.data?.workers ?? []
+  const [query, setQuery] = useState('')
+  const deferredQuery = useDeferredValue(query)
+  const rows = (workers.data?.workers ?? []).filter(worker =>
+    matchesResourceSearch(deferredQuery, worker.worker_id, worker.status, worker.version)
+  )
 
   return (
     <ResourceListPage
@@ -67,12 +78,27 @@ export function WorkersListPage() {
       isEmpty={rows.length === 0}
       emptyTitle={t('console.workers.empty_title')}
       emptyDescription={t('console.workers.empty_description')}
-      error={workers.error}>
+      error={workers.error}
+      isFiltered={Boolean(query.trim())}
+      toolbar={
+        <ResourceSearch
+          label={t('console.workers.search')}
+          placeholder={t('console.workers.search_placeholder')}
+          value={query}
+          onChange={setQuery}
+        />
+      }>
       {rows.map(worker => (
         <TableRow key={worker.worker_id}>
-          <TableCell className="font-mono text-xs">{worker.worker_id}</TableCell>
+          <TableCell className="font-mono text-xs">
+            <Link
+              to={`${encodeURIComponent(worker.worker_id)}/files`}
+              className="text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40">
+              {worker.worker_id}
+            </Link>
+          </TableCell>
           <TableCell>
-            <Badge variant={statusVariant(worker.status)}>{worker.status}</Badge>
+            <StatusIndicator tone={statusTone(worker.status)}>{t(`console.status.${worker.status}`)}</StatusIndicator>
           </TableCell>
           <TableCell className="text-xs text-muted-foreground">{worker.version}</TableCell>
           <TableCell>{formatSlots(worker)}</TableCell>
@@ -91,10 +117,11 @@ export function WorkersListPage() {
   )
 }
 
-function statusVariant(status: AgentComputerWorkerItem['status']) {
-  if (status === 'ready') return 'default' as const
-  if (status === 'draining') return 'secondary' as const
-  return 'destructive' as const
+function statusTone(status: AgentComputerWorkerItem['status']): 'danger' | 'info' | 'positive' | 'warning' {
+  if (status === 'ready') return 'positive'
+  if (status === 'draining') return 'info'
+  if (status === 'stale') return 'warning'
+  return 'danger'
 }
 
 function formatSlots(worker: AgentComputerWorkerItem): string {
@@ -136,6 +163,8 @@ export function WorkerFilesPage() {
 
   const root = rootOrDefault(searchParams.get('root'))
   const path = searchParams.get('path') ?? ''
+  const [query, setQuery] = useState('')
+  const deferredQuery = useDeferredValue(query)
 
   const files = useQuery(
     ankoleWebWorkerFileControllerIndexOptions({
@@ -144,7 +173,10 @@ export function WorkerFilesPage() {
     })
   )
 
-  const entries = files.data?.file_listing.entries ?? []
+  const allEntries = files.data?.file_listing.entries ?? []
+  const entries = allEntries.filter(entry =>
+    matchesResourceSearch(deferredQuery, entry.relative_path, entry.kind, basename(entry.relative_path))
+  )
   const truncated = files.data?.file_listing.truncated === true
 
   const refresh = () => void queryClient.invalidateQueries()
@@ -176,8 +208,14 @@ export function WorkerFilesPage() {
     onError: error => toast.error(requestErrorMessage(error))
   })
 
-  const setRoot = (next: FileRoot) => setSearchParams({ root: next, path: '' })
-  const enterPath = (next: string) => setSearchParams({ root, path: next })
+  const setRoot = (next: FileRoot) => {
+    setQuery('')
+    setSearchParams({ root: next, path: '' })
+  }
+  const enterPath = (next: string) => {
+    setQuery('')
+    setSearchParams({ root, path: next })
+  }
 
   const toolbar = (
     <div className="grid gap-3">
@@ -200,6 +238,12 @@ export function WorkerFilesPage() {
         </div>
       </div>
       <Breadcrumbs root={root} path={path} onNavigate={enterPath} onRootChange={setRoot} t={t} />
+      <ResourceSearch
+        label={t('console.worker_files.search')}
+        placeholder={t('console.worker_files.search_placeholder')}
+        value={query}
+        onChange={setQuery}
+      />
       {truncated ? <p className="text-xs text-muted-foreground">{t('console.worker_files.truncated')}</p> : null}
     </div>
   )
@@ -219,6 +263,14 @@ export function WorkerFilesPage() {
       isEmpty={entries.length === 0}
       emptyTitle={t('console.worker_files.empty_title')}
       emptyDescription={t('console.worker_files.empty_description')}
+      emptyAction={
+        query ? (
+          <Button type="button" size="sm" variant="outline" onClick={() => setQuery('')}>
+            {t('console.empty.clear_search')}
+          </Button>
+        ) : undefined
+      }
+      isFiltered={Boolean(query.trim())}
       error={files.error}>
       {entries.map(entry => (
         <FileRow
@@ -266,8 +318,8 @@ function Breadcrumbs({
   const segments = path ? path.split('/').filter(Boolean) : []
 
   return (
-    <div className="flex flex-wrap items-center gap-1 text-sm">
-      <RootSelect root={root} onNavigate={onNavigate} onRootChange={onRootChange} t={t} />
+    <nav aria-label={t('console.worker_files.breadcrumbs')} className="flex flex-wrap items-center gap-1 text-sm">
+      <RootSelect root={root} onRootChange={onRootChange} t={t} />
       {segments.length === 0 ? null : (
         <>
           <span className="text-muted-foreground">/</span>
@@ -281,7 +333,7 @@ function Breadcrumbs({
                 ) : (
                   <button
                     type="button"
-                    className="text-muted-foreground hover:text-foreground"
+                    className="text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40"
                     onClick={() => onNavigate(prefix)}>
                     {segment}
                   </button>
@@ -292,32 +344,24 @@ function Breadcrumbs({
           })}
         </>
       )}
-    </div>
+    </nav>
   )
 }
 
 function RootSelect({
   root,
-  onNavigate,
   onRootChange,
   t
 }: {
   root: FileRoot
-  onNavigate: (path: string) => void
   onRootChange: (root: FileRoot) => void
   t: (key: string) => string
 }) {
   return (
     <div className="flex items-center gap-2">
-      <button
-        type="button"
-        className="flex items-center gap-1 font-medium text-foreground hover:underline"
-        onClick={() => onNavigate('')}>
-        <RiFolder3Line className="size-4" aria-hidden />
-        {rootLabel(root, t)}
-      </button>
       <Select value={root} onValueChange={value => onRootChange(value as FileRoot)}>
-        <SelectTrigger className="h-7 w-40 text-xs">
+        <SelectTrigger className="h-8 w-52 text-xs" aria-label={t('console.worker_files.root')}>
+          <RiFolder3Line className="size-4" aria-hidden />
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -363,6 +407,8 @@ function FileRow({
   const { t } = useTranslation()
   const name = basename(entry.relative_path)
   const isDir = entry.kind === 'directory'
+  const [renameOpen, setRenameOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
 
   const handleDownload = async () => {
     const result = await ankoleWebWorkerFileControllerDownload({
@@ -397,7 +443,8 @@ function FileRow({
           {isDir ? (
             <button
               type="button"
-              className="text-left hover:text-primary"
+              className="text-left outline-none hover:text-primary focus-visible:ring-2 focus-visible:ring-ring/40"
+              aria-label={t('console.worker_files.open_directory', { name })}
               onClick={() => onNavigate(entry.relative_path)}>
               {name}
             </button>
@@ -412,36 +459,71 @@ function FileRow({
       </TableCell>
       <TableCell className="text-xs text-muted-foreground">{formatModified(entry.modified_unix_ms)}</TableCell>
       <TableCell className="text-right">
-        <div className="flex items-center justify-end gap-1">
-          {entry.kind === 'file' ? (
-            <Button
-              aria-label={t('console.worker_files.download')}
-              disabled={pending}
-              size="icon-xs"
-              type="button"
-              variant="ghost"
-              onClick={() => void handleDownload()}>
-              <RiDownloadLine />
-            </Button>
-          ) : null}
-          <RenameDialog
-            entry={entry}
-            disabled={pending}
-            onConfirm={newName => onRename(entry.relative_path, joinPath(dirname(entry.relative_path), newName))}
-            t={t}
-          />
-          <ConfirmDeleteButton
-            pending={pending}
-            confirm={{
-              title: t('console.worker_files.delete_title'),
-              description: isDir
-                ? t('console.worker_files.delete_directory_description')
-                : t('console.worker_files.delete_description', { path: entry.relative_path }),
-              confirmLabel: t('common.delete')
-            }}
-            onConfirm={onDelete}
-          />
-        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                aria-label={t('common.more_actions')}
+                title={t('common.more_actions')}
+                disabled={pending}
+                size="icon-sm"
+                type="button"
+                variant="ghost"
+              />
+            }>
+            <RiMore2Fill />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            {entry.kind === 'file' ? (
+              <DropdownMenuItem onClick={() => void handleDownload()}>
+                <RiDownloadLine />
+                {t('console.worker_files.download')}
+              </DropdownMenuItem>
+            ) : null}
+            <DropdownMenuItem onClick={() => setRenameOpen(true)}>
+              <RiPencilLine />
+              {t('console.worker_files.rename')}
+            </DropdownMenuItem>
+            <DropdownMenuItem variant="destructive" onClick={() => setDeleteOpen(true)}>
+              <RiDeleteBin6Line />
+              {t('common.delete')}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <RenameDialog
+          open={renameOpen}
+          onOpenChange={setRenameOpen}
+          entry={entry}
+          disabled={pending}
+          onConfirm={newName => onRename(entry.relative_path, joinPath(dirname(entry.relative_path), newName))}
+          t={t}
+        />
+        <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{t('console.worker_files.delete_title')}</DialogTitle>
+              <DialogDescription>
+                {isDir
+                  ? t('console.worker_files.delete_directory_description')
+                  : t('console.worker_files.delete_description', { path: entry.relative_path })}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <DialogClose render={<Button size="sm" variant="ghost" />}>{t('common.cancel')}</DialogClose>
+              <Button
+                disabled={pending}
+                size="sm"
+                type="button"
+                variant="destructive"
+                onClick={() => {
+                  setDeleteOpen(false)
+                  onDelete()
+                }}>
+                {t('common.delete')}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </TableCell>
     </TableRow>
   )
@@ -495,12 +577,7 @@ function UploadDialog({
           />
           <label className="grid gap-1 text-sm">
             <span className="text-muted-foreground">{t('console.worker_files.upload_subdirectory')}</span>
-            <input
-              className="border border-border bg-background px-3 py-2 text-sm"
-              placeholder="docs/"
-              value={subdir}
-              onChange={event => setSubdir(event.target.value)}
-            />
+            <Input placeholder="docs/" value={subdir} onChange={event => setSubdir(event.target.value)} />
           </label>
           {files.length > 0 ? (
             <ul className="grid gap-1 text-xs text-muted-foreground">
@@ -511,9 +588,7 @@ function UploadDialog({
           ) : null}
         </div>
         <DialogFooter>
-          <DialogClose className={cn(buttonVariants({ size: 'sm', variant: 'ghost' }))}>
-            {t('common.cancel')}
-          </DialogClose>
+          <DialogClose render={<Button size="sm" variant="ghost" />}>{t('common.cancel')}</DialogClose>
           <Button disabled={disabled || files.length === 0} size="sm" type="button" onClick={submit}>
             {t('console.worker_files.upload')}
           </Button>
@@ -524,61 +599,45 @@ function UploadDialog({
 }
 
 function RenameDialog({
+  open,
+  onOpenChange,
   entry,
   disabled,
   onConfirm,
   t
 }: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
   entry: WorkerFileEntry
   disabled: boolean
   onConfirm: (newName: string) => void
   t: (key: string) => string
 }) {
-  const [open, setOpen] = useState(false)
   const [value, setValue] = useState('')
 
+  useEffect(() => {
+    if (open) setValue(basename(entry.relative_path))
+  }, [entry.relative_path, open])
+
   return (
-    <Dialog
-      open={open}
-      onOpenChange={next => {
-        setOpen(next)
-        if (next) setValue(basename(entry.relative_path))
-      }}>
-      <Button
-        aria-label={t('console.worker_files.rename')}
-        disabled={disabled}
-        size="icon-xs"
-        type="button"
-        variant="ghost"
-        onClick={() => {
-          setValue(basename(entry.relative_path))
-          setOpen(true)
-        }}>
-        <RiPencilLine />
-      </Button>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{t('console.worker_files.rename_title')}</DialogTitle>
         </DialogHeader>
         <label className="grid gap-1 text-sm">
           <span className="text-muted-foreground">{t('console.worker_files.new_name')}</span>
-          <input
-            className="border border-border bg-background px-3 py-2 text-sm"
-            value={value}
-            onChange={event => setValue(event.target.value)}
-          />
+          <Input value={value} onChange={event => setValue(event.target.value)} />
         </label>
         <DialogFooter>
-          <DialogClose className={cn(buttonVariants({ size: 'sm', variant: 'ghost' }))}>
-            {t('common.cancel')}
-          </DialogClose>
+          <DialogClose render={<Button size="sm" variant="ghost" />}>{t('common.cancel')}</DialogClose>
           <Button
             disabled={disabled || value.trim() === ''}
             size="sm"
             type="button"
             onClick={() => {
               onConfirm(value.trim())
-              setOpen(false)
+              onOpenChange(false)
             }}>
             {t('console.worker_files.rename')}
           </Button>

@@ -1,4 +1,7 @@
+import { Alert, AlertDescription, AlertTitle } from '@ankole/uikit'
+import { RiErrorWarningLine } from '@remixicon/react'
 import { recordValue, type JsonObject as JSONObject } from '@pleisto/active-support'
+import type { ReactNode } from 'react'
 import i18n from '../common/i18n'
 import { requestErrorMessage } from '../common/request-errors'
 
@@ -8,12 +11,17 @@ import { requestErrorMessage } from '../common/request-errors'
  * (layout, list, editor frames) lives in `console-shell`.
  */
 
-export function ErrorBlock({ error }: { error: unknown }) {
+export function ErrorBlock({ action, error, title }: { action?: ReactNode; error: unknown; title?: string }) {
   if (!error) return null
   return (
-    <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
-      {typeof error === 'string' ? error : requestErrorMessage(error)}
-    </div>
+    <Alert className="min-w-0 overflow-hidden" variant="destructive">
+      <RiErrorWarningLine aria-hidden />
+      <AlertTitle>{title ?? i18n.t('common.error')}</AlertTitle>
+      <AlertDescription className="min-w-0 break-all whitespace-pre-wrap">
+        {requestErrorMessage(error)}
+      </AlertDescription>
+      {action ? <div className="mt-3">{action}</div> : null}
+    </Alert>
   )
 }
 

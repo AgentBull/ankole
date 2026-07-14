@@ -11,9 +11,9 @@ import {
   TableRow,
   toast
 } from '@ankole/uikit'
-import { RiEyeLine } from '@remixicon/react'
+import { RiEyeLine, RiEyeOffLine } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   ankoleWebWorkerEnvControllerDecryptForAgentMutation,
@@ -25,11 +25,17 @@ import type { WorkerEnvItem } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
 import { ErrorBlock } from '../console-primitives'
 import { ENCRYPTED_VALUE_MASK, EncryptedValueInput, isEncryptedValueMask } from '../encrypted-value-input'
-import { WORKER_ENV_NAME_FORMAT, WorkerEnvSourceBadge, workerEnvValueText } from './worker-envs'
+import { workerEnvValueText } from '../state/worker-env-visibility'
+import {
+  WORKER_ENV_NAME_FORMAT,
+  WorkerEnvPlaintextConfirmDialog,
+  WorkerEnvPlaintextWarning,
+  WorkerEnvSourceBadge
+} from './worker-envs'
 
 type OverrideDraft = { name: string; value: string; secret: boolean }
 
-const emptyDraft: OverrideDraft = { name: '', value: '', secret: false }
+const emptyDraft: OverrideDraft = { name: '', value: '', secret: true }
 
 /**
  * Effective shell environment for one agent, embedded in the agent editor.
@@ -47,7 +53,9 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
   const [draft, setDraft] = useState<OverrideDraft>(emptyDraft)
   const [editing, setEditing] = useState<string>()
   const [revealed, setRevealed] = useState<Record<string, string>>({})
+  const revealTimers = useRef<Record<string, number>>({})
   const [draftError, setDraftError] = useState<string>()
+  const [plaintextConfirmOpen, setPlaintextConfirmOpen] = useState(false)
 
   const refresh = () => void queryClient.invalidateQueries()
   const save = useMutation({
@@ -57,6 +65,7 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
       setDraft(emptyDraft)
       setEditing(undefined)
       setDraftError(undefined)
+      setPlaintextConfirmOpen(false)
       refresh()
     },
     onError: error => setDraftError(requestErrorMessage(error))
@@ -79,12 +88,44 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
         ...current,
         [response.decrypted_value.name]: displayedValue
       }))
+      window.clearTimeout(revealTimers.current[response.decrypted_value.name])
+      revealTimers.current[response.decrypted_value.name] = window.setTimeout(() => {
+        setRevealed(current => {
+          const next = { ...current }
+          delete next[response.decrypted_value.name]
+          return next
+        })
+        delete revealTimers.current[response.decrypted_value.name]
+      }, 30_000)
       setDraft(current =>
         current.name === response.decrypted_value.name ? { ...current, value: displayedValue } : current
       )
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
+
+  useEffect(() => {
+    const remaskAll = () => {
+      for (const timeout of Object.values(revealTimers.current)) window.clearTimeout(timeout)
+      revealTimers.current = {}
+      setRevealed({})
+    }
+    window.addEventListener('blur', remaskAll)
+    return () => {
+      window.removeEventListener('blur', remaskAll)
+      for (const timeout of Object.values(revealTimers.current)) window.clearTimeout(timeout)
+    }
+  }, [])
+
+  const hideRevealed = (name: string) => {
+    window.clearTimeout(revealTimers.current[name])
+    delete revealTimers.current[name]
+    setRevealed(current => {
+      const next = { ...current }
+      delete next[name]
+      return next
+    })
+  }
 
   const beginOverride = (item: WorkerEnvItem) => {
     setEditing(item.name)
@@ -100,6 +141,16 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
     setDraftError(undefined)
   }
 
+  const persistDraft = () => {
+    save.mutate({
+      body: {
+        ...(isEncryptedValueMask(draft.value) ? {} : { value: draft.value }),
+        secret: draft.secret
+      },
+      path: { agent_uid: agentUID, name: draft.name.trim() }
+    })
+  }
+
   const submitDraft = () => {
     const name = draft.name.trim()
     if (!WORKER_ENV_NAME_FORMAT.test(name)) {
@@ -110,13 +161,15 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
       setDraftError(t('console.worker_envs.value_required'))
       return
     }
-    save.mutate({
-      body: {
-        ...(isEncryptedValueMask(draft.value) ? {} : { value: draft.value }),
-        secret: draft.secret
-      },
-      path: { agent_uid: agentUID, name }
-    })
+    if (!draft.secret && isEncryptedValueMask(draft.value)) {
+      setDraftError(t('console.worker_envs.plaintext_reveal_required'))
+      return
+    }
+    if (!draft.secret) {
+      setPlaintextConfirmOpen(true)
+      return
+    }
+    persistDraft()
   }
 
   const draftRow = (mode: 'add' | 'edit') => (
@@ -135,24 +188,27 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
         )}
       </TableCell>
       <TableCell colSpan={2}>
-        {draft.secret || isEncryptedValueMask(draft.value) ? (
-          <EncryptedValueInput
-            className="font-mono"
-            revealLabel={t('console.worker_envs.reveal')}
-            revealed={revealed[draft.name] !== undefined && !isEncryptedValueMask(draft.value)}
-            revealing={decrypt.isPending}
-            value={draft.value}
-            onChange={event => setDraft(current => ({ ...current, value: event.target.value }))}
-            onReveal={editing ? () => decrypt.mutate({ path: { agent_uid: agentUID, name: editing } }) : undefined}
-          />
-        ) : (
-          <Input
-            className="font-mono"
-            spellCheck={false}
-            value={draft.value}
-            onChange={event => setDraft(current => ({ ...current, value: event.target.value }))}
-          />
-        )}
+        <div className="grid min-w-64 gap-2">
+          {draft.secret || isEncryptedValueMask(draft.value) ? (
+            <EncryptedValueInput
+              className="font-mono"
+              revealLabel={t('console.worker_envs.reveal')}
+              revealed={revealed[draft.name] !== undefined && !isEncryptedValueMask(draft.value)}
+              revealing={decrypt.isPending}
+              value={draft.value}
+              onChange={event => setDraft(current => ({ ...current, value: event.target.value }))}
+              onReveal={editing ? () => decrypt.mutate({ path: { agent_uid: agentUID, name: editing } }) : undefined}
+            />
+          ) : (
+            <Input
+              className="font-mono"
+              spellCheck={false}
+              value={draft.value}
+              onChange={event => setDraft(current => ({ ...current, value: event.target.value }))}
+            />
+          )}
+          {!draft.secret ? <WorkerEnvPlaintextWarning compact /> : null}
+        </div>
       </TableCell>
       <TableCell>
         <label className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -191,7 +247,7 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
         <p className="text-sm leading-6 text-muted-foreground">{t('console.worker_envs.agent_section_description')}</p>
       </div>
       <ErrorBlock error={list.error ?? draftError} />
-      <div className="overflow-hidden border border-border bg-card">
+      <div className="overflow-x-auto border border-border bg-card">
         <Table>
           <TableHeader>
             <TableRow>
@@ -216,13 +272,30 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
                   <TableCell className="max-w-[260px] font-mono text-xs text-muted-foreground">
                     <div className="flex items-center gap-1.5">
                       <span className="truncate">{revealed[item.name] ?? workerEnvValueText(item)}</span>
-                      {item.secret && revealed[item.name] === undefined ? (
+                      {item.secret ? (
                         <button
-                          aria-label={t('console.worker_envs.reveal')}
-                          className="text-muted-foreground hover:text-foreground"
+                          aria-label={
+                            revealed[item.name] === undefined
+                              ? t('console.worker_envs.reveal')
+                              : t('console.aria.hide_secret')
+                          }
+                          className="grid size-9 shrink-0 place-items-center text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40"
+                          title={
+                            revealed[item.name] === undefined
+                              ? t('console.worker_envs.reveal')
+                              : t('console.aria.hide_secret')
+                          }
                           type="button"
-                          onClick={() => decrypt.mutate({ path: { agent_uid: agentUID, name: item.name } })}>
-                          <RiEyeLine className="size-3.5" />
+                          onClick={() =>
+                            revealed[item.name] === undefined
+                              ? decrypt.mutate({ path: { agent_uid: agentUID, name: item.name } })
+                              : hideRevealed(item.name)
+                          }>
+                          {revealed[item.name] === undefined ? (
+                            <RiEyeLine className="size-4" />
+                          ) : (
+                            <RiEyeOffLine className="size-4" />
+                          )}
                         </button>
                       ) : null}
                     </div>
@@ -259,6 +332,15 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
           </TableBody>
         </Table>
       </div>
+      <WorkerEnvPlaintextConfirmDialog
+        open={plaintextConfirmOpen}
+        pending={save.isPending}
+        onOpenChange={setPlaintextConfirmOpen}
+        onConfirm={() => {
+          setPlaintextConfirmOpen(false)
+          persistDraft()
+        }}
+      />
     </section>
   )
 }

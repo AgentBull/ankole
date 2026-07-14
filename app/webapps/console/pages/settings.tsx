@@ -1,8 +1,8 @@
-import { Badge, Button, TableCell, TableRow, buttonVariants, cn, toast } from '@ankole/uikit'
+import { Badge, Button, Input, Switch, TableCell, TableRow, toast } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
+import { useDeferredValue, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router'
 import {
@@ -15,14 +15,34 @@ import {
 import { requestErrorMessage } from '../../common/request-errors'
 import { formatJSON, parseJSON } from '../console-primitives'
 import { ENCRYPTED_VALUE_MASK, EncryptedValueInput, isEncryptedValueMask } from '../encrypted-value-input'
-import { JSONField, LabeledField, ResourceEditorPage, ResourceListPage } from '../console-shell'
+import {
+  JSONField,
+  LabeledField,
+  ResourceEditorPage,
+  ResourceListPage,
+  ResourceSearch,
+  RowActions
+} from '../console-shell'
 import { SettingEditorModel } from '../state/setting-editor-model'
+import { matchesResourceSearch } from '../state/resource-search'
+import { settingStringDraft, settingValueKind } from '../state/setting-value-editor'
 
 export function SettingsListPage() {
   const { t } = useTranslation()
-  const navigate = useNavigate()
   const list = useQuery(ankoleWebAppConfigurationControllerIndexOptions())
-  const items = list.data?.app_configurations ?? []
+  const [query, setQuery] = useState('')
+  const deferredQuery = useDeferredValue(query)
+  const items = (list.data?.app_configurations ?? []).filter(item =>
+    matchesResourceSearch(
+      deferredQuery,
+      item.key,
+      item.description,
+      item.kind,
+      item.source,
+      item.encrypted ? 'encrypted' : '',
+      item.overridden ? 'overridden' : ''
+    )
+  )
 
   return (
     <ResourceListPage
@@ -38,35 +58,44 @@ export function SettingsListPage() {
       isEmpty={items.length === 0}
       emptyTitle={t('console.settings.empty_title')}
       emptyDescription={t('console.no_settings')}
-      error={list.error}>
+      error={list.error}
+      isFiltered={Boolean(query.trim())}
+      toolbar={
+        <ResourceSearch
+          label={t('console.settings.search')}
+          placeholder={t('console.settings.search_placeholder')}
+          value={query}
+          onChange={setQuery}
+        />
+      }>
       {items.map(item => (
-        <TableRow
-          key={`${item.kind}:${item.key}`}
-          className={item.editable ? 'cursor-pointer' : undefined}
-          onClick={() => item.editable && navigate(encodeURIComponent(item.key))}>
-          <TableCell className="max-w-[360px] font-mono text-xs break-all whitespace-normal">{item.key}</TableCell>
+        <TableRow key={`${item.kind}:${item.key}`}>
+          <TableCell className="max-w-[360px] font-mono text-xs break-all whitespace-normal">
+            {item.editable ? (
+              <Link className="text-foreground hover:text-primary hover:underline" to={encodeURIComponent(item.key)}>
+                {item.key}
+              </Link>
+            ) : (
+              item.key
+            )}
+          </TableCell>
           <TableCell>
             <Badge variant={item.kind === 'pattern' ? 'outline' : 'secondary'}>{item.kind}</Badge>
           </TableCell>
-          <TableCell>{item.source}</TableCell>
+          <TableCell>{t(`console.settings.source_${item.source}`)}</TableCell>
           <TableCell>
             <div className="flex flex-wrap gap-1.5">
-              {item.encrypted ? <Badge variant="destructive">{t('console.status.encrypted')}</Badge> : null}
-              {item.overridden ? <Badge>{t('console.status.global')}</Badge> : null}
+              {item.encrypted ? <Badge variant="info">{t('console.status.encrypted')}</Badge> : null}
+              {item.overridden ? <Badge variant="success">{t('console.status.global')}</Badge> : null}
             </div>
           </TableCell>
-          <TableCell className="text-right">
-            {item.editable ? (
-              <Link
-                to={encodeURIComponent(item.key)}
-                onClick={event => event.stopPropagation()}
-                className={cn(buttonVariants({ size: 'xs', variant: 'ghost' }))}>
-                {t('common.edit')}
-              </Link>
-            ) : (
+          {item.editable ? (
+            <RowActions editTo={encodeURIComponent(item.key)} editLabel={t('common.edit')} />
+          ) : (
+            <TableCell className="text-right">
               <span className="pr-2 text-xs text-muted-foreground">{t('console.settings.read_only')}</span>
-            )}
-          </TableCell>
+            </TableCell>
+          )}
         </TableRow>
       ))}
     </ResourceListPage>
@@ -96,7 +125,7 @@ export function SettingEditorPage() {
     onSuccess: response => {
       toast.success(t('console.settings.saved', { key: response.app_configuration.key }))
       refresh()
-      navigate('..')
+      navigate('/settings')
     }
   })
   const reset = useMutation({
@@ -146,7 +175,7 @@ export function SettingEditorPage() {
     <ResourceEditorPage
       title={key}
       description={item?.description ?? t('console.settings.editor_description')}
-      backTo=".."
+      backTo="/settings"
       error={model.validationError.value ?? update.error ?? decrypt.error}
       submitting={update.isPending}
       onSubmit={submit}
@@ -186,13 +215,54 @@ export function SettingEditorPage() {
           />
         </LabeledField>
       ) : (
-        <JSONField
+        <SettingValueField
+          kind={settingValueKind(item?.value)}
           label={t('console.settings.value')}
           value={model.text.value}
-          minRows={10}
           onChange={value => (model.text.value = value)}
         />
       )}
     </ResourceEditorPage>
   )
+}
+
+function SettingValueField({
+  kind,
+  label,
+  onChange,
+  value
+}: {
+  kind: ReturnType<typeof settingValueKind>
+  label: string
+  onChange: (value: string) => void
+  value: string
+}) {
+  if (kind === 'boolean') {
+    return (
+      <LabeledField label={label}>
+        <div className="flex min-h-12 items-center justify-between border border-border bg-muted/30 px-4 py-3">
+          <span className="text-sm text-foreground">{value === 'true' ? 'true' : 'false'}</span>
+          <Switch checked={value === 'true'} onCheckedChange={checked => onChange(checked ? 'true' : 'false')} />
+        </div>
+      </LabeledField>
+    )
+  }
+
+  if (kind === 'number') {
+    return (
+      <LabeledField label={label} required>
+        <Input type="number" step="any" value={value} onChange={event => onChange(event.target.value)} />
+      </LabeledField>
+    )
+  }
+
+  if (kind === 'string') {
+    return (
+      <LabeledField label={label} required>
+        <Input value={settingStringDraft(value)} onChange={event => onChange(JSON.stringify(event.target.value))} />
+      </LabeledField>
+    )
+  }
+
+  return <JSONField label={label} value={value} minRows={8} onChange={onChange} />
 }

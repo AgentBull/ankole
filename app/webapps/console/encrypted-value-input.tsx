@@ -42,6 +42,17 @@ export function EncryptedValueInput({
     else if (revealed) setVisible(true)
   }, [masked, revealed])
 
+  useEffect(() => {
+    if (!visible) return
+    const remask = () => setVisible(false)
+    const timeout = window.setTimeout(remask, 30_000)
+    window.addEventListener('blur', remask)
+    return () => {
+      window.clearTimeout(timeout)
+      window.removeEventListener('blur', remask)
+    }
+  }, [visible])
+
   const revealStoredValue = masked && onReveal
   const label = revealStoredValue
     ? revealLabel

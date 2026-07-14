@@ -1,11 +1,11 @@
 import { recordValue } from '@pleisto/active-support'
-import { Badge, Input, Separator, TableCell, TableRow, toast } from '@ankole/uikit'
+import { Input, TableCell, TableRow, toast } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
+import { useDeferredValue, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate, useParams } from 'react-router'
+import { Link, useNavigate, useParams } from 'react-router'
 import {
   ankoleWebAgentControllerCreateMutation,
   ankoleWebAgentControllerDeleteMutation,
@@ -20,17 +20,29 @@ import {
 import type { AgentItem } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
 import { blankToNull } from '../console-primitives'
-import { LabeledField, ResourceEditorPage, ResourceListPage, RowActions } from '../console-shell'
+import {
+  LabeledField,
+  ReadOnlyValue,
+  ResourceEditorPage,
+  ResourceListPage,
+  ResourceSearch,
+  RowActions,
+  StatusIndicator
+} from '../console-shell'
 import { AgentEditorModel, type AgentEditorDraft } from '../state/agent-editor-model'
+import { matchesResourceSearch } from '../state/resource-search'
 import { ModelProfilesEditor } from './model-profiles-editor'
 import { WorkerEnvAgentSection } from './worker-env-agent-section'
 
 export function AgentsListPage() {
   const { t } = useTranslation()
-  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const agents = useQuery(ankoleWebAgentControllerIndexOptions())
-  const rows = agents.data?.agents ?? []
+  const [query, setQuery] = useState('')
+  const deferredQuery = useDeferredValue(query)
+  const rows = (agents.data?.agents ?? []).filter(agent =>
+    matchesResourceSearch(deferredQuery, agent.uid, agent.display_name, agent.role, agent.status)
+  )
   const deleteAgent = useMutation({
     ...ankoleWebAgentControllerDeleteMutation(),
     onSuccess: (_data, variables) => {
@@ -51,13 +63,28 @@ export function AgentsListPage() {
       isEmpty={rows.length === 0}
       emptyTitle={t('console.agents.empty_title')}
       emptyDescription={t('console.agents.empty_description')}
-      error={agents.error}>
+      error={agents.error}
+      isFiltered={Boolean(query.trim())}
+      toolbar={
+        <ResourceSearch
+          label={t('console.agents.search')}
+          placeholder={t('console.agents.search_placeholder')}
+          value={query}
+          onChange={setQuery}
+        />
+      }>
       {rows.map(agent => (
-        <TableRow key={agent.uid} className="cursor-pointer" onClick={() => navigate(encodeURIComponent(agent.uid))}>
-          <TableCell className="font-mono text-xs">{agent.uid}</TableCell>
+        <TableRow key={agent.uid}>
+          <TableCell className="font-mono text-xs">
+            <Link className="text-foreground hover:text-primary hover:underline" to={encodeURIComponent(agent.uid)}>
+              {agent.uid}
+            </Link>
+          </TableCell>
           <TableCell>{agent.role}</TableCell>
           <TableCell>
-            <Badge variant={agent.status === 'active' ? 'default' : 'secondary'}>{agent.status}</Badge>
+            <StatusIndicator tone={agent.status === 'active' ? 'positive' : 'neutral'}>
+              {t(`console.status.${agent.status}`)}
+            </StatusIndicator>
           </TableCell>
           <RowActions
             editTo={encodeURIComponent(agent.uid)}
@@ -148,17 +175,39 @@ export function AgentEditorPage() {
       backTo="/agents"
       error={model.validationError.value ?? createAgent.error ?? updateAgent.error}
       submitting={createAgent.isPending || updateAgent.isPending}
+      submitLabel={mode === 'edit' ? t('console.agents.save_identity') : t('common.save')}
+      supplementary={
+        mode === 'edit' && selectedAgent ? (
+          <div className="grid gap-10 border-t border-border pt-8">
+            <ModelProfilesEditor
+              agent={selectedAgent}
+              error={modelProfiles.error}
+              loading={modelProfiles.isLoading}
+              profiles={recordValue(modelProfiles.data?.model_profiles) ?? {}}
+              providers={providers.data?.ai_gateway_providers ?? []}
+              providerKinds={providerKinds.data?.provider_kinds ?? []}
+              modelCatalog={modelCatalog.data}
+              codexAccounts={codexAccounts.data?.codex_accounts ?? []}
+              onChanged={refresh}
+            />
+            <WorkerEnvAgentSection agentUID={selectedAgent.uid} />
+          </div>
+        ) : null
+      }
       onSubmit={submit}>
       <LabeledField
         label={t('console.agents.uid')}
         description={t('console.agents.uid_hint')}
         required={mode === 'new'}>
-        <Input
-          disabled={mode === 'edit'}
-          placeholder="research-analyst"
-          value={model.uid.value}
-          onChange={event => (model.uid.value = event.target.value)}
-        />
+        {mode === 'edit' ? (
+          <ReadOnlyValue mono>{model.uid.value}</ReadOnlyValue>
+        ) : (
+          <Input
+            placeholder="research-analyst"
+            value={model.uid.value}
+            onChange={event => (model.uid.value = event.target.value)}
+          />
+        )}
       </LabeledField>
       <div className="grid gap-5 md:grid-cols-2">
         <LabeledField label={t('console.agents.display_name')}>
@@ -171,24 +220,6 @@ export function AgentEditorPage() {
       <LabeledField label={t('console.agents.avatar_url')}>
         <Input value={model.avatarURL.value} onChange={event => (model.avatarURL.value = event.target.value)} />
       </LabeledField>
-      {mode === 'edit' && selectedAgent ? (
-        <>
-          <Separator />
-          <ModelProfilesEditor
-            agent={selectedAgent}
-            error={modelProfiles.error}
-            loading={modelProfiles.isLoading}
-            profiles={recordValue(modelProfiles.data?.model_profiles) ?? {}}
-            providers={providers.data?.ai_gateway_providers ?? []}
-            providerKinds={providerKinds.data?.provider_kinds ?? []}
-            modelCatalog={modelCatalog.data}
-            codexAccounts={codexAccounts.data?.codex_accounts ?? []}
-            onChanged={refresh}
-          />
-          <Separator />
-          <WorkerEnvAgentSection agentUID={selectedAgent.uid} />
-        </>
-      ) : null}
     </ResourceEditorPage>
   )
 }

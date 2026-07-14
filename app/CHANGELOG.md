@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 26.07.3 (2026-07-14)
+
+- Align Auth, Setup, and Console around a Carbon-inspired shell, page header, resource table, and dedicated editor hierarchy while retaining the Ankole UI kit and magenta brand.
+- Split Brain into Entries, Audit, and Dreaming task surfaces with focused filters, structured audit diffs, and explicit run ownership.
+- Clarify editor save boundaries, add typed setting controls and read-only identifiers, and improve responsive, empty, error, keyboard, and sensitive-value states across operator workflows.
+- Restore the light Console navigation by making its desktop rail and mobile drawer follow the shared surface tokens, then apply one persisted light/dark theme across Auth, Setup, Console, overlays, and notifications.
+
 ## Version 26.07.2 (2026-07-14)
 
 - Prevent short AI replies from racing their transient preview identity before durable final delivery.

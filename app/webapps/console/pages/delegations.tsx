@@ -8,7 +8,12 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  Input,
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
   Sheet,
   SheetContent,
   SheetDescription,
@@ -20,7 +25,7 @@ import {
 } from '@ankole/uikit'
 import { RiCloseCircleLine, RiTimeLine } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useMemo, useState } from 'react'
+import { type ReactNode, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router'
 import { requestErrorMessage } from '../../common/request-errors'
@@ -31,6 +36,7 @@ import {
 } from '../api/generated/@tanstack/react-query.gen'
 import type { SubagentDelegationItem } from '../api/generated/types.gen'
 import { ErrorBlock } from '../console-primitives'
+import { PageHeader, ResourceSearch, StatusIndicator } from '../console-shell'
 
 type Column = {
   key: 'todo' | 'active' | 'finished'
@@ -63,7 +69,8 @@ export function DelegationsPage() {
       path: { delegation_id: selectedID ?? 'not-selected' }
     }),
     enabled: Boolean(selectedID),
-    refetchInterval: selectedID ? 5_000 : false
+    refetchInterval: selectedID ? 5_000 : false,
+    retry: false
   })
   const cancel = useMutation({
     ...ankoleWebSubagentDelegationControllerCancelMutation(),
@@ -112,54 +119,71 @@ export function DelegationsPage() {
 
   return (
     <div className="grid gap-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="grid gap-1">
-          <h2 className="text-2xl font-semibold tracking-normal">{t('console.delegations.title')}</h2>
-          <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{t('console.delegations.description')}</p>
+      <PageHeader title={t('console.delegations.title')} description={t('console.delegations.description')} />
+      <ResourceSearch
+        label={t('console.delegations.agent_filter')}
+        placeholder={t('console.delegations.agent_filter')}
+        value={agentFilter}
+        onChange={setAgentFilter}
+      />
+
+      {list.error ? (
+        <ErrorBlock error={list.error} />
+      ) : !list.isLoading && delegations.length === 0 ? (
+        <Empty className="items-start border border-border bg-card text-left">
+          <EmptyHeader className="items-start">
+            <EmptyMedia variant="icon">
+              <RiTimeLine aria-hidden />
+            </EmptyMedia>
+            <EmptyTitle>
+              {agentFilter ? t('console.empty.no_results_title') : t('console.delegations.empty_title')}
+            </EmptyTitle>
+            <EmptyDescription>
+              {agentFilter ? t('console.empty.no_results_description') : t('console.delegations.empty_description')}
+            </EmptyDescription>
+          </EmptyHeader>
+          {agentFilter ? (
+            <EmptyContent className="items-start">
+              <Button type="button" size="sm" variant="outline" onClick={() => setAgentFilter('')}>
+                {t('console.empty.clear_search')}
+              </Button>
+            </EmptyContent>
+          ) : null}
+        </Empty>
+      ) : (
+        <div className="grid min-w-0 gap-4 xl:grid-cols-3">
+          {columns.map(column => (
+            <section key={column.key} className="min-h-72 border border-border bg-muted/25">
+              <header className="flex items-center justify-between border-b border-border bg-card px-4 py-3">
+                <h3 className="font-medium">{t(`console.delegations.column_${column.key}`)}</h3>
+                <Badge variant="secondary">{grouped[column.key].length}</Badge>
+              </header>
+              <div className="grid gap-3 p-3">
+                {list.isLoading ? (
+                  <>
+                    <Skeleton className="h-36 w-full" />
+                    <Skeleton className="h-28 w-full" />
+                  </>
+                ) : grouped[column.key].length === 0 ? (
+                  <p className="px-2 py-8 text-center text-sm text-muted-foreground">
+                    {t('console.delegations.empty_column')}
+                  </p>
+                ) : (
+                  grouped[column.key].map(task => (
+                    <DelegationCard
+                      key={task.id}
+                      task={task}
+                      cancelling={cancel.isPending}
+                      onCancel={() => setCancelTargetID(task.id)}
+                      onOpen={() => openDelegation(task.id)}
+                    />
+                  ))
+                )}
+              </div>
+            </section>
+          ))}
         </div>
-        <Input
-          className="w-full sm:w-64"
-          aria-label={t('console.delegations.agent_filter')}
-          placeholder={t('console.delegations.agent_filter')}
-          value={agentFilter}
-          onChange={event => setAgentFilter(event.target.value)}
-        />
-      </div>
-
-      <ErrorBlock error={list.error} />
-
-      <div className="grid min-w-0 gap-4 xl:grid-cols-3">
-        {columns.map(column => (
-          <section key={column.key} className="min-h-72 border border-border bg-muted/25">
-            <header className="flex items-center justify-between border-b border-border bg-card px-4 py-3">
-              <h3 className="font-medium">{t(`console.delegations.column_${column.key}`)}</h3>
-              <Badge variant="secondary">{grouped[column.key].length}</Badge>
-            </header>
-            <div className="grid gap-3 p-3">
-              {list.isLoading ? (
-                <>
-                  <Skeleton className="h-36 w-full" />
-                  <Skeleton className="h-28 w-full" />
-                </>
-              ) : grouped[column.key].length === 0 ? (
-                <p className="px-2 py-10 text-center text-sm text-muted-foreground">
-                  {t('console.delegations.empty_column')}
-                </p>
-              ) : (
-                grouped[column.key].map(task => (
-                  <DelegationCard
-                    key={task.id}
-                    task={task}
-                    cancelling={cancel.isPending}
-                    onCancel={() => setCancelTargetID(task.id)}
-                    onOpen={() => openDelegation(task.id)}
-                  />
-                ))
-              )}
-            </div>
-          </section>
-        ))}
-      </div>
+      )}
 
       <Sheet open={Boolean(selectedID)} onOpenChange={open => !open && closeDelegation()}>
         <SheetContent className="w-full sm:max-w-2xl">
@@ -169,13 +193,17 @@ export function DelegationsPage() {
           </SheetHeader>
 
           <div className="grid flex-1 gap-6 overflow-y-auto px-8 pb-8">
-            <ErrorBlock error={detail.error} />
-            {detail.isLoading || !selected ? (
+            {detail.error ? (
+              <ErrorBlock error={detail.error} />
+            ) : detail.isLoading || !selected ? (
               <Skeleton className="h-64 w-full" />
             ) : (
               <>
                 <dl className="grid grid-cols-2 gap-x-6 gap-y-3 border border-border bg-card p-4 text-sm">
-                  <DetailField label={t('console.delegations.status')} value={selected.status} />
+                  <DetailField
+                    label={t('console.delegations.status')}
+                    value={<StatusBadge status={selected.status} />}
+                  />
                   <DetailField label={t('console.delegations.runtime')} value={selected.runtime} />
                   <DetailField label={t('console.delegations.codex_account')} value={selected.codex_account_id} />
                   <DetailField label={t('console.delegations.attempts')} value={String(selected.attempts)} />
@@ -281,8 +309,12 @@ function DelegationCard({
   const { t } = useTranslation()
 
   return (
-    <article className="grid gap-3 border border-border bg-card p-4 shadow-xs">
-      <button type="button" className="grid gap-3 text-left" onClick={onOpen}>
+    <article className="grid gap-3 border border-border bg-card p-4 shadow-xs transition-colors hover:border-foreground/30">
+      <button
+        type="button"
+        className="grid gap-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        aria-label={t('console.delegations.open_detail', { title: task.title ?? task.id })}
+        onClick={onOpen}>
         <div className="flex items-start justify-between gap-3">
           <h4 className="line-clamp-2 font-medium leading-5">{task.title ?? task.id}</h4>
           <StatusBadge status={task.status} />
@@ -306,12 +338,21 @@ function DelegationCard({
 }
 
 function StatusBadge({ status }: { status: SubagentDelegationItem['status'] }) {
-  const variant =
-    status === 'failed' || status === 'stopped' ? 'destructive' : status === 'succeeded' ? 'default' : 'secondary'
-  return <Badge variant={variant}>{status}</Badge>
+  const { t } = useTranslation()
+  const tone =
+    status === 'failed' || status === 'stopped'
+      ? 'danger'
+      : status === 'succeeded'
+        ? 'positive'
+        : status === 'running'
+          ? 'info'
+          : status === 'waiting_on_user'
+            ? 'warning'
+            : 'neutral'
+  return <StatusIndicator tone={tone}>{t(`console.delegations.status_${status}`)}</StatusIndicator>
 }
 
-function DetailField({ label, value, wide = false }: { label: string; value: string; wide?: boolean }) {
+function DetailField({ label, value, wide = false }: { label: string; value: ReactNode; wide?: boolean }) {
   return (
     <div className={wide ? 'col-span-2 grid gap-1' : 'grid gap-1'}>
       <dt className="text-xs text-muted-foreground">{label}</dt>

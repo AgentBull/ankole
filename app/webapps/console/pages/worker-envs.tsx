@@ -1,11 +1,21 @@
 import {
   Badge,
+  Alert,
+  AlertDescription,
+  AlertTitle,
   Button,
-  Checkbox,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   Field,
   FieldDescription,
   FieldLabel,
   Input,
+  Switch,
   TableCell,
   TableRow,
   toast
@@ -13,9 +23,9 @@ import {
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
+import { useDeferredValue, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate, useParams } from 'react-router'
+import { Link, useNavigate, useParams } from 'react-router'
 import {
   ankoleWebWorkerEnvControllerDecryptMutation,
   ankoleWebWorkerEnvControllerDeleteMutation,
@@ -26,30 +36,91 @@ import type { WorkerEnvItem } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
 import { blankToNull, formatJSON, parseJSON } from '../console-primitives'
 import { ENCRYPTED_VALUE_MASK, EncryptedValueInput, isEncryptedValueMask } from '../encrypted-value-input'
-import { JSONField, LabeledField, ResourceEditorPage, ResourceListPage, RowActions } from '../console-shell'
+import {
+  ConfirmDeleteButton,
+  JSONField,
+  LabeledField,
+  ResourceEditorPage,
+  ResourceListPage,
+  ResourceSearch,
+  RowActions
+} from '../console-shell'
 import { WorkerEnvEditorModel } from '../state/worker-env-editor-model'
+import { workerEnvValueText } from '../state/worker-env-visibility'
+import { matchesResourceSearch } from '../state/resource-search'
 
 export const WORKER_ENV_NAME_FORMAT = /^[A-Za-z_][A-Za-z0-9_]*$/
 
-/** Renders a variable value cell: masked for secrets, JSON-ish for declared values. */
-export function workerEnvValueText(item: WorkerEnvItem): string {
-  if (item.secret) return '••••••'
-  if (!item.present) return ''
-  if (typeof item.value === 'string') return item.value
-  return item.value === undefined ? '' : formatJSON(item.value)
-}
-
 export function WorkerEnvSourceBadge({ source }: { source: WorkerEnvItem['source'] }) {
   const { t } = useTranslation()
-  return <Badge variant={source === 'agent' ? 'default' : 'outline'}>{t(`console.worker_envs.source_${source}`)}</Badge>
+  return <Badge variant={source === 'agent' ? 'info' : 'outline'}>{t(`console.worker_envs.source_${source}`)}</Badge>
+}
+
+export function WorkerEnvPlaintextWarning({ compact = false }: { compact?: boolean }) {
+  const { t } = useTranslation()
+  if (compact) {
+    return (
+      <p className="text-xs leading-5 text-yellow-80 dark:text-yellow-30" role="note">
+        {t('console.worker_envs.plaintext_warning_description')}
+      </p>
+    )
+  }
+
+  return (
+    <Alert>
+      <AlertTitle>{t('console.worker_envs.plaintext_warning_title')}</AlertTitle>
+      <AlertDescription>{t('console.worker_envs.plaintext_warning_description')}</AlertDescription>
+    </Alert>
+  )
+}
+
+export function WorkerEnvPlaintextConfirmDialog({
+  open,
+  pending,
+  onConfirm,
+  onOpenChange
+}: {
+  open: boolean
+  pending: boolean
+  onConfirm: () => void
+  onOpenChange: (open: boolean) => void
+}) {
+  const { t } = useTranslation()
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t('console.worker_envs.plaintext_confirm_title')}</DialogTitle>
+          <DialogDescription>{t('console.worker_envs.plaintext_confirm_description')}</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <DialogClose render={<Button size="sm" variant="ghost" />}>{t('common.cancel')}</DialogClose>
+          <Button disabled={pending} size="sm" type="button" variant="destructive" onClick={onConfirm}>
+            {t('console.worker_envs.plaintext_confirm_action')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
 }
 
 export function WorkerEnvsListPage() {
   const { t } = useTranslation()
-  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const list = useQuery(ankoleWebWorkerEnvControllerIndexOptions())
-  const items = list.data?.worker_envs ?? []
+  const [query, setQuery] = useState('')
+  const deferredQuery = useDeferredValue(query)
+  const items = (list.data?.worker_envs ?? []).filter(item =>
+    matchesResourceSearch(
+      deferredQuery,
+      item.name,
+      item.description,
+      item.kind,
+      item.source,
+      item.secret ? 'encrypted' : '',
+      item.present ? 'present' : 'unset'
+    )
+  )
   const remove = useMutation({
     ...ankoleWebWorkerEnvControllerDeleteMutation(),
     onSuccess: (_data, variables) => {
@@ -69,16 +140,30 @@ export function WorkerEnvsListPage() {
         t('console.worker_envs.name'),
         t('console.worker_envs.value'),
         t('console.worker_envs.kind'),
+        t('console.worker_envs.source'),
         t('console.worker_envs.state')
       ]}
       isLoading={list.isLoading}
       isEmpty={items.length === 0}
       emptyTitle={t('console.worker_envs.empty_title')}
       emptyDescription={t('console.worker_envs.empty_description')}
-      error={list.error}>
+      error={list.error}
+      isFiltered={Boolean(query.trim())}
+      toolbar={
+        <ResourceSearch
+          label={t('console.worker_envs.search')}
+          placeholder={t('console.worker_envs.search_placeholder')}
+          value={query}
+          onChange={setQuery}
+        />
+      }>
       {items.map(item => (
-        <TableRow key={item.name} className="cursor-pointer" onClick={() => navigate(encodeURIComponent(item.name))}>
-          <TableCell className="max-w-[280px] font-mono text-xs break-all whitespace-normal">{item.name}</TableCell>
+        <TableRow key={item.name}>
+          <TableCell className="max-w-[280px] font-mono text-xs break-all whitespace-normal">
+            <Link className="text-foreground hover:text-primary hover:underline" to={encodeURIComponent(item.name)}>
+              {item.name}
+            </Link>
+          </TableCell>
           <TableCell className="max-w-[320px] truncate font-mono text-xs text-muted-foreground">
             {workerEnvValueText(item)}
           </TableCell>
@@ -88,8 +173,11 @@ export function WorkerEnvsListPage() {
             </Badge>
           </TableCell>
           <TableCell>
+            <WorkerEnvSourceBadge source={item.source} />
+          </TableCell>
+          <TableCell>
             <div className="flex flex-wrap gap-1.5">
-              {item.secret ? <Badge variant="destructive">{t('console.status.encrypted')}</Badge> : null}
+              {item.secret ? <Badge variant="info">{t('console.status.encrypted')}</Badge> : null}
               {item.present ? null : <Badge variant="outline">{t('console.worker_envs.unset')}</Badge>}
             </div>
           </TableCell>
@@ -123,6 +211,7 @@ export function WorkerEnvEditorPage() {
   const params = useParams()
   const name = params.name ? decodeURIComponent(params.name) : undefined
   const mode = name ? 'edit' : 'new'
+  const [plaintextConfirmOpen, setPlaintextConfirmOpen] = useState(false)
 
   const list = useQuery(ankoleWebWorkerEnvControllerIndexOptions())
   const item = name ? list.data?.worker_envs.find(entry => entry.name === name) : undefined
@@ -133,8 +222,9 @@ export function WorkerEnvEditorPage() {
     ...ankoleWebWorkerEnvControllerUpdateMutation(),
     onSuccess: response => {
       toast.success(t('console.worker_envs.saved', { name: response.worker_env.name }))
+      setPlaintextConfirmOpen(false)
       refresh()
-      navigate(mode === 'new' ? '..' : '..', { relative: 'path' })
+      navigate('/worker-envs')
     }
   })
   const remove = useMutation({
@@ -147,7 +237,7 @@ export function WorkerEnvEditorPage() {
       )
       model.resetSource()
       refresh()
-      if (!declared) navigate('..', { relative: 'path' })
+      if (!declared) navigate('/worker-envs')
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -168,7 +258,7 @@ export function WorkerEnvEditorPage() {
   useEffect(() => {
     decrypt.reset()
     if (mode === 'new') {
-      model.initialize('worker-env:new', { name: '', value: '', secret: false, description: '' })
+      model.initialize('worker-env:new', { name: '', value: '', secret: true, description: '' })
       return
     }
     if (!item || list.isLoading) return
@@ -185,6 +275,17 @@ export function WorkerEnvEditorPage() {
       description: item.description ?? ''
     })
   }, [item, list.isLoading, mode, model])
+
+  const saveCustom = (submittedName: string) => {
+    update.mutate({
+      body: {
+        ...(isEncryptedValueMask(model.value.value) ? {} : { value: model.value.value }),
+        secret: model.secret.value,
+        description: blankToNull(model.description.value)
+      },
+      path: { name: submittedName }
+    })
+  }
 
   const submit = () => {
     model.clearValidation()
@@ -212,145 +313,172 @@ export function WorkerEnvEditorPage() {
       model.validationError.value = t('console.worker_envs.value_required')
       return
     }
-    update.mutate({
-      body: {
-        ...(isEncryptedValueMask(model.value.value) ? {} : { value: model.value.value }),
-        secret: model.secret.value,
-        description: blankToNull(model.description.value)
-      },
-      path: { name: submittedName }
-    })
+    if (!model.secret.value && isEncryptedValueMask(model.value.value)) {
+      model.validationError.value = t('console.worker_envs.plaintext_reveal_required')
+      return
+    }
+    if (!model.secret.value) {
+      setPlaintextConfirmOpen(true)
+      return
+    }
+    saveCustom(submittedName)
   }
 
   return (
-    <ResourceEditorPage
-      title={mode === 'new' ? t('console.worker_envs.new') : (name ?? '')}
-      description={item?.description ?? t('console.worker_envs.editor_description')}
-      backTo=".."
-      error={model.validationError.value ?? update.error ?? decrypt.error}
-      submitting={update.isPending}
-      onSubmit={submit}
-      secondary={
-        mode === 'edit' && item ? (
-          <Button
-            disabled={remove.isPending}
-            size="sm"
-            type="button"
-            variant="outline"
-            onClick={() => remove.mutate({ path: { name: item.name } })}>
-            {declared ? t('console.worker_envs.reset') : t('common.delete')}
-          </Button>
-        ) : null
-      }>
-      {item ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={declared ? 'outline' : 'secondary'}>{t(`console.worker_envs.kind_${item.kind}`)}</Badge>
-          <WorkerEnvSourceBadge source={item.source} />
-          {item.secret ? <Badge variant="destructive">{t('console.status.encrypted')}</Badge> : null}
-          {item.declared_key ? (
-            <span className="font-mono text-xs text-muted-foreground">{item.declared_key}</span>
-          ) : null}
-        </div>
-      ) : null}
+    <>
+      <ResourceEditorPage
+        title={mode === 'new' ? t('console.worker_envs.new') : (name ?? '')}
+        description={item?.description ?? t('console.worker_envs.editor_description')}
+        backTo="/worker-envs"
+        error={model.validationError.value ?? update.error ?? decrypt.error}
+        submitting={update.isPending}
+        onSubmit={submit}
+        secondary={
+          mode === 'edit' && item ? (
+            declared ? (
+              <Button
+                disabled={remove.isPending}
+                size="sm"
+                type="button"
+                variant="outline"
+                onClick={() => remove.mutate({ path: { name: item.name } })}>
+                {t('console.worker_envs.reset')}
+              </Button>
+            ) : (
+              <ConfirmDeleteButton
+                pending={remove.isPending}
+                confirm={{
+                  title: t('console.worker_envs.delete_title'),
+                  description: t('console.worker_envs.delete_description', { name: item.name }),
+                  confirmLabel: t('common.delete')
+                }}
+                onConfirm={() => remove.mutate({ path: { name: item.name } })}
+              />
+            )
+          ) : null
+        }>
+        {item ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant={declared ? 'outline' : 'secondary'}>{t(`console.worker_envs.kind_${item.kind}`)}</Badge>
+            <WorkerEnvSourceBadge source={item.source} />
+            {item.secret ? <Badge variant="destructive">{t('console.status.encrypted')}</Badge> : null}
+            {item.declared_key ? (
+              <span className="font-mono text-xs text-muted-foreground">{item.declared_key}</span>
+            ) : null}
+          </div>
+        ) : null}
 
-      {mode === 'new' ? (
-        <LabeledField
-          htmlFor="worker-env-name"
-          label={t('console.worker_envs.name')}
-          description={t('console.worker_envs.name_hint')}
-          required>
-          <Input
-            id="worker-env-name"
-            className="font-mono"
-            placeholder="SOME_ENV_VAR"
-            spellCheck={false}
-            value={model.name.value}
-            onChange={event => (model.name.value = event.target.value)}
-          />
-        </LabeledField>
-      ) : null}
+        {mode === 'new' ? (
+          <LabeledField
+            htmlFor="worker-env-name"
+            label={t('console.worker_envs.name')}
+            description={t('console.worker_envs.name_hint')}
+            required>
+            <Input
+              id="worker-env-name"
+              className="font-mono"
+              placeholder="SOME_ENV_VAR"
+              spellCheck={false}
+              value={model.name.value}
+              onChange={event => (model.name.value = event.target.value)}
+            />
+          </LabeledField>
+        ) : null}
 
-      {declared && item.secret ? (
-        <LabeledField
-          htmlFor="worker-env-value"
-          label={t('console.worker_envs.value')}
-          description={t('console.worker_envs.secret_value_hint')}
-          required>
-          <EncryptedValueInput
-            id="worker-env-value"
-            className="font-mono"
-            revealLabel={t('console.worker_envs.reveal')}
-            revealed={decrypt.data?.decrypted_value.name === item.name}
-            revealing={decrypt.isPending}
-            value={model.value.value}
-            onChange={event => (model.value.value = event.target.value)}
-            onReveal={() => decrypt.mutate({ path: { name: item.name } })}
-          />
-        </LabeledField>
-      ) : declared ? (
-        <JSONField
-          label={t('console.worker_envs.value')}
-          description={t('console.worker_envs.declared_value_hint')}
-          minRows={6}
-          value={model.value.value}
-          onChange={value => (model.value.value = value)}
-        />
-      ) : (
-        <>
+        {declared && item.secret ? (
           <LabeledField
             htmlFor="worker-env-value"
             label={t('console.worker_envs.value')}
-            description={
-              model.secret.value || isEncryptedValueMask(model.value.value)
-                ? t('console.worker_envs.secret_value_hint')
-                : undefined
-            }
+            description={t('console.worker_envs.secret_value_hint')}
             required>
-            {model.secret.value || isEncryptedValueMask(model.value.value) ? (
-              <EncryptedValueInput
-                id="worker-env-value"
-                className="font-mono"
-                revealLabel={t('console.worker_envs.reveal')}
-                revealed={decrypt.data?.decrypted_value.name === item?.name}
-                revealing={decrypt.isPending}
-                value={model.value.value}
-                onChange={event => (model.value.value = event.target.value)}
-                onReveal={item ? () => decrypt.mutate({ path: { name: item.name } }) : undefined}
+            <EncryptedValueInput
+              id="worker-env-value"
+              className="font-mono"
+              revealLabel={t('console.worker_envs.reveal')}
+              revealed={decrypt.data?.decrypted_value.name === item.name}
+              revealing={decrypt.isPending}
+              value={model.value.value}
+              onChange={event => (model.value.value = event.target.value)}
+              onReveal={() => decrypt.mutate({ path: { name: item.name } })}
+            />
+          </LabeledField>
+        ) : declared ? (
+          <JSONField
+            label={t('console.worker_envs.value')}
+            description={t('console.worker_envs.declared_value_hint')}
+            minRows={6}
+            value={model.value.value}
+            onChange={value => (model.value.value = value)}
+          />
+        ) : (
+          <>
+            <LabeledField
+              htmlFor="worker-env-value"
+              label={t('console.worker_envs.value')}
+              description={
+                model.secret.value || isEncryptedValueMask(model.value.value)
+                  ? t('console.worker_envs.secret_value_hint')
+                  : undefined
+              }
+              required>
+              {model.secret.value || isEncryptedValueMask(model.value.value) ? (
+                <EncryptedValueInput
+                  id="worker-env-value"
+                  className="font-mono"
+                  revealLabel={t('console.worker_envs.reveal')}
+                  revealed={decrypt.data?.decrypted_value.name === item?.name}
+                  revealing={decrypt.isPending}
+                  value={model.value.value}
+                  onChange={event => (model.value.value = event.target.value)}
+                  onReveal={item ? () => decrypt.mutate({ path: { name: item.name } }) : undefined}
+                />
+              ) : (
+                <Input
+                  id="worker-env-value"
+                  className="font-mono"
+                  spellCheck={false}
+                  value={model.value.value}
+                  onChange={event => (model.value.value = event.target.value)}
+                />
+              )}
+            </LabeledField>
+            <Field
+              orientation="horizontal"
+              className="items-center justify-between border border-border bg-muted/30 p-4">
+              <div className="grid gap-1 pr-4">
+                <FieldLabel htmlFor="worker-env-secret">{t('console.worker_envs.secret_storage')}</FieldLabel>
+                <FieldDescription id="worker-env-secret-hint">{t('console.worker_envs.secret_hint')}</FieldDescription>
+              </div>
+              <Switch
+                id="worker-env-secret"
+                aria-describedby="worker-env-secret-hint"
+                checked={model.secret.value}
+                onCheckedChange={checked => (model.secret.value = checked === true)}
               />
-            ) : (
+            </Field>
+            {!model.secret.value ? <WorkerEnvPlaintextWarning /> : null}
+            <LabeledField
+              htmlFor="worker-env-description"
+              label={t('console.worker_envs.description_label')}
+              description={t('console.worker_envs.description_hint')}>
               <Input
-                id="worker-env-value"
-                className="font-mono"
-                spellCheck={false}
-                value={model.value.value}
-                onChange={event => (model.value.value = event.target.value)}
+                id="worker-env-description"
+                value={model.description.value}
+                onChange={event => (model.description.value = event.target.value)}
               />
-            )}
-          </LabeledField>
-          <Field orientation="horizontal" className="items-center justify-between border border-border bg-muted/30 p-4">
-            <div className="grid gap-1 pr-4">
-              <FieldLabel htmlFor="worker-env-secret">{t('console.worker_envs.secret_storage')}</FieldLabel>
-              <FieldDescription id="worker-env-secret-hint">{t('console.worker_envs.secret_hint')}</FieldDescription>
-            </div>
-            <Checkbox
-              id="worker-env-secret"
-              aria-describedby="worker-env-secret-hint"
-              checked={model.secret.value}
-              onCheckedChange={checked => (model.secret.value = checked === true)}
-            />
-          </Field>
-          <LabeledField
-            htmlFor="worker-env-description"
-            label={t('console.worker_envs.description_label')}
-            description={t('console.worker_envs.description_hint')}>
-            <Input
-              id="worker-env-description"
-              value={model.description.value}
-              onChange={event => (model.description.value = event.target.value)}
-            />
-          </LabeledField>
-        </>
-      )}
-    </ResourceEditorPage>
+            </LabeledField>
+          </>
+        )}
+      </ResourceEditorPage>
+      <WorkerEnvPlaintextConfirmDialog
+        open={plaintextConfirmOpen}
+        pending={update.isPending}
+        onOpenChange={setPlaintextConfirmOpen}
+        onConfirm={() => {
+          setPlaintextConfirmOpen(false)
+          saveCustom(mode === 'new' ? model.name.value.trim() : (name ?? ''))
+        }}
+      />
+    </>
   )
 }
