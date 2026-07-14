@@ -16,6 +16,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   alias Ankole.Plugins.LarkAdapter.CardKit.Renderer
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.Outbox, as: LarkOutbox
+  alias Ankole.Logging
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.ActorEvent
@@ -525,6 +526,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   end
 
   defp recover_update(error, event, checkpoint, request, opts) do
+    log_recovery(:update, error, event, checkpoint, request)
+
     case ErrorPolicy.action(error) do
       :replace_card ->
         replace_card(event, checkpoint, request, opts)
@@ -541,6 +544,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   end
 
   defp recover_finalize(error, event, checkpoint, request, opts) do
+    log_recovery(:finalize, error, event, checkpoint, request)
+
     case ErrorPolicy.action(error) do
       :replace_card ->
         replace_card(event, checkpoint, request, opts)
@@ -554,6 +559,21 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
       _retry ->
         {:error, {:reply_delivery, :retryable, ErrorPolicy.provider_error(error)}}
     end
+  end
+
+  defp log_recovery(stage, error, event, checkpoint, request) do
+    Logging.warning(
+      "lark_adapter.cardkit.recovery",
+      "Lark CardKit provider operation requires recovery",
+      %{
+        actor_event_id: event.id,
+        card_id: checkpoint["card_id"],
+        mode: request.mode,
+        operation: stage,
+        provider_error: ErrorPolicy.provider_error(error),
+        recovery_action: ErrorPolicy.action(error)
+      }
+    )
   end
 
   defp replace_card(event, checkpoint, request, opts) do
@@ -1286,39 +1306,61 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     actions_json = Ankole.JSON.encode!(actions)
     actions_digest = :crypto.hash(:sha256, actions_json) |> Base.encode16(case: :lower)
 
-    with {:ok, %{"sequence" => sequence, "uuid" => uuid}} <-
+    with {:ok, %{"sequence" => sequence, "uuid" => uuid} = mutation} <-
            Actors.prepare_reply_preview_mutation(
              event.id,
              purpose,
              actions_digest,
              Ecto.UUID.generate()
            ) do
-      batch_update_json(client, card_id, actions_json, sequence, uuid, request_fun)
+      client
+      |> batch_update_json(card_id, actions_json, sequence, uuid, request_fun)
+      |> acknowledge_replayed_mutation(mutation)
     end
   end
 
   defp apply_content_mutation(event, card_id, content, client, request_fun) do
     content_digest = :crypto.hash(:sha256, content) |> Base.encode16(case: :lower)
 
-    with {:ok, %{"sequence" => sequence, "uuid" => uuid}} <-
+    with {:ok, %{"sequence" => sequence, "uuid" => uuid} = mutation} <-
            Actors.prepare_reply_preview_mutation(
              event.id,
              "answer_content",
              content_digest,
              Ecto.UUID.generate()
            ) do
-      case request_fun.(
-             client,
-             :put,
-             "cardkit/v1/cards/:card_id/elements/:element_id/content",
-             path_params: %{card_id: card_id, element_id: "answer"},
-             body: %{content: content, sequence: sequence, uuid: uuid}
-           ) do
+      request_fun.(
+        client,
+        :put,
+        "cardkit/v1/cards/:card_id/elements/:element_id/content",
+        path_params: %{card_id: card_id, element_id: "answer"},
+        body: %{content: content, sequence: sequence, uuid: uuid}
+      )
+      |> case do
         {:ok, _body} -> :ok
         {:error, _reason} = error -> error
       end
+      |> acknowledge_replayed_mutation(mutation)
     end
   end
+
+  # A process may die after Feishu commits a mutation but before PostgreSQL
+  # records the acknowledgement. UUID conflict proves that exact persisted
+  # mutation was consumed. A sequence conflict is equally conclusive only while
+  # the replayed sequence is still our single-writer high-water mark.
+  defp acknowledge_replayed_mutation(
+         {:error, %Error{code: 200_770}},
+         %{"reused" => true}
+       ),
+       do: :ok
+
+  defp acknowledge_replayed_mutation(
+         {:error, %Error{code: 300_317}},
+         %{"reused" => true, "sequence_current" => true}
+       ),
+       do: :ok
+
+  defp acknowledge_replayed_mutation(result, _mutation), do: result
 
   defp merge_stale_element_deletes(actions, checkpoint, presentation, mode, render_opts) do
     current_ids =
@@ -1584,6 +1626,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
          request_fun <- Keyword.get(opts, :request_fun, &FeishuOpenAPI.request/4),
          {:ok, operation} <- Outbox.outbox_operation_for_actor_event(event),
          text <- ReplyPresentation.fallback_text(request.presentation),
+         {operation, text} <- undelivered_plain_text(event, operation, text),
          {:ok, result} <-
            send_plain_text_chunks(
              client,
@@ -1599,6 +1642,29 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
 
   defp plain_text_fallback(_event, _request, _opts),
     do: {:error, :cardkit_plain_text_fallback_requires_outbox}
+
+  defp undelivered_plain_text(%ActorEvent{id: actor_event_id}, operation, text) do
+    checkpoint =
+      case Repo.get(ActorEvent, actor_event_id) do
+        %ActorEvent{reply_preview_checkpoint: checkpoint} when is_map(checkpoint) -> checkpoint
+        _missing -> %{}
+      end
+
+    active = CardChain.active_card(checkpoint)
+    rollover = checkpoint["pending_rollover"]
+    sealed_prefix = CardChain.sealed_prefix(checkpoint)
+
+    if is_map(active) and not is_binary(active["message_id"]) and
+         is_map(rollover) and rollover["phase"] == "send" and sealed_prefix != "" and
+         String.starts_with?(text, sealed_prefix) do
+      remaining =
+        binary_part(text, byte_size(sealed_prefix), byte_size(text) - byte_size(sealed_prefix))
+
+      if remaining == "", do: {operation, text}, else: {:post, remaining}
+    else
+      {operation, text}
+    end
+  end
 
   defp send_plain_text_chunks(client, event, operation, text, idempotency_key, request_fun) do
     text

@@ -213,12 +213,23 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.MarkdownSegmenter do
   end
 
   defp preferred_break(prefix) do
-    candidates =
-      Regex.scan(~r/(?:\n|[\s，。；！？、,.!?;:])+/u, prefix, return: :index)
-      |> Enum.map(fn [{start, length}] -> start + length end)
-      |> Enum.filter(&(&1 >= div(byte_size(prefix), 2)))
+    minimum_break = div(byte_size(prefix), 2)
 
-    List.last(candidates)
+    line_breaks =
+      Regex.scan(~r/\n/u, prefix, return: :index)
+      |> Enum.map(fn [{start, length}] -> start + length end)
+      |> Enum.filter(&(&1 >= minimum_break))
+
+    case List.last(line_breaks) do
+      break_bytes when is_integer(break_bytes) ->
+        break_bytes
+
+      nil ->
+        Regex.scan(~r/[\s，。；！？、,.!?;:]+/u, prefix, return: :index)
+        |> Enum.map(fn [{start, length}] -> start + length end)
+        |> Enum.filter(&(&1 >= minimum_break))
+        |> List.last()
+    end
   end
 
   defp pack_segments(segments, max_bytes) do

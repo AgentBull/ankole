@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 26.07.3 (2026-07-14)
+
+- Reframe the root README architecture maps around product-facing entry points, AIGateway's external and agent-facing stateless/stateful surfaces, Brain long-term memory, durable Subagent Delegation, and the semantic-state/artifact split.
+- Run migrations and worker-auth bootstrap through release-owned commands instead of encoding application lifecycle and module ownership in Helm.
+- Deliver Lark AI replies as streaming CardKit cards with Markdown, compact collapsible progress metadata, interactive clarification, attachments, and ordered long-answer rollover.
+- Preserve terminal plans and receipts across preview/outbox races, recover consumed CardKit mutations after process loss, and fall back to new text messages for provider edit or page-binding limits without dropping undelivered results.
+
 ## Version 26.07.2 (2026-07-14)
 
 - Prevent short AI replies from racing their transient preview identity before durable final delivery.

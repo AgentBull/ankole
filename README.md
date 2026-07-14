@@ -64,58 +64,57 @@ That is the technical bet: actor model for long-lived work identity, OTP for fai
 ## Architecture
 
 ```mermaid
-flowchart LR
-  subgraph CP["Control Plane · Phoenix / OTP"]
-    direction TB
-    Platform["Principal / AuthZ<br/>AppConfigure / plugins"]
-    SG["SignalsGateway<br/>ingress / mirror / outbox"]
-    AR["ActorRuntime<br/>sessions / fences / scheduling"]
-    AI["AIGateway<br/>stateful Responses / providers"]
-    Brain["Brain<br/>long-term memory / recall / dreaming"]
-    Delegation["Subagent Delegation<br/>durable jobs / parent wakeups"]
-
-    SG --> AR
-    SG -->|"chat evidence"| Brain
-    Brain -->|"embedding / rerank / dreaming"| AI
-    Delegation -->|"dispatch / parent wake"| AR
+flowchart TB
+  subgraph Entry["Entry surfaces"]
+    direction LR
+    Work["Shared work<br/>chat · webhooks · schedules"]
+    Clients["AI API clients<br/>apps · enterprise systems · SDKs"]
+    Ops["Operators<br/>Console · APIs"]
   end
 
-  subgraph AC["Agent Computer workers · Bun / TypeScript"]
-    direction TB
-    Main["Main-agent loop<br/>tools / skills / sandbox"]
-    Task["Task-worker turn"]
-    Codex["Codex subagent<br/>enabled skills / projected tools"]
-    Task --> Codex
+  SG["SignalsGateway<br/>shared-work ingress / delivery<br/>Control Plane"]
+  Platform["Principal / AuthZ<br/>configuration / plugins<br/>Control Plane"]
+  Runtime["Actor Runtime<br/>long-running sessions / recovery<br/>Control Plane"]
+  Main["Main agents<br/>model loops · tools · skills<br/>Agent Computer"]
+  Brain["Brain<br/>long-term memory<br/>curated knowledge · recall<br/>dreaming · oversight"]
+  Delegate["Subagent Delegation<br/>durable · resumable work<br/>Control Plane"]
+  AI["AIGateway<br/>unified external + agent AI API<br/>stateless calls · stateful conversations"]
+  Task["Codex subagent<br/>inherited skills · isolated work<br/>Agent Computer"]
+  Providers["AI providers<br/>LLM · embedding · rerank · web"]
+
+  subgraph Storage["Durability boundary"]
+    direction LR
+    PG[("PostgreSQL<br/>all durable semantic truth")]
+    Workspace[("Shared workspace<br/>artifacts · resumable files")]
   end
 
-  Channels["Chats / webhooks / schedules"] <-->|"events / replies"| SG
-  Console["Web UI / operator APIs"] --> Platform
-  AR <-->|"RuntimeFabric · Rust / ZeroMQ<br/>turns / live control / RPC"| Main
-  Main -->|"Responses · WebSocket"| AI
-  Main -->|"memory_* · RPC"| Brain
-  Main -->|"subagent(start) · RPC"| Delegation
-  AR -->|"delegated turn"| Task
-  Task -->|"fenced status / audit · RPC"| Delegation
-  AI <--> Models["LLM / embedding / rerank / web providers"]
+  Work --> SG --> Runtime
+  Ops --> Platform --> Runtime
+  Runtime -->|"RuntimeFabric · live execution"| Main
+  Clients -->|"OpenResponses-compatible<br/>HTTP · SSE · WebSocket"| AI
+  Main -->|"agent AI calls"| AI
+  Main -->|"long-term context"| Brain
+  Brain -->|"model capabilities"| AI
+  Main -->|"delegate"| Delegate
+  Delegate -->|"isolated task"| Task
+  AI --> Providers
 
-  Platform --> PG[("PostgreSQL<br/>all durable semantic truth")]
-  SG --> PG
-  AR --> PG
-  AI --> PG
-  Brain --> PG
-  Delegation --> PG
+  Runtime -.-> PG
+  AI -.-> PG
+  Brain -.-> PG
+  Delegate -.-> PG
+  Main -.-> Workspace
+  Task -.-> Workspace
 ```
 
 At a high level:
 
-- **Control Plane** owns durable domain state, actor orchestration, provider routing, identity, authorization, configuration, and operator surfaces.
-- **SignalsGateway and ActorRuntime** turn provider events into durable work, schedule fenced session turns, and commit provider-visible replies.
-- **AIGateway** owns provider credentials and the stateful Responses log; workers reach it over WebSocket without receiving upstream credentials.
-- **Brain** is the long-term memory subsystem for curated knowledge, chat recall, dreaming, and human oversight. Main agents and subagents use conversation-scoped `memory_*` tools while PostgreSQL remains the source of truth.
-- **Agent Computer** runs the main-agent loop and local tools in isolated workers. RuntimeFabric carries live turns, control, and RPC over the shared Rust/ZeroMQ data plane.
-- **Subagent Delegation** stores long-running background work in PostgreSQL, dispatches isolated task-worker turns, and wakes the parent session on waiting or terminal transitions. Codex is the current task worker, with enabled parent skills mounted natively and only an allowlisted tool projection.
-- **Rust Kernel** is loaded in-process by Elixir and Bun for shared transport, crypto, authorization evaluation, codecs, and AI data-plane primitives; it is not a durable domain owner.
-- **PostgreSQL** is the only durable semantic truth for events, conversations, memory, delegations, fences, audit, and final commits.
+- **Three first-class entry surfaces.** Shared work enters through SignalsGateway, applications and enterprise systems call AIGateway directly, and operators use the Console and APIs. AIGateway is not merely an internal worker proxy.
+- **AIGateway is the unified AI boundary.** Its OpenResponses-compatible HTTP, SSE, and WebSocket API supports stateless requests and Principal-scoped stateful conversations. It resolves models across LLM, embedding, rerank, web-search, and web-fetch providers while upstream credentials remain in the control plane.
+- **Actors separate durable work from execution.** Actor Runtime owns long-running session and recovery semantics; replaceable Agent Computer workers run model loops, tools, skills, and sandboxes.
+- **Brain is long-term memory.** It combines curated current knowledge, source-chat recall, dreaming, and human oversight. PostgreSQL rows are truth; Markdown and injected context are projections.
+- **Subagents are durable work, not child processes.** A delegation survives worker loss, can resume or wait for input, and wakes its parent when it changes state. Codex is the current task-worker implementation, with enabled skills and a deliberately narrow platform-tool projection.
+- **Durability has two forms.** PostgreSQL owns semantic truth; the shared workspace holds artifacts and resumable files referenced by that state. RuntimeFabric is live transport only, with the shared Rust kernel providing in-process transport and AI data-plane primitives.
 
 ## Current Status
 

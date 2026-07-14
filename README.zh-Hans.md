@@ -64,58 +64,57 @@ Runtime 建立在五个技术判断上：
 ## 架构
 
 ```mermaid
-flowchart LR
-  subgraph CP["Control Plane · Phoenix / OTP"]
-    direction TB
-    Platform["Principal / AuthZ<br/>AppConfigure / plugins"]
-    SG["SignalsGateway<br/>入口 / 镜像 / outbox"]
-    AR["ActorRuntime<br/>session / fence / 调度"]
-    AI["AIGateway<br/>有状态 Responses / providers"]
-    Brain["Brain<br/>长期记忆 / 召回 / dreaming"]
-    Delegation["Subagent Delegation<br/>持久任务 / 父会话唤醒"]
-
-    SG --> AR
-    SG -->|"聊天证据"| Brain
-    Brain -->|"embedding / rerank / dreaming"| AI
-    Delegation -->|"分发 / 唤醒父会话"| AR
+flowchart TB
+  subgraph Entry["一等入口"]
+    direction LR
+    Work["共享工作<br/>chat · webhook · 定时任务"]
+    Clients["AI API 客户端<br/>应用 · 企业系统 · SDK"]
+    Ops["运维者<br/>Console · API"]
   end
 
-  subgraph AC["Agent Computer workers · Bun / TypeScript"]
-    direction TB
-    Main["主 agent loop<br/>tools / skills / sandbox"]
-    Task["Task-worker turn"]
-    Codex["Codex subagent<br/>已启用 skills / 投影 tools"]
-    Task --> Codex
+  SG["SignalsGateway<br/>共享工作入口 / 交付<br/>Control Plane"]
+  Platform["Principal / AuthZ<br/>配置 / plugins<br/>Control Plane"]
+  Runtime["Actor Runtime<br/>长时 session / 恢复<br/>Control Plane"]
+  Main["主 agents<br/>model loop · tools · skills<br/>Agent Computer"]
+  Brain["Brain<br/>长期记忆<br/>策展知识 · 召回<br/>dreaming · 人工监督"]
+  Delegate["Subagent Delegation<br/>持久 · 可恢复工作<br/>Control Plane"]
+  AI["AIGateway<br/>统一的外部 + agent AI API<br/>无状态调用 · 有状态 conversation"]
+  Task["Codex subagent<br/>继承 skills · 隔离执行<br/>Agent Computer"]
+  Providers["AI providers<br/>LLM · embedding · rerank · web"]
+
+  subgraph Storage["持久性边界"]
+    direction LR
+    PG[("PostgreSQL<br/>全部持久语义事实")]
+    Workspace[("共享 workspace<br/>产物 · 可恢复文件")]
   end
 
-  Channels["Chat / webhook / 定时任务"] <-->|"事件 / 回复"| SG
-  Console["Web UI / 运维 API"] --> Platform
-  AR <-->|"RuntimeFabric · Rust / ZeroMQ<br/>turn / live control / RPC"| Main
-  Main -->|"Responses · WebSocket"| AI
-  Main -->|"memory_* · RPC"| Brain
-  Main -->|"subagent(start) · RPC"| Delegation
-  AR -->|"委托 turn"| Task
-  Task -->|"带 fence 的状态 / 审计 · RPC"| Delegation
-  AI <--> Models["LLM / embedding / rerank / web providers"]
+  Work --> SG --> Runtime
+  Ops --> Platform --> Runtime
+  Runtime -->|"RuntimeFabric · 实时执行"| Main
+  Clients -->|"OpenResponses-compatible<br/>HTTP · SSE · WebSocket"| AI
+  Main -->|"agent AI 调用"| AI
+  Main -->|"长期上下文"| Brain
+  Brain -->|"模型能力"| AI
+  Main -->|"委托"| Delegate
+  Delegate -->|"隔离任务"| Task
+  AI --> Providers
 
-  Platform --> PG[("PostgreSQL<br/>全部持久语义事实")]
-  SG --> PG
-  AR --> PG
-  AI --> PG
-  Brain --> PG
-  Delegation --> PG
+  Runtime -.-> PG
+  AI -.-> PG
+  Brain -.-> PG
+  Delegate -.-> PG
+  Main -.-> Workspace
+  Task -.-> Workspace
 ```
 
 整体上：
 
-- **Control Plane** 拥有持久 domain state、actor 编排、provider 路由、身份、授权、配置和运维 surface。
-- **SignalsGateway 与 ActorRuntime** 把 provider event 变成持久工作，调度带 fence 的 session turn，并提交 provider 可见的最终回复。
-- **AIGateway** 拥有 provider 凭证和有状态 Responses 日志；worker 通过 WebSocket 使用它，不会拿到上游凭证。
-- **Brain** 是长期记忆子系统，统一承载 curated knowledge、聊天召回、dreaming 和人工监督。主 agent 与 subagent 都通过 conversation-scoped `memory_*` tools 使用它，PostgreSQL 仍是事实来源。
-- **Agent Computer** 在隔离 worker 中运行主 agent loop 和本地 tools。RuntimeFabric 通过共享的 Rust/ZeroMQ data plane 承载 live turn、control 和 RPC。
-- **Subagent Delegation** 把长时间后台工作持久化到 PostgreSQL，分发隔离的 task-worker turn，并在等待或终态时唤醒父会话。当前 task worker 是 Codex：原生挂载父 turn 已启用的 skills，只投影 allowlist 内的 tools。
-- **Rust Kernel** 由 Elixir 和 Bun 进程内加载，提供共享 transport、crypto、authorization evaluator、codec 和 AI data-plane primitives；它不拥有持久 domain state。
-- **PostgreSQL** 是 event、conversation、长期记忆、delegation、fence、audit 和 final commit 唯一的持久语义事实来源。
+- **三个一等入口。** 共享工作从 SignalsGateway 进入，应用和企业系统直接调用 AIGateway，运维者通过 Console 和 API 管理系统。AIGateway 不是只给 worker 使用的内部代理。
+- **AIGateway 是统一 AI 边界。** 它提供 OpenResponses-compatible HTTP、SSE 和 WebSocket API，同时支持无状态请求与 Principal-scoped 有状态 conversation；LLM、embedding、rerank、web search、web fetch 都通过同一个 provider 路由面解析，上游凭证始终留在 control plane。
+- **Actor 把持久工作与执行资源分开。** Actor Runtime 拥有长时 session 与恢复语义；可替换的 Agent Computer worker 负责 model loop、tools、skills 和 sandbox。
+- **Brain 是长期记忆。** 它统一当前知识、原始聊天召回、dreaming 和人工监督。PostgreSQL 关系行才是事实，Markdown 和注入上下文都只是投影。
+- **Subagent 是持久工作，不是一个子进程。** Delegation 能跨 worker 故障恢复，可以继续、等待输入，并在状态变化时唤醒父会话。当前 task-worker 实现是 Codex，继承已启用 skills，只获得刻意收窄的平台 tool 投影。
+- **持久性分成两类。** PostgreSQL 拥有语义事实；共享 workspace 保存被这些状态引用的产物和可恢复文件。RuntimeFabric 只负责实时传输，共享 Rust kernel 在进程内提供 transport 和 AI data-plane primitives。
 
 ## 当前状态
 

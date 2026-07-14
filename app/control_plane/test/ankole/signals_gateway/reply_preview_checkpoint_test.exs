@@ -45,10 +45,22 @@ defmodule Ankole.SignalsGateway.ReplyPreviewCheckpointTest do
     first_uuid = Ecto.UUID.generate()
     retry_uuid = Ecto.UUID.generate()
 
-    assert {:ok, %{"sequence" => 1, "uuid" => ^first_uuid}} =
+    assert {:ok,
+            %{
+              "sequence" => 1,
+              "uuid" => ^first_uuid,
+              "reused" => false,
+              "sequence_current" => true
+            }} =
              Actors.prepare_reply_preview_mutation(event.id, "working", "digest-1", first_uuid)
 
-    assert {:ok, %{"sequence" => 1, "uuid" => ^first_uuid}} =
+    assert {:ok,
+            %{
+              "sequence" => 1,
+              "uuid" => ^first_uuid,
+              "reused" => true,
+              "sequence_current" => true
+            }} =
              Actors.prepare_reply_preview_mutation(event.id, "working", "digest-1", retry_uuid)
 
     assert {:ok, %{"sequence" => 2}} =

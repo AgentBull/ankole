@@ -184,7 +184,9 @@ defmodule Ankole.SignalsGateway.Actors do
   The caller supplies a semantic purpose, an actions digest, and a fresh UUID
   candidate. If the same logical mutation is already pending, its persisted
   sequence and UUID are returned unchanged. A different desired mutation
-  supersedes the pending one and receives the next sequence.
+  supersedes the pending one and receives the next sequence. The returned
+  `reused` and `sequence_current` flags are transient reconciliation facts and
+  are not added to the durable pending mutation.
   """
   @spec prepare_reply_preview_mutation(String.t(), String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
@@ -205,17 +207,32 @@ defmodule Ankole.SignalsGateway.Actors do
               "uuid" => persisted_uuid
             } = mutation
             when is_integer(sequence) and sequence > 0 and is_binary(persisted_uuid) ->
-              {:ok, mutation}
+              {:ok,
+               mutation
+               |> Map.put("reused", true)
+               |> Map.put(
+                 "sequence_current",
+                 event.reply_preview_sequence_high_water == sequence
+               )}
 
             _other ->
-              prepare_new_reply_preview_mutation(
-                repo,
-                event,
-                checkpoint,
-                purpose,
-                actions_digest,
-                uuid
-              )
+              case prepare_new_reply_preview_mutation(
+                     repo,
+                     event,
+                     checkpoint,
+                     purpose,
+                     actions_digest,
+                     uuid
+                   ) do
+                {:ok, mutation} ->
+                  {:ok,
+                   mutation
+                   |> Map.put("reused", false)
+                   |> Map.put("sequence_current", true)}
+
+                {:error, _reason} = error ->
+                  error
+              end
           end
 
         nil ->

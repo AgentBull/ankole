@@ -64,58 +64,57 @@ Runtime は 5 つの technical bets に基づきます。
 ## アーキテクチャ
 
 ```mermaid
-flowchart LR
-  subgraph CP["Control Plane · Phoenix / OTP"]
-    direction TB
-    Platform["Principal / AuthZ<br/>AppConfigure / plugins"]
-    SG["SignalsGateway<br/>ingress / mirror / outbox"]
-    AR["ActorRuntime<br/>sessions / fences / scheduling"]
-    AI["AIGateway<br/>stateful Responses / providers"]
-    Brain["Brain<br/>long-term memory / recall / dreaming"]
-    Delegation["Subagent Delegation<br/>durable jobs / parent wakeups"]
-
-    SG --> AR
-    SG -->|"chat evidence"| Brain
-    Brain -->|"embedding / rerank / dreaming"| AI
-    Delegation -->|"dispatch / parent wake"| AR
+flowchart TB
+  subgraph Entry["第一級の入口"]
+    direction LR
+    Work["共同作業<br/>chat · webhook · schedule"]
+    Clients["AI API クライアント<br/>application · enterprise system · SDK"]
+    Ops["運用者<br/>Console · API"]
   end
 
-  subgraph AC["Agent Computer workers · Bun / TypeScript"]
-    direction TB
-    Main["Main-agent loop<br/>tools / skills / sandbox"]
-    Task["Task-worker turn"]
-    Codex["Codex subagent<br/>enabled skills / projected tools"]
-    Task --> Codex
+  SG["SignalsGateway<br/>共同作業の入口 / delivery<br/>Control Plane"]
+  Platform["Principal / AuthZ<br/>設定 / plugins<br/>Control Plane"]
+  Runtime["Actor Runtime<br/>長時間 session / recovery<br/>Control Plane"]
+  Main["メイン agent<br/>model loop · tools · skills<br/>Agent Computer"]
+  Brain["Brain<br/>長期記憶<br/>curated knowledge · recall<br/>dreaming · human oversight"]
+  Delegate["Subagent Delegation<br/>durable · resumable work<br/>Control Plane"]
+  AI["AIGateway<br/>外部 + agent 向け統一 AI API<br/>stateless request · stateful conversation"]
+  Task["Codex subagent<br/>skills 継承 · isolated work<br/>Agent Computer"]
+  Providers["AI providers<br/>LLM · embedding · rerank · web"]
+
+  subgraph Storage["Durability boundary"]
+    direction LR
+    PG[("PostgreSQL<br/>durable semantic truth のすべて")]
+    Workspace[("Shared workspace<br/>artifact · resumable file")]
   end
 
-  Channels["Chats / webhooks / schedules"] <-->|"events / replies"| SG
-  Console["Web UI / operator APIs"] --> Platform
-  AR <-->|"RuntimeFabric · Rust / ZeroMQ<br/>turns / live control / RPC"| Main
-  Main -->|"Responses · WebSocket"| AI
-  Main -->|"memory_* · RPC"| Brain
-  Main -->|"subagent(start) · RPC"| Delegation
-  AR -->|"delegated turn"| Task
-  Task -->|"fenced status / audit · RPC"| Delegation
-  AI <--> Models["LLM / embedding / rerank / web providers"]
+  Work --> SG --> Runtime
+  Ops --> Platform --> Runtime
+  Runtime -->|"RuntimeFabric · live execution"| Main
+  Clients -->|"OpenResponses-compatible<br/>HTTP · SSE · WebSocket"| AI
+  Main -->|"agent AI call"| AI
+  Main -->|"長期 context"| Brain
+  Brain -->|"model capability"| AI
+  Main -->|"委任"| Delegate
+  Delegate -->|"isolated task"| Task
+  AI --> Providers
 
-  Platform --> PG[("PostgreSQL<br/>all durable semantic truth")]
-  SG --> PG
-  AR --> PG
-  AI --> PG
-  Brain --> PG
-  Delegation --> PG
+  Runtime -.-> PG
+  AI -.-> PG
+  Brain -.-> PG
+  Delegate -.-> PG
+  Main -.-> Workspace
+  Task -.-> Workspace
 ```
 
 全体像：
 
-- **Control Plane** は durable domain state、actor orchestration、provider routing、identity、authorization、configuration、operator surfaces を担います。
-- **SignalsGateway と ActorRuntime** は provider event を durable work に変換し、fence 付き session turn を schedule し、provider-visible な final reply を commit します。
-- **AIGateway** は provider credential と stateful Responses log を所有します。Worker は upstream credential を受け取らず、WebSocket 経由で利用します。
-- **Brain** は curated knowledge、chat recall、dreaming、human oversight を統合した long-term memory subsystem です。Main agent と subagent は conversation-scoped な `memory_*` tools から利用し、PostgreSQL が source of truth であり続けます。
-- **Agent Computer** は隔離 worker 内で main-agent loop と local tools を実行します。RuntimeFabric は共有 Rust/ZeroMQ data plane 上で live turn、control、RPC を運びます。
-- **Subagent Delegation** は長時間の background work を PostgreSQL に永続化し、隔離された task-worker turn を dispatch し、waiting または terminal transition で parent session を wake します。現在の task worker は Codex で、parent turn で有効な skills を native mount し、allowlist 内の tools だけを project します。
-- **Rust Kernel** は Elixir と Bun の process 内にロードされ、shared transport、crypto、authorization evaluation、codec、AI data-plane primitives を提供します。Durable domain state は所有しません。
-- **PostgreSQL** は event、conversation、long-term memory、delegation、fence、audit、final commit の唯一の durable semantic truth です。
+- **3 つの first-class entry surface。** Shared work は SignalsGateway から入り、application と enterprise system は AIGateway を直接呼び出し、operator は Console と API を使います。AIGateway は worker 専用の内部 proxy ではありません。
+- **AIGateway は統一された AI boundary。** OpenResponses-compatible な HTTP、SSE、WebSocket API が stateless request と Principal-scoped stateful conversation の両方を支えます。LLM、embedding、rerank、web search、web fetch は同じ provider routing surface で解決され、upstream credential は control plane の外に出ません。
+- **Actor は durable work と execution resource を分離します。** Actor Runtime が long-running session と recovery semantics を所有し、replaceable な Agent Computer worker が model loop、tools、skills、sandbox を実行します。
+- **Brain は long-term memory。** Curated current knowledge、source-chat recall、dreaming、human oversight を統合します。PostgreSQL row が truth であり、Markdown と injected context は projection です。
+- **Subagent は child process ではなく durable work。** Delegation は worker loss を越えて recover し、resume または user input 待ちができ、state transition で parent session を wake します。現在の task-worker implementation は Codex で、enabled skills と意図的に狭い platform-tool projection を受け取ります。
+- **Durability には 2 つの形があります。** PostgreSQL が semantic truth を所有し、shared workspace がその state から参照される artifact と resumable file を保持します。RuntimeFabric は live transport のみで、shared Rust kernel が process 内 transport と AI data-plane primitives を提供します。
 
 ## 現状
 

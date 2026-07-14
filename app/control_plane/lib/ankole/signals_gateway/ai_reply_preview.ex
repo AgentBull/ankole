@@ -17,6 +17,8 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
        Only explicit Actor lifecycle handlers stop the preview.
     7. Durable terminal delivery is owned by outbox; the transient handler
        remains available across long model calls and retryable execution loss.
+    8. A lifecycle stop checkpoints the latest renderer-safe semantic projection
+       before outbox takes over, even when the last provider update is still dirty.
   """
 
   use GenServer, restart: :temporary
@@ -298,7 +300,12 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   end
 
   @impl GenServer
-  def handle_cast(:stop, state), do: {:stop, :normal, state}
+  def handle_cast(:stop, state) do
+    shutdown_rich_task(state.rich_task)
+    checkpoint_latest_rich_presentation(state)
+
+    {:stop, :normal, %{state | rich_task: nil, rich_task_presentation: nil, dirty: false}}
+  end
 
   def handle_cast(:cleanup_thought, %{reply_preview_adapter: %ReplyPreviewAdapter{}} = state) do
     presentation = Map.delete(state.presentation, "thought")
@@ -648,6 +655,52 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     do: Map.get(presentation, "revision", 0)
 
   defp presentation_revision(_presentation), do: 0
+
+  defp checkpoint_latest_rich_presentation(
+         %{
+           reply_preview_adapter: %ReplyPreviewAdapter{},
+           silent_rich_pending: false
+         } = state
+       ) do
+    latest_presentation = ReplyPresentation.checkpoint(state.presentation)
+
+    Repo.transact(fn repo ->
+      case Actors.lock_actor_event_in_tx(repo, state.actor_event.id) do
+        %ActorEvent{} = event ->
+          checkpoint = event.reply_preview_checkpoint || %{}
+          stored_presentation = ReplyPresentation.normalize(checkpoint["presentation"])
+
+          if presentation_revision(latest_presentation) >=
+               presentation_revision(stored_presentation) do
+            checkpoint =
+              checkpoint
+              |> Map.put_new("subject_uid", state.subject_uid)
+              |> Map.put_new("conversation_id", state.conversation_id)
+              |> Map.put("presentation", latest_presentation)
+
+            Actors.put_reply_preview_checkpoint_in_tx(repo, event, checkpoint)
+          else
+            {:ok, event}
+          end
+
+        nil ->
+          {:error, :actor_event_not_found}
+      end
+    end)
+    |> case do
+      {:ok, _event} ->
+        :ok
+
+      {:error, reason} ->
+        Logging.warning(
+          "signals_gateway.ai_reply_preview.checkpoint_before_stop_failed",
+          "AI reply preview could not checkpoint its latest presentation before stopping",
+          preview_fields(state, %{reason: inspect(reason, limit: 20)})
+        )
+    end
+  end
+
+  defp checkpoint_latest_rich_presentation(_state), do: :ok
 
   defp shutdown_rich_task(%Task{} = task) do
     _ = Task.shutdown(task, 5_000)

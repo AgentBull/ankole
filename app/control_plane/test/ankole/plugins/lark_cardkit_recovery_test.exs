@@ -130,7 +130,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     refute persisted.reply_preview_cleanup_at
   end
 
-  test "an ambiguous CardKit retry reuses the pending mutation UUID and sequence", %{event: event} do
+  test "a consumed UUID acknowledges an ambiguous CardKit mutation retry", %{event: event} do
     presentation = ReplyPresentation.new() |> ReplyPresentation.append_answer("恢复中的回答")
 
     checkpoint = %{
@@ -154,9 +154,11 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
       :counters.add(attempts, 1, 1)
       send(parent, {:mutation_attempt, opts[:body][:sequence], opts[:body][:uuid]})
 
-      if :counters.get(attempts, 1) == 1,
-        do: {:error, :timeout},
-        else: {:ok, %{"data" => %{}}}
+      case :counters.get(attempts, 1) do
+        1 -> {:error, :timeout}
+        2 -> {:error, %Error{code: 300_317, msg: "sequence number compare failed"}}
+        _later_mutation -> {:ok, %{"data" => %{}}}
+      end
     end
 
     request = %Request{
@@ -173,7 +175,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
                request_fun: request_fun
              )
 
-    assert {:ok, _result} =
+    assert {:ok, result} =
              CardKit.refresh(request,
                client: :recording_client,
                request_fun: request_fun
@@ -183,6 +185,10 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert_receive {:mutation_attempt, second_sequence, second_uuid}
     assert first_sequence == second_sequence
     assert first_uuid == second_uuid
+    assert_receive {:mutation_attempt, third_sequence, third_uuid}
+    assert third_sequence > second_sequence
+    refute third_uuid == second_uuid
+    refute result.reply_preview_checkpoint["pending_mutation"]
   end
 
   test "a thought mutation arms its cleanup lease before an ambiguous provider result", %{
@@ -373,6 +379,66 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert result.reply_preview_checkpoint["answer_content"] == current["answer"]
   end
 
+  test "a consumed UUID acknowledges an ambiguous content-stream retry", %{event: event} do
+    previous = ReplyPresentation.new() |> ReplyPresentation.append_answer("第一句。")
+    current = ReplyPresentation.append_answer(previous, "第二句。")
+
+    checkpoint = %{
+      "schema_version" => 1,
+      "adapter" => "lark",
+      "card_id" => "card-content-retry",
+      "message_id" => "message-content-retry",
+      "message_uuid" => "message-content-retry-uuid",
+      "streaming_state" => "open",
+      "element_ids" => ["state", "answer"],
+      "presentation" => ReplyPresentation.checkpoint(previous),
+      "answer_content" => previous["answer"]
+    }
+
+    assert {:ok, stored} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
+    attempts = :counters.new(1, [])
+    parent = self()
+
+    request_fun = fn _client,
+                     :put,
+                     "cardkit/v1/cards/:card_id/elements/:element_id/content",
+                     opts ->
+      :counters.add(attempts, 1, 1)
+      send(parent, {:content_retry, opts[:body][:sequence], opts[:body][:uuid]})
+
+      if :counters.get(attempts, 1) == 1,
+        do: {:error, :timeout},
+        else: {:error, %Error{code: 200_770, msg: "this UUID has been recently consumed"}}
+    end
+
+    request = %Request{
+      actor_event: stored,
+      presentation: current,
+      previous_presentation: previous,
+      checkpoint: checkpoint,
+      mode: :working
+    }
+
+    assert {:error, :timeout} =
+             CardKit.update(request,
+               client: :recording_client,
+               request_fun: request_fun
+             )
+
+    assert {:ok, result} =
+             CardKit.update(request,
+               client: :recording_client,
+               request_fun: request_fun
+             )
+
+    assert_receive {:content_retry, first_sequence, first_uuid}
+    assert_receive {:content_retry, second_sequence, second_uuid}
+    assert first_sequence == second_sequence
+    assert first_uuid == second_uuid
+    assert result.reply_preview_checkpoint["answer_content"] == current["answer"]
+    refute result.reply_preview_checkpoint["pending_mutation"]
+  end
+
   test "a growing tail page checkpoints its complete source for crash recovery", %{event: event} do
     previous =
       ReplyPresentation.new()
@@ -493,9 +559,15 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert close_action["action"] == "partial_update_setting"
     assert get_in(close_action, ["params", "settings", "config", "streaming_mode"]) == false
 
+    assert_receive {:terminal_batch, cleanup_sequence, cleanup_uuid, [cleanup_action]}
+    assert cleanup_sequence == close_sequence + 1
+    refute cleanup_uuid == close_uuid
+    assert cleanup_action["action"] == "delete_elements"
+    assert get_in(cleanup_action, ["params", "element_ids"]) == ["separator", "state"]
+
     assert_receive {:terminal_batch, update_sequence, update_uuid, update_actions}
-    assert update_sequence == close_sequence + 1
-    refute update_uuid == close_uuid
+    assert update_sequence == cleanup_sequence + 1
+    refute update_uuid in [close_uuid, cleanup_uuid]
 
     assert Enum.any?(update_actions, fn action ->
              action["action"] == "update_element" and
@@ -708,6 +780,112 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert opts[:body][:msg_type] == "text"
     assert Ankole.JSON.decode!(opts[:body][:content]) == %{"text" => "最终答案"}
     assert result.created_source_entry_id == "message-fallback"
+  end
+
+  test "a provider page-binding limit posts only the unsent tail as plain text", %{
+    event: event
+  } do
+    answer = String.duplicate("x", 13_000)
+    terminal = ReplyPresentation.new() |> ReplyPresentation.terminal("completed", answer)
+    [first_page, tail_page] = CardChain.pages(terminal)
+
+    first_card =
+      CardChain.card_record(
+        0,
+        "card-binding-prefix",
+        "card-binding-prefix-uuid",
+        first_page,
+        "sealed",
+        ["answer"]
+      )
+      |> Map.put("message_id", "message-binding-prefix")
+
+    tail_card =
+      CardChain.card_record(
+        1,
+        "card-binding-tail",
+        "card-binding-tail-uuid",
+        tail_page,
+        "closed",
+        ["answer"]
+      )
+
+    checkpoint =
+      %{
+        "schema_version" => 1,
+        "adapter" => "lark",
+        "presentation" => ReplyPresentation.checkpoint(terminal),
+        "subject_uid" => event.agent_uid,
+        "conversation_id" => Ecto.UUID.generate()
+      }
+      |> CardChain.initialize(first_card)
+      |> CardChain.append(tail_card)
+      |> Map.put("pending_rollover", %{
+        "from_index" => 0,
+        "to_index" => 1,
+        "phase" => "send",
+        "answer_digest" => CardChain.digest(tail_page.source),
+        "message_uuid" => tail_card["message_uuid"]
+      })
+
+    assert {:ok, stored} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
+    parent = self()
+
+    request_fun = fn
+      _client, :post, "im/v1/messages", opts ->
+        case opts[:body][:msg_type] do
+          "interactive" ->
+            send(parent, {:binding_limited_card, opts})
+
+            {:error,
+             %Error{
+               code: 230_099,
+               msg:
+                 "Failed to create card content; ErrCode: 200780; ErrMsg: card binding biz count over limit",
+               http_status: 400
+             }}
+
+          "text" ->
+            send(parent, {:binding_tail_fallback, opts})
+            {:ok, %{"data" => %{"message_id" => "message-binding-tail-fallback"}}}
+        end
+    end
+
+    outbox = %OutboxEntry{
+      agent_uid: event.agent_uid,
+      binding_name: event.binding_name,
+      outbound_key: "ai-reply:binding-limit",
+      idempotency_key: "ai-reply:binding-limit",
+      operation: :reply,
+      delivery_class: :durable_ai_reply,
+      ai_message_id: Ecto.UUID.generate()
+    }
+
+    assert {:ok, result} =
+             CardKit.finalize(
+               %Request{
+                 actor_event: stored,
+                 presentation: terminal,
+                 checkpoint: checkpoint,
+                 outbox: outbox,
+                 mode: :terminal
+               },
+               client: :recording_client,
+               request_fun: request_fun
+             )
+
+    assert_receive {:binding_limited_card, card_opts}
+    assert card_opts[:body][:msg_type] == "interactive"
+
+    assert_receive {:binding_tail_fallback, fallback_opts}
+    assert fallback_opts[:body][:msg_type] == "text"
+    assert fallback_opts[:body][:receive_id]
+
+    assert %{"text" => delivered_tail} = Ankole.JSON.decode!(fallback_opts[:body][:content])
+    assert delivered_tail == tail_page.source
+    assert first_page.source <> delivered_tail == answer
+    assert result.created_source_entry_id == "message-binding-tail-fallback"
+    assert result.delivered_operation == :post
   end
 
   test "a crash-ambiguous tail send resumes the same card and message UUID", %{event: event} do

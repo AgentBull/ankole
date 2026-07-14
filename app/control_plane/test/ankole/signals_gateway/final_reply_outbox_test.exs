@@ -13,6 +13,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
   alias Ankole.SignalsGateway.Entry
   alias Ankole.SignalsGateway.Outbox
   alias Ankole.SignalsGateway.OutboxEntry
+  alias Ankole.SignalsGateway.ReplyPreviewAdapter
 
   defmodule LateReplyPreview do
     use GenServer
@@ -166,6 +167,82 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
              } = Repo.get_by!(Entry, ai_message_id: message.id)
 
       assert ai_message_id == message.id
+    end
+
+    test "dispatch refreshes terminal metadata checkpointed while the preview stops" do
+      %{message: message, event: event, turn_ref: turn_ref} = start_im_visible_response_run()
+
+      assert [{preview_pid, _value}] =
+               Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, event.id)
+
+      rich_adapter = %ReplyPreviewAdapter{
+        open_fun: fn _request -> {:ok, %{}} end,
+        update_fun: fn _request -> {:ok, %{}} end,
+        finalize_fun: fn _request -> {:ok, %{}} end
+      }
+
+      :sys.replace_state(preview_pid, fn state ->
+        %{state | reply_preview_adapter: rich_adapter, silent_rich_pending: false}
+      end)
+
+      assert :ok =
+               AIReplyPreview.presentation_event(event.id, %{
+                 "kind" => "plan.snapshot",
+                 "payload" => %{
+                   "operation_id" => "todo",
+                   "revision" => 1,
+                   "items" => [
+                     %{
+                       "id" => "verify",
+                       "content" => "验证终态元数据",
+                       "status" => "completed"
+                     }
+                   ]
+                 }
+               })
+
+      assert {:ok, completed} =
+               StatefulResponses.commit_complete(message, assistant_content("final with plan"))
+
+      assert_turn_completed(turn_ref, completed)
+
+      outbox = Repo.get_by!(OutboxEntry, outbound_key: "ai-reply:#{message.id}")
+      refute get_in(outbox.payload, ["reply_presentation", "plan"])
+
+      parent = self()
+
+      adapter = %{
+        capabilities: [:reply_entry],
+        send: fn dispatched ->
+          send(parent, {:terminal_metadata_dispatched, dispatched})
+
+          {:ok,
+           %{
+             created_source_entry_id: "provider-final-with-plan",
+             raw_payload: %{"provider" => "test"}
+           }}
+        end
+      }
+
+      assert {:ok, %OutboxEntry{status: :succeeded}} =
+               SignalsGateway.dispatch_outbox(
+                 outbox.agent_uid,
+                 outbox.binding_name,
+                 outbox.outbound_key,
+                 adapter
+               )
+
+      assert_receive {:terminal_metadata_dispatched, dispatched}
+
+      assert get_in(dispatched.payload, ["reply_presentation", "plan", "items"]) == [
+               %{
+                 "id" => "verify",
+                 "content" => "验证终态元数据",
+                 "status" => "completed"
+               }
+             ]
+
+      assert get_in(dispatched.payload, ["reply_presentation", "plan", "folded"])
     end
 
     test "dispatch waits for a late preview id and edits it instead of posting a duplicate reply" do

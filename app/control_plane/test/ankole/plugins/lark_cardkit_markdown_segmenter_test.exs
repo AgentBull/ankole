@@ -51,6 +51,22 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitMarkdownSegmenterTest do
     end
   end
 
+  test "a long Markdown list rolls over between complete list items" do
+    markdown =
+      1..180
+      |> Enum.map_join("\n", fn index ->
+        "- 第#{index |> Integer.to_string() |> String.pad_leading(3, "0")}行：CardKit 超长文本分页、顺序与完整性验证。"
+      end)
+
+    pages = MarkdownSegmenter.pages(markdown, max_bytes: 12 * 1_024)
+
+    assert length(pages) == 2
+    assert Enum.map_join(pages, & &1.source) == markdown
+    assert Enum.all?(Enum.drop(pages, 1), &String.starts_with?(&1.source, "- "))
+    assert Enum.all?(Enum.drop(pages, -1), &String.ends_with?(&1.source, "\n"))
+    refute Enum.any?(pages, &String.ends_with?(&1.source, "- "))
+  end
+
   test "an empty answer still yields one valid Markdown element" do
     assert [%{source: "", content: " ", start_byte: 0, end_byte: 0}] =
              MarkdownSegmenter.pages("")
