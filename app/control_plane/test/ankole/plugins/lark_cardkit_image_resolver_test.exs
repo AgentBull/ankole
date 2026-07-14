@@ -137,6 +137,39 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitImageResolverTest do
     end)
   end
 
+  test "the default fetch degrades after one transport timeout instead of retrying", %{
+    agent: agent
+  } do
+    presentation =
+      ReplyPresentation.new()
+      |> ReplyPresentation.append_answer("![图](https://example.com/slow.png)")
+
+    previous_options = Req.default_options()
+    attempts = :counters.new(1, [])
+
+    finch_request = fn request, _finch_request, _finch_name, _finch_options ->
+      :counters.add(attempts, 1, 1)
+      {request, Req.TransportError.exception(reason: :timeout)}
+    end
+
+    Req.default_options(Keyword.put(previous_options, :finch_request, finch_request))
+
+    try do
+      assert {:ok, rendered, state} =
+               ImageResolver.resolve(presentation, agent.uid, %{}, :client,
+                 image_upload_fun: fn _client, _body, _filename, _content_type ->
+                   flunk("a timed-out image must not be uploaded")
+                 end
+               )
+
+      assert :counters.get(attempts, 1) == 1
+      assert rendered["answer"] == "[图](https://example.com/slow.png)"
+      assert get_in(state, ["https://example.com/slow.png", "reason"]) =~ "timeout"
+    after
+      Req.default_options(previous_options)
+    end
+  end
+
   test "a persisted image resolution is reused without fetching again", %{agent: agent} do
     presentation =
       ReplyPresentation.new()

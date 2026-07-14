@@ -15,6 +15,15 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitErrorTest do
     assert ErrorPolicy.action(%Error{code: 230_072, msg: "edit limit reached"}) ==
              :plain_text_fallback
 
+    assert ErrorPolicy.action(%Error{
+             code: 230_099,
+             msg:
+               "Failed to create card content; ErrCode: 200780; ErrMsg: card binding biz count over limit"
+           }) == :plain_text_fallback
+
+    assert ErrorPolicy.action(%Error{code: 230_099, msg: "unknown card creation failure"}) ==
+             :operator_action_required
+
     assert ErrorPolicy.action(%Error{code: 300_311, msg: "permission"}) ==
              :operator_action_required
   end

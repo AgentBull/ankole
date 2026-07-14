@@ -128,6 +128,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.ImageResolver do
              method: :get,
              url: url,
              redirect: false,
+             retry: false,
              receive_timeout: 15_000,
              connect_options: [timeout: 5_000],
              into: &collect_image_body/2

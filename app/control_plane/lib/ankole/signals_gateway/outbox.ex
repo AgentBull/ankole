@@ -549,6 +549,7 @@ defmodule Ankole.SignalsGateway.Outbox do
       Repo.transact(fn repo ->
         with %OutboxEntry{} = outbox <-
                fetch_outbox_for_update(repo, agent_uid, binding_name, outbound_key),
+             {:ok, outbox} <- refresh_late_reply_presentation(repo, outbox),
              {:ok, outbox} <- adopt_late_reply_preview(repo, outbox),
              {:ok, channel} <- outbox_channel(repo, outbox) do
           case in_flight_recovery_action(outbox, adapter, now) do
@@ -623,6 +624,86 @@ defmodule Ankole.SignalsGateway.Outbox do
 
   defp await_reply_preview_stop(_actor_event_id, _timeout_ms),
     do: {:error, :invalid_reply_preview_settle_timeout}
+
+  # Actor completion commits the durable outbox before the asynchronous preview
+  # process finishes checkpointing its final semantic projection. Refresh the
+  # renderer-safe payload under the outbox lock after that process has stopped,
+  # so plans, receipts, and other metadata cannot be frozen out of the terminal
+  # card merely because the provider update was still in flight.
+  defp refresh_late_reply_presentation(
+         repo,
+         %OutboxEntry{status: status, payload: %{"reply_presentation" => original}} = outbox
+       )
+       when status in [:created, :failed] and is_map(original) do
+    if reply_preview_finalization?(outbox) do
+      case repo.get(ActorEvent, outbox.source_actor_event_id) do
+        %ActorEvent{} = event ->
+          refreshed = terminal_presentation_from_latest_checkpoint(event, original)
+
+          if refreshed == original do
+            {:ok, outbox}
+          else
+            payload = Map.put(outbox.payload, "reply_presentation", refreshed)
+
+            outbox
+            |> OutboxEntry.changeset(%{payload: payload})
+            |> repo.update()
+          end
+
+        nil ->
+          {:error, :actor_event_not_found}
+      end
+    else
+      {:ok, outbox}
+    end
+  end
+
+  defp refresh_late_reply_presentation(_repo, %OutboxEntry{} = outbox), do: {:ok, outbox}
+
+  defp terminal_presentation_from_latest_checkpoint(event, original) do
+    latest = reply_presentation_checkpoint(event)
+    state = fetch_value(original, "state") || "completed"
+
+    answer =
+      if state == "stopped" do
+        fetch_value(latest, "answer") || fetch_value(original, "answer") || ""
+      else
+        fetch_value(original, "answer") || ""
+      end
+
+    latest
+    |> ReplyPresentation.terminal(state, answer)
+    |> preserve_empty_stopped_answer(state, answer)
+    |> preserve_terminal_field(original, "prompt")
+    |> preserve_terminal_field(original, "actions")
+    |> merge_terminal_meta(original)
+  end
+
+  # A stopped card is useful with status and progress metadata alone. The text
+  # fallback remains available to providers that cannot render the rich card,
+  # but a late preview checkpoint must not turn that fallback concern into a
+  # fabricated CardKit answer.
+  defp preserve_empty_stopped_answer(presentation, "stopped", ""),
+    do: Map.put(presentation, "answer", "")
+
+  defp preserve_empty_stopped_answer(presentation, _state, _answer), do: presentation
+
+  defp preserve_terminal_field(presentation, original, key) do
+    case Map.fetch(original, key) do
+      {:ok, value} -> Map.put(presentation, key, value)
+      :error -> presentation
+    end
+  end
+
+  defp merge_terminal_meta(presentation, original) do
+    original_meta = fetch_value(original, "meta")
+
+    if is_map(original_meta) do
+      Map.put(presentation, "meta", Map.merge(presentation["meta"] || %{}, original_meta))
+    else
+      presentation
+    end
+  end
 
   defp adopt_late_reply_preview(
          repo,

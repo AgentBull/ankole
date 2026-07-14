@@ -1,11 +1,23 @@
 # Changelog
 
-## Version 26.07.3 (2026-07-14)
+## Version 26.07.5 (2026-07-14)
 
 - Align Auth, Setup, and Console around a Carbon-inspired shell, page header, resource table, and dedicated editor hierarchy while retaining the Ankole UI kit and magenta brand.
 - Split Brain into Entries, Audit, and Dreaming task surfaces with focused filters, structured audit diffs, and explicit run ownership.
 - Clarify editor save boundaries, add typed setting controls and read-only identifiers, and improve responsive, empty, error, keyboard, and sensitive-value states across operator workflows.
 - Restore the light Console navigation by making its desktop rail and mobile drawer follow the shared surface tokens, then apply one persisted light/dark theme across Auth, Setup, Console, overlays, and notifications.
+## Version 26.07.4 (2026-07-14)
+
+- Prevent `/new` and `/stop` from resurrecting retryable turns when a worker failure supersedes the live delivery just before cancellation.
+- Keep stopped CardKit replies with no partial answer metadata-only instead of fabricating an empty body, while preserving the working stream anchor and plain-text fallback.
+- Degrade a failed remote Markdown image to its link after one transport attempt so optional image resolution cannot hold a durable final reply through implicit retries.
+
+## Version 26.07.3 (2026-07-14)
+
+- Reframe the root README architecture maps around product-facing entry points, AIGateway's external and agent-facing stateless/stateful surfaces, Brain long-term memory, durable Subagent Delegation, and the semantic-state/artifact split.
+- Run migrations and worker-auth bootstrap through release-owned commands instead of encoding application lifecycle and module ownership in Helm.
+- Deliver Lark AI replies as streaming CardKit cards with Markdown, compact collapsible progress metadata, interactive clarification, attachments, and ordered long-answer rollover.
+- Preserve terminal plans and receipts across preview/outbox races, recover consumed CardKit mutations after process loss, and fall back to new text messages for provider edit or page-binding limits without dropping undelivered results.
 
 ## Version 26.07.2 (2026-07-14)
 

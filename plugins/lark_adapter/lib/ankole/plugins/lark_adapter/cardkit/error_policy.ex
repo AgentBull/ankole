@@ -40,6 +40,17 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.ErrorPolicy do
     do: :plain_text_fallback
 
   def action(%Error{code: code}) when code in @operator_codes, do: :operator_action_required
+
+  def action(%Error{code: 230_099, msg: message}) when is_binary(message) do
+    if message
+       |> String.downcase()
+       |> String.contains?("errcode: 200780") do
+      :plain_text_fallback
+    else
+      :operator_action_required
+    end
+  end
+
   def action(%Error{code: code}) when code in [200_810, 300_120, 300_317], do: :retry
   def action(%Error{code: code}) when code in [:transport, :rate_limited], do: :retry
   def action(%Error{http_status: status}) when status in [408, 409, 425, 429], do: :retry

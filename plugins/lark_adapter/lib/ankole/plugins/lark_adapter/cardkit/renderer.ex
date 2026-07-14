@@ -12,6 +12,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
   @soft_bytes 24 * 1_024
   @soft_elements 160
   @action_value_version "ankole.interactive_output.action.v1"
+  @metadata_element_ids ~w(state receipts plan thought activity meta)
+  @separator_id "separator"
 
   @spec render(map(), keyword()) :: {:ok, map()} | {:error, term()}
   def render(presentation, opts \\ []) do
@@ -131,21 +133,31 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
   end
 
   defp elements(presentation, mode) do
-    []
-    |> append(state_element(presentation))
-    |> append(plan_element(presentation))
-    |> append(thought_element(presentation, mode))
-    |> append(answer_element(presentation))
-    |> append_all(result_elements(presentation))
-    |> append(receipts_element(presentation))
-    |> append(activity_element(presentation))
-    |> append(actions_element(presentation, mode))
-    |> append(meta_element(presentation))
+    metadata =
+      []
+      |> append(state_element(presentation))
+      |> append(receipts_element(presentation))
+      |> append(plan_element(presentation, mode))
+      |> append(thought_element(presentation, mode))
+      |> append(activity_element(presentation, mode))
+      |> append(meta_element(presentation))
+
+    primary =
+      []
+      |> append(answer_element(presentation, mode))
+      |> append_all(result_elements(presentation))
+      |> append(actions_element(presentation, mode))
+
+    metadata ++ separator_elements(metadata, primary) ++ primary
   end
 
+  defp state_element(%{"__cardkit_page_tail" => false} = presentation),
+    do: compact_metadata("state", state_copy(presentation), "info_outlined")
+
+  defp state_element(%{"state" => "completed"}), do: nil
+
   defp state_element(presentation) do
-    %{"tag" => "markdown", "element_id" => "state"}
-    |> Map.merge(state_copy(presentation))
+    compact_metadata("state", state_copy(presentation), state_icon(presentation))
   end
 
   defp state_copy(%{"__cardkit_page_tail" => false}), do: CardI18n.text("continued")
@@ -168,13 +180,12 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
       else: CardI18n.text("awaiting_input")
   end
 
-  defp state_copy(%{"state" => "completed"}), do: CardI18n.text("completed")
   defp state_copy(%{"state" => "failed"}), do: CardI18n.text("failed")
   defp state_copy(%{"state" => "stopped"}), do: CardI18n.text("stopped")
   defp state_copy(%{"state" => "scheduled"}), do: CardI18n.text("scheduled")
   defp state_copy(_presentation), do: CardI18n.text("working")
 
-  defp plan_element(%{"plan" => %{} = plan}) do
+  defp plan_element(%{"plan" => %{} = plan}, mode) do
     items = plan["items"] || []
     summary = plan["summary"] || %{}
     completed = summary["completed"] || 0
@@ -189,20 +200,23 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
       "plan",
       CardI18n.plain_text("plan_title", %{completed: completed, total: total}),
       visible_items,
-      not Map.get(plan, "folded", false)
+      "list-check_outlined",
+      mode == :working
     )
   end
 
-  defp plan_element(_presentation), do: nil
+  defp plan_element(_presentation, _mode), do: nil
 
   defp thought_element(%{"thought" => thought, "state" => "working"}, :working)
        when is_binary(thought) and thought != "" do
-    panel("thought", CardI18n.plain_text("thought_title"), thought, false)
+    panel("thought", CardI18n.plain_text("thought_title"), thought, "ai-common_colorful", true)
   end
 
   defp thought_element(_presentation, _mode), do: nil
 
-  defp answer_element(presentation) do
+  defp answer_element(%{"answer" => ""}, :terminal), do: nil
+
+  defp answer_element(presentation, _mode) do
     answer = presentation["answer"] || ""
 
     %{
@@ -352,12 +366,12 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
         "- ✅ #{receipt["summary"]}#{scope}"
       end)
 
-    panel("receipts", CardI18n.plain_text("receipts_title"), content, true)
+    panel("receipts", CardI18n.plain_text("receipts_title"), content, "check_outlined", false)
   end
 
   defp receipts_element(_presentation), do: nil
 
-  defp activity_element(%{"activities" => activities}) when map_size(activities) > 0 do
+  defp activity_element(%{"activities" => activities}, mode) when map_size(activities) > 0 do
     content =
       activities
       |> Map.values()
@@ -366,10 +380,16 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
         "- #{activity_marker(activity["phase"])} #{activity["label"]}"
       end)
 
-    panel("activity", CardI18n.plain_text("activity_title"), content, false)
+    panel(
+      "activity",
+      CardI18n.plain_text("activity_title"),
+      content,
+      "history_outlined",
+      mode == :working
+    )
   end
 
-  defp activity_element(_presentation), do: nil
+  defp activity_element(_presentation, _mode), do: nil
 
   defp actions_element(%{"actions" => actions} = presentation, mode)
        when is_list(actions) and actions != [] and mode == :terminal do
@@ -453,25 +473,113 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
         nil
 
       parts ->
-        %{"tag" => "markdown", "element_id" => "meta", "content" => Enum.join(parts, " · ")}
+        compact_metadata("meta", %{"content" => Enum.join(parts, " · ")}, "info_outlined")
     end
   end
 
   defp meta_element(_presentation), do: nil
 
-  defp panel(id, title, content, expanded) when is_map(title) do
+  defp panel(id, title, content, icon_token, expanded) when is_map(title) do
     %{
       "tag" => "collapsible_panel",
       "element_id" => id,
       "expanded" => expanded,
       "header" => %{
-        "title" => title,
-        "vertical_align" => "center"
+        "title" => muted_panel_title(title),
+        "vertical_align" => "center",
+        "padding" => "0px 0px 0px 0px",
+        "icon" => standard_icon(icon_token),
+        "icon_position" => "left"
       },
-      "padding" => "8px 8px 8px 8px",
-      "vertical_spacing" => "8px",
-      "elements" => [%{"tag" => "markdown", "content" => content}]
+      "padding" => "4px 0px 0px 20px",
+      "margin" => "0px 0px 0px 0px",
+      "vertical_spacing" => "4px",
+      "elements" => [
+        %{
+          "tag" => "markdown",
+          "content" => content,
+          "text_size" => "notation",
+          "margin" => "0px 0px 0px 0px"
+        }
+      ]
     }
+  end
+
+  defp compact_metadata(id, copy, icon_token) do
+    %{
+      "tag" => "div",
+      "element_id" => id,
+      "text" =>
+        copy
+        |> Map.put("tag", "plain_text")
+        |> metadata_text(),
+      "icon" => standard_icon(icon_token),
+      "margin" => "0px 0px 0px 0px"
+    }
+  end
+
+  # Collapsible-panel titles only accept tag/content; text_size and text_color
+  # are component-level fields and make Feishu reject the mutation. Markdown
+  # color syntax keeps the title visually secondary without leaving the schema.
+  defp muted_panel_title(%{"content" => content} = title) when is_binary(content) do
+    muted = %{
+      "tag" => "markdown",
+      "content" => muted_text(content)
+    }
+
+    case title["i18n_content"] do
+      i18n_content when is_map(i18n_content) ->
+        Map.put(
+          muted,
+          "i18n_content",
+          Map.new(i18n_content, fn {key, value} -> {key, muted_text(value)} end)
+        )
+
+      _missing ->
+        muted
+    end
+  end
+
+  defp muted_text(content), do: "<font color='grey'>#{content}</font>"
+
+  defp metadata_text(text) do
+    Map.merge(text, %{
+      "text_size" => "notation",
+      "text_align" => "left",
+      "text_color" => "grey"
+    })
+  end
+
+  defp standard_icon(token) do
+    %{
+      "tag" => "standard_icon",
+      "token" => token,
+      "color" => "grey",
+      "size" => "14px 14px"
+    }
+  end
+
+  defp state_icon(%{"state" => state}) when state in ["debouncing", "working"],
+    do: "ai-common_colorful"
+
+  defp state_icon(%{"state" => "scheduled"}), do: "time_outlined"
+  defp state_icon(%{"state" => "failed"}), do: "sheet-iconsets-caution_filled"
+  defp state_icon(_presentation), do: "info_outlined"
+
+  defp separator_elements([], _primary), do: []
+
+  defp separator_elements(_metadata, primary) do
+    if visible_primary_elements?(primary) do
+      [
+        %{
+          "tag" => "hr",
+          "element_id" => @separator_id,
+          "margin" => "0px 0px 0px 0px"
+        }
+      ]
+    else
+      []
+    end
   end
 
   defp maybe_result_title(%{"title" => title}, index) when is_binary(title) and title != "" do
@@ -570,7 +678,40 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
         end
       end)
 
-    put_in(card, ["body", "elements"], kept)
+    card
+    |> put_in(["body", "elements"], kept)
+    |> remove_orphan_separator()
+  end
+
+  defp remove_orphan_separator(card) do
+    elements = get_in(card, ["body", "elements"])
+
+    if Enum.any?(elements, &(&1["element_id"] in @metadata_element_ids)) and
+         visible_primary_elements?(elements) do
+      card
+    else
+      put_in(
+        card,
+        ["body", "elements"],
+        Enum.reject(elements, &(&1["element_id"] == @separator_id))
+      )
+    end
+  end
+
+  defp visible_primary_elements?(elements) do
+    Enum.any?(elements, fn
+      %{"element_id" => "answer", "content" => content} ->
+        present_text?(content)
+
+      %{"element_id" => "actions"} ->
+        true
+
+      %{"element_id" => id} when is_binary(id) ->
+        String.starts_with?(id, ["result", "rtitle", "rtake", "rcap"])
+
+      _element ->
+        false
+    end)
   end
 
   defp count_elements(value) when is_list(value),
@@ -612,14 +753,42 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
   end
 
   defp append_additions(actions, elements, added_ids) do
-    {before_answer, after_answer} =
-      elements
-      |> Enum.filter(&MapSet.member?(added_ids, &1["element_id"]))
-      |> Enum.split_with(&(&1["element_id"] in ["plan", "thought"]))
+    elements
+    |> addition_runs(added_ids)
+    |> Enum.reduce(actions, fn {additions, type, target}, acc ->
+      maybe_add_elements(acc, additions, type, target)
+    end)
+  end
 
-    actions
-    |> maybe_add_elements(before_answer, "insert_before", "answer")
-    |> maybe_add_elements(after_answer, "insert_after", "answer")
+  # A CardKit element can appear after its neighbours have already been
+  # inserted. Anchor each new contiguous run to the next existing element (or
+  # the previous one for a trailing run), so asynchronous plan/activity events
+  # cannot permanently scramble the semantic renderer order.
+  defp addition_runs(elements, added_ids) do
+    {runs, pending, last_existing_id} =
+      Enum.reduce(elements, {[], [], nil}, fn element, {runs, pending, last_existing_id} ->
+        id = element["element_id"]
+
+        if MapSet.member?(added_ids, id) do
+          {runs, [element | pending], last_existing_id}
+        else
+          runs =
+            case pending do
+              [] -> runs
+              pending -> runs ++ [{Enum.reverse(pending), "insert_before", id}]
+            end
+
+          {runs, [], id}
+        end
+      end)
+
+    case pending do
+      [] ->
+        runs
+
+      pending when is_binary(last_existing_id) ->
+        runs ++ [{Enum.reverse(pending), "insert_after", last_existing_id}]
+    end
   end
 
   defp maybe_add_elements(actions, [], _type, _target), do: actions
@@ -637,6 +806,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
   defp append(elements, nil), do: elements
   defp append(elements, element), do: elements ++ [element]
   defp append_all(elements, values), do: elements ++ values
+
+  defp present_text?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present_text?(_value), do: false
 
   defp result_id(index), do: "result#{index}"
 

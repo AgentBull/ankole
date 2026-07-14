@@ -57,27 +57,62 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
 
     elements = get_in(card, ["body", "elements"])
     state = Enum.find(elements, &(&1["element_id"] == "state"))
-    assert state["i18n_content"]["zh_cn"] == "正在完善回答…"
-    assert state["i18n_content"]["en_us"] == "Refining the answer…"
+    assert get_in(state, ["text", "i18n_content", "zh_cn"]) == "正在完善回答…"
+    assert get_in(state, ["text", "i18n_content", "en_us"]) == "Refining the answer…"
+    assert state["text"]["text_size"] == "notation"
+    assert state["text"]["text_color"] == "grey"
+    assert state["icon"]["token"] == "ai-common_colorful"
 
     answer = Enum.find(elements, &(&1["element_id"] == "answer"))
     assert answer["tag"] == "markdown"
     assert answer["content"] == presentation["answer"]
 
-    assert Enum.any?(elements, &(&1["element_id"] == "plan"))
-    assert Enum.any?(elements, &(&1["element_id"] == "thought"))
+    separator = Enum.find(elements, &(&1["element_id"] == "separator"))
+    assert separator["tag"] == "hr"
+
+    assert element_index(elements, "state") < element_index(elements, "receipts")
+    assert element_index(elements, "receipts") < element_index(elements, "plan")
+    assert element_index(elements, "plan") < element_index(elements, "thought")
+    assert element_index(elements, "thought") < element_index(elements, "separator")
+    assert element_index(elements, "separator") < element_index(elements, "answer")
     assert Enum.any?(elements, &(&1["tag"] == "table"))
 
     receipts = Enum.find(elements, &(&1["element_id"] == "receipts"))
     receipts_text = get_in(receipts, ["elements", Access.at(0), "content"])
     assert receipts_text =~ "已更正项目偏好"
     assert receipts_text =~ "已安排后续检查"
+    refute receipts["expanded"]
+    assert get_in(receipts, ["header", "icon", "token"]) == "check_outlined"
+    assert get_in(receipts, ["header", "icon_position"]) == "left"
+
+    assert get_in(receipts, ["header", "title", "tag"]) == "markdown"
+
+    assert get_in(receipts, ["header", "title", "content"]) ==
+             "<font color='grey'>Confirmed changes</font>"
+
+    assert get_in(receipts, ["header", "title", "i18n_content", "zh_cn"]) ==
+             "<font color='grey'>已确认的变更</font>"
+
+    refute Map.has_key?(get_in(receipts, ["header", "title"]), "text_size")
+    refute Map.has_key?(get_in(receipts, ["header", "title"]), "text_color")
+    assert get_in(receipts, ["elements", Access.at(0), "text_size"]) == "notation"
+    refute Map.has_key?(get_in(receipts, ["elements", Access.at(0)]), "text_color")
+    refute Map.has_key?(get_in(receipts, ["elements", Access.at(0)]), "font_color")
 
     plan = Enum.find(elements, &(&1["element_id"] == "plan"))
-    assert get_in(plan, ["header", "title", "i18n_content", "en_us"]) == "Execution plan · 1/2"
+
+    assert get_in(plan, ["header", "title", "i18n_content", "en_us"]) ==
+             "<font color='grey'>Execution plan · 1/2</font>"
+
+    assert get_in(plan, ["header", "icon", "token"]) == "list-check_outlined"
+    assert plan["expanded"]
+
+    thought = Enum.find(elements, &(&1["element_id"] == "thought"))
+    assert get_in(thought, ["header", "icon", "token"]) == "ai-common_colorful"
+    assert thought["expanded"]
   end
 
-  test "terminal rendering removes leased thought and closes streaming without changing final Markdown" do
+  test "a completed answer without metadata has no status or divider" do
     live =
       ReplyPresentation.new()
       |> ReplyPresentation.append_answer("```elixir\nIO.puts(\"ok\")\n```")
@@ -95,7 +130,135 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
 
     elements = get_in(card, ["body", "elements"])
     refute Enum.any?(elements, &(&1["element_id"] == "thought"))
+    refute Enum.any?(elements, &(&1["element_id"] == "state"))
+    refute Enum.any?(elements, &(&1["element_id"] == "separator"))
     assert Enum.find(elements, &(&1["element_id"] == "answer"))["content"] == live["answer"]
+  end
+
+  test "completed metadata is collapsed above a divider and the final answer" do
+    terminal =
+      ReplyPresentation.new()
+      |> ReplyPresentation.apply_event("memory.mutation_receipt", %{
+        "operation_id" => "memory-write",
+        "revision" => 1,
+        "phase" => "confirmed",
+        "summary" => "已创建记忆条目",
+        "scope" => "Brain 记忆"
+      })
+      |> ReplyPresentation.terminal("completed", "这是最终正文。")
+
+    assert {:ok, card} = Renderer.render(terminal, mode: :terminal)
+    elements = get_in(card, ["body", "elements"])
+
+    assert Enum.map(elements, & &1["element_id"]) == ["receipts", "separator", "answer"]
+    receipts = Enum.at(elements, 0)
+    refute receipts["expanded"]
+    assert get_in(receipts, ["header", "icon", "token"]) == "check_outlined"
+    assert get_in(receipts, ["elements", Access.at(0), "content"]) =~ "已创建记忆条目"
+    assert Enum.at(elements, 1)["tag"] == "hr"
+    assert Enum.at(elements, 2)["content"] == "这是最终正文。"
+  end
+
+  test "a stopped reply without partial text renders metadata without a body or divider" do
+    stopped =
+      ReplyPresentation.new()
+      |> ReplyPresentation.apply_event("plan.snapshot", %{
+        "operation_id" => "todo",
+        "revision" => 1,
+        "items" => [
+          %{"id" => "research", "content" => "研究请求", "status" => "in_progress"}
+        ]
+      })
+      |> ReplyPresentation.terminal("stopped", "")
+      |> Map.put("answer", "")
+
+    assert {:ok, card} = Renderer.render(stopped, mode: :terminal)
+    elements = get_in(card, ["body", "elements"])
+
+    assert Enum.map(elements, & &1["element_id"]) == ["state", "plan"]
+    refute Enum.any?(elements, &(&1["element_id"] == "answer"))
+    refute Enum.any?(elements, &(&1["element_id"] == "separator"))
+  end
+
+  test "todo is expanded while work is running and collapsed after completion" do
+    working =
+      ReplyPresentation.new()
+      |> ReplyPresentation.apply_event("plan.snapshot", %{
+        "operation_id" => "todo",
+        "revision" => 1,
+        "items" => [
+          %{"id" => "inspect", "content" => "检查卡片", "status" => "completed"},
+          %{"id" => "finish", "content" => "完成验证", "status" => "in_progress"}
+        ]
+      })
+
+    assert {:ok, working_card} = Renderer.render(working, mode: :working)
+
+    working_plan =
+      Enum.find(get_in(working_card, ["body", "elements"]), &(&1["element_id"] == "plan"))
+
+    assert working_plan["expanded"]
+
+    terminal =
+      working
+      |> ReplyPresentation.apply_event("plan.snapshot", %{
+        "operation_id" => "todo",
+        "revision" => 2,
+        "items" => [
+          %{"id" => "inspect", "content" => "检查卡片", "status" => "completed"},
+          %{"id" => "finish", "content" => "完成验证", "status" => "completed"}
+        ]
+      })
+      |> ReplyPresentation.terminal("completed", "验证完成。")
+
+    assert {:ok, terminal_card} = Renderer.render(terminal, mode: :terminal)
+    terminal_elements = get_in(terminal_card, ["body", "elements"])
+    terminal_plan = Enum.find(terminal_elements, &(&1["element_id"] == "plan"))
+
+    refute terminal_plan["expanded"]
+
+    assert element_index(terminal_elements, "plan") <
+             element_index(terminal_elements, "separator")
+
+    assert element_index(terminal_elements, "separator") <
+             element_index(terminal_elements, "answer")
+  end
+
+  test "working status uses the AI icon and adds a divider only after body content appears" do
+    empty = ReplyPresentation.new()
+
+    assert {:ok, empty_card} = Renderer.render(empty, mode: :working)
+    empty_elements = get_in(empty_card, ["body", "elements"])
+    state = Enum.find(empty_elements, &(&1["element_id"] == "state"))
+
+    assert state["tag"] == "div"
+    assert state["icon"]["token"] == "ai-common_colorful"
+    refute Enum.any?(empty_elements, &(&1["element_id"] == "separator"))
+
+    assert {:ok, answering_card} =
+             empty
+             |> ReplyPresentation.append_answer("正文开始")
+             |> Renderer.render(mode: :working)
+
+    answering_elements = get_in(answering_card, ["body", "elements"])
+
+    assert element_index(answering_elements, "state") <
+             element_index(answering_elements, "separator")
+
+    assert element_index(answering_elements, "separator") <
+             element_index(answering_elements, "answer")
+
+    answering = ReplyPresentation.append_answer(empty, "正文开始")
+    assert {:ok, actions} = Renderer.batch_actions(empty, answering, mode: :working)
+
+    separator_addition =
+      Enum.find(actions, fn action ->
+        action["action"] == "add_elements" and
+          Enum.any?(get_in(action, ["params", "elements"]), &(&1["element_id"] == "separator"))
+      end)
+
+    assert get_in(separator_addition, ["params", "type"]) == "insert_before"
+    assert get_in(separator_addition, ["params", "target_element_id"]) == "answer"
   end
 
   test "builds one batch mutation from semantic element differences" do
@@ -113,6 +276,46 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
     assert {:ok, actions} = Renderer.batch_actions(previous, current, mode: :working)
     assert Enum.any?(actions, &(&1["action"] in ["add_elements", "update_element"]))
     refute Enum.any?(actions, &get_in(&1, ["params", "partial_element", "raw_tool_name"]))
+
+    activity_addition =
+      Enum.find(actions, fn action ->
+        action["action"] == "add_elements" and
+          Enum.any?(get_in(action, ["params", "elements"]), &(&1["element_id"] == "activity"))
+      end)
+
+    assert get_in(activity_addition, ["params", "target_element_id"]) == "separator"
+  end
+
+  test "late metadata additions keep the renderer's semantic order" do
+    previous =
+      ReplyPresentation.new()
+      |> ReplyPresentation.apply_event("tool.activity", %{
+        "operation_id" => "command",
+        "revision" => 1,
+        "phase" => "running",
+        "label" => "操作工作环境"
+      })
+
+    current =
+      previous
+      |> ReplyPresentation.apply_event("plan.snapshot", %{
+        "operation_id" => "todo",
+        "revision" => 2,
+        "items" => [
+          %{"id" => "inspect", "content" => "检查卡片", "status" => "in_progress"}
+        ]
+      })
+
+    assert {:ok, actions} = Renderer.batch_actions(previous, current, mode: :working)
+
+    plan_addition =
+      Enum.find(actions, fn action ->
+        action["action"] == "add_elements" and
+          Enum.any?(get_in(action, ["params", "elements"]), &(&1["element_id"] == "plan"))
+      end)
+
+    assert get_in(plan_addition, ["params", "type"]) == "insert_before"
+    assert get_in(plan_addition, ["params", "target_element_id"]) == "activity"
   end
 
   test "renders versioned choice values and locks an accepted choice in place" do
@@ -236,7 +439,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
 
     first_elements = get_in(first, ["body", "elements"])
     first_state = Enum.find(first_elements, &(&1["element_id"] == "state"))
-    assert first_state["i18n_content"]["zh_cn"] == "回答继续于下一张卡片"
+    assert get_in(first_state, ["text", "i18n_content", "zh_cn"]) == "回答继续于下一张卡片"
+    assert element_index(first_elements, "state") < element_index(first_elements, "separator")
+    assert element_index(first_elements, "separator") < element_index(first_elements, "answer")
     refute Enum.any?(first_elements, &String.starts_with?(&1["element_id"], "result"))
     refute first["config"]["streaming_mode"]
 
@@ -251,7 +456,14 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
 
     tail_elements = get_in(tail, ["body", "elements"])
     assert Enum.any?(tail_elements, &String.starts_with?(&1["element_id"], "result"))
-    assert Enum.find(tail_elements, &(&1["element_id"] == "meta"))["content"] =~ "第 2 张"
+
+    assert get_in(
+             Enum.find(tail_elements, &(&1["element_id"] == "meta")),
+             ["text", "content"]
+           ) =~ "第 2 张"
+
+    assert element_index(tail_elements, "meta") < element_index(tail_elements, "separator")
+    assert element_index(tail_elements, "separator") < element_index(tail_elements, "answer")
   end
 
   test "oversized typed detail degrades before the terminal answer" do
@@ -280,5 +492,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
     elements = get_in(card, ["body", "elements"])
     assert Enum.find(elements, &(&1["element_id"] == "answer"))["content"] == "必须保留的最终结论"
     refute Enum.any?(elements, &(&1["tag"] == "table"))
+  end
+
+  defp element_index(elements, id) do
+    Enum.find_index(elements, &(&1["element_id"] == id))
   end
 end

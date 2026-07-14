@@ -772,6 +772,117 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
       assert %{"payload_json" => payload} = next_envelope["body"]["turn_start"]["actor_event"]
       assert get_in(payload, ["data", "command", "argsText"]) == "fresh task after worker returns"
     end
+
+    test "/new consumes a retryable turn whose delivery failed during reset" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_event: old_input}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "old stalled task", explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, %{conversation: old_conversation}} =
+               process_ready_events_once(
+                 now: DateTime.add(@base_time, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_lane, old_envelope}
+      old_turn_ref = old_envelope["body"]["turn_start"]["turn"]
+
+      assert {:ok, [_delivery]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{"turn" => old_turn_ref}
+               })
+
+      old_run =
+        start_aigateway_run_for_turn!(old_turn_ref,
+          request_items: [
+            %{
+              "type" => "message",
+              "role" => "user",
+              "content" => [%{"type" => "input_text", "text" => "old stalled task"}]
+            }
+          ]
+        )
+
+      assert :ok = Actors.record_reply_preview_source_entry(old_input.id, "old-preview-message")
+
+      assert {:ok, _failed_response} =
+               StatefulResponses.commit_error(
+                 old_run,
+                 [
+                   %{
+                     "type" => "message",
+                     "role" => "assistant",
+                     "content" => [%{"type" => "output_text", "text" => "partial answer"}]
+                   }
+                 ],
+                 %{"code" => "socket_terminated", "retryable" => true}
+               )
+
+      assert {:ok, %{status: :turn_failed, retry_available_at: retry_available_at}} =
+               ActorRuntime.handle_turn_error(
+                 %{
+                   "turn_error" => %{
+                     "turn" => old_turn_ref,
+                     "code" => "worker_turn_failed",
+                     "message" => "AIGateway socket closed before terminal",
+                     "details_json" => %{"retryable" => true}
+                   }
+                 },
+                 now: DateTime.add(@base_time, 2, :second)
+               )
+
+      assert %DateTime{} = retry_available_at
+      assert is_nil(Repo.get!(ActorEvent, old_input.id).completed_at)
+      assert Repo.get_by!(ActorEventDelivery, actor_event_id: old_input.id).state == "superseded"
+
+      assert {:ok, %{actor_event: new_command}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "/new", explicit: true}),
+                 now: DateTime.add(@base_time, 3, :second)
+               )
+
+      assert {:ok,
+              %{
+                status: :command_consumed,
+                command: "command.new",
+                feedback: "Started a new conversation."
+              }} =
+               process_ready_events_once(now: DateTime.add(@base_time, 3, :second))
+
+      assert %DateTime{} = Repo.get!(ActorEvent, old_input.id).completed_at
+      assert %DateTime{} = Repo.get!(ActorEvent, new_command.id).completed_at
+      assert %DateTime{} = Repo.get!(Conversation, old_conversation.id).ended_at
+
+      stopped_outbox =
+        Repo.get_by!(OutboxEntry,
+          agent_uid: agent.uid,
+          binding_name: "bot",
+          outbound_key: "ai-turn-stopped:#{old_input.id}"
+        )
+
+      assert stopped_outbox.target_source_entry_id == "old-preview-message"
+      assert get_in(stopped_outbox.payload, ["reply_presentation", "state"]) == "stopped"
+      assert get_in(stopped_outbox.payload, ["metadata", "reason"]) == "command.new"
+
+      assert {:ok, %{status: :idle}} =
+               process_ready_events_once(now: DateTime.add(retry_available_at, 1, :second))
+
+      refute_receive {:actor_lane, _redelivered_old_turn}, 100
+    end
   end
 
   defp insert_complete_message!(agent_uid, conversation_id, previous_message_id, content) do
