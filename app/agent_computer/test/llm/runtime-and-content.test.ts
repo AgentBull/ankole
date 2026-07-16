@@ -6,6 +6,7 @@ import { runAgentLoop } from '../../src/core/agent-loop'
 import { zodToJSONSchema, type ContentPart } from '../../src/core/llm'
 import { actorEventUserContent } from '../../src/core/turns/actor_event_content'
 import { actorEventText } from '../../src/core/turns/actor_event_text'
+import { channelContextModelMessages } from '../../src/core/turns/channel_context'
 import {
   actorEventEnvironmentInfoLines,
   prependEnvironmentInfoLinesToUserMessage,
@@ -527,6 +528,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
         text: [
           '<agent_environment_info>',
           'send_at: 2026-07-04 10:03:04 (Asia/Shanghai)',
+          'signal_channel_id: lark:chat-1',
           'speaker: Alice',
           '</agent_environment_info>'
         ].join('\n')
@@ -560,8 +562,8 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       }
     })
 
-    expect(dm).toEqual(['send_at: 2026-07-04T02:03:04.000Z'])
-    expect(chatbotGroup).toEqual(['speaker: Alice (chatbot)'])
+    expect(dm).toEqual(['send_at: 2026-07-04T02:03:04.000Z', 'signal_channel_id: lark:dm-1'])
+    expect(chatbotGroup).toEqual(['signal_channel_id: lark:chat-1', 'speaker: Alice (chatbot)'])
   })
 
   it('keeps durable context in the system suffix and reuses the stored conversation prompt verbatim', () => {
@@ -580,6 +582,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       },
       soul: 'Be precise.',
       mission: 'Help with research.',
+      design: 'Use cobalt only in visual artifacts.',
       brain_snapshot: {
         pinned_memo: { resident_text: 'Prefer concise evidence.', truncated: false }
       },
@@ -611,6 +614,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     expect(instructions).toContain('Asia/Shanghai')
     expect(instructions).toContain('Prefer concise evidence.')
     expect(instructions).toContain('financial-data')
+    expect(instructions).not.toContain('Use cobalt only in visual artifacts.')
     expect(buildAgentSystemPrompt(changedOptions)).not.toBe(instructions)
     expect(systemPromptForConversation(changedOptions)).toBe(instructions)
     expect(instructions.indexOf('<completion_contract>')).toBeLessThan(instructions.indexOf('<runtime_context>'))
@@ -682,6 +686,39 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     })
   })
 
+  it('passes a materialized image from the explicit reply target to the vision model', async () => {
+    await withImageWorkspace(async (workspaceRoot, imagePath) => {
+      const content = await actorEventUserContent(
+        {
+          data: {
+            entry: {
+              text: '',
+              author: { display_name: 'Alice' },
+              attachments: [],
+              reply_to_source_entry_id: 'parent-image',
+              reply_to: {
+                source_entry_id: 'parent-image',
+                resolution: 'resolved',
+                role: 'human',
+                attachments: [{ name: 'photo.png', resource_type: 'image', agent_computer_path: imagePath }]
+              }
+            }
+          }
+        },
+        'im.message.addressed',
+        modelRefForTest(['text', 'image']),
+        { workspaceRoot }
+      )
+
+      expect(Array.isArray(content)).toBe(true)
+      const parts = content as ContentPart[]
+      expect(parts[0]).toMatchObject({ type: 'text' })
+      expect((parts[0] as Extract<ContentPart, { type: 'text' }>).text).toContain('source_entry_id: parent-image')
+      expect((parts[0] as Extract<ContentPart, { type: 'text' }>).text).toContain(`path=${imagePath}`)
+      expect(parts[1]!.type).toBe('image')
+    })
+  })
+
   it('summarizes actor-event images through vision fallback for text-only models', async () => {
     await withImageWorkspace(async (workspaceRoot, imagePath) => {
       const fallbackBodies: JSONObject[] = []
@@ -733,20 +770,54 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     expect(fallbackBodies).toHaveLength(0)
   })
 
+  it('projects shared channel context as a separate provenance-preserving model message', () => {
+    const messages = channelContextModelMessages({
+      data: {
+        channel_context: {
+          messages: [
+            {
+              role: 'human',
+              speaker: 'Alice',
+              sent_at: '2026-07-15T05:08:00Z',
+              text: '这个排版为什么能做这么好？',
+              source_entry_id: 'msg-prior-question'
+            },
+            {
+              role: 'agent',
+              speaker: 'Research Agent',
+              sent_at: '2026-07-15T05:09:00Z',
+              text: '是按既有技能和现场内容一起组织的。',
+              source_entry_id: 'msg-other-agent-answer'
+            }
+          ]
+        }
+      }
+    })
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0]!.role).toBe('user')
+    expect(messages[0]!.content).toContain('Alice')
+    expect(messages[0]!.content).toContain('这个排版为什么能做这么好？')
+    expect(messages[0]!.content).toContain('Research Agent')
+    expect(messages[0]!.content).toContain('是按既有技能和现场内容一起组织的。')
+    expect(messages[0]!.content).not.toContain('msg-prior-question')
+    expect(messages[0]!.content).not.toContain('source_entry_id')
+  })
+
   it('projects a structured reply action as an explicit user choice without raw callback JSON', () => {
     const text = actorEventText(
       {
         data: {
           action: {
-            name: 'clarify-choice',
+            name: 'reply_interaction',
             value: {
-              version: 'ankole.interactive_output.action.v1',
-              interactionId: 'clarify:call-1',
-              interactionVersion: 1,
-              controlId: 'audience',
-              selectedOptionId: 'operators',
-              optionValue: 'Operators',
-              sourceActorEventId: '019f-source'
+              interaction_id: 'clarify:call-1',
+              source_actor_event_id: '019f-source',
+              answer: {
+                kind: 'choice',
+                option_id: 'operators',
+                value: 'Operators'
+              }
             },
             operator_principal_uid: 'human-1'
           },
@@ -760,6 +831,33 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     expect(text).toContain('Continue the conversation using this explicit user choice.')
     expect(text).not.toContain('must-not-reach-the-model')
     expect(text).not.toContain('sourceActorEventId')
+    expect(text).not.toContain('operator_principal_uid')
+  })
+
+  it('projects a free-text clarification answer without exposing callback fields', () => {
+    const text = actorEventText(
+      {
+        data: {
+          action: {
+            name: 'reply_interaction',
+            value: {
+              interaction_id: 'clarify:call-2',
+              source_actor_event_id: '019f-source',
+              answer: {
+                kind: 'free_text',
+                value: 'Use the latest paragraph above.'
+              }
+            },
+            operator_principal_uid: 'human-1'
+          }
+        }
+      },
+      'signal.action.invoked'
+    )
+
+    expect(text).toContain('answered a clarification in their own words')
+    expect(text).toContain('Answer: Use the latest paragraph above.')
+    expect(text).not.toContain('source_actor_event_id')
     expect(text).not.toContain('operator_principal_uid')
   })
 

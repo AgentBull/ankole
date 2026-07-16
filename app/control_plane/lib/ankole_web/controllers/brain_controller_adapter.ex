@@ -2,6 +2,7 @@ defmodule AnkoleWeb.BrainController.Adapter do
   @moduledoc false
 
   alias Ankole.Brain
+  alias Ankole.WorkerFiles
 
   @author_kinds ~w(human agent dreaming)
   @server_owned_operation_keys ~w(
@@ -36,7 +37,8 @@ defmodule AnkoleWeb.BrainController.Adapter do
              owner_uid,
              operations,
              actor_uid,
-             store_key: optional_text(params, "store")
+             store_key: optional_text(params, "store"),
+             reason: optional_text(body, "reason")
            ) do
       {:ok, json_safe(result)}
     end
@@ -64,9 +66,42 @@ defmodule AnkoleWeb.BrainController.Adapter do
     end
   end
 
-  @spec source(String.t()) :: {:ok, map()} | {:error, :not_found}
-  def source(document_id) do
-    with {:ok, source} <- Brain.resolve_source(document_id) do
+  @spec source(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def source(owner_uid, document_id) do
+    with {:ok, source} <- Brain.resolve_source(owner_uid, document_id) do
+      {:ok, %{source: source}}
+    end
+  end
+
+  @spec list_sources(String.t()) :: {:ok, map()} | {:error, term()}
+  def list_sources(owner_uid) do
+    with {:ok, sources} <- Brain.list_sources(owner_uid) do
+      {:ok, %{sources: sources}}
+    end
+  end
+
+  @spec review_candidates(String.t()) :: {:ok, map()} | {:error, term()}
+  def review_candidates(owner_uid) do
+    with {:ok, review} <- Brain.review_candidates(owner_uid) do
+      {:ok, %{review: review}}
+    end
+  end
+
+  @spec source_raw(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def source_raw(owner_uid, document_id), do: Brain.source_raw(owner_uid, document_id)
+
+  @spec create_source(String.t(), String.t(), map(), String.t()) ::
+          {:ok, map()} | {:error, term()}
+  def create_source(owner_uid, store_key, body, actor_uid) do
+    with {:ok, attrs} <- source_attrs(body),
+         {:ok, source} <- Brain.capture_source(owner_uid, store_key, attrs, actor_uid) do
+      {:ok, %{source: source}}
+    end
+  end
+
+  @spec learn_source(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def learn_source(owner_uid, document_id) do
+    with {:ok, source} <- Brain.learn_source(owner_uid, document_id) do
       {:ok, %{source: source}}
     end
   end
@@ -257,6 +292,66 @@ defmodule AnkoleWeb.BrainController.Adapter do
   end
 
   defp operations(_body), do: {:error, :invalid_operations}
+
+  defp source_attrs(body) when is_map(body) do
+    case optional_text(body, "kind") do
+      "file" -> source_file_attrs(body)
+      "paste" -> source_text_attrs(body)
+      "url" -> source_url_attrs(body)
+      _invalid -> {:error, :invalid_source_kind}
+    end
+  end
+
+  defp source_attrs(_body), do: {:error, :invalid_source}
+
+  defp source_file_attrs(body) do
+    case param(body, "file") do
+      %Plug.Upload{} = upload ->
+        max_bytes = WorkerFiles.max_transfer_bytes()
+
+        with {:ok, %{size: size}} <- File.stat(upload.path),
+             true <- size > 0 and size <= max_bytes,
+             {:ok, content} <- File.read(upload.path) do
+          {:ok,
+           %{
+             kind: "file",
+             title: optional_text(body, "title") || upload.filename,
+             original_name: upload.filename,
+             media_type: upload.content_type || "application/octet-stream",
+             content: content
+           }}
+        else
+          false -> {:error, {:invalid_source_file_size, max_bytes}}
+          {:error, reason} -> {:error, {:source_file_read_failed, reason}}
+        end
+
+      _missing ->
+        {:error, {:missing, "file"}}
+    end
+  end
+
+  defp source_text_attrs(body) do
+    with {:ok, title} <- required_text(body, "title"),
+         {:ok, content} <- required_source_content(body, "content") do
+      {:ok, %{kind: "paste", title: title, content: content}}
+    end
+  end
+
+  defp source_url_attrs(body) do
+    with {:ok, url} <- required_text(body, "url") do
+      {:ok, %{kind: "url", title: optional_text(body, "title"), url: url}}
+    end
+  end
+
+  defp required_source_content(params, key) do
+    case param(params, key) do
+      value when is_binary(value) ->
+        if String.trim(value) == "", do: {:error, {:missing, key}}, else: {:ok, value}
+
+      _missing ->
+        {:error, {:missing, key}}
+    end
+  end
 
   defp audit_ids(body) when is_map(body) do
     case param(body, "audit_ids") do

@@ -2,16 +2,23 @@ defmodule Ankole.Brain.RuntimeTest do
   use Ankole.DataCase, async: false
 
   import Ankole.PrincipalsFixtures
+  import Ankole.SignalsGatewayFixtures
 
   alias Ankole.AIGateway.Conversations
+  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.Brain.Knowledge
   alias Ankole.Brain.RPCBroker
   alias Ankole.Brain.RuntimeContext
   alias Ankole.Brain.Schemas.Entry
   alias Ankole.Brain.Scope
   alias Ankole.Brain.Snapshot
+  alias Ankole.Brain.Sources
   alias Ankole.Repo
+  alias Ankole.SignalsGateway
+  alias Ankole.SignalsGateway.AIGatewayLink
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
+  alias Ankole.SignalsGateway.Entry, as: SignalEntry
+  alias Ankole.SignalsGateway.Ingress
   alias Ankole.SubagentDelegations.Schemas.Delegation
 
   test "conversation snapshot auto-creates the pinned memo and remains frozen" do
@@ -170,6 +177,7 @@ defmodule Ankole.Brain.RuntimeTest do
     assert inherited.id == conversation.id
     assert inherited_scope.writable_store_key == "public"
     assert {:ok, ^parent_snapshot} = Snapshot.get_or_create(inherited)
+    assert AIGatewayLink.visible_signal_document_ids(subagent_turn) == []
   end
 
   test "RPC derives owner store and author, and opens stable block pages" do
@@ -263,13 +271,341 @@ defmodule Ankole.Brain.RuntimeTest do
     assert page_two["next_block_cursor"] == nil
   end
 
-  defp turn_ref(agent_uid, session_id) do
+  test "source-learning RPC only admits blocks cited to its retained source" do
+    %{principal: agent} = agent_fixture()
+    session_id = "brain-source-learning-rpc"
+    {:ok, scope} = Scope.for_store(agent.uid, "public")
+
+    assert {:ok, source} =
+             Sources.capture(
+               scope,
+               %{kind: "paste", title: "Source policy", content: "Keep supported claims."},
+               agent.uid
+             )
+
+    {:ok, _conversation} =
+      Conversations.ensure_conversation(agent.uid, session_id,
+        metadata: %{"brain" => %{"visibility" => "public"}}
+      )
+
+    assert {:ok, actor_event} =
+             SignalsGateway.append_actor_event(%{
+               agent_uid: agent.uid,
+               binding_name: "brain-console",
+               session_id: session_id,
+               source_event_id: "brain-source-learning-rpc",
+               source_entry_id: source.document_id,
+               type: "brain.source.learn",
+               available_at: DateTime.utc_now(:microsecond),
+               payload: %{
+                 "data" => %{
+                   "retained_source" => %{"document_id" => source.document_id}
+                 }
+               }
+             })
+
+    turn = turn_ref(agent.uid, session_id, actor_event.id)
+
+    assert {:error, %{"code" => "source_learning_operation_not_allowed"}} =
+             RPCBroker.handle_update(
+               turn,
+               %{
+                 "operation" => "set_summary",
+                 "entry_id" => Ecto.UUID.generate(),
+                 "summary" => "A temporary tool failure",
+                 "expected_entry_lock_version" => 1
+               },
+               "worker-route"
+             )
+
+    assert {:error, %{"code" => "source_learning_citation_required"}} =
+             RPCBroker.handle_update(
+               turn,
+               %{
+                 "operation" => "create_entry",
+                 "name" => "Unsupported runtime state",
+                 "type" => "fact",
+                 "initial_body" => "The PDF reader is currently broken."
+               },
+               "worker-route"
+             )
+
+    assert {:ok, result} =
+             RPCBroker.handle_update(
+               turn,
+               %{
+                 "operation" => "create_entry",
+                 "name" => "Supported source policy",
+                 "type" => "fact",
+                 "initial_body" => "Keep supported claims. src:#{source.document_id}"
+               },
+               "worker-route"
+             )
+
+    [created] = result["results"]
+
+    assert {:ok, [audit]} =
+             Knowledge.list_audit(scope,
+               action: "create_entry",
+               entry_id: created["entry_id"],
+               limit: 1
+             )
+
+    assert audit.metadata["source_document_id"] == source.document_id
+  end
+
+  test "RPC chat recall follows the root turn's visible Response chain across session reset" do
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "brain-conversation-recall", :record_only)
+
+    %{actor_event: old_event} =
+      emit_addressed_actor_event(
+        agent.uid,
+        "brain-conversation-recall",
+        group_entry(%{
+          source_event_id: "brain-old-request-event",
+          source_entry_id: "brain-old-request",
+          explicit: true,
+          text: "请整理上一周的研究记录"
+        }),
+        base_time()
+      )
+
+    {:ok, old_conversation} =
+      Conversations.ensure_conversation(agent.uid, old_event.session_id,
+        metadata: brain_metadata(old_event.signal_channel_id)
+      )
+
+    old_response =
+      complete_response!(
+        agent.uid,
+        old_conversation.id,
+        old_event.id,
+        nil,
+        "旧会话报告包含玄武岩映射结论"
+      )
+
+    assert {:ok, %{signal_entry: old_report}} =
+             Ingress.emit_entry(
+               agent.uid,
+               "brain-conversation-recall",
+               group_entry(%{
+                 source_event_id: "brain-old-report-event",
+                 source_entry_id: "brain-old-report",
+                 text: "旧会话报告包含玄武岩映射结论",
+                 author: %{principal_uid: agent.uid, display_name: "Agent"},
+                 provider_time: DateTime.add(base_time(), 1, :second)
+               }),
+               now: DateTime.add(base_time(), 1, :second)
+             )
+
+    old_report
+    |> SignalEntry.changeset(%{ai_message_id: old_response.id})
+    |> Repo.update!()
+
+    old_conversation
+    |> Ecto.Changeset.change(ended_at: DateTime.add(base_time(), 2, :second))
+    |> Repo.update!()
+
+    {:ok, current_conversation} =
+      Conversations.ensure_conversation(agent.uid, old_event.session_id,
+        metadata: brain_metadata(old_event.signal_channel_id)
+      )
+
+    insert_channel_context_fillers!(
+      old_event.signal_channel_id,
+      20,
+      DateTime.add(base_time(), 2_000_000, :microsecond)
+    )
+
+    %{actor_event: visible_event} =
+      emit_addressed_actor_event(
+        agent.uid,
+        "brain-conversation-recall",
+        group_entry(%{
+          source_event_id: "brain-current-visible-event",
+          source_entry_id: "brain-current-visible-request",
+          explicit: true,
+          text: "当前链问题包含云杉坐标",
+          provider_time: DateTime.add(base_time(), 3, :second)
+        }),
+        DateTime.add(base_time(), 3, :second)
+      )
+
+    refute Enum.any?(
+             get_in(visible_event.payload, ["data", "channel_context", "messages"]),
+             &(&1["source_entry_id"] == old_report.source_entry_id)
+           )
+
+    visible_response =
+      complete_response!(
+        agent.uid,
+        current_conversation.id,
+        visible_event.id,
+        nil,
+        "当前链回答包含云杉坐标"
+      )
+
+    assert {:ok, %{signal_entry: visible_report}} =
+             Ingress.emit_entry(
+               agent.uid,
+               "brain-conversation-recall",
+               group_entry(%{
+                 source_event_id: "brain-current-report-event",
+                 source_entry_id: "brain-current-report",
+                 text: "当前链回答包含云杉坐标",
+                 author: %{principal_uid: agent.uid, display_name: "Agent"},
+                 provider_time: DateTime.add(base_time(), 4, :second)
+               }),
+               now: DateTime.add(base_time(), 4, :second)
+             )
+
+    visible_report
+    |> SignalEntry.changeset(%{ai_message_id: visible_response.id})
+    |> Repo.update!()
+
+    %{actor_event: search_event} =
+      emit_addressed_actor_event(
+        agent.uid,
+        "brain-conversation-recall",
+        group_entry(%{
+          source_event_id: "brain-search-event",
+          source_entry_id: "brain-search-request",
+          explicit: true,
+          text: "帮我找玄武岩映射报告",
+          provider_time: DateTime.add(base_time(), 5, :second)
+        }),
+        DateTime.add(base_time(), 5, :second)
+      )
+
+    assert {:ok, _search_response} =
+             StatefulResponses.start_response_run(%{
+               subject_uid: agent.uid,
+               previous_response_id: "resp_#{visible_response.id}",
+               metadata: %{"request_metadata" => %{"actor_event_id" => search_event.id}},
+               request_items: [
+                 %{
+                   "type" => "message",
+                   "role" => "user",
+                   "content" => [%{"type" => "input_text", "text" => "search input"}]
+                 }
+               ]
+             })
+
+    turn = turn_ref(agent.uid, search_event.session_id, search_event.id)
+
+    assert {:ok, old_result} =
+             RPCBroker.handle_search(
+               turn,
+               %{
+                 "query" => "玄武岩映射",
+                 "layer" => "chat",
+                 "channel_scope" => "current_channel"
+               },
+               "worker-route"
+             )
+
+    assert Enum.any?(old_result["results"], fn hit ->
+             hit["layer"] == "chat" and
+               Enum.any?(hit["messages"], &(&1["document_id"] == old_report.document_id))
+           end)
+
+    assert {:ok, visible_result} =
+             RPCBroker.handle_search(
+               turn,
+               %{
+                 "query" => "云杉坐标",
+                 "layer" => "chat",
+                 "channel_scope" => "current_channel"
+               },
+               "worker-route"
+             )
+
+    refute Enum.any?(visible_result["results"], fn hit ->
+             hit["layer"] == "chat" and
+               Enum.any?(hit["messages"], &(&1["document_id"] == visible_report.document_id))
+           end)
+  end
+
+  defp complete_response!(agent_uid, conversation_id, actor_event_id, previous_id, text) do
+    attrs = %{
+      subject_uid: agent_uid,
+      metadata: %{"request_metadata" => %{"actor_event_id" => actor_event_id}},
+      request_items: [
+        %{
+          "type" => "message",
+          "role" => "user",
+          "content" => [%{"type" => "input_text", "text" => "actor input"}]
+        }
+      ]
+    }
+
+    attrs =
+      if previous_id do
+        Map.put(attrs, :previous_response_id, "resp_#{previous_id}")
+      else
+        Map.put(attrs, :conversation_id, conversation_id)
+      end
+
+    {:ok, response} = StatefulResponses.start_response_run(attrs)
+
+    {:ok, response} =
+      StatefulResponses.commit_complete(response, [
+        %{
+          "type" => "message",
+          "role" => "assistant",
+          "content" => [%{"type" => "output_text", "text" => text}]
+        }
+      ])
+
+    response
+  end
+
+  defp brain_metadata(channel_id) do
+    %{
+      "brain" => %{
+        "visibility" => "public",
+        "channel_id" => channel_id,
+        "channel_kind" => "im_group"
+      }
+    }
+  end
+
+  defp insert_channel_context_fillers!(channel_id, count, first_at) do
+    Enum.each(1..count, fn index ->
+      observed_at = DateTime.add(first_at, index, :millisecond)
+
+      Repo.insert!(%SignalEntry{
+        signal_channel_id: channel_id,
+        source_entry_id: "brain-context-filler-#{index}",
+        provider_thread_id: "brain-context-filler-thread-#{index}",
+        text: "最近群聊占位消息 #{index}",
+        attachments: [],
+        links: [],
+        author: %{principal_uid: "context-filler", display_name: "Context Filler"},
+        mentions: [],
+        metadata: %{},
+        raw_payload: %{},
+        provider_time: observed_at,
+        reactions: %{},
+        raw_reaction_keys: %{},
+        document_id: "doc-brain-context-filler-#{index}",
+        content_hash: "hash-brain-context-filler-#{index}",
+        first_seen_at: observed_at,
+        last_seen_at: observed_at,
+        inserted_at: observed_at,
+        updated_at: observed_at
+      })
+    end)
+  end
+
+  defp turn_ref(agent_uid, session_id, actor_event_id \\ Ecto.UUID.generate()) do
     %TurnRef{
       agent_uid: agent_uid,
       session_id: session_id,
       activation_uid: "brain-runtime-test",
       actor_epoch: 1,
-      actor_event_id: Ecto.UUID.generate(),
+      actor_event_id: actor_event_id,
       revision: 0
     }
   end

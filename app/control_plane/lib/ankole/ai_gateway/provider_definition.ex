@@ -64,7 +64,12 @@ defmodule Ankole.AIGateway.ProviderDefinition do
     ]
 
     @type kind ::
-            :language_model | :embedding_model | :rerank_model | :web_search | :web_fetch
+            :language_model
+            | :embedding_model
+            | :rerank_model
+            | :web_search
+            | :web_fetch
+            | :image_generate
 
     @typedoc """
     Capability metadata used to route a public model capability to provider
@@ -126,4 +131,5 @@ defmodule Ankole.AIGateway.ProviderDefinition do
   def capability_name(:rerank_model), do: "rerank"
   def capability_name(:web_search), do: "web_search"
   def capability_name(:web_fetch), do: "web_fetch"
+  def capability_name(:image_generate), do: "image_generate"
 end

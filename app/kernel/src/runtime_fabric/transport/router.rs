@@ -110,13 +110,22 @@ impl RouterHandle {
             .recv_timeout(self.command_timeout)
             .map_err(|_| TransportError::Timeout)?
     }
+
+    /// Requests shutdown without waiting for the socket thread.
+    ///
+    /// Resource owner/down callbacks cannot block a BEAM scheduler while the
+    /// ZeroMQ thread drains. The Elixir broker retries a transient rebind until
+    /// this request has released the endpoint.
+    pub fn request_stop(&self) {
+        self.stop.store(true, Ordering::SeqCst);
+        let (reply_tx, _reply_rx) = mpsc::channel();
+        let _ = self.commands.send(RouterCommand::Stop { reply: reply_tx });
+    }
 }
 
 impl Drop for RouterHandle {
     fn drop(&mut self) {
-        self.stop.store(true, Ordering::SeqCst);
-        let (reply_tx, _reply_rx) = mpsc::channel();
-        let _ = self.commands.send(RouterCommand::Stop { reply: reply_tx });
+        self.request_stop();
     }
 }
 

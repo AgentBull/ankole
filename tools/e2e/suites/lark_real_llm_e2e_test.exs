@@ -10,6 +10,7 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   use Ankole.DataCase, async: false
 
   import Ankole.E2E.Harness
+  import Ankole.E2E.Scenarios.DeepResearchRealLLM
   import Ankole.E2E.Scenarios.RealLLM
 
   alias Ankole.AIAgent.ModelProfiles
@@ -117,6 +118,19 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
     assert result.platform_message.msg_type == "file"
     assert result.outline =~ "2 slides"
     assert result.text =~ "Verified Handoff"
+  end
+
+  @tag timeout: 3_600_000
+  @tag ownership_timeout: 3_600_000
+  @tag :real_llm
+  @tag :deep_research_real_llm
+  test "real parent subagent flow completes non-ACH and ACH Deep Research with complete trajectories" do
+    ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!())
+
+    result = run_deep_research_modes(ctx)
+
+    assert result.general.mode == "general"
+    assert result.forecast.mode == "forecast"
   end
 
   @tag timeout: 1_800_000

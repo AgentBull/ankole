@@ -36,6 +36,9 @@ export function actorEventEnvironmentInfoLines(
   const sendAt = stringValue(entry.provider_time) ?? stringValue(payload?.time)
   if (sendAt) lines.push(`send_at: ${formatTimestamp(sendAt, opts.timezone ?? undefined)}`)
 
+  const signalChannelID = stringValue(channel.id) ?? stringValue(entry.signal_channel_id)
+  if (signalChannelID) lines.push(`signal_channel_id: ${signalChannelID}`)
+
   if (stringValue(channel.kind) === 'im_group') {
     const speaker = speakerLabel(author)
     if (speaker) lines.push(`speaker: ${speaker}`)

@@ -315,7 +315,7 @@ Worker->control-plane RPC methods are registered in
 `ai_gateway.api_key_for.create_or_find_by_agent`,
 `agent_conversation.context.resolve`, `skills.overlay.resolve` / `.append` /
 `.replace`,
-`schedule.check_back_later.create`, the `schedule.cron.*` family,
+the `schedule.check_back_later.*` and `schedule.cron.*` families,
 and the Brain methods `memory_search`, `memory_browse`, `memory_open`,
 `memory_update`, and `memory_health_check`.
 

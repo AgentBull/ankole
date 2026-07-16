@@ -61,7 +61,9 @@ config :ankole, Oban,
        {"*/5 * * * *", Ankole.Brain.Jobs.EmbedPendingEpisodes},
        {"*/5 * * * *", Ankole.Brain.Jobs.EmbedPendingBlocks},
        {"* * * * *", Ankole.Brain.Jobs.EnqueuePrincipalDreaming},
-       {"*/15 * * * *", Ankole.SignalsGateway.Jobs.CleanupExpiredState}
+       {"*/15 * * * *", Ankole.SignalsGateway.Jobs.CleanupExpiredState},
+       {"41 * * * *", Ankole.AIGateway.Jobs.CleanupExpiredArtifacts},
+       {"17 * * * *", Ankole.SubagentDelegations.Jobs.CleanupExpiredWorkspaces}
      ]}
   ]
 

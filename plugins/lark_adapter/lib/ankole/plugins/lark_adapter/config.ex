@@ -3,12 +3,18 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   Validation and runtime helpers for the first-party Lark / Feishu adapter.
   """
 
+  import Ecto.Query, warn: false
+
   alias Ankole.AppConfigure
+  alias Ankole.AppConfigure.Definition
   alias Ankole.AppConfigure.Schema
   alias Ankole.Logging
   alias Ankole.Plugins.LarkAdapter.MapHelpers
+  alias Ankole.Repo
+  alias Ankole.SignalsGateway.Binding
   alias FeishuOpenAPI.Client
 
+  @auto_enable_lark_skills_key "skills.auto_enable_lark_skills_from_signal_binding"
   @chat_key_pattern ~r/\Asignals_gateway\.lark\.bindings\.[A-Za-z0-9_.:-]+\z/
   @identity_key_pattern ~r/\Aprincipals\.identity_providers\.lark\.[A-Za-z0-9_.:-]+\z/
   @domains ["feishu", "lark"]
@@ -16,6 +22,28 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
 
   @type chat_config :: map()
   @type identity_config :: map()
+
+  @doc """
+  Exact AppConfigure definitions contributed by the plugin.
+  """
+  @spec app_config_definitions() :: [Definition.t()]
+  def app_config_definitions, do: [auto_enable_lark_skills_definition()]
+
+  @doc """
+  Controls whether an available Lark signal binding owns effective Lark Skill enablement.
+  """
+  @spec auto_enable_lark_skills_definition() :: Definition.t()
+  def auto_enable_lark_skills_definition do
+    AppConfigure.define(
+      key: @auto_enable_lark_skills_key,
+      scope: :global,
+      encrypted: false,
+      schema: Schema.boolean(),
+      default_value: true,
+      description:
+        "Automatically enable Lark skills for agents with an available Lark signal binding."
+    )
+  end
 
   @doc """
   AppConfigure key patterns contributed by the plugin.
@@ -91,6 +119,22 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   """
   @spec validate_binding_config(term()) :: {:ok, chat_config()} | {:error, term()}
   def validate_binding_config(value), do: validate_chat_config(value)
+
+  @doc """
+  Enforces the one-Agent/one-Lark-app assignment used by the Bot-only integration.
+
+  Updating the current binding is allowed. Disabled bindings do not reserve an
+  app, so assigning one again is decided by the next enabled save.
+  """
+  @spec validate_binding_assignment(String.t(), String.t(), chat_config()) ::
+          :ok | {:error, term()}
+  def validate_binding_assignment(agent_uid, binding_name, config)
+      when is_binary(agent_uid) and is_binary(binding_name) and is_map(config) do
+    with :ok <- ensure_single_enabled_binding(agent_uid, binding_name),
+         :ok <- ensure_app_not_bound_to_another_agent(agent_uid, Map.fetch!(config, "appID")) do
+      :ok
+    end
+  end
 
   @doc """
   Normalizes and validates identity-provider configuration loaded from AppConfigure.
@@ -181,6 +225,24 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   def connection_key(config), do: {Map.fetch!(config, "domain"), Map.fetch!(config, "appID")}
 
   @doc """
+  Returns whether the official lark-cli can use the binding without changing
+  its provider endpoint.
+
+  The pinned CLI selects the OpenAPI host from `domain` and has no base URL
+  override. A custom `baseURL` therefore remains valid for SignalsGateway but
+  cannot back Lark Skills.
+  """
+  @spec lark_cli_compatible?(chat_config()) :: boolean()
+  def lark_cli_compatible?(%{"baseURL" => nil}), do: true
+
+  def lark_cli_compatible?(%{"baseURL" => base_url, "domain" => domain})
+      when is_binary(base_url) and domain in @domains do
+    String.trim_trailing(base_url, "/") == domain_base_url(domain)
+  end
+
+  def lark_cli_compatible?(_config), do: false
+
+  @doc """
   Fingerprints a secret for conflict detection without storing the secret in state.
   """
   @spec secret_fingerprint(chat_config() | identity_config()) :: String.t()
@@ -262,6 +324,37 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
 
   defp present_string?(value) when is_binary(value), do: String.trim(value) != ""
   defp present_string?(_value), do: false
+
+  defp ensure_single_enabled_binding(agent_uid, binding_name) do
+    existing? =
+      Binding
+      |> where(
+        [binding],
+        binding.agent_uid == ^agent_uid and binding.adapter == "lark" and
+          binding.enabled == true and binding.name != ^binding_name
+      )
+      |> Repo.exists?()
+
+    if existing?, do: {:error, :lark_binding_already_exists}, else: :ok
+  end
+
+  defp ensure_app_not_bound_to_another_agent(agent_uid, app_id) do
+    Binding
+    |> where(
+      [binding],
+      binding.adapter == "lark" and binding.enabled == true and binding.agent_uid != ^agent_uid
+    )
+    |> Repo.all()
+    |> Enum.reduce_while(:ok, fn binding, :ok ->
+      case load_chat_config_ref(binding.config_ref) do
+        {:ok, %{"appID" => ^app_id}} ->
+          {:halt, {:error, {:lark_app_already_bound, app_id, binding.agent_uid}}}
+
+        _other ->
+          {:cont, :ok}
+      end
+    end)
+  end
 
   defp required_string(map, key) do
     case MapHelpers.fetch_value(map, key) do

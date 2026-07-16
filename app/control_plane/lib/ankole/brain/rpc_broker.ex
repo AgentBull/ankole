@@ -10,8 +10,10 @@ defmodule Ankole.Brain.RPCBroker do
   alias Ankole.Brain
   alias Ankole.Brain.RuntimeContext
   alias Ankole.Brain.Scope
+  alias Ankole.Brain.SourceLearning
   alias Ankole.SignalsGateway.ActorRuntime.RPCWire
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
+  alias Ankole.SignalsGateway.AIGatewayLink
 
   @default_block_limit 50
   @max_block_limit 200
@@ -21,7 +23,9 @@ defmodule Ankole.Brain.RPCBroker do
   def handle_search(%TurnRef{} = turn_ref, request, _route) do
     respond(request, fn ->
       with {:ok, %{scope: scope}} <- RuntimeContext.resolve(turn_ref) do
-        Brain.search(scope, request)
+        Brain.search(scope, request,
+          excluded_document_ids: AIGatewayLink.visible_signal_document_ids(turn_ref)
+        )
       end
     end)
   end
@@ -62,13 +66,17 @@ defmodule Ankole.Brain.RPCBroker do
   @spec handle_update(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
   def handle_update(%TurnRef{} = turn_ref, request, _route) do
     respond(request, fn ->
+      operation = update_operation(request)
+
       with {:ok, %{scope: scope}} <- RuntimeContext.resolve(turn_ref),
+           {:ok, write_context} <- SourceLearning.write_context(turn_ref),
            {:ok, result} <-
              Brain.apply_operations(
                scope,
-               update_operation(request),
+               operation,
                %{kind: :agent, uid: turn_ref.agent_uid},
-               metadata: update_metadata(request)
+               write_context: write_context,
+               metadata: update_metadata(request, write_context)
              ) do
         {:ok,
          %{
@@ -145,18 +153,22 @@ defmodule Ankole.Brain.RPCBroker do
     ])
   end
 
-  defp update_metadata(request) do
+  defp update_metadata(request, write_context) do
     %{
       "surface" => "memory_update",
       "tool_call_id" => RPCWire.text(request, "tool_call_id"),
       "actor_event_id" =>
         request
         |> Map.get("actor_event", %{})
-        |> RPCWire.text("actor_event_id")
+        |> RPCWire.text("actor_event_id"),
+      "source_document_id" => source_document_id(write_context)
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
   end
+
+  defp source_document_id({:source_learning, document_id}), do: document_id
+  defp source_document_id(_write_context), do: nil
 
   defp open_projection(projection) do
     entry = Map.fetch!(projection, :entry)
@@ -164,6 +176,7 @@ defmodule Ankole.Brain.RPCBroker do
     %{
       "entry" => entry_projection(entry),
       "blocks" => Enum.map(Map.get(projection, :blocks, []), &block_projection/1),
+      "citations" => Map.get(projection, :citations, []),
       "relations" =>
         Enum.map(Map.get(projection, :relations, []), fn relation ->
           %{

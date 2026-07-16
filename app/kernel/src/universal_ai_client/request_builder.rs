@@ -118,6 +118,7 @@ mod tests {
                 include_model: true,
             },
             limits: StreamLimits::default(),
+            hosted_tools: None,
         };
 
         let prepared = prepare_stream_spec(spec).unwrap();

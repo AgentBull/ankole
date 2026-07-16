@@ -12,7 +12,7 @@ import {
   ankoleWebAgentControllerIndexOptions,
   ankoleWebAgentControllerIndexModelProfilesOptions,
   ankoleWebAgentControllerUpdateMutation,
-  ankoleWebAiGatewayControllerModelsOptions,
+  ankoleWebAiGatewayControllerModelsOptions as ankoleWebAIGatewayControllerModelsOptions,
   ankoleWebAiGatewayProviderControllerIndexOptions as ankoleWebAIGatewayProviderControllerIndexOptions,
   ankoleWebAiGatewayProviderControllerProviderKindsOptions as ankoleWebAIGatewayProviderControllerProviderKindsOptions,
   ankoleWebCodexAccountControllerIndexOptions
@@ -31,6 +31,7 @@ import {
 } from '../console-shell'
 import { AgentEditorModel, type AgentEditorDraft } from '../state/agent-editor-model'
 import { matchesResourceSearch } from '../state/resource-search'
+import { AgentLibraryEditor } from './agent-library-editor'
 import { ModelProfilesEditor } from './model-profiles-editor'
 import { WorkerEnvAgentSection } from './worker-env-agent-section'
 
@@ -120,7 +121,7 @@ export function AgentEditorPage() {
     enabled: Boolean(uid)
   })
   const modelCatalog = useQuery({
-    ...ankoleWebAiGatewayControllerModelsOptions(),
+    ...ankoleWebAIGatewayControllerModelsOptions(),
     enabled: Boolean(uid)
   })
   const codexAccounts = useQuery(ankoleWebCodexAccountControllerIndexOptions())
@@ -179,6 +180,7 @@ export function AgentEditorPage() {
       supplementary={
         mode === 'edit' && selectedAgent ? (
           <div className="grid gap-10 border-t border-border pt-8">
+            <AgentLibraryEditor agentUID={selectedAgent.uid} />
             <ModelProfilesEditor
               agent={selectedAgent}
               error={modelProfiles.error}

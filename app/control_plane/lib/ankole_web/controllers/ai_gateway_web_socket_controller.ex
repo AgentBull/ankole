@@ -17,7 +17,7 @@ defmodule AnkoleWeb.AIGatewayWebSocketController do
           },
           timeout: 300_000,
           compress: true,
-          max_frame_size: 1_048_576,
+          max_frame_size: 128 * 1024 * 1024,
           validate_utf8: true,
           early_validate_upgrade: false
         )

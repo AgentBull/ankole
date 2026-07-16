@@ -50,6 +50,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   setup do
     AppConfigureRegistry.clear_for_test()
     AppConfigureCache.clear_for_test()
+    :ok = AppConfigure.register_definitions(LarkAdapter.app_config_definitions())
     :ok = AppConfigure.register_patterns(LarkAdapter.app_config_patterns())
   end
 
@@ -68,13 +69,19 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                %{
                  contract_id: "signals_gateway.adapter",
                  id: "lark",
-                 config_key_pattern: "signals_gateway.lark.bindings.<id>",
+                 config_key_pattern: "signals_gateway.lark.bindings.<agent_uid>",
+                 worker_env_module: Ankole.Plugins.LarkAdapter.RuntimeEnv,
                  fields: chat_fields,
                  supported_group_message_modes: [
                    "addressed_only",
                    "observe_all",
                    "may_intervene"
                  ]
+               },
+               %{
+                 contract_id: "ai_agent.library.skill_enablement_provider",
+                 id: "lark-cli-bot",
+                 module: Ankole.Plugins.LarkAdapter.SkillEnablement
                },
                %{
                  contract_id: "principals.identity_provider",
@@ -134,6 +141,11 @@ defmodule Ankole.Plugins.LarkAdapterTest do
              ]
 
       assert Enum.all?(patterns, & &1.encrypted)
+
+      assert [auto_enable] = LarkAdapter.app_config_definitions()
+      assert auto_enable.key == "skills.auto_enable_lark_skills_from_signal_binding"
+      assert auto_enable.default_value == true
+      refute auto_enable.encrypted
     end
 
     test "chat and identity config validation applies design defaults" do
@@ -663,7 +675,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
       assert input.type == "command.steer"
       assert input.signal_channel_id == "lark:oc_group"
-      assert input.provider_thread_id == "lark:oc_group:om_1"
+      assert is_nil(input.provider_thread_id)
 
       assert Repo.get_by!(Entry,
                signal_channel_id: "lark:oc_group",
@@ -677,6 +689,28 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                Ankole.Principals.resolve_platform_subject("lark-main", "ou_alice")
 
       assert observed.uid == "ou_alice"
+    end
+
+    test "only provider-marked replies carry the containing thread id" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark", :ignore)
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+
+      assert {:ok, top_level} = Inbound.normalize_message_receive(receive_event(), consumer)
+      assert is_nil(top_level.provider_thread_id)
+
+      reply_event =
+        receive_event()
+        |> update_message(fn message ->
+          message
+          |> Map.put("message_id", "om_reply")
+          |> Map.put("root_id", "om_root")
+          |> Map.put("parent_id", "om_root")
+        end)
+
+      assert {:ok, reply} = Inbound.normalize_message_receive(reply_event, consumer)
+      assert reply.provider_thread_id == "lark:oc_group:om_root"
+      assert reply.reply_to_source_entry_id == "om_root"
     end
 
     test "message receive strips provider mention placeholders before command detection" do
@@ -1055,6 +1089,10 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
       assert input.type == "signal.action.invoked"
       assert input.payload["data"]["action"]["value"]["selectedOptionId"] == "approve"
+
+      assert input.payload["data"]["action"]["value"]["formValue"] == %{
+               "answer" => "Additional context"
+             }
     end
   end
 
@@ -2096,6 +2134,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
         },
         "action" => %{
           "name" => "approval",
+          "form_value" => %{"answer" => "Additional context"},
           "value" => %{
             "selectedOptionId" => "approve"
           }

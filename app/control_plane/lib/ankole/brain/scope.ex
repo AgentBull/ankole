@@ -131,7 +131,7 @@ defmodule Ankole.Brain.Scope do
   end
 
   defp parse_visibility(owner_uid, %{"visibility" => "dm", "peer_uid" => peer_uid} = declaration) do
-    with {:ok, channel} <- parse_channel(declaration) do
+    with {:ok, channel} <- parse_optional_channel(declaration) do
       case Principals.normalize_uid(peer_uid) do
         {:ok, peer_uid} ->
           store_key = "dm:#{peer_uid}"

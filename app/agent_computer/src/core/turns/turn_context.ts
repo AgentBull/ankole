@@ -1,6 +1,7 @@
 import type { TurnStart } from '../../lanes/actor_lane'
 import type { AgentConversationContext } from '../../lanes/rpc_lane'
 import type { TextTurnLoopOptions } from './turn_options'
+import { materializeAgentLibraryDocuments } from './agent_library_documents'
 
 /**
  * Returns the already-resolved conversation context or asks the control plane.
@@ -13,7 +14,15 @@ export async function resolveAgentConversationContext(
   turnStart: TurnStart,
   opts: TextTurnLoopOptions
 ): Promise<AgentConversationContext> {
-  if (opts.agentConversationContext) return opts.agentConversationContext
+  const context = opts.agentConversationContext ?? (await requestAgentConversationContext(turnStart, opts))
+  materializeAgentLibraryDocuments(opts.workspaceRoot, context)
+  return context
+}
+
+async function requestAgentConversationContext(
+  turnStart: TurnStart,
+  opts: TextTurnLoopOptions
+): Promise<AgentConversationContext> {
   if (!opts.requestAgentConversationContext) {
     throw new Error('agent conversation context RPC is required')
   }

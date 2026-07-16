@@ -34,9 +34,7 @@ defmodule Ankole.Brain.Config do
   @default_search %{
     "half_life_days" => 30,
     "rerank_enabled" => false,
-    "rerank_model_agent_uid" => nil,
-    "hot_context_hours" => 2,
-    "hot_context_entries" => 80
+    "rerank_model_agent_uid" => nil
   }
 
   @spec knowledge_definition() :: Definition.t()
@@ -72,7 +70,7 @@ defmodule Ankole.Brain.Config do
       encrypted: false,
       schema: search_schema(),
       default_value: @default_search,
-      description: "Brain hybrid-search decay, hot-context exclusion, and optional reranking."
+      description: "Brain hybrid-search decay and optional reranking."
     )
   end
 
@@ -184,16 +182,12 @@ defmodule Ankole.Brain.Config do
       value when is_map(value) ->
         with {:ok, half_life_days} <- integer(value, "half_life_days", 0, 36_500),
              {:ok, rerank_enabled} <- required_boolean(value, "rerank_enabled"),
-             {:ok, rerank_model_agent_uid} <- optional_uid(value, "rerank_model_agent_uid"),
-             {:ok, hot_hours} <- integer(value, "hot_context_hours", 0, 720),
-             {:ok, hot_entries} <- integer(value, "hot_context_entries", 0, 5_000) do
+             {:ok, rerank_model_agent_uid} <- optional_uid(value, "rerank_model_agent_uid") do
           {:ok,
            %{
              "half_life_days" => half_life_days,
              "rerank_enabled" => rerank_enabled,
-             "rerank_model_agent_uid" => rerank_model_agent_uid,
-             "hot_context_hours" => hot_hours,
-             "hot_context_entries" => hot_entries
+             "rerank_model_agent_uid" => rerank_model_agent_uid
            }}
         end
 

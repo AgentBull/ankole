@@ -275,7 +275,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
   end
 
   defp request_items_metadata(request_items) when is_list(request_items) do
-    %{}
+    %{"request_item_count" => length(request_items)}
     |> maybe_put_metadata("tool_results", tool_results_metadata(request_items))
   end
 

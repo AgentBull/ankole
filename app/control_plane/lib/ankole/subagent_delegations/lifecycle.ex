@@ -20,6 +20,7 @@ defmodule Ankole.SubagentDelegations.Lifecycle do
   alias Ankole.SubagentDelegations.Queries
   alias Ankole.SubagentDelegations.Schemas.Delegation
   alias Ankole.SubagentDelegations.Text
+  alias Ankole.SubagentDelegations.Turns
 
   @max_running_per_agent 3
   @max_event_payload_bytes 16_384
@@ -37,6 +38,22 @@ defmodule Ankole.SubagentDelegations.Lifecycle do
            Queries.get_for_agent(repo, delegation_id, agent_uid, lock: "FOR UPDATE"),
          :ok <- claim_codex_account_slot(repo, delegation) do
       claim_attempt(repo, delegation, expected_attempt)
+    else
+      nil -> {:error, :delegation_not_found}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc false
+  @spec claim_continuation_in_tx(module(), String.t(), String.t(), pos_integer()) ::
+          {:ok, Delegation.t()} | {:error, term()}
+  def claim_continuation_in_tx(repo, delegation_id, agent_uid, expected_attempt)
+      when is_binary(delegation_id) and is_binary(agent_uid) and expected_attempt > 0 do
+    with :ok <- lock_agent_slots(repo, agent_uid),
+         %Delegation{} = delegation <-
+           Queries.get_for_agent(repo, delegation_id, agent_uid, lock: "FOR UPDATE"),
+         :ok <- claim_codex_account_slot(repo, delegation) do
+      claim_continuation(repo, delegation, expected_attempt)
     else
       nil -> {:error, :delegation_not_found}
       {:error, _reason} = error -> error
@@ -87,7 +104,8 @@ defmodule Ankole.SubagentDelegations.Lifecycle do
             attrs,
             now,
             turn_ref,
-            Keyword.get(opts, :worker_route)
+            Keyword.get(opts, :worker_route),
+            Keyword.get(opts, :turn_interruption)
           )
         end)
       end
@@ -103,7 +121,8 @@ defmodule Ankole.SubagentDelegations.Lifecycle do
           map(),
           DateTime.t(),
           Ankole.SignalsGateway.ActorRuntime.TurnRef.t() | nil,
-          String.t() | nil
+          String.t() | nil,
+          map() | nil
         ) ::
           {:ok, %{delegation: Delegation.t(), wakeup_event: ActorEvent.t() | nil}}
           | {:error, term()}
@@ -114,7 +133,8 @@ defmodule Ankole.SubagentDelegations.Lifecycle do
         attrs,
         %DateTime{} = now,
         turn_ref \\ nil,
-        worker_route \\ nil
+        worker_route \\ nil,
+        turn_interruption \\ nil
       ) do
     # Every transition locks any live worker/assignment prefix before taking the
     # agent/delegation locks. Worker writes additionally validate activation and
@@ -127,7 +147,8 @@ defmodule Ankole.SubagentDelegations.Lifecycle do
              agent_uid,
              attrs,
              now,
-             turn_ref
+             turn_ref,
+             turn_interruption
            ) do
       {:ok, result}
     end
@@ -140,7 +161,8 @@ defmodule Ankole.SubagentDelegations.Lifecycle do
           String.t(),
           map(),
           DateTime.t(),
-          Ankole.SignalsGateway.ActorRuntime.TurnRef.t() | nil
+          Ankole.SignalsGateway.ActorRuntime.TurnRef.t() | nil,
+          map() | nil
         ) ::
           {:ok, %{delegation: Delegation.t(), wakeup_event: ActorEvent.t() | nil}}
           | {:error, term()}
@@ -150,7 +172,8 @@ defmodule Ankole.SubagentDelegations.Lifecycle do
         agent_uid,
         attrs,
         %DateTime{} = now,
-        turn_ref
+        turn_ref,
+        turn_interruption \\ nil
       ) do
     with :ok <- lock_agent_slots(repo, agent_uid),
          %Delegation{} = delegation <-
@@ -159,6 +182,8 @@ defmodule Ankole.SubagentDelegations.Lifecycle do
          :ok <- enforce_status_transition(delegation, attrs),
          :ok <- enforce_running_limit(repo, delegation, attrs),
          :ok <- enforce_no_unapplied_terminal_steer(repo, delegation, attrs, turn_ref),
+         :ok <- maybe_interrupt_active_turns(repo, delegation, turn_interruption, now),
+         :ok <- enforce_turn_trajectory_completion(repo, delegation, attrs),
          {:ok, delegation} <-
            delegation
            |> Delegation.changeset(
@@ -209,6 +234,42 @@ defmodule Ankole.SubagentDelegations.Lifecycle do
 
   defp enforce_no_unapplied_terminal_steer(_repo, %Delegation{}, _attrs, _turn_ref),
     do: :ok
+
+  defp enforce_turn_trajectory_completion(
+         repo,
+         %Delegation{} = delegation,
+         %{"status" => status}
+       )
+       when status in ["waiting_on_user", "succeeded"],
+       do:
+         Turns.ensure_lead_closed_for_current_attempt_in_tx(repo, delegation,
+           require_turn: true,
+           latest_status: if(status == "waiting_on_user", do: "interrupted", else: "completed"),
+           latest_error_code: if(status == "waiting_on_user", do: "request_user_input"),
+           require_pending_tool_call: if(status == "waiting_on_user", do: "request_user_input")
+         )
+
+  defp enforce_turn_trajectory_completion(
+         repo,
+         %Delegation{attempts: attempts} = delegation,
+         %{"status" => status}
+       )
+       when attempts > 0 and status in ["failed", "stopped"],
+       do: Turns.ensure_lead_closed_for_current_attempt_in_tx(repo, delegation)
+
+  defp enforce_turn_trajectory_completion(_repo, %Delegation{}, _attrs), do: :ok
+
+  defp maybe_interrupt_active_turns(
+         repo,
+         %Delegation{} = delegation,
+         %{"code" => code, "summary" => summary} = error,
+         %DateTime{} = now
+       )
+       when is_binary(code) and is_binary(summary) do
+    Turns.interrupt_active_for_current_attempt_in_tx(repo, delegation, error, now)
+  end
+
+  defp maybe_interrupt_active_turns(_repo, %Delegation{}, nil, %DateTime{}), do: :ok
 
   defp lock_runtime_prefix_in_tx(
          repo,
@@ -375,17 +436,37 @@ defmodule Ankole.SubagentDelegations.Lifecycle do
        do: {:error, :subagent_delegation_attempt_changed}
 
   defp claim_attempt(repo, %Delegation{} = delegation, expected_attempt) do
+    start_attempt(repo, delegation, expected_attempt)
+  end
+
+  defp claim_continuation(_repo, %Delegation{status: "stopped"} = delegation, _expected_attempt),
+    do: {:error, {:subagent_delegation_terminal, delegation}}
+
+  defp claim_continuation(_repo, %Delegation{attempts: attempts}, expected_attempt)
+       when attempts + 1 != expected_attempt,
+       do: {:error, :subagent_delegation_attempt_changed}
+
+  defp claim_continuation(repo, %Delegation{} = delegation, expected_attempt) do
+    start_attempt(repo, delegation, expected_attempt)
+  end
+
+  defp start_attempt(repo, %Delegation{} = delegation, expected_attempt) do
     if delegation.status not in @running_statuses and
          running_count(repo, delegation.agent_uid, delegation.id) >= @max_running_per_agent do
       {:error, :subagent_agent_at_capacity}
     else
-      delegation
-      |> Delegation.changeset(%{
-        status: "running",
-        attempts: expected_attempt,
-        started_at: delegation.started_at || now()
-      })
-      |> repo.update()
+      now = now()
+
+      with :ok <- Turns.interrupt_before_attempt_in_tx(repo, delegation, expected_attempt, now) do
+        delegation
+        |> Delegation.changeset(%{
+          status: "running",
+          attempts: expected_attempt,
+          started_at: delegation.started_at || now,
+          completed_at: nil
+        })
+        |> repo.update()
+      end
     end
   end
 
@@ -461,7 +542,7 @@ defmodule Ankole.SubagentDelegations.Lifecycle do
   end
 
   defp wakeup_source_event_id(%Delegation{} = delegation) do
-    "subagent_delegation:#{delegation.id}:#{delegation.status}"
+    "subagent_delegation:#{delegation.id}:#{delegation.status}:#{delegation.attempts}"
   end
 
   defp wakeup_payload(delegation, source_event_id, event_type, now) do
@@ -477,8 +558,12 @@ defmodule Ankole.SubagentDelegations.Lifecycle do
           "delegation_id" => delegation.id,
           "title" => delegation.title,
           "status" => delegation.status,
+          "runtime" => delegation.runtime,
+          "mode" => delegation.mode,
           "attempts" => delegation.attempts,
           "result_summary" => result_summary(delegation),
+          "delivery_status" => delivery_status(delegation),
+          "delivery_issue_count" => delivery_issue_count(delegation),
           "workdir" => delegation.workdir,
           "reply_route" => delegation.reply_route || %{},
           "pending_user_input" => get_in(delegation.metadata || %{}, ["pending_user_input"])
@@ -493,6 +578,23 @@ defmodule Ankole.SubagentDelegations.Lifecycle do
     do: map_summary(error, ~w(summary reason message code))
 
   defp result_summary(%Delegation{}), do: nil
+
+  defp delivery_status(%Delegation{result: %{"verification" => verification}})
+       when is_map(verification),
+       do: Map.get(verification, "status")
+
+  defp delivery_status(%Delegation{}), do: nil
+
+  defp delivery_issue_count(%Delegation{result: result}) when is_map(result) do
+    verification = Map.get(result, "verification")
+
+    case if(is_map(verification), do: Map.get(verification, "issues")) do
+      issues when is_list(issues) and issues != [] -> length(issues)
+      _value -> nil
+    end
+  end
+
+  defp delivery_issue_count(%Delegation{}), do: nil
 
   defp map_summary(value, preferred_keys) when is_map(value) do
     preferred_keys

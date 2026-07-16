@@ -201,11 +201,14 @@ the reconnecting DEALER before exposing its route identity, so the router keeps
 that success pending by `worker_id`; the first authenticated `worker_ready`,
 `worker_heartbeat`, or `worker_capacity` envelope binds the pending identity to
 the observed route. The control plane marks the old projection stale with
-`router_stopped` while the router is down and may revalidate that same worker
-when matching authenticated lifecycle traffic returns. Other stale reasons,
-including heartbeat timeout and broken mandatory sends, remain terminal until a
-fresh worker-ready admission. Raw worker-file frames cannot establish this
-binding because they carry no lifecycle `worker_id`.
+`router_stopped` while the router is down. Matching authenticated lifecycle
+traffic from the same route and incarnation revalidates any stale worker after
+connectivity returns, including heartbeat timeouts and broken mandatory sends.
+Revalidation only returns the process to the ready pool: the stale transition's
+released assignments and superseded deliveries stay fenced, so late Turn writes
+cannot regain ownership. Explicitly stopped workers remain stopped. Raw
+worker-file frames cannot establish this binding because they carry no lifecycle
+`worker_id`.
 
 Worker startup needs only two worker identity/fabric environment variables:
 
@@ -677,6 +680,12 @@ Builtin skills and agent-installed skills are both filesystem skills.
 - PG stores domain semantics and file observations: registry, enablement,
   display/category data, overlay data, observed XXH3 fingerprints, and
   observation timestamps.
+- A trusted builtin Skill may declare an `execution_profile`. The Agent Library
+  matches that profile to an active plugin declaration under its own
+  `ai_agent.library.skill_enablement_provider` contract and combines the
+  provider's automatic/manual mode with the persisted enablement flag.
+- A builtin Skill with an execution profile but no active provider is disabled.
+  Agent-installed Skill metadata cannot opt into this projection.
 - The control plane does not discover agent-installed skills by mounting worker
   NFS. Installed-skill registry rows are refreshed from explicit worker file
   lane observations, not from control-plane directory scans. The worker remains

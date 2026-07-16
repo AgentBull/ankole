@@ -64,12 +64,12 @@ export async function runAmbientMayInterveneHandler(
 }
 
 /**
- * Reads observed-history arrays from the ambient event payload.
+ * Reads shared-channel and ambient observation rows from the event payload.
  */
 function ambientHistoryMessages(turnStart: TurnStart): unknown[] {
   const payload = turnStart.actor_event.payload_json
   return [
-    ...arrayPath(payload, ['data', 'recent_history']),
-    ...arrayPath(payload, ['data', 'earlier_observed_messages'])
+    ...arrayPath(payload, ['data', 'channel_context', 'messages']),
+    ...arrayPath(payload, ['data', 'unreplied_messages'])
   ]
 }

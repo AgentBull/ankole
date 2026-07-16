@@ -70,7 +70,9 @@ pub async fn send_http_request(
     })
 }
 
-async fn open_http_stream_for_upstream(upstream: &UpstreamSpec) -> Result<HTTPStream, StreamError> {
+pub(super) async fn open_http_stream_for_upstream(
+    upstream: &UpstreamSpec,
+) -> Result<HTTPStream, StreamError> {
     let preferences = if upstream.transport.http_versions.is_empty() {
         vec![
             HTTPVersionPreference::H3,

@@ -30,10 +30,17 @@ defmodule AnkoleWeb.SpaControllerTest do
   test "GET /setup serves setup before completion", %{conn: conn} do
     conn = get(conn, ~p"/setup")
 
-    assert html_response(conn, 200) =~ ~s(http://assets.test/@react-refresh)
-    assert html_response(conn, 200) =~ ~s(__vite_plugin_react_preamble_installed__)
-    assert html_response(conn, 200) =~ ~s(http://assets.test/@vite/client)
     assert html_response(conn, 200) =~ ~s(http://assets.test/entrypoints/setup.tsx)
+  end
+
+  test "GET /setup exposes the current Ankole version to the SPA", %{conn: conn} do
+    previous_version = System.get_env("ANKOLE_VERSION")
+    System.put_env("ANKOLE_VERSION", "v26.07.8")
+    on_exit(fn -> restore_env("ANKOLE_VERSION", previous_version) end)
+
+    conn = get(conn, ~p"/setup")
+
+    assert html_response(conn, 200) =~ ~s(<meta name="ankole-version" content="v26.07.8">)
   end
 
   test "GET /setup redirects home after completion", %{conn: conn} do
@@ -49,9 +56,6 @@ defmodule AnkoleWeb.SpaControllerTest do
 
     conn = get(conn, ~p"/sessions/new")
 
-    assert html_response(conn, 200) =~ ~s(http://assets.test/@react-refresh)
-    assert html_response(conn, 200) =~ ~s(__vite_plugin_react_preamble_installed__)
-    assert html_response(conn, 200) =~ ~s(http://assets.test/@vite/client)
     assert html_response(conn, 200) =~ ~s(http://assets.test/entrypoints/auth.tsx)
   end
 
@@ -69,4 +73,7 @@ defmodule AnkoleWeb.SpaControllerTest do
       pid -> Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
     end
   end
+
+  defp restore_env(key, nil), do: System.delete_env(key)
+  defp restore_env(key, value), do: System.put_env(key, value)
 end

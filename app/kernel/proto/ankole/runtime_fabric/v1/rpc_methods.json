@@ -48,7 +48,27 @@
     "effect": "write"
   },
   {
+    "method": "schedule.check_back_later.cancel",
+    "scope": "turn",
+    "effect": "write"
+  },
+  {
     "method": "schedule.check_back_later.create",
+    "scope": "turn",
+    "effect": "write"
+  },
+  {
+    "method": "schedule.check_back_later.get",
+    "scope": "turn",
+    "effect": "read"
+  },
+  {
+    "method": "schedule.check_back_later.list",
+    "scope": "turn",
+    "effect": "read"
+  },
+  {
+    "method": "schedule.check_back_later.update",
     "scope": "turn",
     "effect": "write"
   },
@@ -123,11 +143,6 @@
     "effect": "write"
   },
   {
-    "method": "subagent.delegation.event.append",
-    "scope": "turn",
-    "effect": "write"
-  },
-  {
     "method": "subagent.delegation.get",
     "scope": "turn",
     "effect": "read"
@@ -149,6 +164,11 @@
   },
   {
     "method": "subagent.delegation.stop",
+    "scope": "turn",
+    "effect": "write"
+  },
+  {
+    "method": "subagent.delegation.turn.upsert",
     "scope": "turn",
     "effect": "write"
   },

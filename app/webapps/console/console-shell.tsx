@@ -69,7 +69,8 @@ import {
   RiShieldKeyholeLine,
   RiServerLine,
   RiGitBranchLine,
-  RiTerminalBoxLine
+  RiTerminalBoxLine,
+  RiChat3Line
 } from '@remixicon/react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState, type ComponentProps, type ComponentType, type FormEvent, type ReactNode } from 'react'
@@ -102,6 +103,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/signals', label: 'console.nav.signals', icon: RiBroadcastLine },
   { to: '/workers', label: 'console.nav.workers', icon: RiServerLine },
   { to: '/delegations', label: 'console.nav.delegations', icon: RiGitBranchLine },
+  { to: '/conversations', label: 'console.nav.conversations', icon: RiChat3Line },
   { to: '/brain', label: 'console.nav.brain', icon: RiBrainLine },
   { to: '/worker-envs', label: 'console.nav.worker_envs', icon: RiTerminalBoxLine },
   { to: '/settings', label: 'console.nav.settings', icon: RiSettings3Line }
@@ -180,7 +182,7 @@ export function ConsoleLayout() {
         </header>
 
         <div className="grid min-h-[calc(100vh-3rem)] lg:grid-cols-[256px_minmax(0,1fr)]">
-          <aside className="sticky top-12 hidden h-[calc(100vh-3rem)] overflow-y-auto border-r border-border bg-background lg:block">
+          <aside className="sticky top-12 hidden h-[calc(100vh-3rem)] flex-col border-r border-border bg-background lg:flex">
             <ConsoleNavigation />
           </aside>
 
@@ -195,31 +197,45 @@ export function ConsoleLayout() {
 
 function ConsoleNavigation({ onNavigate }: { onNavigate?: () => void }) {
   const { t } = useTranslation()
+  const version = systemVersion()
 
   return (
-    <nav className="grid gap-0.5 p-3" aria-label={t('console.aria.sections')}>
-      {NAV_ITEMS.map(item => {
-        const Icon = item.icon
-        return (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            onClick={onNavigate}
-            className={({ isActive }) =>
-              cn(
-                'flex min-h-10 items-center gap-3 border-l-4 px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-                isActive
-                  ? 'border-primary bg-accent text-accent-foreground'
-                  : 'border-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-              )
-            }>
-            <Icon className="size-4 shrink-0" aria-hidden />
-            <span className="truncate">{t(item.label)}</span>
-          </NavLink>
-        )
-      })}
-    </nav>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <nav
+        className="grid min-h-0 flex-1 content-start gap-0.5 overflow-y-auto p-3"
+        aria-label={t('console.aria.sections')}>
+        {NAV_ITEMS.map(item => {
+          const Icon = item.icon
+          return (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              onClick={onNavigate}
+              className={({ isActive }) =>
+                cn(
+                  'flex min-h-10 items-center gap-3 border-l-4 px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+                  isActive
+                    ? 'border-primary bg-accent text-accent-foreground'
+                    : 'border-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                )
+              }>
+              <Icon className="size-4 shrink-0" aria-hidden />
+              <span className="truncate">{t(item.label)}</span>
+            </NavLink>
+          )
+        })}
+      </nav>
+      <footer className="border-t border-border px-6 py-3 text-xs text-muted-foreground">
+        <span className="block truncate" title={version}>
+          Ankole {version}
+        </span>
+      </footer>
+    </div>
   )
+}
+
+function systemVersion(): string {
+  return document.querySelector<HTMLMetaElement>('meta[name="ankole-version"]')?.content.trim() || 'development'
 }
 
 /**

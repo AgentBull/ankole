@@ -5,7 +5,8 @@ defmodule Mix.Tasks.Ankole.Openapi.Check do
 
   use Mix.Task
 
-  alias OpenApiSpex.OpenApi, as: OpenAPI
+  alias OpenApiSpex, as: OpenAPISpex
+  alias OpenAPISpex.OpenApi, as: OpenAPI
 
   @shortdoc "Checks the committed console OpenAPI document"
   @requirements ["app.config"]

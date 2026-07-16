@@ -38,12 +38,11 @@ import {
   RiSparkling2Line
 } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { type ReactNode, useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { requestErrorMessage } from '../../common/request-errors'
 import {
-  ankoleWebAgentControllerIndexOptions,
   ankoleWebBrainControllerApplyOperationsMutation,
   ankoleWebBrainControllerAuditIndexOptions,
   ankoleWebBrainControllerAuditLogOptions,
@@ -53,15 +52,19 @@ import {
   ankoleWebBrainControllerRestoreAuditsMutation,
   ankoleWebBrainControllerRunDreamingMutation,
   ankoleWebBrainControllerShowOptions,
-  ankoleWebBrainControllerSourceOptions
+  ankoleWebPrincipalControllerIndexOptions
 } from '../api/generated/@tanstack/react-query.gen'
-import type { BrainAuditLog, BrainDreamingFitnessRun, BrainEntryOperation } from '../api/generated/types.gen'
-import { ErrorBlock, formatJSON, parseObjectDraft } from '../console-primitives'
+import type {
+  BrainAuditLog,
+  BrainCitation,
+  BrainDreamingFitnessRun,
+  BrainEntryOperation
+} from '../api/generated/types.gen'
+import { ErrorBlock, formatJSON } from '../console-primitives'
 import {
   ConfirmDeleteButton,
   LabeledField,
   PageHeader,
-  ReadOnlyValue,
   ResourceEditorPage,
   ResourceListPage,
   RowActions,
@@ -69,16 +72,23 @@ import {
 } from '../console-shell'
 import { BlocksEditor, MetadataEditor, RelationsEditor } from './brain-entry-editors'
 import {
+  BrainOwnerField,
+  BrainStoreField,
+  BrainStoreName,
+  BrainTaskNavigation,
+  brainSearch,
+  formatBrainDate
+} from './brain-shared'
+import {
   brainCursorPage,
   buildMetadataOperations,
   canReturnBrainCursor,
+  defaultBrainOwnerUID,
   nextBrainCursor,
-  normalizeAliases,
   parsePropertyDrafts,
   previousBrainCursor,
   propertiesToDrafts,
   setBrainFilter,
-  sourceDocumentIDs,
   type PropertyDraft
 } from '../state/brain-editor-model'
 
@@ -91,6 +101,8 @@ const RESTORABLE_AUDIT_ACTIONS = new Set([
   'set_property',
   'set_summary',
   'set_aliases',
+  'set_name',
+  'set_type',
   'add_relation',
   'remove_relation'
 ])
@@ -98,8 +110,8 @@ const RESTORABLE_AUDIT_ACTIONS = new Set([
 export function BrainEntriesPage() {
   const { t } = useTranslation()
   const [searchParams, setSearchParams] = useSearchParams()
-  const agents = useQuery(ankoleWebAgentControllerIndexOptions())
-  const ownerUID = searchParams.get('owner') ?? agents.data?.agents[0]?.uid ?? ''
+  const principals = useQuery(ankoleWebPrincipalControllerIndexOptions())
+  const ownerUID = searchParams.get('owner') ?? defaultBrainOwnerUID(principals.data?.principals ?? [])
   const entryType = searchParams.get('type') ?? ''
   const query = searchParams.get('q') ?? ''
   const store = searchParams.get('store') ?? ''
@@ -123,7 +135,14 @@ export function BrainEntriesPage() {
     }),
     enabled: Boolean(ownerUID)
   })
+  const guide = useQuery({
+    ...ankoleWebBrainControllerIndexOptions({
+      query: { owner_uid: ownerUID, store: 'public', type: 'brain_curation_guide', limit: 1 }
+    }),
+    enabled: Boolean(ownerUID)
+  })
   const entries = list.data?.entries ?? []
+  const guideEntry = guide.data?.entries[0]
 
   useEffect(() => {
     if (searchParams.has('owner') || !ownerUID) return
@@ -159,9 +178,9 @@ export function BrainEntriesPage() {
         t('console.brain.summary'),
         t('console.brain.updated')
       ]}
-      createLabel={t('console.brain.new')}
+      createLabel={t('console.brain.write_entry')}
       createTo={`new?${brainSearch(ownerUID, store || 'public')}`}
-      isLoading={list.isLoading || agents.isLoading}
+      isLoading={list.isLoading || principals.isLoading}
       isEmpty={entries.length === 0}
       emptyTitle={t('console.brain.empty_title')}
       emptyDescription={t('console.brain.empty_description')}
@@ -173,10 +192,30 @@ export function BrainEntriesPage() {
         ) : undefined
       }
       isFiltered={isFiltered}
-      error={list.error ?? agents.error}
+      error={list.error ?? guide.error ?? principals.error}
       toolbar={
         <div className="grid gap-4">
           <BrainTaskNavigation active="entries" ownerUID={ownerUID} store={store || undefined} />
+          <div className="flex flex-wrap items-center justify-between gap-3 border border-border bg-card p-4">
+            <div className="grid gap-1">
+              <h3 className="text-sm font-medium">{t('console.brain.guide_title')}</h3>
+              <p className="text-sm text-muted-foreground">{t('console.brain.guide_description')}</p>
+            </div>
+            <Button
+              render={
+                <Link
+                  to={
+                    guideEntry
+                      ? `/brain/${guideEntry.id}?${brainSearch(ownerUID, 'public')}`
+                      : `/brain/new?${brainSearch(ownerUID, 'public')}&kind=curation-guide`
+                  }
+                />
+              }
+              size="sm"
+              variant="outline">
+              {guideEntry ? t('console.brain.guide_edit') : t('console.brain.guide_create')}
+            </Button>
+          </div>
           <div className="grid gap-4 border border-border bg-card p-4">
             <div className="grid gap-3 md:grid-cols-2">
               <LabeledField label={t('console.brain.search')}>
@@ -187,10 +226,9 @@ export function BrainEntriesPage() {
                   onChange={event => setFilter('q', event.target.value)}
                 />
               </LabeledField>
-              <OwnerField
-                id="brain-owner-uids"
+              <BrainOwnerField
                 ownerUID={ownerUID}
-                agents={agents.data?.agents ?? []}
+                principals={principals.data?.principals ?? []}
                 onChange={value => setFilter('owner', value)}
               />
             </div>
@@ -199,13 +237,13 @@ export function BrainEntriesPage() {
                 <LabeledField label={t('console.brain.type')}>
                   <Input value={entryType} onChange={event => setFilter('type', event.target.value)} />
                 </LabeledField>
-                <LabeledField label={t('console.brain.store')}>
-                  <Input
-                    value={store}
-                    placeholder="public"
-                    onChange={event => setFilter('store', event.target.value)}
-                  />
-                </LabeledField>
+                <BrainStoreField
+                  ownerUID={ownerUID}
+                  store={store}
+                  principals={principals.data?.principals ?? []}
+                  allowAll
+                  onChange={value => setFilter('store', value)}
+                />
                 <LabeledField label={t('console.brain.author')}>
                   <Input
                     value={author}
@@ -239,10 +277,12 @@ export function BrainEntriesPage() {
           <TableCell>
             <Badge variant="secondary">{entry.type}</Badge>
           </TableCell>
-          <TableCell className="font-mono text-xs">{entry.store_key}</TableCell>
+          <TableCell className="text-xs">
+            <BrainStoreName store={entry.store_key} principals={principals.data?.principals ?? []} />
+          </TableCell>
           <TableCell className="max-w-md truncate text-muted-foreground">{entry.summary || '—'}</TableCell>
           <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-            {formatDate(entry.updated_at)}
+            {formatBrainDate(entry.updated_at)}
           </TableCell>
           <RowActions editLabel={t('common.edit')} editTo={`${entry.id}?${brainSearch(ownerUID, entry.store_key)}`} />
         </TableRow>
@@ -255,8 +295,8 @@ export function BrainAuditPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
-  const agents = useQuery(ankoleWebAgentControllerIndexOptions())
-  const ownerUID = searchParams.get('owner') ?? agents.data?.agents[0]?.uid ?? ''
+  const principals = useQuery(ankoleWebPrincipalControllerIndexOptions())
+  const ownerUID = searchParams.get('owner') ?? defaultBrainOwnerUID(principals.data?.principals ?? [])
   const store = searchParams.get('store') ?? ''
   const action = searchParams.get('action') ?? ''
   const actor = searchParams.get('actor') ?? ''
@@ -355,10 +395,9 @@ export function BrainAuditPage() {
       <BrainTaskNavigation active="audit" ownerUID={ownerUID} store={store || undefined} />
 
       <div className="grid gap-4 border border-border bg-card p-4">
-        <OwnerField
-          id="brain-audit-owner-uids"
+        <BrainOwnerField
           ownerUID={ownerUID}
-          agents={agents.data?.agents ?? []}
+          principals={principals.data?.principals ?? []}
           onChange={value => setFilter('owner', value)}
         />
         <FilterDisclosure count={advancedFilterCount} onClear={clearAdvancedFilters}>
@@ -419,8 +458,8 @@ export function BrainAuditPage() {
       <ErrorBlock error={restore.error} />
       <AuditTrail
         rows={rows}
-        loading={audit.isLoading || agents.isLoading}
-        error={audit.error ?? agents.error}
+        loading={audit.isLoading || principals.isLoading}
+        error={audit.error ?? principals.error}
         restoring={restore.isPending}
         selectedIDs={selectedIDs}
         onSelectedChange={toggleRow}
@@ -462,8 +501,8 @@ export function BrainDreamingPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const agents = useQuery(ankoleWebAgentControllerIndexOptions())
-  const ownerUID = searchParams.get('owner') ?? agents.data?.agents[0]?.uid ?? ''
+  const principals = useQuery(ankoleWebPrincipalControllerIndexOptions())
+  const ownerUID = searchParams.get('owner') ?? defaultBrainOwnerUID(principals.data?.principals ?? [])
   const runDreaming = useMutation({
     ...ankoleWebBrainControllerRunDreamingMutation(),
     onSuccess: data =>
@@ -500,10 +539,9 @@ export function BrainDreamingPage() {
       <BrainTaskNavigation active="dreaming" ownerUID={ownerUID} />
 
       <div className="grid gap-4 border border-border bg-card p-4 md:grid-cols-2">
-        <OwnerField
-          id="brain-dreaming-owner-uids"
+        <BrainOwnerField
           ownerUID={ownerUID}
-          agents={agents.data?.agents ?? []}
+          principals={principals.data?.principals ?? []}
           onChange={value => setSearchParams(setBrainFilter(searchParams, 'owner', value), { replace: true })}
         />
         <div className="self-end text-sm leading-6 text-muted-foreground">
@@ -511,7 +549,7 @@ export function BrainDreamingPage() {
         </div>
       </div>
 
-      <ErrorBlock error={agents.error ?? runDreaming.error} />
+      <ErrorBlock error={principals.error ?? runDreaming.error} />
       {run ? (
         <Card>
           <CardHeader>
@@ -549,34 +587,38 @@ export function BrainEntryCreatePage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [searchParams] = useSearchParams()
-  const ownerUID = searchParams.get('owner') ?? ''
-  const [store, setStore] = useState(searchParams.get('store') || 'public')
-  const [name, setName] = useState('')
-  const [entryType, setEntryType] = useState('')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const principals = useQuery(ankoleWebPrincipalControllerIndexOptions())
+  const ownerUID = searchParams.get('owner') ?? defaultBrainOwnerUID(principals.data?.principals ?? [])
+  const creatingGuide = searchParams.get('kind') === 'curation-guide'
+  const [store, setStore] = useState(creatingGuide ? 'public' : searchParams.get('store') || 'public')
+  const [name, setName] = useState(creatingGuide ? t('console.brain.guide_name') : '')
+  const [entryType, setEntryType] = useState(creatingGuide ? 'brain_curation_guide' : 'topic')
   const [summary, setSummary] = useState('')
-  const [aliases, setAliases] = useState('')
-  const [properties, setProperties] = useState('{}')
+  const [body, setBody] = useState('')
   const [validationError, setValidationError] = useState<string>()
   const create = useMutation({
     ...ankoleWebBrainControllerApplyOperationsMutation(),
-    onSuccess: () => {
+    onSuccess: data => {
       toast.success(t('console.brain.created'))
       void queryClient.invalidateQueries()
-      navigate(`/brain?${brainSearch(ownerUID, store)}`)
+      const entryID = data.touched_entry_ids[0]
+      navigate(entryID ? `/brain/${entryID}?${brainSearch(ownerUID, store)}` : `/brain?${brainSearch(ownerUID, store)}`)
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
 
+  useEffect(() => {
+    if (searchParams.has('owner') || !ownerUID) return
+    const next = new URLSearchParams(searchParams)
+    next.set('owner', ownerUID)
+    setSearchParams(next, { replace: true })
+  }, [ownerUID, searchParams, setSearchParams])
+
   const submit = () => {
     setValidationError(undefined)
-    if (!ownerUID || !store.trim() || !name.trim() || !entryType.trim()) {
+    if (!ownerUID || !store.trim() || !name.trim() || !entryType.trim() || !body.trim()) {
       setValidationError(t('console.brain.required_fields'))
-      return
-    }
-    const parsed = parseObjectDraft(properties, t('console.brain.properties'))
-    if (!parsed.ok) {
-      setValidationError(parsed.error)
       return
     }
 
@@ -589,46 +631,59 @@ export function BrainEntryCreatePage() {
             name: name.trim(),
             type: entryType.trim(),
             summary,
-            aliases: normalizeAliases(aliases.split(/[\n,]/)),
-            properties: parsed.value
+            initial_body: body.trim()
           }
         ]
       }
     })
   }
 
+  const changeOwner = (value: string) => {
+    setSearchParams(setBrainFilter(searchParams, 'owner', value), { replace: true })
+    if (store === `dm:${value}`) setStore('public')
+  }
+
   return (
     <ResourceEditorPage
-      title={t('console.brain.new')}
-      description={t('console.brain.new_description')}
+      title={creatingGuide ? t('console.brain.guide_create') : t('console.brain.write_entry')}
+      description={creatingGuide ? t('console.brain.guide_editor_description') : t('console.brain.new_description')}
       backTo={`/brain?${brainSearch(ownerUID, store)}`}
-      error={validationError ?? create.error}
+      error={validationError ?? create.error ?? principals.error}
       submitting={create.isPending}
       onSubmit={submit}>
-      <LabeledField label={t('console.brain.owner')}>
-        <ReadOnlyValue mono>{ownerUID}</ReadOnlyValue>
+      <BrainOwnerField ownerUID={ownerUID} principals={principals.data?.principals ?? []} onChange={changeOwner} />
+      {creatingGuide ? (
+        <div className="border border-border bg-muted p-4 text-sm leading-6 text-muted-foreground">
+          {t('console.brain.guide_scope')}
+        </div>
+      ) : (
+        <>
+          <BrainStoreField
+            ownerUID={ownerUID}
+            store={store}
+            principals={principals.data?.principals ?? []}
+            onChange={setStore}
+          />
+          <LabeledField label={t('console.brain.name')}>
+            <Input value={name} onChange={event => setName(event.target.value)} />
+          </LabeledField>
+          <LabeledField label={t('console.brain.type')}>
+            <Input list="brain-entry-types" value={entryType} onChange={event => setEntryType(event.target.value)} />
+            <datalist id="brain-entry-types">
+              <option value="topic" />
+              <option value="person" />
+              <option value="project" />
+              <option value="decision" />
+              <option value="preference" />
+            </datalist>
+          </LabeledField>
+        </>
+      )}
+      <LabeledField label={t('console.brain.body')} description={t('console.brain.body_hint')}>
+        <Textarea className="min-h-56" value={body} onChange={event => setBody(event.target.value)} />
       </LabeledField>
-      <LabeledField label={t('console.brain.store')}>
-        <Input value={store} onChange={event => setStore(event.target.value)} />
-      </LabeledField>
-      <LabeledField label={t('console.brain.name')}>
-        <Input value={name} onChange={event => setName(event.target.value)} />
-      </LabeledField>
-      <LabeledField label={t('console.brain.type')}>
-        <Input value={entryType} onChange={event => setEntryType(event.target.value)} />
-      </LabeledField>
-      <LabeledField label={t('console.brain.summary')}>
+      <LabeledField label={t('console.brain.summary')} description={t('console.brain.summary_optional')}>
         <Textarea value={summary} onChange={event => setSummary(event.target.value)} />
-      </LabeledField>
-      <LabeledField label={t('console.brain.aliases')} description={t('console.brain.aliases_hint')}>
-        <Textarea value={aliases} onChange={event => setAliases(event.target.value)} />
-      </LabeledField>
-      <LabeledField label={t('console.brain.properties')}>
-        <Textarea
-          className="min-h-40 font-mono text-xs"
-          value={properties}
-          onChange={event => setProperties(event.target.value)}
-        />
       </LabeledField>
     </ResourceEditorPage>
   )
@@ -662,6 +717,8 @@ export function BrainEntryEditorPage() {
     enabled: Boolean(ownerUID)
   })
   const entry = detail.data?.entry
+  const [name, setName] = useState('')
+  const [entryType, setEntryType] = useState('')
   const [summary, setSummary] = useState('')
   const [aliases, setAliases] = useState<string[]>([])
   const [propertyDrafts, setPropertyDrafts] = useState<PropertyDraft[]>([])
@@ -698,17 +755,19 @@ export function BrainEntryEditorPage() {
 
   useEffect(() => {
     if (!entry) return
+    setName(entry.name)
+    setEntryType(entry.type)
     setSummary(entry.summary)
     setAliases(entry.aliases)
     setPropertyDrafts(propertiesToDrafts(entry.properties))
   }, [entry])
 
-  const applyOperations = (operations: BrainEntryOperation[], onSuccess?: () => void) => {
+  const applyOperations = (operations: BrainEntryOperation[], onSuccess?: () => void, reason?: string) => {
     if (!entry || operations.length === 0) return
     apply.mutate(
       {
         query: { owner_uid: ownerUID, store: entry.store_key },
-        body: { operations }
+        body: { operations, reason: reason?.trim() || undefined }
       },
       { onSuccess }
     )
@@ -716,12 +775,22 @@ export function BrainEntryEditorPage() {
 
   const saveMetadata = () => {
     if (!entry) return
+    if (!name.trim() || !entryType.trim()) {
+      setValidationError(t('console.brain.required_fields'))
+      return
+    }
     const parsed = parsePropertyDrafts(propertyDrafts)
     if (!parsed.ok) {
       setValidationError(t('console.brain.invalid_property', { key: parsed.key || '—', detail: parsed.detail }))
       return
     }
-    const operations = buildMetadataOperations(entry, { summary, aliases, properties: parsed.value })
+    const operations = buildMetadataOperations(entry, {
+      name,
+      type: entryType,
+      summary,
+      aliases,
+      properties: parsed.value
+    })
     if (operations.length === 0) {
       toast.info(t('console.brain.no_changes'))
       return
@@ -800,10 +869,13 @@ export function BrainEntryEditorPage() {
 
         <TabsContent value="edit" className="grid gap-6">
           <MetadataEditor
-            entry={entry}
+            name={name}
+            type={entryType}
             summary={summary}
             aliases={aliases}
             propertyDrafts={propertyDrafts}
+            onNameChange={setName}
+            onTypeChange={setEntryType}
             onSummaryChange={setSummary}
             onAliasesChange={setAliases}
             onPropertyDraftsChange={setPropertyDrafts}
@@ -836,7 +908,7 @@ export function BrainEntryEditorPage() {
               </pre>
             </CardContent>
           </Card>
-          <SourceLinks markdown={detail.data?.markdown ?? ''} ownerUID={ownerUID} entryID={entry.id} />
+          <SourceLinks citations={detail.data?.citations ?? []} ownerUID={ownerUID} entryID={entry.id} />
         </TabsContent>
 
         <TabsContent value="audit">
@@ -924,9 +996,17 @@ export function BrainEntryAuditPage() {
   )
 }
 
-function SourceLinks({ markdown, ownerUID, entryID }: { markdown: string; ownerUID: string; entryID: string }) {
+function SourceLinks({
+  citations,
+  ownerUID,
+  entryID
+}: {
+  citations: BrainCitation[]
+  ownerUID: string
+  entryID: string
+}) {
   const { t } = useTranslation()
-  const documents = useMemo(() => sourceDocumentIDs(markdown), [markdown])
+  const documents = [...new Set(citations.map(citation => citation.document_id))]
   if (documents.length === 0) return null
   return (
     <Card>
@@ -945,76 +1025,6 @@ function SourceLinks({ markdown, ownerUID, entryID }: { markdown: string; ownerU
         ))}
       </CardContent>
     </Card>
-  )
-}
-
-function BrainTaskNavigation({
-  active,
-  ownerUID,
-  store
-}: {
-  active: 'entries' | 'audit' | 'dreaming'
-  ownerUID: string
-  store?: string
-}) {
-  const { t } = useTranslation()
-  const search = brainSearch(ownerUID, store)
-  const items = [
-    { id: 'entries' as const, label: t('console.brain.entries_tab'), to: `/brain?${search}` },
-    { id: 'audit' as const, label: t('console.brain.audit_tab'), to: `/brain/audit?${search}` },
-    { id: 'dreaming' as const, label: t('console.brain.dreaming_tab'), to: `/brain/dreaming?${brainSearch(ownerUID)}` }
-  ]
-
-  return (
-    <nav aria-label={t('console.brain.task_surfaces')} className="overflow-x-auto border-b border-border">
-      <div className="flex min-w-max">
-        {items.map(item => (
-          <Link
-            key={item.id}
-            to={item.to}
-            aria-current={item.id === active ? 'page' : undefined}
-            className={cn(
-              'border-b-2 px-4 py-3 text-sm font-medium transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
-              item.id === active
-                ? 'border-primary bg-muted/50 text-foreground'
-                : 'border-transparent text-muted-foreground'
-            )}>
-            {item.label}
-          </Link>
-        ))}
-      </div>
-    </nav>
-  )
-}
-
-function OwnerField({
-  id,
-  ownerUID,
-  agents,
-  onChange
-}: {
-  id: string
-  ownerUID: string
-  agents: Array<{ uid: string; display_name?: string | null }>
-  onChange: (value: string) => void
-}) {
-  const { t } = useTranslation()
-  return (
-    <LabeledField label={t('console.brain.owner')}>
-      <Input
-        list={id}
-        value={ownerUID}
-        placeholder={t('console.brain.owner_placeholder')}
-        onChange={event => onChange(event.target.value)}
-      />
-      <datalist id={id}>
-        {agents.map(agent => (
-          <option key={agent.uid} value={agent.uid}>
-            {agent.display_name || agent.uid}
-          </option>
-        ))}
-      </datalist>
-    </LabeledField>
   )
 }
 
@@ -1155,7 +1165,7 @@ function FitnessRunRow({ run, onSelectRun }: { run: BrainDreamingFitnessRun; onS
       </span>
       <span className="text-right tabular-nums">{run.corrected_block_writes}</span>
       <span className="text-right tabular-nums">{formatPercent(run.survival_rate)}</span>
-      <span className="text-right text-xs text-muted-foreground">{formatDate(run.last_written_at)}</span>
+      <span className="text-right text-xs text-muted-foreground">{formatBrainDate(run.last_written_at)}</span>
     </div>
   )
 }
@@ -1214,7 +1224,7 @@ function AuditTrail({
                       {row.action}
                     </CardTitle>
                     <CardDescription>
-                      {row.store_key} · {row.actor_kind} · {row.actor_uid || '—'} · {formatDate(row.inserted_at)}
+                      {row.store_key} · {row.actor_kind} · {row.actor_uid || '—'} · {formatBrainDate(row.inserted_at)}
                     </CardDescription>
                     <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 font-mono text-xs text-muted-foreground">
                       <span>{row.id}</span>
@@ -1300,63 +1310,6 @@ function truncateText(value: string, limit: number): string {
   return value.length <= limit ? value : `${value.slice(0, limit)}…`
 }
 
-export function BrainSourcePage() {
-  const { t } = useTranslation()
-  const params = useParams()
-  const [searchParams] = useSearchParams()
-  const documentID = params.documentID ?? ''
-  const ownerUID = searchParams.get('owner') ?? ''
-  const entryID = searchParams.get('entry') ?? ''
-  const source = useQuery({
-    ...ankoleWebBrainControllerSourceOptions({ path: { document_id: documentID } }),
-    enabled: Boolean(documentID),
-    retry: false
-  })
-  const item = source.data?.source
-  return (
-    <div className="mx-auto grid max-w-3xl gap-5">
-      <Link
-        to={entryID ? `/brain/${entryID}?${brainSearch(ownerUID)}` : '/brain'}
-        className="w-fit text-sm text-muted-foreground hover:text-foreground">
-        ← {t('common.back')}
-      </Link>
-      <div>
-        <h2 className="text-2xl font-semibold">{t('console.brain.source_title')}</h2>
-        <p className="break-all font-mono text-xs text-muted-foreground">{documentID}</p>
-      </div>
-      <ErrorBlock error={source.error} />
-      {source.isLoading ? (
-        <Skeleton className="h-72 w-full" />
-      ) : item ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>{sourceAuthor(item.author)}</CardTitle>
-            <CardDescription>
-              {item.signal_channel_id} · {formatDate(item.provider_time)}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4">
-            <p className="whitespace-pre-wrap text-sm leading-6">{item.text || '—'}</p>
-            <details>
-              <summary className="cursor-pointer text-sm text-muted-foreground">
-                {t('console.brain.source_metadata')}
-              </summary>
-              <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-all bg-muted p-3 text-xs">
-                {formatJSON({
-                  rich_content: item.rich_content,
-                  attachments: item.attachments,
-                  links: item.links,
-                  metadata: item.metadata
-                })}
-              </pre>
-            </details>
-          </CardContent>
-        </Card>
-      ) : null}
-    </div>
-  )
-}
-
 function CursorPagination({
   page,
   hasPrevious,
@@ -1396,20 +1349,6 @@ function CursorPagination({
   )
 }
 
-function brainSearch(ownerUID: string, store?: string): string {
-  const params = new URLSearchParams()
-  if (ownerUID) params.set('owner', ownerUID)
-  if (store) params.set('store', store)
-  return params.toString()
-}
-
-function formatDate(value?: string | null): string {
-  if (!value) return '—'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
-}
-
 function localDateStartISO(value: string): string | undefined {
   if (!value) return undefined
   const date = new Date(`${value}T00:00:00`)
@@ -1423,13 +1362,6 @@ function localDateEndISO(value: string): string | undefined {
   date.setDate(date.getDate() + 1)
   date.setMilliseconds(date.getMilliseconds() - 1)
   return date.toISOString()
-}
-
-function sourceAuthor(author: Record<string, unknown>): string {
-  for (const key of ['display_name', 'name', 'principal_uid', 'id']) {
-    if (typeof author[key] === 'string' && author[key]) return String(author[key])
-  }
-  return '—'
 }
 
 function restorationAction(restoration: unknown): string | undefined {

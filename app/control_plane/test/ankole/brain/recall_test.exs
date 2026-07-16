@@ -61,24 +61,6 @@ defmodule Ankole.Brain.RecallTest do
                now: base_time()
              )
 
-    # Current-channel recall deliberately excludes the latest 80 mirrored rows
-    # because they are already present in the live turn context. Keep the cited
-    # source just outside that protected tail so this test exercises retrieval.
-    for index <- 1..81 do
-      assert {:ok, _result} =
-               Ingress.emit_entry(
-                 agent.uid,
-                 "brain-recall",
-                 group_entry(%{
-                   source_event_id: "brain-recall-filler-event-#{index}",
-                   source_entry_id: "brain-recall-filler-#{index}",
-                   text: "无关填充消息 #{index}",
-                   provider_time: DateTime.add(base_time(), index, :second)
-                 }),
-                 now: DateTime.add(base_time(), index, :second)
-               )
-    end
-
     {:ok, public_scope} = Scope.for_store(agent.uid, "public")
     {:ok, other_scope} = Scope.for_store(other_agent.uid, "public")
     {:ok, private_scope} = Scope.for_store(agent.uid, "dm:private-peer")

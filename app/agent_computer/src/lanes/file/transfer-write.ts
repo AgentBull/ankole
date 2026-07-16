@@ -1,6 +1,6 @@
 import { zstdDecompressBlock } from '@ankole/kernel'
 import { mkdirSync, rmSync, statSync } from 'node:fs'
-import { appendFile, rename, writeFile } from 'node:fs/promises'
+import { appendFile, copyFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { chunkSize, creditWindow, readBoolFrame, readU64Frame, sendFrame, u64Frame } from './codec'
 import { fileFingerprint } from './fingerprint'
@@ -90,7 +90,7 @@ export async function handleWriteCommit(context: FileTransferContext, transferID
 
     mkdirSync(dirname(transfer.targetPath), { recursive: true })
     rmSync(finalTempPath, { force: true })
-    await rename(transfer.decodedPath, finalTempPath)
+    await moveToTargetFilesystem(transfer.decodedPath, finalTempPath)
     await rename(finalTempPath, transfer.targetPath)
     fingerprint = fileFingerprint(
       context.state,
@@ -113,6 +113,20 @@ export async function handleWriteCommit(context: FileTransferContext, transferID
     u64Frame(statSync(transfer.targetPath).size),
     fingerprint
   ])
+}
+
+async function moveToTargetFilesystem(sourcePath: string, targetPath: string): Promise<void> {
+  try {
+    await rename(sourcePath, targetPath)
+  } catch (error) {
+    if (!isCrossDeviceRename(error)) throw error
+
+    await copyFile(sourcePath, targetPath)
+  }
+}
+
+function isCrossDeviceRename(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'EXDEV'
 }
 
 export async function handleWriteAbort(context: FileTransferContext, transferID: string): Promise<void> {

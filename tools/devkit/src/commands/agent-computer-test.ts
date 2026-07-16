@@ -42,6 +42,13 @@ export function buildAgentComputerTestDockerArgs(
         target: `${agentComputerRoot}/scripts`,
         readonly: true
       },
+      // Agent Computer executes system skills from the shared library. Mount
+      // the current source so package tests do not exercise a stale image copy.
+      {
+        source: path.join(path.resolve(repoRoot), 'app', 'library'),
+        target: '/repo/app/library',
+        readonly: true
+      },
       // The RPC contract parity test reads the committed cross-language
       // rpc_methods.json, which lives with the RuntimeFabric protobuf contract.
       {

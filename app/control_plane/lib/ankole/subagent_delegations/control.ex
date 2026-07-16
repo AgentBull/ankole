@@ -63,8 +63,10 @@ defmodule Ankole.SubagentDelegations.Control do
       Repo.transact(fn repo ->
         with %Delegation{} = delegation <-
                Queries.get_for_agent(repo, delegation_id, agent_uid, lock: "FOR UPDATE"),
-             :ok <- reject_terminal_steer(delegation),
-             {:ok, command_event} <- append_command(repo, delegation, "steer", attrs, now()) do
+             :ok <- ensure_steerable(delegation),
+             now <- now(),
+             {:ok, delegation} <- queue_settled_continuation(repo, delegation, now),
+             {:ok, command_event} <- append_command(repo, delegation, "steer", attrs, now) do
           {:ok, %{delegation: delegation, command_event: command_event}}
         else
           nil -> {:error, :delegation_not_found}
@@ -112,10 +114,24 @@ defmodule Ankole.SubagentDelegations.Control do
 
   defp require_steer_input(_text, _answers), do: {:error, :subagent_steer_input_missing}
 
-  defp reject_terminal_steer(%Delegation{status: status}) when status in @terminal_statuses,
+  defp ensure_steerable(%Delegation{status: "stopped"}),
     do: {:error, :subagent_delegation_terminal}
 
-  defp reject_terminal_steer(%Delegation{}), do: :ok
+  defp ensure_steerable(%Delegation{status: status, runtime_thread_id: nil})
+       when status in ["succeeded", "failed"],
+       do: {:error, :subagent_runtime_thread_unavailable}
+
+  defp ensure_steerable(%Delegation{}), do: :ok
+
+  defp queue_settled_continuation(repo, %Delegation{status: status} = delegation, now)
+       when status in ["succeeded", "failed"] do
+    delegation
+    |> Delegation.changeset(%{status: "queued", queued_at: now, completed_at: nil})
+    |> repo.update()
+  end
+
+  defp queue_settled_continuation(_repo, %Delegation{} = delegation, _now),
+    do: {:ok, delegation}
 
   defp append_command(repo, delegation, command, attrs, now) do
     reply_route = delegation.reply_route || %{}

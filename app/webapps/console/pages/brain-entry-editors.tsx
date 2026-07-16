@@ -6,6 +6,13 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   Input,
   Textarea
 } from '@ankole/uikit'
@@ -13,22 +20,29 @@ import { RiAddLine, RiDeleteBin6Line, RiLinkM } from '@remixicon/react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { BrainEntry, BrainEntryBlock, BrainEntryOperation, BrainEntryRelation } from '../api/generated/types.gen'
-import { LabeledField, ReadOnlyValue } from '../console-shell'
+import { formatConsoleDate } from '../console-primitives'
+import { LabeledField } from '../console-shell'
 import type { PropertyDraft } from '../state/brain-editor-model'
 
 export function MetadataEditor({
-  entry,
+  name,
+  type,
   summary,
   aliases,
   propertyDrafts,
+  onNameChange,
+  onTypeChange,
   onSummaryChange,
   onAliasesChange,
   onPropertyDraftsChange
 }: {
-  entry: BrainEntry
+  name: string
+  type: string
   summary: string
   aliases: string[]
   propertyDrafts: PropertyDraft[]
+  onNameChange: (value: string) => void
+  onTypeChange: (value: string) => void
   onSummaryChange: (value: string) => void
   onAliasesChange: (value: string[]) => void
   onPropertyDraftsChange: (value: PropertyDraft[]) => void
@@ -44,10 +58,10 @@ export function MetadataEditor({
       <CardContent className="grid gap-5">
         <div className="grid gap-4 md:grid-cols-2">
           <LabeledField label={t('console.brain.name')}>
-            <ReadOnlyValue>{entry.name}</ReadOnlyValue>
+            <Input value={name} onChange={event => onNameChange(event.target.value)} />
           </LabeledField>
           <LabeledField label={t('console.brain.type')}>
-            <ReadOnlyValue>{entry.type}</ReadOnlyValue>
+            <Input value={type} onChange={event => onTypeChange(event.target.value)} />
           </LabeledField>
         </div>
         <LabeledField label={t('console.brain.summary')}>
@@ -168,7 +182,7 @@ export function BlocksEditor({
   blocks: BrainEntryBlock[]
   entry: BrainEntry
   pending: boolean
-  onApply: (operations: BrainEntryOperation[], onSuccess?: () => void) => void
+  onApply: (operations: BrainEntryOperation[], onSuccess?: () => void, reason?: string) => void
 }) {
   const { t } = useTranslation()
   const [newBody, setNewBody] = useState('')
@@ -223,10 +237,12 @@ function BlockEditor({
 }: {
   block: BrainEntryBlock
   pending: boolean
-  onApply: (operations: BrainEntryOperation[], onSuccess?: () => void) => void
+  onApply: (operations: BrainEntryOperation[], onSuccess?: () => void, reason?: string) => void
 }) {
   const { t } = useTranslation()
   const [body, setBody] = useState(block.body)
+  const [reason, setReason] = useState('')
+  const [retireOpen, setRetireOpen] = useState(false)
   return (
     <article className="grid gap-3 border border-border p-4">
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
@@ -234,48 +250,78 @@ function BlockEditor({
           <Badge variant="outline">#{block.position + 1}</Badge>
           <Badge variant="secondary">{block.author_kind}</Badge>
           <span>{block.author_uid || '—'}</span>
-          <span>{formatDate(block.updated_at)}</span>
+          <span>{formatConsoleDate(block.updated_at)}</span>
         </div>
         <Badge variant={block.embedding_state === 'failed' ? 'destructive' : 'outline'}>{block.embedding_state}</Badge>
       </div>
       <Textarea className="min-h-40" value={body} onChange={event => setBody(event.target.value)} />
+      <LabeledField label={t('console.brain.correction_reason')} description={t('console.brain.reason_optional')}>
+        <Input value={reason} onChange={event => setReason(event.target.value)} />
+      </LabeledField>
       <div className="flex flex-wrap gap-2">
         <Button
           type="button"
           size="sm"
           disabled={pending || !body.trim() || body === block.body}
           onClick={() =>
-            onApply([
-              {
-                operation: 'edit_block',
-                entry_id: block.entry_id,
-                block_id: block.id,
-                body: body.trim(),
-                expected_block_lock_version: block.lock_version
-              }
-            ])
+            onApply(
+              [
+                {
+                  operation: 'edit_block',
+                  entry_id: block.entry_id,
+                  block_id: block.id,
+                  body: body.trim(),
+                  expected_block_lock_version: block.lock_version
+                }
+              ],
+              () => setReason(''),
+              reason
+            )
           }>
-          {t('console.brain.save_block')}
+          {t('console.brain.correct_block')}
         </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant="destructive"
-          disabled={pending}
-          onClick={() =>
-            onApply([
-              {
-                operation: 'delete_block',
-                entry_id: block.entry_id,
-                block_id: block.id,
-                expected_block_lock_version: block.lock_version
-              }
-            ])
-          }>
+        <Button type="button" size="sm" variant="destructive" disabled={pending} onClick={() => setRetireOpen(true)}>
           <RiDeleteBin6Line />
-          {t('common.delete')}
+          {t('console.brain.no_longer_valid')}
         </Button>
       </div>
+      <Dialog open={retireOpen} onOpenChange={setRetireOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('console.brain.retire_block_title')}</DialogTitle>
+            <DialogDescription>{t('console.brain.retire_block_description')}</DialogDescription>
+          </DialogHeader>
+          <LabeledField label={t('console.brain.correction_reason')} description={t('console.brain.reason_optional')}>
+            <Input value={reason} onChange={event => setReason(event.target.value)} />
+          </LabeledField>
+          <DialogFooter>
+            <DialogClose render={<Button type="button" variant="outline" />}>{t('common.cancel')}</DialogClose>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={pending}
+              onClick={() =>
+                onApply(
+                  [
+                    {
+                      operation: 'delete_block',
+                      entry_id: block.entry_id,
+                      block_id: block.id,
+                      expected_block_lock_version: block.lock_version
+                    }
+                  ],
+                  () => {
+                    setRetireOpen(false)
+                    setReason('')
+                  },
+                  reason
+                )
+              }>
+              {t('console.brain.no_longer_valid')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </article>
   )
 }
@@ -293,7 +339,7 @@ export function RelationsEditor({
   candidates: BrainEntry[]
   entry: BrainEntry
   pending: boolean
-  onApply: (operations: BrainEntryOperation[], onSuccess?: () => void) => void
+  onApply: (operations: BrainEntryOperation[], onSuccess?: () => void, reason?: string) => void
 }) {
   const { t } = useTranslation()
   const [predicate, setPredicate] = useState('')
@@ -424,11 +470,4 @@ function RelationRow({
       ) : null}
     </div>
   )
-}
-
-function formatDate(value?: string | null): string {
-  if (!value) return '—'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
 }

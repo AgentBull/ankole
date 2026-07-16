@@ -31,6 +31,36 @@ defmodule Ankole.Brain.StageBTest do
     :ok
   end
 
+  test "does not relearn outbound Agent messages as user evidence" do
+    %{principal: agent} = agent_fixture()
+
+    outbound =
+      visible_signal_material!(agent.uid, "The Agent produced this reply", "stage-b-outbound")
+
+    outbound
+    |> SignalEntry.changeset(%{ai_message_id: Ecto.UUID.generate()})
+    |> Repo.update!()
+
+    configure_model!(agent, fn _request -> response_summary(empty_plan()) end)
+    configure_dreaming!(agent.uid, agent.uid)
+
+    assert {:ok, %{status: :no_new_material, material_count: 0}} = StageB.run(agent.uid)
+  end
+
+  test "does not feed explicit source-learning outcomes back into principal dreaming" do
+    %{principal: agent} = agent_fixture()
+
+    _source_run =
+      task_outcome_material!(agent.uid, "stage-b-source-learning", "Learn the retained PDF",
+        type: "brain.source.learn"
+      )
+
+    configure_model!(agent, fn _request -> response_summary(empty_plan()) end)
+    configure_dreaming!(agent.uid, agent.uid)
+
+    assert {:ok, %{status: :no_new_material, material_count: 0}} = StageB.run(agent.uid)
+  end
+
   test "mutation failures do not advance the baseline and a new entry can receive a dreaming block" do
     %{principal: agent} = agent_fixture()
     source = visible_signal_material!(agent.uid, "I now prefer vegetables", "stage-b-diet")
@@ -1119,6 +1149,7 @@ defmodule Ankole.Brain.StageBTest do
 
   defp task_outcome_material!(owner_uid, key, text, opts \\ []) do
     brain = Keyword.get(opts, :brain, %{"visibility" => "public"})
+    event_type = Keyword.get(opts, :type, "im.message.addressed")
 
     {:ok, conversation} =
       Conversations.ensure_conversation(owner_uid, key, metadata: %{"brain" => brain})
@@ -1134,7 +1165,7 @@ defmodule Ankole.Brain.StageBTest do
         session_id: key,
         source_event_id: "stage-b-#{Ecto.UUID.generate()}",
         signal_channel_id: brain["channel_id"],
-        type: "im.message.addressed",
+        type: event_type,
         available_at: completed_at,
         queue_sequence: System.unique_integer([:positive]),
         input_state: "open",

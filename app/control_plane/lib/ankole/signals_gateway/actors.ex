@@ -6,9 +6,9 @@ defmodule Ankole.SignalsGateway.Actors do
   leases and delivers one executable event at a time; durable response facts live
   in AIGateway-owned tables.
 
-  Append is idempotent on the source ingress key. `queue_sequence` is allocated
-  under a PostgreSQL advisory lock only for ordering currently open events in one
-  actor session.
+  Append is idempotent on the source ingress key. Every append takes the actor
+  session's PostgreSQL advisory lock; `queue_sequence` allocation and
+  higher-level session transitions therefore share one deterministic order.
 
   Several `*_in_tx` functions take a `repo` and run inside a caller-owned
   transaction so actor completion and provider-visible side effects can share
@@ -24,6 +24,7 @@ defmodule Ankole.SignalsGateway.Actors do
   alias Ankole.SignalsGateway.ActorEventTypes
   alias Ankole.SignalsGateway.InputTombstone
   alias Ankole.SignalsGateway.Outbox
+  alias Ankole.SignalsGateway.ReplyInteractionState
 
   import Ankole.SignalsGateway.Utils, only: [parse_datetime: 1]
 
@@ -33,24 +34,17 @@ defmodule Ankole.SignalsGateway.Actors do
   @type actor_commit_result :: {:ok, ActorEvent.t()} | {:error, term()}
 
   @doc """
-  Appends an actor event, preserving route-scoped idempotency.
-
-  The unique ingress key covers open events. Provider redelivery after
-  completion is a SignalsGateway ingress concern because adapters own the
-  provider event id used as `source_event_id`.
-  """
-  @spec append_actor_event(map()) :: append_result()
-  def append_actor_event(attrs) when is_map(attrs) do
-    Repo.transact(fn repo ->
-      append_actor_event_in_tx(repo, attrs)
-    end)
-  end
-
-  @doc """
   Appends an actor event inside the caller-owned transaction.
   """
   @spec append_actor_event_in_tx(module(), map()) :: append_result()
   def append_actor_event_in_tx(repo, attrs) when is_map(attrs) do
+    :ok =
+      lock_actor_session_in_tx(
+        repo,
+        Map.fetch!(attrs, :agent_uid),
+        Map.fetch!(attrs, :session_id)
+      )
+
     attrs = put_queue_sequence(repo, attrs)
 
     with {:ok, %ActorEvent{} = event} <-
@@ -82,6 +76,23 @@ defmodule Ankole.SignalsGateway.Actors do
     |> where([event], event.id == ^actor_event_id)
     |> lock("FOR UPDATE")
     |> repo.one()
+  end
+
+  @doc """
+  Serializes writes that decide ordering or reply-interaction state for one session.
+
+  Callers that also lock ActorEvent rows must take this advisory lock first.
+  """
+  @spec lock_actor_session_in_tx(module(), String.t(), String.t()) :: :ok
+  def lock_actor_session_in_tx(repo, agent_uid, session_id)
+      when is_binary(agent_uid) and is_binary(session_id) do
+    SQL.query!(
+      repo,
+      "SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))",
+      [agent_uid, session_id]
+    )
+
+    :ok
   end
 
   @doc """
@@ -155,14 +166,18 @@ defmodule Ankole.SignalsGateway.Actors do
   def put_reply_preview_checkpoint_in_tx(repo, %ActorEvent{} = event, checkpoint)
       when is_map(checkpoint) do
     checkpoint =
-      Map.put(
-        checkpoint,
-        "sequence_high_water",
-        max(
-          event.reply_preview_sequence_high_water || 0,
-          checkpoint_sequence(checkpoint)
+      event.reply_preview_checkpoint
+      |> ReplyInteractionState.merge_checkpoint(checkpoint)
+      |> then(fn checkpoint ->
+        Map.put(
+          checkpoint,
+          "sequence_high_water",
+          max(
+            event.reply_preview_sequence_high_water || 0,
+            checkpoint_sequence(checkpoint)
+          )
         )
-      )
+      end)
 
     cleanup_at = parse_datetime(Map.get(checkpoint, "cleanup_at"))
 
@@ -411,14 +426,47 @@ defmodule Ankole.SignalsGateway.Actors do
   defp persist_actor_event_completion_in_tx(repo, %ActorEvent{} = actor_event, opts) do
     with {:ok, _outbox_entries} <-
            insert_outbox_intents(repo, actor_event, Keyword.get(opts, :outbox_intents, [])),
-         {:ok, _updated} <-
-           mark_event_completed(repo, actor_event, Keyword.fetch!(opts, :completed_at)) do
-      {:ok, actor_event}
+         {:ok, %ActorEvent{} = updated} <-
+           mark_event_completed(repo, actor_event, completion_attrs(opts)) do
+      {:ok, updated}
     end
   end
 
   def mark_event_completed_in_tx(repo, %ActorEvent{} = actor_event, completed_at) do
-    with {:ok, %ActorEvent{} = event} <- mark_event_completed(repo, actor_event, completed_at),
+    with {:ok, %ActorEvent{} = event} <-
+           mark_event_completed(repo, actor_event, %{completed_at: completed_at}),
+         :ok <-
+           RuntimeEvents.notify_actor_session_ready(
+             repo,
+             event.agent_uid,
+             event.session_id,
+             completed_at
+           ) do
+      {:ok, event}
+    end
+  end
+
+  @doc false
+  @spec mark_turn_event_completed_in_tx(
+          module(),
+          ActorEvent.t(),
+          DateTime.t(),
+          String.t(),
+          String.t()
+        ) :: actor_commit_result()
+  def mark_turn_event_completed_in_tx(
+        repo,
+        %ActorEvent{} = actor_event,
+        completed_at,
+        final_response_id,
+        turn_outcome
+      ) do
+    with {:ok, %ActorEvent{} = event} <-
+           mark_event_completed(repo, actor_event, %{
+             completed_at: completed_at,
+             final_response_id: final_response_id,
+             turn_outcome: turn_outcome
+           }),
          :ok <-
            RuntimeEvents.notify_actor_session_ready(
              repo,
@@ -464,13 +512,20 @@ defmodule Ankole.SignalsGateway.Actors do
     end
   end
 
-  defp mark_event_completed(repo, %ActorEvent{} = actor_event, completed_at) do
+  defp mark_event_completed(repo, %ActorEvent{} = actor_event, attrs) when is_map(attrs) do
     actor_event
-    |> ActorEvent.changeset(%{
-      completed_at: completed_at
-    })
+    |> ActorEvent.changeset(attrs)
     |> repo.update()
   end
+
+  defp completion_attrs(opts) do
+    %{completed_at: Keyword.fetch!(opts, :completed_at)}
+    |> maybe_put_completion_anchor(:final_response_id, Keyword.get(opts, :final_response_id))
+    |> maybe_put_completion_anchor(:turn_outcome, Keyword.get(opts, :turn_outcome))
+  end
+
+  defp maybe_put_completion_anchor(attrs, _key, nil), do: attrs
+  defp maybe_put_completion_anchor(attrs, key, value), do: Map.put(attrs, key, value)
 
   @doc """
   Returns actor events for a provider entry.
@@ -667,18 +722,12 @@ defmodule Ankole.SignalsGateway.Actors do
        when is_integer(queue_sequence),
        do: attrs
 
-  # Serializes queue ordering per actor session using a transaction-scoped
-  # advisory lock. Completion is recorded separately; queue_sequence remains the
-  # durable ordering fact for the session's event stream.
+  # The caller already owns the actor-session advisory lock. Completion is
+  # recorded separately; queue_sequence remains the durable ordering fact for
+  # the session's event stream.
   defp put_queue_sequence(repo, attrs) do
     agent_uid = Map.fetch!(attrs, :agent_uid)
     session_id = Map.fetch!(attrs, :session_id)
-
-    SQL.query!(
-      repo,
-      "SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))",
-      [agent_uid, session_id]
-    )
 
     next =
       ActorEvent
@@ -755,7 +804,7 @@ defmodule Ankole.SignalsGateway.Actors do
   # actor event was queued. This keeps local generation from replying to content
   # that has already been withdrawn.
   defp reject_tombstoned_event_source(repo, %ActorEvent{} = event, now) do
-    source_entry_ids = source_entry_ids(event)
+    source_entry_ids = ActorEvent.source_entry_ids(event)
 
     case source_entry_ids do
       [] ->
@@ -775,21 +824,6 @@ defmodule Ankole.SignalsGateway.Actors do
         end
     end
   end
-
-  defp source_entry_ids(%ActorEvent{} = event) do
-    [event.source_entry_id | source_entry_ids(event.payload)]
-    |> Enum.filter(&is_binary/1)
-    |> Enum.uniq()
-  end
-
-  defp source_entry_ids(%{"data" => %{"entries" => entries}}) when is_list(entries) do
-    Enum.map(entries, fn
-      %{"source_entry_id" => source_entry_id} -> source_entry_id
-      _entry -> nil
-    end)
-  end
-
-  defp source_entry_ids(_payload), do: []
 
   defp insert_outbox_intents(_repo, _actor_event, []), do: {:ok, []}
 

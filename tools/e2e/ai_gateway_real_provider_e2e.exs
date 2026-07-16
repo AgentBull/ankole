@@ -49,6 +49,8 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
 
   @openrouter_llm_model "z-ai/glm-5.2"
   @openrouter_vision_model "google/gemini-3.1-flash-lite"
+  @openrouter_gemini_image_model "google/gemini-3.1-flash-lite-image"
+  @openrouter_gpt_image_model "openai/gpt-image-2"
   @openrouter_embedding_model "qwen/qwen3-embedding-4b"
   @openrouter_rerank_model "cohere/rerank-4-fast"
   @alibaba_cn_llm_model "qwen-plus"
@@ -56,7 +58,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   @xiaomi_mimo_llm_model "mimo-v2.5"
   @zai_coding_plan_llm_model "glm-4.7"
 
-alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.Principals
@@ -230,11 +232,18 @@ alias Ankole.AIAgent.ModelProfiles
       model: @openrouter_vision_model
     })
 
+    put_profile!(agent.uid, "image_generate", %{
+      provider_id: provider_id,
+      model: @openrouter_gemini_image_model
+    })
+
     setup
     |> Map.put(:openrouter_provider, provider_id)
     |> Map.put(:openrouter_agent, agent)
     |> Map.put(:openrouter_llm_model, llm_model)
     |> Map.put(:openrouter_vision_model, @openrouter_vision_model)
+    |> Map.put(:openrouter_gemini_image_model, @openrouter_gemini_image_model)
+    |> Map.put(:openrouter_gpt_image_model, @openrouter_gpt_image_model)
     |> Map.put(:openrouter_embedding_model, embedding_model)
     |> Map.put(:openrouter_rerank_model, rerank_model)
   end
@@ -392,6 +401,8 @@ alias Ankole.AIAgent.ModelProfiles
       openrouter_agent: %{uid: "fake-openrouter-agent"},
       openrouter_llm_model: "fake-openrouter-model",
       openrouter_vision_model: "fake-openrouter-vision-model",
+      openrouter_gemini_image_model: "fake-openrouter-gemini-image-model",
+      openrouter_gpt_image_model: "fake-openrouter-gpt-image-model",
       openrouter_embedding_model: "fake-openrouter-embedding-model",
       openrouter_rerank_model: "fake-openrouter-rerank-model"
     }
@@ -425,6 +436,8 @@ alias Ankole.AIAgent.ModelProfiles
            openrouter_provider: provider,
            openrouter_llm_model: llm_model,
            openrouter_vision_model: _vision_model,
+           openrouter_gemini_image_model: gemini_image_model,
+           openrouter_gpt_image_model: gpt_image_model,
            openrouter_embedding_model: embedding_model,
            openrouter_rerank_model: rerank_model
          },
@@ -441,6 +454,30 @@ alias Ankole.AIAgent.ModelProfiles
       {"openrouter.llm_function_call", fn -> case_llm_function_call(agent) end},
       {"openrouter.llm_multimodal",
        fn -> case_llm_multimodal(agent, "vision_fallback", image) end},
+      {"openrouter.image_generation_gemini_generate_and_edit",
+       fn -> case_image_generation_generate_and_edit(agent, gemini_image_model) end},
+      {"openrouter.image_generation_gemini_buffered_to_sse",
+       fn ->
+         case_image_generation_sse(agent, %{
+           "type" => "image_generation",
+           "model" => gemini_image_model,
+           "partial_images" => 0
+         })
+       end},
+      {"openrouter.image_generation_gpt_partial_sse_and_options",
+       fn ->
+         case_image_generation_sse(agent, %{
+           "type" => "image_generation",
+           "model" => gpt_image_model,
+           "partial_images" => 1,
+           "quality" => "high",
+           "background" => "opaque",
+           "output_compression" => 80,
+           "moderation" => "low"
+         })
+       end},
+      {"openrouter.image_generation_gemini_rejects_quality",
+       fn -> case_image_generation_unsupported(agent, gemini_image_model, "quality", "high") end},
       {"openrouter.embedding_batch",
        fn ->
          case_embedding(agent, "embedding.default", [
@@ -726,6 +763,193 @@ alias Ankole.AIAgent.ModelProfiles
     |> Map.put(:image_source, image.source)
     |> Map.put(:image_bytes, image.bytes)
   end
+
+  defp case_image_generation_generate_and_edit(agent, image_model) do
+    {:ok, first_response} =
+      AIGateway.create_response(agent.uid, %{
+        "model" => "primary",
+        "input" => "Draw a simple blue circle on a plain white background.",
+        "tools" => [%{"type" => "image_generation", "model" => image_model}],
+        "tool_choice" => %{"type" => "image_generation"}
+      })
+
+    first = summarize_image_response(first_response.body)
+
+    {:ok, second_response} =
+      AIGateway.create_response(agent.uid, %{
+        "model" => "primary",
+        "input" => [
+          %{
+            "role" => "user",
+            "content" => "Edit the previous image by changing the blue circle to green."
+          },
+          %{"type" => "image_generation_call", "id" => first.image_id}
+        ],
+        "tools" => [
+          %{"type" => "image_generation", "model" => image_model, "action" => "edit"}
+        ],
+        "tool_choice" => %{"type" => "image_generation"}
+      })
+
+    second = summarize_image_response(second_response.body)
+
+    %{
+      model: image_model,
+      generated_image_bytes: first.image_bytes,
+      edited_image_bytes: second.image_bytes,
+      reused_image_id: first.image_id
+    }
+  end
+
+  defp case_image_generation_sse(agent, tool) do
+    conn =
+      agent.uid
+      |> mint_agent_token!()
+      |> authed_conn()
+      |> post("/api/v1/ai-gateway/responses", %{
+        "model" => "primary",
+        "input" => "Draw a small red square centered on a plain white background.",
+        "stream" => true,
+        "tools" => [tool],
+        "tool_choice" => %{"type" => "image_generation"}
+      })
+
+    raw_response = response(conn, 200)
+    events = decode_sse_events(raw_response)
+    sequence_numbers = Enum.map(events, & &1["sequence_number"])
+
+    require!(
+      sequence_numbers == Enum.to_list(0..(length(events) - 1)),
+      "image-generation SSE sequence numbers are not contiguous"
+    )
+
+    image_added =
+      Enum.find(events, fn event ->
+        event["type"] == "response.output_item.added" and
+          get_in(event, ["item", "type"]) == "image_generation_call"
+      end)
+
+    require!(is_map(image_added), "image-generation SSE added item missing")
+    image_id = get_in(image_added, ["item", "id"])
+
+    image_events =
+      Enum.filter(events, fn event ->
+        event["item_id"] == image_id or
+          (event["type"] in ["response.output_item.added", "response.output_item.done"] and
+             get_in(event, ["item", "id"]) == image_id)
+      end)
+
+    partial_events =
+      Enum.filter(image_events, &(&1["type"] == "response.image_generation_call.partial_image"))
+
+    requested_partials = tool["partial_images"] || 0
+
+    require!(
+      length(partial_events) <= requested_partials,
+      "image provider emitted more partial images than requested"
+    )
+
+    if partial_events != [] do
+      require!(
+        Enum.map(partial_events, & &1["partial_image_index"]) ==
+          Enum.to_list(0..(length(partial_events) - 1)),
+        "image partial indexes are not contiguous"
+      )
+    end
+
+    expected =
+      [
+        "response.output_item.added",
+        "response.image_generation_call.in_progress",
+        "response.image_generation_call.generating"
+      ] ++
+        List.duplicate(
+          "response.image_generation_call.partial_image",
+          length(partial_events)
+        ) ++
+        [
+          "response.image_generation_call.completed",
+          "response.output_item.done"
+        ]
+
+    require!(Enum.map(image_events, & &1["type"]) == expected, "image SSE lifecycle mismatch")
+    require!(List.last(events)["type"] == "response.completed", "image SSE did not complete")
+    refute_private_hosted_tool!(events)
+
+    done = Enum.find(image_events, &(&1["type"] == "response.output_item.done"))
+    result = get_in(done, ["item", "result"])
+    {:ok, bytes} = Base.decode64(result)
+
+    %{
+      event_count: length(events),
+      image_bytes: byte_size(bytes),
+      image_events: expected,
+      model: tool["model"],
+      partial_images: length(partial_events)
+    }
+  end
+
+  defp case_image_generation_unsupported(agent, image_model, field, value) do
+    conn =
+      agent.uid
+      |> mint_agent_token!()
+      |> authed_conn()
+      |> post("/api/v1/ai-gateway/responses", %{
+        "model" => "primary",
+        "input" => "Draw a circle.",
+        "tools" => [
+          %{"type" => "image_generation", "model" => image_model, field => value}
+        ],
+        "tool_choice" => %{"type" => "image_generation"}
+      })
+
+    body = json_response(conn, 400)
+    error = Map.fetch!(body, "error")
+    require!(error["type"] == "invalid_request_error", "unexpected image error type")
+    require!(error["code"] == "unsupported_value", "unexpected image error code")
+    require!(error["param"] == "tools[0].#{field}", "unexpected image error param")
+
+    %{code: error["code"], model: image_model, param: error["param"]}
+  end
+
+  defp summarize_image_response(body) do
+    require!(body["object"] == "response", "image body is not a ResponseResource")
+    require!(body["model"] == @openrouter_llm_model, "image response exposed the wrong model")
+
+    image = Enum.find(body["output"], &(&1["type"] == "image_generation_call"))
+    require!(is_map(image), "image_generation_call output item missing")
+    require!(image["status"] == "completed", "image_generation_call did not complete")
+    require!(String.starts_with?(image["id"], "ig_"), "invalid image_generation_call id")
+    {:ok, bytes} = Base.decode64(image["result"])
+    require!(byte_size(bytes) > 0, "generated image is empty")
+    refute_private_hosted_tool!(body)
+
+    %{image_id: image["id"], image_bytes: byte_size(bytes)}
+  end
+
+  defp refute_private_hosted_tool!(value) do
+    sanitized =
+      value
+      |> stringify()
+      |> redact_image_results()
+      |> Ankole.JSON.encode!()
+
+    require!(
+      not String.contains?(sanitized, "__ankole_hosted_image_generation") and
+        not String.contains?(sanitized, "openrouter:image_generation"),
+      "private hosted image tool leaked into the public response"
+    )
+  end
+
+  defp redact_image_results(map) when is_map(map) do
+    Map.new(map, fn
+      {"result", value} when is_binary(value) -> {"result", "<base64>"}
+      {key, value} -> {key, redact_image_results(value)}
+    end)
+  end
+
+  defp redact_image_results(list) when is_list(list), do: Enum.map(list, &redact_image_results/1)
+  defp redact_image_results(value), do: value
 
   defp case_embedding(agent, model, input, extra \\ %{}) do
     request = Map.merge(%{"model" => model, "input" => input}, extra)

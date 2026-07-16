@@ -18,7 +18,14 @@ defmodule Ankole.AIGateway.Providers do
   @contract_id "ai_gateway.provider"
   @common_connection_settings ~w(base_url headers query_params transport)
   @plugin_provider_kind_pattern ~r/\A[a-z][a-z0-9_]{0,62}\z/
-  @capability_kinds [:language_model, :embedding_model, :rerank_model, :web_search, :web_fetch]
+  @capability_kinds [
+    :language_model,
+    :embedding_model,
+    :rerank_model,
+    :web_search,
+    :web_fetch,
+    :image_generate
+  ]
   @cache_key {__MODULE__, :registry}
 
   @builtins [
@@ -253,6 +260,18 @@ defmodule Ankole.AIGateway.Providers do
   @spec build_web_fetch_request(map(), map()) :: {:ok, map()} | {:error, term()}
   def build_web_fetch_request(runtime, request),
     do: build_prepared_request(runtime, :web_fetch, request, [])
+
+  @doc """
+  Builds an OpenRouter image-generation request for HostedResponsesExecutor.
+
+  Image generation is an internal AIGateway capability. It is not exposed as a
+  worker function tool and is only composed into a Responses request by the
+  hosted-tool preparation path.
+  """
+  @spec build_image_generate_request(map(), map(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def build_image_generate_request(runtime, request, opts \\ []),
+    do: build_prepared_request(runtime, :image_generate, request, opts)
 
   @doc """
   Returns connection option keys accepted by a provider definition.

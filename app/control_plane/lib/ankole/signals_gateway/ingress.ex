@@ -19,6 +19,7 @@ defmodule Ankole.SignalsGateway.Ingress do
   alias Ankole.SignalsGateway.InboundBatches
   alias Ankole.SignalsGateway.IngressPipeline
   alias Ankole.SignalsGateway.Projection
+  alias Ankole.SignalsGateway.ReplyReference
   alias Ankole.SignalsGateway.ReplyInteractions
   alias Ankole.SignalsGateway.Binding
   alias Ankole.SignalsGateway.Entry
@@ -131,7 +132,11 @@ defmodule Ankole.SignalsGateway.Ingress do
            IngressPipeline.construct(:action, binding, input, now, &FactNormalizer.action/3),
          :match <- IngressPipeline.filter(binding, fact) do
       Repo.transact(fn repo ->
-        with {:ok, acceptance} <- ReplyInteractions.accept_in_tx(repo, binding, fact, now) do
+        # Keep the same channel -> actor-session -> ActorEvent lock order as
+        # ordinary message ingress. Managed callbacks take the session lock so
+        # an answer and a newer turn have one deterministic winner.
+        with {:ok, channel} <- Projection.maybe_upsert_channel(repo, fact, now),
+             {:ok, acceptance} <- ReplyInteractions.accept_in_tx(repo, binding, fact, now) do
           case acceptance do
             :duplicate ->
               {:ok, %{status: :duplicate_action}}
@@ -139,19 +144,12 @@ defmodule Ankole.SignalsGateway.Ingress do
             :stale ->
               {:ok, %{status: :stale_action}}
 
-            acceptance when acceptance in [:accepted, :unmanaged] ->
-              with {:ok, channel} <- Projection.maybe_upsert_channel(repo, fact, now),
-                   {:ok, append_result} <-
-                     ActorEventEnvelope.append_actor_event(
-                       binding,
-                       fact,
-                       fact.actor_event_type,
-                       channel,
-                       nil,
-                       now
-                     ) do
-                {:ok, actor_event_append_result(append_result, %{signal_channel: channel})}
-              end
+            {:accepted, resolution} ->
+              fact = %{fact | action: accepted_reply_action(fact.action, resolution)}
+              append_action_event(repo, binding, fact, channel, now)
+
+            :unmanaged ->
+              append_action_event(repo, binding, fact, channel, now)
           end
         end
       end)
@@ -190,6 +188,8 @@ defmodule Ankole.SignalsGateway.Ingress do
             {:ok, %{status: :dropped_tombstoned}}
 
           false ->
+            fact = ReplyReference.enrich(repo, fact)
+
             with {:ok, policy} <- entry_policy(binding, fact),
                  {:ok, result} <- apply_entry_policy(repo, binding, fact, policy, now) do
               {:ok, result}
@@ -234,7 +234,7 @@ defmodule Ankole.SignalsGateway.Ingress do
                fact.source_entry_id
              ),
            {:ok, lifecycle_events} <-
-             append_lifecycle_events(binding, fact, completed_events, channel, now) do
+             append_lifecycle_events(repo, binding, fact, completed_events, channel, now) do
         {:ok,
          %{
            status: :accepted,
@@ -278,8 +278,9 @@ defmodule Ankole.SignalsGateway.Ingress do
   defp group_policy(:may_intervene), do: {:ok, {:actor_event, "im.message.may_intervene", nil}}
 
   # "Explicit" = the agent is unambiguously being talked to: every DM qualifies,
-  # and a group message qualifies only if it @-mentions the agent. This gates
-  # both command parsing and the default addressed-message path.
+  # and a group message qualifies when it has a structured mention or its reply
+  # target resolves to this agent. This gates both command parsing and the
+  # default addressed-message path.
   defp explicit_im_entry?(%{channel_kind: :im_dm}), do: true
   defp explicit_im_entry?(%{channel_kind: :im_group, explicit?: true}), do: true
   defp explicit_im_entry?(_fact), do: false
@@ -355,7 +356,7 @@ defmodule Ankole.SignalsGateway.Ingress do
     with {:ok, channel} <- Projection.upsert_channel(repo, fact, now),
          {:ok, entry} <- Projection.mirror_receive_entry(repo, fact, now),
          {:ok, append_result} <-
-           ActorEventEnvelope.append_actor_event(binding, fact, type, channel, entry, now) do
+           ActorEventEnvelope.append_actor_event(repo, binding, fact, type, channel, entry, now) do
       {:ok,
        actor_event_append_result(append_result, %{
          signal_channel: channel,
@@ -369,9 +370,34 @@ defmodule Ankole.SignalsGateway.Ingress do
     |> Map.merge(%{status: :accepted, actor_event: actor_event})
   end
 
-  defp append_lifecycle_events(_binding, _fact, [], _channel, _now), do: {:ok, []}
+  defp append_action_event(repo, binding, fact, channel, now) do
+    with {:ok, append_result} <-
+           ActorEventEnvelope.append_actor_event(
+             repo,
+             binding,
+             fact,
+             fact.actor_event_type,
+             channel,
+             nil,
+             now
+           ) do
+      {:ok, actor_event_append_result(append_result, %{signal_channel: channel})}
+    end
+  end
 
-  defp append_lifecycle_events(binding, fact, completed_events, channel, now) do
+  defp accepted_reply_action(action, resolution) do
+    %{
+      "name" => "reply_interaction",
+      "value" => resolution,
+      "operator_principal_uid" => fetch_value(action, "operator_principal_uid")
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
+
+  defp append_lifecycle_events(_repo, _binding, _fact, [], _channel, _now), do: {:ok, []}
+
+  defp append_lifecycle_events(repo, binding, fact, completed_events, channel, now) do
     completed_events
     |> Enum.map(fn completed_event ->
       lifecycle_fact =
@@ -385,6 +411,7 @@ defmodule Ankole.SignalsGateway.Ingress do
         |> Map.put(:action, nil)
 
       ActorEventEnvelope.append_actor_event(
+        repo,
         binding,
         lifecycle_fact,
         "signal.entry.removed",

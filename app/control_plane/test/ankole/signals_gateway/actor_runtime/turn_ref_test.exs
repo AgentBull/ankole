@@ -56,11 +56,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRefTest do
     assert {:error, :missing_turn_ref} = TurnRef.from_request(%{"turn_ref" => wire})
   end
 
-  test "from_request does not accept legacy llm_turn_id" do
-    assert {:error, :missing_turn_ref} =
-             TurnRef.from_request(%{"llm_turn_id" => @actor_event_id})
-  end
-
   test "invalid turn refs fail" do
     wire = wire_turn_ref()
 
@@ -83,7 +78,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRefTest do
     wire = TurnRef.to_wire(turn_ref)
 
     assert wire["actor_event_id"] == @actor_event_id
-    refute Map.has_key?(wire, "llm_turn_id")
   end
 
   test "actor_key returns normalized actor identity" do

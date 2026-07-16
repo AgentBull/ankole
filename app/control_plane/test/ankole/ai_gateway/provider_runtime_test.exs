@@ -654,7 +654,34 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
   test "runtime RPCLane resolves agent conversation context and DB-backed skill overlays" do
     %{principal: agent} = agent_fixture()
-    assert {:ok, %{skills: 6}} = Library.sync_agent_skills(agent.uid)
+    assert {:ok, %{skills: 12}} = Library.sync_agent_skills(agent.uid)
+
+    assert {:ok, documents} = Library.list_agent_documents(agent.uid)
+
+    assert {:ok, _mission} =
+             Library.replace_agent_document(
+               agent.uid,
+               "mission",
+               "Own the next-turn research workflow.",
+               documents["mission"]["content_hash"]
+             )
+
+    assert {:ok, _soul} =
+             Library.replace_agent_document(
+               agent.uid,
+               "soul",
+               "Be exact, calm, and evidence-led.",
+               documents["soul"]["content_hash"]
+             )
+
+    assert {:ok, _design} =
+             Library.replace_agent_document(
+               agent.uid,
+               "design",
+               "Use cobalt accents and generous whitespace.",
+               documents["design"]["content_hash"]
+             )
+
     {route, turn} = assign_worker_route(agent.uid, "signal-channel:context")
     mixed_case_turn = put_in(turn, ["actor", "agent_uid"], " #{String.upcase(agent.uid)} ")
 
@@ -677,7 +704,9 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert context_payload["agent"]["display_name"] == agent.display_name
     assert context_payload["agent"]["role"] == "Research Analyst"
     assert context_payload["conversation"]["key"] == "signal-channel:context"
-    assert is_binary(context_payload["soul"])
+    assert context_payload["mission"] == "Own the next-turn research workflow."
+    assert context_payload["soul"] == "Be exact, calm, and evidence-led."
+    assert context_payload["design"] == "Use cobalt accents and generous whitespace."
     assert Enum.any?(context_payload["skills"], &(&1["skill_name"] == "nano-pdf"))
     refute Map.has_key?(context_payload, "request_context")
     refute get_in(context_payload, ["conversation", "messages"])
@@ -768,7 +797,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
   test "runtime RPCLane accepts overlay writes after active steer bumps revision" do
     %{principal: agent} = agent_fixture()
-    assert {:ok, %{skills: 6}} = Library.sync_agent_skills(agent.uid)
+    assert {:ok, %{skills: 12}} = Library.sync_agent_skills(agent.uid)
     {route, turn} = assign_worker_route(agent.uid, "signal-channel:steered-overlay")
 
     turn["activation_uid"]

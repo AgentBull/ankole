@@ -33,6 +33,68 @@ defmodule Ankole.Schedule.RPCBroker do
     end)
   end
 
+  @spec handle_check_back_later_list(TurnRef.t(), map(), String.t()) ::
+          {:ok, map()} | {:error, map()}
+  def handle_check_back_later_list(%TurnRef{} = turn_ref, request, _route) do
+    respond(request, fn ->
+      {:ok,
+       %{
+         "status" => "ok",
+         "checkbacks" =>
+           turn_ref.agent_uid
+           |> Schedule.list_pending_checkbacks(
+             turn_ref.session_id,
+             list_limit(request, "limit", 10)
+           )
+           |> Enum.map(&Schedule.event_model_projection/1)
+       }}
+    end)
+  end
+
+  @spec handle_check_back_later_get(TurnRef.t(), map(), String.t()) ::
+          {:ok, map()} | {:error, map()}
+  def handle_check_back_later_get(%TurnRef{} = turn_ref, request, _route) do
+    respond(request, fn ->
+      with {:ok, event} <- checkback_from_turn(request, turn_ref) do
+        {:ok, %{"status" => "ok", "checkback" => Schedule.event_model_projection(event)}}
+      end
+    end)
+  end
+
+  @spec handle_check_back_later_update(TurnRef.t(), map(), String.t()) ::
+          {:ok, map()} | {:error, map()}
+  def handle_check_back_later_update(%TurnRef{} = turn_ref, request, route) do
+    respond(request, fn ->
+      with {:ok, event} <- checkback_from_turn(request, turn_ref),
+           {:ok, source} <- validate_reply_route(turn_ref, RPCWire.value(request, "reply_route")),
+           {:ok, attrs} <- checkback_update_attrs(request, turn_ref, source, route),
+           {:ok, %{status: status, previous_scheduled_event: previous, scheduled_event: updated}} <-
+             Schedule.update_checkback(event.id, attrs) do
+        {:ok,
+         %{
+           "status" => checkback_update_status(status),
+           "previous_scheduled_event_id" => previous.id,
+           "checkback" => Schedule.event_model_projection(updated)
+         }}
+      end
+    end)
+  end
+
+  @spec handle_check_back_later_cancel(TurnRef.t(), map(), String.t()) ::
+          {:ok, map()} | {:error, map()}
+  def handle_check_back_later_cancel(%TurnRef{} = turn_ref, request, _route) do
+    respond(request, fn ->
+      with {:ok, event} <- checkback_from_turn(request, turn_ref),
+           {:ok, cancelled} <- Schedule.cancel_checkback(event.id) do
+        {:ok,
+         %{
+           "status" => "cancelled",
+           "checkback" => Schedule.event_model_projection(cancelled)
+         }}
+      end
+    end)
+  end
+
   @spec handle_cron_list(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
   def handle_cron_list(%TurnRef{} = turn_ref, request, _route) do
     respond(request, fn ->
@@ -156,6 +218,14 @@ defmodule Ankole.Schedule.RPCBroker do
     end
   end
 
+  defp checkback_from_turn(request, %TurnRef{} = turn_ref) do
+    with {:ok, scheduled_event_id} <- required_text(request, "scheduled_event_id"),
+         {:ok, event} <- Schedule.get_scheduled_event(scheduled_event_id),
+         :ok <- checkback_belongs_to_turn(event, turn_ref) do
+      {:ok, event}
+    end
+  end
+
   defp mutate_cron_from_turn(request, %TurnRef{} = turn_ref, status, fun) do
     with :ok <- reject_cron_origin_broad_mutation(turn_ref),
          {:ok, schedule} <- cron_schedule_from_turn(request, turn_ref),
@@ -167,9 +237,31 @@ defmodule Ankole.Schedule.RPCBroker do
   defp checkback_attrs(request, %TurnRef{} = turn_ref, source, route) do
     reply_route = RPCWire.value(request, "reply_route") || %{}
 
+    with {:ok, quiet_success} <- optional_boolean(request, "quiet_success", false),
+         {:ok, attrs} <- checkback_turn_attrs(request, turn_ref, source, route, reply_route) do
+      {:ok,
+       Map.merge(attrs, %{
+         "schedule" => RPCWire.value(request, "schedule"),
+         "reason" => RPCWire.text(request, "reason"),
+         "check" => RPCWire.text(request, "check"),
+         "context_summary" => RPCWire.text(request, "context_summary"),
+         "quiet_success" => quiet_success
+       })}
+    end
+  end
+
+  defp checkback_update_attrs(request, %TurnRef{} = turn_ref, source, route) do
+    reply_route = RPCWire.value(request, "reply_route") || %{}
+
+    with {:ok, updates} <- checkback_updates(request),
+         {:ok, attrs} <- checkback_turn_attrs(request, turn_ref, source, route, reply_route) do
+      {:ok, Map.merge(updates, attrs)}
+    end
+  end
+
+  defp checkback_turn_attrs(request, turn_ref, source, route, reply_route) do
     with {:ok, tool_call_id} <- required_text(request, "tool_call_id"),
-         {:ok, idempotency_key} <- required_text(request, "idempotency_key"),
-         {:ok, quiet_success} <- optional_boolean(request, "quiet_success", false) do
+         {:ok, idempotency_key} <- required_text(request, "idempotency_key") do
       {:ok,
        %{
          "agent_uid" => turn_ref.agent_uid,
@@ -177,11 +269,6 @@ defmodule Ankole.Schedule.RPCBroker do
          "binding_name" => RPCWire.text(reply_route, "binding_name") || source.binding_name,
          "tool_call_id" => tool_call_id,
          "idempotency_key" => idempotency_key,
-         "schedule" => RPCWire.value(request, "schedule"),
-         "reason" => RPCWire.text(request, "reason"),
-         "check" => RPCWire.text(request, "check"),
-         "context_summary" => RPCWire.text(request, "context_summary"),
-         "quiet_success" => quiet_success,
          "reply_route" => reply_route,
          # Source tables: current_ai_message_id resolves ai_gateway_messages.id;
          # source.actor_event_id is the actor_events.id currently being served.
@@ -197,6 +284,22 @@ defmodule Ankole.Schedule.RPCBroker do
            "revision" => turn_ref.revision
          }
        }}
+    end
+  end
+
+  defp checkback_updates(request) do
+    case RPCWire.value(request, "updates") do
+      updates when is_map(updates) and map_size(updates) > 0 ->
+        updates = RPCWire.stringify_keys(updates)
+        allowed = ~w(reason check context_summary quiet_success schedule)
+
+        case Map.keys(updates) -- allowed do
+          [] -> {:ok, updates}
+          unknown -> {:error, {:unknown_checkback_update_fields, Enum.sort(unknown)}}
+        end
+
+      _updates ->
+        {:error, :checkback_update_required}
     end
   end
 
@@ -319,6 +422,14 @@ defmodule Ankole.Schedule.RPCBroker do
     end
   end
 
+  defp checkback_belongs_to_turn(event, %TurnRef{} = turn_ref) do
+    case event.kind == "check_back_later" and event.agent_uid == turn_ref.agent_uid and
+           event.session_id == turn_ref.session_id do
+      true -> :ok
+      false -> {:error, :checkback_not_in_turn}
+    end
+  end
+
   defp reject_cron_origin_broad_mutation(turn) do
     case cron_origin_schedule_id(turn) do
       nil -> :ok
@@ -346,6 +457,9 @@ defmodule Ankole.Schedule.RPCBroker do
   defp checkback_quiet_success(event) do
     is_map(event.wake_payload) and Map.get(event.wake_payload, "quiet_success") == true
   end
+
+  defp checkback_update_status(:updated), do: "updated"
+  defp checkback_update_status(:already_updated), do: "already_updated"
 
   defp cron_create_status(:created), do: "created"
   defp cron_create_status(:already_exists), do: "already_exists"

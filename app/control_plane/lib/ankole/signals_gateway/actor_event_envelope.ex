@@ -1,10 +1,12 @@
 defmodule Ankole.SignalsGateway.ActorEventEnvelope do
   @moduledoc false
 
-  alias Ankole.SignalsGateway.Actors
-  alias Ankole.SignalsGateway.AmbientRecall
+  alias Ankole.SignalsGateway
+  alias Ankole.SignalsGateway.AIGatewayLink
   alias Ankole.SignalsGateway.Channel
+  alias Ankole.SignalsGateway.ChannelContext
   alias Ankole.SignalsGateway.Entry
+  alias Ankole.SignalsGateway.ReplyReference
 
   import Ankole.SignalsGateway.Utils,
     only: [
@@ -12,7 +14,8 @@ defmodule Ankole.SignalsGateway.ActorEventEnvelope do
       signal_session_id: 1
     ]
 
-  def append_actor_event(binding, fact, type, channel, entry, now) do
+  def append_actor_event(repo, binding, fact, type, channel, entry, now) do
+    fact = ReplyReference.enrich(repo, fact)
     session_id = Map.get(fact, :session_id) || signal_session_id(fact.signal_channel_id)
 
     available_at =
@@ -37,12 +40,31 @@ defmodule Ankole.SignalsGateway.ActorEventEnvelope do
     payload =
       binding
       |> actor_envelope(fact, type, channel, entry, now)
+      |> maybe_channel_context(type, attrs, fact)
       |> maybe_ambient_batch_payload(type, attrs, fact, now)
 
     attrs = Map.put(attrs, :payload, payload)
 
-    Actors.append_actor_event(attrs)
+    SignalsGateway.append_actor_event_in_tx(repo, attrs)
   end
+
+  defp maybe_channel_context(
+         payload,
+         type,
+         attrs,
+         %{batch_entries: entries}
+       )
+       when type in ["im.message.addressed", "im.message.may_intervene"] and is_list(entries) do
+    excluded_document_ids =
+      AIGatewayLink.visible_signal_document_ids(attrs.agent_uid, attrs.session_id)
+
+    case ChannelContext.build(attrs, entries, exclude_document_ids: excluded_document_ids) do
+      nil -> payload
+      channel_context -> put_in(payload, ["data", "channel_context"], channel_context)
+    end
+  end
+
+  defp maybe_channel_context(payload, _type, _attrs, _fact), do: payload
 
   defp maybe_ambient_batch_payload(
          payload,
@@ -67,16 +89,14 @@ defmodule Ankole.SignalsGateway.ActorEventEnvelope do
   defp maybe_ambient_batch_payload(payload, _type, _attrs, _fact, _now), do: payload
 
   defp refresh_ambient_batch_payload(payload, attrs, entries, now) do
-    observed_messages = AmbientRecall.observed_messages(attrs, entries)
-    recent_history = AmbientRecall.recent_history(attrs, entries)
-    earlier_observed_messages = AmbientRecall.earlier_observed_messages(attrs, entries)
+    observed_messages = ChannelContext.observed_messages(attrs, entries)
+    unreplied_messages = ChannelContext.unreplied_messages(attrs, entries)
 
     payload
     |> put_in(["data", "entry"], batch_entry_summary(entries))
     |> put_in(["data", "entries"], entries)
     |> put_in(["data", "observed_messages"], observed_messages)
-    |> put_in(["data", "recent_history"], recent_history)
-    |> put_in(["data", "earlier_observed_messages"], earlier_observed_messages)
+    |> put_in(["data", "unreplied_messages"], unreplied_messages)
     |> put_in(["data", "ambient_batch"], %{
       "size" => length(entries),
       "first_source_entry_id" => entries |> List.first() |> Map.get("source_entry_id"),
@@ -88,7 +108,7 @@ defmodule Ankole.SignalsGateway.ActorEventEnvelope do
   defp batch_entry_summary(entries) do
     text =
       entries
-      |> AmbientRecall.batch_observed_messages()
+      |> ChannelContext.batch_observed_messages()
       |> Enum.map(&observed_message_line/1)
       |> Enum.join("\n")
 
@@ -177,6 +197,8 @@ defmodule Ankole.SignalsGateway.ActorEventEnvelope do
     %{
       "signal_channel_id" => entry.signal_channel_id,
       "source_entry_id" => entry.source_entry_id,
+      "reply_to_source_entry_id" => Map.get(fact, :reply_to_source_entry_id),
+      "reply_to" => Map.get(fact, :reply_to),
       "provider_thread_id" => Map.get(fact, :provider_thread_id),
       "text" => entry.text,
       "attachments" => entry.attachments,
@@ -193,6 +215,8 @@ defmodule Ankole.SignalsGateway.ActorEventEnvelope do
     %{
       "signal_channel_id" => Map.get(fact, :signal_channel_id),
       "source_entry_id" => Map.get(fact, :source_entry_id),
+      "reply_to_source_entry_id" => Map.get(fact, :reply_to_source_entry_id),
+      "reply_to" => Map.get(fact, :reply_to),
       "provider_thread_id" => Map.get(fact, :provider_thread_id),
       "text" => Map.get(fact, :text),
       "attachments" => Map.get(fact, :attachments),

@@ -5,6 +5,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.Schemas.Message
+  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.ActorEventTypes
@@ -79,6 +80,179 @@ defmodule Ankole.SignalsGatewayIngressTest do
 
       assert entry.text == "hello"
       assert entry.rich_content == rich_content
+    end
+
+    test "addressed input carries recent human and agent messages from the shared channel" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark-main", :record_only)
+
+      assert {:ok, %{status: :accepted, inbound_batch: batch}} =
+               Ingress.emit_entry(
+                 agent.uid,
+                 "lark-main",
+                 group_entry(%{
+                   source_event_id: "evt-current-addressed",
+                   source_entry_id: "msg-current-addressed",
+                   provider_thread_id: "thread-current",
+                   explicit: true,
+                   text: "你来回答我上个问题"
+                 }),
+                 now: @base_time
+               )
+
+      insert_signal_entry!(
+        "msg-prior-question",
+        "这个排版为什么能做这么好？",
+        DateTime.add(@base_time, -2, :second),
+        %{principal_uid: "bob", id: "ou_bob", display_name: "Bob"},
+        "thread-prior-question"
+      )
+
+      insert_signal_entry!(
+        "msg-other-agent-answer",
+        "是按既有技能和现场内容一起组织的。",
+        DateTime.add(@base_time, -1, :second),
+        %{agent_uid: "other-agent", display_name: "Research Agent"},
+        "thread-other-agent"
+      )
+
+      assert {:ok, [%{status: :accepted, actor_event: input}]} =
+               finalize_due_inbound_batch_events(now: batch.available_at)
+
+      assert [
+               %{
+                 "role" => "human",
+                 "speaker" => "Bob",
+                 "text" => "这个排版为什么能做这么好？"
+               },
+               %{
+                 "role" => "agent",
+                 "speaker" => "Research Agent",
+                 "text" => "是按既有技能和现场内容一起组织的。"
+               }
+             ] = get_in(input.payload, ["data", "channel_context", "messages"])
+
+      refute input.payload
+             |> get_in(["data", "channel_context", "messages"])
+             |> Enum.any?(&(&1["source_entry_id"] == "msg-current-addressed"))
+    end
+
+    test "bare mention after an observed question carries the question as channel context" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark-main", :record_only)
+
+      assert {:ok, %{status: :recorded}} =
+               Ingress.emit_entry(
+                 agent.uid,
+                 "lark-main",
+                 group_entry(%{
+                   source_event_id: "evt-observed-question",
+                   source_entry_id: "msg-observed-question",
+                   provider_thread_id: nil,
+                   text: "现在你接入的大模型是什么呢？"
+                 }),
+                 now: @base_time
+               )
+
+      # The observe-only batch closes long before the bare mention arrives.
+      assert {:ok, _finalized} =
+               finalize_due_inbound_batch_events(now: DateTime.add(@base_time, 5, :second))
+
+      assert {:ok, %{status: :accepted, inbound_batch: batch}} =
+               Ingress.emit_entry(
+                 agent.uid,
+                 "lark-main",
+                 group_entry(%{
+                   source_event_id: "evt-bare-mention",
+                   source_entry_id: "msg-bare-mention",
+                   provider_thread_id: nil,
+                   explicit: true,
+                   text: nil,
+                   mentions: [%{kind: :agent, structured: true, agent_uid: agent.uid}],
+                   provider_time: DateTime.add(@base_time, 10, :second)
+                 }),
+                 now: DateTime.add(@base_time, 10, :second)
+               )
+
+      assert {:ok, [%{status: :accepted, actor_event: input}]} =
+               finalize_due_inbound_batch_events(now: batch.available_at)
+
+      assert input.type == "im.message.addressed"
+      assert get_in(input.payload, ["data", "entry", "text"]) == ""
+
+      assert [
+               %{
+                 "role" => "human",
+                 "speaker" => "Alice",
+                 "text" => "现在你接入的大模型是什么呢？"
+               }
+             ] = get_in(input.payload, ["data", "channel_context", "messages"])
+    end
+
+    test "channel context excludes messages already visible in the target agent response chain" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark-main", :record_only)
+
+      %{actor_event: first_event} =
+        emit_addressed_actor_event(
+          agent.uid,
+          "lark-main",
+          group_entry(%{
+            source_event_id: "evt-already-visible-question",
+            source_entry_id: "msg-already-visible-question",
+            explicit: true,
+            text: "本 agent 已经看过的问题"
+          }),
+          @base_time
+        )
+
+      assert {:ok, conversation} =
+               Conversations.ensure_conversation(agent.uid, first_event.session_id)
+
+      response = complete_actor_response!(agent.uid, conversation.id, first_event.id)
+
+      visible_reply =
+        insert_signal_entry!(
+          "msg-already-visible-reply",
+          "本 agent 已经给过的回答",
+          DateTime.add(@base_time, 1, :second),
+          %{agent_uid: agent.uid, display_name: "Target Agent"},
+          "thread-visible-reply"
+        )
+
+      visible_reply
+      |> Entry.changeset(%{ai_message_id: response.id})
+      |> Repo.update!()
+
+      insert_signal_entry!(
+        "msg-unseen-other-agent",
+        "另一个 agent 刚补充的内容",
+        DateTime.add(@base_time, 2, :second),
+        %{agent_uid: "other-agent", display_name: "Other Agent"},
+        "thread-unseen-other-agent"
+      )
+
+      %{actor_event: current_event} =
+        emit_addressed_actor_event(
+          agent.uid,
+          "lark-main",
+          group_entry(%{
+            source_event_id: "evt-context-dedupe-current",
+            source_entry_id: "msg-context-dedupe-current",
+            provider_thread_id: "thread-current",
+            provider_time: DateTime.add(@base_time, 3, :second),
+            explicit: true,
+            text: "继续"
+          }),
+          DateTime.add(@base_time, 3, :second)
+        )
+
+      assert [
+               %{
+                 "source_entry_id" => "msg-unseen-other-agent",
+                 "text" => "另一个 agent 刚补充的内容"
+               }
+             ] = get_in(current_event.payload, ["data", "channel_context", "messages"])
     end
 
     test "may_intervene mirrors and finalizes a delayed ambient observation input" do
@@ -271,20 +445,18 @@ defmodule Ankole.SignalsGatewayIngressTest do
                "[#{DateTime.to_iso8601(@base_time)} Alice] hello"
 
       assert [
-               %{"role" => "ambient_human", "text" => "old transcript context"},
+               %{"role" => "human", "text" => "old transcript context"},
                %{"role" => "agent", "text" => "previous agent answer"},
-               %{"role" => "ambient_human", "text" => "this strategy might be worth a backtest"},
-               %{"role" => "ambient_human", "text" => "which benchmark should we use?"}
-             ] = get_in(input.payload, ["data", "recent_history"])
+               %{"role" => "human", "text" => "this strategy might be worth a backtest"},
+               %{"role" => "human", "text" => "which benchmark should we use?"},
+               %{"role" => "human", "text" => "different thread"}
+             ] = get_in(input.payload, ["data", "channel_context", "messages"])
 
       assert [
                %{"text" => "this strategy might be worth a backtest"},
-               %{"text" => "which benchmark should we use?"}
-             ] = get_in(input.payload, ["data", "earlier_observed_messages"])
-
-      refute input.payload
-             |> get_in(["data", "recent_history"])
-             |> Enum.any?(&(&1["text"] == "different thread"))
+               %{"text" => "which benchmark should we use?"},
+               %{"text" => "different thread"}
+             ] = get_in(input.payload, ["data", "unreplied_messages"])
     end
 
     test "upgraded ignore batch mirroring does not overwrite newer provider state" do
@@ -572,14 +744,139 @@ defmodule Ankole.SignalsGatewayIngressTest do
       binding_fixture(agent.uid, "lark-main", :ignore)
 
       assert {:ok, %{status: :ignored, inbound_batch: batch}} =
-               Ingress.emit_entry(agent.uid, "lark-main", group_entry(), now: @base_time)
+               Ingress.emit_entry(
+                 agent.uid,
+                 "lark-main",
+                 group_entry(%{reply_to_source_entry_id: "missing-target"}),
+                 now: @base_time
+               )
 
       assert {:ok, [%{status: :ignored, inbound_batch: finalized}]} =
                finalize_due_inbound_batch_events(now: DateTime.add(@base_time, 600, :millisecond))
 
       assert finalized.id == batch.id
       assert batch.mode == "neutral"
+      assert batch.reply_to_source_entry_id == "missing-target"
       assert Repo.aggregate(ActorEvent, :count) == 0
+    end
+
+    test "replying to this agent is addressed and carries an immutable target snapshot" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark-main", :record_only)
+
+      assert {:ok, %{status: :recorded, inbound_batch: target_batch}} =
+               Ingress.emit_entry(
+                 agent.uid,
+                 "lark-main",
+                 group_entry(%{
+                   source_event_id: "evt-agent-report",
+                   source_entry_id: "msg-agent-report",
+                   text: "Yesterday's complete report",
+                   author: %{agent_uid: agent.uid, display_name: "Research Agent"}
+                 }),
+                 now: @base_time
+               )
+
+      reply_time = DateTime.add(@base_time, 1, :millisecond)
+
+      assert {:ok, %{status: :accepted, inbound_batch: reply_batch}} =
+               Ingress.emit_entry(
+                 agent.uid,
+                 "lark-main",
+                 group_entry(%{
+                   source_event_id: "evt-compare-quality",
+                   source_entry_id: "msg-compare-quality",
+                   reply_to_source_entry_id: "msg-agent-report",
+                   text: "Why was today's work lower quality?"
+                 }),
+                 now: reply_time
+               )
+
+      assert Repo.get!(InboundBatch, target_batch.id).outcome == "no_actor_event"
+      assert reply_batch.mode == "addressed"
+      assert reply_batch.reply_to_source_entry_id == "msg-agent-report"
+
+      assert {:ok, [%{actor_event: actor_event}]} =
+               finalize_due_inbound_batch_events(now: DateTime.add(reply_time, 600, :millisecond))
+
+      assert actor_event.type == "im.message.addressed"
+
+      assert %{
+               "source_entry_id" => "msg-agent-report",
+               "resolution" => "resolved",
+               "role" => "agent",
+               "text" => "Yesterday's complete report"
+             } = get_in(actor_event.payload, ["data", "entry", "reply_to"])
+
+      assert get_in(actor_event.payload, ["data", "entry", "reply_to_source_entry_id"]) ==
+               "msg-agent-report"
+
+      assert %Entry{reply_to_source_entry_id: "msg-agent-report"} =
+               Repo.get_by!(Entry,
+                 signal_channel_id: "lark:chat:group-a",
+                 source_entry_id: "msg-compare-quality"
+               )
+    end
+
+    test "reply resolution does not borrow human attachments from another agent binding" do
+      %{principal: agent_a} = agent_fixture()
+      %{principal: agent_b} = agent_fixture()
+      binding_fixture(agent_a.uid, "lark-main", :record_only)
+      binding_fixture(agent_b.uid, "lark-main", :ignore)
+
+      attachment = %{
+        "name" => "strategy.pdf",
+        "resource_type" => "file",
+        "agent_computer_path" => "/workspace/agent-a/inbox/strategy.pdf"
+      }
+
+      assert {:ok, %{status: :recorded}} =
+               Ingress.emit_entry(
+                 agent_a.uid,
+                 "lark-main",
+                 group_entry(%{
+                   source_event_id: "evt-agent-a-parent",
+                   source_entry_id: "msg-agent-a-parent",
+                   text: "Shared-room source text",
+                   attachments: [attachment]
+                 }),
+                 now: @base_time
+               )
+
+      assert %Entry{attachments: [^attachment]} =
+               Repo.get_by!(Entry,
+                 signal_channel_id: "lark:chat:group-a",
+                 source_entry_id: "msg-agent-a-parent"
+               )
+
+      assert {:ok, %{status: :accepted}} =
+               Ingress.emit_entry(
+                 agent_b.uid,
+                 "lark-main",
+                 group_entry(%{
+                   source_event_id: "evt-agent-b-reply",
+                   source_entry_id: "msg-agent-b-reply",
+                   reply_to_source_entry_id: "msg-agent-a-parent",
+                   explicit: true,
+                   text: "Please inspect this"
+                 }),
+                 now: DateTime.add(@base_time, 1, :millisecond)
+               )
+
+      assert {:ok, results} =
+               finalize_due_inbound_batch_events(now: DateTime.add(@base_time, 601, :millisecond))
+
+      assert [%{actor_event: actor_event}] =
+               Enum.filter(results, &Map.has_key?(&1, :actor_event))
+
+      assert actor_event.agent_uid == agent_b.uid
+
+      assert %{
+               "source_entry_id" => "msg-agent-a-parent",
+               "resolution" => "resolved",
+               "text" => "Shared-room source text",
+               "attachments" => []
+             } = get_in(actor_event.payload, ["data", "entry", "reply_to"])
     end
 
     test "non-IM entries need code-defined actor event type instead of addressed IM fallback" do
@@ -610,7 +907,10 @@ defmodule Ankole.SignalsGatewayIngressTest do
       %{principal: agent} = agent_fixture()
 
       binding_fixture(agent.uid, "bot", :ignore,
-        filters: %{"cel" => "signal.channel.id == 'lark:chat:allowed'"}
+        filters: %{
+          "cel" =>
+            "signal.channel.id == 'lark:chat:allowed' && signal.entry.reply_to_source_entry_id == 'msg-parent'"
+        }
       )
 
       assert {:ok, %{status: :filtered}} =
@@ -627,6 +927,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
           "bot",
           group_entry(%{
             explicit: true,
+            reply_to_source_entry_id: "msg-parent",
             source_event_id: "evt-allowed",
             signal_channel_id: "lark:chat:allowed",
             source_entry_id: "msg-allowed"
@@ -634,6 +935,10 @@ defmodule Ankole.SignalsGatewayIngressTest do
         )
 
       assert input.signal_channel_id == "lark:chat:allowed"
+
+      assert get_in(input.payload, ["data", "entry", "reply_to_source_entry_id"]) ==
+               "msg-parent"
+
       assert Repo.aggregate(Entry, :count) == 1
       assert Repo.aggregate(ActorEvent, :count) == 1
     end
@@ -1422,5 +1727,32 @@ defmodule Ankole.SignalsGatewayIngressTest do
       inserted_at: provider_time,
       updated_at: provider_time
     })
+  end
+
+  defp complete_actor_response!(agent_uid, conversation_id, actor_event_id) do
+    assert {:ok, response} =
+             StatefulResponses.start_response_run(%{
+               subject_uid: agent_uid,
+               conversation_id: conversation_id,
+               metadata: %{"request_metadata" => %{"actor_event_id" => actor_event_id}},
+               request_items: [
+                 %{
+                   "type" => "message",
+                   "role" => "user",
+                   "content" => [%{"type" => "input_text", "text" => "actor input"}]
+                 }
+               ]
+             })
+
+    assert {:ok, response} =
+             StatefulResponses.commit_complete(response, [
+               %{
+                 "type" => "message",
+                 "role" => "assistant",
+                 "content" => [%{"type" => "output_text", "text" => "assistant output"}]
+               }
+             ])
+
+    response
   end
 end

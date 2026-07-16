@@ -4,6 +4,11 @@ async fn run_stream(
     sink: EventSink,
     aborted_sent: Arc<AtomicBool>,
 ) {
+    if spec.hosted_tools.is_some() {
+        hosted_responses::run_hosted_stream(spec, command_rx, sink, aborted_sent).await;
+        return;
+    }
+
     let spec = match request_builder::prepare_stream_spec(spec) {
         Ok(spec) => spec,
         Err(error) => {
@@ -42,10 +47,8 @@ async fn run_http_stream(
     }
 
     let encoder = DownstreamEncoder::new(spec.downstream);
-    let mut resolver = api_resolver::APIResolver::new(
-        spec.api_resolver,
-        spec.response_context.clone(),
-    );
+    let mut resolver =
+        api_resolver::APIResolver::new(spec.api_resolver, spec.response_context.clone());
     let mut delivery = Delivery::new(
         http_stream.1,
         sink.clone(),
@@ -343,10 +346,8 @@ async fn run_websocket_stream(
     }
 
     let encoder = DownstreamEncoder::new(spec.downstream);
-    let mut resolver = api_resolver::APIResolver::new(
-        spec.api_resolver,
-        spec.response_context.clone(),
-    );
+    let mut resolver =
+        api_resolver::APIResolver::new(spec.api_resolver, spec.response_context.clone());
     let mut delivery = Delivery::new(
         command_rx,
         sink.clone(),
@@ -590,6 +591,30 @@ impl Delivery {
         }
     }
 
+    async fn push_events_bounded(&mut self, events: Vec<Value>) -> bool {
+        for event in events {
+            let chunk = self.encoder.encode_event(&event);
+
+            if chunk.bytes.len() > self.max_pending_bytes {
+                return false;
+            }
+
+            self.flush_pending_available();
+            while !self.has_capacity_for(chunk.bytes.len()) {
+                let command = self.command_rx.recv().await;
+                if !self.handle_command(command) {
+                    return false;
+                }
+                self.flush_pending_available();
+            }
+
+            self.push_chunk(chunk);
+            self.flush_pending_available();
+        }
+
+        true
+    }
+
     fn push_chunk(&mut self, chunk: DownstreamChunk) {
         self.pending_bytes = self.pending_bytes.saturating_add(chunk.bytes.len());
         self.pending.push_back(chunk);
@@ -613,6 +638,11 @@ impl Delivery {
         self.pending.is_empty()
             || (self.pending.len() < self.max_pending_chunks
                 && self.pending_bytes < self.max_pending_bytes)
+    }
+
+    fn has_capacity_for(&self, bytes: usize) -> bool {
+        self.pending.len() < self.max_pending_chunks
+            && self.pending_bytes.saturating_add(bytes) <= self.max_pending_bytes
     }
 
     async fn wait_upstream<F, T>(&mut self, future: F) -> Option<T>
@@ -688,7 +718,17 @@ impl Delivery {
         }
     }
 
-    async fn finish_error_events(mut self, events: Vec<Value>, error: StreamError) {
+    async fn finish_error_events(self, events: Vec<Value>, error: StreamError) {
+        self.finish_error_events_with_metadata(events, error, None)
+            .await;
+    }
+
+    async fn finish_error_events_with_metadata(
+        mut self,
+        events: Vec<Value>,
+        error: StreamError,
+        metadata: Option<Value>,
+    ) {
         if events.is_empty() {
             self.push_chunk(self.encoder.encode_error(&error));
         } else {
@@ -700,7 +740,11 @@ impl Delivery {
         }
 
         if self.flush_pending_blocking().await {
-            (self.sink)(StreamEvent::Error(error.to_json()));
+            let mut error_json = error.to_json();
+            if let Some(metadata) = metadata {
+                error_json["hosted_tool_metadata"] = metadata;
+            }
+            (self.sink)(StreamEvent::Error(error_json));
         }
     }
 

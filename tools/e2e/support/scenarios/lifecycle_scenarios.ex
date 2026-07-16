@@ -20,10 +20,10 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
 
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AIGateway.Schemas.Message
-  alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.E2E.FakeFeishu
   alias Ankole.Repo
+  alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Entry
 
@@ -816,7 +816,7 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
     source_event_id = "session.reset_due:chaos:#{Ecto.UUID.generate()}"
 
     assert {:ok, reset_event} =
-             Actors.append_actor_event(%{
+             SignalsGateway.append_actor_event(%{
                agent_uid: agent_uid,
                binding_name: "control-plane:session-lifecycle",
                session_id: session_id,

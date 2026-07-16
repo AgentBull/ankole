@@ -2,7 +2,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
   @moduledoc """
   Operator-managed environment variables for Agent Computer shells.
 
-  Two tracks feed one merged environment:
+  Three tracks feed one merged environment:
 
     * Declared variables are AppConfigure definitions marked with
       `worker_env_name`. Schema, encryption, description, and per-agent
@@ -12,11 +12,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
     * Custom variables are free-form operator rows in
       `agent_computer_worker_envs`, global or per agent, with a per-row
       secret flag.
+    * Binding-derived variables are resolved by active signal adapters for the
+      current Agent. They are ephemeral and never become editable Console rows.
 
-  Merge order (low to high): declared < custom global < custom agent < the
-  model's explicit per-command `env`. Enforcing operator values against a
-  shell that can `export` would be a fake guarantee, so the model keeps the
-  last word for a single command.
+  Merge order (low to high): declared < custom global < custom agent <
+  binding-derived < the model's explicit per-command `env`. Provider-derived
+  identity wins over operator rows, while the trusted model still has the last
+  word for a single command.
 
   Console reads and writes route by name so operators see one editing
   surface: a name resolves to its custom row first (matching merge
@@ -33,6 +35,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
   alias Ankole.Repo
   alias Ankole.SignalsGateway.ActorRuntime.WorkerEnv.Crypto
   alias Ankole.SignalsGateway.ActorRuntime.WorkerEnv.EnvVar
+  alias Ankole.SignalsGateway.ActorRuntime.BindingWorkerEnv
 
   @global_scope "global"
   @agent_scope_prefix "agent:"
@@ -59,8 +62,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
     with {:ok, scope} <- agent_scope(agent_uid),
          {:ok, declared} <- declared_env(agent_uid),
          {:ok, global_custom} <- custom_env(@global_scope),
-         {:ok, agent_custom} <- custom_env(scope) do
-      {:ok, declared |> Map.merge(global_custom) |> Map.merge(agent_custom)}
+         {:ok, agent_custom} <- custom_env(scope),
+         {:ok, binding_derived} <- BindingWorkerEnv.resolve(agent_uid) do
+      {:ok,
+       declared
+       |> Map.merge(global_custom)
+       |> Map.merge(agent_custom)
+       |> Map.merge(binding_derived)}
     end
   end
 

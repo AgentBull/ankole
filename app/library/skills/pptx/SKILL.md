@@ -3,6 +3,7 @@ name: pptx
 description: "Use this skill any time a .pptx file is involved -- as input, output, or both. This OfficeCLI-backed skill covers creating, reading, editing, combining, and splitting PowerPoint decks. Trigger whenever the user mentions deck, slides, presentation, pitch, or references a .pptx filename."
 default_enabled: true
 category: productivity
+long_running: true
 tags: [pptx, slides, presentation, officecli]
 metadata:
   upstream: https://github.com/iOfficeAI/OfficeCLI/tree/v1.0.129/skills/officecli-pptx
@@ -11,6 +12,8 @@ metadata:
 ---
 
 # OfficeCLI PPTX Skill
+
+For visual styling, use `design-md` when the user requests the internal design system or VIS, skip it when they opt out or choose another style instead, and treat it as optional when no style source is specified.
 
 ## Setup
 

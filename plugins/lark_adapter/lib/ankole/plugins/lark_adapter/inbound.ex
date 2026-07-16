@@ -125,8 +125,8 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
              provider_time <- provider_time(message, event),
              channel_kind <- channel_kind(message),
              signal_channel_id <- signal_channel_id(chat_id),
-             provider_thread_id <-
-               provider_thread_id(chat_id, root_id(message, source_entry_id)),
+             provider_thread_id <- message_thread_id(chat_id, message),
+             reply_to_source_entry_id <- reply_target_id(message, source_entry_id),
              attachments <-
                maybe_backfill_attachments(
                  attachments,
@@ -143,6 +143,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
              source_event_id: event.id || source_entry_id,
              source_entry_id: source_entry_id,
              signal_channel_id: signal_channel_id,
+             reply_to_source_entry_id: reply_to_source_entry_id,
              provider_thread_id: provider_thread_id,
              channel: %{
                kind: channel_kind,
@@ -215,7 +216,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
         source_event_id: event.id || "recall:#{source_entry_id}",
         signal_channel_id: signal_channel_id(chat_id),
         source_entry_id: source_entry_id,
-        provider_thread_id: provider_thread_id(chat_id, root_id(message, source_entry_id)),
+        provider_thread_id: message_thread_id(chat_id, message),
         channel: %{
           kind: channel_kind(message),
           reply_mode: :entry,
@@ -744,8 +745,16 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
          } = consumer
        )
        when is_function(materializer, 3) do
-    materializer.(attachments, message, consumer)
+    case Enum.all?(attachments, &materialized_attachment?/1) do
+      true -> {:ok, attachments}
+      false -> materializer.(attachments, message, consumer)
+    end
   end
+
+  defp materialized_attachment?(attachment) when is_map(attachment),
+    do: present_text?(attachment["agent_computer_path"])
+
+  defp materialized_attachment?(_attachment), do: false
 
   defp materialize_lark_attachments(attachments, _message, %{config: config}) do
     client = Config.client(config)
@@ -906,10 +915,23 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     end
   end
 
-  defp root_id(message, source_entry_id) do
-    optional_text(message, "root_id") ||
-      optional_text(message, "parent_id") ||
-      source_entry_id
+  # provider_thread_id names the thread that already contains the message, so
+  # only provider-marked replies carry one. A self-id fallback would give every
+  # top-level message its own inbound-batch key, so same-sender bursts could
+  # never merge and channel-scoped debounce would never engage.
+  defp message_thread_id(chat_id, message) do
+    case optional_text(message, "root_id") || optional_text(message, "parent_id") do
+      nil -> nil
+      root_id -> provider_thread_id(chat_id, root_id)
+    end
+  end
+
+  defp reply_target_id(message, source_entry_id) do
+    case optional_text(message, "parent_id") || optional_text(message, "upper_message_id") ||
+           optional_text(message, "root_id") do
+      ^source_entry_id -> nil
+      target_id -> target_id
+    end
   end
 
   @doc false
@@ -994,7 +1016,16 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   defp action_name(_action), do: "card_action"
 
   defp action_value(%CardAction{action: action}) when is_map(action) do
-    fetch_value(action, "value") || action
+    value =
+      case fetch_value(action, "value") do
+        value when is_map(value) -> value
+        _value -> action
+      end
+
+    case fetch_value(action, "form_value") do
+      form_value when is_map(form_value) -> Map.put(value, "formValue", form_value)
+      _form_value -> value
+    end
   end
 
   defp action_value(_action), do: %{}

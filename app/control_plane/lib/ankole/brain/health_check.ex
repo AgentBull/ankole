@@ -5,16 +5,20 @@ defmodule Ankole.Brain.HealthCheck do
 
   alias Ankole.Brain.Config
   alias Ankole.Brain.Knowledge
+  alias Ankole.Brain.Schemas.BlockCitation
   alias Ankole.Brain.Schemas.Entry
   alias Ankole.Brain.Schemas.EntryBlock
   alias Ankole.Brain.Schemas.EntryRelation
+  alias Ankole.Brain.Schemas.RetainedSource
   alias Ankole.Brain.Scope
+  alias Ankole.Brain.Sources
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.Entry, as: SignalEntry
 
   @stale_days 90
+  @source_review_days 90
   @long_projection_lines 200
 
   @spec run(Scope.t()) :: {:ok, map()} | {:error, term()}
@@ -40,7 +44,10 @@ defmodule Ankole.Brain.HealthCheck do
              knowledge_config["pinned_memo_max_tokens"]
            ),
          "failed_embeddings" => failed_embeddings(blocks),
-         "unresolved_conflicts" => unresolved_conflicts(entries, blocks),
+         "uncited_generated_blocks" => uncited_generated_blocks(entries, blocks),
+         "broken_citations" => broken_citations(scope, entries, blocks),
+         "unintegrated_sources" => unintegrated_sources(scope),
+         "old_url_sources" => old_url_sources(scope),
          "dreaming_blocks" => dreaming_blocks(entries, blocks)
        }}
     end
@@ -219,18 +226,109 @@ defmodule Ankole.Brain.HealthCheck do
     end)
   end
 
-  defp unresolved_conflicts(entries, blocks) do
+  defp uncited_generated_blocks(entries, blocks) do
     names = Map.new(entries, &{&1.id, &1.name})
+    block_ids = Enum.map(blocks, & &1.id)
+
+    cited_block_ids =
+      BlockCitation
+      |> where([citation], citation.block_id in ^block_ids)
+      |> select([citation], citation.block_id)
+      |> Repo.all()
+      |> MapSet.new()
 
     blocks
-    |> Enum.filter(&String.contains?(&1.body, "未裁决"))
+    |> Enum.filter(&(&1.author_kind in [:agent, :dreaming]))
+    |> Enum.reject(&MapSet.member?(cited_block_ids, &1.id))
     |> Enum.map(fn block ->
       %{
         "entry_id" => block.entry_id,
         "entry_name" => names[block.entry_id],
-        "block_id" => block.id
+        "block_id" => block.id,
+        "reason" => "generated_claim_without_source"
       }
     end)
+  end
+
+  defp broken_citations(_scope, _entries, []), do: []
+
+  defp broken_citations(scope, entries, blocks) do
+    names = Map.new(entries, &{&1.id, &1.name})
+    entry_by_block = Map.new(blocks, &{&1.id, &1.entry_id})
+
+    BlockCitation
+    |> where([citation], citation.block_id in ^Map.keys(entry_by_block))
+    |> order_by([citation], asc: citation.block_id, asc: citation.document_id)
+    |> Repo.all()
+    |> Enum.flat_map(fn citation ->
+      case Sources.resolve(Repo, scope, citation.document_id) do
+        {:ok, _source} ->
+          []
+
+        {:error, reason} ->
+          entry_id = entry_by_block[citation.block_id]
+
+          [
+            %{
+              "entry_id" => entry_id,
+              "entry_name" => names[entry_id],
+              "block_id" => citation.block_id,
+              "document_id" => citation.document_id,
+              "reason" => to_string(reason)
+            }
+          ]
+      end
+    end)
+  end
+
+  defp unintegrated_sources(scope) do
+    RetainedSource
+    |> where([source], source.owner_uid == ^scope.owner_uid)
+    |> maybe_stores(scope.readable_store_keys)
+    |> join(:left, [source], citation in BlockCitation,
+      on: citation.document_id == source.document_id
+    )
+    |> group_by([source], [
+      source.id,
+      source.document_id,
+      source.title,
+      source.capture_method,
+      source.store_key,
+      source.inserted_at
+    ])
+    |> having([_source, citation], count(citation.block_id) == 0)
+    |> order_by([source], asc: source.inserted_at, asc: source.id)
+    |> select([source], %{
+      "document_id" => source.document_id,
+      "title" => source.title,
+      "capture_method" => source.capture_method,
+      "store" => source.store_key,
+      "captured_at" => source.inserted_at
+    })
+    |> Repo.all()
+    |> Enum.map(&Map.update!(&1, "captured_at", fn value -> DateTime.to_iso8601(value) end))
+  end
+
+  defp old_url_sources(scope) do
+    cutoff = DateTime.add(DateTime.utc_now(:microsecond), -@source_review_days, :day)
+
+    RetainedSource
+    |> where(
+      [source],
+      source.owner_uid == ^scope.owner_uid and source.capture_method == "url"
+    )
+    |> where([source], source.inserted_at < ^cutoff)
+    |> maybe_stores(scope.readable_store_keys)
+    |> order_by([source], asc: source.inserted_at, asc: source.id)
+    |> select([source], %{
+      "document_id" => source.document_id,
+      "title" => source.title,
+      "origin_locator" => source.origin_locator,
+      "captured_at" => source.inserted_at,
+      "reason" => "retained_url_older_than_review_window"
+    })
+    |> Repo.all()
+    |> Enum.map(&Map.update!(&1, "captured_at", fn value -> DateTime.to_iso8601(value) end))
   end
 
   defp dreaming_blocks(entries, blocks) do

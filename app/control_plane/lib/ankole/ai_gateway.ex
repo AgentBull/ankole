@@ -7,15 +7,18 @@ defmodule Ankole.AIGateway do
   depending on caller workflow lifecycle semantics.
   """
 
-  alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.Events
+  alias Ankole.AIGateway.HostedTools.ImageGeneration
+  alias Ankole.AIGateway.HostedToolTelemetry
   alias Ankole.AIGateway.MapUtils
   alias Ankole.AIGateway.Models
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.ModelSelectors
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.Resolver
+  alias Ankole.AIGateway.ResponsesPreparation
+  alias Ankole.AIGateway.ResponseStream
   alias Ankole.AIGateway.StatefulLifecycle
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIGateway.UniversalAIRequest
@@ -45,18 +48,55 @@ defmodule Ankole.AIGateway do
     request = normalize_request_keys(request)
 
     with :ok <- reject_http_stateful_fields(request),
-         {:ok, request} <- CompactionArtifacts.resolve_request_input_handles(subject_uid, request),
-         {:ok, runtime} <- Resolver.resolve_request_model(subject_uid, "llm", request),
-         {:ok, prepared_request} <-
-           Providers.build_response_request(runtime, strip_noop_provider_fields(request),
-             stream?: false
-           ),
-         {:ok, upstream_response} <- execute_prepared_request(runtime, prepared_request, opts) do
-      {:ok, gateway_response(200, Map.fetch!(upstream_response, :body), runtime)}
+         {:ok, %{runtime: runtime, spec: prepared_request}} <-
+           ResponsesPreparation.prepare(subject_uid, request, stream?: false),
+         {:ok, upstream_response} <-
+           execute_response_request(runtime, prepared_request, opts) do
+      persist_response(subject_uid, runtime, prepared_request, upstream_response)
     end
   end
 
   def create_response(_subject_uid, _request, _opts), do: {:error, :invalid_request_body}
+
+  defp execute_response_request(runtime, prepared_request, opts) do
+    case execute_prepared_request(runtime, prepared_request, opts) do
+      {:error, reason} when is_map_key(prepared_request, :hosted_tools) ->
+        error = ImageGeneration.normalize_execution_error(reason)
+        HostedToolTelemetry.emit_failure(prepared_request, error)
+        {:error, error}
+
+      result ->
+        result
+    end
+  end
+
+  defp persist_response(subject_uid, runtime, prepared_request, upstream_response) do
+    case ImageGeneration.persist_response(
+           subject_uid,
+           Map.fetch!(upstream_response, :body)
+         ) do
+      {:ok, body} ->
+        HostedToolTelemetry.emit(Map.get(upstream_response, :hosted_tool_metadata))
+        {:ok, gateway_response(200, body, runtime)}
+
+      {:error, error} ->
+        emit_persistence_failure(prepared_request, upstream_response, error)
+        {:error, error}
+    end
+  end
+
+  defp emit_persistence_failure(prepared_request, upstream_response, error) do
+    case Map.get(upstream_response, :hosted_tool_metadata) do
+      %{} = metadata ->
+        metadata
+        |> Map.put("result", "failure")
+        |> Map.put("failure_reason", error.code)
+        |> HostedToolTelemetry.emit()
+
+      _missing ->
+        HostedToolTelemetry.emit_failure(prepared_request, error)
+    end
+  end
 
   @doc """
   Retrieves one stored stateful response owned by the authenticated subject.
@@ -200,20 +240,18 @@ defmodule Ankole.AIGateway do
 
   @doc false
   @spec open_sse_stream(String.t(), map(), keyword()) ::
-          {:ok, Ankole.Kernel.UniversalAIClient.stream(), map()} | {:error, term()}
+          {:ok, ResponseStream.t(), map()} | {:error, term()}
   def open_sse_stream(subject_uid, request, opts \\ [])
 
   def open_sse_stream(subject_uid, request, opts) when is_map(request) do
     request = normalize_request_keys(request)
 
     with :ok <- reject_http_stateful_fields(request),
-         {:ok, request} <- CompactionArtifacts.resolve_request_input_handles(subject_uid, request),
-         {:ok, runtime} <- Resolver.resolve_request_model(subject_uid, "llm", request),
-         {:ok, prepared_request} <-
-           Providers.build_response_request(runtime, strip_noop_provider_fields(request),
-             stream?: true
-           ) do
-      UniversalAIRequest.open_stream(prepared_request, :sse, opts)
+         {:ok, %{spec: prepared_request}} <-
+           ResponsesPreparation.prepare(subject_uid, request, stream?: true),
+         {:ok, stream, meta} <-
+           ResponseStream.open(subject_uid, request, prepared_request, opts) do
+      {:ok, stream, meta}
     else
       {:error, _reason} = error -> error
       reason -> {:error, reason}
@@ -224,19 +262,27 @@ defmodule Ankole.AIGateway do
 
   @doc false
   @spec open_websocket_stream(String.t(), map(), keyword()) ::
-          {:ok, Ankole.Kernel.UniversalAIClient.stream(), map()} | {:error, term()}
+          {:ok, ResponseStream.t(), map()} | {:error, term()}
   def open_websocket_stream(subject_uid, request, opts \\ [])
 
   def open_websocket_stream(subject_uid, request, opts) when is_map(request) do
     with {:ok, prepared_request, stateful_context} <-
            prepare_websocket_stream_request(subject_uid, request) do
-      case UniversalAIRequest.open_stream(prepared_request, :websocket_text, opts) do
-        {:ok, stream, meta} ->
-          {:ok, stream, put_stateful_stream_meta(meta, stateful_context)}
+      result =
+        ResponseStream.open(
+          subject_uid,
+          normalize_request_keys(request),
+          prepared_request,
+          Keyword.put(opts, :stateful, stateful_context)
+        )
 
-        {:error, reason} ->
-          commit_stateful_open_error(stateful_context, reason)
-          {:error, reason}
+      case result do
+        {:error, reason} = error ->
+          StatefulLifecycle.commit_socket_open_error(stateful_context, reason)
+          error
+
+        {:ok, _stream, _meta} = opened ->
+          opened
       end
     end
   end
@@ -267,21 +313,17 @@ defmodule Ankole.AIGateway do
     StatefulLifecycle.prepare_websocket_provider_request(subject_uid, request)
   end
 
-  defp strip_noop_provider_fields(request) do
-    request
-    |> Map.delete("service_tier")
-  end
-
   defp maybe_start_websocket_stateful_run(run_attrs),
     do: StatefulLifecycle.start_websocket_run(run_attrs)
 
-  defp put_stateful_stream_meta(meta, nil), do: meta
+  @doc false
+  @spec read_response_stream(ResponseStream.t(), non_neg_integer()) :: :ok | {:error, term()}
+  def read_response_stream(stream, count \\ 1), do: ResponseStream.read(stream, count)
 
-  defp put_stateful_stream_meta(meta, stateful_context),
-    do: Map.put(meta, :stateful, stateful_context)
-
-  defp commit_stateful_open_error(stateful_context, reason),
-    do: StatefulLifecycle.commit_socket_open_error(stateful_context, reason)
+  @doc false
+  @spec cancel_response_stream(ResponseStream.t(), String.t()) :: :ok | {:error, term()}
+  def cancel_response_stream(stream, reason \\ "consumer_cancelled"),
+    do: ResponseStream.cancel(stream, reason)
 
   defp execute_prepared_request(_runtime, prepared_request, opts),
     do: UniversalAIRequest.request(prepared_request, opts)

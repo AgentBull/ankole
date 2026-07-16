@@ -12,6 +12,31 @@ defmodule Ankole.SignalsGateway.ActorEventTypes do
   """
 
   @live_turn_command_types ~w(command.new command.stop command.retry command.steer command.compress)
+  @interaction_preserving_turn_types ~w(
+    signal.entry.removed
+    check_back_later.wakeup
+    cron.fire
+    subagent.delegation.completed
+    subagent.delegation.failed
+    subagent.delegation.waiting
+  )
+
+  @doc """
+  Whether appending this event makes an older pending interaction stale.
+
+  New human input and control commands supersede an unanswered clarification.
+  Asynchronous lifecycle notifications may start a visible Agent Turn, but do
+  not express new user intent and therefore preserve the pending interaction.
+  """
+  @spec supersedes_pending_interaction?(String.t()) :: boolean()
+  def supersedes_pending_interaction?(type) when is_binary(type),
+    do: type not in @interaction_preserving_turn_types
+
+  def supersedes_pending_interaction?(_type), do: false
+
+  @doc false
+  @spec interaction_preserving_turn_types() :: [String.t()]
+  def interaction_preserving_turn_types, do: @interaction_preserving_turn_types
 
   @doc """
   Command events that may wake a session while another event has a live delivery.

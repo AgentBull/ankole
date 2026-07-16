@@ -59,27 +59,15 @@ function providerSetting(key: string, overrides: Partial<AIGatewayProviderSettin
 }
 
 describe('provider settings', () => {
-  test('moves OpenRouter attribution and base URL fields into advanced settings', () => {
-    const kind = providerKind('openrouter')
-
-    expect(connectionSettings(kind).map(setting => [setting.key, setting.advanced])).toEqual([
-      ['base_url', true],
-      ['api_key', false],
-      ['app_referer', true],
-      ['app_title', true],
-      ['headers', true]
-    ])
-  })
-
-  test('keeps ordinary provider text settings and base URL in the basic section', () => {
+  test('selects only connection-scope settings in DSL order for the connection form', () => {
     const kind = providerKind('openai')
 
-    expect(connectionSettings(kind).map(setting => [setting.key, setting.advanced])).toEqual([
-      ['base_url', false],
-      ['api_key', false],
-      ['app_referer', false],
-      ['app_title', false],
-      ['headers', true]
+    expect(connectionSettings(kind).map(setting => setting.key)).toEqual([
+      'base_url',
+      'api_key',
+      'app_referer',
+      'app_title',
+      'headers'
     ])
   })
 
@@ -93,12 +81,6 @@ describe('provider settings', () => {
       ['mode', 'string'],
       ['strictJSONSchema', 'boolean']
     ])
-
-    expect(
-      requestSettings(providerKind('openai'))
-        .filter(setting => setting.advanced)
-        .map(setting => setting.key)
-    ).toEqual(['strictJSONSchema'])
   })
 
   test('serializes smart field drafts using the DSL value types', () => {

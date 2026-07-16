@@ -3,8 +3,9 @@ defmodule Ankole.Brain do
   PostgreSQL-backed Brain for one accountable principal.
 
   Structured knowledge is durable truth. Markdown projections, search results,
-  frozen conversation snapshots, and dreaming output are read/write surfaces
-  over that one relational model.
+  Brain coordinates evidence, curation, current knowledge, and human review.
+  SignalsGateway continues to own chat evidence; Brain owns retained source bytes,
+  curated knowledge, dreaming state, and recovery records.
   """
 
   alias Ankole.Brain.Config
@@ -16,17 +17,23 @@ defmodule Ankole.Brain do
   alias Ankole.Brain.Recall.Chat
   alias Ankole.Brain.Recall.Search
   alias Ankole.Brain.Scope
+  alias Ankole.Brain.Sources
   alias Ankole.Brain.SourceWithdrawal
   alias Ankole.Brain.Supervision
 
   @spec ensure_registered() :: :ok | {:error, term()}
   defdelegate ensure_registered(), to: Config
 
-  @spec search(Scope.t(), map()) :: {:ok, map()} | {:error, term()}
-  defdelegate search(scope, attrs), to: Search
+  @spec search(Scope.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  defdelegate search(scope, attrs, opts \\ []), to: Search
 
   @spec browse(Scope.t(), map()) :: {:ok, map()} | {:error, term()}
-  defdelegate browse(scope, attrs), to: Chat
+  def browse(%Scope{} = scope, attrs) when is_map(attrs) do
+    case Map.get(attrs, "document_id") || Map.get(attrs, :document_id) do
+      "brain-source:" <> _id = document_id -> Sources.open_model(scope, document_id)
+      _chat_request -> Chat.browse(scope, attrs)
+    end
+  end
 
   @spec open(Scope.t(), map() | String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate open(scope, selector, opts \\ []), to: Knowledge
@@ -57,8 +64,25 @@ defmodule Ankole.Brain do
           {:ok, map()} | {:error, term()}
   defdelegate restore_audits(owner_uid, audit_ids, actor_uid), to: Supervision
 
-  @spec resolve_source(String.t()) :: {:ok, map()} | {:error, :not_found}
-  defdelegate resolve_source(document_id), to: Supervision
+  @spec resolve_source(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  defdelegate resolve_source(owner_uid, document_id), to: Supervision
+
+  @spec list_sources(String.t()) :: {:ok, [map()]} | {:error, term()}
+  defdelegate list_sources(owner_uid), to: Supervision
+
+  @spec capture_source(String.t(), String.t(), map(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  defdelegate capture_source(owner_uid, store_key, attrs, creator_uid, opts \\ []),
+    to: Supervision
+
+  @spec learn_source(String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  defdelegate learn_source(owner_uid, document_id, opts \\ []), to: Supervision
+
+  @spec source_raw(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  defdelegate source_raw(owner_uid, document_id), to: Supervision
+
+  @spec review_candidates(String.t()) :: {:ok, map()} | {:error, term()}
+  defdelegate review_candidates(owner_uid), to: Supervision
 
   @spec dreaming_fitness(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate dreaming_fitness(owner_uid, opts \\ []), to: Supervision

@@ -1,8 +1,6 @@
 defmodule Ankole.AIGateway.ResponsesDispatchTest do
   use Ankole.AIGatewayCase
 
-  import AnkoleWeb.AIGatewayControllerTestHelpers, only: [decode_sse_events: 1]
-
   alias Ankole.AIGateway.Compaction
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.Providers
@@ -12,7 +10,6 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
   alias Ankole.AIGateway.Schemas.CompactionArtifact
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.Kernel.UniversalAIClient
   alias Ankole.Repo
 
   test "responses dispatch rejects stateful HTTP fields before provider dispatch" do
@@ -2898,59 +2895,23 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     end
   end
 
-  defp collect_sse_chunks(stream, chunks) do
-    with :ok <- UniversalAIClient.read(stream, 1) do
+  defp collect_sse_chunks(stream, events) do
+    with :ok <- AIGateway.read_response_stream(stream, 1) do
       receive do
-        {:universal_ai_client, ref, :chunk, _seq, :sse, chunk} when ref == stream.ref ->
-          chunks = [chunk | chunks]
+        {:ai_gateway_response_stream, ref, :events, batch, :continue}
+        when ref == stream.ref ->
+          collect_sse_chunks(stream, events ++ batch)
 
-          case terminal_sse_events(chunks) do
-            [] -> collect_sse_chunks(stream, chunks)
-            events -> {:ok, events}
-          end
-
-        {:universal_ai_client, ref, :done, _summary} when ref == stream.ref ->
-          {:ok, decode_sse_chunks(chunks)}
-
-        {:universal_ai_client, ref, :error, error} when ref == stream.ref ->
-          {:error, error}
-
-        {:universal_ai_client, ref, :aborted} when ref == stream.ref ->
-          {:error, :stream_aborted}
+        {:ai_gateway_response_stream, ref, :events, batch, {:terminal, _outcome}}
+        when ref == stream.ref ->
+          {:ok, events ++ batch}
       after
         1_000 ->
-          _ = UniversalAIClient.cancel(stream)
-          {:error, :native_stream_receive_timeout}
+          _ = AIGateway.cancel_response_stream(stream, "test_receive_timeout")
+          {:error, :response_stream_receive_timeout}
       end
     else
-      {:error, _reason} ->
-        case terminal_sse_events(chunks) do
-          [] -> {:error, :native_stream_closed_before_terminal}
-          events -> {:ok, events}
-        end
-    end
-  end
-
-  defp decode_sse_chunks(chunks) do
-    chunks
-    |> Enum.reverse()
-    |> IO.iodata_to_binary()
-    |> decode_sse_events()
-  end
-
-  defp terminal_sse_events(chunks) do
-    events = decode_sse_chunks(chunks)
-
-    case Enum.any?(
-           events,
-           &(Map.get(&1, "type") in [
-               "response.completed",
-               "response.failed",
-               "response.incomplete"
-             ])
-         ) do
-      true -> events
-      false -> []
+      {:error, reason} -> {:error, reason}
     end
   end
 

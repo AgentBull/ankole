@@ -185,6 +185,7 @@ export function createTodoTool(store: TodoStore): AgentTool<typeof TodoParams, T
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
+    describeActivity: () => null,
     async execute(toolCallID, params): Promise<AgentToolResult<TodoToolDetails>> {
       if (params.todos !== undefined) store.write(params.todos, params.merge ?? false)
       const details = store.snapshot()

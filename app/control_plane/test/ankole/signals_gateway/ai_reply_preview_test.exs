@@ -49,6 +49,31 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert recorded.reply_preview_source_entry_id =~ "mock-reply-"
   end
 
+  test "preview seeds visible context from a failed subagent trigger" do
+    %{subject: subject, actor_event: actor_event} = addressed_actor_event("subagent-failure")
+
+    actor_event =
+      actor_event
+      |> ActorEvent.changeset(%{
+        type: "subagent.delegation.failed",
+        payload: %{
+          "data" => %{
+            "title" => "第二版 deep research",
+            "result_summary" => "返回 JSON Schema 少声明了必填字段"
+          }
+        }
+      })
+      |> Repo.update!()
+
+    %{pid: pid} = start_dispatched_preview(subject.uid, actor_event)
+
+    assert :sys.get_state(pid).presentation["trigger_context"] == %{
+             "kind" => "subagent_failure",
+             "title" => "第二版 deep research",
+             "summary" => "返回 JSON Schema 少声明了必填字段"
+           }
+  end
+
   test "preview ignores another opaque actor_event_id in the same conversation" do
     %{subject: subject, actor_event: actor_event} = addressed_actor_event("metadata-filter")
 

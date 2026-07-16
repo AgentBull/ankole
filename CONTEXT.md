@@ -44,6 +44,40 @@ _Avoid_: Response incomplete, provider failure, retryable failure, timeout
 主 agent 面向用户的 turn-ending 提问原语：提问发出即结束本 turn，用户答案作为新的入站开启下一 turn，进程内不驻留任何等待。独立于委托场景，凡需用户实质裁决即可用。
 _Avoid_: Ask user, blocking question
 
+## Brain
+
+**Evidence**:
+能够支持或反驳知识主张的原始可观察材料；它保留发生了什么，不代表系统已经接受了什么结论。
+_Avoid_: Knowledge, memory conclusion
+
+**Source**:
+在一个 Principal 的可见范围内可稳定寻址的 Evidence；聊天消息与 Retained Source 都是 Source，但仍由各自领域拥有。
+_Avoid_: Unified source record, source registry
+
+**Retained Source**:
+用户明确要求 Brain 保存的一份原始资料，其内容在保存后保持不变，可供之后的 Source Learning 使用。
+_Avoid_: Source snapshot, ingested document, conversation source
+
+**Source Learning**:
+Agent 完整阅读一份 Retained Source，并只把资料支持且值得长期保留的内容整合进 Curated Knowledge 的一次工作。
+_Avoid_: Ingest job, parsing job, learning record
+
+**Curated Knowledge**:
+Brain 对某个 Principal 当前认可、可直接修正的领域理解，由 Knowledge Entry 组成；原始 Evidence 与历史恢复记录不属于当前知识本身。
+_Avoid_: Evidence archive, append-only memory
+
+**Knowledge Entry**:
+Curated Knowledge 中围绕一个主题维护的当前页面，可包含多块有作者和出处的正文以及与其他页面的关系。
+_Avoid_: Wiki file, claim row
+
+**Curation Guide**:
+人维护的领域整理规则，说明 schema、分类法、建页阈值和更新原则；它提供判断指导，但不授予权限或替代固定约束。
+_Avoid_: Rule engine, schema DSL, system prompt
+
+**Review Candidate**:
+确定性检查定位出的、值得人查看的 Brain 对象；它是可观察信号，不是错误判定或自动修改指令。
+_Avoid_: Lint error, verdict, auto-fix
+
 ## Background Work
 
 **Subagent Delegation**:

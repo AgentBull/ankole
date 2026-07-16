@@ -208,10 +208,34 @@ defmodule Ankole.Plugins.SlackAdapterTest do
       assert {:ok, normalized} = Inbound.normalize_message_receive(event, consumer)
       assert normalized.signal_channel_id == "slack:C1"
       assert normalized.provider_thread_id == "slack:C1:1699999999.000001"
+      assert normalized.reply_to_source_entry_id == "1699999999.000001"
       assert normalized.explicit == true
       assert normalized.text =~ "review @U2 doc (https://example.com)"
       assert [%{"provider_ref" => "slack:file:F1"}] = normalized.attachments
       assert [%{"agent_uid" => "agent-1"}, _other] = normalized.mentions
+    end
+
+    test "top-level messages carry no provider thread id" do
+      consumer = chat_consumer(%{"runtimeBotUserID" => "UBOT"})
+
+      event =
+        event(%{
+          "channel" => "C1",
+          "channel_type" => "channel",
+          "user" => "U1",
+          "text" => "plain channel message",
+          "ts" => "1700000000.000200"
+        })
+
+      assert {:ok, normalized} = Inbound.normalize_message_receive(event, consumer)
+      assert is_nil(normalized.provider_thread_id)
+      assert is_nil(normalized.reply_to_source_entry_id)
+
+      root_event = %{event | content: Map.put(event.content, "thread_ts", "1700000000.000200")}
+
+      assert {:ok, root} = Inbound.normalize_message_receive(root_event, consumer)
+      assert is_nil(root.provider_thread_id)
+      assert is_nil(root.reply_to_source_entry_id)
     end
 
     test "ignores bot senders, changed messages, and routes deletion payloads" do

@@ -9,9 +9,12 @@ import { createTodoTool, TodoStore } from '../../tools/todo/todo-tool'
 import { createWebTools } from '../../tools/web/web-tools'
 import { createSubagentTool } from '../../tools/subagent/subagent-tool'
 import { createClarifyTool } from '../../tools/clarify/clarify-tool'
+import { createSourceLearningTurnTools } from '../../tools/brain/source-learning-turn'
+import type { AgentTool } from '../types'
 import { assistantText, userMessage } from '../llm'
 import { currentChannelFromTurnStart, statefulTruncationFromActorEventPayload } from './actor_event_text'
 import { actorEventUserContent } from './actor_event_content'
+import { channelContextModelMessages } from './channel_context'
 import { acquireTurnAIGatewayAccess } from './turn_ai_gateway_access'
 import {
   actorEventEnvironmentInfoLines,
@@ -60,29 +63,15 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
     if (!aiGatewayConversationID) {
       throw new Error('agent conversation context is missing AIGateway conversation id')
     }
-    const browserRuntimeConfig = await turnActivity.runStep(
-      resolveBrowserRuntimeConfig(turnStart, opts),
-      'browser runtime config'
-    )
-    const workerEnv = await turnActivity.runStep(resolveWorkerEnv(turnStart, opts), 'worker env')
-    const webTools = await turnActivity.runStep(
-      createWebTools({
-        aiGateway,
-        abortSignal: turnActivity.signal,
-        localBrowser: {
-          agentUID: turnStart.turn.actor.agent_uid,
-          executionScopeID: turnStart.turn.actor.session_id ?? turnStart.turn.actor.agent_uid,
-          ssrfFilter: browserRuntimeConfig.ssrfFilter,
-          ...(typeof browserRuntimeConfig.localBrowserIdleTtlMs === 'number'
-            ? { localBrowserIdleTtlMs: browserRuntimeConfig.localBrowserIdleTtlMs }
-            : {})
-        }
-      }),
-      'web tools availability'
-    )
-
-    const todoStore = new TodoStore()
     const actorEvent = turnStart.actor_event
+    const learningTurn =
+      actorEvent.type === 'brain.source.learn'
+        ? createSourceLearningTurnTools({
+            turnStart,
+            workspaceRoot: opts.workspaceRoot,
+            requestMemoryRPC: opts.requestMemoryRPC
+          })
+        : undefined
     const userPrompt = userMessage(
       await actorEventUserContent(actorEvent.payload_json, actorEvent.type, modelRef, {
         workspaceRoot: opts.workspaceRoot,
@@ -91,9 +80,32 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       })
     )
 
-    const tools = [
-      createTodoTool(todoStore),
-      ...createComputerTools({
+    let tools: AgentTool[]
+
+    if (learningTurn) {
+      tools = learningTurn.tools
+    } else {
+      const browserRuntimeConfig = await turnActivity.runStep(
+        resolveBrowserRuntimeConfig(turnStart, opts),
+        'browser runtime config'
+      )
+      const workerEnv = await turnActivity.runStep(resolveWorkerEnv(turnStart, opts), 'worker env')
+      const webTools = await turnActivity.runStep(
+        createWebTools({
+          aiGateway,
+          abortSignal: turnActivity.signal,
+          localBrowser: {
+            agentUID: turnStart.turn.actor.agent_uid,
+            executionScopeID: turnStart.turn.actor.session_id ?? turnStart.turn.actor.agent_uid,
+            ssrfFilter: browserRuntimeConfig.ssrfFilter,
+            ...(typeof browserRuntimeConfig.localBrowserIdleTtlMs === 'number'
+              ? { localBrowserIdleTtlMs: browserRuntimeConfig.localBrowserIdleTtlMs }
+              : {})
+          }
+        }),
+        'web tools availability'
+      )
+      const computerTools = createComputerTools({
         agentUID: turnStart.turn.actor.agent_uid,
         conversationID: turnStart.turn.actor.session_id,
         workspaceRoot: opts.workspaceRoot,
@@ -101,34 +113,36 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
         localBrowserIdleTtlMs: browserRuntimeConfig.localBrowserIdleTtlMs,
         ssrfFilter: browserRuntimeConfig.ssrfFilter,
         workerEnv
-      }),
-      ...createScheduleTools({
-        turnStart,
-        requestScheduleRPC: opts.requestScheduleRPC
-      }),
-      ...createMemoryTools({
-        turnStart,
-        requestMemoryRPC: opts.requestMemoryRPC
-      }),
-      ...webTools,
-      createClarifyTool(),
-      createSubagentTool({
-        turnStart,
-        createSubagentDelegation: opts.createSubagentDelegation,
-        getSubagentDelegation: opts.getSubagentDelegation,
-        listSubagentDelegations: opts.listSubagentDelegations,
-        steerSubagentDelegation: opts.steerSubagentDelegation,
-        stopSubagentDelegation: opts.stopSubagentDelegation
-      }),
-      ...createSkillTools(opts.workspaceRoot, {
-        turn: turnStart.turn,
-        enabledSkills: agentConversationContext.skills ?? [],
-        skillRoots: skillRootsFromOptions(opts),
-        requestSkillOverlay: opts.requestSkillOverlay,
-        appendSkillOverlay: opts.appendSkillOverlay,
-        replaceSkillOverlay: opts.replaceSkillOverlay
       })
-    ]
+
+      tools = [
+        createTodoTool(new TodoStore()),
+        ...computerTools,
+        ...createScheduleTools({
+          turnStart,
+          requestScheduleRPC: opts.requestScheduleRPC
+        }),
+        ...createMemoryTools({ turnStart, requestMemoryRPC: opts.requestMemoryRPC }),
+        ...webTools,
+        createClarifyTool(),
+        createSubagentTool({
+          turnStart,
+          createSubagentDelegation: opts.createSubagentDelegation,
+          getSubagentDelegation: opts.getSubagentDelegation,
+          listSubagentDelegations: opts.listSubagentDelegations,
+          steerSubagentDelegation: opts.steerSubagentDelegation,
+          stopSubagentDelegation: opts.stopSubagentDelegation
+        }),
+        ...createSkillTools(opts.workspaceRoot, {
+          turn: turnStart.turn,
+          enabledSkills: agentConversationContext.skills ?? [],
+          skillRoots: skillRootsFromOptions(opts),
+          requestSkillOverlay: opts.requestSkillOverlay,
+          appendSkillOverlay: opts.appendSkillOverlay,
+          replaceSkillOverlay: opts.replaceSkillOverlay
+        })
+      ]
+    }
 
     const promptOptions = {
       workspaceRoot: opts.workspaceRoot,
@@ -148,7 +162,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
     const latest = await runAgentLoop({
       model,
       systemPrompt,
-      messages: [prompt, ...(opts.extraMessages ?? [])],
+      messages: [...channelContextModelMessages(actorEvent.payload_json), prompt, ...(opts.extraMessages ?? [])],
       modelInputModalities: modelRef.input_modalities,
       visionFallbackModel,
       maxTokens: runtimePolicy.maxOutputTokens,
@@ -171,6 +185,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
           (latest.message.stopReason === 'aborted' ? 'LLM provider call aborted' : 'LLM provider returned an error')
       )
     }
+    learningTurn?.assertCompleted()
     const replyText = assistantText(latest.message)
     return textTurnResultFromAssistantReply(turnStart, replyText, latest.responseID, latest.outcome)
   } finally {

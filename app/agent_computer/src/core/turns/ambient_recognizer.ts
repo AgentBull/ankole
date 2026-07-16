@@ -104,8 +104,8 @@ function ambientConversationHistory(input: AmbientRecognizerInput, timezone: str
   const payload = input.turnStart.actor_event.payload_json
   const currentDate = formatZonedDate(eventTime(input.turnStart), timezone)
   const rawMessages = [
-    ...arrayPath(payload, ['data', 'recent_history']),
-    ...arrayPath(payload, ['data', 'earlier_observed_messages']),
+    ...arrayPath(payload, ['data', 'channel_context', 'messages']),
+    ...arrayPath(payload, ['data', 'unreplied_messages']),
     ...arrayPath(payload, ['data', 'observed_messages'])
   ]
   const visibleMessages = rawMessages.length > 0 ? rawMessages : input.historyMessages

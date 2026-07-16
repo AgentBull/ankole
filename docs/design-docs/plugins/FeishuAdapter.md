@@ -193,6 +193,73 @@ official events, and enters the resulting credentials in Ankole setup. Setup may
 validate credentials, but it should not create or register the external app for
 the operator.
 
+## Agent Computer Lark capability
+
+One digital employee uses one Feishu/Lark application. A newly saved chat
+binding stores its encrypted config under
+`signals_gateway.lark.bindings.<agent_uid>`; the save path rejects a second
+enabled Lark binding for the same agent and rejects an app id already assigned
+to another agent. Assignment validation and persistence are serialized by one
+adapter-scoped transaction advisory lock, so concurrent saves cannot both pass
+the one-agent/one-app checks. The config row and binding commit together; the
+AppConfigure cache is published only after that transaction commits. Existing
+bindings remain readable through their persisted `config_ref` until they are
+saved again.
+
+An available Lark binding also gives that agent bot-only `lark-cli` capability.
+Agent Computer is a trusted first-party worker. The adapter uses the binding's
+app credentials in the control plane, then contributes only the app ID and
+tenant token required by the CLI through the existing `worker_env.resolve`
+path:
+
+- `LARKSUITE_CLI_APP_ID`;
+- `LARKSUITE_CLI_TENANT_ACCESS_TOKEN`;
+- `LARKSUITE_CLI_BRAND`;
+- `LARKSUITE_CLI_DEFAULT_AS=bot`;
+- `LARKSUITE_CLI_STRICT_MODE=bot`.
+
+The pinned CLI derives its OpenAPI host from the brand and cannot inherit a
+custom binding `baseURL`. Such a binding remains valid for signal delivery, but
+it does not auto-enable Lark Skills or project CLI credentials into the Worker.
+
+The CLI's environment credential provider does not mint a tenant token from
+`appID/appSecret`. During the existing once-per-Turn `worker_env.resolve`, the
+control plane therefore reuses `FeishuOpenAPI.TokenManager` and projects its
+cached tenant token. Bot calls need the app ID and token but not the app secret,
+so WorkerEnv does not include the secret. Concurrent misses are already
+coalesced by that manager; there is no per-command refresh, separate token
+broker, or Worker callback.
+
+Binding-derived variables are not Console-editable WorkerEnv rows and merge
+after operator-managed rows. The environment is resolved once when a Turn
+starts; Ankole adds no command-level token broker or refresh protocol. Lark
+skills execute the CLI through one-shot commands. A persistent interactive
+terminal retains the environment from its creation Turn and is not a supported
+Lark execution path. A configured available binding whose active adapter cannot
+resolve fails that WorkerEnv request instead of silently starting the Turn
+without its Lark identity; a residual binding for a disabled plugin is ignored.
+
+The builtin `lark-im`, `lark-office-suite`, and `lark-oa` skills are all stored
+with `default_enabled: false` and `execution_profile: lark-cli-bot`. The Agent
+Library owns the generic `ai_agent.library.skill_enablement_provider` contract;
+the Lark plugin contributes the `lark-cli-bot` provider and owns the binding,
+AppConfigure, and CLI-compatibility checks. The Agent Computer build validator
+discovers the same Skill set from this profile instead of maintaining another
+name list.
+
+By default the provider projects all matching Skills as enabled exactly when
+the current agent has an enabled, CLI-compatible Lark binding with no
+`unavailable_reason`. The global AppConfigure key
+`skills.auto_enable_lark_skills_from_signal_binding` defaults to `true`; setting
+it to `false` makes the provider return manual mode and restores ordinary
+per-agent `agent_skills.enabled` behavior. This projection never rewrites the
+stored manual flags. If the plugin/provider or its AppConfigure definition is
+not active, profile-backed Skills fail closed.
+
+`lark-oa` covers Task, OKR, and attendance. The pinned `lark-cli` v1.0.69
+Approval catalog is user-only, so Approval is not exposed or relabeled as a bot
+capability.
+
 ## Runtime Connection
 
 Feishu/Lark long-connection delivery is cluster-style: multiple live consumers
@@ -369,9 +436,18 @@ as `provider_thread_id`. The default actor session is channel-level, not
 thread-level. Thread id participates in provider reply anchoring and
 micro-batch scope; it does not create a separate session actor by itself.
 
-For a normal message, `root_id` is the provider root id when present; otherwise
-the adapter uses the message id. For a DM opened by user id, the thread id is
-`lark:<user_id>:` and the adapter treats it as a DM.
+`provider_thread_id` names the thread that already contains the message, so
+only provider-marked replies (`root_id`/`parent_id`) carry one; a top-level
+message has `provider_thread_id = nil`. The adapter must not fall back to the
+message's own id: that would give every top-level message a distinct
+inbound-batch key, so same-sender bursts could never merge and channel-scoped
+debounce would never engage. DMs follow the same rule.
+
+Direct reply identity is separate from thread identity. The adapter maps
+`parent_id`, then `upper_message_id`, then a non-self `root_id` fallback to
+`reply_to_source_entry_id`. SignalsGateway resolves that target and decides
+whether it was authored by the current agent; Lark code does not fetch parent
+content or inherit parent attachments through a second semantic path.
 
 The signal channel should represent the physical Feishu/Lark chat when the
 provider exposes stable chat ids. The adapter may include domain or tenant data
@@ -414,7 +490,10 @@ Message receive normalizes:
 - `source_event_id` from Feishu/Lark websocket `event_id`;
 - `source_entry_id` from Feishu/Lark message id;
 - `signal_channel_id` from chat id;
-- `provider_thread_id` from chat id plus root id;
+- `provider_thread_id` from chat id plus root id for provider-marked replies,
+  nil for top-level messages;
+- `reply_to_source_entry_id` from the exact parent/upper message id, with the
+  provider root as a non-self fallback;
 - channel kind, normally `im_dm` or `im_group`;
 - `reply_mode = entry` for IM chats that support anchored reply;
 - text and a simple markdown-formatted representation;
@@ -423,10 +502,11 @@ Message receive normalizes:
 - provider send time;
 - attachments, links, mentions, metadata, and raw payload reference.
 
-DMs are explicit input. Group messages are explicit only when the provider gives
-a structured mention, reply-to-bot, slash/app invocation, or another
-adapter-owned signal that the binding treats as directed to the agent. Plain
-text containing an `@` character is not enough.
+DMs are explicit input. The adapter directly marks structured mentions and
+provider-native invocations. SignalsGateway additionally makes a group reply
+explicit when `reply_to_source_entry_id` resolves to an entry authored by the
+current agent. Plain text containing an `@` character is not enough, and an
+unresolved reply target is not assumed to be the bot.
 
 Visible slash-command handling has two layers. The adapter owns
 provider-specific text extraction: it must preserve the visible text, structured
@@ -509,6 +589,13 @@ in the same chat, finds a previous same-sender message, and attaches up to three
 usable resources from that earlier message. If lookup fails, ingress continues
 without backfilled attachments.
 
+An explicit provider reply is not this heuristic. SignalsGateway resolves the
+exact `reply_to_source_entry_id` from the accepting binding's durable inbound
+snapshot and projects its already-materialized attachments under
+`data.entry.reply_to`. A mention-only reply to a parent file therefore exposes
+the file to the Agent Computer without downloading it again, while another
+agent binding in the same group cannot borrow an attachment it never observed.
+
 ## Actions And Reactions
 
 Card action handling:
@@ -556,7 +643,8 @@ The normalized recall fact uses:
 
 - `source_entry_id = message_id`;
 - `signal_channel_id = lark:<chat_id>`;
-- `provider_thread_id = lark:<chat_id>:<root_id or message_id>`;
+- `provider_thread_id = lark:<chat_id>:<root_id>` when the recall payload marks
+  a reply, nil otherwise;
 - lifecycle kind `removed`, with provider lifecycle kind `recalled`;
 - provider time from recall, update, or create time when available.
 
@@ -646,14 +734,18 @@ Portable interactive cards render:
 - markdown fact labels and values with `*`, `_`, backtick, and bracket escaping;
 - optional choice responses as direct button elements in `body.elements`, not
   wrapped in a provider action container;
+- an optional one-field free-text clarification form as a top-level body
+  element, never nested in a choice column set;
 - optional custom-text hint above choices;
 - answered/expired/cancelled/superseded state as grey status text;
 - selected choices with visible selected text;
 - locked choices as disabled buttons once the interaction is no longer open.
 
-Choice button callback values keep the interaction version, interaction id,
-control id, selected option id, and provider-safe option value. The adapter does
-not collapse those values into display text.
+Choice callback values keep the interaction version, interaction id, control
+id, selected option id, and provider-safe option value. A form submit keeps the
+same locator fields and names its one input; the adapter copies CardKit's
+`form_value` into the managed callback value before SignalsGateway validates it.
+The adapter does not collapse either answer into display text.
 
 The portable action value version is
 `ankole.interactive_output.action.v1`. The card button name is the control id.
@@ -748,7 +840,7 @@ path moves the visible card into a terminal or waiting state.
 | --- | --- | --- |
 | `debouncing` | No provider message for at most 500ms. | Open a working card, or create the final card directly. |
 | `working` | Compact status, optional plan, streamed answer, and folded activity. | Complete, fail, stop, or ask for input. |
-| `awaiting_input` | Streaming is closed; the question and real buttons or a form become primary. | A callback records one answer and disables all controls. |
+| `awaiting_input` | Streaming is closed; the question and real buttons plus an optional free-text form become primary. | The first valid callback records one answer; a newer conversation event supersedes it. Both transitions lock the controls. |
 | `completed` | Final answer and useful result blocks remain; process detail is folded or removed. | No further model updates. |
 | `failed` | Preserve useful partial output, label it incomplete, and offer a retry when safe. | A retry starts a new Agent Turn. |
 | `stopped` | Preserve useful partial output and show `已停止`. | Continue or retry starts a new Agent Turn. |
@@ -788,13 +880,21 @@ marker; owner restart, turn expiry, or recovery removes the element and closes
 streaming. CardKit's automatic stream close is not sufficient because it would
 leave the last thought text visible.
 
-Function calling is projected as human-readable activity, not raw protocol.
-The presentation maps calls to verbs such as `检索资料`, `分析数据`,
-`生成文件`, `更新记忆`, or `等待后续检查`. Parallel calls are grouped into
-one status such as `正在同时处理 3 项`. Fast, low-value reads are coalesced;
-long or consequential work gets an activity row. Raw names, arguments, outputs,
-provider payloads, and stack traces remain in the authorized trace after
-redaction.
+Function calling is projected as compact human-readable activity, not raw
+protocol. Tool-owned descriptions expose only the detail that helps a person
+understand current work: file operations keep at most `parent/basename`, command
+operations keep a semantic verb plus command family without flags or operands,
+and skill operations keep the skill name without its source path. Internal todo
+calls update the plan without adding a duplicate activity row. Parallel calls
+keep their individual rows while the folded header names the latest call and the
+active count. Raw names, arguments, outputs, provider payloads, and stack traces
+remain in the authorized trace after redaction.
+
+While a reply is working, its execution plan is expanded. The activity panel is
+folded when that plan exists and expanded when it is the only progress surface;
+the folded title still names the current activity. A completed plan folds so the
+answer becomes the visual focus, and ordinary successful activity remains live
+progress rather than terminal history.
 
 A side-effecting tool leaves a terminal receipt only after its owning subsystem
 confirms the effect. The receipt states what changed, where, and whether a
@@ -867,9 +967,10 @@ JSON directly.
 - **Charts** render typed numeric series with units, labels, provenance, and a
   textual takeaway. Prefer one decisive chart over a dashboard, and provide a
   text or table fallback for clients where the chart is inaccessible.
-- **Forms** are used only when the Agent needs several structured fields at
-  once. A single choice uses buttons and free-form clarification uses the normal
-  reply composer. Forms never collect secrets.
+- **Forms** require an owned, authorized callback contract. The runtime
+  clarification form contains exactly one required, bounded, non-secret text
+  input and a submit button; choices remain separate buttons. Generic
+  multi-field forms are not inferred from model output.
 - **Images** show a generated artifact or evidence that materially improves the
   answer. Typed image results already carry an uploaded Feishu image key. For a
   remote HTTP(S) Markdown image, the adapter resolves redirects, classifies
@@ -910,12 +1011,27 @@ CardKit; adapters without rich output render its fallback text. Tool-specific
 code owns the safe projection because only that code knows which arguments,
 results, and effects are meaningful.
 
+When an internal wakeup rather than a provider-visible message triggers the
+Agent turn, SignalsGateway may add a bounded `trigger_context` to the same
+presentation. A failed subagent delegation renders that context as a Markdown
+blockquote before the Agent answer on the first CardKit card. The quote is
+derived from the durable ActorEvent, not authored through the model prompt, and
+survives preview recovery and terminal outbox delivery without becoming part of
+the model answer or repeating on later cards.
+
 Live progress may remain ephemeral, but terminal rich output cannot depend on a
 Preview process surviving. At `turn_completed` the worker supplies, or the
 control plane reconstructs from durable domain truth, a bounded terminal
 `ReplyPresentation`. The durable outbox stores that provider-neutral snapshot
 and `fallback_visible_text`. CardKit JSON is a rendering of that truth, not the
 only copy of it. Transient `reasoning.delta` content is explicitly excluded.
+
+Clarification availability is also provider-neutral. The source ActorEvent
+checkpoint stores each interaction as `pending`, `answered`, or `superseded`.
+SignalsGateway changes that state under the actor-session lock before CardKit
+renders it. An answered card disables all choice buttons and removes the form;
+a superseded card does the same and explains that the conversation continued.
+CardKit callback delivery and card mutation order cannot override this state.
 
 ### Recovery boundary
 
@@ -945,10 +1061,12 @@ Temporary unavailability and permanent state loss are different cases:
 The live text, reasoning, and tool-event stream remains in-process. PostgreSQL
 stores only a bounded recovery checkpoint: provider identities, AIGateway
 conversation identity, CardKit sequence allocation, stream deadline, structural
-presentation state, and a coalesced answer snapshot. It does not store every
-token or raw reasoning. Losing changes since the last checkpoint is acceptable;
-the next cumulative answer update or terminal `ReplyPresentation` repairs the
-card.
+presentation state, reply-interaction state, and a coalesced answer snapshot. It
+does not store every token or raw reasoning. Losing changes since the last
+checkpoint is acceptable; the next cumulative answer update or terminal
+`ReplyPresentation` repairs the card. Reply-interaction terminal state is the
+exception: checkpoint merge preserves it monotonically across stale CardKit
+writes and schedules a corrective refresh.
 
 A worker crash normally does not kill the control-plane Preview owner, so the
 same `CardSession` stays attached while ActorRuntime retries the open
@@ -1030,8 +1148,9 @@ ordered card ledger, active-tail index, each provider `card_id` and `message_id`
 per-page answer byte range and digest, AIGateway conversation id, streaming
 state, stream deadline, resolved Markdown image map, last checkpointed
 `ReplyPresentation` without reasoning, retry UUID, and a CardKit sequence
-high-water mark. It lives with the ActorEvent preview state, not in AIGateway
-metadata. Before each coalesced provider mutation, the session atomically
+high-water mark, plus any durable reply-interaction states. It lives with the
+ActorEvent preview state, not in AIGateway metadata. Before each coalesced
+provider mutation, the session atomically
 persists its purpose, content digest, next sequence, and UUID under the
 ActorEvent row lock. A retry or process restart with the same logical mutation
 reuses that exact sequence and UUID; a changed mutation receives the next

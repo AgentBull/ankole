@@ -11,13 +11,14 @@ import {
   type MemoryRPCMethod,
   type RPCSchemaByMethod,
   type SubagentDelegationResponse,
-  type SubagentDelegationStatus
+  type SubagentDelegationStatus,
+  type SubagentTurnUsage
 } from '../../lanes/rpc_lane'
 import { prepareActorWorkspace } from '../../worker/workspace'
 import { CodexAppServerClient, type JSONRPCMessage } from '../../tools/codex/app-server-client'
 import { materializeCodexConfig } from '../../tools/codex/config'
 import {
-  approvalRejection,
+  approvalAcceptance,
   approvalRequestMethod,
   projectCodexNotification,
   stringValue,
@@ -25,10 +26,20 @@ import {
 } from '../../tools/codex/protocol'
 import { resolveCodexRuntimeConfig } from '../../tools/codex/runtime-config'
 import { codexAppServerSandboxSpec, resolveCodexWorkdir } from '../../tools/codex/sandbox'
-import { SubagentAuditBuffer } from '../../tools/subagent/audit'
-import { buildSubagentProjection } from '../../tools/subagent/dynamic-tools'
+import { buildSubagentProjection, deepResearchToolNames } from '../../tools/subagent/dynamic-tools'
 import type { DynamicToolCallParams } from '../../tools/subagent/generated/protocol/v2/DynamicToolCallParams'
 import { materializeSubagentRuntimeFiles, SUBAGENT_SKILLS_SANDBOX_ROOT } from '../../tools/subagent/runtime-files'
+import {
+  createResearchDeliveryValidatorTool,
+  evaluateDeepResearchArtifacts
+} from '../../tools/subagent/research-artifacts'
+import { createResearchEvidenceArchiveRuntime } from '../../tools/subagent/research-evidence-archive'
+import { SubagentTurnRecorder } from '../../tools/subagent/turn-recorder'
+import {
+  pendingUserInputFromDynamicTool,
+  SUBAGENT_USER_INPUT_TOOL_NAME,
+  subagentUserInputToolSpec
+} from '../../tools/subagent/user-input-bridge'
 import { createMemoryTools } from '../../tools/memory/memory-tools'
 import { createWebTools } from '../../tools/web/web-tools'
 import { createBrowserTools } from '../../tools/browser/browser-tools'
@@ -37,6 +48,7 @@ import { httpClientFromAIGatewayAPIKey } from '../ai_gateway_transport'
 import { resolveAgentConversationContext } from './turn_context'
 import { resolveBrowserRuntimeConfig } from './browser_runtime_config'
 import { resolveWorkerEnv } from './worker_env'
+import { resolveDeepResearchRuntimeConfig } from './deep_research_runtime_config'
 import type { TextTurnLoopOptions, TurnHandlerResult } from './turn_options'
 
 const terminalStatuses = new Set<SubagentDelegationStatus>(['succeeded', 'failed', 'stopped'])
@@ -52,6 +64,9 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     delegation_id: delegationID
   })
   assertRPCResponse<SubagentDelegationResponse>(initial, 'subagent delegation get rejected')
+  const isDeepResearch = initial.runtime === 'deep_research'
+  const researchMode = initial.mode ?? 'general'
+  const delegationOutputSchema = optionalJSONObject(jsonObject(initial.metadata).output_schema)
 
   if (terminalStatuses.has(initial.status)) {
     return { kind: 'noop_completed', reason: `subagent_${initial.status}` }
@@ -76,14 +91,14 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
   })
   const materialized = materializeCodexConfig({
     sharedFsRoot: opts.sharedFsRoot,
-    runtime: runtimeConfig
+    runtime: runtimeConfig,
+    enableMultiAgent: isDeepResearch
   })
-  const audit = new SubagentAuditBuffer({
+  const turnRecorder = new SubagentTurnRecorder({
     delegationID,
-    turn: turnStart.turn,
-    append: opts.appendSubagentDelegationEvents,
-    nextSeq: (initial.last_event_seq ?? -1) + 1,
-    attempt: initial.attempts
+    attempt: initial.attempts,
+    actorTurn: turnStart.turn,
+    upsert: required(opts.upsertSubagentDelegationTurn, 'subagent turn upsert')
   })
   let finalizing = false
   const projectionAPIKey =
@@ -93,10 +108,12 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
   const projectionAIGateway = httpClientFromAIGatewayAPIKey(projectionAPIKey, options =>
     requestProjectionAIGatewayKey(turnStart, opts, options)
   )
+  const researchPolicy = isDeepResearch ? await resolveDeepResearchRuntimeConfig(turnStart, opts) : undefined
+  const researchBudgetAbort = isDeepResearch ? new AbortController() : undefined
   const browserRuntimeConfig = await resolveBrowserRuntimeConfig(turnStart, opts)
   const workerEnv = await resolveWorkerEnv(turnStart, opts)
   const executionScopeID = `subagent:${delegationID}`
-  const webTools = await createWebTools({
+  const baseWebTools = await createWebTools({
     aiGateway: projectionAIGateway,
     abortSignal: opts.abortSignal,
     localBrowser: {
@@ -108,6 +125,16 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
         : {})
     }
   })
+  const researchEvidenceArchive = isDeepResearch
+    ? createResearchEvidenceArchiveRuntime({
+        delegationID,
+        workdir,
+        sharedFsRoot: opts.sharedFsRoot
+      })
+    : undefined
+  const webTools = researchEvidenceArchive
+    ? researchEvidenceArchive.wrapTools(baseWebTools, 'lead', researchBudgetAbort?.signal)
+    : baseWebTools
   const browserTools = createBrowserTools(
     createComputerToolContext({
       agentUID: initial.agent_uid,
@@ -118,6 +145,19 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
       ssrfFilter: browserRuntimeConfig.ssrfFilter
     })
   )
+  const researchBrowserTools = researchEvidenceArchive
+    ? researchEvidenceArchive.wrapTools(browserTools, 'lead', researchBudgetAbort?.signal)
+    : browserTools
+  const researchDeliveryValidator =
+    isDeepResearch && researchEvidenceArchive
+      ? createResearchDeliveryValidatorTool({
+          workdir,
+          mode: researchMode,
+          delegation: initial,
+          outputSchema: delegationOutputSchema,
+          webArchives: () => researchEvidenceArchive.records
+        })
+      : undefined
   const projectedTools = [
     ...webTools,
     ...createMemoryTools({
@@ -136,14 +176,14 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
           }
         : undefined
     }),
-    ...browserTools
+    ...researchBrowserTools,
+    ...(researchDeliveryValidator ? [researchDeliveryValidator] : [])
   ]
   const projection = buildSubagentProjection({
     tools: projectedTools,
-    onAudit: (eventType, payload) => {
-      if (!finalizing) audit.enqueue('tool', eventType, payload)
-    }
+    ...(isDeepResearch ? { allowedToolNames: deepResearchToolNames } : {})
   })
+  projection.dynamicTools.push(subagentUserInputToolSpec())
   const runtimeFiles = await materializeSubagentRuntimeFiles({
     workspaceRoot: parentWorkspaceRoot,
     workdir,
@@ -165,7 +205,11 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
             ...(opts.internalSkillsRoot ? { internalSkillsRoot: opts.internalSkillsRoot } : {})
           }
         : undefined,
-    requestSkillOverlay: opts.requestSkillOverlay
+    requestSkillOverlay: opts.requestSkillOverlay,
+    runtime: initial.runtime,
+    researchMode,
+    researchOutputSchema: isDeepResearch ? delegationOutputSchema : undefined,
+    requiredBuiltinSkills: isDeepResearch ? ['deep-research'] : []
   })
   let sandbox: ReturnType<typeof codexAppServerSandboxSpec>
   try {
@@ -180,32 +224,28 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     runtimeFiles.cleanup()
     throw error
   }
-  audit.enqueue('process', 'agents_instructions_materialized', {
-    source: runtimeFiles.localAgentsSandboxPath ?? runtimeFiles.agentsSandboxPath,
-    discovery: runtimeFiles.localAgentsSandboxPath ? 'same_level_readonly_override' : 'native_project_doc_fallback',
-    has_background: Boolean(initial.background),
-    has_notes: Boolean(initial.notes)
-  })
-
   let client: CodexAppServerClient | undefined
   let runtimeThreadID = initial.runtime_thread_id
   let codexTurnID: string | undefined
   let outputText = ''
-  let latestTokenUsage: JSONObject = {}
-  let latestDiff = ''
+  let latestTokenUsage: SubagentTurnUsage | undefined
+  const latestFilesChanged = new Set<string>()
   let waitingOnUserInput = false
   let recoveryInFlight = false
   let transientRetries = 0
   let compactRetries = 0
   let newThreadRetries = 0
   let emptyReportRetries = 0
+  let researchBudgetExhausted = false
+  let researchBudgetFinalizing = false
   let recreatedThreadDuringSetup = false
   let closing = false
   let thrownError: unknown
   let hasThrownError = false
   let turnResult: TurnHandlerResult | undefined
   let authReconcilePromise: Promise<JSONObject> | undefined
-  let authFailureAudited = false
+  let researchWallclockTimer: ReturnType<typeof setTimeout> | undefined
+  let researchGraceTimer: ReturnType<typeof setTimeout> | undefined
 
   const reconcileCodexAuth = (): Promise<JSONObject> => {
     if (runtimeConfig.mode !== 'official_subscription') return Promise.resolve({ changed: false })
@@ -219,11 +259,6 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     return authReconcilePromise
   }
 
-  const auditAuthFailure = (error: unknown): void => {
-    if (authFailureAudited) return
-    authFailureAudited = true
-    audit.enqueue('process', 'codex_auth_writeback_failed', { summary: errorMessage(error) })
-  }
   let steerTimer: ReturnType<typeof setInterval> | undefined
   let steerInFlight = false
   let resolveCompaction: (() => void) | undefined
@@ -245,24 +280,18 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     if (finalizing) return
     finalizing = true
     try {
-      if (runtimeConfig.mode === 'official_subscription') {
-        try {
-          audit.enqueue('process', 'codex_auth_checked', await reconcileCodexAuth())
-        } catch (error) {
-          auditAuthFailure(error)
-          throw error
-        }
+      if (status === 'waiting_on_user') {
+        turnRecorder.interruptTurn(codexTurnID, {
+          code: 'request_user_input',
+          summary: 'Codex was interrupted while waiting for user input.'
+        })
+      } else if (status === 'failed' || status === 'stopped') {
+        turnRecorder.finishTurn(codexTurnID, status, details.error)
       }
-      audit.enqueue('audit', `status_${status}`, {
-        status,
-        ...(runtimeThreadID ? { runtime_thread_id: runtimeThreadID } : {}),
-        ...details
-      })
-      await audit.flush()
-      try {
-        audit.throwIfFailed()
-      } catch (error) {
-        if (status !== 'stopped') throw error
+      await turnRecorder.flush()
+
+      if (runtimeConfig.mode === 'official_subscription') {
+        await reconcileCodexAuth()
       }
       const response = await updateStatus({
         request_id: `subagent-status-${crypto.randomUUID()}`,
@@ -284,9 +313,82 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     }
   }
 
+  const interruptCodexTurn = async (threadID: string, turnID: string): Promise<void> => {
+    if (!client) return
+    await client.request('turn/interrupt', { ['threadId']: threadID, ['turnId']: turnID })
+  }
+
   const interrupt = async (): Promise<void> => {
-    if (!client || !runtimeThreadID || !codexTurnID) return
-    await client.request('turn/interrupt', { ['threadId']: runtimeThreadID, ['turnId']: codexTurnID })
+    if (!runtimeThreadID || !codexTurnID) return
+    await interruptCodexTurn(runtimeThreadID, codexTurnID)
+  }
+
+  const observeResearchDelivery = (budgetCapped: boolean) =>
+    evaluateDeepResearchArtifacts({
+      workdir,
+      mode: researchMode,
+      delegation: initial,
+      outputText,
+      webArchives: researchEvidenceArchive?.records ?? [],
+      outputSchema: delegationOutputSchema,
+      budgetCapped
+    })
+
+  const finalizeResearchBudget = async (): Promise<void> => {
+    if (!isDeepResearch || finalizing || researchBudgetFinalizing) return
+    researchBudgetFinalizing = true
+    recoveryInFlight = true
+    try {
+      await interrupt().catch(() => undefined)
+      turnRecorder.interruptTurn(codexTurnID, {
+        code: 'budget_exhausted',
+        summary: 'Codex was interrupted after the Deep Research wallclock budget expired.'
+      })
+      const observation = observeResearchDelivery(true)
+      await commit('failed', {
+        result: {
+          ...observation.result!,
+          stop_reason: 'budget_capped',
+          attempt: initial.attempts,
+          ...(runtimeThreadID ? { runtime_thread_id: runtimeThreadID } : {}),
+          codex_turn_status: 'budget_exhausted',
+          ...(latestTokenUsage ? { usage: latestTokenUsage } : {}),
+          files_changed: [...latestFilesChanged].sort()
+        },
+        error: {
+          code: 'research_budget_exhausted',
+          summary: 'Deep Research exhausted its wallclock budget and submission grace.',
+          ...(observation.issues.length > 0 ? { delivery_issues: observation.issues } : {})
+        },
+        metadata: { research_artifacts_preserved: true, forced_submission: true, budget_exhausted: true }
+      })
+    } finally {
+      recoveryInFlight = false
+    }
+  }
+
+  const forceResearchSubmission = async (): Promise<void> => {
+    if (!isDeepResearch || finalizing || researchBudgetExhausted) return
+    researchBudgetExhausted = true
+    researchBudgetAbort?.abort(new Error('Deep Research wallclock budget exhausted'))
+    if (client && runtimeThreadID && codexTurnID) {
+      await client
+        .request('turn/steer', {
+          ['threadId']: runtimeThreadID,
+          ['expectedTurnId']: codexTurnID,
+          input: textInput(
+            'The research budget is exhausted. Stop new collection and use the submission grace to deliver the best supportable result from evidence already archived, satisfying the delivery and validation contracts.'
+          )
+        })
+        .catch(() => undefined)
+    }
+    const graceMs = researchPolicy?.submissionGraceMs ?? 0
+    if (graceMs === 0) {
+      await finalizeResearchBudget()
+      return
+    }
+    researchGraceTimer = setTimeout(() => void finalizeResearchBudget(), graceMs)
+    researchGraceTimer.unref?.()
   }
 
   const startNewThread = async (): Promise<void> => {
@@ -304,7 +406,6 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     runtimeThreadID = stringValue(jsonObject(started.thread).id)
     if (!runtimeThreadID) throw new Error('codex app-server did not return a thread id')
     opts.onTurnActivity?.('codex:thread_started')
-    audit.enqueue('process', 'thread_started', { thread_id: runtimeThreadID })
   }
 
   const startCodexTurn = async (input: string): Promise<void> => {
@@ -319,13 +420,12 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
         approvalPolicy: 'never',
         sandboxPolicy: { type: 'dangerFullAccess' },
         ...(runtimeConfig.mode === 'aigateway' ? { model: runtimeConfig.modelOverride } : {}),
-        ...(jsonObject(initial.metadata).output_schema
-          ? { outputSchema: jsonObject(initial.metadata).output_schema }
-          : {})
+        ...(!isDeepResearch && delegationOutputSchema ? { outputSchema: delegationOutputSchema } : {})
       })
     )
     codexTurnID = stringValue(jsonObject(startedTurn.turn).id)
     if (!codexTurnID) throw new Error('codex app-server did not return a turn id')
+    turnRecorder.recordTurnStarted(runtimeThreadID, jsonObject(startedTurn.turn), input, clientUserMessageID)
     opts.onTurnActivity?.('codex:turn_started')
   }
 
@@ -368,10 +468,9 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     if (finalizing || waitingOnUserInput || recoveryInFlight) return
 
     if (status === 'succeeded') {
-      if (!stringValue(outputText)) {
+      if (!isDeepResearch && !stringValue(outputText)) {
         if (emptyReportRetries < 1) {
           emptyReportRetries += 1
-          audit.enqueue('process', 'empty_report_retry', { retry_attempt: emptyReportRetries })
           await startCodexTurn(
             'The delegated work produced no final report. Inspect the completed work and reply with a concise final report that states the outcome and verifies the acceptance criteria.'
           )
@@ -387,18 +486,34 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
         return
       }
 
-      await commit('succeeded', {
-        result: {
-          summary: outputText,
-          output_text: outputText,
-          report: outputText,
+      let result: JSONObject = {
+        summary: outputText,
+        output_text: outputText,
+        report: outputText,
+        attempt: initial.attempts,
+        workdir: initial.workdir ?? workdir,
+        ...(runtimeThreadID ? { runtime_thread_id: runtimeThreadID } : {}),
+        codex_turn_status: codexTurnStatus,
+        ...(latestTokenUsage ? { usage: latestTokenUsage } : {}),
+        files_changed: [...latestFilesChanged].sort()
+      }
+
+      if (isDeepResearch) {
+        const observation = observeResearchDelivery(researchBudgetExhausted)
+        result = {
+          ...observation.result!,
+          ...(researchBudgetExhausted ? { stop_reason: 'budget_capped' } : {}),
           attempt: initial.attempts,
-          workdir: initial.workdir ?? workdir,
           ...(runtimeThreadID ? { runtime_thread_id: runtimeThreadID } : {}),
           codex_turn_status: codexTurnStatus,
-          usage: latestTokenUsage,
-          files_changed: filesChangedFromDiff(latestDiff)
+          ...(latestTokenUsage ? { usage: latestTokenUsage } : {}),
+          files_changed: [...latestFilesChanged].sort()
         }
+      }
+
+      await commit('succeeded', {
+        result,
+        ...(researchBudgetExhausted ? { metadata: { forced_submission: true } } : {})
       })
       return
     }
@@ -414,18 +529,20 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     try {
       const retryKind = codexRetryKind(error)
 
-      if (retryKind === 'transient' && transientRetries < 3) {
-        transientRetries += 1
-        audit.enqueue('process', 'turn_retry', { kind: retryKind, retry_attempt: transientRetries, error })
-        await Bun.sleep(Math.min(250 * 2 ** (transientRetries - 1), 1_000))
-        outputText = ''
-        await startCodexTurn(retryContinuationInput())
-        return
+      if (retryKind === 'transient') {
+        if (transientRetries < 3) {
+          transientRetries += 1
+          await Bun.sleep(Math.min(250 * 2 ** (transientRetries - 1), 1_000))
+          outputText = ''
+          await startCodexTurn(retryContinuationInput())
+          return
+        }
+
+        throw new SubagentCodexTransientError(error)
       }
 
       if (retryKind === 'context_overflow' && compactRetries < 1 && client && runtimeThreadID) {
         compactRetries += 1
-        audit.enqueue('process', 'turn_compact_retry', { retry_attempt: compactRetries, error })
         await compactThread()
         outputText = ''
         await startCodexTurn(retryContinuationInput())
@@ -434,7 +551,7 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
 
       if (retryKind === 'unknown_session' && newThreadRetries < 1) {
         newThreadRetries += 1
-        audit.enqueue('process', 'thread_recreated', { reason: 'unknown_session', error })
+        await turnRecorder.flush()
         await startNewThread()
         await persistRuntimeThreadAnchor('unknown_session')
         outputText = ''
@@ -459,12 +576,18 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
 
   const handleNotification = (message: JSONRPCMessage): void => {
     if (finalizing) return
+    turnRecorder.handleNotification(message)
+    const params = jsonObject(message.params)
+    const notificationThreadID = stringValue(params.threadId)
+    const isLeadNotification = !notificationThreadID || notificationThreadID === runtimeThreadID
     const projection = projectCodexNotification(message)
-    opts.onTurnActivity?.(`codex:${projection.type}`)
-    audit.enqueue(projection.type === 'stderr' ? 'process' : 'server_to_client', projection.type, jsonObject(message))
+    if (projection.type !== 'ignored') {
+      opts.onTurnActivity?.(`codex:${isLeadNotification ? '' : 'child:'}${projection.type}`)
+    }
+
+    if (!isLeadNotification) return
 
     if (message.method === 'item/completed') {
-      const params = jsonObject(message.params)
       const item = jsonObject(params.item)
       if (item.type === 'contextCompaction' && stringValue(params['threadId']) === compactingThreadID) {
         const completedTurnID = stringValue(params['turnId']) ?? compactionTurnID
@@ -479,9 +602,9 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     } else if (projection.type === 'agent_completed') {
       outputText = projection.text
     } else if (projection.type === 'token_usage') {
-      latestTokenUsage = jsonObject(projection.usage.last)
+      latestTokenUsage = projection.usage
     } else if (projection.type === 'turn_diff') {
-      latestDiff = projection.diff
+      for (const path of projection.filesChanged) latestFilesChanged.add(path)
     } else if (projection.type === 'turn_completed' && !finalizing && !waitingOnUserInput) {
       const completedTurnID = stringValue(jsonObject(jsonObject(message.params).turn).id)
       if (completedTurnID && completedCompactionTurnIDs.delete(completedTurnID)) return
@@ -502,14 +625,41 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     if (finalizing) return
     const method = typeof message.method === 'string' ? message.method : ''
     if (message.id === undefined) return
+    const params = jsonObject(message.params)
+    const requestThreadID = stringValue(params.threadId)
+    const isLeadRequest = !requestThreadID || requestThreadID === runtimeThreadID
     opts.onTurnActivity?.(`codex:${method || 'server_request'}`)
 
-    if (method === 'item/tool/requestUserInput') {
-      const pending = jsonObject(message.params)
-      audit.enqueue('server_request', 'request_user_input', pending)
+    const dynamicToolParams = method === 'item/tool/call' ? (message.params as DynamicToolCallParams) : undefined
+    const bridgedUserInput = dynamicToolParams ? pendingUserInputFromDynamicTool(dynamicToolParams) : undefined
+
+    if (method === 'item/tool/requestUserInput' || dynamicToolParams?.tool === SUBAGENT_USER_INPUT_TOOL_NAME) {
+      if (!isLeadRequest) {
+        await appServer.respondError(
+          message.id,
+          -32601,
+          'Child agents cannot request user input directly; return the question to the lead agent.'
+        )
+        return
+      }
+      if (dynamicToolParams && !bridgedUserInput) {
+        await appServer.respondError(message.id, -32602, `Invalid arguments for ${SUBAGENT_USER_INPUT_TOOL_NAME}`)
+        return
+      }
+      const pending = bridgedUserInput ?? params
+      const requestTurnID = stringValue(pending.turnId) ?? codexTurnID
+      turnRecorder.recordRequestUserInput(requestTurnID, pending, message.id)
       waitingOnUserInput = true
       try {
-        await interrupt()
+        if (requestThreadID && requestTurnID) {
+          await interruptCodexTurn(requestThreadID, requestTurnID).catch(() => undefined)
+          turnRecorder.interruptTurn(requestTurnID, {
+            code: 'request_user_input',
+            summary: 'Codex requested user input.'
+          })
+        } else {
+          await interrupt()
+        }
         await commit('waiting_on_user', {
           metadata: { pending_user_input: pending }
         })
@@ -530,15 +680,13 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
     }
 
     if (approvalRequestMethod(method)) {
-      audit.enqueue('server_request', 'approval_rejected', { method, params: jsonObject(message.params) })
-      await appServer.respond(message.id, approvalRejection(method))
-      await commit('failed', {
-        error: { code: 'approval_disabled', summary: `Codex requested disabled approval: ${method}` }
-      })
+      await appServer.respond(message.id, approvalAcceptance(method, params))
       return
     }
 
     await appServer.respondError(message.id, -32601, `Ankole does not implement Codex server request ${method}`)
+    if (!isLeadRequest) return
+    await interrupt().catch(() => undefined)
     await commit('failed', {
       error: { code: 'unsupported_server_request', summary: `Unsupported Codex server request: ${method}` }
     })
@@ -556,18 +704,10 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
   }
 
   try {
-    audit.enqueue('process', 'config_materialized', {
-      mode: runtimeConfig.mode,
-      codex_home: materialized.codexHome,
-      workdir: sandbox.codexCwd
-    })
     client = new CodexAppServerClient({
       cwd: sandbox.cwd,
       env: sandbox.env,
       commandArgv: sandbox.commandArgv,
-      audit: (direction, message) => {
-        if (!finalizing) audit.enqueue(direction, 'json_rpc', { message })
-      },
       onNotification: handleNotification,
       onServerRequest: handleServerRequest,
       onExit: error => {
@@ -579,12 +719,7 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
 
     opts.abortSignal?.addEventListener('abort', onAbort, { once: true })
     const initializeResponse = await client.initialize()
-    const discoveredSkillNames = await configureCodexSkills(client, sandbox.codexCwd, runtimeFiles.expectedSkillNames)
-    audit.enqueue('process', 'skills_configured', {
-      root: SUBAGENT_SKILLS_SANDBOX_ROOT,
-      expected: runtimeFiles.expectedSkillNames,
-      discovered: discoveredSkillNames
-    })
+    await configureCodexSkills(client, sandbox.codexCwd, runtimeFiles.expectedSkillNames)
 
     if (runtimeThreadID) {
       try {
@@ -595,17 +730,12 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
           sandbox: 'danger-full-access'
         })
         opts.onTurnActivity?.('codex:thread_resumed')
-        audit.enqueue('process', 'thread_resumed', { thread_id: runtimeThreadID })
       } catch (error) {
-        if (codexRetryKind({ message: errorMessage(error) }) !== 'unknown_session' || newThreadRetries >= 1) {
-          throw error
-        }
+        const retryKind = codexRetryKind({ message: errorMessage(error) })
+        if (retryKind === 'transient') throw new SubagentCodexTransientError(error)
+        if (retryKind !== 'unknown_session' || newThreadRetries >= 1) throw error
         newThreadRetries += 1
         recreatedThreadDuringSetup = true
-        audit.enqueue('process', 'thread_recreated', {
-          reason: 'unknown_session',
-          previous_thread_id: runtimeThreadID
-        })
         runtimeThreadID = undefined
       }
     }
@@ -634,6 +764,11 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
       recreatedThreadDuringSetup ? recreatedThreadInput(initial, initialTurnInput) : initialTurnInput
     )
 
+    if (isDeepResearch && researchPolicy) {
+      researchWallclockTimer = setTimeout(() => void forceResearchSubmission(), researchPolicy.wallclockBudgetMs)
+      researchWallclockTimer.unref?.()
+    }
+
     steerTimer = setInterval(() => {
       if (steerInFlight || finalizing || recoveryInFlight || !client || !runtimeThreadID || !codexTurnID) return
       const updates = opts.pollSteering?.() ?? []
@@ -644,8 +779,8 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
         runtimeThreadID,
         codexTurnID,
         updates,
-        audit,
         () => !finalizing,
+        (eventID, text) => turnRecorder.recordSteering(codexTurnID, eventID, text),
         opts.onSteeringApplied
       )
         .catch(error => {
@@ -661,12 +796,25 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
 
     await done
     turnResult = { kind: 'noop_completed', reason: 'subagent_delegation_committed' }
-  } catch (error) {
+  } catch (caughtError) {
+    finalizing = true
+    let error = caughtError
+    turnRecorder.finishTurn(codexTurnID, 'failed', {
+      code: 'subagent_runtime_exception',
+      summary: errorMessage(error)
+    })
+    try {
+      await turnRecorder.flush()
+    } catch (trajectoryError) {
+      error = trajectoryError
+    }
     thrownError = error
     hasThrownError = true
   }
 
   if (steerTimer) clearInterval(steerTimer)
+  if (researchWallclockTimer) clearTimeout(researchWallclockTimer)
+  if (researchGraceTimer) clearTimeout(researchGraceTimer)
   opts.abortSignal?.removeEventListener('abort', onAbort)
   closing = true
 
@@ -690,10 +838,9 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
 
   try {
     if (runtimeConfig.mode === 'official_subscription' && !authReconcilePromise) {
-      audit.enqueue('process', 'codex_auth_checked', await reconcileCodexAuth())
+      await reconcileCodexAuth()
     }
   } catch (error) {
-    auditAuthFailure(error)
     if (!hasThrownError) {
       thrownError = error
       hasThrownError = true
@@ -701,7 +848,7 @@ export async function runSubagentTurn(turnStart: TurnStart, opts: TextTurnLoopOp
   }
 
   try {
-    await audit.flush()
+    await turnRecorder.flush()
   } catch (error) {
     if (!hasThrownError) {
       thrownError = error
@@ -817,15 +964,15 @@ function turnInput(turnStart: TurnStart, delegation: SubagentDelegationResponse)
 
     input = delegation.runtime_thread_id
       ? steering
-      : `${delegation.task}\n\nAdditional instructions from the parent agent:\n${steering}`.trim()
+      : `${appendRetrospectSource(delegation.task, delegation)}\n\nAdditional instructions from the caller:\n${steering}`.trim()
   } else if (delegation.attempts > 1 && delegation.runtime_thread_id) {
     input = 'Continue the delegated task. Re-check the acceptance criteria in the original task before finishing.'
   } else {
-    input = delegation.task
+    input = appendRetrospectSource(delegation.task, delegation)
   }
 
   const pendingSteering = pendingSteeringInput(turnStart)
-  return pendingSteering ? `${input}\n\nPending instructions from the parent agent:\n${pendingSteering}`.trim() : input
+  return pendingSteering ? `${input}\n\nPending instructions for this delegation:\n${pendingSteering}`.trim() : input
 }
 
 function turnClientUserMessageID(turnStart: TurnStart): string | undefined {
@@ -867,7 +1014,6 @@ function codexRetryKind(error: JSONObject): CodexRetryKind {
       : info && typeof info === 'object' && !Array.isArray(info)
         ? Object.keys(info)[0]
         : undefined
-
   if (infoName === 'contextWindowExceeded') return 'context_overflow'
   if (
     [
@@ -881,11 +1027,16 @@ function codexRetryKind(error: JSONObject): CodexRetryKind {
   ) {
     return 'transient'
   }
+  if (infoName && infoName !== 'other') return 'terminal'
 
   const message = `${stringValue(error.message) ?? ''} ${stringValue(error.additionalDetails) ?? ''}`.toLowerCase()
   if (/unknown[-_ ]?(session|thread)|thread .*not found|no rollout found/.test(message)) return 'unknown_session'
   if (/context window|context length|too many tokens/.test(message)) return 'context_overflow'
-  if (/model at capacity|systemerror|server overloaded|temporarily unavailable|error -32001/.test(message)) {
+  if (
+    /stream (?:disconnected|closed)(?: before completion)?|response stream .*?(?:disconnected|closed)|http(?: status)?[\s:]+(?:502|503|504)\b|model at capacity|systemerror|server overloaded|temporarily unavailable|error -32001/.test(
+      message
+    )
+  ) {
     return 'transient'
   }
   return 'terminal'
@@ -899,16 +1050,19 @@ function recreatedThreadInput(delegation: SubagentDelegationResponse, continuati
   const priorAttempts = delegation.attempt_history?.length
     ? `\n\nBounded history from prior execution attempts:\n${JSON.stringify(delegation.attempt_history, null, 2)}`
     : ''
-  return `${delegation.task}\n\nThe previous Codex thread could not be resumed. Inspect the existing working directory and continue from durable artifacts.${priorAttempts}\n\nCurrent continuation instructions:\n${continuation}\n\nRe-check every acceptance criterion before finishing.`.trim()
+  const task = appendRetrospectSource(delegation.task, delegation)
+  return `${task}\n\nThe previous Codex thread could not be resumed. Inspect the existing working directory and continue from durable artifacts.${priorAttempts}\n\nCurrent continuation instructions:\n${continuation}\n\nRe-check every acceptance criterion before finishing.`.trim()
 }
 
-function filesChangedFromDiff(diff: string): string[] {
-  const files = new Set<string>()
-  for (const line of diff.split('\n')) {
-    const match = /^(?:\+\+\+ b|--- a)\/(.+?)(?:\t.*)?$/.exec(line)
-    if (match?.[1] && match[1] !== '/dev/null') files.add(match[1])
+function appendRetrospectSource(task: string, delegation: SubagentDelegationResponse): string {
+  if (delegation.runtime !== 'deep_research' || delegation.mode !== 'retrospect' || !delegation.source_forecast) {
+    return task
   }
-  return [...files].sort()
+  const outcome =
+    delegation.actual_outcome === undefined
+      ? 'Resolve the actual outcome from the stored resolution rule and current evidence.'
+      : `The resolved actual outcome is ${delegation.actual_outcome}.`
+  return `${task}\n\nAuthoritative source forecast (do not replace it with a new forecast):\n${JSON.stringify(delegation.source_forecast, null, 2)}\n\n${outcome}`
 }
 
 async function steerActiveTurn(
@@ -916,8 +1070,8 @@ async function steerActiveTurn(
   threadID: string,
   turnID: string,
   updates: TurnSteerUpdate[],
-  audit: SubagentAuditBuffer,
   acceptsOutcome: () => boolean,
+  onTrajectorySteering: (eventID: string, text: string) => void,
   onSteeringApplied?: (update: TurnSteerUpdate) => Promise<void>
 ): Promise<void> {
   for (const update of updates) {
@@ -934,15 +1088,10 @@ async function steerActiveTurn(
         input: textInput(text)
       })
       if (!acceptsOutcome()) continue
+      onTrajectorySteering(event.actor_event_id, text)
       await onSteeringApplied?.(update)
-      if (!acceptsOutcome()) continue
-      audit.enqueue('tool', 'turn_steer', { text, actor_event_id: event.actor_event_id })
     } catch (error) {
       if (!acceptsOutcome()) continue
-      audit.enqueue('tool', 'turn_steer_failed', {
-        summary: errorMessage(error),
-        actor_event_id: event.actor_event_id
-      })
       if (!isSteerCompletionRace(error)) throw new SubagentSteerDeliveryError(error)
     }
   }
@@ -950,6 +1099,19 @@ async function steerActiveTurn(
 
 function isSteerCompletionRace(error: unknown): boolean {
   return /(?:turn\s+)?already (?:completed|finished)|turn .* (?:has )?(?:completed|finished)/i.test(errorMessage(error))
+}
+
+class SubagentCodexTransientError extends Error {
+  readonly code = 'subagent_codex_transient'
+  readonly retryable = true
+
+  constructor(cause: unknown) {
+    super(
+      `Codex transient runtime failure requires durable retry: ${stringValue(jsonObject(cause).message) ?? errorMessage(cause)}`,
+      { cause: cause instanceof Error ? cause : undefined }
+    )
+    this.name = 'SubagentCodexTransientError'
+  }
 }
 
 class SubagentSteerDeliveryError extends Error {
@@ -979,6 +1141,11 @@ class SubagentPendingSteerError extends Error {
 function abortReason(signal?: AbortSignal): string {
   if (!signal?.aborted) return 'stopped'
   return signal.reason instanceof Error ? signal.reason.message : String(signal.reason ?? 'stopped')
+}
+
+function optionalJSONObject(value: unknown): JSONObject | undefined {
+  const object = jsonObject(value)
+  return Object.keys(object).length > 0 ? object : undefined
 }
 
 function required<T>(value: T | undefined, label: string): T {

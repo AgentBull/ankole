@@ -11,9 +11,73 @@ defmodule Ankole.Brain.KnowledgeTest do
 
   setup do
     %{principal: owner} = agent_fixture()
+    %{principal: human} = human_fixture()
     {:ok, public_scope} = Scope.for_store(owner.uid, "public")
 
-    %{owner: owner, actor: %{kind: :agent, uid: owner.uid}, public_scope: public_scope}
+    %{
+      owner: owner,
+      human: human,
+      actor: %{kind: :agent, uid: owner.uid},
+      public_scope: public_scope
+    }
+  end
+
+  test "humans can rename and retype pages while the public curation guide remains human-owned",
+       ctx do
+    human_actor = %{kind: :human, uid: ctx.human.uid}
+
+    assert {:ok, %{results: [%{entry_id: entry_id, entry_lock_version: 1}]}} =
+             Knowledge.apply_operations(
+               ctx.public_scope,
+               %{
+                 operation: "create_entry",
+                 name: "Brain Curation Guide",
+                 type: "brain_curation_guide",
+                 initial_body: "Prefer durable claims and explicit sources."
+               },
+               human_actor
+             )
+
+    assert {:error, :curation_guide_human_only} =
+             Knowledge.apply_operations(
+               ctx.public_scope,
+               %{
+                 operation: "edit_block",
+                 block_id: Repo.get_by!(EntryBlock, entry_id: entry_id).id,
+                 body: "Agent tries to rewrite policy.",
+                 expected_block_lock_version: 1
+               },
+               ctx.actor
+             )
+
+    assert {:ok,
+            %{
+              results: [
+                %{operation: "set_name", entry_lock_version: 2},
+                %{operation: "set_type", entry_lock_version: 3}
+              ]
+            }} =
+             Knowledge.apply_operations(
+               ctx.public_scope,
+               [
+                 %{
+                   operation: "set_name",
+                   entry_id: entry_id,
+                   name: "Domain Curation Guide",
+                   expected_entry_lock_version: 1
+                 },
+                 %{
+                   operation: "set_type",
+                   entry_id: entry_id,
+                   type: "topic",
+                   expected_entry_lock_version: 1
+                 }
+               ],
+               human_actor
+             )
+
+    assert {:ok, %{entry: %Entry{name: "Domain Curation Guide", type: "topic"}}} =
+             Knowledge.open(ctx.public_scope, entry_id)
   end
 
   test "applies one optimistic metadata batch, treats nil property as delete, and audits", ctx do

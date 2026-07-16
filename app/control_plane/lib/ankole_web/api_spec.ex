@@ -24,7 +24,7 @@ defmodule AnkoleWeb.APISpec do
       servers: [Server.from_endpoint(AnkoleWeb.Endpoint)],
       info: %Info{
         title: "Ankole API",
-        version: "2026-07-09"
+        version: "2026-07-15"
       },
       paths: Paths.from_router(AnkoleWeb.Router),
       # The documented `consoleBearer` scheme is the spec-side mirror of
@@ -61,6 +61,10 @@ defmodule AnkoleWeb.APISpec do
           description: "Operator-managed agent principals"
         },
         %Tag{
+          name: "Principals",
+          description: "Active accountable subjects available to operator surfaces"
+        },
+        %Tag{
           name: "Codex Accounts",
           description: "Operator-managed ChatGPT subscription accounts used by coding profiles"
         },
@@ -75,6 +79,10 @@ defmodule AnkoleWeb.APISpec do
         %Tag{
           name: "AIGateway",
           description: "Agent-authenticated AI provider gateway"
+        },
+        %Tag{
+          name: "AI Gateway Conversations",
+          description: "Read-only conversation and message log browser for operator inspection"
         },
         %Tag{
           name: "Signal Bindings",

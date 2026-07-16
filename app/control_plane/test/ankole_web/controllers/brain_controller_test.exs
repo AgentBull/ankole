@@ -6,10 +6,10 @@ defmodule AnkoleWeb.BrainControllerTest do
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AuthZ
+  alias Ankole.Brain.Scope
+  alias Ankole.Brain.Sources
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
-  alias Ankole.SignalsGateway.Channel
-  alias Ankole.SignalsGateway.Entry, as: SignalEntry
   alias AnkoleWeb.Session, as: WebSession
 
   setup %{conn: conn} do
@@ -41,6 +41,10 @@ defmodule AnkoleWeb.BrainControllerTest do
     assert Map.has_key?(paths, "/api/v1/brain/audit-log")
     assert Map.has_key?(paths, "/api/v1/brain/entries/{id}/audit-log")
     assert Map.has_key?(paths, "/api/v1/brain/sources/{document_id}")
+    assert Map.has_key?(paths, "/api/v1/brain/sources/{document_id}/raw")
+    assert Map.has_key?(paths, "/api/v1/brain/sources/{document_id}/learning-runs")
+    assert Map.has_key?(paths, "/api/v1/brain/sources")
+    assert Map.has_key?(paths, "/api/v1/brain/review-candidates")
     assert Map.has_key?(paths, "/api/v1/brain/audit-log/restorations")
     assert Map.has_key?(paths, "/api/v1/brain/audit-log/{audit_id}/restorations")
     assert Map.has_key?(paths, "/api/v1/brain/dreaming-runs")
@@ -280,6 +284,17 @@ defmodule AnkoleWeb.BrainControllerTest do
     assert %{"entries" => entries} = json_response(conn, 200)
     target = Enum.find(entries, &(&1["name"] == "Industry One")) || flunk("target entry missing")
 
+    {:ok, source_scope} = Scope.for_store(owner_uid, "public")
+
+    assert {:ok, source} =
+             Sources.capture(
+               source_scope,
+               %{kind: "paste", title: "Project status", content: "Current status"},
+               admin_uid
+             )
+
+    expected_source_body = "Current status (src:#{source.document_id})"
+
     conn =
       conn
       |> recycle_bearer()
@@ -288,7 +303,7 @@ defmodule AnkoleWeb.BrainControllerTest do
           %{
             "operation" => "append_block",
             "entry_id" => entry["id"],
-            "body" => "Current status (src:signal-gateway-entry:test)",
+            "body" => expected_source_body,
             "expected_entry_lock_version" => entry["lock_version"]
           }
         ]
@@ -305,7 +320,7 @@ defmodule AnkoleWeb.BrainControllerTest do
              "entry" => %{"name" => "Project Alpha"} = opened_entry,
              "blocks" => [
                %{
-                 "body" => "Current status (src:signal-gateway-entry:test)",
+                 "body" => ^expected_source_body,
                  "author_kind" => "human",
                  "author_uid" => ^admin_uid
                }
@@ -470,26 +485,155 @@ defmodule AnkoleWeb.BrainControllerTest do
     assert %{"error" => %{"code" => "validation_failed"}} = json_response(conn, 422)
   end
 
-  test "source citations resolve by stable SignalsGateway document id", %{conn: conn} do
-    document_id = "signal-gateway-entry:source-test"
-    insert_source!(document_id)
+  test "retained sources resolve by stable scoped document id", %{
+    conn: conn,
+    owner_uid: owner_uid,
+    admin_uid: admin_uid
+  } do
+    source = insert_source!(owner_uid, admin_uid)
+    document_id = source.document_id
 
-    conn = get(conn, ~p"/api/v1/brain/sources/#{document_id}")
+    conn = get(conn, ~p"/api/v1/brain/sources/#{document_id}?owner_uid=#{owner_uid}")
 
     assert %{
              "source" => %{
                "document_id" => ^document_id,
                "text" => "Original source text",
-               "author" => %{"display_name" => "Alice"}
+               "title" => "Original source"
              }
            } = json_response(conn, 200)
 
     conn =
       conn
       |> recycle_bearer()
-      |> get(~p"/api/v1/brain/sources/signal-gateway-entry:missing")
+      |> get(~p"/api/v1/brain/sources?owner_uid=#{owner_uid}")
+
+    assert %{
+             "sources" => [
+               %{
+                 "document_id" => ^document_id,
+                 "kind" => "retained_source",
+                 "learning_status" => "stored"
+               }
+             ]
+           } = json_response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_bearer()
+      |> get(~p"/api/v1/brain/review-candidates?owner_uid=#{owner_uid}")
+
+    assert %{
+             "review" => %{
+               "status" => "ok",
+               "unintegrated_sources" => [%{"document_id" => ^document_id}]
+             }
+           } = json_response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_bearer()
+      |> get(~p"/api/v1/brain/sources/brain-source:missing?owner_uid=#{owner_uid}")
 
     assert %{"error" => %{"code" => "not_found"}} = json_response(conn, 404)
+  end
+
+  test "file capture stores raw bytes before a separate learning request", %{
+    conn: conn,
+    owner_uid: owner_uid
+  } do
+    path = Path.expand("../../ankole/brain/sources_test.exs", __DIR__)
+    original = File.read!(path)
+
+    upload = %Plug.Upload{
+      path: path,
+      filename: "brain-source.txt",
+      content_type: "text/plain"
+    }
+
+    conn =
+      conn
+      |> multipart(~p"/api/v1/brain/sources?owner_uid=#{owner_uid}&store=public", [
+        {"kind", "file"},
+        {"title", "Brain source test"},
+        {:file, upload}
+      ])
+
+    assert %{
+             "source" => %{
+               "document_id" => document_id,
+               "kind" => "retained_source",
+               "capture_method" => "file",
+               "learning_status" => "stored",
+               "original_name" => "brain-source.txt"
+             }
+           } = json_response(conn, 201)
+
+    conn =
+      conn
+      |> recycle_bearer()
+      |> get(~p"/api/v1/brain/sources/#{document_id}/raw?owner_uid=#{owner_uid}")
+
+    assert response(conn, 200) == original
+
+    conn =
+      conn
+      |> recycle_bearer()
+      |> post(~p"/api/v1/brain/sources/#{document_id}/learning-runs?owner_uid=#{owner_uid}", %{})
+
+    assert %{"error" => %{"code" => "worker_not_ready"}} = json_response(conn, 409)
+  end
+
+  test "pasted source capture preserves the submitted bytes exactly", %{
+    conn: conn,
+    owner_uid: owner_uid
+  } do
+    original = "\n  Preserve leading and trailing whitespace.  \n"
+
+    conn =
+      conn
+      |> multipart(~p"/api/v1/brain/sources?owner_uid=#{owner_uid}&store=public", [
+        {"kind", "paste"},
+        {"title", "Exact paste"},
+        {"content", original}
+      ])
+
+    assert %{"source" => %{"document_id" => document_id}} = json_response(conn, 201)
+
+    conn =
+      conn
+      |> recycle_bearer()
+      |> get(~p"/api/v1/brain/sources/#{document_id}/raw?owner_uid=#{owner_uid}")
+
+    assert response(conn, 200) == original
+  end
+
+  defp multipart(conn, path, fields) do
+    boundary = "ankole-brain-source-test-boundary"
+
+    body =
+      Enum.map(fields, fn
+        {:file, %Plug.Upload{} = upload} ->
+          [
+            "--#{boundary}\r\n",
+            "content-disposition: form-data; name=\"file\"; filename=\"#{upload.filename}\"\r\n",
+            "content-type: #{upload.content_type}\r\n\r\n",
+            File.read!(upload.path),
+            "\r\n"
+          ]
+
+        {name, value} ->
+          [
+            "--#{boundary}\r\n",
+            "content-disposition: form-data; name=\"#{name}\"\r\n\r\n",
+            value,
+            "\r\n"
+          ]
+      end) ++ ["--#{boundary}--\r\n"]
+
+    conn
+    |> put_req_header("content-type", "multipart/form-data; boundary=#{boundary}")
+    |> post(path, IO.iodata_to_binary(body))
   end
 
   defp bearer_conn(conn) do
@@ -541,43 +685,17 @@ defmodule AnkoleWeb.BrainControllerTest do
     |> put_req_header("content-type", "application/json")
   end
 
-  defp insert_source!(document_id) do
-    now = DateTime.utc_now(:microsecond)
-    channel_id = "lark:chat:brain-source-#{System.unique_integer([:positive])}"
+  defp insert_source!(owner_uid, admin_uid) do
+    {:ok, scope} = Scope.for_store(owner_uid, "public")
 
-    %Channel{}
-    |> Channel.changeset(%{
-      id: channel_id,
-      kind: :im_group,
-      reply_mode: :entry,
-      name: "Research",
-      metadata: %{},
-      raw_payload: %{},
-      first_seen_at: now,
-      last_seen_at: now
-    })
-    |> Repo.insert!()
+    {:ok, source} =
+      Sources.capture(
+        scope,
+        %{kind: "paste", title: "Original source", content: "Original source text"},
+        admin_uid
+      )
 
-    %SignalEntry{}
-    |> SignalEntry.changeset(%{
-      signal_channel_id: channel_id,
-      source_entry_id: "provider-message-1",
-      text: "Original source text",
-      attachments: [],
-      links: [],
-      author: %{"display_name" => "Alice", "principal_uid" => "alice"},
-      mentions: [],
-      metadata: %{},
-      raw_payload: %{},
-      provider_time: now,
-      reactions: %{},
-      raw_reaction_keys: %{},
-      document_id: document_id,
-      content_hash: "source-hash",
-      first_seen_at: now,
-      last_seen_at: now
-    })
-    |> Repo.insert!()
+    source
   end
 
   defp allow_cache_database_access do

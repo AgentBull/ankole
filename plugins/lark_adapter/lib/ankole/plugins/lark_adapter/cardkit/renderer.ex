@@ -144,9 +144,10 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
 
     primary =
       []
+      |> append(trigger_context_element(presentation))
       |> append(answer_element(presentation, mode))
       |> append_all(result_elements(presentation))
-      |> append(actions_element(presentation, mode))
+      |> append_all(action_elements(presentation, mode))
 
     metadata ++ separator_elements(metadata, primary) ++ primary
   end
@@ -174,11 +175,13 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
     end
   end
 
-  defp state_copy(%{"state" => "awaiting_input", "actions" => actions}) when is_list(actions) do
-    if Enum.any?(actions, &(&1["selected"] == true)),
-      do: CardI18n.text("choice_received"),
-      else: CardI18n.text("awaiting_input")
-  end
+  defp state_copy(%{"state" => "awaiting_input", "interaction_status" => "answered"}),
+    do: CardI18n.text("answer_received")
+
+  defp state_copy(%{"state" => "awaiting_input", "interaction_status" => "superseded"}),
+    do: CardI18n.text("interaction_superseded")
+
+  defp state_copy(%{"state" => "awaiting_input"}), do: CardI18n.text("awaiting_input")
 
   defp state_copy(%{"state" => "failed"}), do: CardI18n.text("failed")
   defp state_copy(%{"state" => "stopped"}), do: CardI18n.text("stopped")
@@ -213,6 +216,39 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
   end
 
   defp thought_element(_presentation, _mode), do: nil
+
+  defp trigger_context_element(
+         %{
+           "trigger_context" =>
+             %{
+               "kind" => "subagent_failure",
+               "title" => title
+             } = trigger_context
+         } = presentation
+       )
+       when is_binary(title) do
+    if first_cardkit_page?(presentation) do
+      summary = trigger_context["summary"]
+
+      key =
+        if is_binary(summary) and summary != "",
+          do: "subagent_failure_context",
+          else: "subagent_failure_context_without_summary"
+
+      bindings = %{
+        title: escape_inline(title),
+        summary: escape_inline(summary || "")
+      }
+
+      %{
+        "tag" => "markdown",
+        "element_id" => "trigger_context"
+      }
+      |> Map.merge(CardI18n.text(key, bindings))
+    end
+  end
+
+  defp trigger_context_element(_presentation), do: nil
 
   defp answer_element(%{"answer" => ""}, :terminal), do: nil
 
@@ -371,50 +407,86 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
 
   defp receipts_element(_presentation), do: nil
 
-  defp activity_element(%{"activities" => activities}, mode) when map_size(activities) > 0 do
-    content =
+  defp activity_element(%{"activities" => activities} = presentation, mode)
+       when map_size(activities) > 0 do
+    ordered =
       activities
       |> Map.values()
       |> Enum.sort_by(& &1["revision"])
+
+    content =
+      ordered
       |> Enum.map_join("\n", fn activity ->
         "- #{activity_marker(activity["phase"])} #{activity["label"]}"
       end)
 
     panel(
       "activity",
-      CardI18n.plain_text("activity_title"),
+      activity_title(ordered, mode),
       content,
       "history_outlined",
-      mode == :working
+      mode == :working and not is_map(presentation["plan"])
     )
   end
 
   defp activity_element(_presentation, _mode), do: nil
 
-  defp actions_element(%{"actions" => actions} = presentation, mode)
-       when is_list(actions) and actions != [] and mode == :terminal do
-    buttons = Enum.flat_map(actions, &render_action(&1, presentation))
+  defp activity_title(activities, :working) do
+    running = Enum.filter(activities, &(&1["phase"] == "running"))
 
-    case buttons do
+    case running do
       [] ->
-        nil
+        CardI18n.plain_text("activity_title")
 
-      buttons ->
-        %{
-          "tag" => "column_set",
-          "element_id" => "actions",
-          "horizontal_spacing" => "8px",
-          "columns" =>
-            Enum.map(buttons, fn button ->
-              %{"tag" => "column", "width" => "auto", "elements" => [button]}
-            end)
-        }
+      [activity] ->
+        CardI18n.plain_text("activity_title_current", %{
+          current: truncate(activity["label"], 60)
+        })
+
+      running ->
+        latest = List.last(running)
+
+        CardI18n.plain_text("activity_title_parallel", %{
+          current: truncate(latest["label"], 60),
+          count: length(running)
+        })
     end
   end
 
-  defp actions_element(_presentation, _mode), do: nil
+  defp activity_title(_activities, _mode), do: CardI18n.plain_text("activity_title")
 
-  defp render_action(
+  defp action_elements(%{"actions" => actions} = presentation, mode)
+       when is_list(actions) and actions != [] and mode == :terminal do
+    buttons = Enum.flat_map(actions, &render_button_action/1)
+
+    button_element =
+      case buttons do
+        [] ->
+          nil
+
+        buttons ->
+          %{
+            "tag" => "column_set",
+            "element_id" => "actions",
+            "horizontal_spacing" => "8px",
+            "columns" =>
+              Enum.map(buttons, fn button ->
+                %{"tag" => "column", "width" => "auto", "elements" => [button]}
+              end)
+          }
+      end
+
+    forms =
+      actions
+      |> Enum.with_index(1)
+      |> Enum.flat_map(fn {action, index} -> render_form_action(action, presentation, index) end)
+
+    [button_element | forms] |> Enum.reject(&is_nil/1)
+  end
+
+  defp action_elements(_presentation, _mode), do: []
+
+  defp render_button_action(
          %{
            "type" => "button",
            "interaction_id" => interaction_id,
@@ -423,8 +495,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
            "selected_option_id" => selected_option_id,
            "option_value" => option_value,
            "revision" => revision
-         } = action,
-         _presentation
+         } = action
        )
        when is_binary(interaction_id) and is_binary(source_actor_event_id) and
               is_binary(control_id) and is_binary(selected_option_id) and
@@ -438,24 +509,94 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
         "type" => button_type(action["style"]),
         "disabled" => action["disabled"] == true,
         "text" => %{"tag" => "plain_text", "content" => label},
-        "value" => %{
-          "version" => @action_value_version,
-          "interactionId" => interaction_id,
-          "interactionVersion" => revision,
-          "controlId" => control_id,
-          "selectedOptionId" => selected_option_id,
-          "optionValue" => option_value,
-          "sourceActorEventId" => source_actor_event_id
-        }
+        "behaviors" => [
+          %{
+            "type" => "callback",
+            "value" => %{
+              "version" => @action_value_version,
+              "answerKind" => "choice",
+              "interactionId" => interaction_id,
+              "interactionVersion" => revision,
+              "controlId" => control_id,
+              "selectedOptionId" => selected_option_id,
+              "optionValue" => option_value,
+              "sourceActorEventId" => source_actor_event_id
+            }
+          }
+        ]
       }
     ]
   end
 
-  # Forms are deliberately not synthesized from arbitrary model payloads yet.
-  # A typed form remains visible as a normal clarification prompt until an
-  # owning domain supplies an authorized callback command for every field.
-  defp render_action(%{"type" => "form"}, _presentation), do: []
-  defp render_action(_action, _presentation), do: []
+  defp render_button_action(_action), do: []
+
+  defp render_form_action(
+         %{
+           "type" => "form",
+           "id" => id,
+           "interaction_id" => interaction_id,
+           "source_actor_event_id" => source_actor_event_id,
+           "control_id" => control_id,
+           "revision" => revision,
+           "fields" => [%{"type" => "input", "id" => input_name} = field]
+         } = action,
+         %{"interaction_status" => "pending"},
+         index
+       )
+       when is_binary(id) and is_binary(interaction_id) and
+              is_binary(source_actor_event_id) and is_binary(control_id) and
+              is_integer(revision) and is_binary(input_name) do
+    if action["disabled"] == true do
+      []
+    else
+      [
+        %{
+          "tag" => "form",
+          "element_id" => "action_form#{index}",
+          "name" => "#{id}-form",
+          "vertical_spacing" => "8px",
+          "elements" => [
+            render_input_field(field),
+            %{
+              "tag" => "button",
+              "name" => id,
+              "type" => button_type(action["style"] || "primary"),
+              "form_action_type" => "submit",
+              "text" => CardI18n.plain_text("submit_reply"),
+              "behaviors" => [
+                %{
+                  "type" => "callback",
+                  "value" => %{
+                    "version" => @action_value_version,
+                    "answerKind" => "free_text",
+                    "interactionId" => interaction_id,
+                    "interactionVersion" => revision,
+                    "controlId" => control_id,
+                    "inputName" => input_name,
+                    "sourceActorEventId" => source_actor_event_id
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    end
+  end
+
+  defp render_form_action(_action, _presentation, _index), do: []
+
+  defp render_input_field(field) do
+    %{
+      "tag" => "input",
+      "name" => field["id"],
+      "label" => CardI18n.plain_text("free_input_label"),
+      "placeholder" => CardI18n.plain_text("free_input_placeholder"),
+      "required" => field["required"] == true,
+      "input_type" => if(field["multiline"] == true, do: "multiline_text", else: "text"),
+      "max_length" => field["max_length"] || 1_000
+    }
+  end
 
   defp meta_element(%{"meta" => meta}) when is_map(meta) do
     parts =
@@ -706,6 +847,12 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
       %{"element_id" => "actions"} ->
         true
 
+      %{"element_id" => "trigger_context"} ->
+        true
+
+      %{"element_id" => "action_form" <> _suffix} ->
+        true
+
       %{"element_id" => id} when is_binary(id) ->
         String.starts_with?(id, ["result", "rtitle", "rtake", "rcap"])
 
@@ -859,6 +1006,10 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
     else
       String.slice(text, 0, max_chars - 1) <> "…"
     end
+  end
+
+  defp first_cardkit_page?(presentation) do
+    get_in(presentation, ["meta", "cardkit_page_index"]) in [nil, 0]
   end
 
   defp scope_to_page(presentation, opts) do

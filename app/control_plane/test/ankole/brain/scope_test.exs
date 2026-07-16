@@ -13,7 +13,7 @@ defmodule Ankole.Brain.ScopeTest do
             }} = Scope.from_metadata(" Agent-One ", %{"brain" => %{"visibility" => "public"}})
   end
 
-  test "DM declarations require a peer and channel and include public as read-only" do
+  test "DM declarations require a peer, allow a non-chat run, and include public as read-only" do
     metadata = %{
       "brain" => %{
         "visibility" => "dm",
@@ -31,9 +31,18 @@ defmodule Ankole.Brain.ScopeTest do
               current_channel: %{id: "oc_dm", kind: "im_dm"}
             }} = Scope.from_metadata("agent-one", metadata)
 
-    assert {:error, :invalid_brain_scope} =
+    assert {:ok, %Scope{current_channel: nil, writable_store_key: "dm:human-one"}} =
              Scope.from_metadata("agent-one", %{
                "brain" => %{"visibility" => "dm", "peer_uid" => "human-one"}
+             })
+
+    assert {:error, :invalid_brain_scope} =
+             Scope.from_metadata("agent-one", %{
+               "brain" => %{
+                 "visibility" => "dm",
+                 "peer_uid" => "human-one",
+                 "channel_id" => "partial"
+               }
              })
   end
 

@@ -2,7 +2,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Map, Number, Value, json};
-use uuid::Uuid as UUID;
 
 use super::error::{StreamError, StreamErrorCode};
 use super::spec::{APIResolverKind, ResponseContext};
@@ -15,6 +14,7 @@ mod google_embeddings;
 mod google_gemini;
 mod openai_chat;
 mod openai_responses;
+mod openrouter_images;
 mod rerank;
 mod standard;
 #[cfg(test)]
@@ -30,6 +30,7 @@ use self::google_embeddings::*;
 use self::google_gemini::*;
 use self::openai_chat::*;
 use self::openai_responses::*;
+use self::openrouter_images::*;
 use self::rerank::*;
-use self::standard::*;
+pub(crate) use self::standard::*;
 use self::web::*;

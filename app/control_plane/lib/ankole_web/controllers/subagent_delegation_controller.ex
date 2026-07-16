@@ -46,7 +46,7 @@ defmodule AnkoleWeb.SubagentDelegationController do
   )
 
   operation(:show,
-    summary: "Read one subagent delegation and its event timeline",
+    summary: "Read one subagent delegation and its runtime Turn trajectory",
     parameters: [delegation_id: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Delegation", "application/json", SubagentDelegationResponse},
@@ -78,7 +78,8 @@ defmodule AnkoleWeb.SubagentDelegationController do
            ) do
       json(conn, %{
         delegations: Enum.map(page.delegations, &SubagentDelegations.console_projection/1),
-        next_cursor: page.next_cursor
+        next_cursor: page.next_cursor,
+        calibration_summary: page.calibration_summary
       })
     else
       {:error, reason} -> error(conn, reason)
@@ -124,10 +125,10 @@ defmodule AnkoleWeb.SubagentDelegationController do
     delegation
     |> SubagentDelegations.console_projection()
     |> Map.put(
-      :events,
+      :turns,
       delegation.id
-      |> SubagentDelegations.list_events()
-      |> Enum.map(&SubagentDelegations.console_event_projection/1)
+      |> SubagentDelegations.list_turns()
+      |> Enum.map(&SubagentDelegations.console_turn_projection/1)
     )
   end
 

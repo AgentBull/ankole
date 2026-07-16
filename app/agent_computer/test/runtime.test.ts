@@ -19,7 +19,7 @@ import { prepareTurnWorkspace } from '../src/worker/workspace'
 import { mailboxUpdatedFromEnvelope, turnStartFromEnvelope } from '../src/lanes/actor_lane'
 import type { TurnStart } from '../src/lanes/actor_lane'
 import { startTurnProgress, turnFailureDetails, type ActiveTurn } from '../src/worker/active_turns'
-import { SubagentAuditPersistenceError } from '../src/tools/subagent/audit'
+import { SubagentTurnPersistenceError } from '../src/tools/subagent/turn-recorder'
 
 describe('@ankole/agent-computer runtime', () => {
   it('parses RuntimeFabric URL auth without embedding worker identity', () => {
@@ -76,11 +76,11 @@ describe('@ankole/agent-computer runtime', () => {
     })
   })
 
-  it('classifies exhausted subagent audit persistence as retryable worker infrastructure failure', () => {
-    const details = turnFailureDetails(new SubagentAuditPersistenceError(new Error('RPC timed out')))
+  it('classifies exhausted subagent Turn persistence as retryable worker infrastructure failure', () => {
+    const details = turnFailureDetails(new SubagentTurnPersistenceError(new Error('RPC timed out')))
 
     expect(details).toMatchObject({
-      error_code: 'subagent_audit_persistence_failed',
+      error_code: 'subagent_turn_persistence_failed',
       retryable: true
     })
   })
@@ -136,7 +136,7 @@ describe('@ankole/agent-computer runtime', () => {
     expect(runtimeFabricEncodeEnvelope(envelope)).toBeInstanceOf(Buffer)
   })
 
-  it('renews subagent progress only after observed runtime activity', async () => {
+  it('renews a silent subagent Turn independently of Codex notifications', async () => {
     const sent: unknown[] = []
     const active = {
       turnStart: { turn: actorTurnRef() } as TurnStart,
@@ -150,19 +150,15 @@ describe('@ankole/agent-computer runtime', () => {
         sent.push(envelope)
       },
       active,
-      { requireActivity: true, intervalMs: 5 }
+      { intervalMs: 5 }
     )
 
-    await Bun.sleep(14)
-    expect(sent).toHaveLength(1)
-
-    reporter.touch('codex:agent_delta')
-    await Bun.sleep(8)
-    expect(sent).toHaveLength(2)
-
-    await Bun.sleep(14)
-    expect(sent).toHaveLength(2)
+    await Bun.sleep(18)
+    expect(sent.length).toBeGreaterThanOrEqual(3)
     reporter.stop()
+    const stoppedAt = sent.length
+    await Bun.sleep(12)
+    expect(sent).toHaveLength(stoppedAt)
   })
 
   it('prepares session workspace without projecting enabled skills', () => {
@@ -193,7 +189,6 @@ describe('@ankole/agent-computer runtime', () => {
 
       expect(existsSync(join(workspaceRoot, 'temp'))).toBe(true)
       expect(existsSync(join(workspaceRoot, 'user-files'))).toBe(true)
-      expect(existsSync(join(workspaceRoot, 'library-containers'))).toBe(false)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

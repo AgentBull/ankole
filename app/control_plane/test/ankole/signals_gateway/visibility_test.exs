@@ -7,7 +7,6 @@ defmodule Ankole.SignalsGateway.VisibilityTest do
   alias Ankole.AuthZ.Group
   alias Ankole.Repo
   alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.AdapterContext
   alias Ankole.SignalsGateway.BindingMembership
   alias Ankole.SignalsGateway.Channel
@@ -23,7 +22,7 @@ defmodule Ankole.SignalsGateway.VisibilityTest do
     dm = channel!("visible-dm", :im_dm, now)
 
     assert {:ok, _event} =
-             Actors.append_actor_event(%{
+             SignalsGateway.append_actor_event(%{
                agent_uid: agent.uid,
                binding_name: "primary",
                session_id: "visibility-session",
@@ -112,7 +111,7 @@ defmodule Ankole.SignalsGateway.VisibilityTest do
 
   defp observe_channel!(agent_uid, binding_name, channel_id, now) do
     {:ok, event} =
-      Actors.append_actor_event(%{
+      SignalsGateway.append_actor_event(%{
         agent_uid: agent_uid,
         binding_name: binding_name,
         session_id: "visibility-session-#{Ecto.UUID.generate()}",

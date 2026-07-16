@@ -1,8 +1,9 @@
 # Brain 部署与运维手册
 
-Brain 把聊天召回、策展知识、dreaming 游标和审计记录都放在控制面使用的同一个
-PostgreSQL 数据库里。`memory_open` 返回的 Markdown 是关系数据的投影，不是第二份
-需要备份或修复的存储。
+Brain 把聊天召回、策展知识、显式保留的原始资料、dreaming 游标和审计记录都放在
+控制面使用的同一个 PostgreSQL 数据库里。`memory_open` 返回的 Markdown 是关系数据
+的投影，不是第二份需要备份或修复的存储。`brain_retained_sources` 的原始字节不可变；
+`brain_block_citations` 可由正文中的严格 `src:` 标识符重建。
 
 ## PostgreSQL 前置条件
 
@@ -102,6 +103,8 @@ curator 的全局连续材料前缀；被 locator 或预算排除的材料仍留
 ## 运维检查
 
 当前知识状态在 `brain_entries`、`brain_entry_blocks`、`brain_entry_relations`。
+用户明确保存的 URL、PDF、文件和粘贴文本在 `brain_retained_sources`；引用索引在
+`brain_block_citations`。
 `brain_audit_log` 是 append-only 的恢复证据，正常检索不读取它。`brain_cursors` 记录
 阶段 A 的 channel 进度和阶段 B 的 principal 进度；`brain_episodes` 是聊天导航索引。
 
@@ -124,6 +127,13 @@ SELECT actor_kind, action, entry_id, block_id, before, after, inserted_at
 FROM brain_audit_log
 ORDER BY inserted_at DESC
 LIMIT 100;
+
+SELECT s.document_id, s.owner_uid, s.store_key, s.capture_method, s.title, s.byte_size,
+       s.sha256, s.inserted_at, count(c.block_id) AS citing_blocks
+FROM brain_retained_sources AS s
+LEFT JOIN brain_block_citations AS c ON c.document_id = s.document_id
+GROUP BY s.id
+ORDER BY s.inserted_at DESC;
 ```
 
 Console 的知识列表会搜索名称、别名、简介和正文块，并使用稳定游标分页；浏览器不会把
@@ -142,8 +152,37 @@ Operator 可在 release 内通过公开 facade 同步触发一次阶段 B：
 有新材料并成功提交时状态是 `:completed`；principal 游标已经追平时是
 `:no_new_material`。不能为了掩盖模型失败或非法 mutation 而手工推进游标。
 
-`memory_health_check` 只用于人明确发起的复盘开场，它不是周期性自动修复任务。人的
+Console 的“学习资料”会先提交不可变原文，再启动 `brain.source.learn`。若没有可用
+Worker，资料页会显示为已保存并允许重试；不要因为学习没排上而手工删除原文。多个
+知识页可以引用同一资料。资料的 URL 快照超过复核窗口只表示需要检查，不能据此直接
+宣称来源已漂移。资料学习回合只能创建带首块的页面，或追加、纠正正文块，并且正文
+必须精确包含当前资料的 `src:`；控制面会拒绝删除、仅改 metadata、或无引用的写入，
+避免把临时解析器故障绕路写成长久知识。
+
+Console 的 Brain 分为“词条、资料、待复核、审计、Dreaming”五个任务面。“保存资料并
+学习”在交互上是一个动作，但服务端仍先提交原文、再启动 ActorEvent，因此第二步失败
+不会丢资料。资料学习状态直接来自 ActorEvent 和审计流水，没有额外的学习任务表：
+未读完或迭代耗尽显示“未完整读取”，正常结束但未写知识显示“无需更新”，只有审计中
+确有本次来源写入才显示“已整合”。
+
+“整理指南”是每个 principal 唯一的公开 `brain_curation_guide` 词条，只允许人维护。
+正文用于约定领域 schema、分类法、建页阈值和更新规则；source learning 与 Dreaming
+只把正文语义送给模型，不附带词条 id、锁版本等存储元数据。它不能覆盖服务端固定的
+权限、引用和 mutation 约束，因此无需再引入规则引擎或 schema DSL。
+
+同一群聊的原始消息和 channel episode 都按 channel 保存一次；多个 Agent 通过各自的
+可见范围和 Brain scope 读取同一份证据，不重复保存或生成向量。每个 Agent 的当前对话
+上下文、知识 owner 和私聊库仍彼此独立。对话消息本身就是 SignalsGateway source；若人
+粘贴一段对话要求学习，它只是普通的 `paste` retained source，不存在特殊 conversation
+source 类型。
+
+“待复核”和 `memory_health_check` 会按需重算确定性候选：失效引用、自动写入但无引用、
+可能陈旧的页面、未使用资料、到期复查的 URL、未连接或过长页面、索引失败和超预算
+固定记忆。名称只陈述可观测事实；例如 URL 过期不等于已经检测到来源漂移。它们适合在
+固定里程碑定期查看，但不是周期性自动修复任务。人的
 口头裁决应走与 agent 相同的结构化 Brain operation，保留 lock version 和审计快照。
+Console 的“纠正”和“不再成立”同样走该路径，可选原因写进审计 metadata；恢复仍使用
+既有审计流水。
 
 ## 专用真实模型验收
 

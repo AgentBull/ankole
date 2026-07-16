@@ -13,6 +13,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Supervisor do
   alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
   alias Ankole.SignalsGateway.ActorRuntime.WorkerBrowserConfig
   alias Ankole.SignalsGateway.ActorRuntime.WorkerSubagentConfig
+  alias Ankole.SubagentDelegations.Config, as: SubagentDelegationsConfig
   alias Ankole.SignalsGateway.ActorRuntime.AgentConfig
 
   @doc """
@@ -30,6 +31,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Supervisor do
     :ok = AgentConfig.ensure_registered()
     :ok = WorkerBrowserConfig.ensure_registered()
     :ok = WorkerSubagentConfig.ensure_registered()
+    :ok = SubagentDelegationsConfig.ensure_registered()
     :ok = Ankole.Security.SSRFFilter.ensure_registered()
     :ok = Ankole.Brain.ensure_registered()
     :ok = Ankole.IdentityProviders.Config.ensure_registered()

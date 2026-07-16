@@ -161,28 +161,29 @@ function ensureFakeBwrap(): void {
 }
 
 describe('computer tools', () => {
-  it('exposes browser actions without the removed browser_doctor tool', () => {
+  it('exposes the browser toolset with sequential execution and correct flags', () => {
     const computer = new FakeComputer()
     const tools = createBrowserTools(contextFor(computer))
     const names = tools.map(tool => tool.name)
 
-    expect(names).not.toContain('browser_doctor')
-    expect(names).toEqual([
-      'browser_navigate',
-      'browser_snapshot',
-      'browser_find',
-      'browser_click',
-      'browser_type',
-      'browser_press',
-      'browser_scroll',
-      'browser_select',
-      'browser_wait',
-      'browser_back',
-      'browser_screenshot',
-      'browser_open',
-      'browser_extract',
-      'browser_run'
-    ])
+    expect([...names].sort()).toEqual(
+      [
+        'browser_navigate',
+        'browser_snapshot',
+        'browser_find',
+        'browser_click',
+        'browser_type',
+        'browser_press',
+        'browser_scroll',
+        'browser_select',
+        'browser_wait',
+        'browser_back',
+        'browser_screenshot',
+        'browser_open',
+        'browser_extract',
+        'browser_run'
+      ].sort()
+    )
 
     const toolByName = new Map(tools.map(tool => [tool.name, tool]))
     for (const tool of tools) expect(tool.executionMode).toBe('sequential')
@@ -192,6 +193,82 @@ describe('computer tools', () => {
     for (const name of names.filter(name => name !== 'browser_find' && name !== 'browser_run')) {
       expect(toolByName.get(name)).toMatchObject({ isReadOnly: false, isDestructive: false })
     }
+  })
+
+  it('describes file, command, and terminal work without exposing detailed parameters', () => {
+    const computer = new FakeComputer()
+    const context = contextFor(computer)
+    const readFile = createReadFileTool(context)
+    const patch = createPatchTool(context)
+    const attachment = createReplyAttachmentTool(context)
+    const command = createCommandTool(context)
+    const terminal = createInteractiveTerminalTool(context)
+
+    expect(
+      readFile.describeActivity?.(
+        readFile.schema.parse({ path: '/workspace/app/agent_computer/src/core/agent-loop.ts' })
+      )
+    ).toContain('core/agent-loop.ts')
+    expect(
+      patch.describeActivity?.(
+        patch.schema.parse({
+          path: '/workspace/app/agent_computer/src/core/agent-loop.ts',
+          old_string: 'before',
+          new_string: 'after'
+        })
+      )
+    ).toContain('core/agent-loop.ts')
+    const patchBodySummary = patch.describeActivity?.(
+      patch.schema.parse({ mode: 'patch', patch: 'private patch body' })
+    )
+    expect(patchBodySummary).toBeTruthy()
+    expect(patchBodySummary).not.toContain('private patch body')
+    const attachmentSummary = attachment.describeActivity?.(
+      attachment.schema.parse({ path: '/workspace/user-files/reports/weekly.pdf', name: 'private-name.pdf' })
+    )
+    expect(attachmentSummary).toContain('reports/weekly.pdf')
+    expect(attachmentSummary).not.toContain('private-name')
+
+    const commandSummaries = [
+      command.describeActivity?.(
+        command.schema.parse({
+          command: 'source /workspace/private.env && mix test test/secret_test.exs --seed 123',
+          env: { API_TOKEN: 'do-not-leak' }
+        })
+      ),
+      command.describeActivity?.(command.schema.parse({ command: 'rg -n "private query" /workspace/app --hidden' })),
+      command.describeActivity?.(command.schema.parse({ command: 'git diff -- app/private.ex' })),
+      command.describeActivity?.(
+        command.schema.parse({ command: '/workspace/private/run-secret --token do-not-leak' })
+      ),
+      command.describeActivity?.(command.schema.parse({ command: 'echo "rg private query"' }))
+    ]
+
+    expect(commandSummaries).toEqual([
+      expect.stringContaining('mix test'),
+      expect.stringContaining('rg'),
+      expect.stringContaining('git diff'),
+      expect.stringContaining('run-secret'),
+      expect.stringContaining('echo')
+    ])
+    expect(commandSummaries.join(' ')).not.toContain('private')
+    expect(commandSummaries.join(' ')).not.toContain('do-not-leak')
+
+    const startSummary = terminal.describeActivity?.(
+      terminal.schema.parse({
+        action: 'start',
+        session: 'private-session',
+        command: 'python -m pytest tests/private_test.py --token do-not-leak'
+      })
+    )
+    expect(startSummary).toContain('pytest')
+    expect(startSummary).not.toContain('do-not-leak')
+    expect(startSummary).not.toContain('private-session')
+    const sendSummary = terminal.describeActivity?.(
+      terminal.schema.parse({ action: 'send', session: 'private-session', input: 'do-not-leak' })
+    )
+    expect(sendSummary).toBeTruthy()
+    expect(sendSummary).not.toContain('do-not-leak')
   })
 
   it('adds duration and expected nonzero exit-code notes to command output', async () => {

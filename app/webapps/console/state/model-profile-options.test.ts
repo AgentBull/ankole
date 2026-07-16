@@ -35,11 +35,13 @@ function kind(providerKind: string, capabilities: string[]): AIGatewayProviderKi
 }
 
 describe('model profile options', () => {
-  test('keeps web search provider-only while adapting the backend write contract', () => {
-    expect(profileUsesConfigurableModel('web_search')).toBe(false)
-    expect(modelProfileRequestFields('web_search', { model: 'ignored', contextLength: '131072' })).toEqual({
-      model: 'default'
-    })
+  test('keeps web profiles provider-only while adapting the backend write contract', () => {
+    for (const profile of ['web_search', 'web_fetch'] as const) {
+      expect(profileUsesConfigurableModel(profile)).toBe(false)
+      expect(modelProfileRequestFields(profile, { model: 'ignored', contextLength: '131072' })).toEqual({
+        model: 'default'
+      })
+    }
     expect(modelProfileRequestFields('primary', { model: 'gpt-5', contextLength: '131072' })).toEqual({
       model: 'gpt-5',
       context_length: 131072
@@ -50,15 +52,42 @@ describe('model profile options', () => {
     const providers = [
       provider('openai-main', 'openai'),
       provider('jina-main', 'jina'),
-      provider('jina-search-main', 'jina_search')
+      provider('jina-search-main', 'jina_search'),
+      provider('jina-reader-main', 'jina_reader'),
+      provider('parallel-main', 'parallel'),
+      provider('openrouter-images', 'openrouter')
     ]
-    const kinds = [kind('openai', ['llm']), kind('jina', ['embedding', 'rerank']), kind('jina_search', ['web_search'])]
+    const kinds = [
+      kind('openai', ['llm']),
+      kind('jina', ['embedding', 'rerank']),
+      kind('jina_search', ['web_search']),
+      kind('jina_reader', ['web_fetch']),
+      kind('parallel', ['web_search', 'web_fetch']),
+      kind('openrouter', ['llm', 'image_generate'])
+    ]
 
-    expect(providersForProfile(providers, kinds, 'primary').map(item => item.provider_id)).toEqual(['openai-main'])
+    expect(providersForProfile(providers, kinds, 'primary').map(item => item.provider_id)).toEqual([
+      'openai-main',
+      'openrouter-images'
+    ])
     expect(providersForProfile(providers, kinds, 'embedding').map(item => item.provider_id)).toEqual(['jina-main'])
     expect(providersForProfile(providers, kinds, 'web_search').map(item => item.provider_id)).toEqual([
-      'jina-search-main'
+      'jina-search-main',
+      'parallel-main'
     ])
+    expect(providersForProfile(providers, kinds, 'web_fetch').map(item => item.provider_id)).toEqual([
+      'jina-reader-main',
+      'parallel-main'
+    ])
+    expect(providersForProfile(providers, kinds, 'image_generate').map(item => item.provider_id)).toEqual([
+      'openrouter-images'
+    ])
+  })
+
+  test('shows no providers until capability metadata is available', () => {
+    const providers = [provider('openai-main', 'openai'), provider('jina-main', 'jina')]
+
+    expect(providersForProfile(providers, [], 'primary')).toEqual([])
   })
 
   test('turns catalog selectors into provider-local model choices', () => {
@@ -72,8 +101,8 @@ describe('model profile options', () => {
           supported_parameters: ['tools']
         },
         {
-          id: 'openai-main/gpt-image-1',
-          name: 'GPT Image 1',
+          id: 'openrouter-images/openai/gpt-image-2',
+          name: 'GPT Image 2',
           architecture: { output_modalities: ['image'] },
           supported_parameters: []
         },
@@ -106,6 +135,9 @@ describe('model profile options', () => {
     ])
     expect(modelOptionsForProfile(catalog, 'jina-main', 'rerank')).toEqual([
       { value: 'jina-reranker-v2', label: 'Jina Reranker v2', description: 'jina-reranker-v2' }
+    ])
+    expect(modelOptionsForProfile(catalog, 'openrouter-images', 'image_generate')).toEqual([
+      { value: 'openai/gpt-image-2', label: 'GPT Image 2', description: 'openai/gpt-image-2' }
     ])
   })
 

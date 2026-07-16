@@ -70,6 +70,38 @@ defmodule Ankole.SignalsGateway.InboundBatches do
     |> Enum.map(&inbound_batch_runtime_event/1)
   end
 
+  @spec entry_snapshot(module(), String.t(), String.t(), String.t(), String.t()) :: map() | nil
+  def entry_snapshot(
+        repo,
+        agent_uid,
+        binding_name,
+        signal_channel_id,
+        source_entry_id
+      )
+      when is_binary(agent_uid) and is_binary(binding_name) and is_binary(signal_channel_id) and
+             is_binary(source_entry_id) do
+    InboundBatch
+    |> where([batch], batch.agent_uid == ^agent_uid)
+    |> where([batch], batch.binding_name == ^binding_name)
+    |> where([batch], batch.signal_channel_id == ^signal_channel_id)
+    |> where(
+      [batch],
+      fragment(
+        "EXISTS (SELECT 1 FROM jsonb_array_elements(?) AS entry WHERE entry->>'source_entry_id' = ?)",
+        batch.entries,
+        ^source_entry_id
+      )
+    )
+    |> order_by([batch], desc: batch.inserted_at)
+    |> limit(1)
+    |> select([batch], batch.entries)
+    |> repo.one()
+    |> case do
+      entries when is_list(entries) -> find_entry(entries, source_entry_id)
+      nil -> nil
+    end
+  end
+
   def apply_im_entry_policy(repo, binding, fact, policy, type, now) do
     with :ok <- Projection.lock_inbound_batch(repo, fact),
          {:ok, channel} <- Projection.upsert_channel(repo, fact, now) do
@@ -89,6 +121,7 @@ defmodule Ankole.SignalsGateway.InboundBatches do
                {:ok, result} <-
                  batch
                  |> maybe_finalize_due_batch(repo, now)
+                 |> maybe_finalize_reply_boundary(repo, fact, now)
                  |> route_inbound_batch_entry(
                    repo,
                    binding,
@@ -140,6 +173,9 @@ defmodule Ankole.SignalsGateway.InboundBatches do
 
   defp batch_contains_source_entry?(nil, _source_entry_id), do: false
 
+  defp find_entry(entries, source_entry_id),
+    do: Enum.find(entries, &(&1["source_entry_id"] == source_entry_id))
+
   defp maybe_put_result(result, _key, nil), do: result
   defp maybe_put_result(result, key, value), do: Map.put(result, key, value)
 
@@ -170,6 +206,38 @@ defmodule Ankole.SignalsGateway.InboundBatches do
         end
     end
   end
+
+  defp maybe_finalize_reply_boundary(
+         {:ok, %{inbound_batch: nil} = state},
+         _repo,
+         _fact,
+         _now
+       ),
+       do: {:ok, state}
+
+  defp maybe_finalize_reply_boundary(
+         {:ok, %{inbound_batch: %InboundBatch{} = batch} = state},
+         repo,
+         fact,
+         now
+       ) do
+    reply_to_source_entry_id = Map.get(fact, :reply_to_source_entry_id)
+
+    if batch.reply_to_source_entry_id == reply_to_source_entry_id do
+      {:ok, state}
+    else
+      with {:ok, finalized} <- finalize_inbound_batch_in_tx(repo, batch, now) do
+        events =
+          (state.finalized_actor_events ++ finalized_actor_events(finalized))
+          |> Enum.uniq_by(& &1.id)
+
+        {:ok, %{state | inbound_batch: nil, finalized_actor_events: events}}
+      end
+    end
+  end
+
+  defp maybe_finalize_reply_boundary({:error, _reason} = error, _repo, _fact, _now),
+    do: error
 
   defp route_inbound_batch_entry(
          {:ok, %{inbound_batch: batch, finalized_actor_events: finalized_events}},
@@ -570,6 +638,7 @@ defmodule Ankole.SignalsGateway.InboundBatches do
         |> InboundBatch.changeset(%{
           mode: mode,
           entries: entries,
+          reply_to_source_entry_id: reply_target_from_entries(entries),
           requester_sender_key: requester_sender_key(mode, entries),
           available_at: inbound_due_at(mode, batch.policy, entries, batch, now),
           hard_cap_at: inbound_hard_cap_at(mode, batch.policy, batch, now),
@@ -585,7 +654,7 @@ defmodule Ankole.SignalsGateway.InboundBatches do
          {:ok, channel} <- batch_channel(repo, batch),
          :ok <- mirror_unmirrored_batch_entries(repo, batch, binding, now) do
       fact = batch_actor_fact(batch, type, now)
-      ActorEventEnvelope.append_actor_event(binding, fact, type, channel, nil, now)
+      ActorEventEnvelope.append_actor_event(repo, binding, fact, type, channel, nil, now)
     end
   end
 
@@ -614,6 +683,7 @@ defmodule Ankole.SignalsGateway.InboundBatches do
       session_id: Map.get(fact, :session_id) || signal_session_id(fact.signal_channel_id),
       signal_channel_id: fact.signal_channel_id,
       provider_thread_id: thread_key(fact.provider_thread_id),
+      reply_to_source_entry_id: Map.get(fact, :reply_to_source_entry_id),
       batch_state: "open",
       mode: mode,
       policy: policy,
@@ -775,7 +845,9 @@ defmodule Ankole.SignalsGateway.InboundBatches do
         entry["formatted_content"],
         entry["attachments"],
         entry["links"],
-        entry["mentions"]
+        entry["mentions"],
+        entry["reply_to_source_entry_id"],
+        entry["reply_to"]
       }
   end
 
@@ -791,6 +863,8 @@ defmodule Ankole.SignalsGateway.InboundBatches do
       "source_event_id" => fact.source_event_id,
       "signal_channel_id" => fact.signal_channel_id,
       "source_entry_id" => fact.source_entry_id,
+      "reply_to_source_entry_id" => Map.get(fact, :reply_to_source_entry_id),
+      "reply_to" => Map.get(fact, :reply_to),
       "provider_thread_id" => fact.provider_thread_id,
       "sender_key" => fact.sender_key,
       "text" => fact.text,
@@ -828,6 +902,8 @@ defmodule Ankole.SignalsGateway.InboundBatches do
       source_event_id: "inbound-batch:#{batch.id}:#{batch.batch_revision + 1}",
       signal_channel_id: batch.signal_channel_id,
       source_entry_id: last_entry["source_entry_id"],
+      reply_to_source_entry_id: batch.reply_to_source_entry_id,
+      reply_to: batch_reply_to(entries),
       provider_thread_id: unthread_key(batch.provider_thread_id),
       sender_key: batch.requester_sender_key,
       text: merged_entry_text(entries),
@@ -882,6 +958,7 @@ defmodule Ankole.SignalsGateway.InboundBatches do
         entry["source_event_id"] || "inbound-batch-entry:#{batch.id}:#{entry["source_entry_id"]}",
       signal_channel_id: entry["signal_channel_id"],
       source_entry_id: entry["source_entry_id"],
+      reply_to_source_entry_id: entry["reply_to_source_entry_id"],
       provider_thread_id: entry["provider_thread_id"],
       text: entry["text"],
       formatted_content: entry["formatted_content"] || %{},
@@ -916,6 +993,24 @@ defmodule Ankole.SignalsGateway.InboundBatches do
   end
 
   defp addressable_neutral_entry?(entry), do: entry["addressable_neutral"] == true
+
+  defp reply_target_from_entries(entries) do
+    entries
+    |> List.last()
+    |> case do
+      %{} = entry -> entry["reply_to_source_entry_id"]
+      _value -> nil
+    end
+  end
+
+  defp batch_reply_to(entries) do
+    entries
+    |> Enum.reverse()
+    |> Enum.find_value(fn
+      %{"reply_to" => reply_to} when is_map(reply_to) -> reply_to
+      _entry -> nil
+    end)
+  end
 
   defp recompute_batch_mode(entries) do
     case Enum.any?(entries, &(&1["explicit"] == true)) do

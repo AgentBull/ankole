@@ -13,6 +13,7 @@ export type MaterializedCodexConfig = {
 export function materializeCodexConfig(input: {
   sharedFsRoot: string
   runtime: CodexRuntimeConfig
+  enableMultiAgent?: boolean
 }): MaterializedCodexConfig {
   const safeAccountID = sanitizePathSegment(input.runtime.accountID, { replacement: '_' })
   if (safeAccountID !== input.runtime.accountID) throw new Error('Codex account id is not a safe path segment')
@@ -30,13 +31,16 @@ export function materializeCodexConfig(input: {
   }
 
   if (input.runtime.mode === 'aigateway') {
-    atomicWrite(join(codexHome, 'config.toml'), codexConfigToml(input.runtime.aiGatewayKey.base_url))
+    atomicWrite(
+      join(codexHome, 'config.toml'),
+      codexConfigToml(input.runtime.aiGatewayKey.base_url, input.enableMultiAgent ?? false)
+    )
     rmSync(join(codexHome, 'auth.json'), { force: true })
     env.ANKOLE_AIGATEWAY_API_KEY = input.runtime.aiGatewayKey.api_key
     return { codexHome, env }
   }
 
-  atomicWrite(join(codexHome, 'config.toml'), codexConfigToml())
+  atomicWrite(join(codexHome, 'config.toml'), codexConfigToml(undefined, input.enableMultiAgent ?? false))
   const authPath = join(codexHome, 'auth.json')
   atomicWrite(authPath, input.runtime.authJSON)
   return {
@@ -58,7 +62,7 @@ export function codexConfigCLIOverrides(): string[] {
   ]
 }
 
-function codexConfigToml(baseURL?: string): string {
+function codexConfigToml(baseURL: string | undefined, enableMultiAgent: boolean): string {
   const common = `approval_policy = "never"
 sandbox_mode = "danger-full-access"
 cli_auth_credentials_store = "file"
@@ -72,6 +76,15 @@ apps = false
 enable_mcp_apps = false
 tool_suggest = false
 plugins = false
+${
+  enableMultiAgent
+    ? `
+[features.multi_agent_v2]
+enabled = true
+hide_spawn_agent_metadata = true
+`
+    : ''
+}
 `
   if (!baseURL) return common
 

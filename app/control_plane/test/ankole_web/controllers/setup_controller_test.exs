@@ -49,7 +49,6 @@ defmodule AnkoleWeb.SetupControllerTest do
     assert_receive {:response, conn}
     assert json_response(conn, 200) == %{"ok" => true}
     assert log =~ "SETUP ACTIVATION CODE: ABCDEFGH"
-    assert log =~ "ABCDEFGH"
     assert {:ok, "ABCDEFGH"} = SetupConfig.bootstrap_activation_code()
   end
 

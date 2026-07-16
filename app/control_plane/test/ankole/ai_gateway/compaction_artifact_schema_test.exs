@@ -8,8 +8,8 @@ defmodule Ankole.AIGateway.CompactionArtifactSchemaTest do
       assert artifact_changeset(2).valid?
     end
 
-    test "rejects the removed legacy artifact version" do
-      changeset = artifact_changeset(1)
+    test "rejects non-current artifact versions" do
+      changeset = artifact_changeset(999)
 
       refute changeset.valid?
       assert "must use version 2" in errors_on(changeset).content

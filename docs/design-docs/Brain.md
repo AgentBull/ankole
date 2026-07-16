@@ -1,7 +1,7 @@
 # Ankole Brain: Curated Knowledge, Dreaming, and Human Oversight
 
 Status: final design  
-Date: 2026-07-12
+Date: 2026-07-15
 
 This document is the canonical English design for Brain. Its Chinese counterpart is
 `internals/docs/Brain.zh.md`. A behavior change must update both documents.
@@ -13,11 +13,18 @@ review support, and recovery now belong to one subsystem and one relational mode
 
 ## 1. What Brain Is
 
-Brain is Ankole's long-term memory capability. It has three parts:
+Brain is Ankole's long-term memory capability. It has four connected stages:
 
-- **curated knowledge**, which stores the system's current understanding as editable entries;
-- **dreaming**, the background process that consolidates evidence and derives bounded conclusions;
-- **human oversight**, which lets people inspect, correct, and clean up memory after the fact.
+- **evidence**, which keeps original chat in SignalsGateway and explicitly retained bytes in Brain;
+- **curation**, where ordinary Agent turns and dreaming decide what deserves durable integration;
+- **curated knowledge**, which stores the current understanding as directly editable entries;
+- **review and recovery**, which lets people inspect candidates, correct current truth, and restore audit snapshots.
+
+The stages are a data flow, not four storage products. One scope-aware source resolver
+presents chat messages and retained material through the same citation contract while
+leaving each fact in its existing owner. ActorEvent remains the learning-run lifecycle,
+and the audit log remains the recovery record; Brain does not add a second job ledger or
+source registry around them.
 
 Brain is a built-in AIGateway capability. AIGateway owns stateful conversations,
 messages, and model calls. Brain owns durable knowledge and recall for a Principal.
@@ -321,11 +328,55 @@ A recalled source has one additional best-effort behavior: blocks containing its
 `src:` identifier are deleted, while audit data remains recoverable. Uncited blocks
 are preserved.
 
-Web and document sources use a URL or document locator.
+When a person explicitly asks Brain to learn a URL, PDF, file, or pasted text, Brain
+first stores the exact bytes as an immutable `brain_retained_sources` row. Capture is
+complete before Agent execution starts, so an unavailable worker cannot lose the
+source. The Agent then receives one `brain.source.learn` ActorEvent with a run-local
+copy and a pathless `source_read` tool bound to exactly that retained source. The run exposes
+only source reading and Brain read/write tools, not general computer or web tools.
+The control plane further limits its writes to a cited first block on a new page or a
+cited append/edit on an existing page. It rejects metadata-only writes, deletion, and
+blocks without the current source marker, so a transient parser or tool failure cannot
+be stored through a different mutation shape.
 
-Brain does not store entry-to-source dependency rows. Other source changes are handled
-during later dreaming or human review. That machinery would serve an immutable version
-graph, which Brain deliberately does not have.
+Chat keeps its existing `signal-gateway-entry:*` identity. Explicitly retained material
+uses `brain-source:*`. Both forms use the same strict `src:<document_id>` marker and the
+same scope-aware resolver, but they keep their different storage and lifecycle meaning.
+A conversation is already a source through its individual message rows. Pasting an
+excerpt creates an ordinary retained `paste` source; Brain has no special conversation
+snapshot kind and does not duplicate a group message for every Agent that can see it.
+
+```text
+brain_retained_sources
+├── id: uuid (UUIDv7)
+├── document_id: text                      -- brain-source:<id>
+├── owner_uid: text, FK → principals.uid
+├── store_key: text                        -- public or dm:<peer_uid>
+├── capture_method: text                   -- paste | url | file
+├── title / origin_locator / original_name
+├── media_type / byte_size / sha256
+├── raw_content: bytea                     -- exact immutable bytes
+├── captured_by_uid: text
+└── inserted_at: timestamptz
+```
+
+PostgreSQL rejects updates to retained-source rows, so their bytes and metadata cannot
+drift after capture; lifecycle deletion is only cascaded from the owning Principal.
+Capture deliberately has
+no re-ingest, hash-deduplication, version-chain, or batch abstraction: those features
+can be added only when repeated capture is an observed user problem. The SHA-256 and
+byte size currently protect the handoff to Agent Computer. `source_read` verifies both,
+extracts a bounded representation, paginates by character cursor without clipping long
+lines, and prevents `memory_update` or normal turn completion until the whole source has
+been read. A failed or iteration-exhausted ActorEvent is shown as failed or incomplete,
+never as successfully learned. `loop_finished` becomes `integrated` only when the audit
+log contains a write attributed to that event and source; otherwise it is `no_change`.
+
+`brain_block_citations` is a rebuildable index of those strict markers. The block body
+remains canonical; the index only makes source-to-page navigation, withdrawal, and lint
+checks deterministic. It is not a claim graph, source registry, version chain, or
+automatic invalidation engine. Old URL snapshots are review candidates, not proof of
+source drift.
 
 ### 5.5 Projection and Mutation
 
@@ -338,7 +389,10 @@ Writes use small structured operations rather than whole-page replacement:
 - append, edit, or delete one block;
 - add or remove one relation;
 - set one property;
-- set summary or aliases.
+- set name, type, summary, or aliases.
+
+Creating a page may include its first body block in the same transaction. Console uses
+that form so “write knowledge” creates a useful page rather than an empty metadata shell.
 
 Each audit record has a precise intent. Editing one block costs fewer tokens than
 rewriting a page, and independent blocks have a smaller conflict surface.
@@ -426,9 +480,9 @@ is `properties.channel_id`; a display-name change does not break lookup.
 
 Pinned and channel entries become saved context at conversation start. Writes during
 the conversation persist immediately but do not mutate that conversation's system
-prompt. The model is told what the saved context is for, that it may not include later
-changes, and when freshness or exact provenance justifies retrieval; it is not shown
-the storage-oriented "Brain snapshot" envelope.
+prompt. The model uses an item only if it remains valid, is supported with sufficient
+confidence, and is directly relevant to the current topic; otherwise it ignores the
+item. It is not shown the storage-oriented "Brain snapshot" envelope.
 
 These surfaces are high-risk because malicious instructions would persist across every
 future conversation. Writes therefore pass a best-effort threat scan for prompt
@@ -494,7 +548,8 @@ evidence, never as instructions.
 | `memory_update` | Mutate knowledge | One structured operation with server-derived owner, store, and author |
 | `memory_browse` | Read original chat | Channel/time/cursor browsing and source-id expansion |
 | `memory_health_check` | Review diagnostics | Read-only Brain health report |
-| `skill_append` / `skill_replace` | Maintain skill notes | Owned by `AIAgent.Library`; rules in Section 8.2 |
+| `source_read` | Read one retained source | Available only during its `brain.source.learn` run; no caller-selected path |
+| `skill_append` / `skill_replace` | Maintain skill notes | Owned by `AIAgent.Library`; rules in Section 8.3 |
 
 In a DM, `memory_open` prefers the peer DM entry when both stores contain the same name.
 The caller may explicitly narrow to the public store.
@@ -503,27 +558,44 @@ The caller may explicitly narrow to the public store.
 
 ## 8. Write Path
 
-Knowledge enters entries through three channels.
+Knowledge enters entries through four channels.
 
-1. **Working habit.** The system prompt asks the agent to write explicit preferences,
-   corrections, decisions, and durable external facts during normal work.
+1. **Working habit.** A user-directed request to remember, update, or forget is applied
+   without an added future-value test. Otherwise an ordinary Agent writes proactively
+   only when Brain adds clear value over existing knowledge and searchable chat, and
+   either a separate future task or a likely later user question justifies the mutation.
 2. **Pre-compaction inventory.** Before AIGateway compacts context, the agent gets one
    reminder to persist anything important that has not been written yet.
-3. **Dreaming.** Background consolidation and inference process new material in batches.
+3. **Explicit source learning.** Console saves immutable source bytes, then queues one
+   ordinary Actor turn that integrates supported claims into one or more current pages.
+4. **Dreaming.** Background consolidation and inference process new material in batches.
 
 The compaction reminder is one-shot for a history prefix. Once context is compacted,
 unwritten knowledge is no longer recoverable from the model context.
 
-External events need no fourth ingestion table. News and announcements can enter as
-SignalsGateway channel messages, or an agent can write facts discovered during
-research.
-
-Both routes reuse the same mirror, source identifier, and dreaming cursor.
+There is still no general event-ingestion pipeline. News and announcements can enter as
+SignalsGateway channel messages, through explicit retained-source learning, or as facts
+an Agent writes during research. Retained sources are user-selected evidence, not a
+second background cursor or batch-ingest system.
 
 Brain permanently excludes extract-on-every-message pipelines. They pay for material
 that may never matter and persist the first extraction error as durable memory.
 
-### 8.1 Two Destinations for Self-Improvement
+### 8.1 Human Curation Guide
+
+Each Principal may have one public entry whose type is `brain_curation_guide`. A person
+maintains its body in ordinary language: domain schema, taxonomy, when a subject deserves
+its own page, and how newer evidence should update an existing page. The database enforces
+the public singleton and Knowledge rejects non-human writes to it.
+
+Source learning and dreaming load only the guide's semantic block bodies into their
+model input. Entry ids, store keys, lock versions, hashes, and other storage metadata do
+not leak into the prompt. The guide is advice inside the server's fixed write and citation
+rules, not executable policy and not permission to bypass them. This gives humans partial
+control over ontology without adding a schema DSL, rule engine, or automatic taxonomy
+migration.
+
+### 8.2 Two Destinations for Self-Improvement
 
 Lessons go to existing owners:
 
@@ -533,7 +605,7 @@ Lessons go to existing owners:
 
 Brain writes skill overlays but does not own their storage or loading lifecycle.
 
-### 8.2 Rules for Skill Notes
+### 8.3 Rules for Skill Notes
 
 The rules are adapted from EverOS:
 
@@ -551,8 +623,10 @@ The rules are adapted from EverOS:
 
 ### 8.3 Triggers
 
-At task completion, preserve a lesson when the task recovered from an error, a person
-corrected the agent, or a non-obvious multi-step process succeeded.
+At task completion, error recovery, a human correction, or non-obvious multi-step
+success may produce a lesson candidate. It is written during the ordinary turn only
+when the same proactive-write gate above passes; these events are not independent
+write triggers.
 
 Dreaming performs a second pass. It merges repeated lessons and catches experience that
 an interrupted or incomplete task failed to summarize.
@@ -644,6 +718,10 @@ explicitly completed Actor turns. It never treats an arbitrary AIGateway Message
 one unit of evidence. DM material stays in the matching peer DM store; other material
 goes to `public`.
 
+Outbound provider mirrors with `ai_message_id` are excluded from signal material, and
+`brain.source.learn` outcomes are excluded from task material. This prevents the Agent's
+own replies and explicit learning runs from recursively becoming new evidence.
+
 The two material kinds have different authority. A `signal_message` is original source
 evidence for claims about people, teams, channels, preferences, decisions, and the
 external world. A `task_outcome` is a semantic projection of one completed Actor turn:
@@ -666,8 +744,9 @@ Stage B performs four jobs.
    resident rules, merges skill notes, and refreshes summaries or aliases made stale
    by body edits.
 
-Induction also covers the agent's work process. A task has one immediate chance to save
-a lesson and one later dreaming pass to catch a missed correction or recovery.
+Induction also covers the agent's work process. A task lesson has one immediate chance
+through the ordinary proactive-write gate and one later dreaming pass to catch a missed
+correction or recovery.
 
 Stage B follows these constraints:
 
@@ -710,7 +789,7 @@ editable playbook, while evaluation remains outside the loop.
 | ACE role | Ankole counterpart |
 | --- | --- |
 | Generator | Normal work; trajectories already persist in AIGateway |
-| Reflector | Immediate task summary and Stage B dreaming |
+| Reflector | Task lessons that pass the proactive-write gate, plus Stage B dreaming |
 | Curator playbook | Knowledge entries and skill notes, changed through small operations |
 | Evaluator outside the loop | People, audit recovery, and `AIAgent.Library` lifecycle |
 
@@ -734,11 +813,16 @@ conversation.
 
 ### 11.2 Console Editing
 
-The Console knowledge surface is a wiki editor over relational truth.
+The Console knowledge surface is a wiki editor over relational truth with two primary
+entry points: “write knowledge” and “learn source.”
 
-The list filters by type, update time, and author. Entry details show attributed blocks,
-formal relations, and clickable source ids. Prose uses text editing; relations and
-properties use structured controls.
+Writing knowledge creates title, type, and first body atomically. Learning a source
+saves a URL, PDF, file, or pasted text before asking the selected Agent to integrate it;
+failed admission remains visibly saved and retryable. Entry details show attributed
+blocks, formal relations, and citations from the derived index. Humans can rename or
+retype a page, correct a block, or mark it no longer valid, with an optional reason
+stored in the existing audit metadata. Relations and properties retain structured
+controls.
 
 Human and agent mutations use the same operation path. They differ only by attribution.
 
@@ -776,15 +860,24 @@ with read-only health checks:
 - projections longer than 200 lines;
 - entries older than the latest related chat evidence by more than 90 days;
 - a pinned memo over its injection budget;
-- blocks whose `embedding_state` is `failed`.
+- blocks whose `embedding_state` is `failed`;
+- generated blocks with no source marker, broken citations, and retained sources not
+  yet cited by any page;
+- old URL snapshots that should be checked for drift, without claiming they changed.
 
-The agent also surfaces unresolved contradictions, dreaming-authored inference blocks,
-and possibly stale skill notes.
+The deterministic report only locates candidates. Its names state what was actually
+observed: an old URL is “due for recheck,” not “source drift,” and an isolated page is
+“unconnected,” not automatically wrong. The review Agent then compares
+overlapping claims for contradictions, missing concepts, and evidence gaps, and treats
+remembered runtime failures as especially perishable. It must show evidence and ask the
+person before changing memory.
 
 The person decides in ordinary language. The agent applies those decisions as normal
 entry mutations, and the person's statement remains available as source chat.
 
-Review has no fixed calendar. Milestones, not elapsed time, are the useful trigger.
+Console and `memory_health_check` recompute these candidates on demand. Operators may
+run that review at regular milestones, but Brain has no dedicated lint scheduler and no
+automatic repair path; elapsed time alone is not authority to rewrite knowledge.
 
 ---
 
@@ -852,7 +945,7 @@ Research benchmarks and Honcho comparisons are separate future work.
 | Searchable version chains | Old searchable versions create ghost memory; audit is recovery, not history browsing |
 | Approval flows or proposal queues | Oversight is retrospective and human attention is limited |
 | Brain ACL or visibility model | Structural public/DM stores provide the chosen boundary |
-| Source dependency rows | Quoted evidence stays readable; withdrawal uses `src:` matching |
+| Claim graphs, source registries, and automatic drift invalidation | A rebuildable citation index answers navigation and lint needs without creating a second knowledge lifecycle |
 | Structured claim table | Claims live in attributed prose; structured relations already have a table |
 | Numeric confidence | Certainty is expressed in language, without undefined 0.x semantics |
 | Observer-specific perspective copies | Attributed disagreement belongs on one page |
@@ -960,15 +1053,17 @@ A confidential group uses a dedicated agent and therefore a dedicated Principal.
 **Accepted cost:** agents may duplicate knowledge about the same subject. This matches
 the product model that each digital employee has its own brain.
 
-### 15.7 Provenance Is a Quotation Convention
+### 15.7 Provenance Is Canonical Prose Plus a Derived Citation Index
 
 **Question:** Does traceability require a source dependency graph?
 
-**Decision:** quote the evidence and include speaker, date, and source locator in prose.
+**Decision:** quote the evidence and include speaker, date, and a strict `src:` locator
+in prose. Rebuild `brain_block_citations` from those markers for navigation and lint.
 
-**Reason:** dependency invalidation belongs to an immutable version architecture. Brain
-has only one current version. The quotation remains readable if the source disappears,
-and the id opens it while it exists.
+**Reason:** the small derived index removes repeated parsing and supports source-to-page
+navigation without turning sources into a second knowledge graph. Brain still has one
+current knowledge version. The quotation remains readable if a source disappears, and
+the id opens it while it exists.
 
 **Accepted cost:** most source changes are reconciled later by dreaming or review.
 Provider recall retains the narrower best-effort withdrawal behavior.
@@ -1198,6 +1293,13 @@ scan. An operator can clear old vectors back to `pending` to regenerate them.
 RRF is an existing kernel NIF used by both knowledge and chat recall. Time decay and
 optional rerank apply after fusion.
 
+Chat BM25 excludes only mirrored entries represented by the root turn's exact visible
+AIGateway Response chain. The adapter maps visible Response ids to outbound mirrors and
+their opaque Actor event ids to inbound mirrors. It does not infer model context from a
+channel-wide time or row-count window; a reset conversation therefore makes the prior
+conversation's messages recallable again. A subagent's inherited parent conversation is
+Brain scope, not its model transcript, so it is not used for this exclusion.
+
 ### 17.5 Dreaming and Withdrawal
 
 `brain_cursors` uses `(scope_kind, scope_key)`. Stage A owns channel rows. Stage B owns
@@ -1222,6 +1324,11 @@ AIGateway's existing pre-compaction nudge points the worker at the Brain write t
 RuntimeFabric registers `memory_search`, `memory_browse`, `memory_open`,
 `memory_update`, and `memory_health_check` in the shared RPC contract.
 
+An explicit retained source enters through `brain.source.learn`. Agent Computer binds
+`source_read` to that event's immutable descriptor and exposes only it plus the Brain
+tools for that turn. Source bytes remain PostgreSQL truth and are copied into the
+session workspace only for execution.
+
 The main agent and subagents receive the same Brain tools. Skill notes use the existing
 append and replace overlay RPCs.
 
@@ -1234,9 +1341,13 @@ audit, recovery, paging, source-resolution, and supervision projections run thro
 cursor encoding, and HTTP response envelopes. RuntimeFabric narrows read capabilities
 through `Brain.Scope` rather than editing scope fields in an adapter.
 
-Console exposes entry listing, detail, operations, source browsing, audit listing,
-single and batch restore, health review support, and manual dreaming. OpenAPI-generated
-clients use the same HTTP contract.
+Console exposes five task surfaces: entries, retained materials, review candidates,
+audit recovery, and dreaming. “Save and learn” is one user action over two backend
+commands: capture commits immutable bytes first, then learning starts; a start failure
+routes to the retained-source page for retry. Entry creation asks for useful title and
+body first, uses named public/private store choices rather than raw keys, and gives the
+human curation guide its own creation path. OpenAPI-generated clients use the same HTTP
+contract.
 
 ### 17.7 Configuration Mapping
 
@@ -1246,7 +1357,7 @@ clients use the same HTTP contract.
 | `memory.recall.enabled` / `model_agent_uid` | `brain.dreaming` |
 | `memory.recall.episode_*` | Stage A fields in `brain.dreaming` |
 | `memory.recall.default_limit` / `max_limit` | `brain.knowledge` |
-| `memory.recall.hot_context_hours` / `hot_context_entries` | `brain.search` |
+| `memory.recall.hot_context_hours` / `hot_context_entries` | Removed; the visible AIGateway Response chain is authoritative |
 
 The seven acceptance stories in Section 13 run through the existing E2E framework. Brain
 adds a dedicated suite, not a second testing architecture.

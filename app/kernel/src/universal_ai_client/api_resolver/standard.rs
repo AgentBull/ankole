@@ -1,4 +1,5 @@
 use super::*;
+use uuid::Uuid as UUID;
 pub(super) fn build_event(sequence: u64, event_type: &str, fields: Value) -> Value {
     let mut event = json!({
         "type": event_type,
@@ -46,7 +47,7 @@ pub(super) fn failed_response_resource(
     complete_response_resource(context, body)
 }
 
-pub(super) fn complete_response_resource(context: &ResponseContext, body: Value) -> Value {
+pub(crate) fn complete_response_resource(context: &ResponseContext, body: Value) -> Value {
     let request = context.resolved_request();
     let mut object = body.as_object().cloned().unwrap_or_default();
     let created_at = integer_value(
@@ -530,7 +531,7 @@ pub(super) fn normalize_reasoning(value: &Value) -> Value {
     }
 }
 
-pub(super) fn normalize_response_usage(usage: &Value) -> Value {
+pub(crate) fn normalize_response_usage(usage: &Value) -> Value {
     let input_tokens = integer_value(
         usage
             .get("input_tokens")
@@ -749,7 +750,7 @@ pub(super) fn value_to_string(value: &Value) -> String {
     }
 }
 
-pub(super) fn generated_id(prefix: &str) -> String {
+pub(crate) fn generated_id(prefix: &str) -> String {
     format!("{prefix}_{}", UUID::new_v4().simple())
 }
 

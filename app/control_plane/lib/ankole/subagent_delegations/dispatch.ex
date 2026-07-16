@@ -6,11 +6,14 @@ defmodule Ankole.SubagentDelegations.Dispatch do
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
+  alias Ankole.SubagentDelegations.Config
   alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AppConfigure
   alias Ankole.Principals
   alias Ankole.Repo
   alias Ankole.RuntimeEvents
   alias Ankole.SubagentDelegations.Attrs
+  alias Ankole.SubagentDelegations.Queries
   alias Ankole.SubagentDelegations.Schemas.Delegation
 
   @spec create_with_dispatch(map()) ::
@@ -21,7 +24,9 @@ defmodule Ankole.SubagentDelegations.Dispatch do
     with attrs when is_map(attrs) <- Attrs.normalize(attrs),
          {:ok, agent_uid} <- Principals.normalize_uid(Attrs.text(attrs, "agent_uid")),
          {:ok, reply_route} <- reply_route(attrs),
-         {:ok, codex_account_id} <- codex_account_id(agent_uid) do
+         {:ok, codex_account_id} <- codex_account_id(agent_uid),
+         {:ok, attrs} <- normalize_research_contract(attrs),
+         {:ok, attrs} <- put_research_retention(attrs, agent_uid) do
       attrs =
         attrs
         |> Map.put("agent_uid", agent_uid)
@@ -35,7 +40,8 @@ defmodule Ankole.SubagentDelegations.Dispatch do
         |> Map.put_new("metadata", %{})
 
       Repo.transact(fn repo ->
-        with {:ok, delegation} <- insert_or_get_delegation(repo, attrs),
+        with :ok <- validate_research_source(repo, attrs, agent_uid),
+             {:ok, delegation} <- insert_or_get_delegation(repo, attrs),
              {:ok, dispatch_event} <- append_dispatch_event(repo, delegation, now) do
           {:ok, %{delegation: delegation, dispatch_event: dispatch_event}}
         end
@@ -172,12 +178,7 @@ defmodule Ankole.SubagentDelegations.Dispatch do
   defp insert_or_get_delegation(repo, attrs) do
     delegation = %Delegation{id: Ankole.Ecto.UUIDv7.autogenerate()}
 
-    attrs =
-      Map.put_new(
-        attrs,
-        "workdir",
-        "/workspace/user-files/subagent/#{String.slice(delegation.id, 0, 8)}"
-      )
+    attrs = Map.put_new(attrs, "workdir", default_workdir(attrs, delegation.id))
 
     changeset = Delegation.creation_changeset(delegation, attrs)
 
@@ -224,6 +225,8 @@ defmodule Ankole.SubagentDelegations.Dispatch do
           Attrs.reject_nil_values(%{
             "delegation_id" => delegation.id,
             "parent_session_id" => delegation.session_id,
+            "runtime" => delegation.runtime,
+            "mode" => delegation.mode,
             "workdir" => delegation.workdir,
             "attempts" => delegation.attempts
           })
@@ -248,6 +251,77 @@ defmodule Ankole.SubagentDelegations.Dispatch do
         {:error, :invalid_subagent_reply_route}
     end
   end
+
+  defp normalize_research_contract(attrs) do
+    runtime = Attrs.text(attrs, "runtime") || "task_worker"
+
+    attrs =
+      attrs
+      |> Map.put("runtime", runtime)
+      |> maybe_default_research_mode(runtime)
+
+    {:ok, attrs}
+  end
+
+  defp maybe_default_research_mode(attrs, "deep_research"),
+    do: Map.put_new(attrs, "mode", "general")
+
+  defp maybe_default_research_mode(attrs, _runtime), do: attrs
+
+  defp put_research_retention(%{"runtime" => "task_worker"} = attrs, _agent_uid),
+    do: {:ok, Map.delete(attrs, "workspace_retention_days")}
+
+  defp put_research_retention(%{"runtime" => "deep_research"} = attrs, agent_uid) do
+    definition = Config.definition()
+
+    with :ok <- Config.ensure_registered(),
+         {:ok, resolution} <- AppConfigure.resolve(definition, agent_id: agent_uid),
+         days when is_integer(days) <- Map.get(resolution.value, "retention_days") do
+      {:ok, Map.put(attrs, "workspace_retention_days", days)}
+    else
+      _reason -> {:error, :deep_research_retention_unavailable}
+    end
+  end
+
+  defp validate_research_source(_repo, %{"runtime" => "task_worker"}, _agent_uid), do: :ok
+
+  defp validate_research_source(
+         repo,
+         %{
+           "runtime" => "deep_research",
+           "mode" => "retrospect",
+           "source_delegation_id" => source_id
+         },
+         agent_uid
+       )
+       when is_binary(source_id) do
+    case Queries.get_for_agent(repo, source_id, agent_uid, []) do
+      %Delegation{runtime: "deep_research", mode: "forecast", status: "succeeded"} ->
+        :ok
+
+      %Delegation{} ->
+        {:error, :invalid_retrospect_source_delegation}
+
+      nil ->
+        {:error, :retrospect_source_delegation_not_found}
+    end
+  end
+
+  defp validate_research_source(
+         _repo,
+         %{"runtime" => "deep_research", "mode" => "retrospect"},
+         _agent_uid
+       ),
+       do: {:error, :retrospect_source_delegation_required}
+
+  defp validate_research_source(_repo, %{"runtime" => "deep_research"}, _agent_uid), do: :ok
+  defp validate_research_source(_repo, _attrs, _agent_uid), do: :ok
+
+  defp default_workdir(%{"runtime" => "deep_research"}, delegation_id),
+    do: "/workspace/user-files/research/#{delegation_id}"
+
+  defp default_workdir(_attrs, delegation_id),
+    do: "/workspace/user-files/subagent/#{String.slice(delegation_id, 0, 8)}"
 
   defp now, do: DateTime.utc_now(:microsecond)
 end

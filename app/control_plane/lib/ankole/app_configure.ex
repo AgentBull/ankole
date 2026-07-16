@@ -19,6 +19,7 @@ defmodule Ankole.AppConfigure do
 
   @type definition :: Definition.t() | PatternDefinition.t()
   @type console_item :: map()
+  @opaque committed_write :: {term(), String.t(), String.t(), map()}
 
   @doc """
   Builds an exact AppConfigure definition and raises on invalid declaration data.
@@ -147,6 +148,22 @@ defmodule Ankole.AppConfigure do
     with {:ok, registered} <- Registry.require_key(key) do
       put(@global_scope, key, registered, value)
     end
+  end
+
+  @doc false
+  @spec put_global_by_key_in_tx(module(), String.t(), term()) ::
+          {:ok, committed_write()} | {:error, term()}
+  def put_global_by_key_in_tx(repo, key, value) when is_atom(repo) and is_binary(key) do
+    with {:ok, registered} <- Registry.require_key(key) do
+      put_row(repo, @global_scope, key, registered, value)
+    end
+  end
+
+  @doc false
+  @spec cache_committed_write(committed_write()) :: {:ok, term()}
+  def cache_committed_write({parsed, scope, key, envelope}) do
+    :ok = Cache.put_row(scope, key, envelope)
+    {:ok, parsed}
   end
 
   @doc """
@@ -419,16 +436,17 @@ defmodule Ankole.AppConfigure do
   # AppConfigure has no public refresh path. Runtime changes are expected to use
   # this write path, which persists first and then updates the local projection.
   defp put(scope, key, definition, value) do
-    with :ok <- ensure_scope(definition, scope),
-         {:ok, envelope, parsed} <- Codec.dump(definition, scope, key, value),
-         :ok <- upsert_row(scope, key, envelope),
-         :ok <- Cache.put_row(scope, key, envelope) do
-      {:ok, parsed}
+    with {:ok, committed_write} <- put_row(Repo, scope, key, definition, value) do
+      cache_committed_write(committed_write)
     end
   end
 
-  defp upsert_row(scope, key, envelope) do
-    upsert_row(Repo, scope, key, envelope)
+  defp put_row(repo, scope, key, definition, value) do
+    with :ok <- ensure_scope(definition, scope),
+         {:ok, envelope, parsed} <- Codec.dump(definition, scope, key, value),
+         :ok <- upsert_row(repo, scope, key, envelope) do
+      {:ok, {parsed, scope, key, envelope}}
+    end
   end
 
   defp upsert_row(repo, scope, key, envelope) do

@@ -439,6 +439,89 @@ fn openai_chat_build_body_maps_function_call_history_to_tool_messages() {
 }
 
 #[test]
+fn openai_chat_emulates_response_tool_namespaces() {
+    let context = ResponseContext {
+        model: "openrouter-test".to_string(),
+        request: json!({
+            "tools": [{
+                "type": "namespace",
+                "name": "multi_agent_v1",
+                "description": "Codex collaboration tools",
+                "tools": [{
+                    "type": "function",
+                    "name": "spawn_agent",
+                    "description": "Spawn a subagent",
+                    "strict": false,
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"message": {"type": "string"}},
+                        "required": ["message"]
+                    }
+                }]
+            }],
+            "input": [
+                {
+                    "type": "function_call",
+                    "call_id": "call_previous",
+                    "namespace": "multi_agent_v1",
+                    "name": "spawn_agent",
+                    "arguments": "{\"message\":\"review\"}"
+                },
+                {
+                    "type": "function_call_output",
+                    "call_id": "call_previous",
+                    "output": "done"
+                }
+            ]
+        }),
+        provider_options: json!({}),
+        stream: None,
+        include_model: true,
+    };
+    let mut resolver = APIResolver::new(APIResolverKind::OpenAIChatCompletions, context);
+
+    let body = Value::Object(resolver.build_body().unwrap());
+    assert_eq!(
+        body["tools"][0]["function"]["name"],
+        "multi_agent_v1__spawn_agent"
+    );
+    assert_eq!(
+        body["messages"][0]["tool_calls"][0]["function"]["name"],
+        "multi_agent_v1__spawn_agent"
+    );
+
+    let response = resolver
+        .normalize_body(
+            200,
+            json!({
+                "id": "chatcmpl_namespace",
+                "created": 10,
+                "model": "openrouter-test",
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": null,
+                        "tool_calls": [{
+                            "id": "call_next",
+                            "type": "function",
+                            "function": {
+                                "name": "multi_agent_v1__spawn_agent",
+                                "arguments": "{\"message\":\"fact check\"}"
+                            }
+                        }]
+                    },
+                    "finish_reason": "tool_calls"
+                }]
+            }),
+        )
+        .unwrap();
+    let call = &response["output"][0];
+
+    assert_eq!(call["namespace"], "multi_agent_v1");
+    assert_eq!(call["name"], "spawn_agent");
+}
+
+#[test]
 fn jina_embeddings_preserves_multivector_items() {
     let mut resolver = APIResolver::new(
         APIResolverKind::JinaEmbeddings,

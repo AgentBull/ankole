@@ -16,8 +16,9 @@ Ankole document, read `docs/README.md` first for the system map.
 Only four concepts need to stay separate:
 
 - `IngressFact`: what an adapter or internal source reports to the gateway. It
-  carries a stable source event id, raw references, and provider metadata when
-  the input came from a provider. It is an input shape, not necessarily a table.
+  carries a stable source event id, provider entry/thread/reply identities, raw
+  references, and provider metadata when the input came from a provider. It is
+  an input shape, not necessarily a table.
 - Provider mirror: `signal_gateway_channels` and `signal_gateway_entries`, the current
   provider-visible or provider-delivered state Ankole has chosen to observe.
 - `ActorEvent`: the semantic work item appended to `actor_events` for a session
@@ -268,6 +269,10 @@ payloads; this is still first-party in-memory ingress data, not a new external
 capability. CEL does not load database rows, Principal/AuthZ state, actor runtime
 state, provider I/O, or custom host-side-effect functions while evaluating.
 
+The entry projection exposes `reply_to_source_entry_id` as an adapter-normalized
+id. It does not expose the resolved target snapshot because binding filtering
+runs before any database read or durable write.
+
 Parsed slash-command payloads are produced after admission routing, so they are
 not part of the CEL admission surface. Filters that need command-like admission
 should use the entry text, structured mention prefixes, or adapter metadata that
@@ -382,9 +387,11 @@ It also exposes adapter logging and the adapter's display user name:
 - `getUserName()`
 
 Normalized IngressFacts include a stable `source_event_id`, a source entry id
-when there is a provider entry, thread id when the provider has one, optional
-channel data, text, formatted content, attachments, links, mentions, author, raw
-payload reference, provider metadata, and provider observation time. Adapters
+when there is a provider entry, `provider_thread_id` when the entry is inside a
+provider thread, `reply_to_source_entry_id` when the provider identifies a
+direct reply target, optional channel data, text, formatted content,
+attachments, links, mentions, author, raw payload reference, provider metadata,
+and provider observation time. Adapters
 are responsible for supplying a unique, stable event id for `source_event_id`;
 for Feishu/Lark websocket events this is the provider `event_id`. Internal
 facts, such as schedule fires, derive it from the source's fire id. Removal
@@ -550,6 +557,17 @@ whose `data.entry` already contains merged text and attachments. The optional
 `data.entries` list is provenance and lifecycle material; a worker must not need
 to read it to understand the user request or ambient observation.
 
+Addressed and ambient IM events may also carry `data.channel_context.messages`,
+a bounded projection of provider-visible `signal_gateway_entries` immediately
+before the current batch. This projection is channel-scoped because a provider
+thread is a reply route, and providers such as Lark assign each top-level group
+message a distinct root. Before attaching the projection, SignalsGateway
+excludes document ids already present in the target Agent's active visible
+AIGateway Response chain. The Agent Computer renders the remaining rows as one
+attributed, quoted model input before the current message. AIGateway
+conversations remain subject-local, and Brain remains the explicit path for
+older or topic-based recall; neither owns this recent shared-room projection.
+
 A pending inbound batch is keyed by the accepting route and provider
 conversation scope:
 
@@ -557,11 +575,21 @@ conversation scope:
 {agent_uid, binding_name, signal_channel_id, provider_thread_id}
 ```
 
-The key is thread-scoped, but the batch keeps the ordered provider entries and
-their sender-contiguous runs. Addressed upgrade is always scoped to a sender
-run, not to the whole room batch. This prevents a neutral multi-person room
+`provider_thread_id` is the thread that already contains the message and is
+nil for top-level messages, so the batch locus is channel-scoped for ordinary
+room traffic and thread-scoped only inside a real provider thread. Adapters
+must not substitute a message's own id as its thread id; that would give every
+top-level message a private batch key and disable burst merging. The batch
+keeps the ordered provider entries and their sender-contiguous runs. Addressed
+upgrade is always scoped to a sender run, not to the whole room batch. This prevents a neutral multi-person room
 conversation from being converted into one person's user request just because a
 later message mentions the bot.
+
+One inbound batch also has one direct reply target. Entries can merge only when
+their nullable `reply_to_source_entry_id` values are equal. A different target,
+including target versus no target, closes the current batch before the new entry
+is routed. This keeps `data.entry.reply_to` singular and prevents one model turn
+from silently combining requests about different quoted messages.
 
 Pending batch outcomes:
 
@@ -574,7 +602,10 @@ Pending batch outcomes:
 Addressed triggers:
 
 - any IM direct message;
-- a structured group mention or provider-native invocation of the bot.
+- a structured group mention or provider-native invocation of the bot;
+- a group reply whose target resolves to an entry authored by the current
+  agent. A reply to another human or an unresolved target is not addressed by
+  itself.
 
 Neutral messages are group messages with no bot mention and no non-bot mention.
 They may be retained in the pending batch so a following addressed trigger can
@@ -809,6 +840,12 @@ provider id. A thread that is narrower than the channel is stored once in the
 entry's nullable `provider_thread_id` column and reused by batching, recall, and
 provider delivery.
 
+The nullable `reply_to_source_entry_id` column preserves the provider's direct
+reply edge. It is scoped by the current row's `signal_channel_id` but is not a
+foreign key: the provider may quote an entry Ankole never observed, has already
+removed, or cannot read through the current binding. The relation remains
+visible as unresolved instead of being discarded.
+
 `signal_gateway_entries.ai_message_id` is a nullable backref column with a partial
 index. When a streamed AI reply's final send or edit succeeds, the mirror row
 records the `ai_gateway_messages.id` of the final output it delivered. The
@@ -976,14 +1013,40 @@ than immediate agent work.
 
 Internal facts such as schedule fires bypass SignalsGateway ingress and the
 provider mirror unless they explicitly carry a signal channel. The owning
-control-plane subsystem appends the `actor_events` row directly, uses
-`source_event_id` for idempotency, and must provide an explicit `session_id`.
-The durable event shape is still the same actor-facing envelope; the entry point
-is not an internal SignalsGateway binding.
+control-plane subsystem appends through SignalsGateway's internal ActorEvent
+facade, uses `source_event_id` for idempotency, and must provide an explicit
+`session_id`. The durable event shape is still the same actor-facing envelope;
+the entry point is not an internal SignalsGateway binding.
 
-Clarify-reply routing for unmentioned group messages is not implemented in v1.
-Until a runtime-owned clarify registry is added and wired into ingress,
-unmentioned group replies follow normal unaddressed group policy.
+Unmentioned group text is never reinterpreted as an answer merely because a
+clarification is open. It follows the normal unaddressed-group policy; the
+portable free-text form or an explicitly addressed message is the unambiguous
+reply path.
+
+### Reply interaction lifecycle
+
+When an Agent Turn commits a clarification outbox intent, the same transaction
+opens its interaction in the source ActorEvent's PostgreSQL preview checkpoint.
+The interaction has one monotonic state: `pending`, `answered`, or
+`superseded`. The provider card is a projection of that state, not the authority
+that decides whether a late callback counts.
+
+Every production ActorEvent append passes through the SignalsGateway facade and
+the actor-session advisory lock. Before the new event can wake the next turn,
+that transaction supersedes pending interactions on lower `queue_sequence`
+events. Passive provider lifecycle mirrors such as `signal.entry.removed` opt
+out because they do not advance the visible conversation. A managed button or
+form callback takes the same session lock, re-authorizes the current human,
+locks the source ActorEvent, validates the card surface and control revision,
+then records the answer and appends one normalized action event. Whichever of a
+new turn or an answer obtains the lock first is final.
+
+Delayed provider writes cannot reopen a terminal interaction. Checkpoint merge
+keeps the PostgreSQL terminal state, projects disabled or removed controls, and
+schedules a corrective card refresh when a stale provider write introduced a
+card handle. Outbox delivery also projects the latest state immediately before
+calling any adapter. The server therefore rejects a late callback even during
+the short interval before Feishu/Lark has visually refreshed the card.
 
 ## Actor Events
 
@@ -1006,6 +1069,10 @@ Envelope fields:
 - `data.session`
 - optional `data.channel`
 - optional `data.entry`
+- optional `data.entry.reply_to`, the immutable resolved or unresolved snapshot
+  of the provider's direct reply target
+- optional `data.channel_context.messages` for bounded recent shared-channel
+  context before addressed and ambient IM input
 - optional `data.mentions`
 - optional `data.raw`
 - optional `data.command`
@@ -1051,11 +1118,33 @@ comments, and review comments should map into the same generic receive/delete
 shapes unless a provider-specific shape is truly required.
 
 For IM actor events, `payload.data.entry` is the worker-facing snapshot:
-merged text, merged durable attachments, one reply anchor, and the channel/thread
-metadata the existing worker path expects. `payload.data.entries` is the ordered
-list of source provider entries. It is used for provenance, deletion/recall,
-reply-anchor recalculation, and debugging. It must not become the only place
-where the worker can understand the user input.
+merged text, merged durable attachments, one provider-output reply anchor, one
+optional `reply_to` input reference, and the channel/thread metadata the
+existing worker path expects. A resolved `reply_to` snapshot carries the target
+id, role, author, text, and binding-visible materialized attachments. An
+unresolved snapshot still carries the target id and explicit resolution state,
+so the worker cannot silently substitute an ambient or historical message.
+`payload.data.entries` is the ordered list of source provider entries. It is
+used for provenance, deletion/recall, reply-anchor recalculation, and debugging.
+It must not become the only place where the worker can understand the user
+input.
+
+Reply resolution first reads the exact target from the accepting agent
+binding's inbound-batch snapshots, then falls back to the channel provider
+mirror. The binding snapshot is the visibility proof for human-authored target
+attachments; a different agent binding cannot inherit a file solely because
+another binding materialized it. Attachments on the current agent's own mirrored
+output are also eligible. This one resolver replaces provider-specific parent
+attachment inheritance while preserving already-materialized worker paths and
+avoiding a second download.
+
+Agent Computer always renders `data.entry.reply_to` beside the current user
+message, even if the target also appears in AIGateway history or channel
+context. Resolved content is explicitly quoted and bounded with visible
+head/tail omission when necessary. An unresolved target tells the model not to
+guess another referent. AIGateway continuation, daily session reset,
+compaction, ChannelContext, and Brain therefore cannot erase or redefine the
+current message's explicit provider relation.
 
 `actor_events` is a generic work-item journal. The current runtime routes model
 work to the Agent Computer, which uses AIGateway as its upstream LLM and runs
@@ -1829,6 +1918,14 @@ The gateway user-story surface includes these contract cases:
 - DM entries route as explicit input.
 - Structured group mentions route as explicit input even when
   `unaddressed_group_message_policy = ignore`.
+- A group reply to an entry authored by the current agent routes as explicit
+  input without requiring a redundant mention; replies to humans and unresolved
+  targets still follow normal group policy.
+- Entries with different direct reply targets never merge into one inbound
+  batch, even when sender, channel, and provider thread are otherwise equal.
+- Reply-target attachments reuse only an eligible binding-scoped or own-agent
+  materialized snapshot; they are not re-downloaded and do not leak across
+  agent bindings in a shared group.
 - Webhook entries update the mirror and append an ActorEvent by the source/event
   definition unless the binding or source event definition classifies them as
   mirror-only.
@@ -1894,6 +1991,9 @@ The gateway user-story surface includes these contract cases:
   `signal_gateway_entries` primary keys.
 - Provider mirror identity is signal channel id plus source entry id,
   not agent uid or binding name.
+- A direct provider reply is stored as nullable `reply_to_source_entry_id`; it
+  is neither the provider thread id nor the current entry id used as the
+  agent's outbound reply anchor.
 - Binding-channel observation is not a gateway identity.
 - Entry lifecycle is not a gateway identity; provider-removal behavior is
   derived from tombstones, the provider mirror, `actor_events`

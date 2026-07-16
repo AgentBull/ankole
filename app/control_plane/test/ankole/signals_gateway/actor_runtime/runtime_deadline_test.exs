@@ -227,6 +227,98 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
       assert retried.runtime_thread_id == "thread-durable-resume"
     end
 
+    test "a heartbeat-recovered worker resumes its subagent from the durable thread" do
+      %{principal: agent} = agent_fixture()
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+
+      assert {:ok, worker} = admit_worker(route)
+
+      assert {:ok, %{delegation: delegation}} =
+               SubagentDelegations.create_with_dispatch(%{
+                 "agent_uid" => agent.uid,
+                 "session_id" => "parent-session-subagent-reconnected",
+                 "tool_call_id" => "tool-subagent-reconnected",
+                 "title" => "Resume after worker reconnect",
+                 "task" => "Finish the durable delegated task after reconnecting.",
+                 "reply_route" => %{
+                   "binding_name" => "bot",
+                   "signal_channel_id" => "chat-subagent-reconnected"
+                 }
+               })
+
+      actor_key = %{agent_uid: agent.uid, session_id: "subagent:#{delegation.id}"}
+      first_now = DateTime.add(delegation.queued_at, 1, :second)
+
+      Repo.update_all(
+        from(stored in AgentComputerWorker, where: stored.worker_id == ^worker.worker_id),
+        set: [last_worker_heartbeat_at: DateTime.add(first_now, -120, :second)]
+      )
+
+      assert {:ok, %{send_outcome: "sent_or_queued"}} =
+               ReadyEventProcessor.process_ready_event_for_actor(actor_key,
+                 now: first_now,
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_lane, first_envelope}
+      assert first_envelope["body"]["turn_start"]["request_context"]["attempts"] == 1
+
+      assert {:ok, first_turn_ref} =
+               Ankole.SignalsGateway.ActorRuntime.TurnRef.from_request(%{
+                 "turn" => first_envelope["body"]["turn_start"]["turn"]
+               })
+
+      assert {:ok, %{delegation: running}} =
+               SubagentDelegations.commit_status_with_wakeup(delegation.id, agent.uid, %{
+                 "status" => "running",
+                 "runtime_thread_id" => "thread-same-worker-resume"
+               })
+
+      assert running.status == "running"
+
+      assert {:ok, %AgentComputerWorker{status: "stale", stop_reason: "heartbeat_timeout"}} =
+               ActorRuntime.mark_worker_stale_if_due(worker.worker_id,
+                 now: first_now,
+                 stale_after_seconds: 60
+               )
+
+      assert {:ok, %AgentComputerWorker{status: "ready"}} =
+               ActorRuntime.handle_worker_heartbeat(
+                 %{
+                   "worker_id" => worker.worker_id,
+                   "incarnation_id" => worker.incarnation_id,
+                   "load_json" => %{"active_turns" => 1}
+                 },
+                 %{authenticated?: true, transport_route: route}
+               )
+
+      assert {:ok, %{send_outcome: "sent_or_queued"}} =
+               ReadyEventProcessor.process_ready_event_for_actor(actor_key,
+                 now: DateTime.add(first_now, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_lane, second_envelope}
+      assert second_envelope["body"]["turn_start"]["request_context"]["attempts"] == 2
+
+      assert {:error, :worker_not_assigned_to_turn} =
+               SubagentDelegations.commit_status_with_wakeup(
+                 delegation.id,
+                 agent.uid,
+                 %{"status" => "succeeded", "result" => %{"summary" => "stale result"}},
+                 turn_ref: first_turn_ref,
+                 worker_route: route
+               )
+
+      retried = SubagentDelegations.get_delegation_for_agent(delegation.id, agent.uid)
+      assert retried.status == "running"
+      assert retried.attempts == 2
+      assert retried.runtime_thread_id == "thread-same-worker-resume"
+    end
+
     test "stale worker delete deadline deletes only that worker" do
       route = unique_route()
       assert {:ok, worker} = admit_worker(route)

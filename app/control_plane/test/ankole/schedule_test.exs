@@ -5,7 +5,6 @@ defmodule Ankole.ScheduleTest do
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.Schemas.Message
-  alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
@@ -64,6 +63,130 @@ defmodule Ankole.ScheduleTest do
 
       assert {:ok, %{status: :noop}} = Schedule.fire_due_event(event.id, now: due_at)
       assert Repo.aggregate(ActorEvent, :count) == 1
+    end
+
+    test "updating a checkback preserves its due time but replaces stale wakeup instructions" do
+      %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+      due_at = DateTime.add(@base_time, 5, :minute)
+
+      assert {:ok, %{scheduled_event: original}} =
+               Schedule.create_check_back_later(
+                 checkback_attrs(agent.uid,
+                   check: "Write a professional PDF, preferably 6–12 pages.",
+                   schedule: %{"at" => DateTime.to_iso8601(due_at), "timezone" => "Etc/UTC"}
+                 ),
+                 now: @base_time
+               )
+
+      update_attrs =
+        agent.uid
+        |> checkback_attrs(
+          tool_call_id: "tool-check-update-1",
+          idempotency_key: "checkback-update-1",
+          check: "Let the information value and evidence density determine the PDF length.",
+          context_summary: "The user removed the 6–12 page constraint."
+        )
+        |> Map.delete("schedule")
+
+      assert {:ok,
+              %{
+                status: :updated,
+                previous_scheduled_event: cancelled,
+                scheduled_event: replacement
+              }} =
+               Schedule.update_checkback(original.id, update_attrs,
+                 now: DateTime.add(@base_time, 1, :second)
+               )
+
+      assert replacement.id != original.id
+      assert replacement.due_at == due_at
+
+      assert replacement.wake_payload["check"] ==
+               "Let the information value and evidence density determine the PDF length."
+
+      assert replacement.wake_payload["context_summary"] ==
+               "The user removed the 6–12 page constraint."
+
+      assert replacement.source_provenance["replaces_scheduled_event_id"] == original.id
+      assert cancelled.status == "cancelled"
+
+      assert cancelled.last_fire_error == %{
+               "reason" => "checkback_replaced",
+               "replacement_scheduled_event_id" => replacement.id
+             }
+
+      assert {:ok, %{status: :already_updated, scheduled_event: retried}} =
+               Schedule.update_checkback(original.id, update_attrs,
+                 now: DateTime.add(@base_time, 2, :second)
+               )
+
+      assert retried.id == replacement.id
+      assert {:ok, %{status: :noop}} = Schedule.fire_due_event(original.id, now: due_at)
+
+      assert {:ok, %{status: :fired, actor_event: wakeup}} =
+               Schedule.fire_due_event(replacement.id, now: due_at)
+
+      assert get_in(wakeup.payload, ["data", "wake_payload", "check"]) ==
+               "Let the information value and evidence density determine the PDF length."
+
+      assert Repo.aggregate(ActorEvent, :count) == 1
+    end
+
+    test "later updates and cancellation follow a replaced checkback id to the current event" do
+      %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+      due_at = DateTime.add(@base_time, 5, :minute)
+
+      assert {:ok, %{scheduled_event: original}} =
+               Schedule.create_check_back_later(
+                 checkback_attrs(agent.uid,
+                   schedule: %{"at" => DateTime.to_iso8601(due_at), "timezone" => "Etc/UTC"}
+                 ),
+                 now: @base_time
+               )
+
+      first_update =
+        agent.uid
+        |> checkback_attrs(
+          tool_call_id: "tool-check-update-chain-1",
+          idempotency_key: "checkback-update-chain-1",
+          check: "Use the first correction."
+        )
+        |> Map.delete("schedule")
+
+      assert {:ok, %{scheduled_event: first_replacement}} =
+               Schedule.update_checkback(original.id, first_update,
+                 now: DateTime.add(@base_time, 1, :second)
+               )
+
+      second_update =
+        agent.uid
+        |> checkback_attrs(
+          tool_call_id: "tool-check-update-chain-2",
+          idempotency_key: "checkback-update-chain-2",
+          check: "Use the latest correction."
+        )
+        |> Map.delete("schedule")
+
+      assert {:ok, %{previous_scheduled_event: previous, scheduled_event: current}} =
+               Schedule.update_checkback(original.id, second_update,
+                 now: DateTime.add(@base_time, 2, :second)
+               )
+
+      assert previous.id == first_replacement.id
+      assert current.wake_payload["check"] == "Use the latest correction."
+
+      assert {:ok, cancelled} =
+               Schedule.cancel_checkback(original.id,
+                 now: DateTime.add(@base_time, 3, :second)
+               )
+
+      assert cancelled.id == current.id
+      assert cancelled.status == "cancelled"
+      assert Schedule.list_pending_checkbacks(agent.uid, original.session_id) == []
+      assert {:ok, %{status: :noop}} = Schedule.fire_due_event(original.id, now: due_at)
+      assert {:ok, %{status: :noop}} = Schedule.fire_due_event(first_replacement.id, now: due_at)
+      assert {:ok, %{status: :noop}} = Schedule.fire_due_event(current.id, now: due_at)
+      assert Repo.aggregate(ActorEvent, :count) == 0
     end
 
     test "fire failures persist diagnostics and mark final attempt failed" do
@@ -414,6 +537,137 @@ defmodule Ankole.ScheduleTest do
                schedule_rpc(
                  "check_back_later.create",
                  %{request | "request_id" => "schedule-rpc-duplicate", "quiet_success" => false},
+                 route
+               )
+
+      assert {:ok,
+              %{
+                "status" => "ok",
+                "checkbacks" => [%{"id" => ^scheduled_event_id, "status" => "scheduled"}]
+              }} =
+               schedule_rpc(
+                 "check_back_later.list",
+                 %{"request_id" => "schedule-rpc-list", "turn" => turn_ref, "limit" => 5},
+                 route
+               )
+
+      assert {:ok,
+              %{
+                "status" => "ok",
+                "checkback" => %{
+                  "id" => ^scheduled_event_id,
+                  "wake_payload" => %{"check" => "Ask whether the deployment finished."}
+                }
+              }} =
+               schedule_rpc(
+                 "check_back_later.get",
+                 %{
+                   "request_id" => "schedule-rpc-get",
+                   "turn" => turn_ref,
+                   "scheduled_event_id" => scheduled_event_id
+                 },
+                 route
+               )
+
+      assert {:ok,
+              %{
+                "status" => "updated",
+                "previous_scheduled_event_id" => ^scheduled_event_id,
+                "checkback" => %{
+                  "id" => replacement_event_id,
+                  "status" => "scheduled",
+                  "wake_payload" => %{
+                    "check" => "Let evidence density determine the PDF length.",
+                    "context_summary" => "The user removed the 6–12 page constraint."
+                  }
+                }
+              }} =
+               schedule_rpc(
+                 "check_back_later.update",
+                 %{
+                   "request_id" => "schedule-rpc-update",
+                   "turn" => turn_ref,
+                   "scheduled_event_id" => scheduled_event_id,
+                   "tool_call_id" => "checkback-call-update-1",
+                   "idempotency_key" => "schedule-rpc-checkback-update-1",
+                   "updates" => %{
+                     "check" => "Let evidence density determine the PDF length.",
+                     "context_summary" => "The user removed the 6–12 page constraint."
+                   },
+                   "reply_route" => reply_route
+                 },
+                 route
+               )
+
+      assert replacement_event_id != scheduled_event_id
+      assert Repo.get!(ScheduledEvent, scheduled_event_id).status == "cancelled"
+      assert Repo.get!(ScheduledEvent, replacement_event_id).status == "scheduled"
+
+      assert {:ok,
+              %{
+                "status" => "ok",
+                "checkbacks" => [%{"id" => ^replacement_event_id, "status" => "scheduled"}]
+              }} =
+               schedule_rpc(
+                 "check_back_later.list",
+                 %{"request_id" => "schedule-rpc-list-updated", "turn" => turn_ref},
+                 route
+               )
+
+      assert {:error, %{"code" => "unknown_checkback_update_fields"}} =
+               schedule_rpc(
+                 "check_back_later.update",
+                 %{
+                   "request_id" => "schedule-rpc-update-unknown-field",
+                   "turn" => turn_ref,
+                   "scheduled_event_id" => replacement_event_id,
+                   "tool_call_id" => "checkback-call-update-unknown",
+                   "idempotency_key" => "schedule-rpc-checkback-update-unknown",
+                   "updates" => %{"pages" => "unbounded"},
+                   "reply_route" => reply_route
+                 },
+                 route
+               )
+
+      assert {:ok,
+              %{
+                "status" => "cancelled",
+                "checkback" => %{"id" => ^replacement_event_id, "status" => "cancelled"}
+              }} =
+               schedule_rpc(
+                 "check_back_later.cancel",
+                 %{
+                   "request_id" => "schedule-rpc-cancel-through-old-id",
+                   "turn" => turn_ref,
+                   "scheduled_event_id" => scheduled_event_id
+                 },
+                 route
+               )
+
+      assert {:ok, %{scheduled_event: other_session_event}} =
+               Schedule.create_check_back_later(
+                 checkback_attrs(agent.uid,
+                   session_id: "mock:chat:other-session",
+                   idempotency_key: "schedule-rpc-other-session"
+                 ),
+                 now: @base_time
+               )
+
+      assert {:ok, %{"status" => "ok", "checkbacks" => []}} =
+               schedule_rpc(
+                 "check_back_later.list",
+                 %{"request_id" => "schedule-rpc-list-cancelled", "turn" => turn_ref},
+                 route
+               )
+
+      assert {:error, %{"code" => "checkback_not_in_turn"}} =
+               schedule_rpc(
+                 "check_back_later.get",
+                 %{
+                   "request_id" => "schedule-rpc-get-other-session",
+                   "turn" => turn_ref,
+                   "scheduled_event_id" => other_session_event.id
+                 },
                  route
                )
 
@@ -1383,7 +1637,7 @@ defmodule Ankole.ScheduleTest do
     boundary_at = Keyword.get(opts, :boundary_at, now)
     source_event_id = "#{type}-#{System.unique_integer([:positive])}"
 
-    Actors.append_actor_event(%{
+    SignalsGateway.append_actor_event(%{
       agent_uid: agent_uid,
       binding_name: "control-plane:test",
       session_id: session_id,

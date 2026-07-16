@@ -9,7 +9,6 @@ defmodule Ankole.Brain.Recall.Chat do
   alias Ankole.Brain.Recall.Request
   alias Ankole.Brain.Scope
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.Entry
 
   @message_window 2
@@ -26,10 +25,16 @@ defmodule Ankole.Brain.Recall.Chat do
     end
   end
 
-  @spec search(Scope.t(), map(), map(), map()) :: {[map()], [String.t()]}
-  def search(%Scope{} = scope, request, search_config, dreaming_config) do
+  @spec search(Scope.t(), map(), map(), keyword()) :: {[map()], [String.t()]}
+  def search(%Scope{} = scope, request, dreaming_config, opts \\ []) do
     with {:ok, allowed_channels} <-
            Channels.allowed(scope, request.channel_scope, request.requested_channel_id) do
+      excluded_document_ids =
+        opts
+        |> Keyword.get(:excluded_document_ids, [])
+        |> Enum.filter(&is_binary/1)
+        |> Enum.uniq()
+
       outcome =
         Parallel.run([
           {"chat BM25",
@@ -37,9 +42,7 @@ defmodule Ankole.Brain.Recall.Chat do
              keyword_search(
                request.query,
                allowed_channels,
-               scope.current_channel,
-               request.actor_event,
-               search_config,
+               excluded_document_ids,
                request.limit,
                request.time_range
              )
@@ -138,17 +141,21 @@ defmodule Ankole.Brain.Recall.Chat do
     |> Repo.all()
   end
 
-  defp keyword_search(_query, [], _current_channel, _event, _config, _limit, _range),
+  defp keyword_search(_query, [], _excluded_document_ids, _limit, _range),
     do: {:ok, []}
 
-  defp keyword_search(query, channels, current_channel, event, config, limit, {from, to}) do
+  defp keyword_search(query, channels, excluded_document_ids, limit, {from, to}) do
     normalized = normalize_query(query)
 
     if normalized == "" do
       {:ok, []}
     else
-      {hot_cutoff, hot_document_ids} = hot_exclusion(current_channel, event, config)
-      current_channel_id = if is_map(current_channel), do: current_channel.id, else: nil
+      excluded_document_ids = MapSet.new(excluded_document_ids)
+
+      # Keep identity exclusion outside the pg_search predicate. Overfetching by
+      # the exact exclusion count preserves the requested candidate depth after
+      # filtering, including when the exclusion set is empty.
+      query_limit = limit * 3 + MapSet.size(excluded_document_ids)
       channel_name_query = like_query(normalized)
 
       sql = """
@@ -173,17 +180,10 @@ defmodule Ankole.Brain.Recall.Chat do
           OR e.metadata @@@ $1
           OR e.provider_thread_id @@@ $1
         )
-        AND ($7::timestamptz IS NULL OR COALESCE(e.provider_time, e.last_seen_at, e.inserted_at) >= $7)
-        AND ($8::timestamptz IS NULL OR COALESCE(e.provider_time, e.last_seen_at, e.inserted_at) <= $8)
-        AND ($3::text IS NULL OR NOT (
-          e.signal_channel_id = $3
-          AND (
-            ($4::timestamptz IS NOT NULL AND COALESCE(e.provider_time, e.last_seen_at, e.inserted_at) >= $4)
-            OR e.document_id = ANY($5::text[])
-          )
-        ))
+        AND ($3::timestamptz IS NULL OR COALESCE(e.provider_time, e.last_seen_at, e.inserted_at) >= $3)
+        AND ($4::timestamptz IS NULL OR COALESCE(e.provider_time, e.last_seen_at, e.inserted_at) <= $4)
       ORDER BY score DESC NULLS LAST, COALESCE(e.provider_time, e.last_seen_at, e.inserted_at) DESC
-      LIMIT $6
+      LIMIT $5
       """
 
       channel_sql = """
@@ -202,16 +202,9 @@ defmodule Ankole.Brain.Recall.Chat do
       FROM signal_gateway_entries e
       JOIN signal_gateway_channels c ON c.id = e.signal_channel_id
       WHERE e.signal_channel_id = ANY($1::text[])
-        AND c.name ILIKE $8 ESCAPE '\\'
-        AND ($6::timestamptz IS NULL OR COALESCE(e.provider_time, e.last_seen_at, e.inserted_at) >= $6)
-        AND ($7::timestamptz IS NULL OR COALESCE(e.provider_time, e.last_seen_at, e.inserted_at) <= $7)
-        AND ($2::text IS NULL OR NOT (
-          e.signal_channel_id = $2
-          AND (
-            ($3::timestamptz IS NOT NULL AND COALESCE(e.provider_time, e.last_seen_at, e.inserted_at) >= $3)
-            OR e.document_id = ANY($4::text[])
-          )
-        ))
+        AND c.name ILIKE $2 ESCAPE '\\'
+        AND ($3::timestamptz IS NULL OR COALESCE(e.provider_time, e.last_seen_at, e.inserted_at) >= $3)
+        AND ($4::timestamptz IS NULL OR COALESCE(e.provider_time, e.last_seen_at, e.inserted_at) <= $4)
       ORDER BY COALESCE(e.provider_time, e.last_seen_at, e.inserted_at) DESC
       LIMIT $5
       """
@@ -220,25 +213,23 @@ defmodule Ankole.Brain.Recall.Chat do
              Repo.query(sql, [
                normalized,
                channels,
-               current_channel_id,
-               hot_cutoff,
-               hot_document_ids,
-               limit * 3,
                from,
-               to
+               to,
+               query_limit
              ]),
            {:ok, %{rows: channel_rows}} <-
              Repo.query(channel_sql, [
                channels,
-               current_channel_id,
-               hot_cutoff,
-               hot_document_ids,
-               limit * 3,
+               channel_name_query,
                from,
                to,
-               channel_name_query
+               query_limit
              ]) do
-        rows = Enum.uniq_by(bm25_rows ++ channel_rows, &Enum.at(&1, 2))
+        rows =
+          (bm25_rows ++ channel_rows)
+          |> Enum.reject(&MapSet.member?(excluded_document_ids, Enum.at(&1, 2)))
+          |> Enum.uniq_by(&Enum.at(&1, 2))
+
         {:ok, Enum.map(rows, &keyword_projection/1)}
       else
         {:error, reason} -> {:error, {:brain_chat_bm25_failed, reason}}
@@ -472,46 +463,6 @@ defmodule Ankole.Brain.Recall.Chat do
       end
 
     query |> limit(^count) |> Repo.all()
-  end
-
-  defp hot_exclusion(nil, _event, _config), do: {nil, []}
-
-  defp hot_exclusion(%{id: channel_id}, event, config) do
-    current_time = current_event_time(event)
-    cutoff = DateTime.add(current_time, -Map.fetch!(config, "hot_context_hours") * 3_600, :second)
-    latest_count = Map.fetch!(config, "hot_context_entries")
-
-    ids =
-      Entry
-      |> where([entry], entry.signal_channel_id == ^channel_id)
-      |> where(
-        [entry],
-        fragment("COALESCE(?, ?, ?)", entry.provider_time, entry.last_seen_at, entry.inserted_at) <=
-          ^current_time
-      )
-      |> order_by([entry],
-        desc:
-          fragment(
-            "COALESCE(?, ?, ?)",
-            entry.provider_time,
-            entry.last_seen_at,
-            entry.inserted_at
-          )
-      )
-      |> limit(^latest_count)
-      |> select([entry], entry.document_id)
-      |> Repo.all()
-
-    {cutoff, ids}
-  end
-
-  defp current_event_time(event) when is_map(event) do
-    actor_event_id = Map.get(event, "actor_event_id") || Map.get(event, :actor_event_id)
-
-    case actor_event_id && Repo.get(ActorEvent, actor_event_id) do
-      %ActorEvent{available_at: %DateTime{} = time} -> time
-      _other -> DateTime.utc_now(:microsecond)
-    end
   end
 
   defp normalize_query(query) do

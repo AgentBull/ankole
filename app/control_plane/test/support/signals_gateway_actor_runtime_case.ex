@@ -200,7 +200,7 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
     now = Keyword.fetch!(opts, :now)
     source_event_id = "#{type}-#{System.unique_integer([:positive])}"
 
-    Actors.append_actor_event(%{
+    SignalsGateway.append_actor_event(%{
       agent_uid: agent_uid,
       binding_name: "control-plane:test",
       session_id: session_id,

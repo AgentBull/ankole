@@ -384,6 +384,20 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
     expect(isLocallyRetryableLLMError(afterSend)).toBe(false)
   })
 
+  it('classifies Codex stream disconnects and upstream gateway statuses as transient', () => {
+    expect(classifyLLMError(new Error('stream disconnected before completion'))).toMatchObject({
+      kind: 'timeout',
+      retryable: true
+    })
+
+    for (const status of [502, 503, 504]) {
+      expect(classifyLLMError(new Error(`upstream returned HTTP status ${status}`))).toMatchObject({
+        kind: 'server',
+        retryable: true
+      })
+    }
+  })
+
   it('classifies incomplete terminal reason fallbacks without retrying blindly', () => {
     expect(classifyLLMError(new Error('AIGateway response incomplete reason=content_filter'))).toMatchObject({
       kind: 'content_filter',

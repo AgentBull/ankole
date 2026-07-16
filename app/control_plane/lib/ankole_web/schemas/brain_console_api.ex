@@ -166,25 +166,82 @@ defmodule AnkoleWeb.Schemas.BrainConsoleAPI do
         type: :object,
         properties: %{
           document_id: %Schema{type: :string},
-          signal_channel_id: %Schema{type: :string},
-          source_entry_id: %Schema{type: :string},
+          kind: %Schema{
+            type: :string,
+            enum: ["retained_source", "signal_message"]
+          },
+          capture_method: %Schema{
+            type: :string,
+            enum: ["paste", "url", "file"],
+            nullable: true
+          },
+          title: %Schema{type: :string},
+          store_key: %Schema{type: :string},
+          origin_locator: %Schema{type: :string, nullable: true},
+          original_name: %Schema{type: :string, nullable: true},
+          media_type: %Schema{type: :string},
+          byte_size: %Schema{type: :integer, nullable: true},
+          sha256: %Schema{type: :string, nullable: true},
           text: %Schema{type: :string, nullable: true},
+          captured_by_uid: %Schema{type: :string, nullable: true},
+          captured_at: %Schema{type: :string, format: :date_time, nullable: true},
+          learning_status: %Schema{
+            type: :string,
+            enum: ["stored", "learning", "integrated", "no_change", "incomplete", "failed"],
+            nullable: true
+          },
+          learning_actor_event_id: %Schema{type: :string, format: :uuid, nullable: true},
+          integrated_entries: %Schema{
+            type: :array,
+            items: %Schema{
+              type: :object,
+              properties: %{
+                id: %Schema{type: :string, format: :uuid},
+                name: %Schema{type: :string},
+                type: %Schema{type: :string},
+                store_key: %Schema{type: :string}
+              },
+              required: [:id, :name, :type, :store_key],
+              additionalProperties: false
+            }
+          },
+          signal_channel_id: %Schema{type: :string, nullable: true},
+          source_entry_id: %Schema{type: :string, nullable: true},
           rich_content: %Schema{type: :object, additionalProperties: true, nullable: true},
           attachments: %Schema{type: :array, items: JSONValue},
           links: %Schema{type: :array, items: JSONValue},
           author: %Schema{type: :object, additionalProperties: true},
-          metadata: %Schema{type: :object, additionalProperties: true},
-          provider_time: %Schema{type: :string, format: :date_time, nullable: true}
+          metadata: %Schema{type: :object, additionalProperties: true}
         },
         required: [
           :document_id,
-          :signal_channel_id,
-          :source_entry_id,
-          :attachments,
-          :links,
-          :author,
-          :metadata
+          :kind,
+          :title,
+          :store_key,
+          :media_type,
+          :integrated_entries
         ],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule Citation do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "BrainCitation",
+        type: :object,
+        properties: %{
+          block_id: %Schema{type: :string, format: :uuid},
+          document_id: %Schema{type: :string},
+          source_kind: %Schema{type: :string, enum: ["signal_message", "retained_source"]}
+        },
+        required: [:block_id, :document_id, :source_kind],
         additionalProperties: false
       },
       struct?: false
@@ -215,7 +272,9 @@ defmodule AnkoleWeb.Schemas.BrainConsoleAPI do
               "add_relation",
               "remove_relation",
               "set_summary",
-              "set_aliases"
+              "set_aliases",
+              "set_name",
+              "set_type"
             ]
           },
           entry_id: %Schema{type: :string, format: :uuid},
@@ -228,6 +287,7 @@ defmodule AnkoleWeb.Schemas.BrainConsoleAPI do
           aliases: %Schema{type: :array, items: %Schema{type: :string}},
           properties: %Schema{type: :object, additionalProperties: true},
           body: %Schema{type: :string},
+          initial_body: %Schema{type: :string},
           key: %Schema{type: :string},
           value: JSONValue,
           predicate: %Schema{type: :string},
@@ -273,11 +333,12 @@ defmodule AnkoleWeb.Schemas.BrainConsoleAPI do
         properties: %{
           entry: Entry,
           blocks: %Schema{type: :array, items: Block},
+          citations: %Schema{type: :array, items: Citation},
           relations: %Schema{type: :array, items: Relation},
           backlinks: %Schema{type: :array, items: Relation},
           markdown: %Schema{type: :string}
         },
-        required: [:entry, :blocks, :relations, :backlinks, :markdown],
+        required: [:entry, :blocks, :citations, :relations, :backlinks, :markdown],
         additionalProperties: false
       },
       struct?: false
@@ -294,7 +355,11 @@ defmodule AnkoleWeb.Schemas.BrainConsoleAPI do
         title: "BrainEntryOperationsRequest",
         type: :object,
         properties: %{
-          operations: %Schema{type: :array, items: EntryOperation, minItems: 1}
+          operations: %Schema{type: :array, items: EntryOperation, minItems: 1},
+          reason: %Schema{
+            type: :string,
+            description: "Optional human reason retained in each audit record in this batch"
+          }
         },
         required: [:operations],
         additionalProperties: false
@@ -357,6 +422,96 @@ defmodule AnkoleWeb.Schemas.BrainConsoleAPI do
         type: :object,
         properties: %{source: SourceEntry},
         required: [:source],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule SourceListResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "BrainSourceListResponse",
+        type: :object,
+        properties: %{sources: %Schema{type: :array, items: SourceEntry}},
+        required: [:sources],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ReviewCandidatesResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "BrainReviewCandidatesResponse",
+        type: :object,
+        properties: %{
+          review: %Schema{
+            type: :object,
+            properties: %{
+              status: %Schema{type: :string, enum: ["ok"]},
+              checked_entry_count: %Schema{type: :integer, minimum: 0},
+              orphan_entries: %Schema{type: :array, items: JSONValue},
+              long_entries: %Schema{type: :array, items: JSONValue},
+              stale_entries: %Schema{type: :array, items: JSONValue},
+              over_budget_pinned_memos: %Schema{type: :array, items: JSONValue},
+              failed_embeddings: %Schema{type: :array, items: JSONValue},
+              uncited_generated_blocks: %Schema{type: :array, items: JSONValue},
+              broken_citations: %Schema{type: :array, items: JSONValue},
+              unintegrated_sources: %Schema{type: :array, items: JSONValue},
+              old_url_sources: %Schema{type: :array, items: JSONValue},
+              dreaming_blocks: %Schema{type: :array, items: JSONValue}
+            },
+            required: [
+              :status,
+              :checked_entry_count,
+              :orphan_entries,
+              :long_entries,
+              :stale_entries,
+              :over_budget_pinned_memos,
+              :failed_embeddings,
+              :uncited_generated_blocks,
+              :broken_citations,
+              :unintegrated_sources,
+              :old_url_sources,
+              :dreaming_blocks
+            ],
+            additionalProperties: false
+          }
+        },
+        required: [:review],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule SourceCaptureRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "BrainSourceCaptureRequest",
+        type: :object,
+        properties: %{
+          kind: %Schema{type: :string, enum: ["paste", "url", "file"]},
+          title: %Schema{type: :string},
+          content: %Schema{type: :string},
+          url: %Schema{type: :string},
+          file: %Schema{type: :string, format: :binary}
+        },
+        required: [:kind],
         additionalProperties: false
       },
       struct?: false

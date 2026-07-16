@@ -11,10 +11,6 @@ export type JSONRPCMessage = JSONObject & {
 
 export type CodexServerRequestHandler = (message: JSONRPCMessage, client: CodexAppServerClient) => Promise<void>
 export type CodexNotificationHandler = (message: JSONRPCMessage) => void
-export type CodexAuditHandler = (
-  direction: 'client_to_server' | 'server_to_client' | 'client_response',
-  message: JSONRPCMessage
-) => void
 
 type PendingRequest = {
   resolve: (value: unknown) => void
@@ -38,7 +34,6 @@ export type CodexAppServerClientOptions = {
   args?: string[]
   cwd: string
   env: Record<string, string>
-  audit?: CodexAuditHandler
   onExit?: (error: Error) => void
   onNotification?: CodexNotificationHandler
   onServerRequest?: CodexServerRequestHandler
@@ -51,6 +46,19 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 60_000
 const INITIALIZE_REQUEST_TIMEOUT_MS = 15_000
 const THREAD_START_REQUEST_TIMEOUT_MS = 30_000
 const parseJSONLine = Result.fromThrowable((line: string) => JSON.parse(line) as unknown)
+
+export const CODEX_OPT_OUT_NOTIFICATION_METHODS = [
+  'item/agentMessage/delta',
+  'item/plan/delta',
+  'item/reasoning/summaryPartAdded',
+  'item/reasoning/summaryTextDelta',
+  'item/reasoning/textDelta',
+  'item/commandExecution/outputDelta',
+  'item/commandExecution/terminalInteraction',
+  'item/fileChange/outputDelta',
+  'item/fileChange/patchUpdated',
+  'item/mcpToolCall/progress'
+] as const
 
 export class CodexAppServerClient {
   private nextID = 1
@@ -107,7 +115,8 @@ export class CodexAppServerClient {
             version: '0.1.0'
           },
           capabilities: {
-            ['experimentalApi']: true
+            ['experimentalApi']: true,
+            ['optOutNotificationMethods']: [...CODEX_OPT_OUT_NOTIFICATION_METHODS]
           }
         },
         INITIALIZE_REQUEST_TIMEOUT_MS
@@ -136,11 +145,11 @@ export class CodexAppServerClient {
   }
 
   async respond(id: string | number, result: unknown): Promise<void> {
-    await this.write({ id, result }, 'client_response')
+    await this.write({ id, result })
   }
 
   async respondError(id: string | number, code: number, message: string): Promise<void> {
-    await this.write({ id, error: { code, message } }, 'client_response')
+    await this.write({ id, error: { code, message } })
   }
 
   async close(): Promise<void> {
@@ -160,9 +169,8 @@ export class CodexAppServerClient {
     }
   }
 
-  private async write(message: JSONRPCMessage, direction: 'client_to_server' | 'client_response' = 'client_to_server') {
+  private async write(message: JSONRPCMessage) {
     if (this.closed) throw new Error('codex app-server client is closed')
-    this.opts.audit?.(direction, message)
     await Promise.resolve(this.stdin?.write(this.encoder.encode(`${JSON.stringify(message)}\n`)))
   }
 
@@ -193,7 +201,6 @@ export class CodexAppServerClient {
 
     const rpc = parsed.value
     if (!rpc) return
-    this.opts.audit?.('server_to_client', rpc)
 
     if (rpc.id !== undefined && (Object.hasOwn(rpc, 'result') || Object.hasOwn(rpc, 'error'))) {
       this.resolveResponse(rpc)

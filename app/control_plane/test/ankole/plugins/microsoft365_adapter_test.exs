@@ -267,6 +267,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
 
       assert normalized.signal_channel_id == "teams:19%3Aroom%40thread.tacv2"
       assert normalized.provider_thread_id =~ ":1690000000001"
+      assert normalized.reply_to_source_entry_id == "1690000000001"
       assert normalized.explicit == true
       assert normalized.text == "review @Ada please"
       assert normalized.author["id"] == "oid-user"
@@ -294,6 +295,8 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       assert {:ok, normalized} = Inbound.normalize_message_receive(personal, consumer)
       assert normalized.explicit == true
       assert normalized.channel.kind == :im_dm
+      assert is_nil(normalized.provider_thread_id)
+      assert is_nil(normalized.reply_to_source_entry_id)
 
       bot_sender =
         message_activity(%{
@@ -312,6 +315,21 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
 
       assert {:ok, fallback} = Inbound.normalize_message_receive(no_aad, consumer)
       assert fallback.author["id"] == "29:guest"
+    end
+
+    test "prefers the exact Bot Framework reply target over the channel thread root" do
+      consumer = chat_consumer()
+
+      activity =
+        message_activity(%{
+          "id" => "activity-reply",
+          "replyToId" => "activity-parent",
+          "text" => "compare this"
+        })
+
+      assert {:ok, normalized} = Inbound.normalize_message_receive(activity, consumer)
+      assert normalized.reply_to_source_entry_id == "activity-parent"
+      assert normalized.provider_thread_id =~ ":1690000000001"
     end
   end
 

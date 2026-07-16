@@ -3,7 +3,11 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
-import { CodexAppServerClient, type JSONRPCMessage } from '../../src/tools/codex/app-server-client'
+import {
+  CODEX_OPT_OUT_NOTIFICATION_METHODS,
+  CodexAppServerClient,
+  type JSONRPCMessage
+} from '../../src/tools/codex/app-server-client'
 import type { DynamicToolCallParams } from '../../src/tools/subagent/generated/protocol/v2/DynamicToolCallParams'
 import type { DynamicToolCallResponse } from '../../src/tools/subagent/generated/protocol/v2/DynamicToolCallResponse'
 import type { ThreadResumeParams } from '../../src/tools/subagent/generated/protocol/v2/ThreadResumeParams'
@@ -12,6 +16,8 @@ import type { ThreadStartParams } from '../../src/tools/subagent/generated/proto
 import type { ThreadStartResponse } from '../../src/tools/subagent/generated/protocol/v2/ThreadStartResponse'
 import type { TurnStartParams } from '../../src/tools/subagent/generated/protocol/v2/TurnStartParams'
 import type { TurnStartResponse } from '../../src/tools/subagent/generated/protocol/v2/TurnStartResponse'
+import type { TurnSteerResponse } from '../../src/tools/subagent/generated/protocol/v2/TurnSteerResponse'
+import { SUBAGENT_USER_INPUT_TOOL_NAME, subagentUserInputToolSpec } from '../../src/tools/subagent/user-input-bridge'
 
 describe('@ankole/agent-computer Codex durable resume contract', () => {
   it('keeps tools and stable user-message identity across interrupt and cross-process resume', async () => {
@@ -70,6 +76,14 @@ describe('@ankole/agent-computer Codex durable resume contract', () => {
         sandboxPolicy: { type: 'dangerFullAccess' }
       } satisfies TurnStartParams)) as TurnStartResponse
       await waitFor(() => turnCompleted(firstNotifications, firstTurn.turn.id, 'completed'))
+
+      const firstMethods = firstNotifications.map(notification => notification.method)
+      expect(firstMethods).toContain('turn/started')
+      expect(firstMethods).toContain('item/started')
+      expect(firstMethods).toContain('item/completed')
+      expect(firstMethods).toContain('thread/tokenUsage/updated')
+      expect(firstMethods).toContain('turn/completed')
+      for (const method of CODEX_OPT_OUT_NOTIFICATION_METHODS) expect(firstMethods).not.toContain(method)
 
       expect(toolCalls.map(call => call.callId)).toEqual(['call_first'])
       expect(requests[0]?.include).toEqual(['reasoning.encrypted_content'])
@@ -138,6 +152,242 @@ describe('@ankole/agent-computer Codex durable resume contract', () => {
       rmSync(root, { recursive: true, force: true })
     }
   }, 30_000)
+
+  it('preserves plan, request-user-input, and steer control paths after notification opt-out', async () => {
+    const sharedRoot = process.env.ANKOLE_CODEX_CONTRACT_SHARED_ROOT ?? tmpdir()
+    const root = mkdtempSync(join(sharedRoot, 'ankole-codex-control-contract-'))
+    const workspace = join(root, 'workspace')
+    const codexHome = join(root, 'shared-codex-home')
+    const requests: JSONObject[] = []
+    const notifications: JSONRPCMessage[] = []
+    const userInputRequests: JSONRPCMessage[] = []
+    const provider = createControlContractProvider(requests)
+    if (typeof provider.port !== 'number') throw new Error('control contract provider did not bind a TCP port')
+    let client: CodexAppServerClient | undefined
+
+    try {
+      mkdirSync(workspace, { recursive: true })
+      mkdirSync(codexHome, { recursive: true })
+      writeCodexConfig(codexHome, provider.port)
+      client = codexClient({
+        workspace,
+        codexHome,
+        notifications,
+        toolCalls: [],
+        userInputRequests
+      })
+      await client.initialize()
+
+      const started = (await client.request('thread/start', {
+        cwd: workspace,
+        approvalPolicy: 'never',
+        sandbox: 'danger-full-access',
+        threadSource: 'ankole',
+        dynamicTools: [subagentUserInputToolSpec()]
+      } satisfies ThreadStartParams)) as ThreadStartResponse
+      const threadID = started.thread.id
+
+      const planTurn = (await client.request('turn/start', {
+        ['threadId']: threadID,
+        input: textInput('PLAN_ONLY'),
+        cwd: workspace,
+        approvalPolicy: 'never',
+        sandboxPolicy: { type: 'dangerFullAccess' },
+        collaborationMode: {
+          mode: 'default',
+          settings: { model: 'gpt-5.4', reasoning_effort: 'low', developer_instructions: null }
+        }
+      } satisfies TurnStartParams)) as TurnStartResponse
+      await waitFor(() => turnCompleted(notifications, planTurn.turn.id, 'completed'), 10_000, 'plan turn completion')
+
+      const planUpdate = notifications.find(notification => notification.method === 'turn/plan/updated')
+      expect(planUpdate?.params).toMatchObject({
+        threadId: threadID,
+        turnId: planTurn.turn.id,
+        plan: [{ step: 'Confirm the audience', status: 'inProgress' }]
+      })
+
+      const askTurn = (await client.request('turn/start', {
+        ['threadId']: threadID,
+        input: textInput('ASK_ONLY'),
+        cwd: workspace,
+        approvalPolicy: 'never',
+        sandboxPolicy: { type: 'dangerFullAccess' },
+        collaborationMode: {
+          mode: 'plan',
+          settings: { model: 'gpt-5.4', reasoning_effort: 'low', developer_instructions: null }
+        }
+      } satisfies TurnStartParams)) as TurnStartResponse
+      await waitFor(() => turnCompleted(notifications, askTurn.turn.id, 'completed'), 10_000, 'ask turn completion')
+      expect(userInputRequests).toHaveLength(1)
+      expect(userInputRequests[0]?.method).toBe('item/tool/requestUserInput')
+      expect(userInputRequests[0]?.params).toMatchObject({
+        threadId: threadID,
+        turnId: askTurn.turn.id,
+        questions: [{ id: 'audience' }]
+      })
+
+      const bridgeTurn = (await client.request('turn/start', {
+        ['threadId']: threadID,
+        input: textInput('BRIDGE_AND_ASK'),
+        cwd: workspace,
+        approvalPolicy: 'never',
+        sandboxPolicy: { type: 'dangerFullAccess' },
+        collaborationMode: {
+          mode: 'default',
+          settings: { model: 'gpt-5.4', reasoning_effort: 'low', developer_instructions: null }
+        }
+      } satisfies TurnStartParams)) as TurnStartResponse
+      await waitFor(
+        () => turnCompleted(notifications, bridgeTurn.turn.id, 'completed'),
+        10_000,
+        'parent-input bridge completion'
+      )
+      const bridgeRequest = userInputRequests.find(request => request.method === 'item/tool/call')
+      expect(bridgeRequest?.params).toMatchObject({
+        threadId: threadID,
+        turnId: bridgeTurn.turn.id,
+        tool: SUBAGENT_USER_INPUT_TOOL_NAME,
+        arguments: { questions: [{ id: 'audience' }] }
+      })
+
+      const steerTurn = (await client.request('turn/start', {
+        ['threadId']: threadID,
+        input: textInput('STEER_WAIT'),
+        cwd: workspace,
+        approvalPolicy: 'never',
+        sandboxPolicy: { type: 'dangerFullAccess' }
+      } satisfies TurnStartParams)) as TurnStartResponse
+      await waitFor(() => requestContains(requests, 'STEER_WAIT'), 10_000, 'initial steer provider request')
+      const steerResponse = (await client.request('turn/steer', {
+        ['threadId']: threadID,
+        ['expectedTurnId']: steerTurn.turn.id,
+        input: textInput('STEERED_INPUT')
+      })) as TurnSteerResponse
+      expect(steerResponse.turnId).toBe(steerTurn.turn.id)
+      await waitFor(() => requestContains(requests, 'STEERED_INPUT'), 10_000, 'steered provider request')
+      await waitFor(() => hasCompletedAgentText(notifications, 'steer accepted'), 10_000, 'steered agent completion')
+
+      const methods = notifications.map(notification => notification.method)
+      expect(methods).toContain('turn/plan/updated')
+      expect(methods).toContain('item/completed')
+      expect(methods).toContain('thread/tokenUsage/updated')
+      expect(methods).toContain('turn/completed')
+      for (const method of CODEX_OPT_OUT_NOTIFICATION_METHODS) expect(methods).not.toContain(method)
+    } finally {
+      await client?.close()
+      await provider.stop(true)
+      rmSync(root, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it('interrupts on the Default-mode parent-input bridge and resumes the same durable thread with answers', async () => {
+    const sharedRoot = process.env.ANKOLE_CODEX_CONTRACT_SHARED_ROOT ?? tmpdir()
+    const root = mkdtempSync(join(sharedRoot, 'ankole-codex-parent-input-resume-'))
+    const workspace = join(root, 'workspace')
+    const codexHome = join(root, 'shared-codex-home')
+    const requests: JSONObject[] = []
+    const userInputRequests: JSONRPCMessage[] = []
+    const provider = createControlContractProvider(requests)
+    if (typeof provider.port !== 'number') throw new Error('control contract provider did not bind a TCP port')
+    let firstClient: CodexAppServerClient | undefined
+    let resumedClient: CodexAppServerClient | undefined
+
+    try {
+      mkdirSync(workspace, { recursive: true })
+      mkdirSync(codexHome, { recursive: true })
+      writeCodexConfig(codexHome, provider.port)
+
+      const firstNotifications: JSONRPCMessage[] = []
+      firstClient = codexClient({
+        workspace,
+        codexHome,
+        notifications: firstNotifications,
+        toolCalls: [],
+        userInputRequests,
+        pauseParentInput: true
+      })
+      await firstClient.initialize()
+
+      const started = (await firstClient.request('thread/start', {
+        cwd: workspace,
+        approvalPolicy: 'never',
+        sandbox: 'danger-full-access',
+        threadSource: 'ankole',
+        dynamicTools: [subagentUserInputToolSpec()]
+      } satisfies ThreadStartParams)) as ThreadStartResponse
+      const threadID = started.thread.id
+
+      const waitingTurn = (await firstClient.request('turn/start', {
+        ['threadId']: threadID,
+        input: textInput('PAUSE_FOR_PARENT'),
+        cwd: workspace,
+        approvalPolicy: 'never',
+        sandboxPolicy: { type: 'dangerFullAccess' },
+        collaborationMode: {
+          mode: 'default',
+          settings: { model: 'gpt-5.4', reasoning_effort: 'low', developer_instructions: null }
+        }
+      } satisfies TurnStartParams)) as TurnStartResponse
+
+      await waitFor(() => userInputRequests.length === 1, 10_000, 'parent-input bridge request')
+      await waitFor(
+        () => turnCompleted(firstNotifications, waitingTurn.turn.id, 'interrupted'),
+        10_000,
+        'parent-input interruption'
+      )
+      expect(userInputRequests[0]?.params).toMatchObject({
+        threadId: threadID,
+        turnId: waitingTurn.turn.id,
+        tool: SUBAGENT_USER_INPUT_TOOL_NAME
+      })
+
+      const providerRequest = requests.find(request => JSON.stringify(request).includes('PAUSE_FOR_PARENT'))
+      expect(JSON.stringify(providerRequest)).toContain(SUBAGENT_USER_INPUT_TOOL_NAME)
+      expect(JSON.stringify(providerRequest)).toContain('instead of request_user_input')
+
+      await firstClient.close()
+      firstClient = undefined
+      await sleep(200)
+
+      const resumedNotifications: JSONRPCMessage[] = []
+      resumedClient = codexClient({
+        workspace,
+        codexHome,
+        notifications: resumedNotifications,
+        toolCalls: []
+      })
+      await resumedClient.initialize()
+
+      const resumed = (await resumedClient.request('thread/resume', {
+        ['threadId']: threadID,
+        cwd: workspace,
+        approvalPolicy: 'never',
+        sandbox: 'danger-full-access'
+      } satisfies ThreadResumeParams)) as ThreadResumeResponse
+      expect(resumed.thread.id).toBe(threadID)
+
+      const answerTurn = (await resumedClient.request('turn/start', {
+        ['threadId']: threadID,
+        ['clientUserMessageId']: 'parent-answer-event',
+        input: textInput('PARENT_ANSWER: Operators'),
+        cwd: workspace,
+        approvalPolicy: 'never',
+        sandboxPolicy: { type: 'dangerFullAccess' }
+      } satisfies TurnStartParams)) as TurnStartResponse
+      await waitFor(
+        () => turnCompleted(resumedNotifications, answerTurn.turn.id, 'completed'),
+        10_000,
+        'parent-input answer completion'
+      )
+      expect(hasCompletedAgentText(resumedNotifications, 'parent answer accepted')).toBe(true)
+    } finally {
+      await firstClient?.close()
+      await resumedClient?.close()
+      await provider.stop(true)
+      rmSync(root, { recursive: true, force: true })
+    }
+  }, 30_000)
 })
 
 function codexClient(input: {
@@ -145,6 +395,8 @@ function codexClient(input: {
   codexHome: string
   notifications: JSONRPCMessage[]
   toolCalls: DynamicToolCallParams[]
+  userInputRequests?: JSONRPCMessage[]
+  pauseParentInput?: boolean
 }): CodexAppServerClient {
   return new CodexAppServerClient({
     cwd: input.workspace,
@@ -158,6 +410,11 @@ function codexClient(input: {
     },
     onNotification: notification => input.notifications.push(notification),
     onServerRequest: async (message, client) => {
+      if (message.method === 'item/tool/requestUserInput' && message.id !== undefined) {
+        input.userInputRequests?.push(message)
+        await client.respond(message.id, { answers: { audience: { answers: ['Operators'] } } })
+        return
+      }
       if (message.method !== 'item/tool/call' || message.id === undefined) {
         if (message.id !== undefined) {
           await client.respondError(message.id, -32601, `Unexpected server request: ${message.method ?? 'unknown'}`)
@@ -166,6 +423,21 @@ function codexClient(input: {
       }
 
       const params = message.params as DynamicToolCallParams
+      if (params.tool === SUBAGENT_USER_INPUT_TOOL_NAME) {
+        input.userInputRequests?.push(message)
+        if (input.pauseParentInput) {
+          await client.request('turn/interrupt', {
+            ['threadId']: params.threadId,
+            ['turnId']: params.turnId
+          })
+          return
+        }
+        await client.respond(message.id, {
+          contentItems: [{ type: 'inputText', text: 'Parent input request accepted.' }],
+          success: true
+        } satisfies DynamicToolCallResponse)
+        return
+      }
       input.toolCalls.push(params)
       await client.respond(message.id, {
         contentItems: [{ type: 'inputText', text: `echo:${JSON.stringify(params.arguments)}` }],
@@ -211,6 +483,94 @@ function createFakeResponsesProvider(requests: JSONObject[]) {
   })
 }
 
+function createControlContractProvider(requests: JSONObject[]) {
+  return Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    async fetch(request) {
+      const url = new URL(request.url)
+      if (request.method !== 'POST' || url.pathname !== '/v1/responses') {
+        return Response.json({ error: { message: 'not found' } }, { status: 404 })
+      }
+
+      const body = (await request.json()) as JSONObject
+      requests.push(body)
+      const bodyText = JSON.stringify(body)
+      const model = typeof body.model === 'string' ? body.model : 'gpt-5.4'
+
+      if (bodyText.includes('PARENT_ANSWER')) {
+        return messageResponse('resp_parent_answer', model, 'parent answer accepted')
+      }
+
+      if (bodyText.includes('PAUSE_FOR_PARENT')) {
+        return namedFunctionCallResponse(
+          'resp_pause_parent',
+          model,
+          'call_pause_parent',
+          SUBAGENT_USER_INPUT_TOOL_NAME,
+          {
+            questions: [
+              {
+                id: 'audience',
+                header: 'Audience',
+                question: 'Who should receive the report?',
+                options: [{ label: 'Operators', description: 'The operations team.' }]
+              }
+            ]
+          }
+        )
+      }
+
+      if (bodyText.includes('STEER_WAIT')) {
+        return bodyText.includes('STEERED_INPUT')
+          ? messageResponse('resp_steer_done', model, 'steer accepted')
+          : delayedMessageResponse(request, 'resp_steer_wait', model, 'before steer', 500)
+      }
+
+      if (bodyText.includes('BRIDGE_AND_ASK')) {
+        return bodyText.includes('call_parent_input')
+          ? messageResponse('resp_bridge_done', model, 'parent input bridge accepted')
+          : namedFunctionCallResponse('resp_parent_input', model, 'call_parent_input', SUBAGENT_USER_INPUT_TOOL_NAME, {
+              questions: [
+                {
+                  id: 'audience',
+                  header: 'Audience',
+                  question: 'Who should receive the report?',
+                  options: [{ label: 'Operators', description: 'The operations team.' }]
+                }
+              ]
+            })
+      }
+
+      if (bodyText.includes('ASK_ONLY')) {
+        return bodyText.includes('call_input')
+          ? messageResponse('resp_input_done', model, 'input accepted')
+          : namedFunctionCallResponse('resp_input', model, 'call_input', 'request_user_input', {
+              questions: [
+                {
+                  id: 'audience',
+                  header: 'Audience',
+                  question: 'Who should receive the report?',
+                  options: [{ label: 'Operators', description: 'The operations team.' }]
+                }
+              ]
+            })
+      }
+
+      if (bodyText.includes('PLAN_ONLY')) {
+        return bodyText.includes('call_plan')
+          ? messageResponse('resp_plan_done', model, 'plan accepted')
+          : namedFunctionCallResponse('resp_plan', model, 'call_plan', 'update_plan', {
+              explanation: 'Need one audience decision.',
+              plan: [{ step: 'Confirm the audience', status: 'in_progress' }]
+            })
+      }
+
+      return Response.json({ error: { message: 'unexpected control contract input' } }, { status: 400 })
+    }
+  })
+}
+
 function functionCallResponse(
   responseID: string,
   model: string,
@@ -218,8 +578,19 @@ function functionCallResponse(
   text: string,
   encryptedReasoning?: string
 ): Response {
+  return namedFunctionCallResponse(responseID, model, callID, 'ankole_echo', { text }, encryptedReasoning)
+}
+
+function namedFunctionCallResponse(
+  responseID: string,
+  model: string,
+  callID: string,
+  name: string,
+  argumentsValue: JSONObject,
+  encryptedReasoning?: string
+): Response {
   const response = responseEnvelope(responseID, model)
-  const argumentsText = JSON.stringify({ text })
+  const argumentsText = JSON.stringify(argumentsValue)
   const reasoningItem = encryptedReasoning
     ? {
         id: `rs_${callID}`,
@@ -233,7 +604,7 @@ function functionCallResponse(
     id: `fc_${callID}`,
     type: 'function_call',
     status: 'completed',
-    name: 'ankole_echo',
+    name,
     call_id: callID,
     arguments: argumentsText
   }
@@ -292,6 +663,10 @@ function functionCallResponse(
 }
 
 function messageResponse(responseID: string, model: string, text: string): Response {
+  return sseResponse(messageEvents(responseID, model, text))
+}
+
+function messageEvents(responseID: string, model: string, text: string): JSONObject[] {
   const response = responseEnvelope(responseID, model)
   const item = {
     id: `msg_${responseID}`,
@@ -301,7 +676,7 @@ function messageResponse(responseID: string, model: string, text: string): Respo
     content: [{ type: 'output_text', text, annotations: [] }]
   }
 
-  return sseResponse([
+  return [
     { type: 'response.created', sequence_number: 0, response },
     {
       type: 'response.output_item.added',
@@ -343,7 +718,41 @@ function messageResponse(responseID: string, model: string, text: string): Respo
     },
     { type: 'response.output_item.done', sequence_number: 6, output_index: 0, item },
     { type: 'response.completed', sequence_number: 7, response: completedResponse(response, [item]) }
-  ])
+  ]
+}
+
+function delayedMessageResponse(
+  request: Request,
+  responseID: string,
+  model: string,
+  text: string,
+  delayMs: number
+): Response {
+  const encoder = new TextEncoder()
+  const events = messageEvents(responseID, model, text)
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      let closed = false
+      controller.enqueue(encoder.encode(sseEvent(events[0]!)))
+      const timer = setTimeout(() => {
+        if (closed) return
+        for (const event of events.slice(1)) controller.enqueue(encoder.encode(sseEvent(event)))
+        closed = true
+        controller.close()
+      }, delayMs)
+      request.signal.addEventListener(
+        'abort',
+        () => {
+          if (closed) return
+          closed = true
+          clearTimeout(timer)
+          controller.close()
+        },
+        { once: true }
+      )
+    }
+  })
+  return new Response(stream, { headers: sseHeaders() })
 }
 
 function heldResponse(request: Request, responseID: string, model: string): Response {
@@ -437,6 +846,14 @@ function turnCompleted(notifications: JSONRPCMessage[], turnID: string, status: 
   })
 }
 
+function hasCompletedAgentText(notifications: JSONRPCMessage[], text: string): boolean {
+  return notifications.some(notification => {
+    if (notification.method !== 'item/completed' || !isObject(notification.params)) return false
+    if (!isObject(notification.params.item) || notification.params.item.type !== 'agentMessage') return false
+    return notification.params.item.text === text
+  })
+}
+
 function requestContains(requests: JSONObject[], marker: string): boolean {
   return requests.some(request => JSON.stringify(request).includes(marker))
 }
@@ -447,10 +864,14 @@ function recursiveFiles(root: string): string[] {
     .map(entry => join(entry.parentPath, entry.name))
 }
 
-async function waitFor(predicate: () => boolean, timeoutMs = 10_000): Promise<void> {
+async function waitFor(
+  predicate: () => boolean,
+  timeoutMs = 10_000,
+  description = 'Codex contract condition'
+): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (!predicate()) {
-    if (Date.now() >= deadline) throw new Error('timed out waiting for Codex contract condition')
+    if (Date.now() >= deadline) throw new Error(`timed out waiting for ${description}`)
     await sleep(10)
   }
 }

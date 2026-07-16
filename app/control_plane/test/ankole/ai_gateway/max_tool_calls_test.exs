@@ -8,6 +8,8 @@ defmodule Ankole.AIGateway.MaxToolCallsTest do
     assert is_nil(MaxToolCalls.new(nil, :openai_responses))
     assert is_nil(MaxToolCalls.new(2, :openai_responses))
     assert is_nil(MaxToolCalls.new(2, "openai_responses"))
+    assert is_nil(MaxToolCalls.new(2, :hosted_responses))
+    assert is_nil(MaxToolCalls.new(2, "hosted_responses"))
 
     assert %MaxToolCalls{limit: 2} =
              MaxToolCalls.new(2, :openai_chat_completions)

@@ -5,6 +5,7 @@ default_enabled: true
 category: productivity
 tags: [PDF, Documents, Editing, NLP, Productivity]
 version: 1.0.0
+long_running: true
 author: community
 license: MIT
 platforms: [linux, macos, windows]
@@ -17,6 +18,8 @@ metadata:
 # nano-pdf
 
 Edit PDFs using natural-language instructions. Point it at a page and describe what to change.
+
+For visual styling, use `design-md` when the user requests the internal design system or VIS, skip it when they opt out or choose another style instead, and treat it as optional when no style source is specified.
 
 ## Prerequisites
 

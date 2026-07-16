@@ -11,8 +11,8 @@ import type {
   CodexAccountResolveRequest,
   CodexAccountResolveResponse,
   SubagentDelegationCreateRequest,
-  SubagentDelegationEventAppendRequest,
-  SubagentDelegationEventResponse,
+  SubagentDelegationTurnUpsertRequest,
+  SubagentDelegationTurnUpsertResponse,
   SubagentDelegationGetRequest,
   SubagentDelegationListRequest,
   SubagentDelegationListResponse,
@@ -69,9 +69,9 @@ export type SubagentDelegationSteerRequester = (
 export type SubagentDelegationStopRequester = (
   request: SubagentDelegationStopRequest
 ) => Promise<SubagentDelegationResponse | RPCError>
-export type SubagentDelegationEventAppendRequester = (
-  request: SubagentDelegationEventAppendRequest
-) => Promise<SubagentDelegationEventResponse | RPCError>
+export type SubagentDelegationTurnUpsertRequester = (
+  request: SubagentDelegationTurnUpsertRequest
+) => Promise<SubagentDelegationTurnUpsertResponse | RPCError>
 export type SubagentDelegationStatusUpdateRequester = (
   request: SubagentDelegationStatusUpdateRequest
 ) => Promise<SubagentDelegationResponse | RPCError>
@@ -105,7 +105,7 @@ export type TextTurnLoopOptions = {
   listSubagentDelegations?: SubagentDelegationListRequester
   steerSubagentDelegation?: SubagentDelegationSteerRequester
   stopSubagentDelegation?: SubagentDelegationStopRequester
-  appendSubagentDelegationEvents?: SubagentDelegationEventAppendRequester
+  upsertSubagentDelegationTurn?: SubagentDelegationTurnUpsertRequester
   updateSubagentDelegationStatus?: SubagentDelegationStatusUpdateRequester
   requestAgentConversationContext?: AgentConversationContextRequester
   requestScheduleRPC?: ScheduleRPCRequester

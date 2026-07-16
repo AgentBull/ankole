@@ -7,12 +7,13 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   semantics to remain in one place.
   """
 
+  alias Ankole.AIGateway.Artifacts
   alias Ankole.AIGateway.Compaction
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.MapUtils
   alias Ankole.AIGateway.ModelMetadata
-  alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.Resolver
+  alias Ankole.AIGateway.ResponsesPreparation
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIGateway.UniversalAIRequest
@@ -33,8 +34,9 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   def retrieve_response(subject_uid, response_id) do
     with :ok <- validate_external_response_id(response_id),
          {:ok, %Message{} = message} <-
-           StatefulResponses.get_response_for_subject(subject_uid, response_id) do
-      {:ok, %{body: response_resource(message)}}
+           StatefulResponses.get_response_for_subject(subject_uid, response_id),
+         {:ok, body} <- response_resource(message) do
+      {:ok, %{body: body}}
     else
       _not_found_or_invalid ->
         {:error, :not_found}
@@ -67,8 +69,9 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
              previous_response_id: previous_response_id,
              request_items: current_input,
              metadata: stateful_run_metadata(request, %{})
-           }) do
-      {:ok, %{body: response_resource(message)}}
+           }),
+         {:ok, body} <- response_resource(message) do
+      {:ok, %{body: body}}
     end
   end
 
@@ -83,8 +86,13 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
            Resolver.resolve_request_model(subject_uid, "llm", normalize_request_keys(request)),
          {:ok, request_for_provider, run_attrs} <-
            provider_websocket_request(subject_uid, request, runtime),
-         {:ok, prepared_request} <-
-           Providers.build_response_request(runtime, request_for_provider, stream?: true) do
+         {:ok, %{spec: prepared_request}} <-
+           ResponsesPreparation.prepare_with_runtime(
+             subject_uid,
+             runtime,
+             request_for_provider,
+             stream?: true
+           ) do
       {:ok, prepared_request, run_attrs}
     end
   end
@@ -482,6 +490,9 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
 
   defp message_response_items(_subject_uid, _message), do: {:ok, []}
 
+  defp provider_replay_item(%{"type" => "image_generation_call"} = item, _supports_image?),
+    do: item
+
   defp provider_replay_item(%{} = item, true), do: Map.delete(item, "id")
 
   defp provider_replay_item(%{} = item, false) do
@@ -520,48 +531,53 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
     metadata = if is_map(message.metadata), do: message.metadata, else: %{}
     content = response_content(message)
 
-    %{
-      "id" => "resp_#{message.id}",
-      "object" => "response",
-      "created_at" => unix_timestamp(message.inserted_at),
-      "completed_at" => response_completed_at(message),
-      "status" => response_status(message.status, metadata),
-      "incomplete_details" => response_incomplete_details(message.status, metadata),
-      "model" => response_model(metadata),
-      "previous_response_id" => prefixed_id("resp_", message.previous_message_id),
-      "instructions" => Map.get(metadata, "instructions"),
-      "input" => Enum.filter(content, &input_item?/1),
-      "output" => response_output(message.status, content),
-      "error" => response_error(message.status, metadata),
-      "tools" => list_or_empty(Map.get(metadata, "tools")),
-      "tool_choice" => Map.get(metadata, "tool_choice", "auto"),
-      "truncation" => Map.get(metadata, "truncation", "disabled"),
-      "parallel_tool_calls" => Map.get(metadata, "parallel_tool_calls", true),
-      "text" => Map.get(metadata, "text", %{"format" => %{"type" => "text"}}),
-      "top_p" => Map.get(metadata, "top_p", 1),
-      "presence_penalty" => Map.get(metadata, "presence_penalty", 0),
-      "frequency_penalty" => Map.get(metadata, "frequency_penalty", 0),
-      "top_logprobs" => Map.get(metadata, "top_logprobs", 0),
-      "temperature" => Map.get(metadata, "temperature", 1),
-      "reasoning" => Map.get(metadata, "reasoning", %{"effort" => nil, "summary" => nil}),
-      "usage" => response_usage(Map.get(metadata, "usage")),
-      "provider_metadata" => map_or_empty(Map.get(metadata, "provider_metadata")),
-      "tool_results" => list_or_empty(Map.get(metadata, "tool_results")),
-      "stop_reason" => Map.get(metadata, "stop_reason"),
-      "max_output_tokens" => Map.get(metadata, "max_output_tokens"),
-      "max_tool_calls" => Map.get(metadata, "max_tool_calls"),
-      "store" => true,
-      "background" => false,
-      "service_tier" => Map.get(metadata, "service_tier"),
-      "metadata" => public_response_metadata(metadata),
-      "safety_identifier" => Map.get(metadata, "safety_identifier"),
-      "prompt_cache_key" => Map.get(metadata, "prompt_cache_key"),
-      "user" => Map.get(metadata, "user"),
-      "next_response_ids" => [],
-      "context_edits" => [],
-      "prompt_cache_retention" => nil,
-      "conversation" => %{"id" => "conv_#{message.conversation_id}"}
-    }
+    with {:ok, content} <- Artifacts.hydrate_generated_images(message.subject_uid, content) do
+      {input, output} = response_input_and_output(message.status, content, metadata)
+
+      {:ok,
+       %{
+         "id" => "resp_#{message.id}",
+         "object" => "response",
+         "created_at" => unix_timestamp(message.inserted_at),
+         "completed_at" => response_completed_at(message),
+         "status" => response_status(message.status, metadata),
+         "incomplete_details" => response_incomplete_details(message.status, metadata),
+         "model" => response_model(metadata),
+         "previous_response_id" => prefixed_id("resp_", message.previous_message_id),
+         "instructions" => Map.get(metadata, "instructions"),
+         "input" => input,
+         "output" => output,
+         "error" => response_error(message.status, metadata),
+         "tools" => list_or_empty(Map.get(metadata, "tools")),
+         "tool_choice" => Map.get(metadata, "tool_choice", "auto"),
+         "truncation" => Map.get(metadata, "truncation", "disabled"),
+         "parallel_tool_calls" => Map.get(metadata, "parallel_tool_calls", true),
+         "text" => Map.get(metadata, "text", %{"format" => %{"type" => "text"}}),
+         "top_p" => Map.get(metadata, "top_p", 1),
+         "presence_penalty" => Map.get(metadata, "presence_penalty", 0),
+         "frequency_penalty" => Map.get(metadata, "frequency_penalty", 0),
+         "top_logprobs" => Map.get(metadata, "top_logprobs", 0),
+         "temperature" => Map.get(metadata, "temperature", 1),
+         "reasoning" => Map.get(metadata, "reasoning", %{"effort" => nil, "summary" => nil}),
+         "usage" => response_usage(Map.get(metadata, "usage")),
+         "provider_metadata" => map_or_empty(Map.get(metadata, "provider_metadata")),
+         "tool_results" => list_or_empty(Map.get(metadata, "tool_results")),
+         "stop_reason" => Map.get(metadata, "stop_reason"),
+         "max_output_tokens" => Map.get(metadata, "max_output_tokens"),
+         "max_tool_calls" => Map.get(metadata, "max_tool_calls"),
+         "store" => true,
+         "background" => false,
+         "service_tier" => Map.get(metadata, "service_tier"),
+         "metadata" => public_response_metadata(metadata),
+         "safety_identifier" => Map.get(metadata, "safety_identifier"),
+         "prompt_cache_key" => Map.get(metadata, "prompt_cache_key"),
+         "user" => Map.get(metadata, "user"),
+         "next_response_ids" => [],
+         "context_edits" => [],
+         "prompt_cache_retention" => nil,
+         "conversation" => %{"id" => "conv_#{message.conversation_id}"}
+       }}
+    end
   end
 
   defp response_content(%Message{type: "checkpoint"} = message) do
@@ -586,8 +602,18 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
 
   defp output_item?(item), do: not input_item?(item)
 
-  defp response_output("generating", _content), do: []
-  defp response_output(_status, content), do: Enum.filter(content, &output_item?/1)
+  defp response_input_and_output(status, content, %{"request_item_count" => count})
+       when is_list(content) and is_integer(count) and count >= 0 do
+    input = Enum.take(content, count)
+    output = if status == "generating", do: [], else: Enum.drop(content, count)
+    {input, output}
+  end
+
+  defp response_input_and_output("generating", content, _metadata),
+    do: {Enum.filter(content, &input_item?/1), []}
+
+  defp response_input_and_output(_status, content, _metadata),
+    do: {Enum.filter(content, &input_item?/1), Enum.filter(content, &output_item?/1)}
 
   defp response_completed_at(%Message{status: status, updated_at: updated_at})
        when status in ["complete", "error", "retracted"],

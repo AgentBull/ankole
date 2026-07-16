@@ -62,6 +62,24 @@ defmodule Ankole.PrincipalsTest do
     end
   end
 
+  describe "principals" do
+    test "list_active_principals/0 includes humans and agents in UID order and excludes disabled rows" do
+      human = human_fixture(%{uid: unique_uid("z-active-human")})
+      agent = agent_fixture(%{uid: unique_uid("a-active-agent")})
+      disabled = human_fixture(%{uid: unique_uid("m-disabled-human")})
+
+      assert {:ok, _principal} = Principals.disable_principal(disabled.principal.uid)
+
+      principals = Principals.list_active_principals()
+      listed_uids = Enum.map(principals, & &1.uid)
+
+      assert human.principal.uid in listed_uids
+      assert agent.principal.uid in listed_uids
+      refute disabled.principal.uid in listed_uids
+      assert listed_uids == Enum.sort(listed_uids)
+    end
+  end
+
   describe "agents" do
     test "create_agent/1 creates an agent Principal with AI Colleague defaults" do
       assert {:ok, %{principal: principal, agent: agent}} =

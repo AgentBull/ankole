@@ -17,6 +17,34 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
                Broker.send_mandatory("missing-worker", worker_ready_envelope())
     end
 
+    test "broker retries a transient router bind conflict until transport recovers" do
+      assert {:ok, occupied_router} =
+               Ankole.Kernel.RuntimeFabric.router_start("tcp://127.0.0.1:*", self(),
+                 worker_auth_key: "test-token",
+                 poll_interval_ms: 1
+               )
+
+      on_exit(fn -> Ankole.Kernel.RuntimeFabric.router_stop(occupied_router) end)
+      endpoint = Ankole.Kernel.RuntimeFabric.router_endpoint(occupied_router)
+      broker_name = unique_process_name("retrying_runtime_fabric_broker")
+
+      start_supervised!(
+        {Broker,
+         name: broker_name,
+         router: [
+           endpoint: endpoint,
+           worker_auth_key: "test-token",
+           poll_interval_ms: 1
+         ]}
+      )
+
+      assert %{router: nil, router_retry_timer: timer} = :sys.get_state(broker_name)
+      assert is_reference(timer)
+      assert :ok = Ankole.Kernel.RuntimeFabric.router_stop(occupied_router)
+
+      assert {:ok, ^endpoint} = wait_for_router_endpoint(broker_name, 200)
+    end
+
     test "control plane can call a worker RPC method over the RPC lane" do
       route = unique_route()
       :ok = Broker.register_local_worker(route, self())
@@ -65,6 +93,48 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
       )
 
       assert {:ok, %{"runtime" => "bun", "active_turns" => 0}} = Task.await(task, 500)
+    end
+
+    test "a crashing RPC handler returns rpc_error without terminating the transport broker" do
+      %{principal: agent} = agent_fixture()
+      config_owner = Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker
+      previous_config = Application.get_env(:ankole, config_owner)
+      Application.put_env(:ankole, config_owner, worker_facing_base_url: :invalid_test_value)
+
+      on_exit(fn ->
+        case previous_config do
+          nil -> Application.delete_env(:ankole, config_owner)
+          value -> Application.put_env(:ankole, config_owner, value)
+        end
+      end)
+
+      request = %{
+        "request_id" => "rpc-handler-crash",
+        "method" => "ai_gateway.api_key_for.create_or_find_by_agent",
+        "payload_json" => %{"agent_uid" => agent.uid}
+      }
+
+      assert {:ok, response} = RPCLane.handle_request(request, "worker-route")
+      assert get_in(response, ["body", "type"]) == "rpc_error"
+      assert get_in(response, ["body", "rpc_error", "code"]) == "rpc_handler_failed"
+
+      broker_pid = Process.whereis(Broker)
+
+      send(
+        Broker,
+        {:runtime_fabric_router_received, "worker-route",
+         Torque.encode!(%{
+           "protocol_version" => 1,
+           "message_id" => "rpc-handler-crash-envelope",
+           "correlation_id" => "rpc-handler-crash",
+           "lane" => "LANE_RPC",
+           "durability" => "CONTROL_EPHEMERAL",
+           "body" => %{"type" => "rpc_request", "rpc_request" => request}
+         })}
+      )
+
+      :sys.get_state(Broker)
+      assert Process.alive?(broker_pid)
     end
 
     test "ambient may_intervene turns use the light model profile" do
@@ -147,7 +217,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
                )
     end
 
-    test "authenticated heartbeat revalidates only workers stopped by router restart" do
+    test "authenticated heartbeat revalidates the same live worker after a stale transition" do
       route = unique_route()
       assert {:ok, worker} = admit_worker(route)
 
@@ -185,7 +255,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
       assert timed_out.status == "stale"
       assert timed_out.stop_reason == "heartbeat_timeout"
 
-      assert {:ok, still_stale} =
+      assert {:ok, recovered} =
                ActorRuntime.handle_worker_heartbeat(
                  %{
                    "worker_id" => worker.worker_id,
@@ -194,8 +264,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
                  %{authenticated?: true, transport_route: route}
                )
 
-      assert still_stale.status == "stale"
-      assert still_stale.stop_reason == "heartbeat_timeout"
+      assert recovered.status == "ready"
+      assert is_nil(recovered.stopped_at)
+      assert is_nil(recovered.stop_reason)
     end
 
     test "broker rejects worker actor lane writes from an unassigned route" do
@@ -487,4 +558,19 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
       assert Repo.aggregate(AgentComputerWorker, :count) == 0
     end
   end
+
+  defp wait_for_router_endpoint(broker, attempts) when attempts > 0 do
+    case GenServer.call(broker, :router_endpoint) do
+      {:ok, _endpoint} = ready ->
+        ready
+
+      {:error, :not_started} ->
+        receive do
+        after
+          10 -> wait_for_router_endpoint(broker, attempts - 1)
+        end
+    end
+  end
+
+  defp wait_for_router_endpoint(_broker, 0), do: {:error, :router_not_recovered}
 end

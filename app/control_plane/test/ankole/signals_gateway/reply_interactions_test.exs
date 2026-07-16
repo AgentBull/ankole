@@ -7,6 +7,7 @@ defmodule Ankole.SignalsGateway.ReplyInteractionsTest do
 
   alias Ankole.Principals.Principal
   alias Ankole.Repo
+  alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.Ingress
@@ -27,19 +28,28 @@ defmodule Ankole.SignalsGateway.ReplyInteractionsTest do
 
     assert action_event.type == "signal.action.invoked"
 
-    assert get_in(action_event.payload, ["data", "action", "value", "optionValue"]) ==
-             "Operators"
+    assert get_in(action_event.payload, ["data", "action", "value"]) == %{
+             "interaction_id" => "clarify:call-1",
+             "source_actor_event_id" => source_event.id,
+             "answer" => %{
+               "kind" => "choice",
+               "option_id" => "operators",
+               "value" => "Operators"
+             }
+           }
 
     checkpoint = Repo.get!(ActorEvent, source_event.id).reply_preview_checkpoint
     assert checkpoint["refresh_pending"]
     assert checkpoint["refresh_reason"] == "interaction"
 
     assert %{
-             "selected_option_id" => "operators",
+             "state" => "answered",
+             "answer" => %{"kind" => "choice", "option_id" => "operators"},
              "operator_principal_uid" => operator_uid
            } = checkpoint["interactions"]["clarify:call-1"]
 
     assert operator_uid == human.uid
+    assert checkpoint["presentation"]["interaction_status"] == "answered"
 
     assert Enum.all?(checkpoint["presentation"]["actions"], & &1["disabled"])
 
@@ -57,6 +67,208 @@ defmodule Ankole.SignalsGateway.ReplyInteractionsTest do
              )
 
     assert action_event_count(agent.uid) == 1
+  end
+
+  test "accepts one free-text form answer through the same durable resolver" do
+    %{agent: agent, human: human, event: source_event} = setup_interaction()
+
+    action = %{
+      "version" => "ankole.interactive_output.action.v1",
+      "answerKind" => "free_text",
+      "interactionId" => "clarify:call-1",
+      "interactionVersion" => 1,
+      "controlId" => "clarify-free-input",
+      "inputName" => "clarify-answer",
+      "formValue" => %{"clarify-answer" => "  Use the latest paragraph above.  "},
+      "sourceActorEventId" => source_event.id
+    }
+
+    assert {:ok, %{status: :accepted, actor_event: action_event}} =
+             Ingress.emit_action(
+               agent.uid,
+               "mock",
+               action_input(action, human.uid, "form-action-event"),
+               now: @now
+             )
+
+    assert get_in(action_event.payload, ["data", "action", "value", "answer"]) == %{
+             "kind" => "free_text",
+             "value" => "Use the latest paragraph above."
+           }
+
+    checkpoint = Repo.get!(ActorEvent, source_event.id).reply_preview_checkpoint
+    assert checkpoint["interactions"]["clarify:call-1"]["state"] == "answered"
+    assert checkpoint["presentation"]["interaction_status"] == "answered"
+    assert Enum.all?(checkpoint["presentation"]["actions"], & &1["disabled"])
+  end
+
+  test "a newer conversation event supersedes the card and later callbacks are stale" do
+    %{agent: agent, human: human, event: source_event, action: action} = setup_interaction()
+
+    assert {:ok, newer_event} =
+             SignalsGateway.append_actor_event(%{
+               agent_uid: source_event.agent_uid,
+               binding_name: source_event.binding_name,
+               session_id: source_event.session_id,
+               source_event_id: unique_uid("newer-turn"),
+               signal_channel_id: source_event.signal_channel_id,
+               provider_thread_id: source_event.provider_thread_id,
+               source_entry_id: unique_uid("newer-entry"),
+               type: "im.message.addressed",
+               available_at: DateTime.add(@now, 1, :second),
+               payload: %{"type" => "im.message.addressed", "data" => %{"entry" => %{}}}
+             })
+
+    assert newer_event.queue_sequence > source_event.queue_sequence
+
+    checkpoint = Repo.get!(ActorEvent, source_event.id).reply_preview_checkpoint
+    interaction = checkpoint["interactions"]["clarify:call-1"]
+    assert interaction["state"] == "superseded"
+    assert interaction["superseded_by_actor_event_id"] == newer_event.id
+    assert checkpoint["presentation"]["interaction_status"] == "superseded"
+    assert checkpoint["refresh_pending"]
+    assert Enum.all?(checkpoint["presentation"]["actions"], & &1["disabled"])
+
+    assert {:ok, %{status: :stale_action}} =
+             Ingress.emit_action(
+               agent.uid,
+               "mock",
+               action_input(action, human.uid, "late-action-event"),
+               now: DateTime.add(@now, 2, :second)
+             )
+
+    assert action_event_count(agent.uid) == 0
+  end
+
+  test "a delayed CardKit checkpoint write cannot reopen a superseded interaction" do
+    %{event: source_event} = setup_interaction()
+
+    assert {:ok, _newer_event} =
+             Repo.transact(fn repo ->
+               SignalsGateway.append_actor_event_in_tx(repo, %{
+                 agent_uid: source_event.agent_uid,
+                 binding_name: source_event.binding_name,
+                 session_id: source_event.session_id,
+                 source_event_id: unique_uid("checkpoint-race"),
+                 type: "im.message.addressed",
+                 available_at: @now,
+                 payload: %{"type" => "im.message.addressed", "data" => %{"entry" => %{}}}
+               })
+             end)
+
+    resolved = Repo.get!(ActorEvent, source_event.id).reply_preview_checkpoint
+
+    stale =
+      resolved
+      |> Map.put("presentation", resolved["previous_presentation"])
+      |> Map.delete("interactions")
+      |> Map.delete("refresh_pending")
+      |> Map.delete("refresh_reason")
+
+    assert {:ok, _event} = Actors.put_reply_preview_checkpoint(source_event.id, stale)
+
+    checkpoint = Repo.get!(ActorEvent, source_event.id).reply_preview_checkpoint
+    assert checkpoint["interactions"]["clarify:call-1"]["state"] == "superseded"
+    assert checkpoint["presentation"]["interaction_status"] == "superseded"
+    assert checkpoint["refresh_pending"]
+  end
+
+  test "outbox delivery projects the latest interaction state before calling an adapter" do
+    %{agent: agent, event: source_event} = setup_interaction()
+
+    pending =
+      source_event |> Repo.reload!() |> then(& &1.reply_preview_checkpoint["presentation"])
+
+    assert {:ok, _outbox} =
+             SignalsGateway.commit_outbox(%{
+               agent_uid: agent.uid,
+               binding_name: "mock",
+               outbound_key: "clarify-projection",
+               operation: :post,
+               signal_channel_id: source_event.signal_channel_id,
+               source_actor_event_id: source_event.id,
+               fallback_visible_text: "Choose or reply",
+               payload: %{"reply_presentation" => pending}
+             })
+
+    assert {:ok, _newer_event} =
+             Repo.transact(fn repo ->
+               SignalsGateway.append_actor_event_in_tx(repo, %{
+                 agent_uid: source_event.agent_uid,
+                 binding_name: source_event.binding_name,
+                 session_id: source_event.session_id,
+                 source_event_id: unique_uid("delivery-race"),
+                 type: "im.message.addressed",
+                 available_at: @now,
+                 payload: %{"type" => "im.message.addressed", "data" => %{"entry" => %{}}}
+               })
+             end)
+
+    test_process = self()
+
+    assert {:ok, %{status: :succeeded}} =
+             SignalsGateway.dispatch_outbox(
+               agent.uid,
+               "mock",
+               "clarify-projection",
+               %{
+                 capabilities: [:post_entry],
+                 send: fn outbox ->
+                   send(test_process, {:delivered, outbox.payload["reply_presentation"]})
+                   {:ok, %{created_source_entry_id: "clarify-card-projected"}}
+                 end
+               },
+               now: DateTime.add(@now, 1, :second)
+             )
+
+    assert_receive {:delivered, delivered}
+    assert delivered["interaction_status"] == "superseded"
+    assert Enum.all?(delivered["actions"], & &1["disabled"])
+  end
+
+  test "a passive provider lifecycle event does not supersede a clarification" do
+    %{event: source_event} = setup_interaction()
+
+    assert {:ok, _lifecycle_event} =
+             Repo.transact(fn repo ->
+               SignalsGateway.append_actor_event_in_tx(repo, %{
+                 agent_uid: source_event.agent_uid,
+                 binding_name: source_event.binding_name,
+                 session_id: source_event.session_id,
+                 source_event_id: unique_uid("passive-lifecycle"),
+                 type: "signal.entry.removed",
+                 available_at: @now,
+                 payload: %{"type" => "signal.entry.removed", "data" => %{"lifecycle" => %{}}}
+               })
+             end)
+
+    checkpoint = Repo.get!(ActorEvent, source_event.id).reply_preview_checkpoint
+    assert checkpoint["interactions"]["clarify:call-1"]["state"] == "pending"
+    assert checkpoint["presentation"]["interaction_status"] == "pending"
+  end
+
+  test "a background delegation result does not supersede an unrelated clarification" do
+    %{event: source_event} = setup_interaction()
+
+    assert {:ok, _background_event} =
+             Repo.transact(fn repo ->
+               SignalsGateway.append_actor_event_in_tx(repo, %{
+                 agent_uid: source_event.agent_uid,
+                 binding_name: source_event.binding_name,
+                 session_id: source_event.session_id,
+                 source_event_id: unique_uid("background-delegation"),
+                 type: "subagent.delegation.failed",
+                 available_at: @now,
+                 payload: %{
+                   "type" => "subagent.delegation.failed",
+                   "data" => %{"delegation_id" => Ecto.UUID.generate()}
+                 }
+               })
+             end)
+
+    checkpoint = Repo.get!(ActorEvent, source_event.id).reply_preview_checkpoint
+    assert checkpoint["interactions"]["clarify:call-1"]["state"] == "pending"
+    assert checkpoint["presentation"]["interaction_status"] == "pending"
   end
 
   test "treats a changed, stale, or forged managed choice as a successful no-op" do
@@ -138,6 +350,7 @@ defmodule Ankole.SignalsGateway.ReplyInteractionsTest do
 
     action = %{
       "version" => "ankole.interactive_output.action.v1",
+      "answerKind" => "choice",
       "interactionId" => "clarify:call-1",
       "interactionVersion" => 1,
       "controlId" => "clarify-choice",
@@ -173,6 +386,25 @@ defmodule Ankole.SignalsGateway.ReplyInteractionsTest do
             "selected_option_id" => "executives",
             "option_value" => "Executives",
             "revision" => 1
+          },
+          %{
+            "id" => "clarify-free-input",
+            "type" => "form",
+            "label" => "Reply",
+            "interaction_id" => "clarify:call-1",
+            "source_actor_event_id" => event.id,
+            "control_id" => "clarify-free-input",
+            "revision" => 1,
+            "fields" => [
+              %{
+                "id" => "clarify-answer",
+                "type" => "input",
+                "label" => "Your answer",
+                "required" => true,
+                "multiline" => true,
+                "max_length" => 1_000
+              }
+            ]
           }
         ]
       })
@@ -184,7 +416,14 @@ defmodule Ankole.SignalsGateway.ReplyInteractionsTest do
       "message_id" => "card-message-1",
       "streaming_state" => "closed",
       "element_ids" => ["state", "answer", "actions"],
-      "presentation" => ReplyPresentation.checkpoint(presentation)
+      "presentation" => ReplyPresentation.checkpoint(presentation),
+      "interactions" => %{
+        "clarify:call-1" => %{
+          "interaction_id" => "clarify:call-1",
+          "state" => "pending",
+          "opened_at" => DateTime.to_iso8601(@now)
+        }
+      }
     }
 
     assert {:ok, _updated} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)

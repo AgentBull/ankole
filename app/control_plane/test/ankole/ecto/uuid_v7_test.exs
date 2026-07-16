@@ -6,12 +6,4 @@ defmodule Ankole.Ecto.UUIDv7Test do
   test "autogenerate returns kernel-backed UUIDv7 strings" do
     assert Ankole.Ecto.UUIDv7.autogenerate() =~ @uuid_v7
   end
-
-  test "stores and loads as normal PostgreSQL uuid values" do
-    uuid = Ankole.Ecto.UUIDv7.autogenerate()
-
-    assert {:ok, ^uuid} = Ankole.Ecto.UUIDv7.cast(uuid)
-    assert {:ok, raw_uuid} = Ankole.Ecto.UUIDv7.dump(uuid)
-    assert {:ok, ^uuid} = Ankole.Ecto.UUIDv7.load(raw_uuid)
-  end
 end

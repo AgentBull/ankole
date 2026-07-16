@@ -11,33 +11,48 @@ defmodule Ankole.AIAgent.LibraryTest do
   alias Ankole.Repo
 
   setup do
-    assert {:ok, %{skills: 6, changed: _changed}} = Library.sync_builtin_skills(force: true)
+    assert {:ok, %{skills: 12, changed: _changed}} = Library.sync_builtin_skills(force: true)
     :ok
   end
 
   test "syncs the first-party builtin skills into the catalog" do
-    assert {:ok, skills} = Library.enabled_skills_for_agent(agent_fixture().principal.uid)
+    %{principal: agent} = agent_fixture()
+    assert {:ok, skills} = Library.enabled_skills_for_agent(agent.uid)
 
     assert Enum.map(skills, & &1["skill_name"]) ==
-             ~w(brain-review docx jupyter-live-kernel nano-pdf pptx xlsx)
+             ~w(brain-review browser deep-research design-md docx jupyter-live-kernel nano-pdf pptx xlsx)
 
     assert Enum.all?(skills, & &1["default_enabled"])
+
+    for skill_name <- ~w(lark-im lark-office-suite lark-oa) do
+      assert %AgentSkill{enabled: false, default_enabled: false} =
+               Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: skill_name)
+    end
+
+    browser = Enum.find(skills, &(&1["skill_name"] == "browser"))
+    assert browser["metadata"]["long_running"]
+
+    assert {:ok, _browser_skill} = Library.skill_view(agent.uid, "browser")
 
     assert Enum.find(skills, &(&1["skill_name"] == "jupyter-live-kernel"))["category"] ==
              "data-science"
 
-    assert Enum.find(skills, &(&1["skill_name"] == "brain-review"))["description"] =~
-             "explicitly asks"
+    assert Enum.find(skills, &(&1["skill_name"] == "design-md"))
+
+    assert {:ok, design_skill} = Library.skill_view(agent.uid, "design-md")
+    assert design_skill["content"] =~ "/workspace/.ankole/agent-library/DESIGN.md"
   end
 
-  test "new agents are seeded with soul and mission library entries" do
+  test "new agents are seeded with soul, mission, and design library entries" do
     %{principal: agent} = agent_fixture()
 
     assert {:ok, soul} = Library.get_soul(agent.uid)
     assert {:ok, mission} = Library.get_mission(agent.uid)
+    assert {:ok, design} = Library.get_design(agent.uid)
 
     assert soul == File.read!(Path.expand("../../../../library/templates/SOUL.md", __DIR__))
     assert mission == File.read!(Path.expand("../../../../library/templates/MISSION.md", __DIR__))
+    assert design == File.read!(Path.expand("../../../../library/templates/DESIGN.md", __DIR__))
   end
 
   test "rejects unimplemented library source kinds" do
@@ -110,20 +125,10 @@ defmodule Ankole.AIAgent.LibraryTest do
              Library.skill_view(agent.uid, "nano-pdf", "AGENT_APPEND.md")
   end
 
-  test "brain review is a model-invoked builtin skill with the supervision sequence" do
-    %{principal: agent} = agent_fixture()
-
-    assert {:ok, skill} = Library.skill_view(agent.uid, "brain-review")
-    assert skill["skill_uri"] == "skill://enabled/brain-review/SKILL.md"
-    assert skill["content"] =~ "Run `memory_health_check` first"
-    assert skill["content"] =~ "The human is the evaluator"
-    assert skill["content"] =~ "enabled skills"
-  end
-
   test "agent-installed skills are recorded from worker file observations" do
     %{principal: agent} = agent_fixture()
 
-    assert {:ok, %{skills: 7}} =
+    assert {:ok, %{skills: 13}} =
              Library.replace_installed_skill_observations(agent.uid, [
                %{
                  skill_name: "agent-notes",
@@ -145,14 +150,14 @@ defmodule Ankole.AIAgent.LibraryTest do
 
     assert {:error, :skill_file_not_found} = Library.skill_view(agent.uid, "agent-notes")
 
-    assert {:ok, %{skills: 6}} = Library.replace_installed_skill_observations(agent.uid, [])
+    assert {:ok, %{skills: 12}} = Library.replace_installed_skill_observations(agent.uid, [])
     assert {:error, :skill_not_found} = Library.skill_view(agent.uid, "agent-notes")
   end
 
   test "agent-installed registry rows survive builtin sync until new worker observations arrive" do
     %{principal: agent} = agent_fixture()
 
-    assert {:ok, %{skills: 7}} =
+    assert {:ok, %{skills: 13}} =
              Library.replace_installed_skill_observations(agent.uid, [
                %{
                  "skill_name" => "agent-notes",
@@ -168,7 +173,7 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert %AgentSkill{source_kind: "installed"} =
              Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "agent-notes")
 
-    assert {:ok, %{skills: 6}} = Library.sync_agent_skills(agent.uid)
+    assert {:ok, %{skills: 12}} = Library.sync_agent_skills(agent.uid)
 
     assert %AgentSkill{source_kind: "installed"} =
              Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "agent-notes")
@@ -277,6 +282,28 @@ defmodule Ankole.AIAgent.LibraryTest do
 
     assert Enum.find(sources_without_internal, &(&1.name == "shadowed")).description ==
              "Public description."
+  end
+
+  test "source reader rejects invalid execution profile identifiers" do
+    root = tmp_library_root!("invalid-execution-profile")
+    skill_root = Path.join([root, "library", "skills", "invalid-profile"])
+    File.mkdir_p!(skill_root)
+
+    File.write!(Path.join(skill_root, "SKILL.md"), """
+    ---
+    name: invalid-profile
+    description: Invalid execution profile fixture.
+    default_enabled: false
+    execution_profile: Lark CLI
+    ---
+
+    # Invalid profile
+    """)
+
+    with_library_config(library_root: Path.join(root, "library"))
+
+    assert {:error, {:invalid_execution_profile, "Lark CLI"}} =
+             SourceReader.read_builtin_skill_sources()
   end
 
   defp tmp_library_root!(name) do

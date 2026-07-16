@@ -641,11 +641,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
     expect(toolExecutions).toBe(2)
     expect(responseCreates).toHaveLength(4)
     expect(responseCreates[2]!.input).toEqual([
-      {
-        role: 'user',
-        content:
-          'You just executed tool calls but returned an empty response. Please process the tool results above and continue with the task.'
-      }
+      expect.objectContaining({ role: 'user', content: expect.stringContaining('empty response') })
     ])
     expect(responseCreates[3]).toMatchObject({
       type: 'response.create',
@@ -707,101 +703,6 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       }
     })
     expect(sentPayloads).toHaveLength(1)
-  })
-
-  it('completes naturally on the configured 90th model iteration without synthesis', async () => {
-    const sentPayloads: JSONObject[] = []
-    let modelCalls = 0
-
-    const model = createModel({
-      apiKey: 'unused',
-      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
-      selector: 'primary',
-      responseWebSocket: {
-        kind: 'aigateway-websocket',
-        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
-        authorization: () => 'Bearer agent-key',
-        createWebSocket: (_url, init) =>
-          fakeResponseSocket(init, data => {
-            const payload = JSON.parse(data) as JSONObject
-            sentPayloads.push(payload)
-
-            if (payload.type === 'response.tool_results.record') {
-              return [toolResultsRecordedFrame(`resp_iteration_90_journal_${modelCalls}`)]
-            }
-
-            modelCalls += 1
-
-            if (modelCalls === 90) {
-              return [
-                {
-                  type: 'response.completed',
-                  response: {
-                    id: 'resp_iteration_90_final',
-                    status: 'completed',
-                    output: [
-                      {
-                        type: 'message',
-                        role: 'assistant',
-                        content: [{ type: 'output_text', text: 'finished on iteration 90' }]
-                      }
-                    ]
-                  }
-                }
-              ]
-            }
-
-            return [
-              {
-                type: 'response.completed',
-                response: {
-                  id: `resp_iteration_90_model_${modelCalls}`,
-                  status: 'completed',
-                  output: [
-                    {
-                      type: 'function_call',
-                      id: `fc_iteration_90_${modelCalls}`,
-                      call_id: `call_iteration_90_${modelCalls}`,
-                      name: 'continue_loop',
-                      arguments: '{}'
-                    }
-                  ]
-                }
-              }
-            ]
-          })
-      }
-    })
-
-    const final = await runAgentLoop({
-      model,
-      messages: [{ role: 'user', content: 'finish on the final allowed iteration' }],
-      stateful: {
-        actorEventID: '00000000-0000-0000-0000-000000000090',
-        conversationID: '90909090-9090-9090-9090-909090909090'
-      },
-      maxModelIterations: 90,
-      tools: [
-        {
-          name: 'continue_loop',
-          description: 'Continue the test loop',
-          schema: z.object({}),
-          execute: async () => ({ content: [{ type: 'text', text: 'continue' }], details: {} })
-        }
-      ]
-    })
-
-    expect(final).toMatchObject({
-      responseID: 'resp_iteration_90_final',
-      outcome: 'loop_finished',
-      message: {
-        content: [{ type: 'text', text: 'finished on iteration 90' }],
-        stopReason: 'stop'
-      }
-    })
-    expect(modelCalls).toBe(90)
-    expect(sentPayloads.filter(payload => payload.type === 'response.create')).toHaveLength(90)
-    expect(sentPayloads.filter(payload => payload.type === 'response.tool_results.record')).toHaveLength(89)
   })
 
   it('drains steering updates after tool results before the next stateful model call', async () => {

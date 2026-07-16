@@ -41,9 +41,10 @@ defmodule Ankole.E2E.FakeOpenAIScenariosTest do
 
       assert FakeOpenAIScenarios.classify(request) == :ambient_decision
 
-      assert {:completion,
-              ~s({"should_proactively_speak":true,"reason":"fake Feishu chaos handoff needs a visible reply"}),
-              []} = FakeOpenAIScenarios.action_for(:ambient_decision, 1, request)
+      assert {:completion, decision_json, []} =
+               FakeOpenAIScenarios.action_for(:ambient_decision, 1, request)
+
+      assert %{"should_proactively_speak" => true} = Ankole.JSON.decode!(decision_json)
     end
 
     test "keeps the latest ignore-only ambient observation silent" do
@@ -54,10 +55,10 @@ defmodule Ankole.E2E.FakeOpenAIScenariosTest do
 
       assert FakeOpenAIScenarios.classify(request) == :ambient_noop_decision
 
-      assert {:completion,
-              ~s({"should_proactively_speak":false,"reason":"fake Feishu chaos says the agent should stay silent"}),
-              [split_text?: false]} =
+      assert {:completion, decision_json, [split_text?: false]} =
                FakeOpenAIScenarios.action_for(:ambient_noop_decision, 1, request)
+
+      assert %{"should_proactively_speak" => false} = Ankole.JSON.decode!(decision_json)
     end
   end
 

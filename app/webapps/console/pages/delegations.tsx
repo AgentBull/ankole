@@ -35,7 +35,7 @@ import {
   ankoleWebSubagentDelegationControllerShowOptions
 } from '../api/generated/@tanstack/react-query.gen'
 import type { SubagentDelegationItem } from '../api/generated/types.gen'
-import { ErrorBlock } from '../console-primitives'
+import { ErrorBlock, formatConsoleDate } from '../console-primitives'
 import { PageHeader, ResourceSearch, StatusIndicator } from '../console-shell'
 
 type Column = {
@@ -43,7 +43,7 @@ type Column = {
   statuses: SubagentDelegationItem['status'][]
 }
 
-type DelegationEvent = NonNullable<SubagentDelegationItem['events']>[number]
+type DelegationTurn = NonNullable<SubagentDelegationItem['turns']>[number]
 
 const columns: Column[] = [
   { key: 'todo', statuses: ['queued'] },
@@ -82,6 +82,7 @@ export function DelegationsPage() {
     onError: error => toast.error(requestErrorMessage(error))
   })
   const delegations = list.data?.delegations ?? []
+  const calibration = list.data?.calibration_summary
   const selected = detail.data?.delegation
   const cancelTarget =
     delegations.find(delegation => delegation.id === cancelTargetID) ??
@@ -126,6 +127,37 @@ export function DelegationsPage() {
         value={agentFilter}
         onChange={setAgentFilter}
       />
+
+      {calibration && calibration.forecast_count > 0 ? (
+        <section className="grid gap-3 border border-border bg-card p-4">
+          <h2 className="font-medium">{t('console.delegations.calibration_overview')}</h2>
+          <dl className="grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-5">
+            <Metric label={t('console.delegations.forecast_count')} value={String(calibration.forecast_count)} />
+            <Metric
+              label={t('console.delegations.resolved_forecast_count')}
+              value={String(calibration.resolved_forecast_count)}
+            />
+            <Metric
+              label={t('console.delegations.mean_brier_score')}
+              value={formatMetric(calibration.mean_brier_score)}
+            />
+            <Metric label={t('console.delegations.no_edge_rate')} value={formatPercent(calibration.no_edge_rate)} />
+            <Metric
+              label={t('console.delegations.confidence_hit_rate')}
+              value={
+                calibration.confidence_buckets.length
+                  ? calibration.confidence_buckets
+                      .map(
+                        bucket =>
+                          `C${bucket.confidence}: ${formatPercent(bucket.hit_rate)} (${bucket.hits}/${bucket.forecasts})`
+                      )
+                      .join('\n')
+                  : '—'
+              }
+            />
+          </dl>
+        </section>
+      ) : null}
 
       {list.error ? (
         <ErrorBlock error={list.error} />
@@ -205,6 +237,9 @@ export function DelegationsPage() {
                     value={<StatusBadge status={selected.status} />}
                   />
                   <DetailField label={t('console.delegations.runtime')} value={selected.runtime} />
+                  {selected.runtime === 'deep_research' ? (
+                    <DetailField label={t('console.delegations.mode')} value={selected.mode ?? 'general'} />
+                  ) : null}
                   <DetailField label={t('console.delegations.codex_account')} value={selected.codex_account_id} />
                   <DetailField label={t('console.delegations.attempts')} value={String(selected.attempts)} />
                   <DetailField
@@ -215,6 +250,56 @@ export function DelegationsPage() {
                   <DetailField label={t('console.delegations.task')} value={selected.task ?? '—'} wide />
                   <DetailField label={t('console.delegations.background')} value={selected.background ?? '—'} wide />
                   <DetailField label={t('console.delegations.notes')} value={selected.notes ?? '—'} wide />
+                  {selected.runtime === 'deep_research' ? (
+                    <>
+                      <DetailField
+                        label={t('console.delegations.research_progress')}
+                        value={researchProgress(selected)}
+                        wide
+                      />
+                      <DetailField
+                        label={t('console.delegations.evidence_stats')}
+                        value={evidenceStatsSummary(selected.result.evidence_stats)}
+                        wide
+                      />
+                      <DetailField
+                        label={t('console.delegations.stop_reason')}
+                        value={typeof selected.result.stop_reason === 'string' ? selected.result.stop_reason : '—'}
+                      />
+                      {selected.mode === 'retrospect' ? (
+                        <>
+                          <DetailField
+                            label={t('console.delegations.source_delegation')}
+                            value={selected.source_delegation_id ?? '—'}
+                            wide
+                          />
+                          <DetailField
+                            label={t('console.delegations.actual_outcome')}
+                            value={
+                              typeof selected.actual_outcome === 'boolean'
+                                ? String(selected.actual_outcome)
+                                : t('console.delegations.outcome_resolved_by_research')
+                            }
+                          />
+                        </>
+                      ) : null}
+                      <DetailField
+                        label={t('console.delegations.verification')}
+                        value={verificationSummary(selected.result.verification)}
+                        wide
+                      />
+                      <DetailField
+                        label={t('console.delegations.calibration')}
+                        value={calibrationSummary(selected.result.calibration)}
+                        wide
+                      />
+                    </>
+                  ) : null}
+                  <DetailField
+                    label={t('console.delegations.trajectory_integrity')}
+                    value={turnsSummary(selected.turns)}
+                    wide
+                  />
                   <DetailField
                     label={t('console.delegations.result')}
                     value={summary(selected.status === 'failed' ? selected.error : selected.result)}
@@ -224,27 +309,57 @@ export function DelegationsPage() {
 
                 <section className="grid gap-3">
                   <h3 className="font-medium">{t('console.delegations.timeline')}</h3>
-                  {selected.events?.length ? (
+                  {selected.turns?.length ? (
                     <div className="grid gap-5">
-                      {groupEventsByAttempt(selected.events).map(group => (
+                      {groupTurnsByAttempt(selected.turns, selected.attempts, selected.runtime_thread_id).map(group => (
                         <section key={group.attempt} className="grid gap-2">
                           <h4 className="text-xs font-medium text-muted-foreground">
                             {t('console.delegations.attempt_label', { count: group.attempt })}
                           </h4>
                           <ol className="grid gap-3 border-l border-border pl-5">
-                            {group.events.map(event => (
-                              <li key={event.id} className="relative grid gap-1 border border-border bg-card p-3">
+                            {group.turns.map(turn => (
+                              <li key={turn.id} className="relative grid gap-3 border border-border bg-card p-3">
                                 <span className="absolute top-4 -left-[1.43rem] size-2.5 rounded-full bg-primary" />
                                 <div className="flex flex-wrap items-center justify-between gap-2">
-                                  <span className="font-mono text-xs">
-                                    #{event.seq} · {event.event_type}
+                                  <span className="break-all font-mono text-xs">
+                                    {turn.kind} · {turn.runtime_turn_id}
                                   </span>
-                                  <span className="text-xs text-muted-foreground">{formatDate(event.occurred_at)}</span>
+                                  <span className="text-xs text-muted-foreground">
+                                    {formatConsoleDate(turn.started_at)}
+                                  </span>
                                 </div>
-                                <span className="text-xs text-muted-foreground">{event.direction}</span>
-                                <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all bg-muted p-2 text-xs">
-                                  {truncate(JSON.stringify(event.payload, null, 2), 2_000)}
-                                </pre>
+                                <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                                  <Badge variant="outline">
+                                    {t(
+                                      turn.runtime_thread_id === group.leadThreadID
+                                        ? 'console.delegations.turn_scope_lead'
+                                        : 'console.delegations.turn_scope_child'
+                                    )}
+                                  </Badge>
+                                  <Badge variant="secondary">{turn.status}</Badge>
+                                  <span>revision={turn.revision}</span>
+                                  <span>{turn.trajectory.messages.length} messages</span>
+                                  {turn.trajectory.metadata?.redacted ? <span>redacted</span> : null}
+                                  {turn.trajectory.metadata?.content_truncated ? (
+                                    <span>
+                                      truncated
+                                      {turn.trajectory.metadata.omitted_items
+                                        ? ` · ${turn.trajectory.metadata.omitted_items} items omitted`
+                                        : ''}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <TurnRuntimeSnapshot turn={turn} />
+                                <div className="grid gap-2">
+                                  {turn.trajectory.messages.map((message, index) => (
+                                    <article key={`${turn.id}:${index}`} className="grid gap-1 bg-muted p-2 text-xs">
+                                      <span className="font-medium">{trajectoryMessageLabel(message)}</span>
+                                      <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words font-sans">
+                                        {trajectoryMessageText(message)}
+                                      </pre>
+                                    </article>
+                                  ))}
+                                </div>
                               </li>
                             ))}
                           </ol>
@@ -252,7 +367,7 @@ export function DelegationsPage() {
                       ))}
                     </div>
                   ) : (
-                    <p className="text-sm text-muted-foreground">{t('console.delegations.no_events')}</p>
+                    <p className="text-sm text-muted-foreground">{t('console.delegations.no_turns')}</p>
                   )}
                 </section>
               </>
@@ -325,7 +440,8 @@ function DelegationCard({
             <RiTimeLine className="size-3.5" />
             {formatDuration(task.duration_seconds)} · {t('console.delegations.attempt_count', { count: task.attempts })}
           </span>
-          <span>{task.runtime}</span>
+          <span>{task.mode ? `${task.runtime} · ${task.mode}` : task.runtime}</span>
+          {task.runtime === 'deep_research' ? <span>{compactResearchStats(task.result)}</span> : null}
         </div>
       </button>
       {cancellable(task.status) ? (
@@ -361,15 +477,77 @@ function DetailField({ label, value, wide = false }: { label: string; value: Rea
   )
 }
 
-function groupEventsByAttempt(events: DelegationEvent[]) {
-  const groups = new Map<number, DelegationEvent[]>()
-  for (const event of events) {
-    const attempt = typeof event.payload.attempt === 'number' ? event.payload.attempt : 1
-    groups.set(attempt, [...(groups.get(attempt) ?? []), event])
+function Metric({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="grid gap-1 border-l-2 border-border pl-3">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="whitespace-pre-wrap font-medium">{value}</dd>
+    </div>
+  )
+}
+
+function TurnRuntimeSnapshot({ turn }: { turn: DelegationTurn }) {
+  const { t } = useTranslation()
+  const tools = turn.progress.tools_used.map(tool => `${tool.name} ×${tool.calls}`).join(', ') || '—'
+  const files = turn.progress.files_changed.join('\n') || '—'
+  const plan = turn.progress.plan
+  const planText = plan
+    ? [plan.explanation, ...plan.steps.map(step => `[${step.status}] ${step.step}`)]
+        .filter((line): line is string => Boolean(line))
+        .join('\n')
+    : '—'
+
+  return (
+    <dl className="grid gap-2 border-y border-border py-3 text-xs sm:grid-cols-2">
+      <SnapshotField label={t('console.delegations.completed_items')} value={String(turn.progress.completed_items)} />
+      <SnapshotField label={t('console.delegations.tool_calls')} value={String(turn.progress.tool_calls)} />
+      <SnapshotField label={t('console.delegations.tools_used')} value={tools} />
+      <SnapshotField label={t('console.delegations.token_usage')} value={tokenUsageSummary(turn.usage)} />
+      <SnapshotField
+        label={t('console.delegations.active_item')}
+        value={turn.progress.active_item ? `${turn.progress.active_item.name} (${turn.progress.active_item.id})` : '—'}
+      />
+      <SnapshotField label={t('console.delegations.plan')} value={planText} />
+      <SnapshotField label={t('console.delegations.files_changed')} value={files} wide />
+    </dl>
+  )
+}
+
+function SnapshotField({ label, value, wide = false }: { label: string; value: string; wide?: boolean }) {
+  return (
+    <div className={wide ? 'grid gap-1 sm:col-span-2' : 'grid gap-1'}>
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="whitespace-pre-wrap break-all font-mono">{value}</dd>
+    </div>
+  )
+}
+
+function tokenUsageSummary(usage: DelegationTurn['usage']): string {
+  if (!usage) return '—'
+  const total = usage.thread_total
+  const last = usage.last_model_call
+  const context = usage.model_context_window === undefined ? '' : ` · context=${usage.model_context_window}`
+  return [
+    `thread: total=${total.total_tokens} · input=${total.input_tokens} · cached=${total.cached_input_tokens} · output=${total.output_tokens} · reasoning=${total.reasoning_output_tokens}${context}`,
+    `last call: total=${last.total_tokens} · input=${last.input_tokens} · cached=${last.cached_input_tokens} · output=${last.output_tokens} · reasoning=${last.reasoning_output_tokens}`
+  ].join('\n')
+}
+
+function groupTurnsByAttempt(turns: DelegationTurn[], currentAttempt: number, currentLeadThreadID?: string | null) {
+  const groups = new Map<number, DelegationTurn[]>()
+  for (const turn of turns) {
+    groups.set(turn.attempt, [...(groups.get(turn.attempt) ?? []), turn])
   }
   return [...groups.entries()]
     .sort(([left], [right]) => left - right)
-    .map(([attempt, attemptEvents]) => ({ attempt, events: attemptEvents }))
+    .map(([attempt, attemptTurns]) => ({
+      attempt,
+      turns: attemptTurns,
+      leadThreadID:
+        (attempt === currentAttempt && attemptTurns.some(turn => turn.runtime_thread_id === currentLeadThreadID)
+          ? currentLeadThreadID
+          : attemptTurns.find(turn => turn.kind === 'agent')?.runtime_thread_id) ?? attemptTurns[0]?.runtime_thread_id
+    }))
 }
 
 function cancellable(status: SubagentDelegationItem['status']): boolean {
@@ -383,15 +561,96 @@ function formatDuration(seconds: number): string {
   return `${Math.floor(seconds / 86_400)}d ${Math.floor((seconds % 86_400) / 3_600)}h`
 }
 
-function formatDate(value: string): string {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
-}
-
 function summary(value: Record<string, unknown>): string {
   for (const key of ['summary', 'output_text', 'message', 'reason', 'code']) {
     if (typeof value[key] === 'string' && value[key]) return String(value[key])
   }
   return Object.keys(value).length ? truncate(JSON.stringify(value, null, 2), 4_000) : '—'
+}
+
+function researchProgress(delegation: SubagentDelegationItem): string {
+  const latestTurn = delegation.turns?.at(-1)
+  const state = delegation.status === 'running' ? (latestTurn?.status ?? 'starting') : delegation.status
+  return [`state=${state}`, latestTurn ? `turn=${latestTurn.runtime_turn_id}` : undefined]
+    .filter((item): item is string => Boolean(item))
+    .join('\n')
+}
+
+function evidenceStatsSummary(value: unknown): string {
+  const stats = objectValue(value)
+  if (!Object.keys(stats).length) return '—'
+  return [
+    numberLine('archived_sources', stats.archived_sources),
+    numberLine('independent_sources', stats.independent_sources),
+    numberLine('notes', stats.notes),
+    numberLine('citations', stats.citations),
+    numberLine('unresolved_conflicts', stats.unresolved_conflicts)
+  ]
+    .filter((item): item is string => Boolean(item))
+    .join('\n')
+}
+
+function verificationSummary(value: unknown): string {
+  const verification = objectValue(value)
+  if (!Object.keys(verification).length) return '—'
+  return typeof verification.status === 'string' ? `status=${verification.status}` : '—'
+}
+
+function calibrationSummary(value: unknown): string {
+  const calibration = objectValue(value)
+  return typeof calibration.brier_score === 'number' ? `brier_score=${calibration.brier_score.toFixed(6)}` : '—'
+}
+
+function compactResearchStats(result: Record<string, unknown>): string {
+  const stats = objectValue(result.evidence_stats)
+  const stopReason = typeof result.stop_reason === 'string' ? result.stop_reason : undefined
+  const archived = typeof stats.archived_sources === 'number' ? `${stats.archived_sources} sources` : undefined
+  const independent =
+    typeof stats.independent_sources === 'number' ? `${stats.independent_sources} independent` : undefined
+  return [stopReason, archived, independent].filter(Boolean).join(' · ') || 'research artifacts pending'
+}
+
+function objectValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
+}
+
+function numberLine(label: string, value: unknown): string | undefined {
+  return typeof value === 'number' ? `${label}=${value}` : undefined
+}
+
+function formatMetric(value: number | null): string {
+  return value === null ? '—' : value.toFixed(4)
+}
+
+function formatPercent(value: number | null): string {
+  return value === null ? '—' : `${(value * 100).toFixed(1)}%`
+}
+
+function turnsSummary(turns: SubagentDelegationItem['turns']): string {
+  if (!turns?.length) return '—'
+  const latest = turns.at(-1)!
+  const integrity = [
+    latest.trajectory.metadata?.redacted ? 'redacted' : undefined,
+    latest.trajectory.metadata?.content_truncated ? 'truncated' : undefined
+  ].filter(Boolean)
+  return [
+    `turns=${turns.length}`,
+    `latest=${latest.status}`,
+    `format=${latest.trajectory.format}@${latest.trajectory.version}`,
+    integrity.length ? `integrity=${integrity.join(',')}` : undefined
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
+function trajectoryMessageLabel(value: Record<string, unknown>): string {
+  const role = typeof value.role === 'string' ? value.role : 'message'
+  const name = typeof value.name === 'string' ? ` · ${value.name}` : ''
+  return `${role}${name}`
+}
+
+function trajectoryMessageText(value: Record<string, unknown>): string {
+  return JSON.stringify(value, null, 2)
 }
 
 function truncate(value: string, limit: number): string {

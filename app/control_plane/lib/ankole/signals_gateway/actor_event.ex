@@ -19,6 +19,9 @@ defmodule Ankole.SignalsGateway.ActorEvent do
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
   @states ~w(open dead_letter)
+  @turn_outcomes ~w(loop_finished iteration_exhausted)
+
+  @type t :: %__MODULE__{}
 
   schema "actor_events" do
     belongs_to :agent, Principal,
@@ -43,6 +46,8 @@ defmodule Ankole.SignalsGateway.ActorEvent do
     # Only open | dead_letter. Normal completion is recorded separately.
     field :input_state, :string, default: "open"
     field :completed_at, :utc_datetime_usec
+    field :final_response_id, :string
+    field :turn_outcome, :string
     field :sender_key, :string
     field :payload, :map
     field :dead_letter_at, :utc_datetime_usec
@@ -73,6 +78,8 @@ defmodule Ankole.SignalsGateway.ActorEvent do
       :queue_sequence,
       :input_state,
       :completed_at,
+      :final_response_id,
+      :turn_outcome,
       :sender_key,
       :payload,
       :dead_letter_at
@@ -88,6 +95,8 @@ defmodule Ankole.SignalsGateway.ActorEvent do
       :reply_preview_source_entry_id,
       :type,
       :input_state,
+      :final_response_id,
+      :turn_outcome,
       :sender_key
     ])
     |> validate_required([
@@ -102,6 +111,7 @@ defmodule Ankole.SignalsGateway.ActorEvent do
       :payload
     ])
     |> validate_inclusion(:input_state, @states)
+    |> validate_inclusion(:turn_outcome, @turn_outcomes, allow_nil: true)
     |> validate_number(:reply_preview_sequence_high_water, greater_than_or_equal_to: 0)
     |> JSONPayload.validate_map(:payload)
     |> JSONPayload.validate_map(:reply_preview_checkpoint)
@@ -120,5 +130,31 @@ defmodule Ankole.SignalsGateway.ActorEvent do
       name: :actor_events_reply_preview_sequence_non_negative
     )
     |> check_constraint(:input_state, name: :actor_events_input_state_check)
+    |> check_constraint(:turn_outcome, name: :actor_events_turn_outcome_check)
+    |> check_constraint(:final_response_id, name: :actor_events_completion_anchor_check)
   end
+
+  @doc false
+  @spec source_entry_ids(t()) :: [String.t()]
+  def source_entry_ids(%__MODULE__{} = event) do
+    [event.source_entry_id | payload_source_entry_ids(event.payload)]
+    |> Enum.filter(&(is_binary(&1) and &1 != ""))
+    |> Enum.uniq()
+  end
+
+  defp payload_source_entry_ids(%{"data" => data}) when is_map(data) do
+    [Map.get(data, "entries"), get_in(data, ["channel_context", "messages"])]
+    |> Enum.flat_map(&source_entry_ids_from_messages/1)
+  end
+
+  defp payload_source_entry_ids(_payload), do: []
+
+  defp source_entry_ids_from_messages(entries) when is_list(entries) do
+    Enum.map(entries, fn
+      %{"source_entry_id" => source_entry_id} -> source_entry_id
+      _entry -> nil
+    end)
+  end
+
+  defp source_entry_ids_from_messages(_entries), do: []
 end

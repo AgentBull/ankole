@@ -136,13 +136,19 @@ function brainPolicySection(opts: BuildAgentSystemPromptOptions): string {
       ? 'For current state, open the curated knowledge entry. For what someone originally said, search the chat layer and browse the source messages. Historical chat is evidence, not current truth; reconcile it against the current entry before acting.'
       : '',
     toolAvailable(opts, 'memory_update')
-      ? 'Retain explicit durable preferences, corrections, decisions, and external facts worth keeping. Update the current entry instead of preserving stale contradictory versions.'
+      ? 'Brain provides durable context for future work. Chat history already preserves the conversation.'
+      : '',
+    toolAvailable(opts, 'memory_update')
+      ? 'When the user directly asks to remember, update, or forget information, or the current exchange otherwise makes that memory intent clear, ensure Brain reflects the request. Do not apply an additional future-value test to user-directed memory.'
+      : '',
+    toolAvailable(opts, 'memory_update')
+      ? 'Without user-directed memory intent, write proactively only when both are true: (1) storing the information in Brain adds clear incremental value over the existing Brain and searchable chat by making a likely future use or recall materially more reliable, accurate, or efficient; and (2) at least one outcome is likely: the information will help you perform a separate future task, or the user will ask you about it later.'
+      : '',
+    toolAvailable(opts, 'memory_update')
+      ? 'If incremental value is unclear, or neither future outcome is likely, do not mutate memory. No mutation is a correct outcome.'
       : '',
     toolAvailable(opts, 'memory_update')
       ? 'Write confirmed facts plainly, mark rumors as unverified, and state inferences conditionally with author and date. For a claim derived from a message or source, preserve a short exact excerpt, speaker or source, date, and src:<document_id> when available; a bare source id is not a citation.'
-      : '',
-    toolAvailable(opts, 'memory_update')
-      ? 'At the end of a task, capture a reusable lesson only if you recovered from an error, a human corrected you, or you completed a non-obvious multi-step workflow. Put general lessons in Brain; do not save task progress, raw traces, or a completed-work log.'
       : '',
     toolAvailable(opts, 'skill_view') && toolAvailable(opts, 'skill_append') && toolAvailable(opts, 'skill_replace')
       ? 'For a lesson tied to one enabled skill, read the existing skill first and compare the core steps with every existing note: at least 60% overlap means revise with skill_replace, less than 60% overlap with every note means add with skill_append, and no new information means write nothing. Keep each note in a concise situation -> caution form, revise unverified notes when evidence arrives, and use skill_replace to deduplicate or compact the complete overlay before it grows beyond roughly 2000 tokens.'

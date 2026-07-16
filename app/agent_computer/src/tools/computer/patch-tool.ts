@@ -16,6 +16,7 @@
 
 import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../../core'
+import { compactActivityPath } from '../activity-summary'
 import type { ContainerComputer } from './computer'
 import type { ComputerToolContext } from './context'
 import { unifiedDiff } from './diff'
@@ -91,6 +92,11 @@ export function createPatchTool(context: ComputerToolContext): AgentTool<typeof 
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: true,
+    describeActivity: params => {
+      if ((params.mode ?? 'replace') === 'patch') return '更新文件'
+      const path = compactActivityPath(params.path)
+      return path ? `更新文件：${path}` : '更新文件'
+    },
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<PatchDetails>> {
       const computer = await context.getComputer(signal)
       try {

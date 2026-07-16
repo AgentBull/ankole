@@ -11,7 +11,7 @@ import type { JsonValue as JSONValue } from './generated/protocol/serde_json/Jso
 
 const maxToolResultBytes = 16_384
 const truncationSuffix = '...[truncated]'
-const allowedToolNames = new Set([
+export const taskWorkerToolNames = new Set([
   'web_search',
   'web_fetch',
   'memory_search',
@@ -19,6 +19,15 @@ const allowedToolNames = new Set([
   'memory_open',
   'memory_update',
   'memory_health_check'
+])
+
+export const deepResearchToolNames = new Set([
+  'web_search',
+  'web_fetch',
+  'memory_search',
+  'memory_browse',
+  'memory_open',
+  'research_validate_delivery'
 ])
 
 export type SubagentProjection = {
@@ -29,6 +38,8 @@ export type SubagentProjection = {
 
 export function buildSubagentProjection(input: {
   tools: AgentTool[]
+  allowedToolNames?: ReadonlySet<string>
+  allowBrowser?: boolean
   onAudit?: (eventType: string, payload: JSONObject) => void
 }): SubagentProjection {
   const tools = new Map<string, AgentTool>()
@@ -36,7 +47,7 @@ export function buildSubagentProjection(input: {
   const quarantinedTools: string[] = []
 
   for (const tool of input.tools) {
-    if (!allowedTool(tool.name)) continue
+    if (!allowedTool(tool.name, input.allowedToolNames ?? taskWorkerToolNames, input.allowBrowser ?? true)) continue
     try {
       const inputSchema = zodToJSONSchema(tool.schema)
       dynamicTools.push({
@@ -90,8 +101,8 @@ export function buildSubagentProjection(input: {
   }
 }
 
-function allowedTool(name: string): boolean {
-  return allowedToolNames.has(name) || (name.startsWith('browser_') && name !== 'browser_run')
+function allowedTool(name: string, allowedToolNames: ReadonlySet<string>, allowBrowser: boolean): boolean {
+  return allowedToolNames.has(name) || (allowBrowser && name.startsWith('browser_') && name !== 'browser_run')
 }
 
 function dynamicToolContentItems(result: {

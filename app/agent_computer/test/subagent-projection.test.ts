@@ -38,17 +38,19 @@ describe('@ankole/agent-computer subagent capability projection', () => {
       tools
     })
 
-    expect(projection.dynamicTools.map(spec => ('name' in spec ? spec.name : undefined))).toEqual([
-      'web_search',
-      'web_fetch',
-      'memory_search',
-      'memory_browse',
-      'memory_open',
-      'memory_update',
-      'memory_health_check',
-      'browser_navigate',
-      'browser_screenshot'
-    ])
+    expect(projection.dynamicTools.map(spec => ('name' in spec ? spec.name : undefined)).sort()).toEqual(
+      [
+        'web_search',
+        'web_fetch',
+        'memory_search',
+        'memory_browse',
+        'memory_open',
+        'memory_update',
+        'memory_health_check',
+        'browser_navigate',
+        'browser_screenshot'
+      ].sort()
+    )
     expect(projection.quarantinedTools).toEqual(['browser_snapshot'])
 
     const invalid = await projection.handleToolCall(

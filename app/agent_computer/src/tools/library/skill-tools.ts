@@ -49,7 +49,7 @@ export const LONG_RUNNING_SKILL_ADDITION = [
   'After clarifying the request, do not run the execution phase inline. Tell the user the work is moving to the background, including the intended artifact and report path.',
   "Put durable artifacts under /workspace/user-files using this skill's own project layout. Start exactly one subagent delegation with a self-contained task containing the specification, project path, this skill file location, quality gates, and completion criteria.",
   'Completion, failure, and questions wake the parent automatically; do not poll. Use check_back_later only for an intentional mid-task inspection of unusually long work.',
-  'When awakened, personally verify the artifacts and checks, then deliver files with reply_attachment. The delegation id can always be recovered with subagent(list).'
+  'When awakened, personally verify the artifacts and checks, then deliver only the user-facing files defined by the skill with reply_attachment. Keep working and verification artifacts internal. The delegation id can always be recovered with subagent(list).'
 ].join('\n')
 
 export type { SkillFileRoots } from '../../skills/effective-skill'
@@ -93,6 +93,7 @@ function createSkillViewTool(opts: CreateSkillToolsOptions): AgentTool<typeof Sk
     executionMode: 'parallel',
     isReadOnly: true,
     isDestructive: false,
+    describeActivity: params => `加载 Skill：${params.name}`,
     async execute(_toolCallId, params): Promise<AgentToolResult<SkillToolDetails>> {
       const filePath = normalizeSkillFilePath(params.filePath ?? 'SKILL.md')
       const skill = enabledSkill(params.name, opts)
@@ -128,6 +129,7 @@ function createSkillAppendTool(opts: CreateSkillToolsOptions): AgentTool<typeof 
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
+    describeActivity: params => `更新 Skill：${params.name}`,
     async execute(_toolCallId, params): Promise<AgentToolResult<SkillToolDetails>> {
       enabledSkill(params.name, opts)
       if (!opts.turn || !opts.appendSkillOverlay) {
@@ -161,6 +163,7 @@ function createSkillReplaceTool(opts: CreateSkillToolsOptions): AgentTool<typeof
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: true,
+    describeActivity: params => `更新 Skill：${params.name}`,
     async execute(_toolCallID, params): Promise<AgentToolResult<SkillToolDetails>> {
       enabledSkill(params.name, opts)
       if (!opts.turn || !opts.requestSkillOverlay || !opts.replaceSkillOverlay) {

@@ -8,6 +8,9 @@ defmodule Ankole.Brain.HealthCheckTest do
   alias Ankole.Brain.Config
   alias Ankole.Brain.Knowledge
   alias Ankole.Brain.Scope
+  alias Ankole.Brain.Sources
+  alias Ankole.Brain.Schemas.BlockCitation
+  alias Ankole.Brain.Schemas.EntryBlock
   alias Ankole.AppConfigure
   alias Ankole.AuthZ.Group
   alias Ankole.Repo
@@ -133,6 +136,72 @@ defmodule Ankole.Brain.HealthCheckTest do
 
     assert [%{"entry_id" => ^entry_id, "estimated_tokens" => ^exact_tokens, "budget" => 80}] =
              health["over_budget_pinned_memos"]
+  end
+
+  test "source lint distinguishes integration gaps, broken citations, and weak generated claims" do
+    %{principal: agent} = agent_fixture()
+    {:ok, scope} = Scope.for_store(agent.uid, "public")
+
+    assert {:ok, source} =
+             Sources.capture(
+               scope,
+               %{kind: "paste", title: "Evidence", content: "The supported fact."},
+               agent.uid
+             )
+
+    weak_entry = create_entry(scope, agent.uid, "Uncited generated claim", "A generated claim")
+
+    assert {:ok, first_health} = Brain.health_check(scope)
+
+    assert Enum.any?(
+             first_health["unintegrated_sources"],
+             &(&1["document_id"] == source.document_id)
+           )
+
+    assert Enum.any?(
+             first_health["uncited_generated_blocks"],
+             &(&1["entry_id"] == weak_entry.id)
+           )
+
+    assert {:ok, %{results: [%{entry_id: cited_entry_id}]}} =
+             Knowledge.apply_operations(
+               scope,
+               %{
+                 operation: "create_entry",
+                 name: "Supported claim",
+                 type: "topic",
+                 initial_body: "The supported fact. src:#{source.document_id}"
+               },
+               %{kind: :agent, uid: agent.uid}
+             )
+
+    block = Repo.get_by!(EntryBlock, entry_id: weak_entry.id)
+    now = DateTime.utc_now(:microsecond)
+
+    Repo.insert_all(BlockCitation, [
+      %{
+        block_id: block.id,
+        document_id: "brain-source:removed",
+        inserted_at: now
+      }
+    ])
+
+    assert {:ok, second_health} = Brain.health_check(scope)
+
+    refute Enum.any?(
+             second_health["unintegrated_sources"],
+             &(&1["document_id"] == source.document_id)
+           )
+
+    assert Enum.any?(second_health["broken_citations"], fn item ->
+             item["entry_id"] == weak_entry.id and
+               item["document_id"] == "brain-source:removed"
+           end)
+
+    refute Enum.any?(
+             second_health["uncited_generated_blocks"],
+             &(&1["entry_id"] == cited_entry_id)
+           )
   end
 
   defp create_entry(scope, actor_uid, name, body) do

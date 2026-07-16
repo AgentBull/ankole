@@ -223,7 +223,8 @@ Worker-originated scheduling goes through RuntimeFabric RPC. The RPC handler
 receives the authenticated transport route from RPCLane; the worker must not
 provide that route in the JSON payload.
 
-`check_back_later` uses `schedule.check_back_later.create`.
+`check_back_later` uses the `schedule.check_back_later.*` RPC family:
+`create`, `list`, `get`, `update`, and `cancel`.
 
 The request payload must include:
 
@@ -284,6 +285,27 @@ must describe the stored commitment, not merely echo the latest request.
 After a successful create, the initiating turn's visible reply confirms what
 will be checked, when it will run, and whether a normal or unchanged outcome
 will be reported.
+
+`list` returns only pending checkbacks for the current agent and session, while
+`get` can inspect a known event from that same scope. `update` accepts a partial
+replacement of `reason`, `check`, `context_summary`, `quiet_success`, or
+`schedule`; `cancel` targets a known event id. Reads use turn-read route
+authorization, and mutations use turn-write route authorization. Update also
+validates the current reply route because the replacement event becomes the
+new delivery commitment.
+
+An update does not rewrite an audit row or try to reschedule its existing Oban
+job. In one transaction it inserts a replacement scheduled event and wake job,
+then marks the prior event cancelled with the replacement id. Any old wake edge
+can still execute, but the guarded fire claim sees the cancelled status and
+no-ops. Repeated updates and cancellation follow that replacement chain to the
+current pending event, so a model holding an earlier event id cannot leave a
+newer replacement running by mistake.
+
+The worker emits create, update, and cancel effect receipts only after the RPC
+returns successfully. Conversation text alone is not evidence that durable
+schedule state changed, so the model must not claim a correction or revocation
+was applied without a confirmed tool result.
 
 Cron management can be exposed through a Phoenix control-plane API and, later,
 through a model-visible `cron` tool. Both surfaces call the same domain context.
@@ -647,7 +669,8 @@ Control-plane API:
 
 Model-visible tools:
 
-- `check_back_later`: create a one-shot delayed self-wakeup;
+- `check_back_later`: create, list, inspect, update, and cancel one-shot delayed
+  self-wakeups in the current conversation;
 - `cron`: manage recurring schedules when policy allows it.
 
 Operator UI can be added on top of the same context. It should show schedule

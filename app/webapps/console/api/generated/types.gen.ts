@@ -8,8 +8,30 @@ export type ClientOptions = {
  * SubagentDelegationListResponse
  */
 export type SubagentDelegationListResponse = {
+  calibration_summary: {
+    confidence_buckets: Array<{
+      confidence: number
+      forecasts: number
+      hit_rate: number | null
+      hits: number
+    }>
+    forecast_count: number
+    mean_brier_score: number | null
+    no_edge_count: number
+    no_edge_rate: number | null
+    resolved_forecast_count: number
+  }
   delegations: Array<SubagentDelegationItem>
   next_cursor: string | null
+}
+
+/**
+ * AgentLibraryDocumentItem
+ */
+export type AgentLibraryDocumentItem = {
+  content: string
+  content_hash: string
+  kind: 'mission' | 'soul' | 'design'
 }
 
 /**
@@ -54,6 +76,10 @@ export type AppConfigurationResponse = {
  */
 export type BrainEntryOperationsRequest = {
   operations: Array<BrainEntryOperation>
+  /**
+   * Optional human reason retained in each audit record in this batch
+   */
+  reason?: string
 }
 
 /**
@@ -79,6 +105,14 @@ export type WorkerEnvDecryptionResponse = {
 }
 
 /**
+ * SubagentTurnToolUsage
+ */
+export type SubagentTurnToolUsage = {
+  calls: number
+  name: string
+}
+
+/**
  * SubagentDelegationResponse
  */
 export type SubagentDelegationResponse = {
@@ -97,6 +131,13 @@ export type JsonValue = unknown
  */
 export type BrainAuditRestorationResponse = {
   restoration: JsonValue
+}
+
+/**
+ * AIGatewayConversationResponse
+ */
+export type AiGatewayConversationResponse = {
+  conversation: AiGatewayConversationItem
 }
 
 /**
@@ -140,6 +181,14 @@ export type WorkerEnvListResponse = {
  */
 export type ConsoleApiErrorEnvelope = {
   error: ConsoleApiError
+}
+
+/**
+ * AIGatewayConversationListResponse
+ */
+export type AiGatewayConversationListResponse = {
+  conversations: Array<AiGatewayConversationItem>
+  next_cursor: string | null
 }
 
 /**
@@ -232,6 +281,63 @@ export type BrainAuditLogResponse = {
 }
 
 /**
+ * PrincipalItem
+ */
+export type PrincipalItem = {
+  avatar_url?: string | null
+  display_name?: string | null
+  inserted_at: string
+  status: 'active' | 'disabled'
+  type: 'human' | 'agent'
+  uid: string
+  updated_at: string
+}
+
+/**
+ * AgentLibraryDocumentWriteRequest
+ */
+export type AgentLibraryDocumentWriteRequest = {
+  content: string
+  expected_content_hash: string
+}
+
+/**
+ * AIGatewayMessageItem
+ */
+export type AiGatewayMessageItem = {
+  content: Array<{
+    [key: string]: unknown
+  }>
+  conversation_id: string
+  id: string
+  inserted_at: string
+  metadata: {
+    [key: string]: unknown
+  }
+  previous_message_id?: string | null
+  role?: 'user' | 'assistant' | 'tool' | 'im_ambient'
+  status: 'generating' | 'complete' | 'error' | 'retracted'
+  subject_uid: string
+  type: 'message' | 'checkpoint'
+  updated_at: string
+}
+
+/**
+ * AIGatewayConversationItem
+ */
+export type AiGatewayConversationItem = {
+  conversation_key: string
+  ended_at?: string | null
+  id: string
+  inserted_at: string
+  metadata: {
+    [key: string]: unknown
+  }
+  subject_uid: string
+  updated_at: string
+}
+
+/**
  * ScheduleCronScheduleResponse
  */
 export type ScheduleCronScheduleResponse = {
@@ -243,6 +349,14 @@ export type ScheduleCronScheduleResponse = {
  */
 export type AgentResponse = {
   agent: AgentItem
+}
+
+/**
+ * AIGatewayMessageListResponse
+ */
+export type AiGatewayMessageListResponse = {
+  messages: Array<AiGatewayMessageItem>
+  next_cursor: string | null
 }
 
 /**
@@ -339,6 +453,17 @@ export type SignalAdapterListResponse = {
 }
 
 /**
+ * BrainSourceCaptureRequest
+ */
+export type BrainSourceCaptureRequest = {
+  content?: string
+  file?: Blob | File
+  kind: 'paste' | 'url' | 'file'
+  title?: string
+  url?: string
+}
+
+/**
  * WorkerEnvUpdateRequest
  */
 export type WorkerEnvUpdateRequest = {
@@ -352,6 +477,13 @@ export type WorkerEnvUpdateRequest = {
  */
 export type SignalBindingResponse = {
   signal_binding: SignalBindingItem
+}
+
+/**
+ * AgentLibraryDocumentResponse
+ */
+export type AgentLibraryDocumentResponse = {
+  library_document: AgentLibraryDocumentItem
 }
 
 /**
@@ -442,6 +574,15 @@ export type WorkerFileUploadResponse = {
 }
 
 /**
+ * SubagentTurnUsage
+ */
+export type SubagentTurnUsage = {
+  last_model_call: SubagentTurnUsageBreakdown
+  model_context_window?: number
+  thread_total: SubagentTurnUsageBreakdown
+}
+
+/**
  * AgentComputerWorkerItem
  */
 export type AgentComputerWorkerItem = {
@@ -495,26 +636,10 @@ export type SignalBindingListResponse = {
 }
 
 /**
- * SubagentDelegationEventItem
- */
-export type SubagentDelegationEventItem = {
-  direction: string
-  event_type: string
-  id: string
-  occurred_at: string
-  payload: {
-    [key: string]: unknown
-  }
-  redaction: {
-    [key: string]: unknown
-  }
-  seq: number
-}
-
-/**
  * SubagentDelegationItem
  */
 export type SubagentDelegationItem = {
+  actual_outcome?: boolean | null
   agent_uid: string
   attempts: number
   background?: string | null
@@ -524,12 +649,12 @@ export type SubagentDelegationItem = {
   error: {
     [key: string]: unknown
   }
-  events?: Array<SubagentDelegationEventItem>
   id: string
   inserted_at: string
   metadata: {
     [key: string]: unknown
   }
+  mode?: 'general' | 'forecast' | 'retrospect'
   notes?: string | null
   queued_at?: string | null
   reply_route: {
@@ -538,13 +663,15 @@ export type SubagentDelegationItem = {
   result: {
     [key: string]: unknown
   }
-  runtime: 'task_worker'
+  runtime: 'task_worker' | 'deep_research'
   runtime_thread_id?: string | null
   session_id: string
+  source_delegation_id?: string | null
   started_at?: string | null
   status: 'queued' | 'running' | 'waiting_on_user' | 'succeeded' | 'failed' | 'stopped'
   task: string
   title: string
+  turns?: Array<SubagentDelegationTurnItem>
   updated_at: string
   workdir?: string | null
 }
@@ -558,10 +685,26 @@ export type SignalBindingWriteRequest = {
 }
 
 /**
+ * BrainSourceListResponse
+ */
+export type BrainSourceListResponse = {
+  sources: Array<BrainSourceEntry>
+}
+
+/**
  * WorkerFileListResponse
  */
 export type WorkerFileListResponse = {
   file_listing: WorkerFileListData
+}
+
+/**
+ * BrainCitation
+ */
+export type BrainCitation = {
+  block_id: string
+  document_id: string
+  source_kind: 'signal_message' | 'retained_source'
 }
 
 /**
@@ -642,6 +785,7 @@ export type ScheduleCronWriteRequest = {
 export type BrainEntryResponse = {
   backlinks: Array<BrainEntryRelation>
   blocks: Array<BrainEntryBlock>
+  citations: Array<BrainCitation>
   entry: BrainEntry
   markdown: string
   relations: Array<BrainEntryRelation>
@@ -663,11 +807,28 @@ export type BrainEntryOperationsResponse = {
 }
 
 /**
+ * SubagentTurnPlanStep
+ */
+export type SubagentTurnPlanStep = {
+  status: 'pending' | 'in_progress' | 'completed'
+  step: string
+}
+
+/**
  * CodexAccountUpdateRequest
  */
 export type CodexAccountUpdateRequest = {
   auth_json?: string | null
   name: string
+}
+
+/**
+ * AgentLibraryDocuments
+ */
+export type AgentLibraryDocuments = {
+  design: AgentLibraryDocumentItem
+  mission: AgentLibraryDocumentItem
+  soul: AgentLibraryDocumentItem
 }
 
 /**
@@ -702,6 +863,25 @@ export type BrainDreamingRun = {
   skill_update_count?: number
   status: 'completed' | 'no_new_material' | 'already_running' | 'disabled'
   touched_entry_ids?: Array<string>
+}
+
+/**
+ * SubagentTurnUsageBreakdown
+ */
+export type SubagentTurnUsageBreakdown = {
+  cached_input_tokens: number
+  input_tokens: number
+  output_tokens: number
+  reasoning_output_tokens: number
+  total_tokens: number
+}
+
+/**
+ * SubagentTurnPlan
+ */
+export type SubagentTurnPlan = {
+  explanation?: string
+  steps: Array<SubagentTurnPlanStep>
 }
 
 /**
@@ -748,25 +928,51 @@ export type CodexAccountItem = {
 }
 
 /**
+ * SubagentTurnActiveItem
+ */
+export type SubagentTurnActiveItem = {
+  id: string
+  name: string
+}
+
+/**
  * BrainSourceEntry
  */
 export type BrainSourceEntry = {
-  attachments: Array<JsonValue>
-  author: {
+  attachments?: Array<JsonValue>
+  author?: {
     [key: string]: unknown
   }
+  byte_size?: number | null
+  capture_method?: 'paste' | 'url' | 'file'
+  captured_at?: string | null
+  captured_by_uid?: string | null
   document_id: string
-  links: Array<JsonValue>
-  metadata: {
+  integrated_entries: Array<{
+    id: string
+    name: string
+    store_key: string
+    type: string
+  }>
+  kind: 'retained_source' | 'signal_message'
+  learning_actor_event_id?: string | null
+  learning_status?: 'stored' | 'learning' | 'integrated' | 'no_change' | 'incomplete' | 'failed'
+  links?: Array<JsonValue>
+  media_type: string
+  metadata?: {
     [key: string]: unknown
   }
-  provider_time?: string | null
+  origin_locator?: string | null
+  original_name?: string | null
   rich_content?: {
     [key: string]: unknown
   } | null
-  signal_channel_id: string
-  source_entry_id: string
+  sha256?: string | null
+  signal_channel_id?: string | null
+  source_entry_id?: string | null
+  store_key: string
   text?: string | null
+  title: string
 }
 
 /**
@@ -875,6 +1081,13 @@ export type ScheduleRunListResponse = {
 }
 
 /**
+ * AgentLibraryDocumentsResponse
+ */
+export type AgentLibraryDocumentsResponse = {
+  library_documents: AgentLibraryDocuments
+}
+
+/**
  * IdentityProviderAdapterItem
  */
 export type IdentityProviderAdapterItem = {
@@ -905,6 +1118,7 @@ export type BrainEntryOperation = {
   entry_id?: string
   expected_block_lock_version?: number
   expected_entry_lock_version?: number
+  initial_body?: string
   key?: string
   name?: string
   operation:
@@ -918,6 +1132,8 @@ export type BrainEntryOperation = {
     | 'remove_relation'
     | 'set_summary'
     | 'set_aliases'
+    | 'set_name'
+    | 'set_type'
   predicate?: string
   properties?: {
     [key: string]: unknown
@@ -979,6 +1195,13 @@ export type ConsoleTokenResponse = {
 }
 
 /**
+ * PrincipalListResponse
+ */
+export type PrincipalListResponse = {
+  principals: Array<PrincipalItem>
+}
+
+/**
  * SignalBindingItem
  */
 export type SignalBindingItem = {
@@ -1017,12 +1240,123 @@ export type BrainEntryBlock = {
 }
 
 /**
+ * SubagentTurnProgress
+ */
+export type SubagentTurnProgress = {
+  active_item?: SubagentTurnActiveItem
+  completed_items: number
+  files_changed: Array<string>
+  plan?: SubagentTurnPlan
+  tool_calls: number
+  tools_used: Array<SubagentTurnToolUsage>
+}
+
+/**
+ * BrainReviewCandidatesResponse
+ */
+export type BrainReviewCandidatesResponse = {
+  review: {
+    broken_citations: Array<JsonValue>
+    checked_entry_count: number
+    dreaming_blocks: Array<JsonValue>
+    failed_embeddings: Array<JsonValue>
+    long_entries: Array<JsonValue>
+    old_url_sources: Array<JsonValue>
+    orphan_entries: Array<JsonValue>
+    over_budget_pinned_memos: Array<JsonValue>
+    stale_entries: Array<JsonValue>
+    status: 'ok'
+    uncited_generated_blocks: Array<JsonValue>
+    unintegrated_sources: Array<JsonValue>
+  }
+}
+
+/**
  * IdentityProviderWriteRequest
  */
 export type IdentityProviderWriteRequest = {
   adapter_id: string
   config: JsonValue
   enabled?: boolean
+}
+
+/**
+ * SubagentDelegationTurnItem
+ */
+export type SubagentDelegationTurnItem = {
+  attempt: number
+  completed_at?: string | null
+  error: {
+    [key: string]: unknown
+  }
+  id: string
+  inserted_at: string
+  kind: 'agent' | 'compaction'
+  progress: SubagentTurnProgress
+  revision: number
+  runtime_thread_id: string
+  runtime_turn_id: string
+  started_at: string
+  status: 'in_progress' | 'completed' | 'failed' | 'interrupted'
+  trajectory: {
+    format: 'ankole_chatml'
+    messages: Array<
+      | {
+          content:
+            | string
+            | Array<{
+                type: string
+                [key: string]: unknown
+              }>
+          id?: string
+          metadata?: {
+            [key: string]: unknown
+          }
+          role: 'user' | 'developer'
+          [key: string]: unknown
+        }
+      | {
+          content: string
+          id?: string
+          metadata?: {
+            [key: string]: unknown
+          }
+          role: 'assistant'
+          tool_calls?: Array<{
+            function: {
+              arguments: string
+              name: string
+              [key: string]: unknown
+            }
+            id: string
+            type: 'function'
+            [key: string]: unknown
+          }>
+          [key: string]: unknown
+        }
+      | {
+          content: string
+          id?: string
+          metadata?: {
+            [key: string]: unknown
+          }
+          name: string
+          role: 'tool'
+          tool_call_id: string
+          [key: string]: unknown
+        }
+    >
+    metadata?: {
+      content_truncated?: boolean
+      max_bytes?: number
+      omitted_items?: number
+      omitted_messages?: number
+      redacted?: boolean
+    }
+    version: 1
+  }
+  updated_at: string
+  usage: SubagentTurnUsage | null
 }
 
 /**
@@ -1064,6 +1398,43 @@ export type CodexAccountCreateRequest = {
 export type AiGatewayProviderEncryptedOptionsProjection = {
   [key: string]: AiGatewayProviderEncryptedOptionProjection
 }
+
+export type AnkoleWebAiGatewayFilesControllerContentData = {
+  body?: never
+  path: {
+    file_id: string
+  }
+  query?: never
+  url: '/api/v1/ai-gateway/files/{file_id}/content'
+}
+
+export type AnkoleWebAiGatewayFilesControllerContentErrors = {
+  /**
+   * Unauthorized
+   */
+  401: {
+    [key: string]: unknown
+  }
+  /**
+   * Not found
+   */
+  404: {
+    [key: string]: unknown
+  }
+}
+
+export type AnkoleWebAiGatewayFilesControllerContentError =
+  AnkoleWebAiGatewayFilesControllerContentErrors[keyof AnkoleWebAiGatewayFilesControllerContentErrors]
+
+export type AnkoleWebAiGatewayFilesControllerContentResponses = {
+  /**
+   * File bytes
+   */
+  200: Blob | File
+}
+
+export type AnkoleWebAiGatewayFilesControllerContentResponse =
+  AnkoleWebAiGatewayFilesControllerContentResponses[keyof AnkoleWebAiGatewayFilesControllerContentResponses]
 
 export type AnkoleWebWorkerFileControllerDownloadData = {
   body?: never
@@ -1218,6 +1589,93 @@ export type AnkoleWebScheduleControllerPauseCronResponses = {
 
 export type AnkoleWebScheduleControllerPauseCronResponse =
   AnkoleWebScheduleControllerPauseCronResponses[keyof AnkoleWebScheduleControllerPauseCronResponses]
+
+export type AnkoleWebAiGatewayFilesControllerDeleteData = {
+  body?: never
+  path: {
+    file_id: string
+  }
+  query?: never
+  url: '/api/v1/ai-gateway/files/{file_id}'
+}
+
+export type AnkoleWebAiGatewayFilesControllerDeleteErrors = {
+  /**
+   * Unauthorized
+   */
+  401: {
+    [key: string]: unknown
+  }
+  /**
+   * Not found
+   */
+  404: {
+    [key: string]: unknown
+  }
+}
+
+export type AnkoleWebAiGatewayFilesControllerDeleteError =
+  AnkoleWebAiGatewayFilesControllerDeleteErrors[keyof AnkoleWebAiGatewayFilesControllerDeleteErrors]
+
+export type AnkoleWebAiGatewayFilesControllerDeleteResponses = {
+  /**
+   * Deleted file
+   */
+  200: {
+    deleted: boolean
+    id: string
+    object: 'file'
+  }
+}
+
+export type AnkoleWebAiGatewayFilesControllerDeleteResponse =
+  AnkoleWebAiGatewayFilesControllerDeleteResponses[keyof AnkoleWebAiGatewayFilesControllerDeleteResponses]
+
+export type AnkoleWebAiGatewayFilesControllerShowData = {
+  body?: never
+  path: {
+    file_id: string
+  }
+  query?: never
+  url: '/api/v1/ai-gateway/files/{file_id}'
+}
+
+export type AnkoleWebAiGatewayFilesControllerShowErrors = {
+  /**
+   * Unauthorized
+   */
+  401: {
+    [key: string]: unknown
+  }
+  /**
+   * Not found
+   */
+  404: {
+    [key: string]: unknown
+  }
+}
+
+export type AnkoleWebAiGatewayFilesControllerShowError =
+  AnkoleWebAiGatewayFilesControllerShowErrors[keyof AnkoleWebAiGatewayFilesControllerShowErrors]
+
+export type AnkoleWebAiGatewayFilesControllerShowResponses = {
+  /**
+   * File object
+   */
+  200: {
+    bytes: number
+    created_at: number
+    expires_at?: number | null
+    filename: string
+    id: string
+    object: 'file'
+    purpose: 'vision'
+    status: 'processed'
+  }
+}
+
+export type AnkoleWebAiGatewayFilesControllerShowResponse =
+  AnkoleWebAiGatewayFilesControllerShowResponses[keyof AnkoleWebAiGatewayFilesControllerShowResponses]
 
 export type AnkoleWebBrainControllerAuditLogData = {
   body?: never
@@ -1500,6 +1958,48 @@ export type AnkoleWebBrainControllerShowResponses = {
 export type AnkoleWebBrainControllerShowResponse =
   AnkoleWebBrainControllerShowResponses[keyof AnkoleWebBrainControllerShowResponses]
 
+export type AnkoleWebBrainControllerSourceRawData = {
+  body?: never
+  path: {
+    document_id: string
+  }
+  query: {
+    /**
+     * Principal whose Brain library is being supervised
+     */
+    owner_uid: string
+  }
+  url: '/api/v1/brain/sources/{document_id}/raw'
+}
+
+export type AnkoleWebBrainControllerSourceRawErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebBrainControllerSourceRawError =
+  AnkoleWebBrainControllerSourceRawErrors[keyof AnkoleWebBrainControllerSourceRawErrors]
+
+export type AnkoleWebBrainControllerSourceRawResponses = {
+  /**
+   * Source bytes
+   */
+  200: Blob | File
+}
+
+export type AnkoleWebBrainControllerSourceRawResponse =
+  AnkoleWebBrainControllerSourceRawResponses[keyof AnkoleWebBrainControllerSourceRawResponses]
+
 export type AnkoleWebWorkerFileControllerDeleteData = {
   body?: never
   path: {
@@ -1660,6 +2160,56 @@ export type AnkoleWebWorkerFileControllerUploadResponses = {
 export type AnkoleWebWorkerFileControllerUploadResponse =
   AnkoleWebWorkerFileControllerUploadResponses[keyof AnkoleWebWorkerFileControllerUploadResponses]
 
+export type AnkoleWebBrainControllerLearnSourceData = {
+  body?: never
+  path: {
+    document_id: string
+  }
+  query: {
+    /**
+     * Principal whose Brain library is being supervised
+     */
+    owner_uid: string
+  }
+  url: '/api/v1/brain/sources/{document_id}/learning-runs'
+}
+
+export type AnkoleWebBrainControllerLearnSourceErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * No worker is ready
+   */
+  409: ConsoleApiErrorEnvelope
+  /**
+   * Learning could not start
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebBrainControllerLearnSourceError =
+  AnkoleWebBrainControllerLearnSourceErrors[keyof AnkoleWebBrainControllerLearnSourceErrors]
+
+export type AnkoleWebBrainControllerLearnSourceResponses = {
+  /**
+   * Learning run queued
+   */
+  200: BrainSourceEntryResponse
+}
+
+export type AnkoleWebBrainControllerLearnSourceResponse =
+  AnkoleWebBrainControllerLearnSourceResponses[keyof AnkoleWebBrainControllerLearnSourceResponses]
+
 export type AnkoleWebAiGatewayControllerResponsesData = {
   /**
    * OpenResponses request
@@ -1794,6 +2344,115 @@ export type AnkoleWebScheduleControllerResumeCronResponses = {
 
 export type AnkoleWebScheduleControllerResumeCronResponse =
   AnkoleWebScheduleControllerResumeCronResponses[keyof AnkoleWebScheduleControllerResumeCronResponses]
+
+export type AnkoleWebAiGatewayFilesControllerIndexData = {
+  body?: never
+  path?: never
+  query?: {
+    after?: string
+    limit?: number
+    order?: 'asc' | 'desc'
+    purpose?: 'vision'
+  }
+  url: '/api/v1/ai-gateway/files'
+}
+
+export type AnkoleWebAiGatewayFilesControllerIndexErrors = {
+  /**
+   * Invalid pagination
+   */
+  400: {
+    [key: string]: unknown
+  }
+  /**
+   * Unauthorized
+   */
+  401: {
+    [key: string]: unknown
+  }
+}
+
+export type AnkoleWebAiGatewayFilesControllerIndexError =
+  AnkoleWebAiGatewayFilesControllerIndexErrors[keyof AnkoleWebAiGatewayFilesControllerIndexErrors]
+
+export type AnkoleWebAiGatewayFilesControllerIndexResponses = {
+  /**
+   * File list
+   */
+  200: {
+    data: Array<{
+      bytes: number
+      created_at: number
+      expires_at?: number | null
+      filename: string
+      id: string
+      object: 'file'
+      purpose: 'vision'
+      status: 'processed'
+    }>
+    first_id: string | null
+    has_more: boolean
+    last_id: string | null
+    object: 'list'
+  }
+}
+
+export type AnkoleWebAiGatewayFilesControllerIndexResponse =
+  AnkoleWebAiGatewayFilesControllerIndexResponses[keyof AnkoleWebAiGatewayFilesControllerIndexResponses]
+
+export type AnkoleWebAiGatewayFilesControllerCreateData = {
+  /**
+   * Vision file
+   */
+  body: {
+    expires_after?: {
+      anchor: 'created_at'
+      seconds: number
+    }
+    file: Blob | File
+    purpose: 'vision'
+  }
+  path?: never
+  query?: never
+  url: '/api/v1/ai-gateway/files'
+}
+
+export type AnkoleWebAiGatewayFilesControllerCreateErrors = {
+  /**
+   * Invalid file
+   */
+  400: {
+    [key: string]: unknown
+  }
+  /**
+   * Unauthorized
+   */
+  401: {
+    [key: string]: unknown
+  }
+}
+
+export type AnkoleWebAiGatewayFilesControllerCreateError =
+  AnkoleWebAiGatewayFilesControllerCreateErrors[keyof AnkoleWebAiGatewayFilesControllerCreateErrors]
+
+export type AnkoleWebAiGatewayFilesControllerCreateResponses = {
+  /**
+   * File object
+   */
+  200: {
+    bytes: number
+    created_at: number
+    expires_at?: number | null
+    filename: string
+    id: string
+    object: 'file'
+    purpose: 'vision'
+    status: 'processed'
+  }
+}
+
+export type AnkoleWebAiGatewayFilesControllerCreateResponse =
+  AnkoleWebAiGatewayFilesControllerCreateResponses[keyof AnkoleWebAiGatewayFilesControllerCreateResponses]
 
 export type AnkoleWebAiGatewayProviderControllerDeleteProviderData = {
   body?: never
@@ -2205,6 +2864,89 @@ export type AnkoleWebIdentityProviderControllerAdaptersResponses = {
 export type AnkoleWebIdentityProviderControllerAdaptersResponse =
   AnkoleWebIdentityProviderControllerAdaptersResponses[keyof AnkoleWebIdentityProviderControllerAdaptersResponses]
 
+export type AnkoleWebBrainControllerSourceIndexData = {
+  body?: never
+  path?: never
+  query: {
+    /**
+     * Principal whose Brain library is being supervised
+     */
+    owner_uid: string
+  }
+  url: '/api/v1/brain/sources'
+}
+
+export type AnkoleWebBrainControllerSourceIndexErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebBrainControllerSourceIndexError =
+  AnkoleWebBrainControllerSourceIndexErrors[keyof AnkoleWebBrainControllerSourceIndexErrors]
+
+export type AnkoleWebBrainControllerSourceIndexResponses = {
+  /**
+   * Retained sources
+   */
+  200: BrainSourceListResponse
+}
+
+export type AnkoleWebBrainControllerSourceIndexResponse =
+  AnkoleWebBrainControllerSourceIndexResponses[keyof AnkoleWebBrainControllerSourceIndexResponses]
+
+export type AnkoleWebBrainControllerCreateSourceData = {
+  /**
+   * Source
+   */
+  body: BrainSourceCaptureRequest
+  path?: never
+  query: {
+    /**
+     * Principal whose Brain library is being supervised
+     */
+    owner_uid: string
+    /**
+     * Exact Brain store that may cite this source
+     */
+    store: string
+  }
+  url: '/api/v1/brain/sources'
+}
+
+export type AnkoleWebBrainControllerCreateSourceErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Invalid source
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebBrainControllerCreateSourceError =
+  AnkoleWebBrainControllerCreateSourceErrors[keyof AnkoleWebBrainControllerCreateSourceErrors]
+
+export type AnkoleWebBrainControllerCreateSourceResponses = {
+  /**
+   * Retained source
+   */
+  201: BrainSourceEntryResponse
+}
+
+export type AnkoleWebBrainControllerCreateSourceResponse =
+  AnkoleWebBrainControllerCreateSourceResponses[keyof AnkoleWebBrainControllerCreateSourceResponses]
+
 export type AnkoleWebAiGatewayControllerRetrieveResponseData = {
   body?: never
   path: {
@@ -2531,6 +3273,43 @@ export type AnkoleWebIdentityProviderControllerRunSyncResponses = {
 export type AnkoleWebIdentityProviderControllerRunSyncResponse =
   AnkoleWebIdentityProviderControllerRunSyncResponses[keyof AnkoleWebIdentityProviderControllerRunSyncResponses]
 
+export type AnkoleWebAiGatewayConversationControllerShowData = {
+  body?: never
+  path: {
+    conversation_id: string
+  }
+  query?: never
+  url: '/api/v1/ai-gateway/conversations/{conversation_id}'
+}
+
+export type AnkoleWebAiGatewayConversationControllerShowErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAiGatewayConversationControllerShowError =
+  AnkoleWebAiGatewayConversationControllerShowErrors[keyof AnkoleWebAiGatewayConversationControllerShowErrors]
+
+export type AnkoleWebAiGatewayConversationControllerShowResponses = {
+  /**
+   * Conversation
+   */
+  200: AiGatewayConversationResponse
+}
+
+export type AnkoleWebAiGatewayConversationControllerShowResponse =
+  AnkoleWebAiGatewayConversationControllerShowResponses[keyof AnkoleWebAiGatewayConversationControllerShowResponses]
+
 export type AnkoleWebAgentControllerIndexData = {
   body?: never
   path?: never
@@ -2714,6 +3493,37 @@ export type AnkoleWebSignalBindingControllerAdaptersResponses = {
 
 export type AnkoleWebSignalBindingControllerAdaptersResponse =
   AnkoleWebSignalBindingControllerAdaptersResponses[keyof AnkoleWebSignalBindingControllerAdaptersResponses]
+
+export type AnkoleWebPrincipalControllerIndexData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v1/principals'
+}
+
+export type AnkoleWebPrincipalControllerIndexErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebPrincipalControllerIndexError =
+  AnkoleWebPrincipalControllerIndexErrors[keyof AnkoleWebPrincipalControllerIndexErrors]
+
+export type AnkoleWebPrincipalControllerIndexResponses = {
+  /**
+   * Principals
+   */
+  200: PrincipalListResponse
+}
+
+export type AnkoleWebPrincipalControllerIndexResponse =
+  AnkoleWebPrincipalControllerIndexResponses[keyof AnkoleWebPrincipalControllerIndexResponses]
 
 export type AnkoleWebScheduleControllerRemoveCronData = {
   body?: never
@@ -2903,12 +3713,53 @@ export type AnkoleWebSignalBindingControllerDeleteResponses = {
 export type AnkoleWebSignalBindingControllerDeleteResponse =
   AnkoleWebSignalBindingControllerDeleteResponses[keyof AnkoleWebSignalBindingControllerDeleteResponses]
 
+export type AnkoleWebBrainControllerReviewCandidatesData = {
+  body?: never
+  path?: never
+  query: {
+    /**
+     * Principal whose Brain library is being supervised
+     */
+    owner_uid: string
+  }
+  url: '/api/v1/brain/review-candidates'
+}
+
+export type AnkoleWebBrainControllerReviewCandidatesErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebBrainControllerReviewCandidatesError =
+  AnkoleWebBrainControllerReviewCandidatesErrors[keyof AnkoleWebBrainControllerReviewCandidatesErrors]
+
+export type AnkoleWebBrainControllerReviewCandidatesResponses = {
+  /**
+   * Brain review candidates
+   */
+  200: BrainReviewCandidatesResponse
+}
+
+export type AnkoleWebBrainControllerReviewCandidatesResponse =
+  AnkoleWebBrainControllerReviewCandidatesResponses[keyof AnkoleWebBrainControllerReviewCandidatesResponses]
+
 export type AnkoleWebBrainControllerSourceData = {
   body?: never
   path: {
     document_id: string
   }
-  query?: never
+  query: {
+    /**
+     * Principal whose Brain library is being supervised
+     */
+    owner_uid: string
+  }
   url: '/api/v1/brain/sources/{document_id}'
 }
 
@@ -2932,7 +3783,7 @@ export type AnkoleWebBrainControllerSourceError =
 
 export type AnkoleWebBrainControllerSourceResponses = {
   /**
-   * Original source message
+   * Brain source
    */
   200: BrainSourceEntryResponse
 }
@@ -3144,6 +3995,47 @@ export type AnkoleWebSignalBindingControllerPutBindingResponses = {
 
 export type AnkoleWebSignalBindingControllerPutBindingResponse =
   AnkoleWebSignalBindingControllerPutBindingResponses[keyof AnkoleWebSignalBindingControllerPutBindingResponses]
+
+export type AnkoleWebAiGatewayConversationControllerIndexData = {
+  body?: never
+  path?: never
+  query?: {
+    subject?: string
+    key?: string
+    active?: boolean
+    cursor?: string
+    limit?: number
+  }
+  url: '/api/v1/ai-gateway/conversations'
+}
+
+export type AnkoleWebAiGatewayConversationControllerIndexErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Invalid filters
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAiGatewayConversationControllerIndexError =
+  AnkoleWebAiGatewayConversationControllerIndexErrors[keyof AnkoleWebAiGatewayConversationControllerIndexErrors]
+
+export type AnkoleWebAiGatewayConversationControllerIndexResponses = {
+  /**
+   * Conversations
+   */
+  200: AiGatewayConversationListResponse
+}
+
+export type AnkoleWebAiGatewayConversationControllerIndexResponse =
+  AnkoleWebAiGatewayConversationControllerIndexResponses[keyof AnkoleWebAiGatewayConversationControllerIndexResponses]
 
 export type AnkoleWebCodexAccountControllerDeleteData = {
   body?: never
@@ -3550,6 +4442,43 @@ export type AnkoleWebAiGatewayControllerEmbeddingsResponses = {
 export type AnkoleWebAiGatewayControllerEmbeddingsResponse =
   AnkoleWebAiGatewayControllerEmbeddingsResponses[keyof AnkoleWebAiGatewayControllerEmbeddingsResponses]
 
+export type AnkoleWebAgentLibraryControllerIndexData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/library-documents'
+}
+
+export type AnkoleWebAgentLibraryControllerIndexErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAgentLibraryControllerIndexError =
+  AnkoleWebAgentLibraryControllerIndexErrors[keyof AnkoleWebAgentLibraryControllerIndexErrors]
+
+export type AnkoleWebAgentLibraryControllerIndexResponses = {
+  /**
+   * Agent library documents
+   */
+  200: AgentLibraryDocumentsResponse
+}
+
+export type AnkoleWebAgentLibraryControllerIndexResponse =
+  AnkoleWebAgentLibraryControllerIndexResponses[keyof AnkoleWebAgentLibraryControllerIndexResponses]
+
 export type AnkoleWebAgentComputerWorkerControllerIndexData = {
   body?: never
   path?: never
@@ -3734,6 +4663,95 @@ export type AnkoleWebSubagentDelegationControllerCancelResponses = {
 
 export type AnkoleWebSubagentDelegationControllerCancelResponse =
   AnkoleWebSubagentDelegationControllerCancelResponses[keyof AnkoleWebSubagentDelegationControllerCancelResponses]
+
+export type AnkoleWebAiGatewayConversationControllerMessagesData = {
+  body?: never
+  path: {
+    conversation_id: string
+  }
+  query?: {
+    cursor?: string
+    limit?: number
+  }
+  url: '/api/v1/ai-gateway/conversations/{conversation_id}/messages'
+}
+
+export type AnkoleWebAiGatewayConversationControllerMessagesErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Invalid filters
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAiGatewayConversationControllerMessagesError =
+  AnkoleWebAiGatewayConversationControllerMessagesErrors[keyof AnkoleWebAiGatewayConversationControllerMessagesErrors]
+
+export type AnkoleWebAiGatewayConversationControllerMessagesResponses = {
+  /**
+   * Messages
+   */
+  200: AiGatewayMessageListResponse
+}
+
+export type AnkoleWebAiGatewayConversationControllerMessagesResponse =
+  AnkoleWebAiGatewayConversationControllerMessagesResponses[keyof AnkoleWebAiGatewayConversationControllerMessagesResponses]
+
+export type AnkoleWebAgentLibraryControllerUpdateData = {
+  /**
+   * Agent library document
+   */
+  body: AgentLibraryDocumentWriteRequest
+  path: {
+    agent_uid: string
+    document_kind: 'mission' | 'soul' | 'design'
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/library-documents/{document_kind}'
+}
+
+export type AnkoleWebAgentLibraryControllerUpdateErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Document changed
+   */
+  409: ConsoleApiErrorEnvelope
+  /**
+   * Invalid document
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAgentLibraryControllerUpdateError =
+  AnkoleWebAgentLibraryControllerUpdateErrors[keyof AnkoleWebAgentLibraryControllerUpdateErrors]
+
+export type AnkoleWebAgentLibraryControllerUpdateResponses = {
+  /**
+   * Agent library document
+   */
+  200: AgentLibraryDocumentResponse
+}
+
+export type AnkoleWebAgentLibraryControllerUpdateResponse =
+  AnkoleWebAgentLibraryControllerUpdateResponses[keyof AnkoleWebAgentLibraryControllerUpdateResponses]
 
 export type AnkoleWebBrainControllerAuditIndexData = {
   body?: never

@@ -3,6 +3,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionReset do
 
   import Ankole.SignalsGateway.ActorRuntime.Common, only: [collect_results: 1]
 
+  alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.AIGatewayLink
@@ -136,7 +137,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionReset do
     event_id = session_reset_due_event_id(conversation, boundary_at)
 
     with {:ok, reset_time} <- daily_reset_time(opts) do
-      Actors.append_actor_event_in_tx(repo, %{
+      SignalsGateway.append_actor_event_in_tx(repo, %{
         agent_uid: subject_uid,
         binding_name: binding_name,
         session_id: conversation_key,

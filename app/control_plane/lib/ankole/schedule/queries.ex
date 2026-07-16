@@ -44,12 +44,29 @@ defmodule Ankole.Schedule.Queries do
 
   @spec list_checkbacks(String.t(), String.t() | nil) :: [ScheduledEvent.t()]
   def list_checkbacks(agent_uid, session_id \\ nil) when is_binary(agent_uid) do
-    ScheduledEvent
-    |> where([event], event.kind == "check_back_later")
-    |> where([event], event.agent_uid == ^String.downcase(agent_uid))
+    agent_uid
+    |> checkbacks_query()
     |> maybe_where_session(session_id)
     |> order_by([event], desc: event.due_at, desc: event.inserted_at)
     |> Repo.all()
+  end
+
+  @spec list_pending_checkbacks(String.t(), String.t(), pos_integer()) :: [ScheduledEvent.t()]
+  def list_pending_checkbacks(agent_uid, session_id, limit)
+      when is_binary(agent_uid) and is_binary(session_id) and is_integer(limit) and limit > 0 do
+    agent_uid
+    |> checkbacks_query()
+    |> where([event], event.status == "scheduled")
+    |> maybe_where_session(session_id)
+    |> order_by([event], asc: event.due_at, desc: event.inserted_at)
+    |> limit(^limit)
+    |> Repo.all()
+  end
+
+  defp checkbacks_query(agent_uid) do
+    ScheduledEvent
+    |> where([event], event.kind == "check_back_later")
+    |> where([event], event.agent_uid == ^String.downcase(agent_uid))
   end
 
   defp maybe_where_session(query, nil), do: query

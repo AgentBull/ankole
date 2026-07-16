@@ -116,6 +116,7 @@ fn make_protocol(kind: APIResolverKind, context: &ResponseContext) -> Box<dyn AP
         APIResolverKind::GoogleEmbeddings => Box::new(GoogleEmbeddings),
         APIResolverKind::OpenrouterRerank => Box::new(OpenrouterRerank),
         APIResolverKind::JinaRerank => Box::new(JinaRerank),
+        APIResolverKind::OpenrouterImages => Box::new(OpenrouterImages),
         APIResolverKind::ParallelWebSearch => Box::new(ParallelWebSearch),
         APIResolverKind::ParallelWebFetch => Box::new(ParallelWebFetch),
         APIResolverKind::BrightDataSerpWebSearch => Box::new(BrightDataSerpWebSearch),

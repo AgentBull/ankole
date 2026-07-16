@@ -76,7 +76,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDelegationBrokerTest do
     delegation_id = rpc_payload(created)["delegation_id"]
 
     for {method, extra} <- [
-          {"subagent.delegation.event.append", %{"events" => [audit_event(0)]}},
+          {"subagent.delegation.turn.upsert", turn_attrs()},
           {"subagent.delegation.status.update", %{"status" => "running"}}
         ] do
       assert {:ok, mutation_rejected} =
@@ -280,6 +280,165 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDelegationBrokerTest do
     assert refreshed_hash == NativeKernel.generic_hash(refreshed_auth)
   end
 
+  test "Deep Research turns use the shared Turn trajectory" do
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "bot", :ignore)
+    route = unique_route()
+    parent_turn = start_parent_turn!(agent.uid, route)
+
+    assert {:ok, created} =
+             RPCLane.handle_request(
+               %{
+                 "request_id" => "subagent-create-research",
+                 "method" => "subagent.delegation.create",
+                 "payload_json" => %{
+                   "turn" => parent_turn,
+                   "tool_call_id" => "tool-research",
+                   "runtime" => "deep_research",
+                   "mode" => "forecast",
+                   "title" => "Forecast the outcome",
+                   "task" => "Research and produce a forecast dossier."
+                 }
+               },
+               route
+             )
+
+    delegation_id = rpc_payload(created)["delegation_id"]
+    delegation = SubagentDelegations.get_delegation_for_agent(delegation_id, agent.uid)
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             ReadyEventProcessor.process_ready_event_for_actor(
+               %{agent_uid: agent.uid, session_id: "subagent:#{delegation_id}"},
+               now: DateTime.add(delegation.queued_at, 1, :second),
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert_receive {:actor_lane, dispatch_envelope}, 200
+    delegation_turn = get_in(dispatch_envelope, ["body", "turn_start", "turn"])
+
+    assert {:ok, _running_response} =
+             RPCLane.handle_request(
+               %{
+                 "request_id" => "delegation-running",
+                 "method" => "subagent.delegation.status.update",
+                 "payload_json" => %{
+                   "turn" => delegation_turn,
+                   "delegation_id" => delegation_id,
+                   "status" => "running",
+                   "runtime_thread_id" => "thread-1"
+                 }
+               },
+               route
+             )
+
+    assert {:ok, turn_response} =
+             RPCLane.handle_request(
+               %{
+                 "request_id" => "turn-upsert",
+                 "method" => "subagent.delegation.turn.upsert",
+                 "payload_json" =>
+                   turn_attrs()
+                   |> Map.put("turn", delegation_turn)
+                   |> Map.put("delegation_id", delegation_id)
+               },
+               route
+             )
+
+    turn_payload = rpc_payload(turn_response)["turn"]
+    assert turn_payload.status == "in_progress"
+    assert turn_payload.runtime_turn_id == "turn-1"
+    assert turn_payload.trajectory["format"] == "ankole_chatml"
+
+    assert turn_payload.trajectory["messages"] == [
+             %{"role" => "assistant", "content" => "Researching."}
+           ]
+
+    refute inspect(turn_payload) =~ "json_rpc"
+
+    completed_at = DateTime.utc_now(:microsecond) |> DateTime.to_iso8601()
+
+    completed_attrs =
+      turn_attrs()
+      |> Map.put("turn", delegation_turn)
+      |> Map.put("delegation_id", delegation_id)
+      |> Map.put("revision", 1)
+      |> Map.put("status", "completed")
+      |> Map.put("completed_at", completed_at)
+      |> put_in(
+        ["trajectory", "messages"],
+        [%{"role" => "assistant", "content" => "Research complete."}]
+      )
+
+    assert {:ok, completed_response} =
+             RPCLane.handle_request(
+               %{
+                 "request_id" => "turn-completed",
+                 "method" => "subagent.delegation.turn.upsert",
+                 "payload_json" => completed_attrs
+               },
+               route
+             )
+
+    completed_turn = rpc_payload(completed_response)["turn"]
+    assert completed_turn.status == "completed"
+    assert completed_turn.revision == 1
+
+    assert {:ok, stale_response} =
+             RPCLane.handle_request(
+               %{
+                 "request_id" => "turn-stale-retry",
+                 "method" => "subagent.delegation.turn.upsert",
+                 "payload_json" =>
+                   completed_attrs
+                   |> Map.put("revision", 0)
+                   |> Map.put("status", "in_progress")
+                   |> Map.delete("completed_at")
+               },
+               route
+             )
+
+    assert rpc_payload(stale_response)["turn"].status == "completed"
+    assert [_single_turn] = SubagentDelegations.list_turns(delegation_id)
+
+    assert {:ok, status_response} =
+             RPCLane.handle_request(
+               %{
+                 "request_id" => "delegation-status",
+                 "method" => "subagent.delegation.get",
+                 "payload_json" => %{
+                   "turn" => parent_turn,
+                   "delegation_id" => delegation_id,
+                   "trajectory_limit" => 1
+                 }
+               },
+               route
+             )
+
+    execution = rpc_payload(status_response)["execution"]
+    assert execution.lead_turn_number == 1
+    assert execution.turns == %{lead: 1, child: 0, compaction: 0, active: 0}
+
+    assert execution.trajectory_page.messages == [
+             %{"role" => "assistant", "content" => "Research complete."}
+           ]
+
+    assert {:ok, invalid_cursor_response} =
+             RPCLane.handle_request(
+               %{
+                 "request_id" => "delegation-invalid-cursor",
+                 "method" => "subagent.delegation.get",
+                 "payload_json" => %{
+                   "turn" => parent_turn,
+                   "delegation_id" => delegation_id,
+                   "trajectory_cursor" => "not-a-cursor"
+                 }
+               },
+               route
+             )
+
+    assert rpc_error(invalid_cursor_response)["code"] == "invalid_subagent_trajectory_cursor"
+  end
+
   defp start_parent_turn!(agent_uid, route) do
     :ok = Broker.register_local_worker(route, self())
     on_exit(fn -> Broker.unregister_local_worker(route) end)
@@ -304,12 +463,29 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDelegationBrokerTest do
     envelope["body"]["turn_start"]["turn"]
   end
 
-  defp audit_event(seq) do
+  defp turn_attrs do
+    now = DateTime.utc_now(:microsecond) |> DateTime.to_iso8601()
+
     %{
-      "seq" => seq,
-      "direction" => "process",
-      "event_type" => "test",
-      "payload" => %{"ok" => true}
+      "attempt" => 1,
+      "runtime_thread_id" => "thread-1",
+      "runtime_turn_id" => "turn-1",
+      "kind" => "agent",
+      "status" => "in_progress",
+      "revision" => 0,
+      "trajectory" => %{
+        "format" => "ankole_chatml",
+        "version" => 1,
+        "messages" => [%{"role" => "assistant", "content" => "Researching."}]
+      },
+      "progress" => %{
+        "completed_items" => 0,
+        "tool_calls" => 0,
+        "tools_used" => [],
+        "files_changed" => []
+      },
+      "error" => %{},
+      "started_at" => now
     }
   end
 
@@ -325,7 +501,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDelegationBrokerTest do
   end
 
   defp rpc_payload(envelope) do
-    assert get_in(envelope, ["body", "type"]) == "rpc_response"
+    assert get_in(envelope, ["body", "type"]) == "rpc_response", inspect(envelope)
     get_in(envelope, ["body", "rpc_response", "payload_json"])
   end
 

@@ -10,15 +10,16 @@ defmodule Ankole.Brain.Supervision do
 
   import Ecto.Query
 
+  alias Ankole.Brain.HealthCheck
   alias Ankole.Brain.Knowledge
   alias Ankole.Brain.Scope
   alias Ankole.Brain.Schemas.AuditLog
   alias Ankole.Brain.Schemas.Entry
   alias Ankole.Brain.Schemas.EntryBlock
   alias Ankole.Brain.Schemas.EntryRelation
+  alias Ankole.Brain.SourceLearning
+  alias Ankole.Brain.Sources
   alias Ankole.Repo
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.Entry, as: SignalEntry
 
   @default_page_limit 50
   @max_page_limit 100
@@ -65,6 +66,59 @@ defmodule Ankole.Brain.Supervision do
     end
   end
 
+  @doc "Resolves one visible source into the stable human supervision read model."
+  @spec resolve_source(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def resolve_source(owner_uid, document_id) do
+    with {:ok, scope} <- Scope.for_console(owner_uid, :all) do
+      Sources.open_console(scope, document_id)
+    end
+  end
+
+  @doc "Lists the immutable materials explicitly retained for one Brain owner."
+  @spec list_sources(String.t()) :: {:ok, [map()]} | {:error, term()}
+  def list_sources(owner_uid) do
+    with {:ok, scope} <- Scope.for_console(owner_uid, :all) do
+      Sources.list_retained(scope)
+    end
+  end
+
+  @doc "Captures exact source bytes in the selected store before any Agent work starts."
+  @spec capture_source(String.t(), String.t(), map(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def capture_source(owner_uid, store_key, attrs, actor_uid, opts \\ []) do
+    with {:ok, scope} <- Scope.for_store(owner_uid, store_key),
+         {:ok, source} <- Sources.capture(scope, attrs, actor_uid, opts) do
+      Sources.open_console(scope, source.document_id)
+    end
+  end
+
+  @doc "Starts learning for one retained source and returns its updated supervision view."
+  @spec learn_source(String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def learn_source(owner_uid, document_id, opts \\ []) do
+    with {:ok, all_scope} <- Scope.for_console(owner_uid, :all),
+         {:ok, source} <- Sources.open_console(all_scope, document_id),
+         {:ok, scope} <- Scope.for_store(owner_uid, source.store_key),
+         {:ok, _run} <- SourceLearning.enqueue(scope, document_id, opts) do
+      Sources.open_console(scope, document_id)
+    end
+  end
+
+  @doc "Returns immutable retained-source bytes after applying the owner's visible scope."
+  @spec source_raw(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def source_raw(owner_uid, document_id) do
+    with {:ok, scope} <- Scope.for_console(owner_uid, :all) do
+      Sources.raw(scope, document_id)
+    end
+  end
+
+  @doc "Recomputes deterministic candidates for an explicitly requested human review."
+  @spec review_candidates(String.t()) :: {:ok, map()} | {:error, term()}
+  def review_candidates(owner_uid) do
+    with {:ok, scope} <- Scope.for_console(owner_uid, :all) do
+      HealthCheck.run(scope)
+    end
+  end
+
   @doc "Applies one authorized human mutation batch after deriving its store."
   @spec apply_human_operations(String.t(), map() | [map()], String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
@@ -72,6 +126,7 @@ defmodule Ankole.Brain.Supervision do
 
   def apply_human_operations(owner_uid, operations, actor_uid, opts) when is_list(opts) do
     requested_store = Keyword.get(opts, :store_key)
+    metadata = surface_metadata(Keyword.get(opts, :reason))
 
     with {:ok, all_scope} <- Scope.for_console(owner_uid, :all) do
       Repo.transact(fn repo ->
@@ -84,7 +139,7 @@ defmodule Ankole.Brain.Supervision do
                  operations,
                  %{kind: :human, uid: actor_uid},
                  repo: repo,
-                 metadata: @surface_metadata
+                 metadata: metadata
                ) do
           {:ok, json_safe(result)}
         end
@@ -94,6 +149,15 @@ defmodule Ankole.Brain.Supervision do
 
   def apply_human_operations(_owner_uid, _operations, _actor_uid, _opts),
     do: {:error, :invalid_arguments}
+
+  defp surface_metadata(reason) when is_binary(reason) do
+    case String.trim(reason) do
+      "" -> @surface_metadata
+      reason -> Map.put(@surface_metadata, "reason", reason)
+    end
+  end
+
+  defp surface_metadata(_reason), do: @surface_metadata
 
   @doc "Lists audit rows for supervision and explicit recovery."
   @spec list_audit(String.t(), keyword()) :: {:ok, page()} | {:error, term()}
@@ -149,15 +213,6 @@ defmodule Ankole.Brain.Supervision do
              metadata: @surface_metadata
            ) do
       {:ok, json_safe(restoration)}
-    end
-  end
-
-  @doc "Resolves one stable Brain source citation to its current provider mirror."
-  @spec resolve_source(String.t()) :: {:ok, map()} | {:error, :not_found}
-  def resolve_source(document_id) do
-    case SignalsGateway.get_entry_by_document_id(document_id) do
-      %SignalEntry{} = entry -> {:ok, source_projection(entry)}
-      nil -> {:error, :not_found}
     end
   end
 
@@ -439,6 +494,7 @@ defmodule Ankole.Brain.Supervision do
     %{
       entry: entry_projection(Map.fetch!(projection, :entry)),
       blocks: projection |> Map.fetch!(:blocks) |> Enum.map(&block_projection/1),
+      citations: Map.get(projection, :citations, []),
       relations: projection |> Map.fetch!(:relations) |> Enum.map(&relation_projection/1),
       backlinks: projection |> Map.fetch!(:backlinks) |> Enum.map(&relation_projection/1),
       markdown: Map.fetch!(projection, :markdown)
@@ -516,21 +572,6 @@ defmodule Ankole.Brain.Supervision do
       after: json_safe(audit.after),
       metadata: json_safe(audit.metadata || %{}),
       inserted_at: datetime(audit.inserted_at)
-    }
-  end
-
-  defp source_projection(%SignalEntry{} = entry) do
-    %{
-      document_id: entry.document_id,
-      signal_channel_id: entry.signal_channel_id,
-      source_entry_id: entry.source_entry_id,
-      text: entry.text,
-      rich_content: json_safe(entry.rich_content),
-      attachments: json_safe(entry.attachments || []),
-      links: json_safe(entry.links || []),
-      author: json_safe(entry.author || %{}),
-      metadata: json_safe(entry.metadata || %{}),
-      provider_time: datetime(entry.provider_time)
     }
   end
 

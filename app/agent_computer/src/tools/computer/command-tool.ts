@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../../core'
+import { commandActivityLabel } from '../activity-summary'
 import type { BackgroundCommandSnapshot } from './computer'
 import type { ComputerToolContext } from './context'
 import { truncateOutput } from './format'
@@ -73,6 +74,13 @@ export function createCommandTool(context: ComputerToolContext): AgentTool<typeo
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: true,
+    describeActivity: params => {
+      const action = params.action ?? 'run'
+      if (action === 'list') return '查看后台命令'
+      if (action === 'status') return '检查后台命令'
+      if (action === 'kill') return '停止后台命令'
+      return commandActivityLabel(params.command)
+    },
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<CommandDetails>> {
       const computer = await context.getComputer(signal)
       const action = params.action ?? 'run'

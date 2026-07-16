@@ -2,25 +2,29 @@
 
 Ankole is a general-purpose Agent Operating System for long-running digital work. It can serve enterprises, teams, and one-person companies.
 
+## Scope and authorization
+
+Requests to answer, explain, review, audit, diagnose, or plan authorize read-only inspection and non-mutating checks; do not edit repository files or durable or external state unless the request also asks for a change. Requests to implement, fix, change, create, refactor, or build a named feature or artifact authorize the necessary in-scope repository edits and non-destructive local validation without further approval. A request to run or verify a build authorizes the build command and its transient outputs, not source or retained repository edits, unless it also asks to fix failures.
+
+Do not commit, push, publish, mutate issues or pull requests, change credentials, make purchases or other external writes, run destructive actions, or materially expand scope unless explicitly requested. A diagnostic reproduction that changes durable or external state also requires approval. If a repository rule conflicts with the requested deliverable, report the conflict and ask instead of silently weakening either.
+
 ## Collaboration
 
-Other agents may work on the same branch. Treat unrelated diffs and unexpected file changes as concurrent work, do not revert or overwrite them, and keep moving. Use `HEY.md` to coordinate when needed, then remove your messages when the coordination is complete.
+Other agents may work on the same branch. Preserve unrelated diffs and re-read each target file immediately before editing it. If an unexpected change overlaps the target or invalidates an assumption, pause that edit and coordinate through `HEY.md`; otherwise keep moving. For a dirty changelog, use the commit-ownership rule below. Add a uniquely delimited `HEY.md` block and later remove only that block.
 
 ## Changelog
 
-Update `CHANGELOG.md` after every completed change. Changelog versions use `YY.MM.N`, where `YY` and `MM` are two-digit year and month values and `N` is a monthly sequence starting at `0`.
+The non-merge Git commit is the sole changelog unit: each commit has exactly one root `CHANGELOG.md` version, and each version belongs to exactly one commit. Record every retained source, test, documentation, configuration, schema, migration, manifest, lockfile, and required generated-file change included in that commit. When no commit is requested, the task's retained diff prepares one pending commit and version; a task intentionally split across commits gets one version per commit. Chat-only work, discarded edits, diagnostics without a retained diff, temporary `HEY.md` coordination, and changelog bookkeeping do not create versions.
 
-One Git commit corresponds to exactly one changelog version. Before editing the changelog, check whether `CHANGELOG.md` already has uncommitted changes, including staged, unstaged, or untracked changes. If it does, append the new change summary to the current latest version because it belongs to the same pending commit. If the changelog is clean relative to `HEAD`, add the next version and record the change there.
+Versions use `YY.MM.N`, where `N` is the monthly sequence starting at `0`. Before editing, inspect staged, unstaged, and untracked state and the changelog diff. If `CHANGELOG.md` is dirty, append only when the current edits are intended for the same commit as its pending version. If they require a separate commit or ownership is unknown because of concurrent work, coordinate before editing the changelog or allocating a version; do not infer commit ownership from dirtiness alone. If the changelog is clean relative to `HEAD`, add the next version.
 
 ## Core discipline
 
-Do the task that was asked, without silently substituting an easier goal. Correct is better than clever, consistency is better than theoretical completeness, and a useful change is better than a locally elegant one that leaves the system harder to operate.
-
 Treat omissions, contradictions, and ambiguities that change behavior as real issues. A local preference or disagreement with a settled tradeoff is not an architecture finding; evaluate whether the implementation is consistent inside the chosen direction instead of relitigating it. Do not argue for theoretical completeness unless the user asks for it.
 
-Design for the next change rather than a frozen diagram. Prefer the smallest correction that preserves the intended direction, contracts the system can actually keep, and behavior an operator can explain. A little duplication, a manual recovery path, or a deliberately weaker guarantee may be better than an abstraction or automation that compounds complexity. Prefer code that remains understandable and deletable after six months of patches, and use purity only when it protects a boundary rather than adding ceremony.
+Prefer the smallest correct change that follows the chosen direction, preserves contracts the system can keep, and remains understandable, explainable, and deletable after six months of patches. A little duplication, a manual recovery path, or a deliberately weaker guarantee may be better than an abstraction or automation that compounds complexity; use purity only when it protects a boundary.
 
-Before inventing a pattern, search for the existing one. Prefer deletion over addition, reuse over invention, and boring contracts over clever machinery. Working drafts may think out loud, but shareable documents must remove scaffolding, TODO theater, abandoned alternatives, and meta-writing.
+Working drafts may think out loud, but shareable documents must remove scaffolding, TODO theater, abandoned alternatives, and meta-writing.
 
 ## Interaction and reasoning
 
@@ -53,80 +57,64 @@ End with a bottom line only when the answer weighs a real decision. State the ch
 
 ## Objective fidelity
 
-The recurring failure mode is objective substitution: replacing the real task with a cheaper proxy such as a green test, a small diff, a clean local API, a flexible abstraction, or a happy-path demo. When work feels blocked, identify whether the blocker is a design problem, missing dependency, invalid test, or misunderstood boundary instead of redefining success around the easiest local result.
+Do the requested task without substituting a cheaper proxy such as a green test, small diff, clean local API, flexible abstraction, or happy-path demo. When blocked, identify whether the cause is the design, a missing dependency, invalid setup or test, or a misunderstood boundary instead of redefining success around the easiest local result.
 
-Public fields, config keys, environment variables, APIs, events, tools, and documented options are contracts. Never keep an old public name while silently changing its semantics to reduce churn; rename or migrate the contract explicitly, or preserve its existing meaning.
-
-Ankole has no released public compatibility contract, so do not add or keep shims, legacy branches, old names, or fallback paths without a real current caller.
+Current declarations, authoritative user-facing documentation, persisted or configured values, and evidenced callers are contracts; update them atomically or preserve their meaning. Ankole has no released public compatibility contract, so hypothetical consumers of unused shapes do not justify shims. Preserve an old name only for a current caller or persisted value, or for an explicitly required staged migration that updates the declaration, storage, callers, and documentation.
 
 ### Change plan
 
-Before changing code, write a cleanup plan that names:
-
-- Dead code to delete.
-- Duplicate logic to merge.
-- Existing utilities or patterns to reuse.
-- Tests or commands that prove behavior is preserved.
-- Risks to supervision, persistence, message flow, or public contracts.
-
-Before adding code, ask what can be deleted.
+Before the first repository edit, state a concise cleanup plan in tool-call commentary; this is required context, not optional progress narration. One sentence is enough for a mechanical edit. Otherwise cover relevant dead or duplicate code to remove, existing utilities to reuse, validation, and risks to supervision, persistence, message flow, or public contracts. Treat “what can be deleted?” as an internal scope check, not authority to delete unrelated code or a mandatory user question.
 
 ### New features
 
-- Implement the requested real path. Do not replace a required SDK, upstream implementation, native boundary, user flow, provider protocol, or end-to-end path with a handwritten shortcut unless the user changes the task.
-- Extend or simplify the abstraction that already owns the domain instead of adding a second layer for flexibility. When a task requires migrating, vendoring, or adapting a complex dependency, clone or inspect the real upstream and make the smallest intentional adaptation rather than building a simplified substitute.
-- Keep permission chains, validation, configuration, and audit machinery proportional to the feature's actual guarantee. If the bottom-level design is wrong, repair that boundary before polishing individual functions.
+- Implement the requested real path through the abstraction that owns the domain. Do not replace a required SDK, upstream implementation, native boundary, user flow, provider protocol, or end-to-end path with a handwritten shortcut or parallel flexibility layer. When adapting a complex dependency, inspect the real upstream and make the smallest intentional adaptation.
+- Keep permission chains, validation, configuration, and audit machinery proportional to the feature's actual guarantee. Repair a wrong lower boundary when it is within the authorized scope; otherwise report it and request the necessary expansion.
 
 ### Refactors and cleanup
 
-Refactors must reduce global complexity, not merely polish the current file. Before declaring one complete, check for duplicated concepts, impedance between modules, zombie code, compatibility residue, and boundary drift. Prefer deleting the wrong semantic center over wrapping it, and prefer moving or reusing code over inventing another seam. Split large files by cohesive responsibility and stable public entrypoints, not into thin delegating layers.
+Refactors must reduce global complexity, not merely polish the current file. Check for duplicated concepts, impedance between modules, zombie code, compatibility residue, and boundary drift; delete the wrong semantic center rather than wrapping it. Split large files by cohesive responsibility and stable public entrypoints, not into thin delegating layers.
 
-Preserve real ownership boundaries across subsystems and runtimes; do not move responsibility merely because another owner is easier to test or edit. Remove defensive branches for states the current design cannot produce, or make the future requirement explicit. After moving code or replacing behavior, search for and remove old names, old branches, stale comments, compatibility paths, TODOs, and unused helpers.
+Preserve real ownership boundaries across subsystems and runtimes; do not move responsibility merely because another owner is easier to test or edit. Remove defensive branches for states the current design cannot produce, or make the future requirement explicit. After moving code or replacing behavior, remove only remnants made obsolete by the current change within its affected ownership surface.
 
 ### Test fixes
 
-- A failing test is evidence, not the goal. Do not bypass the production path, weaken assertions, change a test to bless broken behavior, or move behavior across ownership boundaries merely to make it pass.
-- Unit, integration, and end-to-end tests must exercise the boundary they claim to protect. Do not replace a user flow with a lower-level helper, a cross-runtime path with a same-runtime shortcut, or a real-provider path with a local fake unless the test explicitly promises a fake.
+- Production code must reach the domain-owning contract and production adapter. Unit tests may replace that documented boundary with a deterministic fake; integration tests exercise the real adapter or protocol; end-to-end tests traverse the real user flow. An explicitly labeled development fixture may use a fake only when the requested deliverable is the fixture, not to satisfy a feature, integration, or end-to-end requirement.
+- A failing test is evidence, not the goal. Do not bypass the production path, weaken assertions, bless broken behavior, or move behavior across ownership boundaries merely to make it pass.
 - If a test is wrong, explain why before changing it by naming the real contract and its owning source file or design document. If setup is broken, fix or isolate the package-local setup; otherwise report the external blocker as unverified instead of softening the test.
-- Public function names describe domain semantics; keep codec details at internal edges instead of exposing them through names or wrappers. When design drift blocks a test, repair the design boundary first and then update the test to prove it.
+- Keep public function names domain-semantic and codec details at internal edges. When design drift blocks a test, repair the design boundary first and then update the test to prove it.
 
 ## Tooling
 
+### Dependencies
+
+Before adding a dependency in any ecosystem, confirm that an existing workspace package, the owning subsystem API, or a shared utility does not already provide the capability. Add it only as part of an authorized implementation, in the owning package manifest, and update that ecosystem's committed lockfile in the same change.
+
 ### Bun
 
-Default to Bun instead of Node.js:
-
-- Use `bun <file>` instead of `node <file>` or `ts-node <file>`.
-- Use `bun test` instead of Jest or Vitest.
-- Use `bun build <file.html|file.ts|file.css>` instead of Webpack or esbuild.
-- Use `bun install` instead of npm, Yarn, or pnpm.
-- Use `bun run <script>` instead of the equivalent npm, Yarn, or pnpm command.
-- Use `bunx <package> <command>` instead of `npx`.
-- Bun loads `.env` automatically, so do not add `dotenv`.
+Use Bun as the TypeScript runtime, package manager, installer, and script launcher (`bun`, `bun install`, `bun run`, and `bunx`). Run package-declared test and build tools through Bun and do not replace them solely because of this rule; when a package declares no alternative, default to `bun test` and `bun build`. TypeScript dependency changes use `bun install` and update the committed `bun.lock`. Bun loads `.env` automatically, so do not add `dotenv`.
 
 ### `@pleisto/active-support`
 
-Use `@pleisto/active-support` as the general-purpose utility library; it provides Lodash-style helpers and re-exports `ts-pattern`. Use `match().with().exhaustive()` for complex branching and `ms('24h')`-style duration helpers for semantic millisecond values.
+Use `@pleisto/active-support` as the general-purpose utility library where it is already available; adding it follows the dependency rule above. It provides Lodash-style helpers and re-exports `ts-pattern`; use `match().with().exhaustive()` for complex branching and `ms('24h')`-style duration helpers.
 
 ## Project boundaries
 
-Module-specific schemas, events, storage layouts, and transport mechanics belong in `docs/design-docs/`, while language- and runtime-specific rules belong in the relevant agent skill. Read the owning guidance and code before changing a module; keep this file focused on boundaries that span the system.
+Module-specific schemas, events, storage layouts, and transport mechanics belong in `docs/design-docs/`, while language- and runtime-specific rules belong in the applicable agent skill. Before editing a module, read its scoped guidance, owning design documentation and code, and available language or runtime skill. If no explicit guidance exists, proceed only when ownership is unambiguous from the current code and the boundaries below; if multiple owners remain plausible, ask instead of inventing one. If guidance sources conflict in a way that could change files, commands, ownership, external effects, or claimed outcomes, do not perform the disputed action; report the conflict and ask for resolution.
 
 - Treat one Ankole Installation as the product boundary. Do not add hidden SaaS tenant IDs, tenant-scoped identity rules, or multi-tenant routing assumptions unless the task explicitly changes that model.
 - Keep Principal/AuthZ as the accountable subject and permission boundary; do not invent parallel subject models or tenant-scoped identity.
-- Keep bootstrap configuration separate from runtime-owned state. Environment variables carry process-startup and infrastructure facts; operator-managed settings belong in declared `Ankole.AppConfigure` keys, while generated credentials and other secrets belong in the owning subsystem's existing encrypted storage.
+- Keep bootstrap configuration separate from runtime-owned state. Environment variables or infrastructure secret mounts may carry process-startup facts and credentials required before application storage is reachable. Operator-managed settings belong in declared `Ankole.AppConfigure` keys, while runtime-generated credentials and secrets belong in the owning subsystem's encrypted storage.
 - Match the owning domain's existing schema and identifier shape before adding persistence; do not introduce a new key strategy or database-generated identifier locally.
-- PostgreSQL owns durable truth. Use its native types and constraints when they express domain invariants, and persist any fact that must survive process death instead of leaving it in live transport or process-local state.
-- Respect runtime ownership. The Elixir control plane owns durable domain state, supervision, and commit authority; the Rust kernel owns shared native primitives and transport; Bun Agent Computer owns agent execution and worker-local state. Do not move responsibility across these boundaries merely because another runtime is easier to test or edit.
-- Worker code must not invent control-plane state. Reads or writes that affect durable semantics go through a control-plane-owned contract, and process-local state must be rebuildable after restart.
+- PostgreSQL owns authoritative domain facts whose loss or replay would change user-visible semantics. Use its native types and constraints for domain invariants; rebuildable caches and artifacts may use owner-specific storage only when PostgreSQL retains their authoritative lifecycle or reference state.
+- Respect runtime ownership. The Elixir control plane owns durable domain state, supervision, and domain-state commit authority; the Rust kernel owns shared native primitives and transport; Bun Agent Computer owns agent execution and rebuildable worker-local state. Worker code must not invent control-plane state, and reads or writes that affect durable semantics go through a control-plane-owned contract.
 - Model-visible resources and paths must resolve through a real owning runtime contract; do not synthesize fake skills, workspaces, storage locations, or state.
 - Treat the current extension model as trusted and first-party. Do not invent third-party marketplace, hot-loading, or isolation machinery unless the task explicitly changes the product model.
-- Do not add dependencies unless the user explicitly requests or approves them. Reuse existing workspace packages, owning subsystem APIs, and shared utilities first.
-- Keep subsystem boundaries explicit and named; prefer concrete contracts over loose maps and free-form strings.
-- Keep integration and end-to-end tests out of the default fast path. Use package-local checks by default and dedicated commands for slower or environment-backed validation.
-- Verify outcomes before claiming a bug is fixed, a feature works, or a migration is safe. Run the relevant command or state clearly what remains unverified.
+- Prefer concrete contracts over loose maps and free-form strings.
+- Keep integration and end-to-end tests out of the default fast suite, but do not skip them when the claimed behavior crosses a process, provider, persistence-restart, or user-flow boundary. For implementation changes, run the affected package's targeted tests and normal static check, then the affected dedicated integration or end-to-end command when its environment is available. If a required command cannot run, report the exact command and blocker and do not claim that guarantee as verified. For documentation-only edits, inspect the diff and run the relevant documentation check when one exists.
 
 ## Agent skills
+
+For work in the categories below, read the linked document before editing.
 
 ### Issue tracker
 

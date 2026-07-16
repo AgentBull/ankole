@@ -29,6 +29,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentConversationContextBroker do
          {:ok, agent} <- agent_profile(turn_ref.agent_uid),
          {:ok, soul} <- Library.get_soul(turn_ref.agent_uid),
          {:ok, mission} <- Library.get_mission(turn_ref.agent_uid),
+         {:ok, design} <- Library.get_design(turn_ref.agent_uid),
          {:ok, skills} <- Library.skills_for_system_prompt(turn_ref.agent_uid) do
       timezone = installation_timezone()
       system_prompt_snapshot = AIGatewayLink.system_prompt_snapshot(context.conversation)
@@ -43,6 +44,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentConversationContextBroker do
          "conversation" => conversation_payload(context.conversation, timezone),
          "soul" => soul,
          "mission" => mission,
+         "design" => design,
          "skills" => skills,
          "brain_snapshot" => brain_snapshot
        }

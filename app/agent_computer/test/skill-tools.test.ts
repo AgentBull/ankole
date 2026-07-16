@@ -6,6 +6,23 @@ import { createSkillTools } from '../src/tools/library/skill-tools'
 import type { ActorTurnRef } from '../src/lanes/actor_lane'
 
 describe('@ankole/agent-computer skill tools', () => {
+  it('describes skill work by name without exposing file paths or update content', () => {
+    const tools = createSkillTools('/workspace')
+    const view = tools.find(tool => tool.name === 'skill_view')!
+    const append = tools.find(tool => tool.name === 'skill_append')!
+    const replace = tools.find(tool => tool.name === 'skill_replace')!
+
+    expect(
+      view.describeActivity?.(view.schema.parse({ name: 'openai-docs', filePath: 'references/private/internal.md' }))
+    ).toBe('加载 Skill：openai-docs')
+    expect(append.describeActivity?.(append.schema.parse({ name: 'openai-docs', content: 'do-not-leak' }))).toBe(
+      '更新 Skill：openai-docs'
+    )
+    expect(replace.describeActivity?.(replace.schema.parse({ name: 'openai-docs', content: 'do-not-leak' }))).toBe(
+      '更新 Skill：openai-docs'
+    )
+  })
+
   it('skill_view reads internal builtin skills and renders the skill directory attribute', async () => {
     const root = join(tmpdir(), `ankole-skill-tools-${Date.now()}-${Math.random()}`)
     const builtinRoot = join(root, 'library')

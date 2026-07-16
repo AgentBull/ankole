@@ -1,6 +1,8 @@
 import { Alert, AlertDescription, AlertTitle } from '@ankole/uikit'
 import { RiErrorWarningLine } from '@remixicon/react'
 import { recordValue, type JsonObject as JSONObject } from '@pleisto/active-support'
+import { format, type Locale } from 'date-fns'
+import { enUS, zhCN } from 'date-fns/locale'
 import type { ReactNode } from 'react'
 import i18n from '../common/i18n'
 import { requestErrorMessage } from '../common/request-errors'
@@ -53,4 +55,28 @@ export function parseObjectDraft(
 
 export function formatJSON(value: unknown): string {
   return JSON.stringify(value, null, 2)
+}
+
+// --- Date formatting ---
+//
+// One console-wide date formatter so every page renders timestamps the same way.
+// `dateStyle: 'medium', timeStyle: 'short'` was previously re-implemented inline
+// in four pages via `Intl.DateTimeFormat`; date-fns lets the locale follow the
+// active i18n language (zh-CN browsers no longer silently fall back to English).
+const CONSOLE_DATE_FORMAT = 'MMM d, yyyy h:mm a'
+
+function consoleDateLocale(): Locale {
+  return i18n.language?.startsWith('zh') ? zhCN : enUS
+}
+
+/**
+ * Formats an ISO timestamp for display. Returns `'—'` for null/blank input and
+ * the raw string for values that do not parse as dates, so callers can pass
+ * nullable fields straight through.
+ */
+export function formatConsoleDate(value?: string | null): string {
+  if (!value) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return format(date, CONSOLE_DATE_FORMAT, { locale: consoleDateLocale() })
 }

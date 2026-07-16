@@ -112,6 +112,7 @@ FROM ${RUNNER_IMAGE}
 
 WORKDIR /app
 
+ARG ANKOLE_VERSION=development
 ARG DEBIAN_FRONTEND=noninteractive
 ARG DEBIAN_MIRROR=http://deb.debian.org/debian
 ARG DEBIAN_SECURITY_MIRROR=http://deb.debian.org/debian-security
@@ -150,6 +151,7 @@ ENV LC_ALL=en_US.UTF-8
 ENV MIX_ENV=prod
 ENV PHX_SERVER=true
 ENV PORT=4000
+ENV ANKOLE_VERSION=${ANKOLE_VERSION}
 ENV ANKOLE_LIBRARY_ROOT=/app/app/library
 ENV ANKOLE_PLUGIN_PATHS=/app/plugins
 

@@ -35,7 +35,7 @@ defmodule Ankole.AIGateway.Resolver do
   end
 
   defp resolve_model(subject_uid, capability, selector, request)
-       when capability in ["embedding", "rerank", "web_search", "web_fetch"] do
+       when capability in ["embedding", "rerank", "web_search", "web_fetch", "image_generate"] do
     case explicit_provider_selector(selector) do
       {:ok, provider_id, model} ->
         resolve_provider_model(subject_uid, capability, selector, provider_id, model, request)

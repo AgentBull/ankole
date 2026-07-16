@@ -1,7 +1,8 @@
 ---
 name: xlsx
-description: "Use this skill any time a .xlsx file is involved -- as input, output, or both. This OfficeCLI-backed skill covers spreadsheets, workbooks, formulas, charts, pivot tables, dashboards, financial models, trackers, and CSV/TSV import to Excel format."
+description: "Use this skill for local .xlsx, .xls, .csv, or .tsv files as input or output. This OfficeCLI-backed skill edits and validates local workbooks; it does not operate Lark Sheets URLs or spreadsheet tokens, which belong to lark-office-suite."
 default_enabled: true
+long_running: true
 category: productivity
 tags: [xlsx, spreadsheet, excel, officecli]
 metadata:
@@ -11,6 +12,8 @@ metadata:
 ---
 
 # OfficeCLI XLSX Skill
+
+For visual styling, use `design-md` when the user requests the internal design system or VIS, skip it when they opt out or choose another style instead, and treat it as optional when no style source is specified.
 
 ## Setup
 

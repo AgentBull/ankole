@@ -6,7 +6,7 @@ defmodule Ankole.SubagentDelegations.Queries do
   alias Ankole.Principals
   alias Ankole.Repo
   alias Ankole.SubagentDelegations.Schemas.Delegation
-  alias Ankole.SubagentDelegations.Schemas.Event
+  alias Ankole.SubagentDelegations.Turns
 
   @statuses Delegation.statuses()
 
@@ -50,15 +50,23 @@ defmodule Ankole.SubagentDelegations.Queries do
           page |> List.last() |> encode_console_cursor()
         end
 
-      {:ok, %{delegations: page, next_cursor: next_cursor}}
+      {:ok,
+       %{
+         delegations: page,
+         next_cursor: next_cursor,
+         calibration_summary: calibration_summary(agent_uid)
+       }}
     end
   end
 
   @spec get(String.t()) :: Delegation.t() | nil
   def get(delegation_id) when is_binary(delegation_id) do
     case Ecto.UUID.cast(delegation_id) do
-      {:ok, delegation_id} -> Repo.get(Delegation, delegation_id)
-      :error -> nil
+      {:ok, delegation_id} ->
+        Repo.get(Delegation, delegation_id)
+
+      :error ->
+        nil
     end
   end
 
@@ -89,102 +97,30 @@ defmodule Ankole.SubagentDelegations.Queries do
     end
   end
 
-  @spec get_summary_for_agent(String.t(), String.t()) ::
+  @spec get_summary_for_agent(String.t(), String.t(), keyword()) ::
           {:ok,
            %{
              delegation: Delegation.t(),
-             last_event_seq: integer() | nil,
+             execution: map(),
              attempt_history: [map()]
            }}
           | {:error, term()}
-  def get_summary_for_agent(delegation_id, agent_uid)
-      when is_binary(delegation_id) and is_binary(agent_uid) do
+  def get_summary_for_agent(delegation_id, agent_uid, opts \\ [])
+      when is_binary(delegation_id) and is_binary(agent_uid) and is_list(opts) do
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
-         %Delegation{} = delegation <- get_for_agent(delegation_id, agent_uid) do
-      last_event_seq =
-        Repo.one(
-          from event in Event,
-            where: event.delegation_id == ^delegation.id,
-            select: max(event.seq)
-        )
-
+         %Delegation{} = delegation <- get_for_agent(delegation_id, agent_uid),
+         {:ok, execution} <- Turns.execution_projection(delegation, opts) do
       {:ok,
        %{
          delegation: delegation,
-         last_event_seq: last_event_seq,
-         attempt_history: attempt_history(delegation)
+         execution: execution,
+         attempt_history: Turns.attempt_history(delegation),
+         source_forecast: source_forecast(delegation)
        }}
     else
       nil -> {:error, :delegation_not_found}
       {:error, _reason} = error -> error
     end
-  end
-
-  defp attempt_history(%Delegation{attempts: attempts}) when attempts <= 1, do: []
-
-  defp attempt_history(%Delegation{} = delegation) do
-    Event
-    |> where([event], event.delegation_id == ^delegation.id)
-    |> order_by([event], desc: event.seq)
-    |> limit(80)
-    |> select([event], %{event_type: event.event_type, payload: event.payload})
-    |> Repo.all()
-    |> Enum.reduce(%{}, fn event, history ->
-      case event.payload["attempt"] do
-        attempt when is_integer(attempt) and attempt < delegation.attempts ->
-          Map.update(history, attempt, attempt_summary(attempt, event), fn summary ->
-            merge_attempt_event(summary, event)
-          end)
-
-        _value ->
-          history
-      end
-    end)
-    |> Map.values()
-    |> Enum.sort_by(& &1.attempt, :desc)
-    |> Enum.take(3)
-    |> Enum.reverse()
-  end
-
-  defp attempt_summary(attempt, event) do
-    %{
-      attempt: attempt,
-      event_types: [event.event_type]
-    }
-    |> maybe_put_attempt_summary(event_summary(event.payload))
-  end
-
-  defp merge_attempt_event(summary, event) do
-    summary
-    |> Map.update!(:event_types, fn event_types ->
-      if event.event_type in event_types or length(event_types) >= 8 do
-        event_types
-      else
-        event_types ++ [event.event_type]
-      end
-    end)
-    |> maybe_put_attempt_summary(event_summary(event.payload))
-  end
-
-  defp event_summary(payload) do
-    get_in(payload, ["result", "summary"]) ||
-      get_in(payload, ["error", "summary"]) ||
-      Map.get(payload, "summary")
-  end
-
-  defp maybe_put_attempt_summary(summary, value) when is_binary(value) do
-    Map.put_new(summary, :summary, String.slice(value, 0, 1_000))
-  end
-
-  defp maybe_put_attempt_summary(summary, _value), do: summary
-
-  @spec list_events(String.t()) :: [Event.t()]
-  def list_events(delegation_id) when is_binary(delegation_id) do
-    Repo.all(
-      from event in Event,
-        where: event.delegation_id == ^delegation_id,
-        order_by: [asc: event.seq]
-    )
   end
 
   @spec console_projection(Delegation.t()) :: map()
@@ -194,6 +130,9 @@ defmodule Ankole.SubagentDelegations.Queries do
       agent_uid: delegation.agent_uid,
       session_id: delegation.session_id,
       runtime: delegation.runtime,
+      mode: delegation.mode,
+      source_delegation_id: delegation.source_delegation_id,
+      actual_outcome: delegation.actual_outcome,
       codex_account_id: delegation.codex_account_id,
       runtime_thread_id: delegation.runtime_thread_id,
       title: delegation.title,
@@ -213,19 +152,6 @@ defmodule Ankole.SubagentDelegations.Queries do
       completed_at: iso8601(delegation.completed_at),
       inserted_at: iso8601(delegation.inserted_at),
       updated_at: iso8601(delegation.updated_at)
-    }
-  end
-
-  @spec console_event_projection(Event.t()) :: map()
-  def console_event_projection(%Event{} = event) do
-    %{
-      id: event.id,
-      seq: event.seq,
-      direction: event.direction,
-      event_type: event.event_type,
-      payload: event.payload || %{},
-      redaction: event.redaction || %{},
-      occurred_at: iso8601(event.occurred_at)
     }
   end
 
@@ -311,6 +237,135 @@ defmodule Ankole.SubagentDelegations.Queries do
 
   defp iso8601(nil), do: nil
   defp iso8601(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
+
+  defp source_forecast(%Delegation{source_delegation_id: nil}), do: nil
+
+  defp source_forecast(%Delegation{source_delegation_id: source_id, agent_uid: agent_uid}) do
+    case get_for_agent(source_id, agent_uid) do
+      %Delegation{runtime: "deep_research", mode: "forecast", status: "succeeded"} = source ->
+        %{
+          delegation_id: source.id,
+          title: source.title,
+          result: Map.take(source.result || %{}, ["dossier", "conclusion"]),
+          completed_at: iso8601(source.completed_at)
+        }
+
+      _source ->
+        nil
+    end
+  end
+
+  defp calibration_summary(agent_uid) do
+    forecast_query =
+      Delegation
+      |> where([delegation], delegation.runtime == "deep_research")
+      |> where([delegation], delegation.mode == "forecast")
+      |> where([delegation], delegation.status == "succeeded")
+      |> maybe_filter_console_agent(agent_uid)
+
+    forecast_count = Repo.aggregate(forecast_query, :count, :id)
+
+    no_edge_count =
+      forecast_query
+      |> where(
+        [delegation],
+        fragment("?->'conclusion'->>'verdict' = 'no_edge'", delegation.result)
+      )
+      |> Repo.aggregate(:count, :id)
+
+    resolved = resolved_forecast_calibration(agent_uid)
+    brier_scores = Enum.map(resolved, & &1.brier_score)
+
+    %{
+      forecast_count: forecast_count,
+      resolved_forecast_count: length(resolved),
+      mean_brier_score: mean(brier_scores),
+      confidence_buckets: confidence_buckets(resolved),
+      no_edge_count: no_edge_count,
+      no_edge_rate: ratio(no_edge_count, forecast_count)
+    }
+  end
+
+  defp resolved_forecast_calibration(agent_uid) do
+    Delegation
+    |> join(:inner, [retrospect], forecast in Delegation,
+      on: forecast.id == retrospect.source_delegation_id
+    )
+    |> where([retrospect, forecast], retrospect.runtime == "deep_research")
+    |> where([retrospect, forecast], retrospect.mode == "retrospect")
+    |> where([retrospect, forecast], retrospect.status == "succeeded")
+    |> where([retrospect, forecast], forecast.runtime == "deep_research")
+    |> where([retrospect, forecast], forecast.mode == "forecast")
+    |> where([retrospect, forecast], forecast.status == "succeeded")
+    |> maybe_filter_retrospect_agent(agent_uid)
+    |> order_by([retrospect, _forecast],
+      desc: retrospect.completed_at,
+      desc: retrospect.id
+    )
+    |> select([retrospect, forecast], %{
+      source_delegation_id: retrospect.source_delegation_id,
+      retrospect_result: retrospect.result,
+      forecast_result: forecast.result
+    })
+    |> Repo.all()
+    |> Enum.uniq_by(& &1.source_delegation_id)
+    |> Enum.flat_map(&calibration_observation/1)
+  end
+
+  defp maybe_filter_retrospect_agent(query, nil), do: query
+
+  defp maybe_filter_retrospect_agent(query, agent_uid),
+    do: where(query, [retrospect, _forecast], retrospect.agent_uid == ^agent_uid)
+
+  defp calibration_observation(%{retrospect_result: retrospect, forecast_result: forecast}) do
+    resolution = get_in(retrospect || %{}, ["conclusion"])
+    source = get_in(forecast || %{}, ["conclusion"])
+    probability = get_in(source || %{}, ["outcome_estimate", "probability"])
+    actual_outcome = Map.get(resolution || %{}, "actual_outcome")
+    confidence = Map.get(source || %{}, "confidence")
+    verdict = Map.get(source || %{}, "verdict")
+
+    if Map.get(resolution || %{}, "resolution_status") == "resolved" and
+         is_boolean(actual_outcome) and is_number(probability) and probability >= 0 and
+         probability <= 1 do
+      expected_outcome = probability >= 0.5
+
+      [
+        %{
+          brier_score:
+            Float.round(:math.pow(probability - if(actual_outcome, do: 1, else: 0), 2), 6),
+          confidence: if(is_integer(confidence) and confidence in 1..5, do: confidence),
+          hit: verdict == "estimate" and expected_outcome == actual_outcome,
+          scoreable_hit: verdict == "estimate"
+        }
+      ]
+    else
+      []
+    end
+  end
+
+  defp confidence_buckets(observations) do
+    observations
+    |> Enum.filter(&(&1.scoreable_hit and is_integer(&1.confidence)))
+    |> Enum.group_by(& &1.confidence)
+    |> Enum.map(fn {confidence, bucket} ->
+      hits = Enum.count(bucket, & &1.hit)
+
+      %{
+        confidence: confidence,
+        forecasts: length(bucket),
+        hits: hits,
+        hit_rate: ratio(hits, length(bucket))
+      }
+    end)
+    |> Enum.sort_by(& &1.confidence)
+  end
+
+  defp mean([]), do: nil
+  defp mean(values), do: values |> Enum.sum() |> Kernel./(length(values)) |> Float.round(6)
+  defp ratio(_numerator, 0), do: nil
+  defp ratio(numerator, denominator), do: Float.round(numerator / denominator, 6)
+
   defp maybe_lock(query, nil), do: query
   defp maybe_lock(query, "FOR UPDATE"), do: lock(query, "FOR UPDATE")
   defp now, do: DateTime.utc_now(:microsecond)

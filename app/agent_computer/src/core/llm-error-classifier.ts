@@ -103,6 +103,8 @@ export function classifyLLMError(error: unknown): LLMErrorClassification {
       'und_err_headers',
       'und_err_body',
       'operation was aborted',
+      'stream disconnected',
+      'stream closed before completion',
       'stream_read_error',
       'terminated'
     ])
@@ -117,6 +119,7 @@ export function classifyLLMError(error: unknown): LLMErrorClassification {
   if (
     (typeof status === 'number' && status >= 500) ||
     status === 529 ||
+    [502, 503, 504].some(upstreamStatus => containsHTTPStatus(message, upstreamStatus)) ||
     includesAny(code, ['500', '502', '503', '504', '529', 'server_error', 'internal', 'overloaded_error']) ||
     includesAny(message, [
       'internal server error',

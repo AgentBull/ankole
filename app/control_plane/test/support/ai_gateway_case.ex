@@ -100,11 +100,15 @@ defmodule Ankole.AIGatewayCase do
 
   @doc false
   def start_upstream_server(handler) when is_function(handler, 1) do
-    server =
-      ExUnit.Callbacks.start_supervised!(
+    server_spec =
+      Supervisor.child_spec(
         {Bandit,
-         plug: {UpstreamPlug, handler: handler}, scheme: :http, ip: {127, 0, 0, 1}, port: 0}
+         plug: {UpstreamPlug, handler: handler}, scheme: :http, ip: {127, 0, 0, 1}, port: 0},
+        shutdown: 1_000
       )
+
+    server =
+      ExUnit.Callbacks.start_supervised!(server_spec)
 
     {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
     "http://127.0.0.1:#{port}"

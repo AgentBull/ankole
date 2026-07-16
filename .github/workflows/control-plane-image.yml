@@ -119,6 +119,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Read Ankole version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          changelog_version="$(awk '$1 == "##" && $2 == "Version" { print $3; exit }' CHANGELOG.md)"
+          if [[ ! "${changelog_version}" =~ ^[0-9]{2}\.[0-9]{2}\.[0-9]+$ ]]; then
+            echo "Could not read the latest Ankole version from CHANGELOG.md" >&2
+            exit 1
+          fi
+
+          echo "value=v${changelog_version}" >> "${GITHUB_OUTPUT}"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -137,9 +151,12 @@ jobs:
           push: true
           platforms: ${{ matrix.platform }}
           tags: ${{ env.CONTROL_PLANE_IMAGE }}:${{ env.IMAGE_TAG }}-${{ matrix.arch }}
+          build-args: |
+            ANKOLE_VERSION=${{ steps.version.outputs.value }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.version.outputs.value }}
           cache-from: type=registry,ref=${{ env.CONTROL_PLANE_IMAGE }}:buildcache-${{ matrix.arch }}
           cache-to: type=registry,ref=${{ env.CONTROL_PLANE_IMAGE }}:buildcache-${{ matrix.arch }},mode=max
           provenance: false

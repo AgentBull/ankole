@@ -40,7 +40,12 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Conversations do
   def conversation_id_from_signal(@signal_prefix <> encoded), do: URI.decode(encoded)
   def conversation_id_from_signal(_signal_channel_id), do: nil
 
-  @spec provider_thread_id(String.t(), String.t()) :: String.t()
+  # A nil thread root means the activity is not inside a Teams thread (personal
+  # and group chats): such messages carry no provider_thread_id, so their
+  # inbound-batch key stays channel-scoped instead of fragmenting per message.
+  @spec provider_thread_id(String.t(), String.t() | nil) :: String.t() | nil
+  def provider_thread_id(_base_conversation_id, nil), do: nil
+
   def provider_thread_id(base_conversation_id, thread_root) do
     @signal_prefix <>
       URI.encode(base_conversation_id, &URI.char_unreserved?/1) <>

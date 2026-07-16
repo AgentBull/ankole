@@ -14,6 +14,7 @@ defmodule Ankole.SignalsGateway.Outbox do
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Projection
   alias Ankole.SignalsGateway.ReplyAttachment
+  alias Ankole.SignalsGateway.ReplyInteractionState
   alias Ankole.SignalsGateway.ReplyPresentation
   alias Ankole.SignalsGateway.Sanitizer
   alias Ankole.SignalsGateway.Binding
@@ -886,6 +887,7 @@ defmodule Ankole.SignalsGateway.Outbox do
           "revision" => fetch_value(interactive_output, "version")
         }
       end)
+      |> maybe_append_free_input_control(actor_event, interactive_output)
 
     ReplyPresentation.apply_event(presentation, "interaction.request", %{
       "operation_id" => fetch_value(interactive_output, "interaction_id") || "clarify",
@@ -895,13 +897,46 @@ defmodule Ankole.SignalsGateway.Outbox do
     })
   end
 
-  defp reply_presentation_checkpoint(%ActorEvent{
-         reply_preview_checkpoint: %{"presentation" => presentation}
-       })
-       when is_map(presentation),
-       do: presentation
+  defp maybe_append_free_input_control(controls, actor_event, interactive_output) do
+    if fetch_value(interactive_output, "free_input") == true do
+      controls ++
+        [
+          %{
+            "id" => "clarify-free-input",
+            "type" => "form",
+            "label" => "Reply",
+            "style" => "primary",
+            "source_actor_event_id" => actor_event.id,
+            "interaction_id" => fetch_value(interactive_output, "interaction_id"),
+            "control_id" => "clarify-free-input",
+            "revision" => fetch_value(interactive_output, "version"),
+            "fields" => [
+              %{
+                "id" => "clarify-answer",
+                "type" => "input",
+                "label" => "Your answer",
+                "placeholder" => fetch_value(interactive_output, "free_input_hint"),
+                "required" => true,
+                "multiline" => true,
+                "max_length" => 1_000
+              }
+            ]
+          }
+        ]
+    else
+      controls
+    end
+  end
 
-  defp reply_presentation_checkpoint(%ActorEvent{}), do: ReplyPresentation.new()
+  defp reply_presentation_checkpoint(%ActorEvent{} = actor_event) do
+    presentation =
+      case actor_event.reply_preview_checkpoint do
+        %{"presentation" => presentation} when is_map(presentation) -> presentation
+        _checkpoint -> ReplyPresentation.new()
+      end
+
+    ReplyPresentation.project_trigger(presentation, actor_event.type, actor_event.payload)
+  end
 
   # Channel wants threaded replies and we have an entry to thread under: reply if
   # the adapter supports threaded replies, otherwise degrade to a top-level post
@@ -1208,9 +1243,39 @@ defmodule Ankole.SignalsGateway.Outbox do
     |> repo.update()
   end
 
-  defp call_adapter_send(adapter, outbox), do: OutboxAdapter.deliver(adapter, outbox)
+  defp call_adapter_send(adapter, outbox) do
+    OutboxAdapter.deliver(adapter, project_reply_interaction(outbox))
+  end
 
-  defp call_adapter_reconcile(adapter, outbox), do: OutboxAdapter.reconcile(adapter, outbox)
+  defp call_adapter_reconcile(adapter, outbox) do
+    OutboxAdapter.reconcile(adapter, project_reply_interaction(outbox))
+  end
+
+  defp project_reply_interaction(
+         %OutboxEntry{
+           source_actor_event_id: actor_event_id,
+           payload: %{"reply_presentation" => presentation} = payload
+         } = outbox
+       )
+       when is_binary(actor_event_id) and is_map(presentation) do
+    case Repo.get(ActorEvent, actor_event_id) do
+      %ActorEvent{reply_preview_checkpoint: checkpoint} when is_map(checkpoint) ->
+        %{
+          outbox
+          | payload:
+              Map.put(
+                payload,
+                "reply_presentation",
+                ReplyInteractionState.project(presentation, checkpoint)
+              )
+        }
+
+      _missing ->
+        outbox
+    end
+  end
+
+  defp project_reply_interaction(%OutboxEntry{} = outbox), do: outbox
 
   # Runs after the adapter call returns (outside the prepare transaction). Re-open
   # a transaction and re-lock the row before recording the outcome, because the
@@ -1490,6 +1555,7 @@ defmodule Ankole.SignalsGateway.Outbox do
         fact = %{
           signal_channel_id: outbox.signal_channel_id,
           source_entry_id: source_entry_id,
+          reply_to_source_entry_id: outbox.reply_to_source_entry_id,
           provider_thread_id: outbox.provider_thread_id,
           text: outbox.fallback_visible_text,
           formatted_content: fetch_map(outbox.payload, :formatted_content, %{}),
@@ -1619,10 +1685,14 @@ defmodule Ankole.SignalsGateway.Outbox do
 
     provider_thread_id = outbox.provider_thread_id || entry.provider_thread_id
 
+    reply_to_source_entry_id =
+      outbox.reply_to_source_entry_id || entry.reply_to_source_entry_id
+
     %{
       text: text,
       rich_content: rich_content,
       provider_thread_id: provider_thread_id,
+      reply_to_source_entry_id: reply_to_source_entry_id,
       metadata: metadata,
       content_hash:
         Projection.entry_content_hash([
@@ -1633,6 +1703,7 @@ defmodule Ankole.SignalsGateway.Outbox do
           entry.author || %{},
           entry.mentions || [],
           metadata,
+          reply_to_source_entry_id,
           provider_thread_id
         ]),
       ai_message_id: outbox.ai_message_id || entry.ai_message_id,
@@ -1651,6 +1722,7 @@ defmodule Ankole.SignalsGateway.Outbox do
     %{
       signal_channel_id: outbox.signal_channel_id,
       source_entry_id: outbox.target_source_entry_id,
+      reply_to_source_entry_id: outbox.reply_to_source_entry_id,
       provider_thread_id: outbox.provider_thread_id,
       text: text,
       rich_content: rich_content,
@@ -1671,6 +1743,7 @@ defmodule Ankole.SignalsGateway.Outbox do
           author,
           [],
           metadata,
+          outbox.reply_to_source_entry_id,
           outbox.provider_thread_id
         ]),
       first_seen_at: now,

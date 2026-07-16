@@ -162,6 +162,12 @@ RuntimeFabric is the live control-plane-to-worker fabric. It carries actor traff
 
 Ankole defaults to Bun for workspace scripts and Elixir/Phoenix for the control plane.
 
+For a first local setup, copy this single prompt into a coding agent:
+
+```text
+Read https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md in full, then guide me through a complete local Ankole setup and its documented end-to-end verification. Treat that guide as the source of truth, perform and verify every safe reversible step you can, pause for human account, secret, OAuth, or destructive-approval actions, and do not claim completion until its stated success criteria pass.
+```
+
 ```shell
 bun install
 

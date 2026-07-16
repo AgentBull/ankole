@@ -162,6 +162,12 @@ RuntimeFabric 是 control-plane 到 worker 的 live fabric。它通过 ZeroMQ �
 
 Ankole 默认使用 Bun 运行 workspace scripts，使用 Elixir/Phoenix 承载 control plane。
 
+首次搭建本地环境时，把下面这一条 prompt 直接交给 coding agent：
+
+```text
+请完整阅读 https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md，然后在当前 Ankole 仓库中严格依照该指南，带我完成完整的本地环境搭建及文档规定的端到端验收。把该指南作为事实来源；你能安全、可逆地执行和验证的步骤都由你完成；遇到账号、密钥、OAuth 或破坏性操作授权时暂停并指导我；在全部成功标准通过前不要宣称搭建完成。
+```
+
 ```shell
 bun install
 

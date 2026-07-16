@@ -15,6 +15,69 @@ import { materializeSubagentRuntimeFiles } from '../src/tools/subagent/runtime-f
 import type { ActorTurnRef } from '../src/lanes/actor_lane'
 
 describe('@ankole/agent-computer subagent runtime files', () => {
+  it('forces the system Deep Research skill and renders the mode-specific execution boundary', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-subagent-runtime-research-'))
+    const workspaceRoot = join(root, 'workspace')
+    const workdir = join(workspaceRoot, 'user-files', 'research', 'delegation-1')
+    const builtinSkillsRoot = join(root, 'skills')
+    const skillRoot = join(builtinSkillsRoot, 'deep-research')
+    const browserSkillRoot = join(builtinSkillsRoot, 'browser')
+    const installedSkillsRoot = join(root, 'installed', 'agent-1', 'financial-data')
+    mkdirSync(workdir, { recursive: true })
+    mkdirSync(skillRoot, { recursive: true })
+    mkdirSync(browserSkillRoot, { recursive: true })
+    mkdirSync(installedSkillsRoot, { recursive: true })
+    writeFileSync(join(skillRoot, 'SKILL.md'), '# Deep Research\n')
+    writeFileSync(join(browserSkillRoot, 'SKILL.md'), '# Browser\n')
+    writeFileSync(join(installedSkillsRoot, 'SKILL.md'), '# BullX financial data\n')
+
+    const runtime = await materializeSubagentRuntimeFiles({
+      workspaceRoot,
+      workdir,
+      workdirForModel: '/workspace/user-files/research/delegation-1',
+      durableArtifactsRootForModel: '/workspace/user-files',
+      soul: 'SOUL',
+      mission: 'Research the question.',
+      turn: {
+        actor: { agent_uid: 'agent-1', session_id: 'subagent:delegation-1' },
+        activation_uid: 'activation-1',
+        actor_epoch: 1,
+        actor_event_id: '00000000-0000-0000-0000-000000000001',
+        revision: 0
+      },
+      enabledSkills: [
+        { skill_name: 'browser', source_kind: 'builtin', relative_path: 'browser' },
+        { skill_name: 'financial-data', source_kind: 'installed', relative_path: 'financial-data' }
+      ],
+      skillRoots: { builtinSkillsRoot, agentInstalledSkillsRoot: join(root, 'installed') },
+      runtime: 'deep_research',
+      researchMode: 'general',
+      researchOutputSchema: {
+        type: 'object',
+        properties: { decision: { type: 'string' } },
+        required: ['decision']
+      },
+      requiredBuiltinSkills: ['deep-research']
+    })
+
+    try {
+      expect(runtime.expectedSkillNames).toEqual(['browser', 'deep-research', 'financial-data'])
+      expect(runtime.skills.map(skill => skill.name)).toEqual(['browser', 'deep-research', 'financial-data'])
+      const agents = readFileSync(runtime.agentsPath, 'utf8')
+      expect(agents).toContain('Deep Research delegation in general mode')
+      expect(agents).toContain('## Requested Report Content Schema')
+      expect(agents).toContain('The authoritative result remains report/report.md; no JSON sidecar is required.')
+      expect(agents).toContain('"decision"')
+      expect(agents).toContain('Projected Brain tools are read-only')
+      expect(agents).not.toContain('Projected Brain tools may read and write durable memory')
+      expect(agents).toContain('the lead agent must call request_parent_input')
+      expect(agents).toContain('Do not call request_user_input')
+    } finally {
+      runtime.cleanup()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('materializes task AGENTS context and native enabled skills without copying skill directories', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-subagent-runtime-files-'))
     const workspaceRoot = join(root, 'workspace')
@@ -96,11 +159,12 @@ describe('@ankole/agent-computer subagent runtime files', () => {
       expect(agents).toContain('## MISSION\n\nMISSION: Deliver reliable work.')
       expect(agents).toContain('Always verify the final artifact.')
       expect(agents).toContain('Projected Brain tools may read and write durable memory')
+      expect(agents).toContain('the lead agent must call request_parent_input')
+      expect(agents).toContain('child agents must report the question to the lead')
       expect(agents).toContain('## Background\n\nThe audience is the operations team.')
       expect(agents).toContain('## Notes\n\nKeep the handoff concise.')
       expect(agents).toContain('Asia/Singapore')
       expect(agents).toContain('/workspace/project')
-      expect(agents).not.toContain('Complete task to send to Codex')
 
       expect(runtime.expectedSkillNames).toEqual(['overlay-skill', 'plain-skill'])
       expect(runtime.skills.map(skill => ({ name: skill.name, sourcePath: skill.sourcePath }))).toEqual([

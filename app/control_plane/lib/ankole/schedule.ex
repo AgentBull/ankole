@@ -26,6 +26,19 @@ defmodule Ankole.Schedule do
   defdelegate create_check_back_later(attrs, opts \\ []), to: Checkbacks
 
   @doc """
+  Replaces one pending checkback while preserving the cancelled event as audit history.
+  """
+  @spec update_checkback(Ecto.UUID.t(), map(), keyword()) ::
+          {:ok,
+           %{
+             status: :updated | :already_updated,
+             previous_scheduled_event: ScheduledEvent.t(),
+             scheduled_event: ScheduledEvent.t()
+           }}
+          | {:error, term()}
+  defdelegate update_checkback(scheduled_event_id, attrs, opts \\ []), to: Checkbacks
+
+  @doc """
   Creates one recurring cron schedule and arms its first concrete fire.
   """
   @spec create_cron_schedule(map(), keyword()) ::
@@ -117,6 +130,12 @@ defmodule Ankole.Schedule do
   """
   @spec list_checkbacks(String.t(), String.t() | nil) :: [ScheduledEvent.t()]
   defdelegate list_checkbacks(agent_uid, session_id \\ nil), to: Queries
+
+  @doc """
+  Lists a bounded set of pending checkbacks for model-visible management.
+  """
+  @spec list_pending_checkbacks(String.t(), String.t(), pos_integer()) :: [ScheduledEvent.t()]
+  defdelegate list_pending_checkbacks(agent_uid, session_id, limit \\ 10), to: Queries
 
   @doc """
   Returns a JSON-safe schedule projection for API and RPC responses.

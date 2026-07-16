@@ -273,9 +273,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
   end
 
   # Updates lifecycle projections only when the worker still owns the transport
-  # route. Authenticated traffic from that same process may revalidate a worker
-  # made stale solely because the router restarted; all other stale reasons stay
-  # terminal until a fresh worker-ready admission.
+  # route and incarnation. Authenticated traffic from that same process proves
+  # it is reachable again, so a stale projection may re-enter the ready pool.
+  # The stale transition already released assignments and superseded deliveries;
+  # re-admission never restores those fences or accepts late Turn writes.
   defp update_worker_projection(worker_id, incarnation_id, route, attrs) do
     Repo.transact(fn repo ->
       case lock_worker_by_id(repo, worker_id) do
@@ -283,7 +284,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
           with :ok <- worker_route_matches(worker, route),
                :ok <- worker_incarnation_matches(worker, incarnation_id) do
             worker
-            |> AgentComputerWorker.changeset(revalidate_after_router_restart(worker, attrs))
+            |> AgentComputerWorker.changeset(revalidate_authenticated_stale_worker(worker, attrs))
             |> repo.update()
             |> notify_worker_stale_deadline(repo)
           end
@@ -294,14 +295,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
     end)
   end
 
-  defp revalidate_after_router_restart(
-         %AgentComputerWorker{status: "stale", stop_reason: "router_stopped"},
+  defp revalidate_authenticated_stale_worker(
+         %AgentComputerWorker{status: "stale"},
          attrs
        ) do
     Map.merge(attrs, %{status: @ready_worker_status, stopped_at: nil, stop_reason: nil})
   end
 
-  defp revalidate_after_router_restart(_worker, attrs), do: attrs
+  defp revalidate_authenticated_stale_worker(_worker, attrs), do: attrs
 
   defp refresh_worker_ready(repo, %AgentComputerWorker{} = worker, attrs, now) do
     replacement? = worker.incarnation_id != attrs.incarnation_id

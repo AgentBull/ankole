@@ -29,6 +29,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
   alias Ankole.SignalsGateway.ActorRuntime.WorkerEnvBroker
   alias Ankole.SignalsGateway.ActorRuntime.WorkerRouteAuth
   alias Ankole.Brain.RPCBroker, as: BrainRPCBroker
+  alias Ankole.Logging
   alias Ankole.Schedule.RPCBroker, as: ScheduleRPCBroker
 
   @typedoc "Authorization scope of one operation; turn scopes carry the WorkerRouteAuth effect."
@@ -47,8 +48,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
     "subagent.delegation.list" => {SubagentDelegationBroker, :handle_list, :turn_read},
     "subagent.delegation.steer" => {SubagentDelegationBroker, :handle_steer, :turn_write},
     "subagent.delegation.stop" => {SubagentDelegationBroker, :handle_stop, :turn_write},
-    "subagent.delegation.event.append" =>
-      {SubagentDelegationBroker, :handle_append_events, :turn_write},
+    "subagent.delegation.turn.upsert" =>
+      {SubagentDelegationBroker, :handle_upsert_turn, :turn_write},
     "subagent.delegation.status.update" =>
       {SubagentDelegationBroker, :handle_update_status, :turn_write},
     "memory_search" => {BrainRPCBroker, :handle_search, :turn_read},
@@ -58,6 +59,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
     "memory_health_check" => {BrainRPCBroker, :handle_health_check, :turn_read},
     "schedule.check_back_later.create" =>
       {ScheduleRPCBroker, :handle_check_back_later_create, :turn_write},
+    "schedule.check_back_later.list" =>
+      {ScheduleRPCBroker, :handle_check_back_later_list, :turn_read},
+    "schedule.check_back_later.get" =>
+      {ScheduleRPCBroker, :handle_check_back_later_get, :turn_read},
+    "schedule.check_back_later.update" =>
+      {ScheduleRPCBroker, :handle_check_back_later_update, :turn_write},
+    "schedule.check_back_later.cancel" =>
+      {ScheduleRPCBroker, :handle_check_back_later_cancel, :turn_write},
     "schedule.cron.list" => {ScheduleRPCBroker, :handle_cron_list, :turn_read},
     "schedule.cron.get" => {ScheduleRPCBroker, :handle_cron_get, :turn_read},
     "schedule.cron.runs" => {ScheduleRPCBroker, :handle_cron_runs, :turn_read},
@@ -84,7 +93,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
     method = RPCWire.text(request, "method") || ""
     payload = Map.put_new(request_payload(request), "request_id", request_id)
 
-    case dispatch_method(method, payload, route) do
+    case dispatch_method_safely(method, payload, route) do
       {:ok, response_payload} ->
         {:ok, rpc_response_envelope(request_id, response_payload)}
 
@@ -94,6 +103,31 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
   end
 
   def handle_request(_request, _route), do: {:error, :invalid_rpc_request}
+
+  # RuntimeFabric's Broker owns the shared ROUTER for every worker. A defect or
+  # unexpected database failure in one semantic method must fail that RPC, not
+  # terminate the transport owner and disconnect the whole worker pool.
+  defp dispatch_method_safely(method, payload, route) do
+    case dispatch_method(method, payload, route) do
+      {:ok, response_payload} = result when is_map(response_payload) ->
+        result
+
+      {:error, error_payload} = result when is_map(error_payload) ->
+        result
+
+      _unexpected ->
+        log_invalid_handler_result(method, route)
+        {:error, handler_failure_payload(payload, method)}
+    end
+  rescue
+    exception ->
+      log_handler_failure(method, route, :error, exception, __STACKTRACE__)
+      {:error, handler_failure_payload(payload, method)}
+  catch
+    kind, reason ->
+      log_handler_failure(method, route, kind, reason, __STACKTRACE__)
+      {:error, handler_failure_payload(payload, method)}
+  end
 
   defp dispatch_method(method, payload, route) do
     case Map.fetch(@rpc_operations, method) do
@@ -169,6 +203,38 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
     RPCWire.error_payload(RPCWire.text(payload, "request_id") || "", reason,
       fallback_code: "rpc_request_failed",
       details_json: %{"reason" => inspect(reason)}
+    )
+  end
+
+  defp handler_failure_payload(payload, method) do
+    %{
+      "request_id" => RPCWire.text(payload, "request_id") || "",
+      "code" => "rpc_handler_failed",
+      "message" => "RPC handler failed",
+      "details_json" => %{"method" => method}
+    }
+  end
+
+  defp log_handler_failure(method, route, kind, reason, stacktrace) do
+    Logging.error(
+      "runtime_fabric.rpc_handler_failed",
+      "runtime fabric rpc handler failed",
+      %{
+        method: method,
+        route: route,
+        reason: Exception.format(kind, reason, stacktrace)
+      }
+    )
+  end
+
+  defp log_invalid_handler_result(method, route) do
+    Logging.error(
+      "runtime_fabric.rpc_handler_invalid_result",
+      "runtime fabric rpc handler returned an invalid result",
+      %{
+        method: method,
+        route: route
+      }
     )
   end
 end

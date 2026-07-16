@@ -211,7 +211,10 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
     with {:ok, binding} <- binding_for_event(event),
          {:ok, adapter} <- Adapters.fetch_reply_preview(binding.adapter) do
-      presentation = ReplyPresentation.normalize(checkpoint["presentation"])
+      presentation =
+        checkpoint["presentation"]
+        |> ReplyPresentation.normalize()
+        |> ReplyPresentation.project_trigger(event.type, event.payload)
 
       ReplyPreviewAdapter.refresh(adapter, %Request{
         actor_event: event,
@@ -248,6 +251,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       checkpoint
       |> Map.get("presentation")
       |> ReplyPresentation.normalize()
+      |> ReplyPresentation.project_trigger(event.type, event.payload)
 
     initial_flush_ms =
       cond do

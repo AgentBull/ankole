@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../../core'
+import { compactActivityPath } from '../activity-summary'
 import type { ComputerToolContext } from './context'
 import { MAX_READ_CHARS, looksBinary, numberLines } from './format'
 
@@ -34,6 +35,10 @@ export function createReadFileTool(context: ComputerToolContext): AgentTool<type
     executionMode: 'parallel',
     isReadOnly: true,
     isDestructive: false,
+    describeActivity: params => {
+      const path = compactActivityPath(params.path)
+      return path ? `读取文件：${path}` : '读取文件'
+    },
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<ReadFileDetails>> {
       const computer = await context.getComputer(signal)
       const buffer = await computer.readFileToBuffer(

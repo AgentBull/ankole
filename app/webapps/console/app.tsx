@@ -9,15 +9,17 @@ import { SignalBindingEditorPage, SignalsListPage } from './pages/signals'
 import { WorkerEnvEditorPage, WorkerEnvsListPage } from './pages/worker-envs'
 import { WorkerFilesPage, WorkersListPage } from './pages/workers'
 import { DelegationsPage } from './pages/delegations'
+import { ConversationDetailPage, ConversationsListPage } from './pages/conversations'
 import {
   BrainAuditPage,
   BrainDreamingPage,
   BrainEntriesPage,
   BrainEntryAuditPage,
   BrainEntryCreatePage,
-  BrainEntryEditorPage,
-  BrainSourcePage
+  BrainEntryEditorPage
 } from './pages/brain'
+import { BrainReviewPage } from './pages/brain-review'
+import { BrainSourceLearnPage, BrainSourcePage, BrainSourcesPage } from './pages/brain-sources'
 
 // Configure the bearer-token API client at module load, before any route
 // component can render or fire a query. This must run eagerly and NOT inside a
@@ -58,13 +60,18 @@ const router = createBrowserRouter(
         { path: 'workers', element: <WorkersListPage /> },
         { path: 'workers/:workerID/files', element: <WorkerFilesPage /> },
         { path: 'delegations', element: <DelegationsPage /> },
+        { path: 'conversations', element: <ConversationsListPage /> },
+        { path: 'conversations/:conversationID', element: <ConversationDetailPage /> },
         { path: 'brain', element: <BrainEntriesPage /> },
         { path: 'brain/new', element: <BrainEntryCreatePage /> },
+        { path: 'brain/sources', element: <BrainSourcesPage /> },
+        { path: 'brain/learn', element: <BrainSourceLearnPage /> },
+        { path: 'brain/sources/:documentID', element: <BrainSourcePage /> },
+        { path: 'brain/review', element: <BrainReviewPage /> },
         { path: 'brain/audit', element: <BrainAuditPage /> },
         { path: 'brain/dreaming', element: <BrainDreamingPage /> },
         { path: 'brain/audit/:id', element: <BrainEntryAuditPage /> },
         { path: 'brain/:id', element: <BrainEntryEditorPage /> },
-        { path: 'brain/sources/:documentID', element: <BrainSourcePage /> },
         { path: '*', element: <Navigate to="/agents" replace /> }
       ]
     }

@@ -10,9 +10,11 @@ defmodule Ankole.SignalsGateway.Entry do
   agent produced and an entry a human produced share one shape.
 
   PostgreSQL searches the canonical `text`, `author`, `metadata`, and
-  `provider_thread_id` fields directly. `content_hash` supports change detection;
-  the unique `{signal_channel_id, source_entry_id}` identity keeps provider
-  re-delivery idempotent.
+  `provider_thread_id` fields directly. `reply_to_source_entry_id` preserves the
+  provider's direct reply relation without requiring the target row to exist.
+  `content_hash` supports change detection; the unique
+  `{signal_channel_id, source_entry_id}` identity keeps provider re-delivery
+  idempotent.
   """
 
   use Ecto.Schema
@@ -34,6 +36,7 @@ defmodule Ankole.SignalsGateway.Entry do
       type: :string
 
     field :source_entry_id, :string
+    field :reply_to_source_entry_id, :string
     field :provider_thread_id, :string
     field :text, :string
     field :rich_content, :map
@@ -66,6 +69,7 @@ defmodule Ankole.SignalsGateway.Entry do
     |> cast(attrs, [
       :signal_channel_id,
       :source_entry_id,
+      :reply_to_source_entry_id,
       :provider_thread_id,
       :text,
       :rich_content,
@@ -87,6 +91,7 @@ defmodule Ankole.SignalsGateway.Entry do
     |> normalize_blank([
       :signal_channel_id,
       :source_entry_id,
+      :reply_to_source_entry_id,
       :provider_thread_id,
       :text,
       :document_id,

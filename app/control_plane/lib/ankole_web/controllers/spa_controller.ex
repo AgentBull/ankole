@@ -11,6 +11,7 @@ defmodule AnkoleWeb.SpaController do
   alias Ankole.AdminAuth
   alias Ankole.I18n
   alias Ankole.Setup.Config, as: SetupConfig
+  alias Ankole.Version
   alias AnkoleWeb.Session, as: WebSession
   alias AnkoleWeb.Assets
 
@@ -107,13 +108,16 @@ defmodule AnkoleWeb.SpaController do
     [
       "<!DOCTYPE html>\n",
       "<html lang=\"",
-      Phoenix.HTML.safe_to_string(Phoenix.HTML.html_escape(locale)),
+      html_escape(locale),
       "\">\n",
       "  <head>\n",
       "    <meta charset=\"utf-8\">\n",
       "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n",
       "    <meta name=\"csrf-token\" content=\"",
       get_csrf_token(),
+      "\">\n",
+      "    <meta name=\"ankole-version\" content=\"",
+      Version.current() |> html_escape(),
       "\">\n",
       "    <title>",
       title,
@@ -168,4 +172,7 @@ defmodule AnkoleWeb.SpaController do
       {:error, _reason} -> "en-US"
     end
   end
+
+  defp html_escape(value),
+    do: value |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
 end

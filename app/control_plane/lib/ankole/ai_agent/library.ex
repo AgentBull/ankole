@@ -14,14 +14,23 @@ defmodule Ankole.AIAgent.Library do
   alias Ankole.AIAgent.Library.Schemas.AgentSkill
   alias Ankole.AIAgent.Library.Schemas.AgentSkillOverlay
   alias Ankole.AIAgent.Library.Schemas.LibraryBuiltinSyncState
+  alias Ankole.AIAgent.Library.SkillEnablementProviders
   alias Ankole.AIAgent.Library.SourceReader
   alias Ankole.Principals
+  alias Ankole.Principals.Agent
   alias Ankole.Repo
 
   @sync_name "app/library/skills"
   @skill_file "SKILL.md"
   @soul_file "SOUL.md"
   @mission_file "MISSION.md"
+  @design_file "DESIGN.md"
+  @agent_document_kinds ~w(mission soul design)
+
+  @type agent_document_kind :: String.t()
+  @type agent_document :: %{
+          required(String.t()) => String.t()
+        }
 
   @type sync_result :: %{
           changed: boolean(),
@@ -185,22 +194,9 @@ defmodule Ankole.AIAgent.Library do
 
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
          {:ok, sources} <- agent_skill_sources(agent_uid, []),
-         {:ok, _soul} <-
-           upsert_agent_text_entry_in_tx(repo, %{
-             agent_uid: agent_uid,
-             path: @soul_file,
-             source_kind: "soul",
-             content: SourceReader.load_default_soul_template(),
-             metadata: %{"source" => "app_template"}
-           }),
-         {:ok, _mission} <-
-           upsert_agent_text_entry_in_tx(repo, %{
-             agent_uid: agent_uid,
-             path: @mission_file,
-             source_kind: "mission",
-             content: SourceReader.load_default_mission_template(),
-             metadata: %{"source" => "app_template"}
-           }),
+         {:ok, _soul} <- seed_agent_document_in_tx(repo, agent_uid, "soul"),
+         {:ok, _mission} <- seed_agent_document_in_tx(repo, agent_uid, "mission"),
+         {:ok, _design} <- seed_agent_document_in_tx(repo, agent_uid, "design"),
          {:ok, _result} <- sync_agent_skills_in_tx(repo, agent_uid, sources, now) do
       :ok
     end
@@ -223,15 +219,16 @@ defmodule Ankole.AIAgent.Library do
         |> repo.all()
         |> MapSet.new()
 
-      skills =
+      all_skills =
         AgentSkill
         |> where([skill], skill.agent_uid == ^agent_uid)
-        |> where([skill], skill.enabled == true)
         |> order_by([skill], asc: skill.skill_name)
         |> repo.all()
-        |> Enum.map(&skill_summary(&1, overlay_skills))
 
-      {:ok, skills}
+      with {:ok, skills} <-
+             SkillEnablementProviders.filter_enabled(agent_uid, all_skills, opts) do
+        {:ok, Enum.map(skills, &skill_summary(&1, overlay_skills))}
+      end
     end
   end
 
@@ -248,7 +245,7 @@ defmodule Ankole.AIAgent.Library do
          {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name),
          {:ok, file_path} <- SourceReader.normalize_virtual_path(file_path || @skill_file),
          :ok <- reject_agent_append_file(file_path),
-         {:ok, skill} <- enabled_skill(repo, agent_uid, skill_name) do
+         {:ok, skill} <- enabled_skill(repo, agent_uid, skill_name, opts) do
       do_skill_view(repo, agent_uid, skill, file_path, opts)
     end
   end
@@ -270,7 +267,7 @@ defmodule Ankole.AIAgent.Library do
            {:ok, _result} <-
              sync_agent_skills_in_tx(repo, agent_uid, sources, DateTime.utc_now(:microsecond)),
            {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name),
-           {:ok, _skill} <- enabled_skill(repo, agent_uid, skill_name) do
+           {:ok, _skill} <- enabled_skill(repo, agent_uid, skill_name, opts) do
         replace_skill_overlay_in_tx(repo, agent_uid, skill_name, overlay_json)
       end
     end)
@@ -312,7 +309,7 @@ defmodule Ankole.AIAgent.Library do
            {:ok, _result} <-
              sync_agent_skills_in_tx(repo, agent_uid, sources, DateTime.utc_now(:microsecond)),
            {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name),
-           {:ok, _skill} <- enabled_skill(repo, agent_uid, skill_name),
+           {:ok, _skill} <- enabled_skill(repo, agent_uid, skill_name, opts),
            :ok <- lock_skill_overlay(repo, agent_uid, skill_name),
            :ok <-
              verify_overlay_hash(
@@ -349,7 +346,7 @@ defmodule Ankole.AIAgent.Library do
            {:ok, _result} <-
              sync_agent_skills_in_tx(repo, agent_uid, sources, DateTime.utc_now(:microsecond)),
            {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name),
-           {:ok, _skill} <- enabled_skill(repo, agent_uid, skill_name),
+           {:ok, _skill} <- enabled_skill(repo, agent_uid, skill_name, opts),
            :ok <- lock_skill_overlay(repo, agent_uid, skill_name) do
         existing =
           repo
@@ -375,7 +372,7 @@ defmodule Ankole.AIAgent.Library do
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
          {:ok, _result} <- sync_agent_skills(agent_uid, opts),
          {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name),
-         {:ok, _skill} <- enabled_skill(repo, agent_uid, skill_name) do
+         {:ok, _skill} <- enabled_skill(repo, agent_uid, skill_name, opts) do
       {:ok, active_skill_overlay(repo, agent_uid, skill_name)}
     end
   end
@@ -385,15 +382,89 @@ defmodule Ankole.AIAgent.Library do
   """
   @spec get_soul(String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def get_soul(agent_uid, opts \\ []),
-    do: get_agent_text(agent_uid, @soul_file, SourceReader.load_default_soul_template(), opts)
+    do: get_agent_document_text(agent_uid, "soul", opts)
 
   @doc """
   Returns the current agent mission text, falling back to the bundled template.
   """
   @spec get_mission(String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def get_mission(agent_uid, opts \\ []),
-    do:
-      get_agent_text(agent_uid, @mission_file, SourceReader.load_default_mission_template(), opts)
+    do: get_agent_document_text(agent_uid, "mission", opts)
+
+  @doc """
+  Returns the current agent visual identity document, falling back to the bundled template.
+  """
+  @spec get_design(String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
+  def get_design(agent_uid, opts \\ []),
+    do: get_agent_document_text(agent_uid, "design", opts)
+
+  @doc """
+  Returns the operator-visible MISSION, SOUL, and DESIGN documents for one agent.
+
+  Agents created before the writable rows existed still receive the bundled
+  template and its content hash, so a subsequent compare-and-swap write can
+  materialize that same effective document without a migration.
+  """
+  @spec list_agent_documents(String.t(), keyword()) ::
+          {:ok, %{required(agent_document_kind()) => agent_document()}} | {:error, term()}
+  def list_agent_documents(agent_uid, opts \\ []) do
+    repo = Keyword.get(opts, :repo, Repo)
+
+    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
+         :ok <- ensure_agent(repo, agent_uid) do
+      {:ok,
+       Map.new(@agent_document_kinds, fn kind ->
+         {:ok, spec} = agent_document_spec(kind)
+         {kind, agent_document_payload(repo, agent_uid, spec)}
+       end)}
+    end
+  end
+
+  @doc """
+  Replaces one agent MISSION, SOUL, or DESIGN document when its current hash matches.
+
+  The advisory transaction lock serializes the missing-row case as well as
+  ordinary updates, so two Console editors cannot both accept the same stale
+  hash and silently overwrite each other.
+  """
+  @spec replace_agent_document(
+          String.t(),
+          agent_document_kind(),
+          String.t(),
+          String.t(),
+          keyword()
+        ) :: {:ok, agent_document()} | {:error, term()}
+  def replace_agent_document(
+        agent_uid,
+        kind,
+        content,
+        expected_content_hash,
+        opts \\ []
+      )
+
+  def replace_agent_document(agent_uid, kind, content, expected_content_hash, opts)
+      when is_binary(kind) and is_binary(content) and is_binary(expected_content_hash) do
+    repo = Keyword.get(opts, :repo, Repo)
+
+    with {:ok, spec} <- agent_document_spec(kind) do
+      repo.transact(fn repo ->
+        with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
+             :ok <- ensure_agent(repo, agent_uid),
+             :ok <- lock_agent_document(repo, agent_uid, spec.kind),
+             current = agent_document_payload(repo, agent_uid, spec),
+             :ok <- verify_agent_document_hash(current, expected_content_hash),
+             {:ok, entry} <-
+               upsert_agent_document_in_tx(repo, agent_uid, spec, content, %{
+                 "source" => "console"
+               }) do
+          {:ok, agent_document_payload(entry, spec)}
+        end
+      end)
+    end
+  end
+
+  def replace_agent_document(_agent_uid, _kind, _content, _expected_content_hash, _opts),
+    do: {:error, :invalid_agent_document}
 
   @doc """
   Returns the compact skill index used by prompt builders.
@@ -556,6 +627,28 @@ defmodule Ankole.AIAgent.Library do
     )
   end
 
+  defp seed_agent_document_in_tx(repo, agent_uid, kind) do
+    with {:ok, spec} <- agent_document_spec(kind) do
+      upsert_agent_document_in_tx(
+        repo,
+        agent_uid,
+        spec,
+        spec.fallback,
+        %{"source" => "app_template"}
+      )
+    end
+  end
+
+  defp upsert_agent_document_in_tx(repo, agent_uid, spec, content, metadata) do
+    upsert_agent_text_entry_in_tx(repo, %{
+      agent_uid: agent_uid,
+      path: spec.path,
+      source_kind: spec.kind,
+      content: content,
+      metadata: metadata
+    })
+  end
+
   defp upsert_agent_text_entry_in_tx(repo, attrs) do
     attrs =
       attrs
@@ -576,8 +669,15 @@ defmodule Ankole.AIAgent.Library do
           updated_at: DateTime.utc_now(:microsecond)
         ]
       ],
-      conflict_target: {:unsafe_fragment, "(agent_uid, path) WHERE deleted_at IS NULL"}
+      conflict_target: {:unsafe_fragment, "(agent_uid, path) WHERE deleted_at IS NULL"},
+      returning: true
     )
+  end
+
+  defp get_agent_document_text(agent_uid, kind, opts) do
+    with {:ok, spec} <- agent_document_spec(kind) do
+      get_agent_text(agent_uid, spec.path, spec.fallback, opts)
+    end
   end
 
   defp get_agent_text(agent_uid, path, fallback, opts) do
@@ -591,14 +691,100 @@ defmodule Ankole.AIAgent.Library do
     end
   end
 
+  defp agent_document_spec("mission") do
+    {:ok,
+     %{
+       kind: "mission",
+       path: @mission_file,
+       fallback: SourceReader.load_default_mission_template()
+     }}
+  end
+
+  defp agent_document_spec("soul") do
+    {:ok,
+     %{
+       kind: "soul",
+       path: @soul_file,
+       fallback: SourceReader.load_default_soul_template()
+     }}
+  end
+
+  defp agent_document_spec("design") do
+    {:ok,
+     %{
+       kind: "design",
+       path: @design_file,
+       fallback: SourceReader.load_default_design_template()
+     }}
+  end
+
+  defp agent_document_spec(_kind), do: {:error, :invalid_document_kind}
+
+  defp agent_document_payload(repo, agent_uid, spec) do
+    repo
+    |> active_agent_entry(agent_uid, spec.path)
+    |> agent_document_payload(spec)
+  end
+
+  defp agent_document_payload(
+         %AgentLibraryContainerEntry{content: content},
+         spec
+       )
+       when is_binary(content) do
+    build_agent_document_payload(content, spec)
+  end
+
+  defp agent_document_payload(_entry, spec),
+    do: build_agent_document_payload(spec.fallback, spec)
+
+  defp build_agent_document_payload(content, spec) when is_binary(content) do
+    %{
+      "kind" => spec.kind,
+      "content" => content,
+      "content_hash" => SourceReader.hash(content)
+    }
+  end
+
+  defp ensure_agent(repo, agent_uid) do
+    case repo.get(Agent, agent_uid) do
+      %Agent{} -> :ok
+      nil -> {:error, :not_found}
+    end
+  end
+
+  defp lock_agent_document(repo, agent_uid, kind) do
+    Ecto.Adapters.SQL.query!(
+      repo,
+      "SELECT pg_advisory_xact_lock(hashtext($1))",
+      ["agent-library-document:#{agent_uid}:#{kind}"]
+    )
+
+    :ok
+  end
+
+  defp verify_agent_document_hash(%{"content_hash" => hash}, hash), do: :ok
+
+  defp verify_agent_document_hash(_document, _expected_hash),
+    do: {:error, :agent_library_document_conflict}
+
   defp reject_agent_append_file("AGENT_APPEND.md"), do: {:error, :skill_file_not_found}
   defp reject_agent_append_file(_file_path), do: :ok
 
-  defp enabled_skill(repo, agent_uid, skill_name) do
+  defp enabled_skill(repo, agent_uid, skill_name, opts) do
     case repo.get_by(AgentSkill, agent_uid: agent_uid, skill_name: skill_name) do
-      %AgentSkill{enabled: true} = skill -> {:ok, skill}
-      %AgentSkill{} -> {:error, :skill_not_enabled}
-      nil -> {:error, :skill_not_found}
+      %AgentSkill{} = skill ->
+        case SkillEnablementProviders.enabled?(
+               agent_uid,
+               skill,
+               Keyword.put(opts, :repo, repo)
+             ) do
+          {:ok, true} -> {:ok, skill}
+          {:ok, false} -> {:error, :skill_not_enabled}
+          {:error, reason} -> {:error, reason}
+        end
+
+      nil ->
+        {:error, :skill_not_found}
     end
   end
 

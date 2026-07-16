@@ -1,6 +1,6 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.WorkerSubagentConfig do
   @moduledoc """
-  Installation-wide placement limit for concurrent delegation turns per worker.
+  AppConfigure-backed worker placement policy for subagent delegation turns.
   """
 
   alias Ankole.AppConfigure
@@ -27,7 +27,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerSubagentConfig do
   def ensure_registered do
     case AppConfigure.register_definitions([definition()]) do
       :ok -> :ok
-      {:error, {:duplicate_key, @key}} -> :ok
+      {:error, {:duplicate_key, _key}} -> :ok
       {:error, reason} -> {:error, reason}
     end
   end

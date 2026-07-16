@@ -19,6 +19,9 @@ defmodule AnkoleWeb.BrainController do
   alias AnkoleWeb.Schemas.BrainConsoleAPI.DreamingFitnessResponse
   alias AnkoleWeb.Schemas.BrainConsoleAPI.DreamingRunResponse
   alias AnkoleWeb.Schemas.BrainConsoleAPI.SourceEntryResponse
+  alias AnkoleWeb.Schemas.BrainConsoleAPI.SourceListResponse
+  alias AnkoleWeb.Schemas.BrainConsoleAPI.SourceCaptureRequest
+  alias AnkoleWeb.Schemas.BrainConsoleAPI.ReviewCandidatesResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
   alias OpenAPISpex.Schema
 
@@ -152,13 +155,78 @@ defmodule AnkoleWeb.BrainController do
   )
 
   operation(:source,
-    summary: "Resolve a Brain src citation to its mirrored original message",
-    parameters: [document_id: [in: :path, type: :string, required: true]],
+    summary: "Resolve a Brain source inside one owner's visible stores",
+    parameters: @owner_parameter ++ [document_id: [in: :path, type: :string, required: true]],
     responses: [
-      ok: {"Original source message", "application/json", SourceEntryResponse},
+      ok: {"Brain source", "application/json", SourceEntryResponse},
       unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
       forbidden: {"Forbidden", "application/json", ErrorEnvelope},
       not_found: {"Not found", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  operation(:source_index,
+    summary: "List retained Brain sources for one owner",
+    parameters: @owner_parameter,
+    responses: [
+      ok: {"Retained sources", "application/json", SourceListResponse},
+      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  operation(:source_raw,
+    summary: "Download the immutable bytes of one explicitly retained Brain source",
+    parameters: @owner_parameter ++ [document_id: [in: :path, type: :string, required: true]],
+    responses: [
+      ok: {"Source bytes", "application/octet-stream", %Schema{type: :string, format: :binary}},
+      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
+      not_found: {"Not found", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  operation(:create_source,
+    summary: "Retain immutable bytes from a URL, file, or pasted text",
+    parameters:
+      @owner_parameter ++
+        [
+          store: [
+            in: :query,
+            type: :string,
+            required: true,
+            description: "Exact Brain store that may cite this source"
+          ]
+        ],
+    request_body: {"Source", "multipart/form-data", SourceCaptureRequest, required: true},
+    responses: [
+      created: {"Retained source", "application/json", SourceEntryResponse},
+      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
+      unprocessable_entity: {"Invalid source", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  operation(:learn_source,
+    summary: "Start one Agent learning run for an already retained source",
+    parameters: @owner_parameter ++ [document_id: [in: :path, type: :string, required: true]],
+    responses: [
+      ok: {"Learning run queued", "application/json", SourceEntryResponse},
+      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
+      not_found: {"Not found", "application/json", ErrorEnvelope},
+      conflict: {"No worker is ready", "application/json", ErrorEnvelope},
+      unprocessable_entity: {"Learning could not start", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  operation(:review_candidates,
+    summary: "List deterministic Brain review candidates",
+    parameters: @owner_parameter,
+    responses: [
+      ok: {"Brain review candidates", "application/json", ReviewCandidatesResponse},
+      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -288,9 +356,76 @@ defmodule AnkoleWeb.BrainController do
   end
 
   def source(conn, params) do
-    with {:ok, document_id} <- Adapter.required_text(params, "document_id"),
-         :ok <- ConsolePolicy.authorize(conn, "brain_sources", "read"),
-         {:ok, payload} <- Adapter.source(document_id) do
+    with {:ok, owner_uid} <- Adapter.required_text(params, "owner_uid"),
+         {:ok, document_id} <- Adapter.required_text(params, "document_id"),
+         :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "read"),
+         {:ok, payload} <- Adapter.source(owner_uid, document_id) do
+      json(conn, payload)
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def source_index(conn, params) do
+    with {:ok, owner_uid} <- Adapter.required_text(params, "owner_uid"),
+         :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "read"),
+         {:ok, payload} <- Adapter.list_sources(owner_uid) do
+      json(conn, payload)
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def review_candidates(conn, params) do
+    with {:ok, owner_uid} <- Adapter.required_text(params, "owner_uid"),
+         :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "read"),
+         {:ok, payload} <- Adapter.review_candidates(owner_uid) do
+      json(conn, payload)
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def source_raw(conn, params) do
+    with {:ok, owner_uid} <- Adapter.required_text(params, "owner_uid"),
+         {:ok, document_id} <- Adapter.required_text(params, "document_id"),
+         :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "read"),
+         {:ok, raw} <- Adapter.source_raw(owner_uid, document_id) do
+      conn
+      |> put_resp_content_type(raw.media_type)
+      |> put_resp_header(
+        "content-disposition",
+        "attachment; filename*=UTF-8''" <> URI.encode(raw.filename, &URI.char_unreserved?/1)
+      )
+      |> send_resp(200, raw.content)
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def create_source(conn, params) do
+    with {:ok, owner_uid} <- Adapter.required_text(params, "owner_uid"),
+         {:ok, store_key} <- Adapter.required_text(params, "store"),
+         :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "update"),
+         {:ok, actor_uid} <- current_principal_uid(conn),
+         {:ok, payload} <-
+           Adapter.create_source(
+             owner_uid,
+             store_key,
+             conn.body_params || %{},
+             actor_uid
+           ) do
+      conn |> put_status(:created) |> json(payload)
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def learn_source(conn, params) do
+    with {:ok, owner_uid} <- Adapter.required_text(params, "owner_uid"),
+         {:ok, document_id} <- Adapter.required_text(params, "document_id"),
+         :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "update"),
+         {:ok, payload} <- Adapter.learn_source(owner_uid, document_id) do
       json(conn, payload)
     else
       {:error, reason} -> error(conn, reason)
@@ -351,6 +486,16 @@ defmodule AnkoleWeb.BrainController do
   defp error(conn, reason)
        when reason in [:not_found, :entry_not_found, :audit_not_found] do
     ConsoleErrors.render(conn, 404, "not_found", "Brain record was not found")
+  end
+
+  defp error(conn, reason)
+       when reason in [:no_ready_file_worker, :no_worker_available, :worker_not_ready] do
+    ConsoleErrors.render(
+      conn,
+      409,
+      "worker_not_ready",
+      "No Agent Computer worker is ready; retry learning later"
+    )
   end
 
   defp error(conn, {:not_found, _kind}) do

@@ -268,9 +268,7 @@ async function runActiveTurnTask(
   activeTurns: Map<string, ActiveTurn>
 ): Promise<void> {
   const turnStart = active.turnStart
-  const progress = startTurnProgress(sendEnvelope, active, {
-    requireActivity: turnStart.turn.actor.session_id.startsWith('subagent:')
-  })
+  const progress = startTurnProgress(sendEnvelope, active)
 
   try {
     await runActiveTurn(config, sendEnvelope, rpcClient, active, progress.touch)
@@ -360,7 +358,7 @@ async function runActiveTurn(
     listSubagentDelegations: request => rpcClient.request(rpcMethods.subagentDelegationList, request),
     steerSubagentDelegation: request => rpcClient.request(rpcMethods.subagentDelegationSteer, request),
     stopSubagentDelegation: request => rpcClient.request(rpcMethods.subagentDelegationStop, request),
-    appendSubagentDelegationEvents: request => rpcClient.request(rpcMethods.subagentDelegationEventAppend, request),
+    upsertSubagentDelegationTurn: request => rpcClient.request(rpcMethods.subagentDelegationTurnUpsert, request),
     updateSubagentDelegationStatus: request => rpcClient.request(rpcMethods.subagentDelegationStatusUpdate, request),
     requestAgentConversationContext: request => requestAgentConversationContext(rpcClient, request),
     requestScheduleRPC: throwingRPCRequester(rpcClient, 'schedule RPC failed'),

@@ -78,6 +78,25 @@ die() {
   exit 1
 }
 
+print_banner() {
+  if [[ -t 1 ]]; then
+    printf '\033[36m'
+  fi
+  cat <<'BANNER'
+
+▄▄▄▄                      ▄▄
+▄██▀▀██▄       ▄▄           ██
+███  ███ ████▄ ██ ▄█▀ ▄███▄ ██ ▄█▀█▄
+███▀▀███ ██ ██ ████   ██ ██ ██ ██▄█▀
+███  ███ ██ ██ ██ ▀█▄ ▀███▀ ██ ▀█▄▄▄
+
+BANNER
+  if [[ -t 1 ]]; then
+    printf '\033[0m'
+  fi
+  printf '  @AgentBull/Ankole · Environment Setup\n\n'
+}
+
 run() {
   if [[ "$DRY_RUN" -eq 1 ]]; then
     printf '+'
@@ -141,6 +160,8 @@ if [[ "${OS}" == "windows" || "${OS}" == "unknown" || "${OS:-}" == "" || "${OS:-
 fi
 
 export PATH="$HOME/.local/share/mise/shims:$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.bun/bin:$PATH"
+
+print_banner
 
 ensure_homebrew() {
   if have brew; then

@@ -42,11 +42,10 @@ export type TurnProgressReporter = {
 export function startTurnProgress(
   sendEnvelope: EnvelopeSender,
   active: ActiveTurn,
-  opts: { requireActivity?: boolean; intervalMs?: number } = {}
+  opts: { intervalMs?: number } = {}
 ): TurnProgressReporter {
   let stopped = false
   let progressInFlight = false
-  let activitySinceLastCheckpoint = false
   let activitySummary = 'turn in progress'
 
   const sendProgress = (summary: string): void => {
@@ -60,15 +59,12 @@ export function startTurnProgress(
 
   sendProgress('turn started')
   const timer = setInterval(() => {
-    if (opts.requireActivity && !activitySinceLastCheckpoint) return
-    activitySinceLastCheckpoint = false
     sendProgress(activitySummary)
   }, opts.intervalMs ?? turnProgressIntervalMs)
   timer.unref?.()
 
   return {
     touch: summary => {
-      activitySinceLastCheckpoint = true
       if (summary) activitySummary = summary
     },
     stop: () => {

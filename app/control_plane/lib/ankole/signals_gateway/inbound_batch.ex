@@ -4,7 +4,8 @@ defmodule Ankole.SignalsGateway.InboundBatch do
 
   A row here is not actor work yet. It holds provider messages for one
   agent/binding/channel/thread until SignalsGateway can decide whether they
-  close as addressed input, ambient observation, or no actor event.
+  close as addressed input, ambient observation, or no actor event. Every row
+  has one nullable direct reply target so unrelated references never merge.
   """
 
   use Ecto.Schema
@@ -39,6 +40,7 @@ defmodule Ankole.SignalsGateway.InboundBatch do
       type: :string
 
     field :provider_thread_id, :string, default: ""
+    field :reply_to_source_entry_id, :string
     field :batch_state, :string, default: "open"
     field :mode, :string, default: "neutral"
     field :policy, :string
@@ -66,6 +68,7 @@ defmodule Ankole.SignalsGateway.InboundBatch do
       :session_id,
       :signal_channel_id,
       :provider_thread_id,
+      :reply_to_source_entry_id,
       :batch_state,
       :mode,
       :policy,
@@ -83,6 +86,7 @@ defmodule Ankole.SignalsGateway.InboundBatch do
       :binding_name,
       :session_id,
       :signal_channel_id,
+      :reply_to_source_entry_id,
       :batch_state,
       :mode,
       :policy,

@@ -8,8 +8,10 @@ defmodule Ankole.Brain.SourceWithdrawalTest do
   alias Ankole.Brain.Jobs.WithdrawSource
   alias Ankole.Brain.Knowledge
   alias Ankole.Brain.Scope
+  alias Ankole.Brain.Sources
   alias Ankole.Brain.SourceWithdrawal
   alias Ankole.Repo
+  alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.Ingress
 
   test "provider removal enqueues exact-source block withdrawal with recoverable audit" do
@@ -20,13 +22,26 @@ defmodule Ankole.Brain.SourceWithdrawalTest do
              Ingress.emit_entry(
                agent.uid,
                "brain-withdrawal",
-               group_entry(%{
+               webhook_entry(%{
                  source_event_id: "brain-source-event",
                  source_entry_id: "brain-source-message",
                  text: "A fact that will be withdrawn"
                }),
                now: base_time()
              )
+
+    assert {:ok, _event} =
+             SignalsGateway.append_actor_event(%{
+               agent_uid: agent.uid,
+               binding_name: "brain-withdrawal",
+               session_id: "brain-withdrawal",
+               source_event_id: "brain-source-observed",
+               signal_channel_id: source.signal_channel_id,
+               source_entry_id: source.source_entry_id,
+               type: "webhook.received",
+               available_at: base_time(),
+               payload: %{}
+             })
 
     {:ok, scope} = Scope.for_store(agent.uid, "public")
 
@@ -68,14 +83,25 @@ defmodule Ankole.Brain.SourceWithdrawalTest do
                %{kind: :agent, uid: agent.uid}
              )
 
-    assert {:ok, %{results: [%{block_id: prefix_block_id, entry_lock_version: 4}]}} =
+    assert {:ok, other_source} =
+             Sources.capture(
+               scope,
+               %{
+                 kind: "paste",
+                 title: "Independent source",
+                 content: "A separate durable source"
+               },
+               agent.uid
+             )
+
+    assert {:ok, %{results: [%{block_id: other_cited_block_id, entry_lock_version: 4}]}} =
              Knowledge.apply_operations(
                scope,
                %{
                  operation: "append_block",
                  entry_id: entry_id,
                  expected_entry_lock_version: 3,
-                 body: "A different citation src:#{source.document_id}_different"
+                 body: "A different citation src:#{other_source.document_id}"
                },
                %{kind: :agent, uid: agent.uid}
              )
@@ -86,7 +112,9 @@ defmodule Ankole.Brain.SourceWithdrawalTest do
                "brain-withdrawal",
                lifecycle_entry(%{
                  source_event_id: "brain-source-recall",
-                 source_entry_id: "brain-source-message"
+                 signal_channel_id: source.signal_channel_id,
+                 source_entry_id: "brain-source-message",
+                 channel: %{kind: :webhook_endpoint, reply_mode: :none, name: "Incident hook"}
                }),
                now: DateTime.add(base_time(), 1, :second)
              )
@@ -95,7 +123,7 @@ defmodule Ankole.Brain.SourceWithdrawalTest do
     assert :ok = perform_job(WithdrawSource, %{"document_id" => source.document_id})
 
     assert {:ok, projection} = Knowledge.open(scope, entry_id, block_limit: :all)
-    assert Enum.map(projection.blocks, & &1.id) == [retained_block_id, prefix_block_id]
+    assert Enum.map(projection.blocks, & &1.id) == [retained_block_id, other_cited_block_id]
     refute Enum.any?(projection.blocks, &(&1.id == cited_block_id))
 
     assert {:ok, audits} =
@@ -126,7 +154,7 @@ defmodule Ankole.Brain.SourceWithdrawalTest do
     assert Enum.map(restored.blocks, & &1.id) == [
              cited_block_id,
              retained_block_id,
-             prefix_block_id
+             other_cited_block_id
            ]
   end
 

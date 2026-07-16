@@ -62,7 +62,20 @@ const MemoryUpdateOperationParams = z.discriminatedUnion('operation', [
     type: z.string().min(1),
     summary: z.string().optional(),
     aliases: z.array(z.string().min(1)).optional(),
-    properties: z.record(z.string(), z.unknown()).optional()
+    properties: z.record(z.string(), z.unknown()).optional(),
+    initial_body: z.string().min(1).optional()
+  }),
+  z.object({
+    operation: z.literal('set_name'),
+    entry_id: EntryID,
+    name: z.string().min(1),
+    expected_entry_lock_version: LockVersion
+  }),
+  z.object({
+    operation: z.literal('set_type'),
+    entry_id: EntryID,
+    type: z.string().min(1),
+    expected_entry_lock_version: LockVersion
   }),
   z.object({
     operation: z.literal('delete_entry'),
@@ -122,28 +135,25 @@ const MemoryUpdateOperationParams = z.discriminatedUnion('operation', [
   })
 ])
 
+type MemoryUpdateOperationName = z.infer<typeof MemoryUpdateOperationParams>['operation']
+
+const memoryUpdateOperationNames = MemoryUpdateOperationParams.options.map(option => option.shape.operation.value) as [
+  MemoryUpdateOperationName,
+  ...MemoryUpdateOperationName[]
+]
+
 // OpenAI-compatible function tools require the parameters schema itself to be
 // an object. Keep the precise per-operation validator above for execution, but
 // expose one object-shaped model boundary instead of a root-level `oneOf`.
 const MemoryUpdateParams = z
   .object({
-    operation: z.enum([
-      'create_entry',
-      'delete_entry',
-      'append_block',
-      'edit_block',
-      'delete_block',
-      'set_property',
-      'add_relation',
-      'remove_relation',
-      'set_summary',
-      'set_aliases'
-    ]),
+    operation: z.enum(memoryUpdateOperationNames),
     name: z.string().min(1).optional(),
     type: z.string().min(1).optional(),
     summary: z.string().optional(),
     aliases: z.array(z.string().min(1)).optional(),
     properties: z.record(z.string(), z.unknown()).optional(),
+    initial_body: z.string().min(1).optional(),
     entry_id: EntryID.optional(),
     expected_entry_lock_version: LockVersion.optional(),
     body: z.string().min(1).optional(),
@@ -178,7 +188,7 @@ export function createMemoryTools(opts: CreateMemoryToolsOptions): AgentTool<any
   ]
 }
 
-function createMemorySearchTool(
+export function createMemorySearchTool(
   opts: CreateMemoryToolsOptions
 ): AgentTool<typeof MemorySearchParams, MemoryToolDetails> {
   return {
@@ -199,7 +209,9 @@ function createMemorySearchTool(
   }
 }
 
-function createMemoryOpenTool(opts: CreateMemoryToolsOptions): AgentTool<typeof MemoryOpenParams, MemoryToolDetails> {
+export function createMemoryOpenTool(
+  opts: CreateMemoryToolsOptions
+): AgentTool<typeof MemoryOpenParams, MemoryToolDetails> {
   return {
     name: 'memory_open',
     description:
@@ -219,7 +231,7 @@ function createMemoryOpenTool(opts: CreateMemoryToolsOptions): AgentTool<typeof 
   }
 }
 
-function createMemoryUpdateTool(
+export function createMemoryUpdateTool(
   opts: CreateMemoryToolsOptions
 ): AgentTool<typeof MemoryUpdateParams, MemoryToolDetails> {
   return {
@@ -243,7 +255,7 @@ function createMemoryUpdateTool(
   }
 }
 
-function createMemoryBrowseTool(
+export function createMemoryBrowseTool(
   opts: CreateMemoryToolsOptions
 ): AgentTool<typeof MemoryBrowseParams, MemoryToolDetails> {
   return {
@@ -352,6 +364,10 @@ function memoryMutationSummary(operation: string): string {
       return '已更新记忆摘要'
     case 'set_aliases':
       return '已更新记忆别名'
+    case 'set_name':
+      return '已更新记忆名称'
+    case 'set_type':
+      return '已更新记忆类型'
     default:
       return '已更新记忆'
   }

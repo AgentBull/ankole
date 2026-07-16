@@ -11,7 +11,14 @@ defmodule Ankole.AIGateway.ProviderDSL do
   alias Ankole.AIGateway.ProviderDefinition.Capability
   alias Ankole.AIGateway.ProviderDefinition.Setting
 
-  @capability_kinds [:language_model, :embedding_model, :rerank_model, :web_search, :web_fetch]
+  @capability_kinds [
+    :language_model,
+    :embedding_model,
+    :rerank_model,
+    :web_search,
+    :web_fetch,
+    :image_generate
+  ]
   @upstream_kinds [:sse, :eventstream, :websocket_text, :json]
 
   @doc false
@@ -92,6 +99,9 @@ defmodule Ankole.AIGateway.ProviderDSL do
 
   @doc "Declares the provider's web-fetch capability."
   defmacro web_fetch(do: block), do: capability(:web_fetch, block)
+
+  @doc "Declares the provider's image-generation capability."
+  defmacro image_generate(do: block), do: capability(:image_generate, block)
 
   @doc """
   Declares the upstream wire shape consumed by UniversalAIClient.

@@ -30,37 +30,105 @@ const CRON_DESCRIPTION = [
   'Use quiet_success=true for recurring monitors that should stay quiet on success and visibly report failures, blockers, or meaningful state changes.'
 ].join('\n')
 
-const CheckBackLaterParams = z
-  .object({
-    reason: z.string().min(1).max(2000).describe('Why this checkback is being scheduled.'),
-    check: z.string().min(1).max(4000).describe('What to check or continue when the wakeup fires.'),
-    context_summary: z.string().max(8000).optional().describe('Compact context needed at wakeup time.'),
-    after: z
-      .object({
-        value: z.number().int().positive(),
-        unit: z.enum(['millisecond', 'second', 'minute', 'hour', 'day', 'week'])
-      })
-      .optional()
-      .describe(
-        'Relative delay for genuinely relative requests. Mutually exclusive with at. Do not round a known clock time, market close, deadline, or timezone-converted instant into an approximate delay; use at instead.'
-      ),
+const CheckBackDelay = z.object({
+  value: z.number().int().positive(),
+  unit: z.enum(['millisecond', 'second', 'minute', 'hour', 'day', 'week'])
+})
+
+const CheckBackSchedule = z.union([
+  z.object({
+    after: CheckBackDelay.describe(
+      'Relative delay for genuinely relative requests. Do not round a known clock time, market close, deadline, or timezone-converted instant into an approximate delay.'
+    ),
+    timezone: z.string().optional()
+  }),
+  z.object({
     at: z
       .string()
-      .optional()
       .describe(
         'Exact absolute ISO datetime, or local ISO datetime with timezone. Prefer at whenever the requested event has a known clock time or deadline.'
       ),
-    timezone: z.string().optional().describe('Timezone for local at values.'),
-    quiet_success: z
-      .boolean()
-      .optional()
-      .describe(
-        'Allow this checkback to finish without a visible reply when nothing needs attention. Set true only when the user explicitly asked for no update on normal/no-change outcomes; failures, blockers, human decisions, meaningful changes, and time-sensitive risks must still be visible.'
-      ),
-    idempotency_key: z.string().optional().describe('Stable key for retrying the same schedule request.')
+    timezone: z.string().optional().describe('Timezone for local at values.')
   })
-  .refine(params => Boolean(params.after) !== Boolean(params.at), {
-    message: 'provide exactly one of after or at'
+])
+
+const CheckBackCreateParams = z.object({
+  action: z.literal('create'),
+  reason: z.string().min(1).max(2000).describe('Why this checkback is being scheduled.'),
+  check: z.string().min(1).max(4000).describe('What to check or continue when the wakeup fires.'),
+  context_summary: z.string().max(8000).optional().describe('Compact context needed at wakeup time.'),
+  schedule: CheckBackSchedule,
+  quiet_success: z
+    .boolean()
+    .optional()
+    .describe(
+      'Allow this checkback to finish without a visible reply when nothing needs attention. Set true only when the user explicitly asked for no update on normal/no-change outcomes; failures, blockers, human decisions, meaningful changes, and time-sensitive risks must still be visible.'
+    ),
+  idempotency_key: z.string().optional().describe('Stable key for retrying the same schedule request.')
+})
+
+const CheckBackUpdateFields = z
+  .object({
+    reason: z.string().min(1).max(2000).describe('Why this checkback is being scheduled.'),
+    check: z.string().min(1).max(4000).optional().describe('Replacement wakeup instructions.'),
+    context_summary: z.string().max(8000).nullable().optional().describe('Replacement compact wakeup context.'),
+    schedule: CheckBackSchedule.optional(),
+    quiet_success: z.boolean().optional()
+  })
+  .partial()
+  .refine(updates => Object.keys(updates).length > 0, {
+    message: 'provide at least one checkback update'
+  })
+
+const CheckBackLaterOperationParams = z.discriminatedUnion('action', [
+  CheckBackCreateParams,
+  z.object({
+    action: z.literal('list'),
+    limit: z.number().int().positive().max(25).optional()
+  }),
+  z.object({
+    action: z.literal('get'),
+    scheduled_event_id: z.string().uuid()
+  }),
+  z.object({
+    action: z.literal('update'),
+    scheduled_event_id: z.string().uuid(),
+    updates: CheckBackUpdateFields,
+    idempotency_key: z.string().optional().describe('Stable key for retrying the same update request.')
+  }),
+  z.object({
+    action: z.literal('cancel'),
+    scheduled_event_id: z.string().uuid()
+  })
+])
+
+// OpenAI-compatible function tools require the parameters schema itself to be
+// an object. Keep the precise per-action validator above for execution, but
+// expose one object-shaped model boundary instead of a root-level `oneOf`.
+const CheckBackLaterParams = z
+  .object({
+    action: z.enum(['create', 'list', 'get', 'update', 'cancel']).describe('Checkback management action.'),
+    scheduled_event_id: z
+      .string()
+      .uuid()
+      .optional()
+      .describe('Required for get, update, and cancel. Use list first when the id is unknown.'),
+    reason: z.string().min(1).max(2000).optional().describe('Required for create: why the checkback is useful.'),
+    check: z.string().min(1).max(4000).optional().describe('Required for create: what to do at wakeup.'),
+    context_summary: z.string().max(8000).nullable().optional().describe('Optional compact create-time context.'),
+    schedule: CheckBackSchedule.optional().describe('Required for create: the one-shot wakeup time.'),
+    quiet_success: z.boolean().optional().describe('Optional create-time quiet-success policy.'),
+    idempotency_key: z.string().optional().describe('Optional stable retry key for create or update.'),
+    updates: CheckBackUpdateFields.optional().describe('Required for update; provide at least one changed field.'),
+    limit: z.number().int().positive().max(25).optional().describe('Optional list result limit, at most 25.')
+  })
+  .superRefine((params, context) => {
+    const result = CheckBackLaterOperationParams.safeParse(params)
+    if (!result.success) {
+      for (const issue of result.error.issues) {
+        context.addIssue({ code: 'custom', path: issue.path, message: issue.message })
+      }
+    }
   })
 
 const EverySchedule = z.object({
@@ -113,48 +181,75 @@ function createCheckBackLaterTool(
 ): AgentTool<typeof CheckBackLaterParams, ScheduleToolDetails> {
   return {
     name: 'check_back_later',
-    description:
-      'Schedule one delayed self-wakeup for this conversation. Use when the user asks you to wait, remind yourself, follow up later, or re-check something after time passes. Use at for a named clock time, market close, deadline, or any exact instant you can calculate; use after only for a genuinely relative delay, and never round a known instant into whole delay units. Checkbacks are visible by default. Set quiet_success=true only when the user explicitly asked not to be notified for normal or unchanged outcomes. If another quiet checkback is needed later, opt in again. After scheduling, tell the user when you will check and whether a normal outcome will be reported.',
+    description: [
+      'Manage one-shot delayed self-wakeups for this conversation: create, list, inspect, update, or cancel pending checkbacks.',
+      'Use this tool when the user asks you to wait, remind yourself, follow up later, re-check something after time passes, or changes/revokes an already scheduled checkback.',
+      'Use list/get before update/cancel when you do not know the scheduled_event_id.',
+      'For create provide reason, check, and schedule. For get/update/cancel provide scheduled_event_id; update also requires a non-empty updates object.',
+      'For create/update schedules, use at for a named clock time, market close, deadline, or exact instant; use after only for a genuinely relative delay.',
+      'A conversational correction does not change durable work by itself. Never claim a checkback was created, updated, or cancelled until the corresponding tool action returns a confirmed result.',
+      'Checkbacks are visible by default. Use quiet_success=true only when the user explicitly asked not to be notified for normal or unchanged outcomes.'
+    ].join('\n'),
     schema: CheckBackLaterParams,
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
     async execute(toolCallID, params): Promise<AgentToolResult<ScheduleToolDetails>> {
-      const replyRoute = currentReplyRoute(opts.turnStart)
-      if (!replyRoute) {
-        throw new Error('check_back_later requires a provider reply route from the current turn')
+      const operation = CheckBackLaterOperationParams.parse(params)
+      const call = opts.requestScheduleRPC!
+      const base: TurnScopedRPCRequest = {
+        request_id: `schedule-checkback-${operation.action}-${crypto.randomUUID()}`,
+        turn: opts.turnStart.turn
       }
 
-      const schedule = params.after
-        ? { after: params.after, ...(params.timezone ? { timezone: params.timezone } : {}) }
-        : { at: params.at, ...(params.timezone ? { timezone: params.timezone } : {}) }
-
-      const response = await opts.requestScheduleRPC!(rpcMethods.scheduleCheckBackLaterCreate, {
-        request_id: `schedule-checkback-${crypto.randomUUID()}`,
-        turn: opts.turnStart.turn,
-        tool_call_id: toolCallID,
-        idempotency_key: params.idempotency_key ?? defaultCheckBackIdempotencyKey(opts.turnStart, params),
-        reason: params.reason,
-        check: params.check,
-        context_summary: params.context_summary,
-        quiet_success: params.quiet_success === true,
-        schedule,
-        reply_route: replyRoute
-      })
+      const response = await match(operation)
+        .with({ action: 'list' }, value =>
+          call(rpcMethods.scheduleCheckBackLaterList, {
+            ...base,
+            ...(value.limit ? { limit: value.limit } : {})
+          })
+        )
+        .with({ action: 'get' }, value =>
+          call(rpcMethods.scheduleCheckBackLaterGet, {
+            ...base,
+            scheduled_event_id: value.scheduled_event_id
+          })
+        )
+        .with({ action: 'create' }, value => {
+          const replyRoute = requiredCheckBackReplyRoute(opts.turnStart)
+          return call(rpcMethods.scheduleCheckBackLaterCreate, {
+            ...base,
+            tool_call_id: toolCallID,
+            idempotency_key: value.idempotency_key ?? defaultCheckBackIdempotencyKey(opts.turnStart, value),
+            reason: value.reason,
+            check: value.check,
+            context_summary: value.context_summary,
+            quiet_success: value.quiet_success === true,
+            schedule: value.schedule,
+            reply_route: replyRoute
+          })
+        })
+        .with({ action: 'update' }, value => {
+          const replyRoute = requiredCheckBackReplyRoute(opts.turnStart)
+          return call(rpcMethods.scheduleCheckBackLaterUpdate, {
+            ...base,
+            scheduled_event_id: value.scheduled_event_id,
+            tool_call_id: toolCallID,
+            idempotency_key: value.idempotency_key ?? defaultCheckBackUpdateIdempotencyKey(opts.turnStart, value),
+            updates: value.updates,
+            reply_route: replyRoute
+          })
+        })
+        .with({ action: 'cancel' }, value =>
+          call(rpcMethods.scheduleCheckBackLaterCancel, {
+            ...base,
+            scheduled_event_id: value.scheduled_event_id
+          })
+        )
+        .exhaustive()
 
       return jsonToolResult(response, {
-        presentation: [
-          {
-            kind: 'effect.receipt',
-            payload: {
-              operation_id: toolCallID,
-              phase: 'confirmed',
-              summary: '已安排后续检查',
-              scope: checkBackScheduleScope(params),
-              follow_up: params.quiet_success === true ? '仅在异常、阻塞或有变化时通知' : '到时会反馈检查结果'
-            }
-          }
-        ]
+        presentation: checkBackEffectPresentation(toolCallID, operation)
       })
     }
   }
@@ -166,25 +261,30 @@ function createCheckBackLaterTool(
  * Provider/tool retries should create one schedule, not duplicate wakeups. The
  * key is stable for the actor event and semantic schedule payload.
  */
-function defaultCheckBackIdempotencyKey(turnStart: TurnStart, params: z.output<typeof CheckBackLaterParams>): string {
+function defaultCheckBackIdempotencyKey(turnStart: TurnStart, params: z.output<typeof CheckBackCreateParams>): string {
   const stableInput = {
     actor_event_id: turnStart.turn.actor_event_id,
     reason: params.reason.trim(),
     check: params.check.trim(),
     context_summary: params.context_summary?.trim() ?? '',
     ...(params.quiet_success === true ? { quiet_success: true } : {}),
-    schedule: params.after
-      ? {
-          after: params.after,
-          timezone: params.timezone ?? null
-        }
-      : {
-          at: params.at ?? null,
-          timezone: params.timezone ?? null
-        }
+    schedule: params.schedule
   }
 
   return `check_back_later:${turnStart.turn.actor_event_id}:${stableHash(stableInput)}`
+}
+
+function defaultCheckBackUpdateIdempotencyKey(
+  turnStart: TurnStart,
+  params: Extract<z.output<typeof CheckBackLaterOperationParams>, { action: 'update' }>
+): string {
+  const stableInput = {
+    actor_event_id: turnStart.turn.actor_event_id,
+    scheduled_event_id: params.scheduled_event_id,
+    updates: params.updates
+  }
+
+  return `check_back_later:update:${params.scheduled_event_id}:${turnStart.turn.actor_event_id}:${stableHash(stableInput)}`
 }
 
 /**
@@ -232,10 +332,67 @@ function createCronTool(opts: CreateScheduleToolsOptions): AgentTool<typeof Cron
   }
 }
 
-function checkBackScheduleScope(params: z.output<typeof CheckBackLaterParams>): string {
-  if (params.at) return params.timezone ? `${params.at} (${params.timezone})` : params.at
+function checkBackEffectPresentation(
+  operationID: string,
+  params: z.output<typeof CheckBackLaterOperationParams>
+): AgentToolResult<ScheduleToolDetails>['presentation'] {
+  if (params.action === 'create') {
+    return [
+      {
+        kind: 'effect.receipt',
+        payload: {
+          operation_id: operationID,
+          phase: 'confirmed',
+          summary: '已安排后续检查',
+          scope: checkBackScheduleScope(params.schedule),
+          follow_up: params.quiet_success === true ? '仅在异常、阻塞或有变化时通知' : '到时会反馈检查结果'
+        }
+      }
+    ]
+  }
 
-  const after = params.after!
+  if (params.action === 'update') {
+    return [
+      {
+        kind: 'effect.receipt',
+        payload: compactRecord({
+          operation_id: operationID,
+          phase: 'confirmed',
+          summary: '已更新后续检查',
+          target: params.scheduled_event_id,
+          scope: params.updates.schedule ? checkBackScheduleScope(params.updates.schedule) : undefined,
+          follow_up:
+            params.updates.quiet_success === true
+              ? '仅在异常、阻塞或有变化时通知'
+              : params.updates.quiet_success === false
+                ? '到时会反馈检查结果'
+                : undefined
+        })
+      }
+    ]
+  }
+
+  if (params.action === 'cancel') {
+    return [
+      {
+        kind: 'effect.receipt',
+        payload: {
+          operation_id: operationID,
+          phase: 'confirmed',
+          summary: '已取消后续检查',
+          target: params.scheduled_event_id
+        }
+      }
+    ]
+  }
+
+  return []
+}
+
+function checkBackScheduleScope(schedule: z.output<typeof CheckBackSchedule>): string {
+  if ('at' in schedule) return schedule.timezone ? `${schedule.at} (${schedule.timezone})` : schedule.at
+
+  const after = schedule.after
   const unit =
     {
       millisecond: '毫秒',
@@ -247,6 +404,14 @@ function checkBackScheduleScope(params: z.output<typeof CheckBackLaterParams>): 
     }[after.unit] ?? after.unit
 
   return `${after.value} ${unit}后`
+}
+
+function requiredCheckBackReplyRoute(turnStart: TurnStart): ReplyRoute {
+  const replyRoute = currentReplyRoute(turnStart)
+  if (!replyRoute) {
+    throw new Error('check_back_later create/update requires a provider reply route from the current turn')
+  }
+  return replyRoute
 }
 
 function cronEffectPresentation(

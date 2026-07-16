@@ -52,6 +52,12 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
       api_resolver(:openrouter_rerank)
       prepare(:prepare_rerank_model)
     end
+
+    image_generate do
+      upstream(:json)
+      api_resolver(:openrouter_images)
+      prepare(:prepare_image_generate)
+    end
   end
 
   @doc """
@@ -95,6 +101,21 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
     |> UniversalAIRequest.bearer_auth()
   end
 
+  @doc """
+  Builds the stable OpenRouter `/images` request used by the Responses hosted
+  image-generation executor.
+
+  Endpoint selection and request-field validation happen before this boundary;
+  this function only applies the selected connection, credentials, and
+  OpenRouter attribution headers.
+  """
+  def prepare_image_generate(ctx) do
+    ctx
+    |> UniversalAIRequest.new("images", :openrouter_images)
+    |> common_headers(ctx)
+    |> UniversalAIRequest.bearer_auth()
+  end
+
   @impl true
   def models_metadata_source(ctx) when is_map(ctx) do
     headers =
@@ -113,6 +134,24 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
       }}}
   end
 
+  @doc false
+  @spec image_models_metadata_source(map()) :: {:ok, map()}
+  def image_models_metadata_source(ctx) when is_map(ctx) do
+    headers =
+      ctx
+      |> UniversalAIRequest.raw_headers()
+      |> common_headers(ctx)
+      |> UniversalAIRequest.bearer_auth(ctx.settings[:api_key])
+
+    {:ok,
+     %{
+       ctx: ctx,
+       models_path: "images/models",
+       headers: headers,
+       cache_key: "images/models"
+     }}
+  end
+
   @doc """
   Prepares an OpenRouter connection check through a provider-owned model catalog endpoint.
   """
@@ -122,6 +161,9 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
       case Map.get(ctx, :capability) || Map.get(ctx, "capability") do
         capability when capability in ["embedding", :embedding, :embedding_model] ->
           "embeddings/models"
+
+        capability when capability in ["image_generate", :image_generate] ->
+          "images/models"
 
         _capability ->
           "models"

@@ -45,7 +45,18 @@ mod atoms {
 pub struct RuntimeFabricRouterResource(pub RouterHandle);
 
 #[rustler::resource_impl]
-impl rustler::Resource for RuntimeFabricRouterResource {}
+impl rustler::Resource for RuntimeFabricRouterResource {
+    const IMPLEMENTS_DESTRUCTOR: bool = true;
+    const IMPLEMENTS_DOWN: bool = true;
+
+    fn destructor(self, _env: Env<'_>) {
+        self.0.request_stop();
+    }
+
+    fn down<'a>(&'a self, _env: Env<'a>, _pid: LocalPid, _monitor: Monitor) {
+        self.0.request_stop();
+    }
+}
 
 /// Owns a native UniversalAIClient stream task across BEAM demand calls.
 pub struct UniversalAIClientStreamResource(pub universal_ai_client::StreamHandle);
@@ -195,6 +206,7 @@ pub fn runtime_fabric_decode_envelope_nif(envelope_bytes: Term<'_>) -> NIFResult
 /// Starts a Rust-owned ZeroMQ ROUTER socket for RuntimeFabric traffic.
 #[rustler::nif(schedule = "DirtyIo")]
 pub fn runtime_fabric_router_start(
+    env: Env<'_>,
     endpoint: Term<'_>,
     owner_pid: LocalPid,
     opts_json: Term<'_>,
@@ -208,7 +220,9 @@ pub fn runtime_fabric_router_start(
     let sink = Arc::new(move |event| send_router_event(owner_pid, event));
     let handle = runtime_fabric::transport::start_router(config, sink).map_err(error)?;
 
-    Ok(ResourceArc::new(RuntimeFabricRouterResource(handle)))
+    let resource = ResourceArc::new(RuntimeFabricRouterResource(handle));
+    let _ = resource.monitor(Some(env), &owner_pid);
+    Ok(resource)
 }
 
 /// Returns the bound ROUTER endpoint, after wildcard port expansion.

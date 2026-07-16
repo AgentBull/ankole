@@ -244,6 +244,9 @@ defmodule Ankole.Plugins.Registry do
         "ai_gateway.provider" ->
           Ankole.AIGateway.Providers.validate_adapter_declaration(declaration)
 
+        "ai_agent.library.skill_enablement_provider" ->
+          Ankole.AIAgent.Library.SkillEnablementProviders.validate_declaration(declaration)
+
         _other_contract ->
           :ok
       end

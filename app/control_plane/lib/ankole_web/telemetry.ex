@@ -98,6 +98,20 @@ defmodule AnkoleWeb.Telemetry do
         unit: {:native, :millisecond}
       ),
 
+      # AIGateway hosted image-generation metrics. These events contain only
+      # counts, byte sizes, latency, and provider routing identifiers.
+      sum("ankole.ai_gateway.hosted_image_generation.count",
+        tags: [:result, :failure_reason, :model, :provider_tag, :provider_slug]
+      ),
+      sum("ankole.ai_gateway.hosted_image_generation.hosted_tool_calls"),
+      sum("ankole.ai_gateway.hosted_image_generation.successful_image_calls"),
+      sum("ankole.ai_gateway.hosted_image_generation.main_model_rounds"),
+      summary("ankole.ai_gateway.hosted_image_generation.image_latency_ms"),
+      sum("ankole.ai_gateway.hosted_image_generation.input_bytes"),
+      sum("ankole.ai_gateway.hosted_image_generation.output_bytes"),
+      sum("ankole.ai_gateway.hosted_image_generation.partial_images"),
+      sum("ankole.ai_gateway.hosted_image_generation.provider_cost"),
+
       # VM Metrics
       summary("vm.memory.total", unit: {:byte, :kilobyte}),
       summary("vm.total_run_queue_lengths.total"),

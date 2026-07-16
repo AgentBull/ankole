@@ -107,6 +107,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
     assert get_in(plan, ["header", "icon", "token"]) == "list-check_outlined"
     assert plan["expanded"]
 
+    activity = Enum.find(elements, &(&1["element_id"] == "activity"))
+    refute activity["expanded"]
+
     thought = Enum.find(elements, &(&1["element_id"] == "thought"))
     assert get_in(thought, ["header", "icon", "token"]) == "ai-common_colorful"
     assert thought["expanded"]
@@ -133,6 +136,54 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
     refute Enum.any?(elements, &(&1["element_id"] == "state"))
     refute Enum.any?(elements, &(&1["element_id"] == "separator"))
     assert Enum.find(elements, &(&1["element_id"] == "answer"))["content"] == live["answer"]
+  end
+
+  test "renders failed subagent context as a quoted prefix only on the first card" do
+    presentation =
+      ReplyPresentation.new()
+      |> ReplyPresentation.project_trigger("subagent.delegation.failed", %{
+        "data" => %{
+          "title" => "第二版 deep research",
+          "result_summary" => "返回 JSON Schema 少声明了必填字段"
+        }
+      })
+      |> ReplyPresentation.append_answer("我已修正配置并重新提交任务。")
+
+    assert {:ok, first_card} =
+             Renderer.render(presentation,
+               mode: :working,
+               answer: presentation["answer"],
+               page_index: 0,
+               page_count: 2,
+               page_tail: false
+             )
+
+    first_elements = get_in(first_card, ["body", "elements"])
+    trigger = Enum.find(first_elements, &(&1["element_id"] == "trigger_context"))
+
+    assert trigger["tag"] == "markdown"
+
+    assert trigger["i18n_content"] == %{
+             "en_us" => "> Background task “第二版 deep research” failed: 返回 JSON Schema 少声明了必填字段",
+             "zh_cn" => "> 后台任务「第二版 deep research」失败：返回 JSON Schema 少声明了必填字段"
+           }
+
+    assert element_index(first_elements, "trigger_context") <
+             element_index(first_elements, "answer")
+
+    assert {:ok, second_card} =
+             Renderer.render(presentation,
+               mode: :working,
+               answer: "后续分页",
+               page_index: 1,
+               page_count: 2,
+               page_tail: true
+             )
+
+    refute Enum.any?(
+             get_in(second_card, ["body", "elements"]),
+             &(&1["element_id"] == "trigger_context")
+           )
   end
 
   test "completed metadata is collapsed above a divider and the final answer" do
@@ -222,6 +273,79 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
 
     assert element_index(terminal_elements, "separator") <
              element_index(terminal_elements, "answer")
+  end
+
+  test "plan owns working focus while collapsed activity names current work" do
+    with_plan =
+      ReplyPresentation.new()
+      |> ReplyPresentation.apply_event("plan.snapshot", %{
+        "operation_id" => "todo",
+        "revision" => 1,
+        "items" => [
+          %{"id" => "inspect", "content" => "检查实现", "status" => "in_progress"},
+          %{"id" => "verify", "content" => "完成验证", "status" => "pending"}
+        ]
+      })
+      |> ReplyPresentation.apply_event("tool.activity", %{
+        "operation_id" => "read",
+        "revision" => 2,
+        "phase" => "running",
+        "label" => "读取文件：core/agent-loop.ts"
+      })
+      |> ReplyPresentation.apply_event("tool.activity", %{
+        "operation_id" => "test",
+        "revision" => 3,
+        "phase" => "running",
+        "label" => "运行测试 · mix test"
+      })
+
+    assert {:ok, card} = Renderer.render(with_plan, mode: :working)
+    elements = get_in(card, ["body", "elements"])
+    plan = Enum.find(elements, &(&1["element_id"] == "plan"))
+    activity = Enum.find(elements, &(&1["element_id"] == "activity"))
+
+    assert plan["expanded"]
+    refute activity["expanded"]
+
+    assert get_in(activity, ["header", "title", "i18n_content", "zh_cn"]) ==
+             "<font color='grey'>处理过程 · 运行测试 · mix test 等 2 项</font>"
+
+    assert get_in(activity, ["header", "title", "i18n_content", "en_us"]) ==
+             "<font color='grey'>Progress · 运行测试 · mix test among 2 items</font>"
+
+    without_plan =
+      ReplyPresentation.new()
+      |> ReplyPresentation.apply_event("tool.activity", %{
+        "operation_id" => "read",
+        "revision" => 1,
+        "phase" => "running",
+        "label" => "读取文件：core/agent-loop.ts"
+      })
+
+    assert {:ok, card} = Renderer.render(without_plan, mode: :working)
+    activity = Enum.find(get_in(card, ["body", "elements"]), &(&1["element_id"] == "activity"))
+
+    assert activity["expanded"]
+
+    assert get_in(activity, ["header", "title", "i18n_content", "zh_cn"]) ==
+             "<font color='grey'>处理过程 · 读取文件：core/agent-loop.ts</font>"
+
+    long_label = String.duplicate("长", 80)
+
+    long_activity =
+      ReplyPresentation.new()
+      |> ReplyPresentation.apply_event("tool.activity", %{
+        "operation_id" => "long",
+        "revision" => 1,
+        "phase" => "running",
+        "label" => long_label
+      })
+
+    assert {:ok, card} = Renderer.render(long_activity, mode: :working)
+    activity = Enum.find(get_in(card, ["body", "elements"]), &(&1["element_id"] == "activity"))
+
+    assert get_in(activity, ["header", "title", "i18n_content", "zh_cn"]) ==
+             "<font color='grey'>处理过程 · #{String.duplicate("长", 59)}…</font>"
   end
 
   test "working status uses the AI icon and adds a divider only after body content appears" do
@@ -316,6 +440,15 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
 
     assert get_in(plan_addition, ["params", "type"]) == "insert_before"
     assert get_in(plan_addition, ["params", "target_element_id"]) == "activity"
+
+    activity_update =
+      Enum.find(actions, fn action ->
+        action["action"] == "update_element" and
+          get_in(action, ["params", "element_id"]) == "activity"
+      end)
+
+    assert is_map(activity_update)
+    refute get_in(activity_update, ["params", "element", "expanded"])
   end
 
   test "renders versioned choice values and locks an accepted choice in place" do
@@ -366,15 +499,105 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
     assert length(button_names) == length(Enum.uniq(button_names))
     assert button["text"]["content"] == "运营人员（已选择）"
 
-    assert button["value"] == %{
-             "version" => "ankole.interactive_output.action.v1",
-             "interactionId" => "clarify:4",
-             "interactionVersion" => 4,
-             "controlId" => "audience",
-             "selectedOptionId" => "operators",
-             "optionValue" => "Operators",
-             "sourceActorEventId" => source_event_id
+    assert get_in(button, ["behaviors", Access.at(0)]) == %{
+             "type" => "callback",
+             "value" => %{
+               "version" => "ankole.interactive_output.action.v1",
+               "answerKind" => "choice",
+               "interactionId" => "clarify:4",
+               "interactionVersion" => 4,
+               "controlId" => "audience",
+               "selectedOptionId" => "operators",
+               "optionValue" => "Operators",
+               "sourceActorEventId" => source_event_id
+             }
            }
+  end
+
+  test "renders a root-level free-text form and removes it after supersession" do
+    source_event_id = Ecto.UUID.generate()
+
+    presentation =
+      ReplyPresentation.new()
+      |> ReplyPresentation.apply_event("interaction.request", %{
+        "revision" => 1,
+        "prompt" => "请补充范围",
+        "controls" => [
+          %{
+            "id" => "all",
+            "type" => "button",
+            "label" => "全部",
+            "interaction_id" => "clarify:form",
+            "source_actor_event_id" => source_event_id,
+            "control_id" => "scope",
+            "selected_option_id" => "all",
+            "option_value" => "All",
+            "revision" => 1
+          },
+          %{
+            "id" => "clarify-free-input",
+            "type" => "form",
+            "label" => "Reply",
+            "style" => "primary",
+            "interaction_id" => "clarify:form",
+            "source_actor_event_id" => source_event_id,
+            "control_id" => "clarify-free-input",
+            "revision" => 1,
+            "fields" => [
+              %{
+                "id" => "clarify-answer",
+                "type" => "input",
+                "label" => "Your answer",
+                "required" => true,
+                "multiline" => true,
+                "max_length" => 1_000
+              }
+            ]
+          }
+        ]
+      })
+
+    assert {:ok, card} = Renderer.render(presentation, mode: :terminal)
+
+    form =
+      Enum.find(get_in(card, ["body", "elements"]), fn element ->
+        String.starts_with?(element["element_id"] || "", "action_form")
+      end)
+
+    assert form["tag"] == "form"
+    assert [input, submit] = form["elements"]
+    assert input["tag"] == "input"
+    assert input["name"] == "clarify-answer"
+    assert input["input_type"] == "multiline_text"
+    assert input["max_length"] == 1_000
+    assert submit["form_action_type"] == "submit"
+
+    assert get_in(submit, ["behaviors", Access.at(0)]) == %{
+             "type" => "callback",
+             "value" => %{
+               "version" => "ankole.interactive_output.action.v1",
+               "answerKind" => "free_text",
+               "interactionId" => "clarify:form",
+               "interactionVersion" => 1,
+               "controlId" => "clarify-free-input",
+               "inputName" => "clarify-answer",
+               "sourceActorEventId" => source_event_id
+             }
+           }
+
+    superseded = ReplyPresentation.resolve_interaction(presentation, "superseded")
+    assert {:ok, card} = Renderer.render(superseded, mode: :terminal)
+
+    refute Enum.any?(get_in(card, ["body", "elements"]), fn element ->
+             String.starts_with?(element["element_id"] || "", "action_form")
+           end)
+
+    actions = Enum.find(get_in(card, ["body", "elements"]), &(&1["element_id"] == "actions"))
+    assert Enum.all?(actions["columns"], &get_in(&1, ["elements", Access.at(0), "disabled"]))
+
+    state = Enum.find(get_in(card, ["body", "elements"]), &(&1["element_id"] == "state"))
+    assert state["text"]["content"] == "No longer active because the conversation continued"
+    assert state["text"]["i18n_content"]["zh_cn"] == "已失效，对话已继续"
   end
 
   test "does not expose a button without a complete durable interaction locator" do

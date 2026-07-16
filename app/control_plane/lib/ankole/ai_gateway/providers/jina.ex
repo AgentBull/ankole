@@ -8,7 +8,7 @@ defmodule Ankole.AIGateway.Providers.Jina do
   alias Ankole.AIGateway.UniversalAIRequest
 
   provider :jina do
-    label(%{"default" => "Jina AI", "zh-Hans-CN" => "Jina AI"})
+    label(%{"default" => "Jina Embedding & Rerank", "zh-Hans-CN" => "Jina 嵌入与重排"})
     base_url("https://api.jina.ai/v1", advanced: true)
 
     setting(:api_key, encrypted: true)

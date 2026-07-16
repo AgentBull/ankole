@@ -8,10 +8,8 @@ defmodule Ankole.Brain.SourceWithdrawal do
   normal audited mutation path so an operator can restore a false positive.
   """
 
-  import Ecto.Query, warn: false
-
+  alias Ankole.Brain.Citations
   alias Ankole.Brain.Knowledge
-  alias Ankole.Brain.Schemas.EntryBlock
   alias Ankole.Brain.Scope
   alias Ankole.Repo
 
@@ -25,15 +23,9 @@ defmodule Ankole.Brain.SourceWithdrawal do
   @spec withdraw(String.t()) :: {:ok, map()} | {:error, term()}
   def withdraw(document_id) when is_binary(document_id) do
     source_ref = "src:#{document_id}"
-    source_pattern = Regex.escape(source_ref) <> "([^A-Za-z0-9_-]|$)"
 
     Repo.transact(fn repo ->
-      blocks =
-        EntryBlock
-        |> where([block], fragment("? ~ ?", block.body, ^source_pattern))
-        |> order_by([block], asc: block.entry_id, asc: block.position, asc: block.id)
-        |> lock("FOR UPDATE")
-        |> repo.all()
+      blocks = Citations.blocks_for_source(repo, document_id, lock: true)
 
       Enum.reduce_while(blocks, {:ok, []}, fn block, {:ok, deleted} ->
         with {:ok, scope} <- Scope.for_store(block.owner_uid, block.store_key),

@@ -39,13 +39,16 @@ impl GoogleGeminiState {
                         .get("args")
                         .map(|args| sonic_rs::to_string(args).unwrap_or_else(|_| "{}".to_string()))
                         .unwrap_or_else(|| "{}".to_string());
-                    events.extend(self.inner.tool_call_delta(&json!({
-                        "index": self.inner.next_tool_call_index(),
-                        "function": {
-                            "name": call.get("name").and_then(Value::as_str).unwrap_or("unknown"),
-                            "arguments": arguments
-                        }
-                    })));
+                    events.extend(self.inner.tool_call_delta(
+                        context,
+                        &json!({
+                            "index": self.inner.next_tool_call_index(),
+                            "function": {
+                                "name": call.get("name").and_then(Value::as_str).unwrap_or("unknown"),
+                                "arguments": arguments
+                            }
+                        }),
+                    ));
                 }
             }
 

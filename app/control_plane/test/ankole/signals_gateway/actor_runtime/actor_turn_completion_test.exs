@@ -2,6 +2,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
   use Ankole.SignalsGateway.ActorRuntimeCase
 
   alias Ankole.SignalsGateway.InputTombstone
+  alias Ankole.SignalsGateway.ReplyInteractionState
 
   setup context do
     Ankole.SignalsGateway.ActorRuntimeCase.use_mock_signal_provider_plugin(context)
@@ -15,7 +16,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
       assert {:ok, %{status: :turn_completed, deleted_deliveries: 1}} =
                complete_turn(turn_ref, final)
 
-      assert %DateTime{} = Repo.get!(ActorEvent, event.id).completed_at
+      completed_event = Repo.get!(ActorEvent, event.id)
+      assert %DateTime{} = completed_event.completed_at
+      assert completed_event.final_response_id == "resp_#{final.id}"
+      assert completed_event.turn_outcome == "loop_finished"
 
       assert %OutboxEntry{} =
                Repo.get_by!(OutboxEntry,
@@ -34,6 +38,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
                ),
                :count
              ) == 1
+
+      assert {:error, :actor_turn_completion_conflict} =
+               complete_turn(turn_ref, %{final | id: Ecto.UUID.generate()})
+
+      assert {:error, :actor_turn_completion_conflict} =
+               complete_turn(turn_ref, final, "iteration_exhausted")
     end
 
     test "moves a successful activation to warm idle and stops it normally at idle expiry" do
@@ -154,6 +164,29 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
              )
     end
 
+    test "completes a channel-less internal turn without provider outboxes" do
+      %{agent: agent, event: event, turn_ref: turn_ref} =
+        start_accepted_turn("channel-less-internal")
+
+      event =
+        event
+        |> ActorEvent.changeset(%{type: "brain.source.learn", signal_channel_id: nil})
+        |> Repo.update!()
+
+      final = complete_response(agent.uid, event, "source learning completed")
+
+      assert {:ok,
+              %{
+                status: :turn_completed,
+                outboxes: %{attachments: [], clarify: nil, final: nil}
+              }} = complete_turn(turn_ref, final)
+
+      completed_event = Repo.get!(ActorEvent, event.id)
+      assert %DateTime{} = completed_event.completed_at
+      assert completed_event.final_response_id == "resp_#{final.id}"
+      refute Repo.get_by(OutboxEntry, source_actor_event_id: event.id)
+    end
+
     test "commits a clarify-only projection without inventing final text" do
       %{agent: agent, event: event, turn_ref: turn_ref} = start_accepted_turn("clarify-only")
 
@@ -191,7 +224,71 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
 
       assert outbox.payload["interactive_output"]["free_input"]
 
-      assert %DateTime{} = Repo.get!(ActorEvent, event.id).completed_at
+      presentation = outbox.payload["reply_presentation"]
+      assert presentation["interaction_status"] == "pending"
+      assert Enum.any?(presentation["actions"], &(&1["type"] == "form"))
+
+      persisted = Repo.get!(ActorEvent, event.id)
+      assert %DateTime{} = persisted.completed_at
+
+      assert %{"state" => "pending"} =
+               persisted.reply_preview_checkpoint["interactions"]["clarify:call-clarify-only"]
+    end
+
+    test "a clarification starts superseded when a newer turn is already queued" do
+      %{agent: agent, event: event, turn_ref: turn_ref} =
+        start_accepted_turn("clarify-with-newer-turn")
+
+      assert {:ok, newer_event} =
+               Repo.transact(fn repo ->
+                 SignalsGateway.append_actor_event_in_tx(repo, %{
+                   agent_uid: event.agent_uid,
+                   binding_name: event.binding_name,
+                   session_id: event.session_id,
+                   source_event_id: "newer-than-clarify-#{event.id}",
+                   signal_channel_id: event.signal_channel_id,
+                   source_entry_id: "newer-entry-#{event.id}",
+                   type: "im.message.addressed",
+                   available_at: @base_time,
+                   payload: %{"type" => "im.message.addressed", "data" => %{"entry" => %{}}}
+                 })
+               end)
+
+      assert newer_event.queue_sequence > event.queue_sequence
+
+      final =
+        complete_response_items(agent.uid, event, [
+          %{
+            "type" => "function_call",
+            "call_id" => "call-already-superseded",
+            "name" => "clarify",
+            "arguments" => "{}"
+          },
+          %{
+            "type" => "function_call_output",
+            "call_id" => "call-already-superseded",
+            "output" => %{
+              "tool" => "clarify",
+              "ok" => true,
+              "question" => "Which scope?",
+              "choices" => [%{"label" => "All"}]
+            }
+          }
+        ])
+
+      assert {:ok, %{outboxes: %{clarify: %OutboxEntry{} = outbox}}} =
+               complete_turn(turn_ref, final)
+
+      checkpoint = Repo.get!(ActorEvent, event.id).reply_preview_checkpoint
+
+      assert checkpoint["interactions"]["clarify:call-already-superseded"]["state"] ==
+               "superseded"
+
+      projected =
+        ReplyInteractionState.project(outbox.payload["reply_presentation"], checkpoint)
+
+      assert projected["interaction_status"] == "superseded"
+      assert Enum.all?(projected["actions"], & &1["disabled"])
     end
 
     test "commits an attachment-only projection" do

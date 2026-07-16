@@ -74,8 +74,11 @@ defmodule Ankole.SignalsGateway.ReplyPresentationTest do
         "operation_id" => "call-1",
         "revision" => 1,
         "phase" => "running",
-        "label" => "检索资料",
-        "arguments" => %{"token" => "must-not-survive"},
+        "label" => "读取文件：core/agent-loop.ts",
+        "arguments" => %{
+          "path" => "/workspace/app/agent_computer/src/core/agent-loop.ts",
+          "token" => "must-not-survive"
+        },
         "raw_tool_name" => "internal_secret_tool"
       })
       |> ReplyPresentation.apply_event("memory.mutation_receipt", %{
@@ -86,7 +89,9 @@ defmodule Ankole.SignalsGateway.ReplyPresentationTest do
         "scope" => "当前用户"
       })
 
-    assert get_in(presentation, ["activities", "call-1", "label"]) == "检索资料"
+    assert get_in(presentation, ["activities", "call-1", "label"]) ==
+             "读取文件：core/agent-loop.ts"
+
     refute get_in(presentation, ["activities", "call-1"]) |> Map.has_key?("arguments")
     refute get_in(presentation, ["activities", "call-1"]) |> Map.has_key?("raw_tool_name")
 
@@ -118,10 +123,48 @@ defmodule Ankole.SignalsGateway.ReplyPresentationTest do
       })
 
     assert presentation["state"] == "awaiting_input"
+    assert presentation["interaction_status"] == "pending"
     refute Map.has_key?(presentation, "thought")
     assert [%{"kind" => "table"} = table] = presentation["results"]
     refute Map.has_key?(table, "card_json")
     assert [%{"type" => "button", "label" => "全部"}] = presentation["actions"]
+  end
+
+  test "a terminal interaction result locks the whole clarification card" do
+    presentation =
+      ReplyPresentation.new()
+      |> ReplyPresentation.apply_event("interaction.request", %{
+        "revision" => 1,
+        "prompt" => "请选择或补充范围",
+        "controls" => [
+          %{
+            "id" => "all",
+            "type" => "button",
+            "label" => "全部",
+            "interaction_id" => "clarify:1",
+            "selected_option_id" => "all"
+          },
+          %{
+            "id" => "custom",
+            "type" => "form",
+            "label" => "自定义",
+            "interaction_id" => "clarify:1",
+            "fields" => [
+              %{"id" => "answer", "type" => "input", "label" => "你的回答"}
+            ]
+          }
+        ]
+      })
+
+    resolved =
+      ReplyPresentation.resolve_interaction(presentation, "answered", %{
+        "interaction_id" => "clarify:1",
+        "option_id" => "all"
+      })
+
+    assert resolved["interaction_status"] == "answered"
+    assert Enum.all?(resolved["actions"], &(&1["disabled"] == true))
+    assert Enum.find(resolved["actions"], &(&1["id"] == "all"))["selected"] == true
   end
 
   test "normalization preserves explicit false values from string and atom keys" do
@@ -149,5 +192,43 @@ defmodule Ankole.SignalsGateway.ReplyPresentationTest do
              %{"id" => "string-keys", "disabled" => false, "selected" => false},
              %{"id" => "atom-keys", "disabled" => false, "selected" => false}
            ]
+  end
+
+  test "projects a failed subagent trigger without mixing it into the model answer" do
+    long_summary = "返回 JSON Schema 少声明了必填字段。\n" <> String.duplicate("详情 ", 400)
+
+    presentation =
+      ReplyPresentation.new()
+      |> ReplyPresentation.project_trigger("subagent.delegation.failed", %{
+        "data" => %{
+          "title" => "第二版\n deep research",
+          "result_summary" => long_summary,
+          "error" => %{"stack" => "must-not-survive"}
+        }
+      })
+      |> ReplyPresentation.append_answer("我已修正配置并重新提交任务。")
+
+    assert presentation["answer"] == "我已修正配置并重新提交任务。"
+
+    assert %{
+             "kind" => "subagent_failure",
+             "title" => "第二版 deep research",
+             "summary" => summary
+           } = presentation["trigger_context"]
+
+    assert String.length(summary) == 800
+    assert String.ends_with?(summary, "…")
+    refute presentation["trigger_context"]["error"]
+
+    assert ReplyPresentation.checkpoint(presentation)["trigger_context"] ==
+             presentation["trigger_context"]
+
+    terminal = ReplyPresentation.terminal(presentation, "completed", presentation["answer"])
+    assert terminal["trigger_context"] == presentation["trigger_context"]
+
+    ordinary =
+      ReplyPresentation.project_trigger(presentation, "im.message.addressed", %{"data" => %{}})
+
+    assert ordinary["trigger_context"] == presentation["trigger_context"]
   end
 end

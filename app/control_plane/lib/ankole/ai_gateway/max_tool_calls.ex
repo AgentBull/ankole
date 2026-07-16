@@ -7,7 +7,12 @@ defmodule Ankole.AIGateway.MaxToolCalls do
   cancels at an output-item boundary, so this is intentionally not a hard quota.
   """
 
-  @native_responses_resolvers [:openai_responses, "openai_responses"]
+  @native_responses_resolvers [
+    :openai_responses,
+    "openai_responses",
+    :hosted_responses,
+    "hosted_responses"
+  ]
   @terminal_call_statuses ["completed", "failed", "incomplete", "cancelled"]
   @provider_executed_built_in_call_types ~w(
     code_interpreter_call

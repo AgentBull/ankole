@@ -6,6 +6,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
   import AnkoleWeb.AIGatewayControllerTestHelpers
 
   alias Ankole.AIGateway.ProviderConfigs
+  alias Ankole.AIGateway.ResponseStream.State, as: ResponseStreamState
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.Schemas.CompactionArtifact
@@ -14,7 +15,6 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.Repo
-  alias AnkoleWeb.AIGatewaySSELimit
   alias AnkoleWeb.AIGatewayTokens
 
   defmodule NativeResponsesUpstreamPlug do
@@ -1001,100 +1001,106 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
   test "HTTP SSE fallback emits incomplete after already-started built-ins finish" do
     state =
-      AIGatewaySSELimit.new(
+      ResponseStreamState.new(
+        "agent-test",
         %{"max_tool_calls" => 1},
         %{"api_resolver" => "openai_chat_completions"}
       )
 
-    {state, :continue} =
-      AIGatewaySSELimit.observe(
+    {:ok, state, [_created], :continue} =
+      ResponseStreamState.observe(
         state,
-        sse_chunk(%{
+        %{
           "type" => "response.created",
           "sequence_number" => 0,
           "response" => %{"id" => "resp_http_limit", "status" => "in_progress"}
-        })
+        },
+        0
       )
 
-    {state, :continue} =
-      AIGatewaySSELimit.observe(
+    {:ok, state, [_added], :continue} =
+      ResponseStreamState.observe(
         state,
-        sse_chunk(output_item_event("response.output_item.added", "search_1", 0, 1))
+        output_item_event("response.output_item.added", "search_1", 0, 1),
+        1
       )
 
-    {state, :continue} =
-      AIGatewaySSELimit.observe(
+    {:ok, state, [_added], :continue} =
+      ResponseStreamState.observe(
         state,
-        sse_chunk(output_item_event("response.output_item.added", "search_2", 1, 2))
+        output_item_event("response.output_item.added", "search_2", 1, 2),
+        2
       )
 
-    {state, :continue} =
-      AIGatewaySSELimit.observe(
+    {:ok, state, [_done], :continue} =
+      ResponseStreamState.observe(
         state,
-        sse_chunk(output_item_event("response.output_item.done", "search_1", 0, 3))
+        output_item_event("response.output_item.done", "search_1", 0, 3),
+        3
       )
 
-    {_state, {:stop, incomplete_chunk}} =
-      AIGatewaySSELimit.observe(
+    {:ok, _state, [_done, incomplete], {:terminal, _outcome, :cancel_upstream}} =
+      ResponseStreamState.observe(
         state,
-        sse_chunk(output_item_event("response.output_item.done", "search_2", 1, 4))
+        output_item_event("response.output_item.done", "search_2", 1, 4),
+        4
       )
 
-    assert [
-             %{
-               "type" => "response.incomplete",
-               "sequence_number" => 5,
-               "response" => %{
-                 "id" => "resp_http_limit",
-                 "status" => "incomplete",
-                 "incomplete_details" => nil,
-                 "output" => [
-                   %{"id" => "search_1", "type" => "web_search_call"},
-                   %{"id" => "search_2", "type" => "web_search_call"}
-                 ],
-                 "provider_metadata" => %{
-                   "max_tool_calls" => %{
-                     "limit" => 1,
-                     "observed" => 2,
-                     "overshoot" => 1
-                   }
+    assert %{
+             "type" => "response.incomplete",
+             "sequence_number" => 5,
+             "response" => %{
+               "id" => "resp_http_limit",
+               "status" => "incomplete",
+               "incomplete_details" => nil,
+               "output" => [
+                 %{"id" => "search_1", "type" => "web_search_call"},
+                 %{"id" => "search_2", "type" => "web_search_call"}
+               ],
+               "provider_metadata" => %{
+                 "max_tool_calls" => %{
+                   "limit" => 1,
+                   "observed" => 2,
+                   "overshoot" => 1
                  }
                }
              }
-           ] = decode_sse_events(IO.iodata_to_binary(incomplete_chunk))
-
-    assert AIGatewaySSELimit.done_chunk() == "data: [DONE]\n\n"
+           } = incomplete
   end
 
   test "HTTP SSE provider terminal in the current chunk wins over local fallback" do
     state =
-      AIGatewaySSELimit.new(
+      ResponseStreamState.new(
+        "agent-test",
         %{"max_tool_calls" => 0},
         %{"api_resolver" => "anthropic_messages"}
       )
 
-    {state, :continue} =
-      AIGatewaySSELimit.observe(
+    {:ok, state, [_added], :continue} =
+      ResponseStreamState.observe(
         state,
-        sse_chunk(output_item_event("response.output_item.added", "search_1", 0, 0))
+        output_item_event("response.output_item.added", "search_1", 0, 0),
+        0
       )
 
-    {state, :continue} =
-      AIGatewaySSELimit.observe(
+    {:ok, state, [_added], :continue} =
+      ResponseStreamState.observe(
         state,
-        sse_chunk(output_item_event("response.output_item.added", "search_2", 1, 1))
+        output_item_event("response.output_item.added", "search_2", 1, 1),
+        1
       )
 
-    {state, :continue} =
-      AIGatewaySSELimit.observe(
+    {:ok, state, [_done], :continue} =
+      ResponseStreamState.observe(
         state,
-        sse_chunk(output_item_event("response.output_item.done", "search_1", 0, 2))
+        output_item_event("response.output_item.done", "search_1", 0, 2),
+        2
       )
 
-    {state, :continue} =
-      AIGatewaySSELimit.observe(
+    {:ok, _state, [terminal], {:terminal, _outcome, :keep_upstream}} =
+      ResponseStreamState.observe(
         state,
-        sse_chunk(%{
+        %{
           "type" => "response.completed",
           "sequence_number" => 3,
           "response" => %{
@@ -1102,10 +1108,11 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
             "status" => "completed",
             "output" => []
           }
-        })
+        },
+        3
       )
 
-    assert is_nil(state.max_tool_calls)
+    assert terminal["type"] == "response.completed"
   end
 
   test "responses endpoint rejects stateful fields on HTTP and SSE", %{conn: conn} do
@@ -2009,10 +2016,6 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       send(test_pid, {:gateway_request, request})
       response_fun.(request)
     end)
-  end
-
-  defp sse_chunk(event) do
-    "event: #{event["type"]}\ndata: #{Ankole.JSON.encode!(event)}\n\n"
   end
 
   defp output_item_event(type, id, output_index, sequence_number) do

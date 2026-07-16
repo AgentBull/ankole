@@ -18,7 +18,9 @@ defmodule Ankole.AIAgent.ModelProfiles do
   alias Ankole.Principals.Agent
   alias Ankole.Repo
 
-  @profiles ~w(primary light heavy coding vision_fallback embedding rerank web_search web_fetch)
+  @profiles ~w(
+    primary light heavy coding vision_fallback embedding rerank web_search web_fetch image_generate
+  )
   @required_profiles ~w(primary light heavy)
 
   @type profile :: String.t()
@@ -296,6 +298,7 @@ defmodule Ankole.AIAgent.ModelProfiles do
   defp capability_for_profile("rerank"), do: "rerank"
   defp capability_for_profile("web_search"), do: "web_search"
   defp capability_for_profile("web_fetch"), do: "web_fetch"
+  defp capability_for_profile("image_generate"), do: "image_generate"
   defp capability_for_profile(_profile), do: "llm"
 
   defp normalize_uid!(uid) do

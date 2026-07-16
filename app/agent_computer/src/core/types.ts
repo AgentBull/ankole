@@ -8,7 +8,15 @@
 
 import type { z } from 'zod'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
-import type { AssistantMessage, Message, ModelConfig, ContentPart, StatefulResponseContext } from './llm'
+import type {
+  AssistantMessage,
+  CallModelOptions,
+  Message,
+  ModelConfig,
+  ContentPart,
+  StatefulResponseContext,
+  UserMessage
+} from './llm'
 
 // Re-export the core LLM types so consumers can import from one place.
 export type {
@@ -60,6 +68,16 @@ export interface AgentLoopConfig {
 
   /** Temperature. */
   temperature?: number
+
+  /** Optional Responses structured-output contract for the final model text. */
+  text?: CallModelOptions['text']
+
+  /**
+   * Requests at most one same-conversation correction when a terminal model
+   * response violates a caller-owned protocol. Returning undefined accepts the
+   * response; semantic rejection must not be converted into a format repair.
+   */
+  repairFinalResponse?: (message: AssistantMessage) => UserMessage | undefined
 
   /** Abort signal for the whole loop. */
   abortSignal?: AbortSignal
@@ -150,6 +168,8 @@ export interface AgentTool<TParameters extends z.ZodType = z.ZodType, TDetails =
   executionMode?: AgentToolExecutionMode
   isReadOnly?: boolean
   isDestructive?: boolean
+  /** Builds one bounded user-facing activity label from schema-validated parameters. */
+  describeActivity?: (params: z.output<TParameters>) => string | null
   execute: (
     toolCallID: string,
     params: z.output<TParameters>,

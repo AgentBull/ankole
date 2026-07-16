@@ -19,6 +19,8 @@ import {
   ankoleWebAgentControllerPutModelProfile,
   ankoleWebAgentControllerShow,
   ankoleWebAgentControllerUpdate,
+  ankoleWebAgentLibraryControllerIndex,
+  ankoleWebAgentLibraryControllerUpdate,
   ankoleWebAiGatewayControllerCompactResponse,
   ankoleWebAiGatewayControllerEmbeddings,
   ankoleWebAiGatewayControllerModels,
@@ -28,6 +30,14 @@ import {
   ankoleWebAiGatewayControllerWebFetch,
   ankoleWebAiGatewayControllerWebSearch,
   ankoleWebAiGatewayControllerWebTools,
+  ankoleWebAiGatewayConversationControllerIndex,
+  ankoleWebAiGatewayConversationControllerMessages,
+  ankoleWebAiGatewayConversationControllerShow,
+  ankoleWebAiGatewayFilesControllerContent,
+  ankoleWebAiGatewayFilesControllerCreate,
+  ankoleWebAiGatewayFilesControllerDelete,
+  ankoleWebAiGatewayFilesControllerIndex,
+  ankoleWebAiGatewayFilesControllerShow,
   ankoleWebAiGatewayProviderControllerDeleteProvider,
   ankoleWebAiGatewayProviderControllerIndex,
   ankoleWebAiGatewayProviderControllerProviderKinds,
@@ -42,13 +52,18 @@ import {
   ankoleWebBrainControllerApplyOperations,
   ankoleWebBrainControllerAuditIndex,
   ankoleWebBrainControllerAuditLog,
+  ankoleWebBrainControllerCreateSource,
   ankoleWebBrainControllerDreamingFitness,
   ankoleWebBrainControllerIndex,
+  ankoleWebBrainControllerLearnSource,
   ankoleWebBrainControllerRestoreAudit,
   ankoleWebBrainControllerRestoreAudits,
+  ankoleWebBrainControllerReviewCandidates,
   ankoleWebBrainControllerRunDreaming,
   ankoleWebBrainControllerShow,
   ankoleWebBrainControllerSource,
+  ankoleWebBrainControllerSourceIndex,
+  ankoleWebBrainControllerSourceRaw,
   ankoleWebCodexAccountControllerCreate,
   ankoleWebCodexAccountControllerDelete,
   ankoleWebCodexAccountControllerIndex,
@@ -57,6 +72,7 @@ import {
   ankoleWebIdentityProviderControllerIndex,
   ankoleWebIdentityProviderControllerPutProvider,
   ankoleWebIdentityProviderControllerRunSync,
+  ankoleWebPrincipalControllerIndex,
   ankoleWebScheduleControllerCancelCheckback,
   ankoleWebScheduleControllerCreateCron,
   ankoleWebScheduleControllerCronRuns,
@@ -119,6 +135,12 @@ import type {
   AnkoleWebAgentControllerUpdateData,
   AnkoleWebAgentControllerUpdateError,
   AnkoleWebAgentControllerUpdateResponse,
+  AnkoleWebAgentLibraryControllerIndexData,
+  AnkoleWebAgentLibraryControllerIndexError,
+  AnkoleWebAgentLibraryControllerIndexResponse,
+  AnkoleWebAgentLibraryControllerUpdateData,
+  AnkoleWebAgentLibraryControllerUpdateError,
+  AnkoleWebAgentLibraryControllerUpdateResponse,
   AnkoleWebAiGatewayControllerCompactResponseData,
   AnkoleWebAiGatewayControllerCompactResponseError,
   AnkoleWebAiGatewayControllerCompactResponseResponse,
@@ -146,6 +168,30 @@ import type {
   AnkoleWebAiGatewayControllerWebToolsData,
   AnkoleWebAiGatewayControllerWebToolsError,
   AnkoleWebAiGatewayControllerWebToolsResponse,
+  AnkoleWebAiGatewayConversationControllerIndexData,
+  AnkoleWebAiGatewayConversationControllerIndexError,
+  AnkoleWebAiGatewayConversationControllerIndexResponse,
+  AnkoleWebAiGatewayConversationControllerMessagesData,
+  AnkoleWebAiGatewayConversationControllerMessagesError,
+  AnkoleWebAiGatewayConversationControllerMessagesResponse,
+  AnkoleWebAiGatewayConversationControllerShowData,
+  AnkoleWebAiGatewayConversationControllerShowError,
+  AnkoleWebAiGatewayConversationControllerShowResponse,
+  AnkoleWebAiGatewayFilesControllerContentData,
+  AnkoleWebAiGatewayFilesControllerContentError,
+  AnkoleWebAiGatewayFilesControllerContentResponse,
+  AnkoleWebAiGatewayFilesControllerCreateData,
+  AnkoleWebAiGatewayFilesControllerCreateError,
+  AnkoleWebAiGatewayFilesControllerCreateResponse,
+  AnkoleWebAiGatewayFilesControllerDeleteData,
+  AnkoleWebAiGatewayFilesControllerDeleteError,
+  AnkoleWebAiGatewayFilesControllerDeleteResponse,
+  AnkoleWebAiGatewayFilesControllerIndexData,
+  AnkoleWebAiGatewayFilesControllerIndexError,
+  AnkoleWebAiGatewayFilesControllerIndexResponse,
+  AnkoleWebAiGatewayFilesControllerShowData,
+  AnkoleWebAiGatewayFilesControllerShowError,
+  AnkoleWebAiGatewayFilesControllerShowResponse,
   AnkoleWebAiGatewayProviderControllerDeleteProviderData,
   AnkoleWebAiGatewayProviderControllerDeleteProviderError,
   AnkoleWebAiGatewayProviderControllerDeleteProviderResponse,
@@ -187,18 +233,27 @@ import type {
   AnkoleWebBrainControllerAuditLogData,
   AnkoleWebBrainControllerAuditLogError,
   AnkoleWebBrainControllerAuditLogResponse,
+  AnkoleWebBrainControllerCreateSourceData,
+  AnkoleWebBrainControllerCreateSourceError,
+  AnkoleWebBrainControllerCreateSourceResponse,
   AnkoleWebBrainControllerDreamingFitnessData,
   AnkoleWebBrainControllerDreamingFitnessError,
   AnkoleWebBrainControllerDreamingFitnessResponse,
   AnkoleWebBrainControllerIndexData,
   AnkoleWebBrainControllerIndexError,
   AnkoleWebBrainControllerIndexResponse,
+  AnkoleWebBrainControllerLearnSourceData,
+  AnkoleWebBrainControllerLearnSourceError,
+  AnkoleWebBrainControllerLearnSourceResponse,
   AnkoleWebBrainControllerRestoreAuditData,
   AnkoleWebBrainControllerRestoreAuditError,
   AnkoleWebBrainControllerRestoreAuditResponse,
   AnkoleWebBrainControllerRestoreAuditsData,
   AnkoleWebBrainControllerRestoreAuditsError,
   AnkoleWebBrainControllerRestoreAuditsResponse,
+  AnkoleWebBrainControllerReviewCandidatesData,
+  AnkoleWebBrainControllerReviewCandidatesError,
+  AnkoleWebBrainControllerReviewCandidatesResponse,
   AnkoleWebBrainControllerRunDreamingData,
   AnkoleWebBrainControllerRunDreamingError,
   AnkoleWebBrainControllerRunDreamingResponse,
@@ -207,6 +262,12 @@ import type {
   AnkoleWebBrainControllerShowResponse,
   AnkoleWebBrainControllerSourceData,
   AnkoleWebBrainControllerSourceError,
+  AnkoleWebBrainControllerSourceIndexData,
+  AnkoleWebBrainControllerSourceIndexError,
+  AnkoleWebBrainControllerSourceIndexResponse,
+  AnkoleWebBrainControllerSourceRawData,
+  AnkoleWebBrainControllerSourceRawError,
+  AnkoleWebBrainControllerSourceRawResponse,
   AnkoleWebBrainControllerSourceResponse,
   AnkoleWebCodexAccountControllerCreateData,
   AnkoleWebCodexAccountControllerCreateError,
@@ -232,6 +293,9 @@ import type {
   AnkoleWebIdentityProviderControllerRunSyncData,
   AnkoleWebIdentityProviderControllerRunSyncError,
   AnkoleWebIdentityProviderControllerRunSyncResponse,
+  AnkoleWebPrincipalControllerIndexData,
+  AnkoleWebPrincipalControllerIndexError,
+  AnkoleWebPrincipalControllerIndexResponse,
   AnkoleWebScheduleControllerCancelCheckbackData,
   AnkoleWebScheduleControllerCancelCheckbackResponse,
   AnkoleWebScheduleControllerCreateCronData,
@@ -362,6 +426,34 @@ const createQueryKey = <TOptions extends Options>(
   return [params]
 }
 
+export const ankoleWebAiGatewayFilesControllerContentQueryKey = (
+  options: Options<AnkoleWebAiGatewayFilesControllerContentData>
+) => createQueryKey('ankoleWebAiGatewayFilesControllerContent', options)
+
+/**
+ * Download AIGateway vision file content
+ */
+export const ankoleWebAiGatewayFilesControllerContentOptions = (
+  options: Options<AnkoleWebAiGatewayFilesControllerContentData>
+) =>
+  queryOptions<
+    AnkoleWebAiGatewayFilesControllerContentResponse,
+    AnkoleWebAiGatewayFilesControllerContentError,
+    AnkoleWebAiGatewayFilesControllerContentResponse,
+    ReturnType<typeof ankoleWebAiGatewayFilesControllerContentQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebAiGatewayFilesControllerContent({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebAiGatewayFilesControllerContentQueryKey(options)
+  })
+
 export const ankoleWebWorkerFileControllerDownloadQueryKey = (
   options: Options<AnkoleWebWorkerFileControllerDownloadData>
 ) => createQueryKey('ankoleWebWorkerFileControllerDownload', options)
@@ -474,6 +566,61 @@ export const ankoleWebScheduleControllerPauseCronMutation = (
   }
   return mutationOptions
 }
+
+/**
+ * Delete an AIGateway vision file
+ */
+export const ankoleWebAiGatewayFilesControllerDeleteMutation = (
+  options?: Partial<Options<AnkoleWebAiGatewayFilesControllerDeleteData>>
+): UseMutationOptions<
+  AnkoleWebAiGatewayFilesControllerDeleteResponse,
+  AnkoleWebAiGatewayFilesControllerDeleteError,
+  Options<AnkoleWebAiGatewayFilesControllerDeleteData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAiGatewayFilesControllerDeleteResponse,
+    AnkoleWebAiGatewayFilesControllerDeleteError,
+    Options<AnkoleWebAiGatewayFilesControllerDeleteData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAiGatewayFilesControllerDelete({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const ankoleWebAiGatewayFilesControllerShowQueryKey = (
+  options: Options<AnkoleWebAiGatewayFilesControllerShowData>
+) => createQueryKey('ankoleWebAiGatewayFilesControllerShow', options)
+
+/**
+ * Retrieve an AIGateway vision file
+ */
+export const ankoleWebAiGatewayFilesControllerShowOptions = (
+  options: Options<AnkoleWebAiGatewayFilesControllerShowData>
+) =>
+  queryOptions<
+    AnkoleWebAiGatewayFilesControllerShowResponse,
+    AnkoleWebAiGatewayFilesControllerShowError,
+    AnkoleWebAiGatewayFilesControllerShowResponse,
+    ReturnType<typeof ankoleWebAiGatewayFilesControllerShowQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebAiGatewayFilesControllerShow({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebAiGatewayFilesControllerShowQueryKey(options)
+  })
 
 export const ankoleWebBrainControllerAuditLogQueryKey = (options: Options<AnkoleWebBrainControllerAuditLogData>) =>
   createQueryKey('ankoleWebBrainControllerAuditLog', options)
@@ -695,7 +842,7 @@ export const ankoleWebSubagentDelegationControllerShowQueryKey = (
 ) => createQueryKey('ankoleWebSubagentDelegationControllerShow', options)
 
 /**
- * Read one subagent delegation and its event timeline
+ * Read one subagent delegation and its runtime Turn trajectory
  */
 export const ankoleWebSubagentDelegationControllerShowOptions = (
   options: Options<AnkoleWebSubagentDelegationControllerShowData>
@@ -741,6 +888,31 @@ export const ankoleWebBrainControllerShowOptions = (options: Options<AnkoleWebBr
       return data
     },
     queryKey: ankoleWebBrainControllerShowQueryKey(options)
+  })
+
+export const ankoleWebBrainControllerSourceRawQueryKey = (options: Options<AnkoleWebBrainControllerSourceRawData>) =>
+  createQueryKey('ankoleWebBrainControllerSourceRaw', options)
+
+/**
+ * Download the immutable bytes of one explicitly retained Brain source
+ */
+export const ankoleWebBrainControllerSourceRawOptions = (options: Options<AnkoleWebBrainControllerSourceRawData>) =>
+  queryOptions<
+    AnkoleWebBrainControllerSourceRawResponse,
+    AnkoleWebBrainControllerSourceRawError,
+    AnkoleWebBrainControllerSourceRawResponse,
+    ReturnType<typeof ankoleWebBrainControllerSourceRawQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebBrainControllerSourceRaw({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebBrainControllerSourceRawQueryKey(options)
   })
 
 /**
@@ -812,6 +984,33 @@ export const ankoleWebWorkerFileControllerUploadMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebWorkerFileControllerUpload({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Start one Agent learning run for an already retained source
+ */
+export const ankoleWebBrainControllerLearnSourceMutation = (
+  options?: Partial<Options<AnkoleWebBrainControllerLearnSourceData>>
+): UseMutationOptions<
+  AnkoleWebBrainControllerLearnSourceResponse,
+  AnkoleWebBrainControllerLearnSourceError,
+  Options<AnkoleWebBrainControllerLearnSourceData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebBrainControllerLearnSourceResponse,
+    AnkoleWebBrainControllerLearnSourceError,
+    Options<AnkoleWebBrainControllerLearnSourceData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebBrainControllerLearnSource({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -923,6 +1122,110 @@ export const ankoleWebScheduleControllerResumeCronMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebScheduleControllerResumeCron({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const ankoleWebAiGatewayFilesControllerIndexQueryKey = (
+  options?: Options<AnkoleWebAiGatewayFilesControllerIndexData>
+) => createQueryKey('ankoleWebAiGatewayFilesControllerIndex', options)
+
+/**
+ * List AIGateway vision files
+ */
+export const ankoleWebAiGatewayFilesControllerIndexOptions = (
+  options?: Options<AnkoleWebAiGatewayFilesControllerIndexData>
+) =>
+  queryOptions<
+    AnkoleWebAiGatewayFilesControllerIndexResponse,
+    AnkoleWebAiGatewayFilesControllerIndexError,
+    AnkoleWebAiGatewayFilesControllerIndexResponse,
+    ReturnType<typeof ankoleWebAiGatewayFilesControllerIndexQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebAiGatewayFilesControllerIndex({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebAiGatewayFilesControllerIndexQueryKey(options)
+  })
+
+export const ankoleWebAiGatewayFilesControllerIndexInfiniteQueryKey = (
+  options?: Options<AnkoleWebAiGatewayFilesControllerIndexData>
+): QueryKey<Options<AnkoleWebAiGatewayFilesControllerIndexData>> =>
+  createQueryKey('ankoleWebAiGatewayFilesControllerIndex', options, true)
+
+/**
+ * List AIGateway vision files
+ */
+export const ankoleWebAiGatewayFilesControllerIndexInfiniteOptions = (
+  options?: Options<AnkoleWebAiGatewayFilesControllerIndexData>
+) => {
+  const opts = infiniteQueryOptions<
+    AnkoleWebAiGatewayFilesControllerIndexResponse,
+    AnkoleWebAiGatewayFilesControllerIndexError,
+    InfiniteData<AnkoleWebAiGatewayFilesControllerIndexResponse>,
+    QueryKey<Options<AnkoleWebAiGatewayFilesControllerIndexData>>,
+    | string
+    | Pick<QueryKey<Options<AnkoleWebAiGatewayFilesControllerIndexData>>[0], 'body' | 'headers' | 'path' | 'query'>
+  >(
+    // @ts-ignore
+    {
+      queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<
+          QueryKey<Options<AnkoleWebAiGatewayFilesControllerIndexData>>[0],
+          'body' | 'headers' | 'path' | 'query'
+        > =
+          typeof pageParam === 'object'
+            ? pageParam
+            : {
+                query: {
+                  after: pageParam
+                }
+              }
+        const params = createInfiniteParams(queryKey, page)
+        const { data } = await ankoleWebAiGatewayFilesControllerIndex({
+          ...options,
+          ...params,
+          signal,
+          throwOnError: true
+        })
+        return data
+      },
+      queryKey: ankoleWebAiGatewayFilesControllerIndexInfiniteQueryKey(options)
+    }
+  )
+  return opts as Omit<typeof opts, 'initialData'>
+}
+
+/**
+ * Upload an AIGateway vision file
+ */
+export const ankoleWebAiGatewayFilesControllerCreateMutation = (
+  options?: Partial<Options<AnkoleWebAiGatewayFilesControllerCreateData>>
+): UseMutationOptions<
+  AnkoleWebAiGatewayFilesControllerCreateResponse,
+  AnkoleWebAiGatewayFilesControllerCreateError,
+  Options<AnkoleWebAiGatewayFilesControllerCreateData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAiGatewayFilesControllerCreateResponse,
+    AnkoleWebAiGatewayFilesControllerCreateError,
+    Options<AnkoleWebAiGatewayFilesControllerCreateData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAiGatewayFilesControllerCreate({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -1203,6 +1506,59 @@ export const ankoleWebIdentityProviderControllerAdaptersOptions = (
     queryKey: ankoleWebIdentityProviderControllerAdaptersQueryKey(options)
   })
 
+export const ankoleWebBrainControllerSourceIndexQueryKey = (
+  options: Options<AnkoleWebBrainControllerSourceIndexData>
+) => createQueryKey('ankoleWebBrainControllerSourceIndex', options)
+
+/**
+ * List retained Brain sources for one owner
+ */
+export const ankoleWebBrainControllerSourceIndexOptions = (options: Options<AnkoleWebBrainControllerSourceIndexData>) =>
+  queryOptions<
+    AnkoleWebBrainControllerSourceIndexResponse,
+    AnkoleWebBrainControllerSourceIndexError,
+    AnkoleWebBrainControllerSourceIndexResponse,
+    ReturnType<typeof ankoleWebBrainControllerSourceIndexQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebBrainControllerSourceIndex({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebBrainControllerSourceIndexQueryKey(options)
+  })
+
+/**
+ * Retain immutable bytes from a URL, file, or pasted text
+ */
+export const ankoleWebBrainControllerCreateSourceMutation = (
+  options?: Partial<Options<AnkoleWebBrainControllerCreateSourceData>>
+): UseMutationOptions<
+  AnkoleWebBrainControllerCreateSourceResponse,
+  AnkoleWebBrainControllerCreateSourceError,
+  Options<AnkoleWebBrainControllerCreateSourceData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebBrainControllerCreateSourceResponse,
+    AnkoleWebBrainControllerCreateSourceError,
+    Options<AnkoleWebBrainControllerCreateSourceData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebBrainControllerCreateSource({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 export const ankoleWebAiGatewayControllerRetrieveResponseQueryKey = (
   options: Options<AnkoleWebAiGatewayControllerRetrieveResponseData>
 ) => createQueryKey('ankoleWebAiGatewayControllerRetrieveResponse', options)
@@ -1418,6 +1774,34 @@ export const ankoleWebIdentityProviderControllerRunSyncMutation = (
   return mutationOptions
 }
 
+export const ankoleWebAiGatewayConversationControllerShowQueryKey = (
+  options: Options<AnkoleWebAiGatewayConversationControllerShowData>
+) => createQueryKey('ankoleWebAiGatewayConversationControllerShow', options)
+
+/**
+ * Read one AIGateway conversation
+ */
+export const ankoleWebAiGatewayConversationControllerShowOptions = (
+  options: Options<AnkoleWebAiGatewayConversationControllerShowData>
+) =>
+  queryOptions<
+    AnkoleWebAiGatewayConversationControllerShowResponse,
+    AnkoleWebAiGatewayConversationControllerShowError,
+    AnkoleWebAiGatewayConversationControllerShowResponse,
+    ReturnType<typeof ankoleWebAiGatewayConversationControllerShowQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebAiGatewayConversationControllerShow({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebAiGatewayConversationControllerShowQueryKey(options)
+  })
+
 export const ankoleWebAgentControllerIndexQueryKey = (options?: Options<AnkoleWebAgentControllerIndexData>) =>
   createQueryKey('ankoleWebAgentControllerIndex', options)
 
@@ -1582,6 +1966,31 @@ export const ankoleWebSignalBindingControllerAdaptersOptions = (
     queryKey: ankoleWebSignalBindingControllerAdaptersQueryKey(options)
   })
 
+export const ankoleWebPrincipalControllerIndexQueryKey = (options?: Options<AnkoleWebPrincipalControllerIndexData>) =>
+  createQueryKey('ankoleWebPrincipalControllerIndex', options)
+
+/**
+ * List active principals
+ */
+export const ankoleWebPrincipalControllerIndexOptions = (options?: Options<AnkoleWebPrincipalControllerIndexData>) =>
+  queryOptions<
+    AnkoleWebPrincipalControllerIndexResponse,
+    AnkoleWebPrincipalControllerIndexError,
+    AnkoleWebPrincipalControllerIndexResponse,
+    ReturnType<typeof ankoleWebPrincipalControllerIndexQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebPrincipalControllerIndex({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebPrincipalControllerIndexQueryKey(options)
+  })
+
 /**
  * Remove one recurring schedule
  */
@@ -1742,11 +2151,39 @@ export const ankoleWebSignalBindingControllerDeleteMutation = (
   return mutationOptions
 }
 
+export const ankoleWebBrainControllerReviewCandidatesQueryKey = (
+  options: Options<AnkoleWebBrainControllerReviewCandidatesData>
+) => createQueryKey('ankoleWebBrainControllerReviewCandidates', options)
+
+/**
+ * List deterministic Brain review candidates
+ */
+export const ankoleWebBrainControllerReviewCandidatesOptions = (
+  options: Options<AnkoleWebBrainControllerReviewCandidatesData>
+) =>
+  queryOptions<
+    AnkoleWebBrainControllerReviewCandidatesResponse,
+    AnkoleWebBrainControllerReviewCandidatesError,
+    AnkoleWebBrainControllerReviewCandidatesResponse,
+    ReturnType<typeof ankoleWebBrainControllerReviewCandidatesQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebBrainControllerReviewCandidates({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebBrainControllerReviewCandidatesQueryKey(options)
+  })
+
 export const ankoleWebBrainControllerSourceQueryKey = (options: Options<AnkoleWebBrainControllerSourceData>) =>
   createQueryKey('ankoleWebBrainControllerSource', options)
 
 /**
- * Resolve a Brain src citation to its mirrored original message
+ * Resolve a Brain source inside one owner's visible stores
  */
 export const ankoleWebBrainControllerSourceOptions = (options: Options<AnkoleWebBrainControllerSourceData>) =>
   queryOptions<
@@ -1929,6 +2366,86 @@ export const ankoleWebSignalBindingControllerPutBindingMutation = (
     }
   }
   return mutationOptions
+}
+
+export const ankoleWebAiGatewayConversationControllerIndexQueryKey = (
+  options?: Options<AnkoleWebAiGatewayConversationControllerIndexData>
+) => createQueryKey('ankoleWebAiGatewayConversationControllerIndex', options)
+
+/**
+ * List AIGateway conversations
+ */
+export const ankoleWebAiGatewayConversationControllerIndexOptions = (
+  options?: Options<AnkoleWebAiGatewayConversationControllerIndexData>
+) =>
+  queryOptions<
+    AnkoleWebAiGatewayConversationControllerIndexResponse,
+    AnkoleWebAiGatewayConversationControllerIndexError,
+    AnkoleWebAiGatewayConversationControllerIndexResponse,
+    ReturnType<typeof ankoleWebAiGatewayConversationControllerIndexQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebAiGatewayConversationControllerIndex({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebAiGatewayConversationControllerIndexQueryKey(options)
+  })
+
+export const ankoleWebAiGatewayConversationControllerIndexInfiniteQueryKey = (
+  options?: Options<AnkoleWebAiGatewayConversationControllerIndexData>
+): QueryKey<Options<AnkoleWebAiGatewayConversationControllerIndexData>> =>
+  createQueryKey('ankoleWebAiGatewayConversationControllerIndex', options, true)
+
+/**
+ * List AIGateway conversations
+ */
+export const ankoleWebAiGatewayConversationControllerIndexInfiniteOptions = (
+  options?: Options<AnkoleWebAiGatewayConversationControllerIndexData>
+) => {
+  const opts = infiniteQueryOptions<
+    AnkoleWebAiGatewayConversationControllerIndexResponse,
+    AnkoleWebAiGatewayConversationControllerIndexError,
+    InfiniteData<AnkoleWebAiGatewayConversationControllerIndexResponse>,
+    QueryKey<Options<AnkoleWebAiGatewayConversationControllerIndexData>>,
+    | string
+    | Pick<
+        QueryKey<Options<AnkoleWebAiGatewayConversationControllerIndexData>>[0],
+        'body' | 'headers' | 'path' | 'query'
+      >
+  >(
+    // @ts-ignore
+    {
+      queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<
+          QueryKey<Options<AnkoleWebAiGatewayConversationControllerIndexData>>[0],
+          'body' | 'headers' | 'path' | 'query'
+        > =
+          typeof pageParam === 'object'
+            ? pageParam
+            : {
+                query: {
+                  cursor: pageParam
+                }
+              }
+        const params = createInfiniteParams(queryKey, page)
+        const { data } = await ankoleWebAiGatewayConversationControllerIndex({
+          ...options,
+          ...params,
+          signal,
+          throwOnError: true
+        })
+        return data
+      },
+      queryKey: ankoleWebAiGatewayConversationControllerIndexInfiniteQueryKey(options)
+    }
+  )
+  return opts as Omit<typeof opts, 'initialData'>
 }
 
 /**
@@ -2268,6 +2785,34 @@ export const ankoleWebAiGatewayControllerEmbeddingsMutation = (
   return mutationOptions
 }
 
+export const ankoleWebAgentLibraryControllerIndexQueryKey = (
+  options: Options<AnkoleWebAgentLibraryControllerIndexData>
+) => createQueryKey('ankoleWebAgentLibraryControllerIndex', options)
+
+/**
+ * Read the MISSION, SOUL, and DESIGN documents for one agent
+ */
+export const ankoleWebAgentLibraryControllerIndexOptions = (
+  options: Options<AnkoleWebAgentLibraryControllerIndexData>
+) =>
+  queryOptions<
+    AnkoleWebAgentLibraryControllerIndexResponse,
+    AnkoleWebAgentLibraryControllerIndexError,
+    AnkoleWebAgentLibraryControllerIndexResponse,
+    ReturnType<typeof ankoleWebAgentLibraryControllerIndexQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebAgentLibraryControllerIndex({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebAgentLibraryControllerIndexQueryKey(options)
+  })
+
 export const ankoleWebAgentComputerWorkerControllerIndexQueryKey = (
   options?: Options<AnkoleWebAgentComputerWorkerControllerIndexData>
 ) => createQueryKey('ankoleWebAgentComputerWorkerControllerIndex', options)
@@ -2447,6 +2992,113 @@ export const ankoleWebSubagentDelegationControllerCancelMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebSubagentDelegationControllerCancel({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const ankoleWebAiGatewayConversationControllerMessagesQueryKey = (
+  options: Options<AnkoleWebAiGatewayConversationControllerMessagesData>
+) => createQueryKey('ankoleWebAiGatewayConversationControllerMessages', options)
+
+/**
+ * List the messages of one AIGateway conversation
+ */
+export const ankoleWebAiGatewayConversationControllerMessagesOptions = (
+  options: Options<AnkoleWebAiGatewayConversationControllerMessagesData>
+) =>
+  queryOptions<
+    AnkoleWebAiGatewayConversationControllerMessagesResponse,
+    AnkoleWebAiGatewayConversationControllerMessagesError,
+    AnkoleWebAiGatewayConversationControllerMessagesResponse,
+    ReturnType<typeof ankoleWebAiGatewayConversationControllerMessagesQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebAiGatewayConversationControllerMessages({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebAiGatewayConversationControllerMessagesQueryKey(options)
+  })
+
+export const ankoleWebAiGatewayConversationControllerMessagesInfiniteQueryKey = (
+  options: Options<AnkoleWebAiGatewayConversationControllerMessagesData>
+): QueryKey<Options<AnkoleWebAiGatewayConversationControllerMessagesData>> =>
+  createQueryKey('ankoleWebAiGatewayConversationControllerMessages', options, true)
+
+/**
+ * List the messages of one AIGateway conversation
+ */
+export const ankoleWebAiGatewayConversationControllerMessagesInfiniteOptions = (
+  options: Options<AnkoleWebAiGatewayConversationControllerMessagesData>
+) => {
+  const opts = infiniteQueryOptions<
+    AnkoleWebAiGatewayConversationControllerMessagesResponse,
+    AnkoleWebAiGatewayConversationControllerMessagesError,
+    InfiniteData<AnkoleWebAiGatewayConversationControllerMessagesResponse>,
+    QueryKey<Options<AnkoleWebAiGatewayConversationControllerMessagesData>>,
+    | string
+    | Pick<
+        QueryKey<Options<AnkoleWebAiGatewayConversationControllerMessagesData>>[0],
+        'body' | 'headers' | 'path' | 'query'
+      >
+  >(
+    // @ts-ignore
+    {
+      queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<
+          QueryKey<Options<AnkoleWebAiGatewayConversationControllerMessagesData>>[0],
+          'body' | 'headers' | 'path' | 'query'
+        > =
+          typeof pageParam === 'object'
+            ? pageParam
+            : {
+                query: {
+                  cursor: pageParam
+                }
+              }
+        const params = createInfiniteParams(queryKey, page)
+        const { data } = await ankoleWebAiGatewayConversationControllerMessages({
+          ...options,
+          ...params,
+          signal,
+          throwOnError: true
+        })
+        return data
+      },
+      queryKey: ankoleWebAiGatewayConversationControllerMessagesInfiniteQueryKey(options)
+    }
+  )
+  return opts as Omit<typeof opts, 'initialData'>
+}
+
+/**
+ * Replace one agent MISSION, SOUL, or DESIGN document
+ */
+export const ankoleWebAgentLibraryControllerUpdateMutation = (
+  options?: Partial<Options<AnkoleWebAgentLibraryControllerUpdateData>>
+): UseMutationOptions<
+  AnkoleWebAgentLibraryControllerUpdateResponse,
+  AnkoleWebAgentLibraryControllerUpdateError,
+  Options<AnkoleWebAgentLibraryControllerUpdateData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAgentLibraryControllerUpdateResponse,
+    AnkoleWebAgentLibraryControllerUpdateError,
+    Options<AnkoleWebAgentLibraryControllerUpdateData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAgentLibraryControllerUpdate({
         ...options,
         ...fnOptions,
         throwOnError: true

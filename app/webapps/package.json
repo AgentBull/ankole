@@ -20,6 +20,7 @@
     "@preact/signals-react": "3.10.3",
     "@remixicon/react": "4.9.0",
     "@tanstack/react-query": "5.101.2",
+    "date-fns": "^4.4.0",
     "i18next": "26.3.6",
     "i18next-mf2": "1.0.0",
     "messageformat": "4.0.0",

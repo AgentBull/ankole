@@ -85,6 +85,17 @@ defmodule Ankole.E2E.FakeFeishu.Router do
     end)
   end
 
+  # The network fake intentionally exercises Lark's supported plain-text
+  # fallback rather than emulating CardKit's separate card state machine.
+  post "/open-apis/cardkit/v1/cards" do
+    authed(conn, fn conn ->
+      send_json(conn, 200, %{
+        "code" => 200_860,
+        "msg" => "fake feishu: CardKit is unavailable; use plain text"
+      })
+    end)
+  end
+
   post "/open-apis/im/v1/messages" do
     authed(conn, fn conn ->
       with_fault(conn, :post_message, fn conn ->

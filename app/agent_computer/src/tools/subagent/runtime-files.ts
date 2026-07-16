@@ -1,3 +1,4 @@
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import {
   existsSync,
   mkdirSync,
@@ -12,7 +13,12 @@ import {
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import type { ActorTurnRef } from '../../lanes/actor_lane'
-import type { RuntimeBrainSnapshot, RuntimeSkillSummary } from '../../lanes/rpc_lane'
+import type {
+  DeepResearchMode,
+  RuntimeBrainSnapshot,
+  RuntimeSkillSummary,
+  SubagentDelegationRuntime
+} from '../../lanes/rpc_lane'
 import type { SkillOverlayRequester } from '../../core/turns/turn_options'
 import { formatAgentDurableContext } from '../../prompts/durable_context'
 import { insideWorkspace, WORKSPACE_MODEL_ROOT, WORKSPACE_USER_FILES_ROOT } from '../../core/workspace-paths'
@@ -62,6 +68,10 @@ export async function materializeSubagentRuntimeFiles(input: {
   enabledSkills: RuntimeSkillSummary[]
   skillRoots?: SkillFileRoots
   requestSkillOverlay?: SkillOverlayRequester
+  runtime?: SubagentDelegationRuntime
+  researchMode?: DeepResearchMode
+  researchOutputSchema?: JSONObject
+  requiredBuiltinSkills?: string[]
 }): Promise<MaterializedSubagentRuntimeFiles> {
   const root = mkdtempSync(join(tmpdir(), 'ankole-subagent-runtime-'))
   const workspaceRuntimeRoot = join(input.workspaceRoot, '.ankole')
@@ -85,7 +95,10 @@ export async function materializeSubagentRuntimeFiles(input: {
         timezone: input.timezone,
         now: input.now ?? new Date(),
         workdirForModel: input.workdirForModel,
-        durableArtifactsRootForModel: input.durableArtifactsRootForModel
+        durableArtifactsRootForModel: input.durableArtifactsRootForModel,
+        runtime: input.runtime ?? 'task_worker',
+        researchMode: input.researchMode,
+        researchOutputSchema: input.researchOutputSchema
       }),
       { mode: 0o600 }
     )
@@ -129,7 +142,18 @@ async function materializeSkills(
   root: string,
   skillsPlaceholderRoot: string
 ): Promise<MaterializedSubagentSkill[]> {
-  const enabledSkills = input.enabledSkills
+  const requiredBuiltinSkills = new Set(input.requiredBuiltinSkills ?? [])
+  const combinedSkills = new Map(input.enabledSkills.map(skill => [skill.skill_name, skill]))
+  for (const skillName of requiredBuiltinSkills) {
+    combinedSkills.set(skillName, {
+      skill_name: skillName,
+      source_kind: 'builtin',
+      relative_path: skillName,
+      skill_root: 'library'
+    })
+  }
+
+  const enabledSkills = [...combinedSkills.values()]
     .map(skill => {
       const normalized = normalizeEnabledSkill(skill)
       if (!normalized) throw new Error(`enabled skill has invalid name: ${skill.skill_name}`)
@@ -155,10 +179,12 @@ async function materializeSkills(
       if (!existsSync(sourceSkillPath)) throw new Error(`enabled skill is missing SKILL.md: ${skill.skill_name}`)
 
       mkdirSync(join(skillsPlaceholderRoot, skill.skill_name), { recursive: true })
-      const overlay = await resolveSkillOverlayText(skill.skill_name, {
-        turn: input.turn,
-        requestSkillOverlay: input.requestSkillOverlay
-      })
+      const overlay = requiredBuiltinSkills.has(skill.skill_name)
+        ? ''
+        : await resolveSkillOverlayText(skill.skill_name, {
+            turn: input.turn,
+            requestSkillOverlay: input.requestSkillOverlay
+          })
       if (!overlay) return { name: skill.skill_name, sourcePath }
 
       const skillFileOverridePath = join(root, 'skill-overrides', skill.skill_name, 'SKILL.md')
@@ -241,15 +267,28 @@ function renderTaskAgents(input: {
   now: Date
   workdirForModel: string
   durableArtifactsRootForModel: string
+  runtime: SubagentDelegationRuntime
+  researchMode?: DeepResearchMode
+  researchOutputSchema?: JSONObject
 }): string {
   const executionContext = [
     `Current time: ${input.now.toISOString()}${input.timezone ? ` (${input.timezone})` : ''}.`,
-    `Working directory: ${input.workdirForModel}.`,
+    `Working directory (already the process cwd; use relative paths for its artifacts): ${input.workdirForModel}.`,
     `Durable artifacts belong under ${input.durableArtifactsRootForModel}.`,
-    'Your final message is a delegation report for the parent agent. Include outcomes, evidence, artifact paths, and remaining risks.',
-    'Use Codex requestUserInput when a decision is required. The parent agent owns user-visible replies, attachments, scheduling, and durable skill writes. Projected Brain tools may read and write durable memory within the server-validated parent conversation scope.',
+    input.runtime === 'deep_research'
+      ? 'Your final message is a delegation report for the caller. State the outcome and identify report/report.md as the sole deliverable; never present optional working files as deliverables.'
+      : 'Your final message is a delegation report for the caller. Include outcomes, evidence, artifact paths, and remaining risks.',
+    input.runtime === 'deep_research'
+      ? `This is a Deep Research delegation in ${input.researchMode ?? 'general'} mode. Use the deep-research skill and its active-mode reference.`
+      : undefined,
+    input.runtime === 'deep_research'
+      ? 'Projected Brain tools are read-only. The caller owns durable memory writes, user-visible replies, attachments, and scheduling.'
+      : 'The caller owns user-visible replies, attachments, scheduling, and durable skill writes. Projected Brain tools may read and write durable memory within the server-validated caller conversation scope.',
+    'If genuinely required information is missing, the lead agent must call request_parent_input; child agents must report the question to the lead. Do not call request_user_input, which is unavailable in this Default-mode background execution.',
     'Complete foreground work before ending the turn; do not leave required shell jobs running in the background.'
-  ].join('\n')
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n')
 
   return [
     input.existingGuidance,
@@ -259,6 +298,14 @@ function renderTaskAgents(input: {
     section('Durable Context', formatAgentDurableContext(input.brainSnapshot)),
     section('Background', input.background),
     section('Notes', input.notes),
+    input.runtime === 'deep_research'
+      ? section(
+          'Requested Report Content Schema',
+          input.researchOutputSchema
+            ? `Use this only as a description of content the Markdown report should cover. The authoritative result remains report/report.md; no JSON sidecar is required.\n\n${JSON.stringify(input.researchOutputSchema, null, 2)}`
+            : undefined
+        )
+      : '',
     section('Execution Context', executionContext)
   ]
     .filter(Boolean)

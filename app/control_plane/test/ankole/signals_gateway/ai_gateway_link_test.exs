@@ -6,7 +6,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.Actors
+  alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.AIGatewayLink
   alias Ankole.SignalsGateway.Channel
 
@@ -216,7 +216,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
     })
 
     {:ok, actor_event} =
-      Actors.append_actor_event(%{
+      SignalsGateway.append_actor_event(%{
         agent_uid: agent.uid,
         binding_name: "test",
         session_id: "dm-session",
@@ -264,7 +264,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
 
     for type <- ["check_back_later.wakeup", "cron.fire"] do
       {:ok, actor_event} =
-        Actors.append_actor_event(%{
+        SignalsGateway.append_actor_event(%{
           agent_uid: agent.uid,
           binding_name: "schedule",
           session_id: "#{type}-#{Ecto.UUID.generate()}",
@@ -297,7 +297,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
     channel_id = "missing:ingress:channel"
 
     {:ok, actor_event} =
-      Actors.append_actor_event(%{
+      SignalsGateway.append_actor_event(%{
         agent_uid: agent.uid,
         binding_name: "test",
         session_id: "missing-ingress-channel",

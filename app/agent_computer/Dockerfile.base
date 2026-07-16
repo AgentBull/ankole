@@ -21,6 +21,7 @@ RUN sed -i \
     /etc/apt/sources.list.d/debian.sources \
   && apt-get -o Acquire::Retries=5 update \
   && apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
+    aria2 \
     bash \
     bubblewrap \
     build-essential \
@@ -147,3 +148,55 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/b
   && printf '%s\n' '#!/usr/bin/env sh' 'exec /opt/ankole-python/bin/python "$@"' > /usr/local/bin/python \
   && cp /usr/local/bin/python /usr/local/bin/python3 \
   && chmod +x /usr/local/bin/python /usr/local/bin/python3
+
+ARG PLEX_SANS_SC_REF=%40ibm%2Fplex-sans-sc%401.1.0
+ARG PLEX_MONO_TAG=%40ibm%2Fplex-mono%402.5.0
+ARG SOURCE_HAN_SERIF_VERSION=2.003R
+
+# Standard artifact fonts: IBM Plex Sans SC (sans, Latin + Simplified Chinese),
+# IBM Plex Mono (mono), and Source Han Serif CN (serif). Debian packages none of
+# them, so install pinned upstream releases and register fontconfig defaults.
+RUN set -eux; \
+  plex_sc_dir=/usr/share/fonts/truetype/ibm-plex-sans-sc; \
+  plex_sc_base="https://raw.githubusercontent.com/IBM/plex/${PLEX_SANS_SC_REF}/packages/plex-sans-sc/fonts/complete/ttf/hinted"; \
+  mkdir -p "${plex_sc_dir}"; \
+  printf '%s\n' \
+    '3e94ef1df394eae336cc1bc98f2160b58e2cab186f47d820e4c808aef1f4e28f  IBMPlexSansSC-Bold.ttf' \
+    '471d965dceac8a658f448d8e121346b1700e5c0cab99fc4a3279d6534894f06b  IBMPlexSansSC-ExtraLight.ttf' \
+    'd626327fe664ee2b360055d007c98954a73fa1f642b477e041d9158c4fec5b52  IBMPlexSansSC-Light.ttf' \
+    '6e6a084fd3f43c2c6f6d662cbc4c7b09987bafd928c43e91c8e8f68c6ae01e31  IBMPlexSansSC-Medium.ttf' \
+    '012e587c5a78d25f456057614b880fc7450b748c352573d8052245df2a71158a  IBMPlexSansSC-Regular.ttf' \
+    '76706e94340ac068ec2d398dc2f387946c815a3610f35c41cc93a8f8097d6c6b  IBMPlexSansSC-SemiBold.ttf' \
+    '6121432188f2271e2057c44f1c00f5f93ae16256dabf8f39b0314e02f7b406e2  IBMPlexSansSC-Text.ttf' \
+    '16d1cfd884aa107d2d768ca6b710079644ff98dc1c0ecca4a1bce27e853d57f2  IBMPlexSansSC-Thin.ttf' \
+    '91c25c350d3cac39da2736d74f7ba37ef648f5237a4e330a240615bc8d8c4360  license.txt' \
+    > /tmp/plex-sans-sc.sha256; \
+  while read -r _checksum file; do \
+    curl -fsSL --retry 5 --retry-all-errors "${plex_sc_base}/${file}" -o "${plex_sc_dir}/${file}"; \
+  done < /tmp/plex-sans-sc.sha256; \
+  (cd "${plex_sc_dir}" && sha256sum -c /tmp/plex-sans-sc.sha256); \
+  curl -fsSL --retry 5 --retry-all-errors "https://github.com/IBM/plex/releases/download/${PLEX_MONO_TAG}/ibm-plex-mono.zip" -o /tmp/ibm-plex-mono.zip; \
+  echo '6d23f01257663d8cc49a0d64c22ced630b79e0e2a0ac08a0da86e9a38bbc481c  /tmp/ibm-plex-mono.zip' | sha256sum -c -; \
+  mkdir -p /usr/share/fonts/truetype/ibm-plex-mono; \
+  unzip -j -q /tmp/ibm-plex-mono.zip 'ibm-plex-mono/fonts/complete/ttf/*' -d /usr/share/fonts/truetype/ibm-plex-mono; \
+  curl -fsSL --retry 5 --retry-all-errors "https://github.com/adobe-fonts/source-han-serif/releases/download/${SOURCE_HAN_SERIF_VERSION}/14_SourceHanSerifCN.zip" -o /tmp/source-han-serif-cn.zip; \
+  echo 'aa3f9134809de83bb2add0bd965e61421772ce2fd8628fe98516b77c93e1d819  /tmp/source-han-serif-cn.zip' | sha256sum -c -; \
+  mkdir -p /usr/share/fonts/opentype/source-han-serif-cn; \
+  unzip -j -q /tmp/source-han-serif-cn.zip 'SubsetOTF/CN/*.otf' 'LICENSE.txt' -d /usr/share/fonts/opentype/source-han-serif-cn; \
+  printf '%s\n' \
+    '<?xml version="1.0"?>' \
+    '<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">' \
+    '<fontconfig>' \
+    '  <alias binding="strong"><family>IBM Plex Sans</family><prefer><family>IBM Plex Sans SC</family></prefer></alias>' \
+    '  <alias binding="strong"><family>Source Han Serif</family><prefer><family>Source Han Serif CN</family></prefer></alias>' \
+    '  <alias binding="strong"><family>sans-serif</family><prefer><family>IBM Plex Sans SC</family><family>Noto Sans CJK SC</family></prefer></alias>' \
+    '  <alias binding="strong"><family>serif</family><prefer><family>Source Han Serif CN</family><family>Noto Serif CJK SC</family></prefer></alias>' \
+    '  <alias binding="strong"><family>monospace</family><prefer><family>IBM Plex Mono</family><family>Noto Sans Mono CJK SC</family></prefer></alias>' \
+    '</fontconfig>' \
+    > /etc/fonts/conf.d/52-ankole-brand-fonts.conf; \
+  fc-cache -f >/dev/null; \
+  fc-match sans-serif | grep -F 'IBM Plex Sans SC'; \
+  fc-match serif | grep -F 'Source Han Serif CN'; \
+  fc-match monospace | grep -F 'IBM Plex Mono'; \
+  fc-match 'IBM Plex Sans' | grep -F 'IBM Plex Sans SC'; \
+  rm -f /tmp/plex-sans-sc.sha256 /tmp/ibm-plex-mono.zip /tmp/source-han-serif-cn.zip

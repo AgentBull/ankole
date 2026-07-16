@@ -13,6 +13,8 @@ defmodule Ankole.Plugins.LarkAdapter do
   alias Ankole.Plugins.LarkAdapter.Inbound
   alias Ankole.Plugins.LarkAdapter.Outbox
   alias Ankole.Plugins.LarkAdapter.CardKit
+  alias Ankole.Plugins.LarkAdapter.RuntimeEnv
+  alias Ankole.Plugins.LarkAdapter.SkillEnablement
 
   @impl true
   def plugin_id, do: "lark-adapter"
@@ -37,20 +39,24 @@ defmodule Ankole.Plugins.LarkAdapter do
   end
 
   @impl true
+  def app_config_definitions, do: Config.app_config_definitions()
+
+  @impl true
   def app_config_patterns, do: Config.app_config_patterns()
 
   @impl true
   def adapter_declarations do
-    # The plugin exposes separate chat and identity contracts because message
-    # transport and Principal identity have different lifecycles and consumers.
+    # The plugin exposes separate signal, Skill, and identity contracts because
+    # each host subsystem owns a different lifecycle and projection.
     [
       %{
         contract_id: "signals_gateway.adapter",
         id: "lark",
         plugin_id: plugin_id(),
         display_name: adapter_display_name(),
-        config_key_pattern: "signals_gateway.lark.bindings.<id>",
+        config_key_pattern: "signals_gateway.lark.bindings.<agent_uid>",
         config_module: Config,
+        worker_env_module: RuntimeEnv,
         fields: chat_fields(),
         supported_group_message_modes: ["addressed_only", "observe_all", "may_intervene"],
         ingress_module: Inbound,
@@ -76,6 +82,12 @@ defmodule Ankole.Plugins.LarkAdapter do
           "divider",
           "card"
         ]
+      },
+      %{
+        contract_id: "ai_agent.library.skill_enablement_provider",
+        id: "lark-cli-bot",
+        plugin_id: plugin_id(),
+        module: SkillEnablement
       },
       %{
         contract_id: "principals.identity_provider",

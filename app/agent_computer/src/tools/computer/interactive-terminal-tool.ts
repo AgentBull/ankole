@@ -1,6 +1,7 @@
 import { match } from '@pleisto/active-support'
 import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../../core'
+import { commandActivityFamily } from '../activity-summary'
 import { executionScopeTag, type ComputerToolContext } from './context'
 import { truncateOutput } from './format'
 
@@ -115,6 +116,17 @@ export function createInteractiveTerminalTool(
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: true,
+    describeActivity: params =>
+      match(params.action)
+        .with('list', () => '查看交互终端')
+        .with('start', () => {
+          const family = commandActivityFamily(params.command)
+          return family ? `启动交互终端 · ${family}` : '启动交互终端'
+        })
+        .with('send', () => '操作交互终端')
+        .with('capture', () => '查看交互终端')
+        .with('kill', () => '停止交互终端')
+        .exhaustive(),
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<InteractiveTerminalDetails>> {
       const computer = await context.getComputer(signal)
       return match(params.action)

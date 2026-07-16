@@ -24,7 +24,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.AppConfigure
   alias Ankole.SubagentDelegations.Schemas.Delegation, as: SubagentDelegation
-  alias Ankole.SubagentDelegations.Schemas.Event, as: SubagentDelegationEvent
+  alias Ankole.SubagentDelegations.Schemas.Turn, as: SubagentDelegationTurn
   alias Ankole.E2E.FakeFeishu
   alias Ankole.Repo
   alias Ankole.SignalsGateway.Entry
@@ -474,7 +474,9 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
           where: event.agent_uid == ^agent.uid,
           where: event.session_id == ^input.session_id,
           where: event.type == "subagent.delegation.completed",
-          where: event.source_event_id == ^"subagent_delegation:#{delegation.id}:succeeded"
+          where:
+            event.source_event_id ==
+              ^"subagent_delegation:#{delegation.id}:succeeded:#{delegation.attempts}"
         )
       )
 
@@ -499,27 +501,24 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
            subagent_delegations=#{inspect(subagent_delegation_debug(input.id), limit: :infinity, printable_limit: 8_000)}
            """
 
-    events =
+    turns =
       Repo.all(
-        from(event in SubagentDelegationEvent,
-          where: event.delegation_id == ^delegation.id,
-          order_by: [asc: event.seq]
+        from(turn in SubagentDelegationTurn,
+          where: turn.delegation_id == ^delegation.id,
+          order_by: [asc: turn.started_at, asc: turn.id]
         )
       )
 
-    assert length(events) >= 8
-    event_types = Enum.map(events, & &1.event_type)
-    assert "config_materialized" in event_types
-    assert "json_rpc" in event_types
-    assert "status_succeeded" in event_types
+    assert turns != []
+    assert List.last(turns).status == "completed"
+    assert Enum.all?(turns, &(&1.trajectory["format"] == "ankole_chatml"))
 
-    assert Enum.any?(events, fn event ->
-             event.event_type == "json_rpc" and
-               get_in(event.payload, ["message", "method"]) in [
-                 "initialize",
-                 "thread/start",
-                 "turn/start"
-               ]
+    assert Enum.any?(turns, fn turn ->
+             Enum.any?(turn.trajectory["messages"], fn message ->
+               message["role"] == "assistant" and
+                 is_binary(message["content"]) and
+                 String.contains?(message["content"], "ANKOLE_CODEX_TODOLIST_DELEGATE_DONE")
+             end)
            end)
 
     assert_actor_event_completed!(input.id)
@@ -654,34 +653,30 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     assert output_text =~ "ANKOLE_CODEX_PPTX_DELEGATE_DONE"
     assert output_text =~ "ANKOLE_PPTX_AGENTS_CONTEXT"
 
-    events =
+    turns =
       Repo.all(
-        from(event in SubagentDelegationEvent,
-          where: event.delegation_id == ^delegation.id,
-          order_by: [asc: event.seq]
+        from(turn in SubagentDelegationTurn,
+          where: turn.delegation_id == ^delegation.id,
+          order_by: [asc: turn.started_at, asc: turn.id]
         )
       )
 
-    event_types = Enum.map(events, & &1.event_type)
-    assert "agents_instructions_materialized" in event_types
-    assert "skills_configured" in event_types
-    assert "status_succeeded" in event_types
+    assert turns != []
+    assert List.last(turns).status == "completed"
 
-    skills_event = Enum.find(events, &(&1.event_type == "skills_configured"))
-    assert "pptx" in skills_event.payload["expected"]
-    assert "pptx" in skills_event.payload["discovered"]
+    assert Enum.any?(turns, fn turn ->
+             Enum.any?(turn.trajectory["messages"], fn message ->
+               message["role"] == "assistant" and
+                 is_binary(message["content"]) and
+                 String.contains?(message["content"], "ANKOLE_CODEX_PPTX_DELEGATE_DONE")
+             end)
+           end)
 
-    rpc_methods =
-      events
-      |> Enum.filter(&(&1.event_type == "json_rpc"))
-      |> Enum.map(&get_in(&1.payload, ["message", "method"]))
-
-    assert "skills/extraRoots/set" in rpc_methods
-    assert "skills/list" in rpc_methods
-
-    audit_text = events |> Enum.map(& &1.payload) |> Ankole.JSON.encode!()
-    assert audit_text =~ "pptx/SKILL.md"
-    assert audit_text =~ "officecli"
+    trajectory_text = turns |> Enum.map(& &1.trajectory) |> Ankole.JSON.encode!()
+    # Codex 0.144 native skill injection leaves no literal SKILL.md read in the
+    # trajectory; the OfficeCLI workflow below is the evidence the skill governed
+    # the work, and the artifact checks prove the outcome.
+    assert trajectory_text =~ "officecli"
 
     validate_output = docker_exec!(container, ["officecli", "validate", @pptx_container_path])
 
@@ -704,7 +699,9 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
           where: event.agent_uid == ^agent.uid,
           where: event.session_id == ^input.session_id,
           where: event.type == "subagent.delegation.completed",
-          where: event.source_event_id == ^"subagent_delegation:#{delegation.id}:succeeded"
+          where:
+            event.source_event_id ==
+              ^"subagent_delegation:#{delegation.id}:succeeded:#{delegation.attempts}"
         )
       )
 
@@ -922,13 +919,13 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     |> where([delegation], delegation.actor_event_id == ^actor_event_id)
     |> Repo.all()
     |> Enum.map(fn delegation ->
-      events =
-        SubagentDelegationEvent
-        |> where([event], event.delegation_id == ^delegation.id)
-        |> order_by([event], asc: event.seq)
+      turns =
+        SubagentDelegationTurn
+        |> where([turn], turn.delegation_id == ^delegation.id)
+        |> order_by([turn], asc: turn.started_at, asc: turn.id)
         |> limit(40)
         |> Repo.all()
-        |> Enum.map(&subagent_event_debug/1)
+        |> Enum.map(&subagent_turn_debug/1)
 
       %{
         id: delegation.id,
@@ -937,25 +934,20 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
         result: delegation.result,
         error: delegation.error,
         metadata: delegation.metadata,
-        events: events
+        turns: turns
       }
     end)
   end
 
-  defp subagent_event_debug(%SubagentDelegationEvent{} = event) do
-    message = event.payload["message"] || %{}
-    params = message["params"] || %{}
-    turn = params["turn"] || %{}
-
+  defp subagent_turn_debug(%SubagentDelegationTurn{} = turn) do
     %{
-      seq: event.seq,
-      direction: event.direction,
-      event_type: event.event_type,
-      method: message["method"],
-      has_result: Map.has_key?(message, "result"),
-      rpc_error: message["error"],
-      turn_status: turn["status"],
-      payload: subagent_debug_payload(event.payload)
+      attempt: turn.attempt,
+      runtime_turn_id: turn.runtime_turn_id,
+      kind: turn.kind,
+      status: turn.status,
+      revision: turn.revision,
+      trajectory: subagent_debug_payload(turn.trajectory),
+      error: subagent_debug_payload(turn.error)
     }
   end
 

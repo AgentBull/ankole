@@ -52,7 +52,11 @@ defmodule AnkoleWeb.Endpoint do
   plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
 
   plug Plug.Parsers,
-    parsers: [:urlencoded, {:multipart, length: 128 * 1024 * 1024}, :json],
+    parsers: [
+      :urlencoded,
+      {:multipart, length: 128 * 1024 * 1024},
+      {:json, length: 128 * 1024 * 1024}
+    ],
     pass: ["*/*"],
     json_decoder: Phoenix.json_library()
 

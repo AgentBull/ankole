@@ -14,12 +14,15 @@ defmodule Ankole.AIAgent.Library.SourceReader do
   @skill_file "SKILL.md"
   @soul_file "SOUL.md"
   @mission_file "MISSION.md"
-  # Used only if the bundled SOUL/MISSION templates are unreadable, so a fresh
-  # agent still gets a usable (if minimal) persona rather than failing to seed.
+  @design_file "DESIGN.md"
+  # Used only if the bundled templates are unreadable, so a fresh agent still
+  # gets usable runtime documents rather than failing to seed.
   @fallback_soul "You are an Ankole AI colleague. Reply in plain text."
   @fallback_mission ""
+  @fallback_design ""
   @yaml_block_item_regex ~r/^\s+-\s+(.+)\s*$/
   @yaml_block_end_regex ~r/^\S/
+  @execution_profile_pattern ~r/\A[a-z][a-z0-9_-]{0,63}\z/
 
   @doc """
   Reads every allowlisted builtin skill bundle from disk.
@@ -135,6 +138,20 @@ defmodule Ankole.AIAgent.Library.SourceReader do
     |> case do
       {:ok, content} -> content
       {:error, _reason} -> @fallback_mission
+    end
+  end
+
+  @doc """
+  Loads the default DESIGN template, falling back to an empty document.
+  """
+  @spec load_default_design_template() :: String.t()
+  def load_default_design_template do
+    templates_root()
+    |> Path.join(@design_file)
+    |> File.read()
+    |> case do
+      {:ok, content} -> content
+      {:error, _reason} -> @fallback_design
     end
   end
 
@@ -302,7 +319,8 @@ defmodule Ankole.AIAgent.Library.SourceReader do
              "disable_model_invocation" => metadata.disable_model_invocation,
              "long_running" => metadata.long_running
            }
-           |> maybe_put("category", metadata.category),
+           |> maybe_put("category", metadata.category)
+           |> maybe_put("execution_profile", metadata.execution_profile),
          source_hash: source_hash,
          relative_path: normalized_relative_path,
          files: files
@@ -345,7 +363,8 @@ defmodule Ankole.AIAgent.Library.SourceReader do
          {:ok, default_enabled} <- yaml_boolean(frontmatter, "default_enabled", true),
          {:ok, disable_model_invocation} <-
            yaml_boolean(frontmatter, "disable-model-invocation", false),
-         {:ok, long_running} <- yaml_boolean(frontmatter, "long_running", false) do
+         {:ok, long_running} <- yaml_boolean(frontmatter, "long_running", false),
+         {:ok, execution_profile} <- execution_profile(frontmatter) do
       {:ok,
        %{
          name: name,
@@ -354,7 +373,8 @@ defmodule Ankole.AIAgent.Library.SourceReader do
          tags: yaml_tags(frontmatter),
          category: yaml_scalar(frontmatter, "category"),
          disable_model_invocation: disable_model_invocation,
-         long_running: long_running
+         long_running: long_running,
+         execution_profile: execution_profile
        }}
     else
       {:error, _reason} = error -> error
@@ -401,6 +421,19 @@ defmodule Ankole.AIAgent.Library.SourceReader do
       "TRUE" -> {:ok, true}
       "FALSE" -> {:ok, false}
       _value -> {:error, {:invalid_boolean, key}}
+    end
+  end
+
+  defp execution_profile(frontmatter) do
+    case yaml_scalar(frontmatter, "execution_profile") do
+      nil ->
+        {:ok, nil}
+
+      profile when is_binary(profile) ->
+        case Regex.match?(@execution_profile_pattern, profile) do
+          true -> {:ok, profile}
+          false -> {:error, {:invalid_execution_profile, profile}}
+        end
     end
   end
 

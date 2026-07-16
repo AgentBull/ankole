@@ -6,17 +6,20 @@ import type {
 } from '../api/generated/types.gen'
 import type { ProfileDraft, ProfileName } from '../state/model-profiles-model'
 
-export type ModelProfileCapability = 'llm' | 'embedding' | 'rerank' | 'web_search'
+export type ModelProfileCapability = 'llm' | 'embedding' | 'rerank' | 'web_search' | 'web_fetch' | 'image_generate'
 
 export function profileCapability(profile: ProfileName): ModelProfileCapability {
   if (profile === 'embedding') return 'embedding'
   if (profile === 'rerank') return 'rerank'
   if (profile === 'web_search') return 'web_search'
+  if (profile === 'web_fetch') return 'web_fetch'
+  if (profile === 'image_generate') return 'image_generate'
   return 'llm'
 }
 
 export function profileUsesConfigurableModel(profile: ProfileName): boolean {
-  return profileCapability(profile) !== 'web_search'
+  const capability = profileCapability(profile)
+  return capability !== 'web_search' && capability !== 'web_fetch'
 }
 
 /** Adapts provider-only profiles to the backend's existing model-profile write shape. */
@@ -39,8 +42,6 @@ export function providersForProfile(
   kinds: AIGatewayProviderKindItem[],
   profile: ProfileName
 ): AIGatewayProviderItem[] {
-  if (kinds.length === 0) return providers
-
   const capability = profileCapability(profile)
   const capabilitiesByKind = new Map(kinds.map(kind => [kind.provider_kind, kind.capabilities]))
   return providers.filter(provider => capabilitiesByKind.get(provider.provider_kind)?.includes(capability))
@@ -122,6 +123,7 @@ function inferredCapability(entry: CatalogEntry): CatalogCapability {
     return 'rerank'
   }
 
+  if (outputModalities.includes('image')) return 'image_generate'
   if (outputModalities.includes('text')) return 'llm'
   if (outputModalities.length > 0) return 'other'
   return 'unknown'

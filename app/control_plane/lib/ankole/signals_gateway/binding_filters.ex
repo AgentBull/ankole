@@ -137,6 +137,7 @@ defmodule Ankole.SignalsGateway.BindingFilters do
     %{
       "id" => fact.source_entry_id,
       "source_entry_id" => fact.source_entry_id,
+      "reply_to_source_entry_id" => fact.reply_to_source_entry_id,
       "thread_id" => fact.provider_thread_id,
       "provider_thread_id" => fact.provider_thread_id,
       "sender_key" => fact.sender_key,

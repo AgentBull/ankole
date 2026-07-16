@@ -148,6 +148,7 @@ defmodule Ankole.SignalsGateway.Projection do
     %{
       signal_channel_id: fact.signal_channel_id,
       source_entry_id: fact.source_entry_id,
+      reply_to_source_entry_id: Map.get(fact, :reply_to_source_entry_id),
       provider_thread_id: Map.get(fact, :provider_thread_id),
       text: fact.text,
       rich_content: rich_content,
@@ -170,6 +171,7 @@ defmodule Ankole.SignalsGateway.Projection do
           fact.author,
           fact.mentions,
           metadata,
+          Map.get(fact, :reply_to_source_entry_id),
           Map.get(fact, :provider_thread_id)
         ]),
       first_seen_at: now,

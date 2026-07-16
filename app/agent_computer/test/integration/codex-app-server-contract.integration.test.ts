@@ -140,6 +140,7 @@ agents_path=$(find ${SUBAGENT_AGENTS_SANDBOX_ROOT} -maxdepth 1 -type f -name '*.
 grep -q 'TASK_AGENTS_MOUNT_MARKER' "$agents_path"
 grep -q '# PPTX' /ankole/subagent-skills/pptx/SKILL.md
 grep -q 'PG_OVERLAY_MARKER' /ankole/subagent-skills/pptx/SKILL.md
+test "$(bun -e \"const { genericHash } = require('/repo/app/kernel'); process.stdout.write(genericHash(Buffer.from('bullx')))\")" = '7f31cabae40697f9404428671c582d3c1f80c8a13d0741f4be8c9b856fcc0706'
 test ! -e ./AGENTS.override.md
 if printf 'forbidden' >> "$agents_path" 2>/dev/null; then exit 21; fi
 if printf 'forbidden' >> /ankole/subagent-skills/pptx/SKILL.md 2>/dev/null; then exit 22; fi

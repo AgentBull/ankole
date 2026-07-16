@@ -19,15 +19,33 @@ defmodule Ankole.SignalsGateway do
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Projection
   alias Ankole.SignalsGateway.Binding
+  alias Ankole.SignalsGateway.ReplyInteractions
   alias Ankole.SignalsGateway.StateCleanup
   alias Ankole.SignalsGateway.AIReplyPreview
   alias Ankole.SignalsGateway.Utils
   alias Ankole.SignalsGateway.Visibility
+  alias Ankole.Repo
 
   @doc """
-  Appends one durable Actor event inside a caller-owned transaction.
+  Appends one durable Actor event through the SignalsGateway lifecycle boundary.
   """
-  defdelegate append_actor_event_in_tx(repo, attrs), to: Actors
+  @spec append_actor_event(map()) :: {:ok, ActorEvent.t()} | {:error, term()}
+  def append_actor_event(attrs) when is_map(attrs) do
+    Repo.transact(fn repo -> append_actor_event_in_tx(repo, attrs) end)
+  end
+
+  @doc """
+  Appends one durable Actor event and supersedes older pending reply
+  interactions inside the same caller-owned transaction.
+  """
+  @spec append_actor_event_in_tx(module(), map()) :: {:ok, ActorEvent.t()} | {:error, term()}
+  def append_actor_event_in_tx(repo, attrs) when is_map(attrs) do
+    with {:ok, %ActorEvent{} = event} <- Actors.append_actor_event_in_tx(repo, attrs),
+         resolved_at <- event.inserted_at || DateTime.utc_now(:microsecond),
+         {:ok, _superseded} <- ReplyInteractions.supersede_older_in_tx(repo, event, resolved_at) do
+      {:ok, event}
+    end
+  end
 
   @doc false
   defdelegate mark_actor_event_completed_in_tx(repo, event, completed_at),

@@ -15,7 +15,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDelegationBroker do
   alias Ankole.Repo
   alias Ankole.SubagentDelegations
   alias Ankole.SubagentDelegations.Schemas.Delegation
-  alias Ankole.SubagentDelegations.Schemas.Event
 
   @terminal_statuses Delegation.terminal_statuses()
 
@@ -50,19 +49,22 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDelegationBroker do
     with {:ok,
           %{
             delegation: %Delegation{} = delegation,
-            last_event_seq: last_event_seq,
-            attempt_history: attempt_history
+            execution: execution,
+            attempt_history: attempt_history,
+            source_forecast: source_forecast
           }} <-
            SubagentDelegations.get_delegation_summary_for_agent(
              delegation_id,
-             turn_ref.agent_uid
+             turn_ref.agent_uid,
+             trajectory_options(request)
            ),
          :ok <- authorize_visible_delegation(turn_ref, delegation) do
       payload =
         request_id
         |> delegation_payload(delegation)
-        |> maybe_put("last_event_seq", last_event_seq)
+        |> maybe_put("execution", execution)
         |> maybe_put("attempt_history", attempt_history)
+        |> maybe_put("source_forecast", source_forecast)
         |> maybe_put_result_ref(delegation)
 
       {:ok, payload}
@@ -95,18 +97,23 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDelegationBroker do
     end
   end
 
-  @spec handle_append_events(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
-  def handle_append_events(%TurnRef{} = turn_ref, request, route) when is_map(request) do
-    request_id = request_id(request, "events")
+  @spec handle_upsert_turn(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
+  def handle_upsert_turn(%TurnRef{} = turn_ref, request, route) when is_map(request) do
+    request_id = request_id(request, "turn")
     delegation_id = RPCWire.text(request, "delegation_id") || ""
-    events = list_value(request, "events", [])
+
+    attrs =
+      Map.take(
+        request,
+        ~w(attempt runtime_thread_id runtime_turn_id kind status revision trajectory progress usage error started_at completed_at)
+      )
 
     with :ok <- authorize_delegation_turn(turn_ref, delegation_id),
-         {:ok, appended} <-
-           SubagentDelegations.append_worker_events(
+         {:ok, turn} <-
+           SubagentDelegations.upsert_turn_from_worker(
              delegation_id,
              turn_ref.agent_uid,
-             events,
+             attrs,
              turn_ref,
              route
            ) do
@@ -114,8 +121,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDelegationBroker do
        %{
          "request_id" => request_id,
          "delegation_id" => delegation_id,
-         "events" => Enum.map(appended, &event_payload/1),
-         "last_event_seq" => appended |> List.last() |> event_seq()
+         "turn" => SubagentDelegations.console_turn_projection(turn)
        }}
     else
       {:error, reason} -> error(request_id, turn_ref.agent_uid, reason)
@@ -278,6 +284,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDelegationBroker do
       "status" => delegation.status,
       "runtime_thread_id" => delegation.runtime_thread_id,
       "runtime" => delegation.runtime,
+      "mode" => delegation.mode,
+      "source_delegation_id" => delegation.source_delegation_id,
+      "actual_outcome" => delegation.actual_outcome,
       "codex_account_id" => delegation.codex_account_id,
       "title" => delegation.title,
       "task" => delegation.task,
@@ -302,6 +311,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDelegationBroker do
       "title" => delegation.title,
       "status" => delegation.status,
       "runtime" => delegation.runtime,
+      "mode" => delegation.mode,
       "attempts" => delegation.attempts,
       "queued_at" => iso8601(delegation.queued_at),
       "started_at" => iso8601(delegation.started_at),
@@ -311,12 +321,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDelegationBroker do
     |> Map.new()
   end
 
-  defp event_payload(%Event{} = event) do
-    %{"event_id" => event.id, "seq" => event.seq}
+  defp trajectory_options(request) do
+    [
+      trajectory_limit: RPCWire.value(request, "trajectory_limit"),
+      trajectory_cursor: RPCWire.value(request, "trajectory_cursor")
+    ]
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
   end
-
-  defp event_seq(%Event{seq: seq}), do: seq
-  defp event_seq(nil), do: nil
 
   defp request_id(request, action) do
     RPCWire.text(request, "request_id") ||
@@ -356,12 +367,5 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDelegationBroker do
   defp put_parent_brain_conversation(map, conversation_id) do
     metadata = RPCWire.map_value(map, "metadata", %{})
     Map.put(map, "metadata", Map.put(metadata, "brain_parent_conversation_id", conversation_id))
-  end
-
-  defp list_value(map, key, default) do
-    case Map.get(map, key) || Map.get(map, String.to_atom(key)) do
-      value when is_list(value) -> value
-      _value -> default
-    end
   end
 end

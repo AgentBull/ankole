@@ -1,5 +1,7 @@
 export type BrainEntrySnapshot = {
   id: string
+  name: string
+  type: string
   summary: string
   aliases: string[]
   properties: Record<string, unknown>
@@ -7,12 +9,26 @@ export type BrainEntrySnapshot = {
 }
 
 export type BrainMetadataDraft = {
+  name: string
+  type: string
   summary: string
   aliases: string[]
   properties: Record<string, unknown>
 }
 
 export type BrainMetadataOperation =
+  | {
+      operation: 'set_name'
+      entry_id: string
+      name: string
+      expected_entry_lock_version: number
+    }
+  | {
+      operation: 'set_type'
+      entry_id: string
+      type: string
+      expected_entry_lock_version: number
+    }
   | {
       operation: 'set_summary'
       entry_id: string
@@ -35,8 +51,15 @@ export type BrainMetadataOperation =
 
 export type PropertyDraft = { key: string; value: string }
 
+export type BrainOwnerOption = { uid: string; type: 'human' | 'agent' }
+
 const ROOT_CURSOR = '~'
 const CURSOR_HISTORY_SEPARATOR = '.'
+
+/** Keeps Brain's agent-first default while allowing every active Principal to be selected. */
+export function defaultBrainOwnerUID(principals: BrainOwnerOption[]): string {
+  return principals.find(principal => principal.type === 'agent')?.uid ?? principals[0]?.uid ?? ''
+}
 
 /** Builds the smallest structured operation batch for the editable entry metadata. */
 export function buildMetadataOperations(
@@ -44,6 +67,24 @@ export function buildMetadataOperations(
   draft: BrainMetadataDraft
 ): BrainMetadataOperation[] {
   const operations: BrainMetadataOperation[] = []
+
+  if (draft.name.trim() !== entry.name) {
+    operations.push({
+      operation: 'set_name',
+      entry_id: entry.id,
+      name: draft.name.trim(),
+      expected_entry_lock_version: entry.lock_version
+    })
+  }
+
+  if (draft.type.trim() !== entry.type) {
+    operations.push({
+      operation: 'set_type',
+      entry_id: entry.id,
+      type: draft.type.trim(),
+      expected_entry_lock_version: entry.lock_version
+    })
+  }
 
   if (draft.summary !== entry.summary) {
     operations.push({
@@ -107,12 +148,6 @@ export function parsePropertyDrafts(
   }
 
   return { ok: true, value: properties }
-}
-
-/** Finds stable SignalsGateway document addresses without duplicating repeated citations. */
-export function sourceDocumentIDs(markdown: string): string[] {
-  const matches = markdown.matchAll(/src:(signal-gateway-entry:[A-Za-z0-9_-]+)/g)
-  return [...new Set([...matches].map(match => match[1]).filter((value): value is string => Boolean(value)))]
 }
 
 /** Updates one URL-backed Brain filter and invalidates any cursor page derived from the old filter set. */

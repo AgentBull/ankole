@@ -24,6 +24,10 @@ defmodule Ankole.AIGateway.ModelSelectors do
     "web_fetch" => %{
       profile: "web_fetch",
       selector: "web_fetch.default"
+    },
+    "image_generate" => %{
+      profile: "image_generate",
+      selector: "image_generate.default"
     }
   }
 

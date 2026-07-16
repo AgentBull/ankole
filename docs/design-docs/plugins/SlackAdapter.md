@@ -147,16 +147,22 @@ stable provider identifiers are:
 
 - `signal_channel_id = "slack:" <> channel_id`;
 - `source_entry_id = message.ts`;
-- `provider_thread_id = "slack:" <> channel_id <> ":" <> root_ts`;
+- `provider_thread_id = "slack:" <> channel_id <> ":" <> thread_ts` for
+  threaded replies (and thread broadcasts), nil for top-level messages — never
+  the message's own `ts`, which would fragment the inbound-batch key per
+  message;
+- `reply_to_source_entry_id = thread_ts` only when `thread_ts != ts`; a root
+  event whose `thread_ts == ts` is not treated as a reply to itself;
 - `source_event_id = Events API event_id`, falling back to the message timestamp
   only when the provider event lacks an id.
 
-Direct messages are explicit. Group messages are explicit only when their
-structured Slack mention targets the current bot. The adapter removes the
-current-agent mention from visible text but preserves other mentions as
-structured mention data. SignalsGateway binding policy, not the adapter,
-decides whether an unaddressed group message is ignored, observed, or delivered
-as a possible intervention.
+Direct messages are explicit. The adapter marks a group message explicit when
+its structured Slack mention targets the current bot; SignalsGateway also marks
+it explicit when the reply target resolves to the current agent's mirrored
+output. The adapter removes the current-agent mention from visible text but
+preserves other mentions as structured mention data. SignalsGateway binding
+policy, not the adapter, decides whether any remaining unaddressed group message
+is ignored, observed, or delivered as a possible intervention.
 
 Bot and app senders are ignored, including the current bot user resolved with
 `auth.test`. `message_changed` is ignored because the current ingress contract

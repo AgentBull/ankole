@@ -10,6 +10,7 @@
 mod api_resolver;
 mod downstream;
 mod error;
+mod hosted_responses;
 mod request_builder;
 mod runtime;
 mod spec;

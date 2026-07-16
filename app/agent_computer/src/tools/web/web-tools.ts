@@ -59,7 +59,11 @@ const HTTPSURL = z
   .refine(value => isHTTPSURL(value), 'Only HTTPS URLs are supported.')
 
 const WebFetchParams = z.object({
-  urls: z.array(HTTPSURL).min(1).max(5).describe('HTTPS URLs to fetch. Maximum 5.')
+  urls: z
+    .array(HTTPSURL)
+    .min(1)
+    .max(5)
+    .describe('HTTPS web-page URLs whose readable text should be extracted. Do not pass binary-file URLs. Maximum 5.')
 })
 
 /**
@@ -139,7 +143,7 @@ function createWebFetchTool(
   return {
     name: 'web_fetch',
     description:
-      'Fetch readable text from HTTPS web pages through AIGateway, falling back to the local browser when available. Pass all needed URLs in one call.',
+      'Extract and return readable text from HTTPS web pages through AIGateway, falling back to the local browser when available. This tool returns text only, never binary file content. Do not use web_fetch for PDFs, archives, images, audio/video, executables, or other binary files; use the command shell tool to run aria2c for those downloads. Pass all needed text-page URLs in one call.',
     schema: WebFetchParams,
     executionMode: 'sequential',
     isReadOnly: true,

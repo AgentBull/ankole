@@ -12,6 +12,8 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   alias Ankole.AIGateway
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AIGateway.Schemas.Message
+  alias Ankole.AIGateway.StatefulResponses
+  alias Ankole.Brain.Scope
   alias Ankole.Principals
   alias Ankole.Repo
   alias Ankole.SignalsGateway.ActorEvent
@@ -19,6 +21,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   alias Ankole.SignalsGateway.AIReplyText
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.ClarifyPrompt
+  alias Ankole.SignalsGateway.Entry
   alias Ankole.SignalsGateway.ReplyAttachment
 
   @max_chain_depth 500
@@ -128,6 +131,21 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
       limit: 1
     )
     |> List.first()
+  end
+
+  defp brain_scope_declaration(
+         _repo,
+         %ActorEvent{
+           type: "brain.source.learn",
+           payload: %{"data" => %{"brain_scope" => declaration}}
+         } =
+           event
+       )
+       when is_map(declaration) do
+    case Scope.from_metadata(event.agent_uid, %{"brain" => declaration}) do
+      {:ok, _scope} -> {:ok, declaration}
+      {:error, reason} -> {:error, {:invalid_source_learning_brain_scope, reason}}
+    end
   end
 
   defp brain_scope_declaration(_repo, %ActorEvent{signal_channel_id: nil}), do: {:ok, :undeclared}
@@ -388,23 +406,61 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   end
 
   @doc false
+  @spec visible_signal_document_ids(TurnRef.t()) :: [String.t()]
+  def visible_signal_document_ids(%TurnRef{} = turn_ref) do
+    case active_conversation(turn_ref.agent_uid, turn_ref.session_id) do
+      %Conversation{} = conversation ->
+        current_response = current_response(turn_ref, conversation)
+        visible_chain = visible_response_chain(conversation, current_response)
+
+        metadata_responses =
+          [current_response | visible_chain]
+          |> Enum.reject(&is_nil/1)
+          |> Enum.uniq_by(& &1.id)
+
+        actor_event_ids =
+          [
+            turn_ref.actor_event_id
+            | Enum.flat_map(metadata_responses, &response_actor_event_ids/1)
+          ]
+          |> Enum.filter(&valid_uuid?/1)
+          |> Enum.uniq()
+
+        signal_document_ids(visible_chain, actor_event_ids)
+
+      nil ->
+        []
+    end
+  end
+
+  @doc false
+  @spec visible_signal_document_ids(String.t(), String.t()) :: [String.t()]
+  def visible_signal_document_ids(agent_uid, session_id)
+      when is_binary(agent_uid) and is_binary(session_id) do
+    case active_conversation(agent_uid, session_id) do
+      %Conversation{} = conversation ->
+        visible_chain = visible_response_chain(conversation, nil)
+
+        actor_event_ids =
+          visible_chain
+          |> Enum.flat_map(&response_actor_event_ids/1)
+          |> Enum.filter(&valid_uuid?/1)
+          |> Enum.uniq()
+
+        signal_document_ids(visible_chain, actor_event_ids)
+
+      nil ->
+        []
+    end
+  end
+
+  @doc false
   @spec current_response_row_id(TurnRef.t()) :: Ecto.UUID.t() | nil
   def current_response_row_id(%TurnRef{} = turn_ref) do
     with %Conversation{} = conversation <-
-           active_conversation(turn_ref.agent_uid, turn_ref.session_id) do
-      Message
-      |> where([response], response.subject_uid == ^turn_ref.agent_uid)
-      |> where([response], response.conversation_id == ^conversation.id)
-      |> where([response], response.type == "message")
-      |> where([response], response.status in ["generating", "complete"])
-      |> order_by([response], desc: response.inserted_at, desc: response.id)
-      |> limit(@max_chain_depth)
-      |> Repo.all()
-      |> Enum.find(&(response_actor_event_id(&1) == turn_ref.actor_event_id))
-      |> case do
-        %Message{id: id} -> id
-        nil -> nil
-      end
+           active_conversation(turn_ref.agent_uid, turn_ref.session_id),
+         %Message{id: id} <- current_response(turn_ref, conversation) do
+      id
     else
       nil -> nil
     end
@@ -864,6 +920,112 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
       retracted_count: 0
     }
   end
+
+  defp current_response(%TurnRef{} = turn_ref, %Conversation{} = conversation) do
+    Message
+    |> where([response], response.subject_uid == ^turn_ref.agent_uid)
+    |> where([response], response.conversation_id == ^conversation.id)
+    |> where([response], response.type == "message")
+    |> where([response], response.status in ["generating", "complete"])
+    |> where(
+      [response],
+      fragment("?->'request_metadata'->>'actor_event_id'", response.metadata) ==
+        ^turn_ref.actor_event_id
+    )
+    |> order_by([response], desc: response.inserted_at, desc: response.id)
+    |> limit(1)
+    |> Repo.one()
+  end
+
+  defp visible_response_chain(%Conversation{} = conversation, nil),
+    do: StatefulResponses.expand_history(conversation.id)
+
+  defp visible_response_chain(
+         %Conversation{} = conversation,
+         %Message{status: "complete"} = response
+       ) do
+    StatefulResponses.expand_history(conversation.id, previous_response_id: response.id)
+  end
+
+  defp visible_response_chain(
+         %Conversation{} = conversation,
+         %Message{status: "generating", previous_message_id: previous_message_id}
+       )
+       when is_binary(previous_message_id) do
+    StatefulResponses.expand_history(conversation.id, previous_response_id: previous_message_id)
+  end
+
+  defp visible_response_chain(%Conversation{}, %Message{status: "generating"}), do: []
+
+  defp response_actor_event_ids(%Message{} = response) do
+    metadata = AIGateway.response_metadata(response)
+    [metadata["actor_event_id"] | request_ref_actor_event_ids(metadata["request_refs"])]
+  end
+
+  defp response_document_ids([]), do: []
+
+  defp response_document_ids(responses) do
+    response_ids = Enum.map(responses, & &1.id)
+
+    Entry
+    |> where([entry], entry.ai_message_id in ^response_ids)
+    |> select([entry], entry.document_id)
+    |> Repo.all()
+  end
+
+  defp signal_document_ids(visible_chain, actor_event_ids) do
+    response_document_ids(visible_chain)
+    |> Kernel.++(actor_event_document_ids(actor_event_ids))
+    |> Enum.uniq()
+  end
+
+  defp actor_event_document_ids([]), do: []
+
+  defp actor_event_document_ids(actor_event_ids) do
+    source_ids_by_channel =
+      ActorEvent
+      |> where([event], event.id in ^actor_event_ids)
+      |> Repo.all()
+      |> Enum.reduce(%{}, fn
+        %ActorEvent{signal_channel_id: channel_id} = event, acc when is_binary(channel_id) ->
+          source_entry_ids = ActorEvent.source_entry_ids(event)
+
+          Map.update(
+            acc,
+            channel_id,
+            source_entry_ids,
+            &(source_entry_ids ++ &1)
+          )
+
+        %ActorEvent{}, acc ->
+          acc
+      end)
+      |> Map.new(fn {channel_id, source_entry_ids} ->
+        {channel_id, Enum.uniq(source_entry_ids)}
+      end)
+
+    predicate =
+      Enum.reduce(source_ids_by_channel, dynamic(false), fn
+        {_channel_id, []}, predicate ->
+          predicate
+
+        {channel_id, source_entry_ids}, predicate ->
+          dynamic(
+            [entry],
+            ^predicate or
+              (entry.signal_channel_id == ^channel_id and
+                 entry.source_entry_id in ^source_entry_ids)
+          )
+      end)
+
+    Entry
+    |> where(^predicate)
+    |> select([entry], entry.document_id)
+    |> Repo.all()
+  end
+
+  defp valid_uuid?(value) when is_binary(value), do: match?({:ok, _uuid}, Ecto.UUID.cast(value))
+  defp valid_uuid?(_value), do: false
 
   defp response_actor_event_id(%Message{} = response),
     do: AIGateway.response_metadata(response)["actor_event_id"]

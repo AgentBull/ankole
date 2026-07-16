@@ -9,6 +9,8 @@ import { fakeResponseSocket, parallelReadTool, toolResultsRecordedFrame } from '
 describe('@ankole/agent-computer llm helpers: tool execution scheduling and guards', () => {
   it('feeds invalid tool arguments back as function_call_output instead of executing the tool', async () => {
     const sentPayloads: JSONObject[] = []
+    const presentation: ReplyPresentationEvent[] = []
+    let activityDescriptions = 0
     let toolExecutions = 0
     const model = createModel({
       apiKey: 'unused',
@@ -81,6 +83,10 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
           name: 'lookup',
           description: 'Look up facts',
           schema: z.object({ q: z.string() }),
+          describeActivity: () => {
+            activityDescriptions += 1
+            return '查询资料'
+          },
           execute: async () => {
             toolExecutions += 1
             return {
@@ -89,11 +95,16 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
             }
           }
         }
-      ]
+      ],
+      onPresentationEvent: event => {
+        presentation.push(event)
+      }
     })
 
     expect(final.message.content).toEqual([{ type: 'text', text: 'I corrected the tool input.' }])
     expect(toolExecutions).toBe(0)
+    expect(activityDescriptions).toBe(0)
+    expect(presentation.filter(event => event.kind === 'tool.activity')).toEqual([])
     expect(sentPayloads).toHaveLength(3)
     expect(sentPayloads[1]).toMatchObject({
       type: 'response.tool_results.record',
@@ -480,6 +491,8 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
   it('emits revisioned semantic tool activity without leaking raw names or arguments', async () => {
     const sentPayloads: JSONObject[] = []
     const presentation: ReplyPresentationEvent[] = []
+    let describedParams: { password: string } | undefined
+    const secretAdminSchema = z.object({ password: z.string() })
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
@@ -550,8 +563,12 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
         {
           name: 'secret_admin_shell',
           description: 'Internal test tool',
-          schema: z.object({ password: z.string() }),
+          schema: secretAdminSchema,
           isDestructive: true,
+          describeActivity: params => {
+            describedParams = secretAdminSchema.parse(params)
+            return '执行维护任务'
+          },
           execute: async () => ({
             content: [{ type: 'text', text: 'sensitive raw output' }],
             details: { ok: true },
@@ -580,23 +597,151 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
       'tool.activity',
       'turn.phase'
     ])
+    expect(describedParams).toEqual({ password: 'do-not-leak' })
     expect(presentation[1]).toMatchObject({
       kind: 'tool.activity',
       payload: {
         operation_id: 'call_presentation_tool',
-        label: '处理请求',
+        label: '执行维护任务',
         phase: 'running',
-        consequential: true,
-        revision: 2
+        consequential: true
       }
     })
     expect(presentation[3]).toMatchObject({
       kind: 'tool.activity',
-      payload: { label: '处理请求', phase: 'completed', revision: 4 }
+      payload: { label: '执行维护任务', phase: 'completed' }
     })
+    const activityRevisions = presentation
+      .filter(event => event.kind === 'tool.activity')
+      .map(event => Number((event.payload as { revision?: number }).revision))
+    expect(activityRevisions.every(revision => Number.isFinite(revision))).toBe(true)
+    expect(activityRevisions).toEqual([...activityRevisions].sort((a, b) => a - b))
+    expect(new Set(activityRevisions).size).toBe(activityRevisions.length)
     expect(JSON.stringify(presentation)).not.toContain('secret_admin_shell')
     expect(JSON.stringify(presentation)).not.toContain('do-not-leak')
     expect(JSON.stringify(presentation)).not.toContain('sensitive raw output')
+  })
+
+  it('lets a tool suppress activity and falls back safely when description fails', async () => {
+    const sentPayloads: JSONObject[] = []
+    const presentation: ReplyPresentationEvent[] = []
+    const executed: string[] = []
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
+            const payload = JSON.parse(data) as JSONObject
+            sentPayloads.push(payload)
+
+            if (payload.type === 'response.tool_results.record') {
+              return [toolResultsRecordedFrame('resp_activity_policy_results')]
+            }
+
+            if (sentPayloads.filter(sent => sent.type === 'response.create').length === 1) {
+              return [
+                {
+                  type: 'response.completed',
+                  response: {
+                    id: 'resp_activity_policy_tools',
+                    status: 'completed',
+                    output: [
+                      {
+                        type: 'function_call',
+                        id: 'fc_quiet_tool',
+                        call_id: 'call_quiet_tool',
+                        name: 'quiet_tool',
+                        arguments: '{}'
+                      },
+                      {
+                        type: 'function_call',
+                        id: 'fc_fallback_tool',
+                        call_id: 'call_fallback_tool',
+                        name: 'fallback_tool',
+                        arguments: '{}'
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+
+            return [
+              {
+                type: 'response.completed',
+                response: {
+                  id: 'resp_after_activity_policy',
+                  status: 'completed',
+                  output: [
+                    {
+                      type: 'message',
+                      role: 'assistant',
+                      content: [{ type: 'output_text', text: 'done' }]
+                    }
+                  ]
+                }
+              }
+            ]
+          })
+      }
+    })
+
+    const result = await runAgentLoop({
+      model,
+      maxModelIterations: 90,
+      messages: [{ role: 'user', content: 'perform quiet work' }],
+      stateful: {
+        actorEventID: '00000000-0000-0000-0000-000000000024',
+        conversationID: '24242424-2424-2424-2424-242424242424'
+      },
+      tools: [
+        {
+          name: 'quiet_tool',
+          description: 'Does not need user-facing progress',
+          schema: z.object({}),
+          describeActivity: () => null,
+          execute: async () => {
+            executed.push('quiet')
+            return { content: [{ type: 'text', text: 'quiet' }], details: {} }
+          }
+        },
+        {
+          name: 'fallback_tool',
+          description: 'Falls back when its optional summary fails',
+          schema: z.object({}),
+          describeActivity: () => {
+            throw new Error('description failed')
+          },
+          execute: async () => {
+            executed.push('fallback')
+            return { content: [{ type: 'text', text: 'fallback' }], details: {} }
+          }
+        }
+      ],
+      onPresentationEvent: event => {
+        presentation.push(event)
+      }
+    })
+
+    expect(result.message.content).toEqual([{ type: 'text', text: 'done' }])
+    expect(executed).toEqual(['quiet', 'fallback'])
+    expect(presentation.filter(event => event.kind === 'tool.activity').map(event => event.payload)).toEqual([
+      expect.objectContaining({
+        operation_id: 'call_fallback_tool',
+        label: '处理请求',
+        phase: 'running'
+      }),
+      expect.objectContaining({
+        operation_id: 'call_fallback_tool',
+        label: '处理请求',
+        phase: 'completed'
+      })
+    ])
   })
 
   it('rejects duplicate tool names before exposing tools to the model', async () => {

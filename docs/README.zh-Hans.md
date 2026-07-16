@@ -169,7 +169,7 @@ Wire 接口是 OpenAI Responses 形状：任意已鉴权 subject 都可连接 `G
 
 Envelope 是 protobuf（`app/kernel/proto/ankole/runtime_fabric/v1/envelope.proto`），在任何 host 看到它们之前，先由 Rust 校验。四条 lane：CONTROL（`worker_ready`、心跳、容量、`turn_control`、关停）、TURN（`turn_start`、`mailbox_updated`、`turn_accepted`、`turn_completed`、`turn_error`、`turn_noop_completed`）、PROGRESS（`worker_progress`，只用于可观测性）、RPC（`rpc_request`/`rpc_response`/`rpc_error`）。`turn_completed` 是 replayable 的单向完成声明，携带 fence、最终 `resp_*` id 和 `loop_finished | iteration_exhausted` outcome，不增加 completion ACK。另外还有一条 raw-frame 文件 lane（`ANKOLE_FILE/1`，2 MiB zstd 块、信用流控），在 control plane 和 worker 可见根 `user_files`、`agent_installed_skills` 之间搬运字节（`lib/ankole/signals_gateway/actor_runtime/file_transfer_lane.ex` <-> `src/lanes/file/`）。
 
-Worker->control-plane 的 RPC 方法注册在 `lib/ankole/signals_gateway/actor_runtime/rpc_lane.ex`：`ai_gateway.api_key_for.create_or_find_by_agent`、`agent_conversation.context.resolve`、`skills.overlay.resolve` / `.append` / `.replace`、`schedule.check_back_later.create`、`schedule.cron.*` 系列，以及 Brain 的 `memory_search`、`memory_browse`、`memory_open`、`memory_update`、`memory_health_check`。
+Worker->control-plane 的 RPC 方法注册在 `lib/ankole/signals_gateway/actor_runtime/rpc_lane.ex`：`ai_gateway.api_key_for.create_or_find_by_agent`、`agent_conversation.context.resolve`、`skills.overlay.resolve` / `.append` / `.replace`、`schedule.check_back_later.*`、`schedule.cron.*` 系列，以及 Brain 的 `memory_search`、`memory_browse`、`memory_open`、`memory_update`、`memory_health_check`。
 
 ### Agent Computer：Bun worker
 

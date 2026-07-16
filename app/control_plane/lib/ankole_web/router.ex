@@ -124,11 +124,19 @@ defmodule AnkoleWeb.Router do
          WorkerEnvController,
          :decrypt_for_agent
 
+    get "/principals", PrincipalController, :index
+
     get "/agents", AgentController, :index
     post "/agents", AgentController, :create
     get "/agents/:agent_uid", AgentController, :show
     patch "/agents/:agent_uid", AgentController, :update
     delete "/agents/:agent_uid", AgentController, :delete
+
+    get "/agents/:agent_uid/library-documents", AgentLibraryController, :index
+
+    put "/agents/:agent_uid/library-documents/:document_kind",
+        AgentLibraryController,
+        :update
 
     get "/agent-computer-workers", AgentComputerWorkerController, :index
 
@@ -136,12 +144,27 @@ defmodule AnkoleWeb.Router do
     get "/delegations/:delegation_id", SubagentDelegationController, :show
     post "/delegations/:delegation_id/cancel", SubagentDelegationController, :cancel
 
+    get "/ai-gateway/conversations", AIGatewayConversationController, :index
+
+    get "/ai-gateway/conversations/:conversation_id",
+        AIGatewayConversationController,
+        :show
+
+    get "/ai-gateway/conversations/:conversation_id/messages",
+        AIGatewayConversationController,
+        :messages
+
     get "/brain/entries", BrainController, :index
     get "/brain/entries/:id", BrainController, :show
     post "/brain/entry-operations", BrainController, :apply_operations
     get "/brain/audit-log", BrainController, :audit_index
     get "/brain/entries/:id/audit-log", BrainController, :audit_log
+    get "/brain/sources", BrainController, :source_index
     get "/brain/sources/:document_id", BrainController, :source
+    get "/brain/sources/:document_id/raw", BrainController, :source_raw
+    post "/brain/sources", BrainController, :create_source
+    post "/brain/sources/:document_id/learning-runs", BrainController, :learn_source
+    get "/brain/review-candidates", BrainController, :review_candidates
     post "/brain/audit-log/restorations", BrainController, :restore_audits
     post "/brain/audit-log/:audit_id/restorations", BrainController, :restore_audit
     post "/brain/dreaming-runs", BrainController, :run_dreaming
@@ -246,6 +269,11 @@ defmodule AnkoleWeb.Router do
 
     get "/models", AIGatewayController, :models
     get "/web_tools", AIGatewayController, :web_tools
+    get "/files", AIGatewayFilesController, :index
+    post "/files", AIGatewayFilesController, :create
+    get "/files/:file_id/content", AIGatewayFilesController, :content
+    get "/files/:file_id", AIGatewayFilesController, :show
+    delete "/files/:file_id", AIGatewayFilesController, :delete
     get "/responses", AIGatewayWebSocketController, :responses
     get "/responses/:response_id", AIGatewayController, :retrieve_response
     post "/responses/compact", AIGatewayController, :compact_response

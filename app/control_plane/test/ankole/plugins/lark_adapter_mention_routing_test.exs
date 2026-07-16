@@ -7,9 +7,11 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.AdapterContext
+  alias Ankole.SignalsGateway.InboundBatch
   alias FeishuOpenAPI.Event
 
   import Ankole.PrincipalsFixtures
+  import Ankole.SignalsGatewayFixtures, only: [finalize_due_inbound_batch_events: 1]
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
   @base_ms DateTime.to_unix(@base_time, :millisecond)
@@ -197,6 +199,265 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
       assert agent_uid == agent.uid
       assert text == "请回复 M1_A_OK。"
       refute text =~ "_user_1"
+    end
+
+    test "mention-only reply resolves its persisted parent file only for the binding that observed it" do
+      %{principal: agent_a} = agent_fixture()
+      %{principal: agent_b} = agent_fixture()
+      binding_fixture(agent_a.uid, "lark", :ignore)
+      binding_fixture(agent_b.uid, "lark", :ignore)
+
+      materializer = fn attachments, _message, _consumer ->
+        send(self(), {:materialized, Enum.map(attachments, & &1["source_message_id"])})
+
+        {:ok,
+         Enum.map(attachments, fn attachment ->
+           relative_path =
+             "inbox/lark/#{attachment["source_message_id"]}/#{attachment["name"]}"
+
+           attachment
+           |> Map.put("agent_computer_path", "/workspace/user-files/#{relative_path}")
+           |> Map.put("user_files_relative_path", relative_path)
+           |> Map.put("size", 610_025)
+         end)}
+      end
+
+      consumer_a =
+        Inbound.chat_consumer(
+          adapter_context(agent_a.uid),
+          chat_config(%{"botOpenID" => "ou_agent_a"}),
+          materialize_attachments: true,
+          attachment_materializer: materializer
+        )
+
+      consumer_b =
+        Inbound.chat_consumer(
+          adapter_context(agent_b.uid),
+          chat_config(%{"botOpenID" => "ou_agent_b"}),
+          materialize_attachments: true,
+          attachment_materializer: materializer
+        )
+
+      parent_file =
+        receive_event()
+        |> Map.put(:id, "evt_parent_file")
+        |> update_message(fn message ->
+          %{
+            message
+            | "message_id" => "om_parent_file",
+              "message_type" => "file",
+              "content" => ~s({"file_key":"file_parent","file_name":"strategy.pdf"}),
+              "mentions" => []
+          }
+        end)
+
+      assert {:ok, parent_results} =
+               Inbound.handle_message_receive(
+                 "im.message.receive_v1",
+                 parent_file,
+                 [consumer_a]
+               )
+
+      assert Enum.all?(parent_results, &match?(%{inbound_batch: %InboundBatch{}}, &1))
+
+      parent_batches = Repo.all(InboundBatch)
+      assert length(parent_batches) == 1
+
+      parent_due_at =
+        parent_batches
+        |> Enum.max_by(&DateTime.to_unix(&1.available_at, :microsecond))
+        |> Map.fetch!(:available_at)
+
+      assert {:ok, finalized_parent_results} =
+               finalize_due_inbound_batch_events(now: parent_due_at)
+
+      assert Enum.all?(finalized_parent_results, &(&1.status == :ignored))
+      assert Enum.all?(Repo.all(InboundBatch), &(&1.outcome == "no_actor_event"))
+      assert_receive {:materialized, ["om_parent_file"]}, 100
+      refute_receive {:materialized, _source_message_ids}, 10
+
+      assert [
+               %{
+                 "source_entry_id" => "om_parent_file",
+                 "attachments" => [
+                   %{
+                     "agent_computer_path" =>
+                       "/workspace/user-files/inbox/lark/om_parent_file/strategy.pdf"
+                   }
+                 ]
+               }
+             ] = hd(parent_batches).entries
+
+      reply =
+        receive_event()
+        |> Map.put(:id, "evt_reply_agent_a")
+        |> update_message(fn message ->
+          Map.merge(message, %{
+            "message_id" => "om_reply_agent_a",
+            "parent_id" => "om_parent_file",
+            "root_id" => "om_parent_file",
+            "content" => ~s({"text":"@_agent_a"}),
+            "mentions" => [
+              %{
+                "key" => "@_agent_a",
+                "name" => "Agent A",
+                "id" => %{"open_id" => "ou_agent_a"}
+              }
+            ],
+            "create_time" => Integer.to_string(@base_ms + 10_000)
+          })
+        end)
+
+      assert {:ok,
+              %{
+                attachments: [],
+                reply_to_source_entry_id: "om_parent_file",
+                explicit: true,
+                text: nil
+              }} =
+               Inbound.normalize_message_receive(reply, consumer_a)
+
+      assert {:ok,
+              %{
+                attachments: [],
+                reply_to_source_entry_id: "om_parent_file",
+                explicit: false
+              }} =
+               Inbound.normalize_message_receive(reply, consumer_b)
+
+      assert {:ok, reply_results} =
+               Inbound.handle_message_receive(
+                 "im.message.receive_v1",
+                 reply,
+                 [consumer_a, consumer_b]
+               )
+
+      assert Enum.any?(reply_results, &(&1.status == :accepted))
+      assert Enum.any?(reply_results, &(&1.status == :ignored))
+      refute_receive {:materialized, _source_message_ids}, 10
+
+      reply_batches = Enum.filter(Repo.all(InboundBatch), &(&1.batch_state == "open"))
+      assert length(reply_batches) == 2
+
+      reply_due_at =
+        reply_batches
+        |> Enum.max_by(&DateTime.to_unix(&1.available_at, :microsecond))
+        |> Map.fetch!(:available_at)
+
+      assert {:ok, finalized_reply_results} =
+               finalize_due_inbound_batch_events(now: reply_due_at)
+
+      assert [
+               %{
+                 actor_event:
+                   %ActorEvent{
+                     agent_uid: agent_a_uid,
+                     source_entry_id: "om_reply_agent_a"
+                   } = actor_event
+               }
+             ] = Enum.filter(finalized_reply_results, &Map.has_key?(&1, :actor_event))
+
+      assert agent_a_uid == agent_a.uid
+
+      assert get_in(actor_event.payload, ["data", "entry", "attachments"]) == []
+
+      assert %{
+               "source_entry_id" => "om_parent_file",
+               "resolution" => "resolved",
+               "attachments" => [
+                 %{
+                   "agent_computer_path" =>
+                     "/workspace/user-files/inbox/lark/om_parent_file/strategy.pdf",
+                   "source_message_id" => "om_parent_file",
+                   "name" => "strategy.pdf",
+                   "size" => 610_025
+                 }
+               ]
+             } = get_in(actor_event.payload, ["data", "entry", "reply_to"])
+
+      refute Repo.get_by(ActorEvent,
+               agent_uid: agent_b.uid,
+               source_entry_id: "om_reply_agent_a"
+             )
+
+      reply_for_agent_b =
+        reply
+        |> Map.put(:id, "evt_reply_agent_b")
+        |> update_message(fn message ->
+          Map.merge(message, %{
+            "message_id" => "om_reply_agent_b",
+            "content" => ~s({"text":"@_agent_b"}),
+            "mentions" => [
+              %{
+                "key" => "@_agent_b",
+                "name" => "Agent B",
+                "id" => %{"open_id" => "ou_agent_b"}
+              }
+            ],
+            "create_time" => Integer.to_string(@base_ms + 15_000)
+          })
+        end)
+
+      assert {:ok, [%{status: :accepted}]} =
+               Inbound.handle_message_receive(
+                 "im.message.receive_v1",
+                 reply_for_agent_b,
+                 [consumer_b]
+               )
+
+      [agent_b_batch] =
+        InboundBatch
+        |> Repo.all()
+        |> Enum.filter(&(&1.agent_uid == agent_b.uid and &1.batch_state == "open"))
+
+      assert {:ok, agent_b_results} =
+               finalize_due_inbound_batch_events(now: agent_b_batch.available_at)
+
+      assert [
+               %{
+                 actor_event:
+                   %ActorEvent{
+                     agent_uid: agent_b_uid,
+                     source_entry_id: "om_reply_agent_b"
+                   } = agent_b_event
+               }
+             ] = Enum.filter(agent_b_results, &Map.has_key?(&1, :actor_event))
+
+      assert agent_b_uid == agent_b.uid
+
+      assert %{
+               "source_entry_id" => "om_parent_file",
+               "resolution" => "unresolved"
+             } = get_in(agent_b_event.payload, ["data", "entry", "reply_to"])
+
+      refute Map.has_key?(
+               get_in(agent_b_event.payload, ["data", "entry", "reply_to"]),
+               "attachments"
+             )
+
+      refute_receive {:materialized, _source_message_ids}, 10
+
+      mention_without_reply =
+        receive_event()
+        |> Map.put(:id, "evt_mention_without_reply")
+        |> update_message(fn message ->
+          %{
+            message
+            | "message_id" => "om_mention_without_reply",
+              "content" => ~s({"text":"@_agent_a"}),
+              "mentions" => [
+                %{
+                  "key" => "@_agent_a",
+                  "name" => "Agent A",
+                  "id" => %{"open_id" => "ou_agent_a"}
+                }
+              ],
+              "create_time" => Integer.to_string(@base_ms + 20_000)
+          }
+        end)
+
+      assert {:ok, %{explicit: true, text: nil, attachments: []}} =
+               Inbound.normalize_message_receive(mention_without_reply, consumer_a)
     end
 
     test "direct messages are explicit with or without structured mentions" do

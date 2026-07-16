@@ -171,10 +171,50 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
                  adapter(:reply_entry, "provider-final-reply")
                )
 
-      assert %Entry{source_entry_id: "provider-final-reply", ai_message_id: ai_message_id} =
+      assert %Entry{
+               source_entry_id: "provider-final-reply",
+               reply_to_source_entry_id: reply_to_source_entry_id,
+               ai_message_id: ai_message_id
+             } =
                Repo.get_by!(Entry, ai_message_id: message.id)
 
       assert ai_message_id == message.id
+      assert reply_to_source_entry_id == event.source_entry_id
+    end
+
+    test "turn completion preserves a failed subagent trigger in the durable presentation" do
+      %{message: message, event: event, turn_ref: turn_ref} = start_im_visible_response_run()
+
+      event
+      |> ActorEvent.changeset(%{
+        type: "subagent.delegation.failed",
+        payload: %{
+          "data" => %{
+            "title" => "第二版 deep research",
+            "result_summary" => "返回 JSON Schema 少声明了必填字段"
+          }
+        }
+      })
+      |> Repo.update!()
+
+      assert {:ok, completed} =
+               StatefulResponses.commit_complete(
+                 message,
+                 assistant_content("我已修正配置并重新提交任务。")
+               )
+
+      assert_turn_completed(turn_ref, completed)
+
+      outbox = Repo.get_by!(OutboxEntry, outbound_key: "ai-reply:#{message.id}")
+
+      assert get_in(outbox.payload, ["reply_presentation", "answer"]) ==
+               "我已修正配置并重新提交任务。"
+
+      assert get_in(outbox.payload, ["reply_presentation", "trigger_context"]) == %{
+               "kind" => "subagent_failure",
+               "title" => "第二版 deep research",
+               "summary" => "返回 JSON Schema 少声明了必填字段"
+             }
     end
 
     test "ordinary turn treats the scheduled silent-success marker as visible text" do

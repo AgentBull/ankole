@@ -22,6 +22,7 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
   alias Ankole.SignalsGateway.AIGatewayLink
   alias Ankole.SignalsGateway.AIReplyPreview
   alias Ankole.SignalsGateway.Outbox
+  alias Ankole.SignalsGateway.ReplyInteractions
 
   @live_activation_statuses ~w(starting active draining)
   @outcomes ~w(loop_finished iteration_exhausted)
@@ -36,8 +37,10 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
          {:ok, outcome} <- completion_outcome(payload) do
       case completed_actor_event(turn_ref) do
         %ActorEvent{} = event ->
-          {:ok, %{status: :already_completed, actor_event: event, outcome: outcome}}
-          |> after_commit(turn_ref, final_response_id, outcome)
+          with :ok <- validate_completion_anchor(event, final_response_id, outcome) do
+            {:ok, %{status: :already_completed, actor_event: event, outcome: outcome}}
+            |> after_commit(turn_ref, final_response_id, outcome)
+          end
 
         nil ->
           with {:ok, completion} <-
@@ -65,7 +68,11 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
   defp commit_in_tx(repo, turn_ref, completion, outcome, now) do
     case lock_actor_event(repo, turn_ref) do
       %ActorEvent{completed_at: %DateTime{}} = event ->
-        {:ok, %{status: :already_completed, actor_event: event, outcome: outcome}}
+        final_response_id = "resp_#{completion.final_response.id}"
+
+        with :ok <- validate_completion_anchor(event, final_response_id, outcome) do
+          {:ok, %{status: :already_completed, actor_event: event, outcome: outcome}}
+        end
 
       %ActorEvent{} = event ->
         with {:ok, activation} <- lock_and_validate_activation(repo, turn_ref, now),
@@ -90,6 +97,7 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
                 activation,
                 deliveries,
                 turn_ref,
+                completion,
                 outcome,
                 now
               )
@@ -111,9 +119,9 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
          outcome,
          now
        ) do
-    with {:ok, outboxes} <- commit_outboxes(repo, event, completion, outcome),
+    with {:ok, outboxes} <- commit_outboxes(repo, event, completion, outcome, now),
          {:ok, completed_events} <-
-           complete_accepted_events(repo, event, deliveries, turn_ref, now),
+           complete_accepted_events(repo, event, deliveries, turn_ref, completion, outcome, now),
          {deleted_count, superseded_count} <-
            cleanup_deliveries(repo, turn_ref.actor_event_id, now),
          {:ok, activation} <- TurnLifecycle.mark_activation_idle_in_tx(repo, activation, now) do
@@ -121,7 +129,7 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
        %{
          status: :turn_completed,
          outcome: outcome,
-         actor_event: event,
+         actor_event: completed_main_event(completed_events, event),
          activation: activation,
          completed_actor_events: completed_events,
          outboxes: outboxes,
@@ -137,11 +145,20 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
          activation,
          deliveries,
          turn_ref,
+         completion,
          outcome,
          now
        ) do
     with {:ok, completed_events} <-
-           mark_accepted_events_completed(repo, event, deliveries, turn_ref, now),
+           mark_accepted_events_completed(
+             repo,
+             event,
+             deliveries,
+             turn_ref,
+             completion,
+             outcome,
+             now
+           ),
          {deleted_count, superseded_count} <-
            cleanup_deliveries(repo, turn_ref.actor_event_id, now),
          {:ok, activation} <- TurnLifecycle.mark_activation_idle_in_tx(repo, activation, now) do
@@ -150,7 +167,7 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
          status: :turn_canceled,
          reason: :actor_event_canceled,
          outcome: outcome,
-         actor_event: event,
+         actor_event: completed_main_event(completed_events, event),
          activation: activation,
          completed_actor_events: completed_events,
          outboxes: %{attachments: [], clarify: nil, final: nil},
@@ -272,7 +289,15 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
     end
   end
 
-  defp commit_outboxes(repo, event, completion, outcome) do
+  defp commit_outboxes(repo, event, completion, outcome, now) do
+    if AIReplyPreview.im_visible_event?(event) do
+      commit_im_outboxes(repo, event, completion, outcome, now)
+    else
+      {:ok, %{attachments: [], clarify: nil, final: nil}}
+    end
+  end
+
+  defp commit_im_outboxes(repo, event, completion, outcome, now) do
     opts = [turn_completion_outcome: outcome]
     final_text = completion.final_text || ""
 
@@ -285,29 +310,40 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
              completion.attachments,
              opts
            ),
-         {:ok, clarify} <- commit_clarify_outbox(repo, event, completion, opts),
+         {:ok, clarify} <- commit_clarify_outbox(repo, event, completion, opts, now),
          {:ok, final} <- commit_final_outbox(repo, event, completion, opts) do
       {:ok, %{attachments: attachments, clarify: clarify, final: final}}
     end
   end
 
-  defp commit_clarify_outbox(_repo, _event, %{clarify_prompt: nil}, _opts), do: {:ok, nil}
+  defp commit_clarify_outbox(_repo, _event, %{clarify_prompt: nil}, _opts, _now),
+    do: {:ok, nil}
 
-  defp commit_clarify_outbox(repo, event, completion, opts) do
+  defp commit_clarify_outbox(repo, event, completion, opts, now) do
     if AIReplyPreview.im_visible_event?(event) do
       %{"fallback_visible_text" => fallback, "interactive_output" => interactive_output} =
         completion.clarify_prompt
 
       text = join_clarify_text(completion.final_text, fallback)
 
-      Outbox.commit_clarify_reply_outbox_in_tx(
-        repo,
-        event,
-        completion.final_response,
-        text,
-        interactive_output,
-        opts
-      )
+      with {:ok, outbox} <-
+             Outbox.commit_clarify_reply_outbox_in_tx(
+               repo,
+               event,
+               completion.final_response,
+               text,
+               interactive_output,
+               opts
+             ),
+           {:ok, _event} <-
+             ReplyInteractions.open_in_tx(
+               repo,
+               event,
+               outbox.payload["reply_presentation"],
+               now
+             ) do
+        {:ok, outbox}
+      end
     else
       {:ok, nil}
     end
@@ -332,19 +368,31 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
   defp join_clarify_text("", fallback), do: fallback
   defp join_clarify_text(text, fallback), do: text <> "\n\n" <> fallback
 
-  defp complete_accepted_events(repo, main_event, deliveries, turn_ref, now) do
+  defp complete_accepted_events(repo, main_event, deliveries, turn_ref, completion, outcome, now) do
     complete_event_ids(
       repo,
       completion_event_ids(main_event, deliveries, turn_ref),
+      main_event.id,
+      completion_anchor(completion, outcome),
       now,
       :guard_source
     )
   end
 
-  defp mark_accepted_events_completed(repo, main_event, deliveries, turn_ref, now) do
+  defp mark_accepted_events_completed(
+         repo,
+         main_event,
+         deliveries,
+         turn_ref,
+         completion,
+         outcome,
+         now
+       ) do
     complete_event_ids(
       repo,
       completion_event_ids(main_event, deliveries, turn_ref),
+      main_event.id,
+      completion_anchor(completion, outcome),
       now,
       :skip_source
     )
@@ -360,11 +408,13 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
     Enum.uniq([main_event.id | accepted_event_ids])
   end
 
-  defp complete_event_ids(repo, event_ids, now, source_mode) do
+  defp complete_event_ids(repo, event_ids, main_event_id, anchor, now, source_mode) do
     Enum.reduce_while(event_ids, {:ok, []}, fn event_id, {:ok, completed} ->
       case Actors.lock_actor_event_in_tx(repo, event_id) do
         %ActorEvent{completed_at: nil} = event ->
-          case complete_event(repo, event, now, source_mode) do
+          event_anchor = if event.id == main_event_id, do: anchor, else: %{}
+
+          case complete_event(repo, event, now, source_mode, event_anchor) do
             {:ok, event} -> {:cont, {:ok, [event | completed]}}
             {:error, reason} -> {:halt, {:error, reason}}
           end
@@ -382,11 +432,30 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
     end
   end
 
-  defp complete_event(repo, event, now, :guard_source),
-    do: Actors.complete_actor_event_in_tx(repo, event, completed_at: now)
+  defp complete_event(repo, event, now, :guard_source, anchor),
+    do:
+      Actors.complete_actor_event_in_tx(
+        repo,
+        event,
+        [completed_at: now] ++ Map.to_list(anchor)
+      )
 
-  defp complete_event(repo, event, now, :skip_source),
+  defp complete_event(repo, event, now, :skip_source, anchor) when map_size(anchor) == 0,
     do: Actors.mark_event_completed_in_tx(repo, event, now)
+
+  defp complete_event(repo, event, now, :skip_source, anchor) do
+    Actors.mark_turn_event_completed_in_tx(
+      repo,
+      event,
+      now,
+      Map.fetch!(anchor, :final_response_id),
+      Map.fetch!(anchor, :turn_outcome)
+    )
+  end
+
+  defp completed_main_event(completed_events, fallback) do
+    Enum.find(completed_events, fallback, &(&1.id == fallback.id))
+  end
 
   defp cleanup_deliveries(repo, actor_event_id, now) do
     {deleted_count, _rows} =
@@ -447,6 +516,23 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
   end
 
   defp validate_final_response_id(_response_id), do: {:error, :invalid_final_response_id}
+
+  defp completion_anchor(completion, outcome) do
+    %{
+      final_response_id: "resp_#{completion.final_response.id}",
+      turn_outcome: outcome
+    }
+  end
+
+  defp validate_completion_anchor(
+         %ActorEvent{final_response_id: final_response_id, turn_outcome: outcome},
+         final_response_id,
+         outcome
+       ),
+       do: :ok
+
+  defp validate_completion_anchor(%ActorEvent{}, _final_response_id, _outcome),
+    do: {:error, :actor_turn_completion_conflict}
 
   defp required_text(map, key) do
     case map_value(map, key) do

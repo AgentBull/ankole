@@ -125,6 +125,14 @@ pub fn send_raw_request(encoded_spec: &str) -> Result<Value, StreamError> {
 }
 
 async fn run_model_request(spec: ModelRequestSpec) -> Result<Value, StreamError> {
+    if spec.hosted_tools.is_some() {
+        return hosted_responses::run_hosted_model_request(spec).await;
+    }
+
+    run_model_request_once(spec).await
+}
+
+pub(super) async fn run_model_request_once(spec: ModelRequestSpec) -> Result<Value, StreamError> {
     let upstream = request_builder::prepare_model_upstream(&spec)?;
     let response = transport::send_http_request(&upstream, spec.limits.max_response_bytes).await?;
     if !(200..300).contains(&response.status) {

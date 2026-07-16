@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { join, posix, resolve } from 'node:path'
 import {
   insideWorkspace,
@@ -16,6 +17,10 @@ export type CodexAppServerSandboxSpec = {
   commandArgv: string[]
   codexCwd: string
 }
+
+// Matches the worker image layout (app/agent_computer/Dockerfile) so sandboxed
+// Skill scripts can locate the kernel through ANKOLE_KERNEL_ROOT.
+const SANDBOX_KERNEL_ROOT = '/repo/app/kernel'
 
 export function resolveCodexWorkdir(workspaceRoot: string, workdir?: string): string {
   return resolveWorkspacePath(workspaceRoot, workdir ?? WORKSPACE_MODEL_ROOT, {
@@ -91,7 +96,10 @@ function subagentRuntimeFileBinds(runtime: MaterializedSubagentRuntimeFiles) {
           ? [{ source: skill.skillFileOverridePath, target: join(target, 'SKILL.md'), readonly: true }]
           : [])
       ]
-    })
+    }),
+    ...(existsSync(SANDBOX_KERNEL_ROOT)
+      ? [{ source: SANDBOX_KERNEL_ROOT, target: SANDBOX_KERNEL_ROOT, readonly: true }]
+      : [])
   ]
 }
 
@@ -107,6 +115,7 @@ function codexSandboxEnv(
     workerEnv
   })
   if (next.CODEX_HOME) next.CODEX_HOME = codexHomeSandboxPath ?? modelPath(workspaceRoot, next.CODEX_HOME)
+  next.ANKOLE_KERNEL_ROOT = SANDBOX_KERNEL_ROOT
   return next
 }
 

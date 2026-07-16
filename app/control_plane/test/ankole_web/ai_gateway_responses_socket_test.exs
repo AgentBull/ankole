@@ -9,15 +9,31 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
   alias Ankole.AIGateway.Compaction
   alias Ankole.AIGateway.Events
   alias Ankole.AIGateway.MaxToolCalls
+  alias Ankole.AIGateway.ResponseStream
+  alias Ankole.AIGateway.ResponseStream.State, as: ResponseStreamState
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.AIGateway
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.Kernel.UniversalAIClient
   alias Ankole.Repo
   alias AnkoleWeb.AIGatewayResponsesSocket
+
+  defmodule FakeResponseStream do
+    @moduledoc false
+
+    use GenServer
+
+    def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok)
+
+    @impl true
+    def init(:ok), do: {:ok, :ok}
+
+    @impl true
+    def handle_call({:read, _count}, _from, state), do: {:reply, :ok, state}
+    def handle_call({:cancel, _reason}, _from, state), do: {:stop, :normal, :ok, state}
+  end
 
   defmodule NativeResponsesWebSocketUpstreamPlug do
     @moduledoc false
@@ -104,12 +120,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     }
 
     pushed =
-      first_pushed_text(
-        AIGatewayResponsesSocket.handle_info(
-          {:universal_ai_client, ref, :chunk, 0, :websocket_text, Ankole.JSON.encode!(chunk)},
-          %{active_stream: active}
-        )
-      )
+      first_pushed_text(handle_test_event(%{active_stream: active}, ref, chunk, 0))
 
     expected_response_id = "resp_#{message.id}"
 
@@ -141,12 +152,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     }
 
     pushed =
-      first_pushed_text(
-        AIGatewayResponsesSocket.handle_info(
-          {:universal_ai_client, ref, :chunk, 1, :websocket_text, Ankole.JSON.encode!(chunk)},
-          %{active_stream: active}
-        )
-      )
+      first_pushed_text(handle_test_event(%{active_stream: active}, ref, chunk, 1))
 
     expected_response_id = "resp_#{message.id}"
 
@@ -175,6 +181,53 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
            } = Ankole.JSON.decode!(pushed)
 
     assert Map.has_key?(state, :active_stream)
+  end
+
+  test "hosted image request validation uses the official flat Responses error event" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openrouter-hosted-validation",
+               provider_kind: "openrouter",
+               base_url: "https://openrouter.invalid/api/v1",
+               connection_options: %{"api_key" => "sk-test"}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openrouter-hosted-validation",
+               model: "test/main-model"
+             })
+
+    request =
+      Ankole.JSON.encode!(%{
+        "type" => "response.create",
+        "model" => "primary",
+        "input" => "draw a lake",
+        "tools" => [
+          %{"type" => "function", "name" => "lookup", "parameters" => %{}},
+          %{"type" => "image_generation", "unknown_option" => true}
+        ]
+      })
+
+    assert {:push, {:text, pushed}, _state} =
+             AIGatewayResponsesSocket.handle_in({request, [opcode: :text]}, %{
+               subject_uid: agent.uid,
+               subject_type: "agent"
+             })
+
+    assert %{
+             "type" => "error",
+             "sequence_number" => 0,
+             "code" => "unknown_parameter",
+             "message" => message,
+             "param" => "tools[1].unknown_option"
+           } = event = Ankole.JSON.decode!(pushed)
+
+    assert message =~ "tools[1].unknown_option"
+    refute Map.has_key?(event, "status")
+    refute Map.has_key?(event, "error")
   end
 
   test "response.create accepts Codex ResponseCreateWsRequest fields" do
@@ -276,9 +329,9 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
            }
 
     refute Map.has_key?(upstream_request, "service_tier")
-    assert is_nil(active.max_tool_calls)
+    refute Map.has_key?(active, :max_tool_calls)
 
-    _ = UniversalAIClient.cancel(state.active_stream.stream)
+    _ = AIGateway.cancel_response_stream(state.active_stream.stream)
     assert active.ref == state.active_stream.ref
   end
 
@@ -333,15 +386,14 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     refute Map.has_key?(upstream_request, "conversation")
     refute Map.has_key?(upstream_request, "previous_response_id")
 
-    message = Repo.get!(Message, active.stateful.message_id)
+    message = Repo.get_by!(Message, subject_uid: agent.uid, status: "generating")
     conversation = Repo.get!(Conversation, message.conversation_id)
 
-    assert active.stateful.conversation_id == conversation.id
     assert conversation.metadata == %{"managed_by_stateful_responses_api" => true}
     refute Map.has_key?(message.metadata, "actor_event_id")
     assert message.content == [text_message("user", "hello")]
 
-    _ = UniversalAIClient.cancel(state.active_stream.stream)
+    _ = AIGateway.cancel_response_stream(state.active_stream.stream)
     assert active.ref == state.active_stream.ref
   end
 
@@ -426,7 +478,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              %{"type" => "function_call_output", "call_id" => "call_1"}
            ] = upstream_request["input"]
 
-    _ = UniversalAIClient.cancel(state.active_stream.stream)
+    _ = AIGateway.cancel_response_stream(state.active_stream.stream)
     assert active.ref == state.active_stream.ref
   end
 
@@ -486,14 +538,15 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     }
 
     assert {:push, {:text, _pushed}, state} =
-             AIGatewayResponsesSocket.handle_info(
-               {:universal_ai_client, ref, :chunk, 4, :websocket_text,
-                Ankole.JSON.encode!(terminal_chunk)},
+             handle_test_event(
                %{
                  subject_uid: agent.uid,
                  subject_type: "agent",
                  active_stream: stateless_active_stream(ref, first_input)
-               }
+               },
+               ref,
+               terminal_chunk,
+               4
              )
 
     assert Map.has_key?(state.response_history, "resp_socket_cached")
@@ -526,7 +579,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              %{"type" => "function_call_output", "call_id" => "call_cached"}
            ] = upstream_request["input"]
 
-    _ = UniversalAIClient.cancel(state.active_stream.stream)
+    _ = AIGateway.cancel_response_stream(state.active_stream.stream)
     assert active.socket_previous_response_id == "resp_socket_cached"
   end
 
@@ -592,11 +645,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     }
 
     assert {:push, {:text, pushed}, next_state} =
-             AIGatewayResponsesSocket.handle_info(
-               {:universal_ai_client, ref, :chunk, 6, :websocket_text,
-                Ankole.JSON.encode!(failed_chunk)},
-               state
-             )
+             handle_test_event(state, ref, failed_chunk, 6)
 
     assert %{"type" => "response.failed"} = Ankole.JSON.decode!(pushed)
     refute Map.has_key?(next_state.response_history, "resp_socket_ember")
@@ -663,14 +712,13 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
                       "input" => [%{"role" => "user"}]
                     }}
 
-    assert_receive {:universal_ai_client, ref, :chunk, seq, :websocket_text, chunk}
+    assert_receive {:ai_gateway_response_stream, ref, :events, _events, :continue} =
+                     stream_message
+
     assert ref == active.ref
 
     assert {:push, {:text, pushed}, %{active_stream: next_active} = next_state} =
-             AIGatewayResponsesSocket.handle_info(
-               {:universal_ai_client, ref, :chunk, seq, :websocket_text, chunk},
-               state
-             )
+             AIGatewayResponsesSocket.handle_info(stream_message, state)
 
     assert next_active.ref == active.ref
 
@@ -679,9 +727,10 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              "response" => %{"id" => response_id}
            } = Ankole.JSON.decode!(pushed)
 
-    assert response_id == "resp_#{get_in(active, [:stateful, :message_id])}"
+    message = Repo.get_by!(Message, conversation_id: conversation.id, status: "generating")
+    assert response_id == "resp_#{message.id}"
 
-    _ = UniversalAIClient.cancel(next_state.active_stream.stream)
+    _ = AIGateway.cancel_response_stream(next_state.active_stream.stream)
   end
 
   test "stateful completed terminal frame is committed with provider telemetry before forwarding" do
@@ -711,26 +760,10 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       }
     }
 
-    pid = self()
-    :erlang.trace(pid, true, [:call])
-    :erlang.trace_pattern({UniversalAIClient, :read, 2}, true, [:local])
+    assert {:push, {:text, pushed}, state} =
+             handle_test_event(%{active_stream: active}, ref, chunk, 7)
 
-    pushed =
-      try do
-        assert {:push, {:text, pushed}, state} =
-                 AIGatewayResponsesSocket.handle_info(
-                   {:universal_ai_client, ref, :chunk, 7, :websocket_text,
-                    Ankole.JSON.encode!(chunk)},
-                   %{active_stream: active}
-                 )
-
-        refute_receive {:trace, ^pid, :call, {UniversalAIClient, :read, _args}}
-        refute Map.has_key?(state, :active_stream)
-        pushed
-      after
-        :erlang.trace_pattern({UniversalAIClient, :read, 2}, false, [:local])
-        :erlang.trace(pid, false, [:call])
-      end
+    refute Map.has_key?(state, :active_stream)
 
     expected_response_id = "resp_#{message.id}"
 
@@ -797,11 +830,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     }
 
     assert {:push, {:text, _pushed}, _state} =
-             AIGatewayResponsesSocket.handle_info(
-               {:universal_ai_client, ref, :chunk, 10, :websocket_text,
-                Ankole.JSON.encode!(chunk)},
-               %{active_stream: active}
-             )
+             handle_test_event(%{active_stream: active}, ref, chunk, 10)
 
     stored = Repo.get!(Message, message.id)
     assert stored.status == "complete"
@@ -842,11 +871,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     }
 
     assert {:push, [{:text, provider_chunk}, {:text, incomplete_chunk}], state} =
-             AIGatewayResponsesSocket.handle_info(
-               {:universal_ai_client, ref, :chunk, 10, :websocket_text,
-                Ankole.JSON.encode!(chunk)},
-               %{active_stream: active}
-             )
+             handle_test_event(%{active_stream: active}, ref, chunk, 10)
 
     refute Map.has_key?(state, :active_stream)
 
@@ -936,11 +961,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     }
 
     assert {:push, [{:text, _provider_chunk}, {:text, incomplete_chunk}], state} =
-             AIGatewayResponsesSocket.handle_info(
-               {:universal_ai_client, ref, :chunk, 4, :websocket_text,
-                Ankole.JSON.encode!(chunk)},
-               %{active_stream: active}
-             )
+             handle_test_event(%{active_stream: active}, ref, chunk, 4)
 
     refute Map.has_key?(state, :active_stream)
 
@@ -990,11 +1011,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     }
 
     assert {:push, {:text, pushed}, _state} =
-             AIGatewayResponsesSocket.handle_info(
-               {:universal_ai_client, ref, :chunk, 8, :websocket_text,
-                Ankole.JSON.encode!(chunk)},
-               %{active_stream: active}
-             )
+             handle_test_event(%{active_stream: active}, ref, chunk, 8)
 
     expected_response_id = "resp_#{message.id}"
 
@@ -1036,11 +1053,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     }
 
     assert {:push, {:text, pushed}, _state} =
-             AIGatewayResponsesSocket.handle_info(
-               {:universal_ai_client, ref, :chunk, 9, :websocket_text,
-                Ankole.JSON.encode!(chunk)},
-               %{active_stream: active}
-             )
+             handle_test_event(%{active_stream: active}, ref, chunk, 9)
 
     expected_response_id = "resp_#{message.id}"
 
@@ -1065,16 +1078,12 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     message_id = Ecto.UUID.generate()
     ref = make_ref()
 
+    stateful = %{message_id: message_id, message: %Message{id: message_id}}
+
     active = %{
       ref: ref,
       stream: fake_stream(ref),
-      stateful: %{message_id: message_id, message: %Message{id: message_id}},
-      accumulated_items: [],
-      text_buffer: "",
-      seq: 0,
-      terminal_error: nil,
-      terminal_committed: false,
-      terminal_received: false
+      test_semantic: ResponseStreamState.new("agent-test", %{}, %{}, stateful: stateful)
     }
 
     chunk = %{
@@ -1090,11 +1099,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
 
     assert {{:push, {:text, pushed}, _state}, _log} =
              with_log(fn ->
-               AIGatewayResponsesSocket.handle_info(
-                 {:universal_ai_client, ref, :chunk, 3, :websocket_text,
-                  Ankole.JSON.encode!(chunk)},
-                 %{active_stream: active}
-               )
+               handle_test_event(%{active_stream: active}, ref, chunk, 3)
              end)
 
     expected_response_id = "resp_#{message_id}"
@@ -1156,11 +1161,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
 
     assert {{:push, {:text, pushed}, _state}, _log} =
              with_log(fn ->
-               AIGatewayResponsesSocket.handle_info(
-                 {:universal_ai_client, ref, :chunk, 11, :websocket_text,
-                  Ankole.JSON.encode!(chunk)},
-                 %{active_stream: active}
-               )
+               handle_test_event(%{active_stream: active}, ref, chunk, 11)
              end)
 
     expected_response_id = "resp_#{message.id}"
@@ -1207,9 +1208,14 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
 
     pushed =
       first_pushed_text(
-        AIGatewayResponsesSocket.handle_info(
-          {:universal_ai_client, ref, :chunk, 5, :websocket_text, Ankole.JSON.encode!(chunk)},
-          %{active_stream: active}
+        handle_test_event_then_fail(
+          %{active_stream: active},
+          ref,
+          chunk,
+          5,
+          "stream_read_failed: test",
+          code: "provider_stream_error",
+          retryable: true
         )
       )
 
@@ -1218,7 +1224,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     stored = Repo.get!(Message, message.id)
     assert stored.status == "error"
     assert stored.content == [request_item, completed_item]
-    assert stored.metadata["error"]["stage"] == "socket_cleanup"
+    assert stored.metadata["error"]["stage"] == "response_stream_cleanup"
     assert stored.metadata["error"]["retryable"] == true
     assert is_nil(Repo.get!(ActorEvent, actor_event.id).completed_at)
   end
@@ -1252,12 +1258,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     }
 
     pushed =
-      first_pushed_text(
-        AIGatewayResponsesSocket.handle_info(
-          {:universal_ai_client, ref, :chunk, 7, :websocket_text, Ankole.JSON.encode!(chunk)},
-          %{active_stream: active}
-        )
-      )
+      first_pushed_text(handle_test_event(%{active_stream: active}, ref, chunk, 7))
 
     assert %{"type" => "response.output_item.done"} = Ankole.JSON.decode!(pushed)
 
@@ -1295,12 +1296,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     }
 
     pushed =
-      first_pushed_text(
-        AIGatewayResponsesSocket.handle_info(
-          {:universal_ai_client, ref, :chunk, 8, :websocket_text, Ankole.JSON.encode!(chunk)},
-          %{active_stream: active}
-        )
-      )
+      first_pushed_text(handle_test_event(%{active_stream: active}, ref, chunk, 8))
 
     assert ^chunk = Ankole.JSON.decode!(pushed)
 
@@ -1340,9 +1336,12 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     active = active_stream(ref, message, actor_event, accumulated_items: [partial_item])
 
     assert {:push, {:text, pushed}, state} =
-             AIGatewayResponsesSocket.handle_info(
-               {:universal_ai_client, ref, :error, %{"message" => "upstream closed"}},
-               %{active_stream: active}
+             handle_test_failure(
+               %{active_stream: active},
+               ref,
+               ~s(provider_stream_error: %{"message" => "upstream closed"}),
+               code: "provider_stream_error",
+               retryable: true
              )
 
     refute Map.has_key?(state, :active_stream)
@@ -1367,7 +1366,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     stored = Repo.get!(Message, message.id)
     assert stored.status == "error"
     assert stored.content == message.content ++ [partial_item]
-    assert stored.metadata["error"]["stage"] == "socket_cleanup"
+    assert stored.metadata["error"]["stage"] == "response_stream_cleanup"
     assert stored.metadata["error"]["retryable"] == true
     assert is_nil(Repo.get!(ActorEvent, actor_event.id).completed_at)
   end
@@ -1394,9 +1393,12 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     active = active_stream(ref, message, actor_event, accumulated_items: [partial_item])
 
     assert {:push, {:text, pushed}, state} =
-             AIGatewayResponsesSocket.handle_info(
-               {:universal_ai_client, ref, :done, %{"reason" => "provider_closed"}},
-               %{active_stream: active}
+             handle_test_failure(
+               %{active_stream: active},
+               ref,
+               "provider_stream_closed_without_terminal",
+               code: "provider_stream_closed_without_terminal",
+               retryable: true
              )
 
     refute Map.has_key?(state, :active_stream)
@@ -1527,7 +1529,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
         "conversation" => "conv_#{conversation.id}"
       })
 
-    assert {:ok, %{active_stream: active} = state} =
+    assert {:ok, %{active_stream: _active} = state} =
              AIGatewayResponsesSocket.handle_in({request, [opcode: :text]}, %{
                subject_uid: agent.uid,
                subject_type: "agent"
@@ -1537,11 +1539,11 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert upstream_request["store"] == false
     refute Map.has_key?(upstream_request, "conversation")
 
-    message = Repo.get!(Message, active.stateful.message_id)
+    message = Repo.get_by!(Message, conversation_id: conversation.id, status: "generating")
     assert message.conversation_id == conversation.id
     refute Map.has_key?(message.metadata, "actor_event_id")
 
-    _ = UniversalAIClient.cancel(state.active_stream.stream)
+    _ = AIGateway.cancel_response_stream(state.active_stream.stream)
   end
 
   test "response.tool_results.record writes a completed journal row without opening a provider stream" do
@@ -1906,42 +1908,90 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
   end
 
   defp active_stream(ref, message, _actor_event, opts \\ []) do
-    defaults = %{
+    stateful = %{message_id: message.id, message: message}
+    items = Keyword.get(opts, :accumulated_items, [])
+
+    semantic =
+      message.subject_uid
+      |> ResponseStreamState.new(%{}, %{}, stateful: stateful)
+      |> Map.put(:public_items, items)
+      |> Map.put(:durable_items, items)
+      |> Map.put(:max_tool_calls, Keyword.get(opts, :max_tool_calls))
+      |> Map.put(:provider_response_id, Keyword.get(opts, :provider_response_id))
+      |> Map.put(:sequence_number, Keyword.get(opts, :seq))
+
+    %{
       ref: ref,
       stream: fake_stream(ref),
-      stateful: %{message_id: message.id, message: message},
-      accumulated_items: [],
-      text_buffer: "",
-      provider_response_id: nil,
-      seq: 0,
-      terminal_error: nil,
-      terminal_committed: false,
-      terminal_received: false
+      test_semantic: semantic
     }
-
-    Map.merge(defaults, Map.new(opts))
   end
 
   defp fake_stream(ref) do
-    %UniversalAIClient.Stream{resource: make_ref(), ref: ref, owner: self()}
+    child_spec = Supervisor.child_spec({FakeResponseStream, []}, id: make_ref())
+    pid = start_supervised!(child_spec)
+    %ResponseStream{pid: pid, ref: ref}
   end
 
   defp stateless_active_stream(ref, request_input) do
     %{
       ref: ref,
       stream: fake_stream(ref),
-      stateful: nil,
-      accumulated_items: [],
       request_input: request_input,
-      text_buffer: "",
-      provider_response_id: nil,
-      terminal_response: nil,
-      seq: 0,
-      terminal_error: nil,
-      terminal_committed: false,
-      terminal_received: false
+      test_semantic: ResponseStreamState.new("agent-test", %{}, %{})
     }
   end
+
+  defp handle_test_event(state, ref, event, sequence_number) do
+    active = state.active_stream
+
+    semantic =
+      case Map.get(active, :max_tool_calls) do
+        %MaxToolCalls{} = policy -> %{active.test_semantic | max_tool_calls: policy}
+        _missing -> active.test_semantic
+      end
+
+    assert {:ok, semantic, events, status} =
+             ResponseStreamState.observe(semantic, event, sequence_number)
+
+    state = put_in(state, [:active_stream, :test_semantic], semantic)
+
+    AIGatewayResponsesSocket.handle_info(
+      {:ai_gateway_response_stream, ref, :events, events, public_stream_status(status)},
+      state
+    )
+  end
+
+  defp handle_test_failure(state, ref, reason, opts) do
+    active = state.active_stream
+    {semantic, events, outcome} = ResponseStreamState.fail(active.test_semantic, reason, opts)
+    state = put_in(state, [:active_stream, :test_semantic], semantic)
+
+    AIGatewayResponsesSocket.handle_info(
+      {:ai_gateway_response_stream, ref, :events, events, {:terminal, outcome}},
+      state
+    )
+  end
+
+  defp handle_test_event_then_fail(state, ref, event, sequence_number, reason, opts) do
+    active = state.active_stream
+
+    assert {:ok, semantic, events, :continue} =
+             ResponseStreamState.observe(active.test_semantic, event, sequence_number)
+
+    {semantic, failure_events, outcome} = ResponseStreamState.fail(semantic, reason, opts)
+    state = put_in(state, [:active_stream, :test_semantic], semantic)
+
+    AIGatewayResponsesSocket.handle_info(
+      {:ai_gateway_response_stream, ref, :events, events ++ failure_events, {:terminal, outcome}},
+      state
+    )
+  end
+
+  defp public_stream_status(:continue), do: :continue
+
+  defp public_stream_status({:terminal, outcome, _upstream_action}),
+    do: {:terminal, outcome}
 
   defp first_pushed_text({:push, {:text, pushed}, _state}), do: pushed
   defp first_pushed_text({:push, [{:text, pushed} | _rest], _state}), do: pushed

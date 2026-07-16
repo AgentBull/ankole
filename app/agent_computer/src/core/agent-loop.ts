@@ -66,6 +66,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
   let modelIterations = 0
   let sawToolResults = false
   let nudgedEmptyAfterTools = false
+  let repairedFinalResponse = false
   const repeatedFailureState: RepeatedToolFailureState = { count: 0 }
   const maxModelIterations = config.maxModelIterations
   const toolByName = config.tools?.length ? agentToolMap(config.tools) : undefined
@@ -127,7 +128,8 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
             messages: pendingMessages,
             tools: tools as never,
             maxOutputTokens: config.maxTokens,
-            temperature: config.temperature
+            temperature: config.temperature,
+            text: config.text
           })
           config.onActivity?.('model_call_done')
           const retryableError = retryableTerminalModelError(result.message)
@@ -150,6 +152,15 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
           nudgedEmptyAfterTools = true
           pendingMessages = [{ role: 'user', content: EMPTY_AFTER_TOOL_NUDGE_TEXT }]
           continue
+        }
+
+        if (!repairedFinalResponse && latestAssistant.stopReason === 'stop') {
+          const repairMessage = config.repairFinalResponse?.(latestAssistant)
+          if (repairMessage) {
+            repairedFinalResponse = true
+            pendingMessages = [repairMessage]
+            continue
+          }
         }
 
         break
@@ -300,7 +311,8 @@ async function synthesizeAfterModelIterationLimit(input: ModelIterationLimitSynt
           instructions: input.config.systemPrompt,
           messages: pendingMessages,
           maxOutputTokens: input.config.maxTokens,
-          temperature: input.config.temperature
+          temperature: input.config.temperature,
+          text: input.config.text
         })
         .finally(() => input.config.onActivity?.('model_iteration_limit_synthesis_done'))
     },
@@ -377,19 +389,9 @@ async function executeToolCall(
   emitPresentationEvent: PresentationEmitter
 ): Promise<ExecutedToolCall> {
   const tool = toolByName?.get(toolCall.name)
-  const activity = toolActivity(toolCall, tool)
-
-  await emitPresentationEvent({
-    kind: 'tool.activity',
-    payload: { ...activity, phase: 'running' }
-  })
 
   if (!tool) {
     const message = `Unknown tool: ${toolCall.name}`
-    await emitPresentationEvent({
-      kind: 'tool.activity',
-      payload: { ...activity, phase: 'failed' }
-    })
     return {
       toolName: toolCall.name,
       resultMsg: {
@@ -411,10 +413,6 @@ async function executeToolCall(
     parsedArgs = validateToolArguments(toolCall.arguments, tool.schema)
   } catch (error) {
     const message = `Invalid arguments for tool ${toolCall.name}: ${errorMessage(error)}`
-    await emitPresentationEvent({
-      kind: 'tool.activity',
-      payload: { ...activity, phase: 'failed' }
-    })
     return {
       toolName: toolCall.name,
       resultMsg: {
@@ -429,6 +427,14 @@ async function executeToolCall(
         toolName: toolCall.name
       }
     }
+  }
+
+  const activity = toolActivity(toolCall, tool, parsedArgs)
+  if (activity) {
+    await emitPresentationEvent({
+      kind: 'tool.activity',
+      payload: { ...activity, phase: 'running' }
+    })
   }
 
   let toolResult: AgentToolResult<unknown>
@@ -460,10 +466,12 @@ async function executeToolCall(
     config.onActivity?.(`tool:${toolCall.name}:done`)
   }
 
-  await emitPresentationEvent({
-    kind: 'tool.activity',
-    payload: { ...activity, phase: failure ? 'failed' : 'completed' }
-  })
+  if (activity) {
+    await emitPresentationEvent({
+      kind: 'tool.activity',
+      payload: { ...activity, phase: failure ? 'failed' : 'completed' }
+    })
+  }
 
   return {
     toolName: toolCall.name,
@@ -505,19 +513,28 @@ function presentationEmitter(config: AgentLoopConfig): PresentationEmitter {
 }
 
 /**
- * Projects a provider tool call into a small human vocabulary. The raw tool
- * name and arguments remain inside the worker/AIGateway trace boundary.
+ * Projects validated tool parameters into a bounded human summary. A tool can
+ * suppress its row with `null`; raw arguments remain inside the trace boundary.
  */
-function toolActivity(toolCall: ToolCall, tool: AgentTool | undefined): JSONObject {
+function toolActivity(toolCall: ToolCall, tool: AgentTool, parsedArgs: unknown): JSONObject | null {
+  let described: string | null | undefined
+  try {
+    described = tool.describeActivity?.(parsedArgs)
+  } catch {
+    described = undefined
+  }
+
+  if (described === null) return null
+  const label = described?.trim() || toolActivityLabel(toolCall.name)
+
   return {
     operation_id: toolCall.id,
-    label: toolActivityLabel(toolCall.name),
-    consequential: tool?.isDestructive === true
+    label,
+    consequential: tool.isDestructive === true
   }
 }
 
 function toolActivityLabel(name: string): string {
-  if (name === 'todo') return '更新执行计划'
   if (name === 'memory_search') return '回忆相关上下文'
   if (name === 'memory_open') return '读取记忆内容'
   if (name === 'memory_browse') return '浏览对话记忆'
@@ -526,14 +543,9 @@ function toolActivityLabel(name: string): string {
   if (name === 'web_search') return '检索资料'
   if (name === 'web_fetch') return '阅读资料'
   if (name.startsWith('browser')) return '浏览网页'
-  if (name === 'command' || name === 'interactive_terminal') return '操作工作环境'
-  if (name === 'read_file') return '读取文件'
-  if (name === 'patch') return '更新文件'
-  if (name === 'reply_attachment') return '准备交付文件'
   if (name === 'check_back_later' || name === 'cron') return '安排后续工作'
   if (name === 'clarify') return '整理需要确认的信息'
   if (name === 'subagent') return '协调子任务'
-  if (name.startsWith('skill_')) return '加载专业能力'
   return '处理请求'
 }
 

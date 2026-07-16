@@ -1,18 +1,22 @@
 # Subagent Delegation
 
 Subagent Delegation is Ankole's durable background-work subsystem. It lets a
-main agent turn a long-running request into an isolated task-worker job, return
-to the conversation immediately, and receive a durable wakeup when the task
-finishes, fails, or needs user input. The current task-worker implementation is
-Codex.
+main agent turn a long-running request into an isolated Codex job, return to the
+conversation immediately, and receive a durable wakeup when the task finishes,
+fails, or needs user input. Codex is the current execution implementation.
 
 The product object is the delegation, not a Codex process. PostgreSQL owns the
 work item and its lifecycle. Agent Computer workers and task-worker processes
 are replaceable execution leases over that durable state; the current
 implementation launches Codex app-server.
 
-Use delegation for work expected to take at least ten minutes. Work that can be
-completed promptly belongs in the current agent turn.
+Choose delegation by its user-visible delivery contract. Immediate-response
+work stays in the current turn: the user can reasonably wait in the active
+exchange, and the next assistant reply contains the completed result. Follow-up
+work becomes a delegation: accept it as a separate work item so the conversation
+can continue, then deliver the completed result in a later reply. Several tool
+calls may still be immediate-response work, while explicit background requests
+and enabled long-running Skills always require delegation.
 
 ## User Contract
 
@@ -21,8 +25,8 @@ completed promptly belongs in the current agent turn.
    constraint, and acceptance criterion.
 2. The call returns the durable delegation immediately. The parent confirms
    that work started and remains available for normal conversation.
-3. The task worker works in an isolated actor session and a durable artifact
-   directory. The current Codex implementation can resume after worker loss,
+3. Codex works in an isolated actor session and a durable artifact directory.
+   The execution can resume after worker loss,
    accept steering, or ask the user a question.
 4. A waiting or terminal transition wakes the parent session. The parent reads
    the result, verifies artifacts and tests, and then reports to the user.
@@ -32,13 +36,13 @@ delivery. User-facing artifacts belong under `/workspace/user-files`, where a
 later parent turn can inspect and attach them.
 
 Console is an installation-wide management surface. Operators can inspect the
-task board and event timeline or cancel non-terminal work independently of the
+task board and Turn trajectory or cancel non-terminal work independently of the
 originating channel.
 
 ## Ownership and Invariants
 
-- PostgreSQL owns lifecycle, attempts, account selection, the event journal,
-  and final result/error JSON.
+- PostgreSQL owns lifecycle, attempts, account selection, normalized runtime
+  Turns, and final result/error JSON.
 - Elixir owns dispatch, placement, authorization, capacity, retries, wakeups,
   Codex account storage, ModelProfiles, Console APIs, and terminal commit.
 - Rust kernel owns identifier/crypto helpers and `generic_hash`.
@@ -47,12 +51,13 @@ originating channel.
   account-scoped Codex home.
 - RuntimeFabric is live transport. Every worker mutation that affects durable
   state uses a private RPC and an active turn fence.
-- A delegation actor session is serial. A superseded worker cannot append
-  audit data, update credentials, or commit status for the replacement attempt.
+- A delegation actor session is serial. A superseded worker cannot upsert Turn
+  trajectories, update credentials, or commit status for the replacement attempt.
 - A prose promise is not durable work. A parent turn that defers work must end
   with a delegation, a scheduled wakeup, or a terminal result.
-- Codex runs with approval policy `never` and `danger-full-access`. An
-  unexpected approval request fails closed.
+- Codex runs with approval policy `never` and `danger-full-access`. Any
+  approval request that still arrives is accepted for the session; approvals
+  never gate execution.
 
 ## Architecture
 
@@ -63,7 +68,7 @@ parent agent turn
   -> actor session subagent:<delegation-id>
   -> Agent Computer subagent turn
   -> Codex 0.144 app-server
-  -> fenced account/audit/status RPCs
+  -> fenced account/Turn/status RPCs
   -> PostgreSQL transition + parent wake ActorEvent
   -> parent verification and user delivery
 ```
@@ -76,7 +81,8 @@ parent agent turn
 
 - UUIDv7 `id`;
 - parent `agent_uid`, `session_id`, `actor_event_id`, and `tool_call_id`;
-- `runtime`, currently `task_worker`; Codex is the current implementation;
+- `runtime`: `task_worker` by default, or the `deep_research` profile over the
+  same Codex implementation;
 - operator-facing `title`, verbatim `task`, and optional `background` and
   `notes` text;
 - frozen `reply_route`;
@@ -103,27 +109,110 @@ queued -> running -> succeeded
 in-flight user story but does not consume an agent running slot or worker
 assignment.
 
-### Event Journal
+### Four-Layer Execution Contract
 
-`subagent_delegation_events` stores the ordered execution trajectory. Each
-event has a per-delegation sequence, direction, type, JSON payload, redaction
-metadata, and occurrence time. Worker events include the delegation execution
-`attempt`, which lets operators and recovery code distinguish multiple Codex
-leases without introducing a second task-run model.
+The background execution path keeps four layers separate:
 
-Agent Computer flushes at most twenty events per batch. Each immutable batch is
-retried up to three times with bounded backoff after transport failure. The
-unique `(delegation_id, seq)` key makes a lost-response replay idempotent. An
-explicit persistence rejection is an integrity error; exhausted transport
-retries fail the worker attempt so normal actor recovery can redispatch it.
+1. The **control plane** owns the delegation lifecycle, attempts, authorization,
+   commands, wakeups, and the orchestrator-facing `execution` projection.
+2. The **runtime snapshot** records bounded `progress` and optional official
+   `usage` on each Codex Turn. It answers what is active, what tools and files
+   have been observed, and how many runtime Turns and threads exist without
+   pretending to be conversation history.
+3. The **semantic trajectory** records only model-meaningful, final Turn items
+   as `ankole_chatml`. It is the ShareGPT-style history used by Console and the
+   main agent's paged status reads.
+4. The **activation heartbeat** renews the live worker lease every sixty seconds
+   while its actor Turn exists. It says only that the worker still owns the
+   execution; it never changes the snapshot or trajectory.
 
-Audit append revalidates the worker route, activation, assignment, and turn
-revision in the same transaction as the inserts. A late batch from a previous
-attempt cannot interleave with a recovery attempt.
+These layers deliberately use different clocks and failure semantics. A
+semantic checkpoint updates the Turn's `updated_at`; actor heartbeat state owns
+runtime liveness. Codex silence is valid, while app-server exit or transport
+closure is an execution failure.
 
-Payload and batch limits use UTF-8 bytes because they protect transport and
-persistence. Prompt/context budgets use the kernel tokenizer because they
-protect model context.
+### Runtime Turn Trajectory
+
+`subagent_delegation_turns` stores one row per actual Codex Turn. The identity
+is unique on `(delegation_id, runtime_turn_id)`. Each row records its delegation
+attempt, runtime thread, kind (`agent` or `compaction`), lifecycle status,
+monotonic revision, required runtime `progress`, optional official thread
+`usage`, error data, timestamps, and one normalized `ankole_chatml` v1
+trajectory. Runtime Turn status is one of `in_progress`, `completed`, `failed`,
+or `interrupted`; `waiting_on_user` belongs only to the delegation lifecycle.
+
+The delegation's `runtime_thread_id` anchors the lead Codex thread used for
+resume and steering. Native Codex subagents create child runtime threads; their
+Turns retain those child `runtime_thread_id` values under the same delegation
+and attempt. The authenticated delegation route is the ownership boundary, and
+an existing `runtime_turn_id` can never move between runtime threads.
+The control plane treats those child threads as passive observations of Codex's
+internal execution graph. Only the latest lead Turn participates in delegation
+lifecycle checks; a child Turn's last observed status may remain `in_progress`
+after Codex completes the lead Turn and cannot block or alter that completion.
+
+Agent Computer opts out of message, plan, reasoning, command-output, patch, and
+MCP-progress deltas during app-server initialization. The recorder also ignores
+those methods if an upstream still emits them; they cannot change revision,
+trajectory, progress, or lease state. `item/started` may set the active tool but
+does not create a message. `item/completed` adds the final semantic item or
+tool-call/result pair, increments unique-item statistics, and checkpoints
+immediately. Completed reasoning contributes only its summary; raw reasoning is
+never stored. Initial input and accepted steering remain stable user messages.
+An unmatched `request_user_input` call with `pending_user_input` metadata is the
+only permitted tool call without a result.
+
+Plan, official token usage, and diff-derived file paths are state snapshots, not
+trajectory messages. They coalesce for at most five seconds and flush on every
+terminal path. The `turn/diff/updated` body is not stored; a completed
+`fileChange` may still retain its final patch arguments in the semantic tool
+pair. Tool names and counts use the same canonical naming function as
+trajectory projection, count each completed item id once before trajectory
+truncation, and stay sorted. Deep Research uses this same path; it does not copy
+raw rollout JSONL into a second archive model.
+
+Before persistence, Agent Computer removes credential-shaped keys and text,
+bounds nested values, and keeps each compact encoded trajectory at or below
+256 KiB, beneath PostgreSQL's 512 KiB hard limit.
+The trajectory metadata records redaction, truncation, and omitted item counts,
+which Console shows on the Turn. PostgreSQL repeats the format, role, and byte
+limit constraints, so a wrapped JSON-RPC event is not a valid trajectory.
+
+Background execution stays in Codex Default mode so normal execution and plan
+updates remain available. The pinned app-server exposes native
+`request_user_input` to the model but rejects it in Default mode, so Agent
+Computer projects one control-only dynamic tool named `request_parent_input`.
+The task-level AGENTS document directs the lead agent to use that tool and child
+agents to return questions to the lead. Both this bridge and the native
+`item/tool/requestUserInput` compatibility path normalize to the same pending
+`request_user_input` trajectory item; no second lifecycle or storage contract is
+introduced.
+
+Each checkpoint is retried up to three times with bounded backoff after a
+transport failure. The monotonic `revision` makes a lost-response replay
+idempotent: an older revision returns the current row and an equal revision is
+accepted only when every checkpoint field is identical. Divergent equal
+revisions fail with `subagent_turn_revision_conflict`; a newer revision may
+advance only through the Turn status machine. The upsert
+revalidates worker route, activation, assignment, and attempt inside the same
+transaction, while updates to an existing Turn revalidate its immutable runtime
+thread. A stale worker cannot overwrite the replacement attempt. If retries are
+exhausted or a checkpoint is explicitly rejected after the writer has been
+fenced, the control plane interrupts any remaining active Turn before it commits
+the terminal delegation failure.
+
+For each stored Turn returned by Console's bounded detail timeline, Console
+renders the complete bounded trajectory together with its progress and usage
+snapshot. `subagent(status)` always returns the latest execution summary and,
+by default, the newest three semantic groups from lead agent Turns in the
+current attempt. A matching assistant tool call and its tool result are one
+indivisible group. The caller may request one to twenty groups or follow an
+opaque cursor to the immediately older page; each page is also bounded to 24
+KiB and remains chronological. Child trajectories and compaction Turns do not
+enter this page because concurrent child messages have no valid global chat
+order. Attempt history prefers the last lead assistant report and never lets a
+later passive child observation replace it. An attempt with no Turn does not
+project a stale Turn from an earlier attempt.
 
 ## ModelProfiles and Codex Accounts
 
@@ -196,18 +285,21 @@ no-op turn completion releases the assignment and nudges queued delegations.
 Answering the question redispatches the waiting delegation and claims a new
 execution lease.
 
-Codex activity extends the actor lease. Generic worker progress does not hide a
-Codex process that stopped producing protocol activity. There is no fixed wall
-clock timeout for valid long-running work. Worker loss or lease expiry makes the
-dispatch available to a replacement worker.
+Every active worker Turn renews its actor lease once per minute, independently
+of Codex notifications. There is no fixed wall-clock timeout for valid
+long-running work, and a quiet model or tool cannot make a healthy execution
+look dead. App-server exit, channel closure, worker loss, or actual lease expiry
+still enters the existing failure and recovery path.
 
-Three execution attempts are allowed. Exhaustion commits `failed` with
-`attempts_exhausted` and wakes the parent.
+Automatic dispatch and recovery are capped at three execution attempts.
+Exhaustion commits `failed` with `attempts_exhausted` and wakes the parent.
+An explicit parent continuation through `subagent(steer)` may allocate a later
+attempt because it is new user intent, not an automatic retry loop.
 
 The normal recovery path resumes `runtime_thread_id`. If Codex reports an
 unknown thread, Agent Computer creates one replacement thread and supplies the
 original task, continuation instruction, current workspace, and a bounded
-summary of at most three prior attempts derived from the event journal. The
+summary of at most three prior attempts derived from Turn trajectories. The
 history is used only for thread recreation; routine resume relies on Codex's
 own rollout and compaction state.
 
@@ -263,7 +355,7 @@ The subagent handler:
 3. rebuilds the task-level AGENTS file, native enabled-Skill root, and dynamic
    tools;
 4. starts or resumes Codex app-server;
-5. maps Codex notifications into the attempt-aware audit journal;
+5. assembles Codex notifications into one normalized row per runtime Turn;
 6. persists waiting, terminal, or retryable outcomes before exiting.
 
 The handler never starts background work and yields. Its exit ends the worker
@@ -286,6 +378,27 @@ Successful `result` JSONB includes:
 
 These fields are verification inputs. The parent still inspects the worktree
 and artifacts before reporting success.
+
+### Deep Research Profile
+
+`deep_research` is not a second worker, runner, or agent hierarchy. It is the
+ordinary Codex delegation with the `deep-research` Skill and a small set of
+before/after hooks. Before execution, Agent Computer enables Codex native
+multi-agent support without overriding the default collaboration mode, requires
+the research Skill, wraps successful web and
+browser observations in source archives, and starts the resource budget. After
+Codex proposes a final result, Agent Computer passively reads the available
+artifacts and reports objective form issues alongside the candidate. It does
+not rewrite artifacts, reject research quality, or start a repair Turn. The
+parent decides whether to deliver the candidate, make a small direct correction,
+or continue the same `runtime_thread_id` with `subagent(steer)` when the work
+benefits from the existing Codex context.
+
+Native Codex subagents remain model-directed and advisory. There is no host
+fan-out runner, isolated AIGateway reviewer conversation, source-count floor,
+quality score, or staged research gate. General research and domain-neutral ACH
+share this profile; domain packs and trajectory backtesting are separate future
+work.
 
 ## Handoff and Capability Projection
 
@@ -321,12 +434,14 @@ the subagent cannot choose an owner, store, or author. Browser work uses a priva
 `subagent:<delegation_id>` execution scope and screenshot results remain Codex
 `inputImage` parts. Codex-native shell, file, patch, and planning capabilities are
 not projected twice. Skill writes, user delivery, scheduling, clarification, and
-nested delegation remain parent-owned.
+nested delegation remain parent-owned. The sole clarification bridge is
+`request_parent_input`: it can pause the lead Turn and wake the parent, but it
+cannot answer a question or interact with the user itself.
 
-Streaming message deltas are audit and activity signals. The last completed
-Codex `agentMessage` is the canonical delegation report. If Codex completes
-without one, Agent Computer asks once on the same thread for a final report;
-another empty completion fails with `codex_empty_report`.
+The worker does not subscribe to or use streaming message deltas. The last
+completed Codex `agentMessage` is the canonical delegation report. If Codex
+completes without one, Agent Computer asks once on the same thread for a final
+report; another empty completion fails with `codex_empty_report`.
 
 ## Tool and Steering Contract
 
@@ -335,25 +450,35 @@ The model-facing `subagent` tool has five asynchronous actions:
 - `start` creates durable work from a title, complete `task`, optional
   `background`, optional `notes`, optional workdir, and optional output schema;
 - `list` shows work visible from the current parent session or channel;
-- `status` returns durable lifecycle and result state;
+- `status` returns the latest execution summary and three semantic groups by
+  default, with optional `trajectory_limit` and `trajectory_cursor` pagination;
 - `steer` appends instructions or answers a pending user-input request;
 - `stop` commits cancellation.
 
 There is no blocking wait action. Parent turns remain responsive while the
-delegation runs.
+delegation runs. Pagination fields are accepted only by `status`.
 
 Running steering uses Codex `turn/steer`. The mailbox event remains durable
 until Codex accepts it. If steering loses the race with a completed turn, the
-failure is audited and the terminal Codex result is preserved. A transport or
+terminal Codex result is preserved. A transport or
 protocol failure before completion fails the execution attempt and leaves the
 instruction replayable. Terminal status commit checks for unapplied steering
 under the delegation lock.
 
 ## Waiting for User Input
 
-When Codex emits `requestUserInput`, Agent Computer interrupts the current
-Codex turn, stores normalized questions, and commits `waiting_on_user`. The
-parent wake event is appended in the same transaction.
+When the lead calls `request_parent_input` (or app-server emits the compatible
+native `requestUserInput` request), Agent Computer interrupts the current Codex
+Turn, stores that Turn as `interrupted` with a
+`request_user_input` reason, stores normalized questions on the delegation, and
+commits the delegation as `waiting_on_user`. The parent wake event is appended
+in the same transaction. The control plane rejects this transition unless the
+latest lead Turn is interrupted with that reason and the current attempt
+contains a `request_user_input` tool call in that same lead Turn, marked
+`pending_user_input` and without a matching result. A native child cannot pause
+the delegation directly; its request is rejected with an instruction to report
+the question to the lead agent. Other child states remain Codex-internal and do
+not gate the delegation.
 
 The parent asks the one-to-three questions through the normal `clarify` tool.
 Card-capable channels can render interactive choices; other channels use text.
@@ -368,9 +493,16 @@ Waiting and result-bearing terminal transitions append one of:
 - `subagent.delegation.completed`;
 - `subagent.delegation.failed`.
 
-Wake payloads include the delegation id, title, status, bounded summary,
-workdir, and frozen reply route. The parent wake turn must ask the pending
-question or report a verified terminal result; it cannot end as silent success.
+Wake payloads include the delegation id, title, status, runtime, mode, bounded
+summary, passive delivery status and issue count, workdir, and frozen reply
+route. The parent wake turn asks the pending question, verifies and delivers the
+candidate, or continues the same delegation; it cannot end as silent success.
+
+A succeeded or failed delegation is settled but resumable. If the goal still
+needs work, the parent calls `subagent(steer)` on that delegation; the control
+plane queues another attempt and Agent Computer resumes the existing
+`runtime_thread_id`. Active Turns receive the same command through native steer.
+Only an explicitly stopped delegation cannot be resumed.
 
 Cancellation commits `stopped` first. Queued and waiting work cannot start
 after that commit. Running work additionally receives an interrupt command;
@@ -379,7 +511,7 @@ late worker writes are rejected by the turn fence.
 Console provides:
 
 - a three-column Subagent Tasks board;
-- task details, structured result/error, and an event timeline grouped by
+- task details, structured result/error, and semantic Turn rows grouped by
   execution attempt;
 - cancellation for non-terminal work;
 - a single LLM Providers configuration area containing AIGateway provider rows
@@ -397,10 +529,12 @@ The implementation is protected by package-local gates for:
 - private RPC route/turn fencing and auth refresh writeback;
 - no-worker placement, capacity, attempts, waiting slot release, wakeups, and
   cancellation;
-- audit retries, sequence idempotency, attempt history, and stale-worker
-  rejection;
+- completed-item projection, runtime snapshots, redaction and byte bounds,
+  checkpoint retries, strict revision idempotency, lead-only pagination,
+  attempt history, and stale-worker rejection;
 - Codex 0.144 app-server success, resume, unknown-thread recovery, native
-  compaction, steer races, abort, approval fail-closed, and auth refresh;
+  compaction, steer races, Default-mode parent-input interruption and
+  cross-process answer resume, abort, approval acceptance, and auth refresh;
 - task-level AGENTS isolation, native Skill discovery and overlays, the tool
   allowlist, Browser scope, and screenshot image projection;
 - OpenAPI generation and Console type checking;

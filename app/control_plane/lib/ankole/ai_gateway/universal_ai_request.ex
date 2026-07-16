@@ -535,7 +535,8 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
        body: body,
        headers: Map.get(response, "headers", []),
        http_version: Map.get(response, "http_version"),
-       http_negotiation: Map.get(response, "http_negotiation")
+       http_negotiation: Map.get(response, "http_negotiation"),
+       hosted_tool_metadata: Map.get(response, "hosted_tool_metadata")
      }}
   end
 

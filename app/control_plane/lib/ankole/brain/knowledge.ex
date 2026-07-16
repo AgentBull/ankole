@@ -13,6 +13,8 @@ defmodule Ankole.Brain.Knowledge do
   import Ecto.Changeset, only: [change: 1, change: 2, optimistic_lock: 2]
   import Ecto.Query
 
+  alias Ankole.Brain.Citations
+  alias Ankole.Brain.Knowledge.WriteAuthority
   alias Ankole.Brain.Scope
   alias Ankole.Brain.Schemas.AuditLog
   alias Ankole.Brain.Schemas.Entry
@@ -46,8 +48,9 @@ defmodule Ankole.Brain.Knowledge do
   def apply_operations(%Scope{} = scope, operations, actor, opts) when is_list(opts) do
     with {:ok, operations} <- normalize_operations(operations),
          {:ok, actor} <- normalize_actor(actor),
+         {:ok, authority} <- WriteAuthority.build(actor, opts),
          {:ok, metadata} <- normalize_metadata(Keyword.get(opts, :metadata, %{})) do
-      execute_operations(scope, operations, actor, metadata, opts)
+      execute_operations(scope, operations, actor, authority, metadata, opts)
     end
   end
 
@@ -75,11 +78,13 @@ defmodule Ankole.Brain.Knowledge do
       when is_map(operation) and is_map(metadata) and is_list(opts) do
     with {:ok, operation_name} <- operation_name(operation),
          :ok <- validate_mechanical_operation(operation_name, operation),
-         {:ok, metadata} <- normalize_mechanical_metadata(metadata) do
+         {:ok, metadata} <- normalize_mechanical_metadata(metadata),
+         {:ok, authority} <- WriteAuthority.build(%{kind: nil, uid: nil}, opts) do
       execute_operations(
         scope,
         [operation],
         %{kind: nil, uid: nil},
+        authority,
         metadata,
         opts
       )
@@ -275,12 +280,12 @@ defmodule Ankole.Brain.Knowledge do
     end
   end
 
-  defp apply_operation_batch(repo, scope, actor, operations, metadata) do
+  defp apply_operation_batch(repo, scope, actor, authority, operations, metadata) do
     Enum.reduce_while(operations, {:ok, [], [], %{}}, fn operation,
                                                          {:ok, results, touched, fences} ->
       prepared_operation = prepare_batch_operation(operation, fences)
 
-      case apply_operation(repo, scope, actor, prepared_operation, metadata) do
+      case apply_operation(repo, scope, actor, authority, prepared_operation, metadata) do
         {:ok, result, operation_touched} ->
           fences = update_batch_fences(fences, operation, result)
           {:cont, {:ok, [result | results], operation_touched ++ touched, fences}}
@@ -298,10 +303,10 @@ defmodule Ankole.Brain.Knowledge do
     end
   end
 
-  defp execute_operations(scope, operations, actor, metadata, opts) do
+  defp execute_operations(scope, operations, actor, authority, metadata, opts) do
     run = fn repo ->
       with {:ok, results, touched_entry_ids} <-
-             apply_operation_batch(repo, scope, actor, operations, metadata),
+             apply_operation_batch(repo, scope, actor, authority, operations, metadata),
            :ok <- validate_protected_projections(repo, scope, touched_entry_ids) do
         {:ok,
          %{
@@ -318,24 +323,29 @@ defmodule Ankole.Brain.Knowledge do
     end
   end
 
-  defp apply_operation(repo, scope, actor, operation, metadata) do
-    case operation_name(operation) do
-      {:ok, "create_entry"} -> create_entry(repo, scope, actor, operation, metadata)
-      {:ok, "delete_entry"} -> delete_entry(repo, scope, actor, operation, metadata)
-      {:ok, "append_block"} -> append_block(repo, scope, actor, operation, metadata)
-      {:ok, "edit_block"} -> edit_block(repo, scope, actor, operation, metadata)
-      {:ok, "delete_block"} -> delete_block(repo, scope, actor, operation, metadata)
-      {:ok, "set_property"} -> set_property(repo, scope, actor, operation, metadata)
-      {:ok, "set_summary"} -> set_summary(repo, scope, actor, operation, metadata)
-      {:ok, "set_aliases"} -> set_aliases(repo, scope, actor, operation, metadata)
-      {:ok, "add_relation"} -> add_relation(repo, scope, actor, operation, metadata)
-      {:ok, "remove_relation"} -> remove_relation(repo, scope, actor, operation, metadata)
-      {:ok, unknown} -> {:error, {:unsupported_operation, unknown}}
-      {:error, _reason} = error -> error
+  defp apply_operation(repo, scope, actor, authority, operation, metadata) do
+    with {:ok, operation_name} <- operation_name(operation),
+         :ok <- WriteAuthority.authorize_operation(authority, operation_name, operation),
+         :ok <- authorize_curation_guide_operation(repo, scope, actor, operation_name, operation) do
+      case operation_name do
+        "create_entry" -> create_entry(repo, scope, actor, authority, operation, metadata)
+        "delete_entry" -> delete_entry(repo, scope, actor, operation, metadata)
+        "append_block" -> append_block(repo, scope, actor, authority, operation, metadata)
+        "edit_block" -> edit_block(repo, scope, actor, authority, operation, metadata)
+        "delete_block" -> delete_block(repo, scope, actor, operation, metadata)
+        "set_property" -> set_property(repo, scope, actor, operation, metadata)
+        "set_summary" -> set_summary(repo, scope, actor, operation, metadata)
+        "set_aliases" -> set_aliases(repo, scope, actor, operation, metadata)
+        "set_name" -> set_name(repo, scope, actor, operation, metadata)
+        "set_type" -> set_type(repo, scope, actor, operation, metadata)
+        "add_relation" -> add_relation(repo, scope, actor, operation, metadata)
+        "remove_relation" -> remove_relation(repo, scope, actor, operation, metadata)
+        unknown -> {:error, {:unsupported_operation, unknown}}
+      end
     end
   end
 
-  defp create_entry(repo, scope, actor, operation, metadata) do
+  defp create_entry(repo, scope, actor, authority, operation, metadata) do
     attrs = %{
       owner_uid: scope.owner_uid,
       store_key: scope.writable_store_key,
@@ -347,14 +357,17 @@ defmodule Ankole.Brain.Knowledge do
     }
 
     with {:ok, entry} <- repo.insert(Entry.changeset(%Entry{}, attrs)),
-         after_snapshot = entry_snapshot(entry),
+         {:ok, initial_block} <-
+           insert_initial_block(repo, scope, actor, authority, entry, operation),
+         after_snapshot =
+           if(initial_block, do: entry_bundle_snapshot(repo, entry), else: entry_snapshot(entry)),
          {:ok, _audit} <-
            insert_audit(
              repo,
              scope,
              actor,
              "create_entry",
-             %{entry_id: entry.id},
+             %{entry_id: entry.id, block_id: initial_block && initial_block.id},
              nil,
              after_snapshot,
              metadata
@@ -363,8 +376,43 @@ defmodule Ankole.Brain.Knowledge do
        %{
          operation: "create_entry",
          entry_id: entry.id,
-         entry_lock_version: entry.lock_version
+         entry_lock_version: entry.lock_version,
+         block_id: initial_block && initial_block.id,
+         block_lock_version: initial_block && initial_block.lock_version
        }, [entry.id]}
+    end
+  end
+
+  defp insert_initial_block(repo, scope, actor, authority, entry, operation) do
+    case value(operation, :initial_body) do
+      nil ->
+        {:ok, nil}
+
+      body when is_binary(body) ->
+        case String.trim(body) do
+          "" ->
+            {:ok, nil}
+
+          body ->
+            with {:ok, block} <-
+                   repo.insert(
+                     EntryBlock.changeset(%EntryBlock{}, %{
+                       entry_id: entry.id,
+                       owner_uid: entry.owner_uid,
+                       store_key: entry.store_key,
+                       position: 0,
+                       body: body,
+                       author_kind: actor.kind,
+                       author_uid: actor.uid
+                     })
+                   ),
+                 :ok <- Citations.sync(repo, scope, authority, block) do
+              {:ok, block}
+            end
+        end
+
+      _invalid ->
+        {:error, {:invalid_field, :initial_body}}
     end
   end
 
@@ -394,7 +442,7 @@ defmodule Ankole.Brain.Knowledge do
     end
   end
 
-  defp append_block(repo, scope, actor, operation, metadata) do
+  defp append_block(repo, scope, actor, authority, operation, metadata) do
     with {:ok, entry_id} <- required_uuid(operation, :entry_id),
          {:ok, expected_version} <- required_version(operation, :expected_entry_lock_version),
          %Entry{} = entry <- fetch_entry_for_write(repo, scope, entry_id, true),
@@ -412,6 +460,7 @@ defmodule Ankole.Brain.Knowledge do
                author_uid: actor.uid
              })
            ),
+         :ok <- Citations.sync(repo, scope, authority, block),
          {:ok, entry} <- bump_entry(repo, entry),
          {:ok, _audit} <-
            insert_audit(
@@ -438,7 +487,7 @@ defmodule Ankole.Brain.Knowledge do
     end
   end
 
-  defp edit_block(repo, scope, actor, operation, metadata) do
+  defp edit_block(repo, scope, actor, authority, operation, metadata) do
     with {:ok, block_id} <- required_uuid(operation, :block_id),
          {:ok, expected_version} <- required_version(operation, :expected_block_lock_version),
          %EntryBlock{} = block <- fetch_block_for_write(repo, scope, block_id),
@@ -453,6 +502,7 @@ defmodule Ankole.Brain.Knowledge do
              }),
              stale_error_field: :lock_version
            ),
+         :ok <- Citations.sync(repo, scope, authority, block, before_snapshot["body"]),
          :ok <- touch_entry(repo, block.entry_id),
          {:ok, _audit} <-
            insert_audit(
@@ -533,6 +583,12 @@ defmodule Ankole.Brain.Knowledge do
 
   defp set_aliases(repo, scope, actor, operation, metadata),
     do: update_entry_field(repo, scope, actor, operation, metadata, "set_aliases", :aliases)
+
+  defp set_name(repo, scope, actor, operation, metadata),
+    do: update_entry_field(repo, scope, actor, operation, metadata, "set_name", :name)
+
+  defp set_type(repo, scope, actor, operation, metadata),
+    do: update_entry_field(repo, scope, actor, operation, metadata, "set_type", :type)
 
   defp update_entry_field(repo, scope, actor, operation, metadata, action, field) do
     with {:ok, entry_id} <- required_uuid(operation, :entry_id),
@@ -704,6 +760,7 @@ defmodule Ankole.Brain.Knowledge do
        %{
          entry: entry,
          blocks: blocks,
+         citations: Citations.for_entry(repo, entry.id),
          relations: relations,
          backlinks: backlinks,
          markdown: render_markdown(entry, blocks, relations, backlinks),
@@ -1019,7 +1076,8 @@ defmodule Ankole.Brain.Knowledge do
 
   defp validate_mechanical_operation("create_entry", operation) do
     if value(operation, :summary, "") == "" and value(operation, :aliases, []) == [] and
-         value(operation, :properties, %{}) == %{} do
+         value(operation, :properties, %{}) == %{} and
+         value(operation, :initial_body) in [nil, ""] do
       :ok
     else
       {:error, :mechanical_entry_must_be_empty}
@@ -1038,6 +1096,61 @@ defmodule Ankole.Brain.Knowledge do
       operation when is_atom(operation) -> {:ok, Atom.to_string(operation)}
       operation when is_binary(operation) -> {:ok, operation}
       _invalid -> {:error, {:missing_field, :operation}}
+    end
+  end
+
+  defp authorize_curation_guide_operation(
+         _repo,
+         %Scope{writable_store_key: store_key},
+         actor,
+         "create_entry",
+         operation
+       ) do
+    if value(operation, :type) == "brain_curation_guide" do
+      cond do
+        actor.kind != :human -> {:error, :curation_guide_human_only}
+        store_key != "public" -> {:error, :curation_guide_must_be_public}
+        true -> :ok
+      end
+    else
+      :ok
+    end
+  end
+
+  defp authorize_curation_guide_operation(repo, scope, actor, operation_name, operation) do
+    requested_guide? =
+      operation_name == "set_type" and value(operation, :type) == "brain_curation_guide"
+
+    case operation_entry(repo, scope, operation_name, operation) do
+      %Entry{type: "brain_curation_guide"} when actor.kind != :human ->
+        {:error, :curation_guide_human_only}
+
+      %Entry{} when requested_guide? and actor.kind != :human ->
+        {:error, :curation_guide_human_only}
+
+      %Entry{store_key: store_key} when requested_guide? and store_key != "public" ->
+        {:error, :curation_guide_must_be_public}
+
+      _entry_or_missing ->
+        :ok
+    end
+  end
+
+  defp operation_entry(repo, scope, operation_name, operation)
+       when operation_name in ["edit_block", "delete_block"] do
+    with {:ok, block_id} <- required_uuid(operation, :block_id),
+         %EntryBlock{} = block <- fetch_block_for_write(repo, scope, block_id) do
+      repo.get(Entry, block.entry_id)
+    else
+      _missing_or_invalid -> nil
+    end
+  end
+
+  defp operation_entry(repo, scope, _operation_name, operation) do
+    with {:ok, entry_id} <- required_uuid(operation, :entry_id) do
+      fetch_entry_for_write(repo, scope, entry_id, false)
+    else
+      _missing_or_invalid -> nil
     end
   end
 
@@ -1331,6 +1444,8 @@ defmodule Ankole.Brain.Knowledge do
   defp restore_audit_action("set_property"), do: {:ok, "set_property"}
   defp restore_audit_action("set_summary"), do: {:ok, "set_summary"}
   defp restore_audit_action("set_aliases"), do: {:ok, "set_aliases"}
+  defp restore_audit_action("set_name"), do: {:ok, "set_name"}
+  defp restore_audit_action("set_type"), do: {:ok, "set_type"}
   defp restore_audit_action("add_relation"), do: {:ok, "remove_relation"}
   defp restore_audit_action("remove_relation"), do: {:ok, "add_relation"}
   defp restore_audit_action(action), do: {:error, {:audit_not_restorable, action}}
@@ -1386,6 +1501,7 @@ defmodule Ankole.Brain.Knowledge do
        ) do
     with :ok <- ensure_object_absent(repo.get(EntryBlock, audit.block_id), audit),
          {:ok, block} <- restore_deleted_block(repo, scope, before),
+         :ok <- Citations.reindex(repo, block),
          :ok <- touch_entry(repo, block.entry_id) do
       {:ok, %{restored: "delete_block", block_id: block.id}, nil, block_snapshot(block),
        [block.entry_id]}
@@ -1405,6 +1521,7 @@ defmodule Ankole.Brain.Knowledge do
              }),
              stale_error_field: :lock_version
            ),
+         :ok <- Citations.reindex(repo, block),
          :ok <- touch_entry(repo, block.entry_id) do
       {:ok, %{restored: "edit_block", block_id: block.id}, current, block_snapshot(block),
        [block.entry_id]}
@@ -1439,8 +1556,15 @@ defmodule Ankole.Brain.Knowledge do
          scope,
          %AuditLog{action: action, before: before, after: after_snapshot} = audit
        )
-       when action in ["set_summary", "set_aliases"] do
-    field = if action == "set_summary", do: :summary, else: :aliases
+       when action in ["set_summary", "set_aliases", "set_name", "set_type"] do
+    field =
+      case action do
+        "set_summary" -> :summary
+        "set_aliases" -> :aliases
+        "set_name" -> :name
+        "set_type" -> :type
+      end
+
     key = Atom.to_string(field)
 
     with %Entry{} = entry <- fetch_entry_for_write(repo, scope, audit.entry_id, true),
@@ -1680,8 +1804,14 @@ defmodule Ankole.Brain.Knowledge do
   defp restore_bundle_blocks(repo, blocks) do
     Enum.reduce_while(blocks, :ok, fn block_data, :ok ->
       case restore_deleted_block(repo, nil, block_data) do
-        {:ok, _block} -> {:cont, :ok}
-        {:error, _reason} = error -> {:halt, error}
+        {:ok, block} ->
+          case Citations.reindex(repo, block) do
+            :ok -> {:cont, :ok}
+            {:error, _reason} = error -> {:halt, error}
+          end
+
+        {:error, _reason} = error ->
+          {:halt, error}
       end
     end)
   end

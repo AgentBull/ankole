@@ -44,11 +44,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDispatch do
 
   defp process_inactive_steer(actor_key, event, delegation, opts) do
     cond do
-      delegation.status in Delegation.terminal_statuses() ->
+      delegation.status == "stopped" ->
         complete_without_turn(event, delegation)
-
-      delegation.attempts >= 3 ->
-        fail_exhausted(event, delegation.id, delegation.agent_uid)
 
       true ->
         with :ok <-
@@ -56,7 +53,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDispatch do
           RuntimeCommand.process_steer_command(
             actor_key,
             event,
-            attempt_opts(event, delegation, opts)
+            continuation_opts(event, delegation, opts)
           )
           |> handle_start_result(event, delegation, opts)
         end
@@ -93,6 +90,25 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDispatch do
     |> SubagentTurn.opts(claimed, opts)
     |> Keyword.put(:admit_in_tx, fn repo ->
       case SubagentDelegations.claim_attempt_in_tx(
+             repo,
+             delegation.id,
+             delegation.agent_uid,
+             expected_attempt
+           ) do
+        {:ok, %Delegation{}} -> :ok
+        {:error, _reason} = error -> error
+      end
+    end)
+  end
+
+  defp continuation_opts(event, %Delegation{} = delegation, opts) do
+    expected_attempt = delegation.attempts + 1
+    claimed = %{delegation | attempts: expected_attempt}
+
+    event
+    |> SubagentTurn.opts(claimed, opts)
+    |> Keyword.put(:admit_in_tx, fn repo ->
+      case SubagentDelegations.claim_continuation_in_tx(
              repo,
              delegation.id,
              delegation.agent_uid,
@@ -204,13 +220,22 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDispatch do
 
   defp fail_exhausted(event, delegation_id, agent_uid) do
     with {:ok, %{delegation: delegation}} <-
-           SubagentDelegations.commit_status_with_wakeup(delegation_id, agent_uid, %{
-             "status" => "failed",
-             "error" => %{
+           SubagentDelegations.commit_status_with_wakeup(
+             delegation_id,
+             agent_uid,
+             %{
+               "status" => "failed",
+               "error" => %{
+                 "code" => "attempts_exhausted",
+                 "summary" => "Delegation could not be resumed after three execution attempts."
+               }
+             },
+             turn_interruption: %{
                "code" => "attempts_exhausted",
-               "summary" => "Delegation could not be resumed after three execution attempts."
+               "summary" =>
+                 "The control plane interrupted this runtime Turn after execution attempts were exhausted."
              }
-           }),
+           ),
          {:ok, event} <- SubagentDelegations.complete_actor_event(event) do
       {:ok, %{status: :attempts_exhausted, delegation: delegation, actor_event: event}}
     end

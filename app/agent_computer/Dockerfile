@@ -45,7 +45,30 @@ RUN --mount=type=cache,target=/root/.cargo/git \
 
 FROM ${BASE_IMAGE}
 
+ARG LARK_CLI_VERSION=v1.0.69
+ARG TARGETARCH
+
 WORKDIR /repo
+
+RUN set -eux; \
+  version="${LARK_CLI_VERSION#v}"; \
+  case "${TARGETARCH:-$(uname -m)}" in \
+    amd64|x86_64) lark_cli_arch="amd64" ;; \
+    arm64|aarch64) lark_cli_arch="arm64" ;; \
+    *) echo "Unsupported lark-cli architecture: ${TARGETARCH:-$(uname -m)}" >&2; exit 1 ;; \
+  esac; \
+  asset="lark-cli-${version}-linux-${lark_cli_arch}.tar.gz"; \
+  base_url="https://github.com/larksuite/cli/releases/download/${LARK_CLI_VERSION}"; \
+  curl -fsSL "${base_url}/checksums.txt" -o /tmp/lark-cli-checksums.txt; \
+  curl -fsSL "${base_url}/${asset}" -o "/tmp/${asset}"; \
+  expected="$(awk -v asset="${asset}" '$2 == asset { print $1; exit }' /tmp/lark-cli-checksums.txt)"; \
+  test -n "${expected}"; \
+  printf '%s  %s\n' "${expected}" "/tmp/${asset}" | sha256sum -c -; \
+  mkdir -p /tmp/lark-cli; \
+  tar -xzf "/tmp/${asset}" -C /tmp/lark-cli; \
+  install -m 0755 /tmp/lark-cli/lark-cli /usr/local/bin/lark-cli; \
+  test "$(lark-cli --version)" = "lark-cli version ${version}"; \
+  rm -rf /tmp/lark-cli /tmp/lark-cli-checksums.txt "/tmp/${asset}"
 
 RUN set -eux; \
   installed=0; \
@@ -77,6 +100,8 @@ COPY app/agent_computer/package.json ./app/agent_computer/package.json
 COPY app/agent_computer/tsconfig.json ./app/agent_computer/tsconfig.json
 COPY app/agent_computer/src ./app/agent_computer/src
 
+RUN bun app/agent_computer/src/validation/lark-skill-examples.ts app/library/skills
+
 RUN printf '%s\n' 'ankole-agent-computer' > /etc/ankole-agent-computer-container
 
 RUN set -eux; \
@@ -104,6 +129,8 @@ WORKDIR /repo/app/agent_computer
 
 ENV NODE_ENV=production
 ENV CODEX_UNSAFE_ALLOW_NO_SANDBOX=1
+ENV LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1
+ENV LARKSUITE_CLI_NO_SKILLS_NOTIFIER=1
 ENV BASH_ENV=/etc/profile.d/ankole-agent-computer.sh
 ENV ENV=/etc/profile.d/ankole-agent-computer.sh
 ENV SHELL=/bin/bash

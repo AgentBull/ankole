@@ -3,6 +3,7 @@ defmodule Ankole.SignalsGateway.Bindings do
 
   import Ecto.Query, warn: false
 
+  alias Ecto.Adapters.SQL
   alias Ankole.Repo
   alias Ankole.AppConfigure
   alias Ankole.Principals
@@ -16,9 +17,13 @@ defmodule Ankole.SignalsGateway.Bindings do
 
   @spec upsert_binding(map()) :: {:ok, Binding.t()} | {:error, term()}
   def upsert_binding(attrs) when is_map(attrs) do
+    upsert_binding(Repo, attrs)
+  end
+
+  defp upsert_binding(repo, attrs) do
     %Binding{}
     |> Binding.changeset(attrs)
-    |> Repo.insert(
+    |> repo.insert(
       on_conflict: {:replace_all_except, [:inserted_at]},
       conflict_target: [:agent_uid, :name],
       returning: true
@@ -46,18 +51,16 @@ defmodule Ankole.SignalsGateway.Bindings do
          {:ok, mode} <- group_message_mode(attrs),
          :ok <- validate_supported_group_message_mode(definition, mode),
          {:ok, policy} <- GroupMessageModes.policy(mode),
-         {:ok, config_key} <- binding_config_key(definition, binding_name),
-         {:ok, _stored_config} <- AppConfigure.put_global_by_key(config_key, normalized_config),
+         {:ok, config_key} <- binding_config_key(definition, principal.uid, binding_name),
          {:ok, binding} <-
-           upsert_binding(%{
-             agent_uid: principal.uid,
-             name: binding_name,
-             adapter: adapter_id,
-             config_ref: "app-config://#{config_key}",
-             filters: %{},
-             unaddressed_group_message_policy: policy,
-             enabled: true
-           }),
+           persist_binding_assignment(
+             definition,
+             principal.uid,
+             binding_name,
+             normalized_config,
+             config_key,
+             policy
+           ),
          :ok <- maybe_handle_binding_saved(definition, binding, normalized_config),
          :ok <- Outbox.wake_blocked_for_binding(principal.uid, binding_name) do
       {:ok, %{binding: binding, config_key: config_key}}
@@ -109,6 +112,29 @@ defmodule Ankole.SignalsGateway.Bindings do
   end
 
   def list_agent_bindings(_agent_uid, _opts), do: {:error, :agent_not_found}
+
+  @spec list_available_agent_bindings(String.t(), keyword()) ::
+          {:ok, [Binding.t()]} | {:error, term()}
+  def list_available_agent_bindings(agent_uid, opts \\ [])
+
+  def list_available_agent_bindings(agent_uid, opts) when is_binary(agent_uid) do
+    repo = Keyword.get(opts, :repo, Repo)
+
+    with {:ok, %{principal: principal}} <- Principals.get_agent(agent_uid) do
+      bindings =
+        available_bindings_query()
+        |> where([binding], binding.agent_uid == ^principal.uid)
+        |> order_by([binding], asc: binding.adapter, asc: binding.name)
+        |> repo.all()
+
+      {:ok, bindings}
+    else
+      {:error, :not_found} -> {:error, :agent_not_found}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def list_available_agent_bindings(_agent_uid, _opts), do: {:error, :agent_not_found}
 
   @spec disable_binding(String.t(), String.t()) :: {:ok, Binding.t()} | {:error, term()}
   def disable_binding(agent_uid, binding_name)
@@ -190,10 +216,83 @@ defmodule Ankole.SignalsGateway.Bindings do
     end
   end
 
-  defp binding_config_key(%Definition{} = definition, binding_name) do
+  defp validate_binding_assignment(%Definition{} = definition, agent_uid, binding_name, config) do
+    case definition.config_module do
+      module when is_atom(module) and not is_nil(module) ->
+        if function_exported?(module, :validate_binding_assignment, 3) do
+          module.validate_binding_assignment(agent_uid, binding_name, config)
+        else
+          :ok
+        end
+
+      nil ->
+        :ok
+    end
+  end
+
+  defp persist_binding_assignment(
+         %Definition{} = definition,
+         agent_uid,
+         binding_name,
+         normalized_config,
+         config_key,
+         policy
+       ) do
+    case Repo.transact(fn repo ->
+           with :ok <- lock_adapter_assignments(repo, definition.id),
+                :ok <-
+                  validate_binding_assignment(
+                    definition,
+                    agent_uid,
+                    binding_name,
+                    normalized_config
+                  ),
+                {:ok, binding} <-
+                  upsert_binding(repo, %{
+                    agent_uid: agent_uid,
+                    name: binding_name,
+                    adapter: definition.id,
+                    config_ref: "app-config://#{config_key}",
+                    filters: %{},
+                    unaddressed_group_message_policy: policy,
+                    enabled: true
+                  }),
+                {:ok, committed_config} <-
+                  AppConfigure.put_global_by_key_in_tx(repo, config_key, normalized_config) do
+             {:ok, {binding, committed_config}}
+           end
+         end) do
+      {:ok, {binding, committed_config}} ->
+        with {:ok, _stored_config} <- AppConfigure.cache_committed_write(committed_config) do
+          {:ok, binding}
+        end
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp lock_adapter_assignments(repo, adapter_id) do
+    lock_key = "signals_gateway:binding_assignment:#{adapter_id}"
+
+    case SQL.query(repo, "SELECT pg_advisory_xact_lock(hashtext($1::text))", [lock_key]) do
+      {:ok, _result} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp binding_config_key(%Definition{} = definition, agent_uid, binding_name) do
     case definition.config_key_pattern do
-      pattern when is_binary(pattern) -> {:ok, String.replace(pattern, "<id>", binding_name)}
-      _pattern -> {:error, {:missing_adapter_config_key_pattern, definition.id}}
+      pattern when is_binary(pattern) ->
+        key =
+          pattern
+          |> String.replace("<agent_uid>", agent_uid)
+          |> String.replace("<id>", binding_name)
+
+        {:ok, key}
+
+      _pattern ->
+        {:error, {:missing_adapter_config_key_pattern, definition.id}}
     end
   end
 
@@ -204,14 +303,18 @@ defmodule Ankole.SignalsGateway.Bindings do
     |> repo.one()
   end
 
+  defp available_bindings_query do
+    Binding
+    |> where([binding], binding.enabled == true)
+    |> where([binding], is_nil(binding.unavailable_reason))
+  end
+
   @spec list_enabled_bindings(String.t(), keyword()) :: [Binding.t()]
   def list_enabled_bindings(adapter, opts \\ []) when is_binary(adapter) do
     repo = Keyword.get(opts, :repo, Repo)
 
-    Binding
+    available_bindings_query()
     |> where([binding], binding.adapter == ^adapter)
-    |> where([binding], binding.enabled == true)
-    |> where([binding], is_nil(binding.unavailable_reason))
     |> order_by([binding], asc: binding.agent_uid, asc: binding.name)
     |> repo.all()
   end

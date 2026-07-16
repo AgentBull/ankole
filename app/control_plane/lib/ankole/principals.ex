@@ -44,6 +44,17 @@ defmodule Ankole.Principals do
   end
 
   @doc """
+  Lists active Principals ordered by UID.
+  """
+  @spec list_active_principals() :: [Principal.t()]
+  def list_active_principals do
+    Principal
+    |> where([principal], principal.status == :active)
+    |> order_by([principal], asc: principal.uid)
+    |> Repo.all()
+  end
+
+  @doc """
   Creates a human Principal and its human profile row in one transaction.
   """
   @spec create_human(map()) ::

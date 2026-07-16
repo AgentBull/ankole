@@ -77,7 +77,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     Repo.transact(fn repo ->
-      with %ActorEvent{} = input <- Actors.lock_actor_event_in_tx(repo, input.id),
+      with :ok <- lock_session_before_retry_append(repo, input),
+           %ActorEvent{} = input <- Actors.lock_actor_event_in_tx(repo, input.id),
            {:ok, result} <- apply_runtime_command(repo, actor_key, input, now) do
         {:ok, result}
       else
@@ -90,6 +91,18 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
     |> TurnRetry.dispatch_retry_controls()
     |> dispatch_stop_controls()
   end
+
+  # Retrying may append a replacement ActorEvent. Match the journal-wide lock
+  # order before taking the command row so a concurrent message cannot hold the
+  # session lock while waiting for this row.
+  defp lock_session_before_retry_append(
+         repo,
+         %ActorEvent{type: "command.retry", agent_uid: agent_uid, session_id: session_id}
+       ) do
+    Actors.lock_actor_session_in_tx(repo, agent_uid, session_id)
+  end
+
+  defp lock_session_before_retry_append(_repo, %ActorEvent{}), do: :ok
 
   @doc false
   def process_subagent_stop(actor_key, %ActorEvent{type: "command.stop"} = input, opts) do
@@ -607,7 +620,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
   defp append_aigateway_retry_event(repo, command_event, retry_source, now) do
     case prepare_retry_response_graph(repo, command_event, retry_source, now) do
       :ok ->
-        Actors.append_actor_event_in_tx(repo, %{
+        SignalsGateway.append_actor_event_in_tx(repo, %{
           agent_uid: command_event.agent_uid,
           binding_name: command_event.binding_name,
           session_id: command_event.session_id,
@@ -656,7 +669,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
 
     case prepare_retry_response_graph(repo, command_event, retry_source, now) do
       :ok ->
-        Actors.append_actor_event_in_tx(repo, %{
+        SignalsGateway.append_actor_event_in_tx(repo, %{
           agent_uid: command_event.agent_uid,
           binding_name: command_event.binding_name,
           session_id: command_event.session_id,

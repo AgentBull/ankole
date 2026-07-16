@@ -37,6 +37,12 @@ import type {
   AnkoleWebAgentControllerUpdateData,
   AnkoleWebAgentControllerUpdateErrors,
   AnkoleWebAgentControllerUpdateResponses,
+  AnkoleWebAgentLibraryControllerIndexData,
+  AnkoleWebAgentLibraryControllerIndexErrors,
+  AnkoleWebAgentLibraryControllerIndexResponses,
+  AnkoleWebAgentLibraryControllerUpdateData,
+  AnkoleWebAgentLibraryControllerUpdateErrors,
+  AnkoleWebAgentLibraryControllerUpdateResponses,
   AnkoleWebAiGatewayControllerCompactResponseData,
   AnkoleWebAiGatewayControllerCompactResponseErrors,
   AnkoleWebAiGatewayControllerCompactResponseResponses,
@@ -64,6 +70,30 @@ import type {
   AnkoleWebAiGatewayControllerWebToolsData,
   AnkoleWebAiGatewayControllerWebToolsErrors,
   AnkoleWebAiGatewayControllerWebToolsResponses,
+  AnkoleWebAiGatewayConversationControllerIndexData,
+  AnkoleWebAiGatewayConversationControllerIndexErrors,
+  AnkoleWebAiGatewayConversationControllerIndexResponses,
+  AnkoleWebAiGatewayConversationControllerMessagesData,
+  AnkoleWebAiGatewayConversationControllerMessagesErrors,
+  AnkoleWebAiGatewayConversationControllerMessagesResponses,
+  AnkoleWebAiGatewayConversationControllerShowData,
+  AnkoleWebAiGatewayConversationControllerShowErrors,
+  AnkoleWebAiGatewayConversationControllerShowResponses,
+  AnkoleWebAiGatewayFilesControllerContentData,
+  AnkoleWebAiGatewayFilesControllerContentErrors,
+  AnkoleWebAiGatewayFilesControllerContentResponses,
+  AnkoleWebAiGatewayFilesControllerCreateData,
+  AnkoleWebAiGatewayFilesControllerCreateErrors,
+  AnkoleWebAiGatewayFilesControllerCreateResponses,
+  AnkoleWebAiGatewayFilesControllerDeleteData,
+  AnkoleWebAiGatewayFilesControllerDeleteErrors,
+  AnkoleWebAiGatewayFilesControllerDeleteResponses,
+  AnkoleWebAiGatewayFilesControllerIndexData,
+  AnkoleWebAiGatewayFilesControllerIndexErrors,
+  AnkoleWebAiGatewayFilesControllerIndexResponses,
+  AnkoleWebAiGatewayFilesControllerShowData,
+  AnkoleWebAiGatewayFilesControllerShowErrors,
+  AnkoleWebAiGatewayFilesControllerShowResponses,
   AnkoleWebAiGatewayProviderControllerDeleteProviderData,
   AnkoleWebAiGatewayProviderControllerDeleteProviderErrors,
   AnkoleWebAiGatewayProviderControllerDeleteProviderResponses,
@@ -105,18 +135,27 @@ import type {
   AnkoleWebBrainControllerAuditLogData,
   AnkoleWebBrainControllerAuditLogErrors,
   AnkoleWebBrainControllerAuditLogResponses,
+  AnkoleWebBrainControllerCreateSourceData,
+  AnkoleWebBrainControllerCreateSourceErrors,
+  AnkoleWebBrainControllerCreateSourceResponses,
   AnkoleWebBrainControllerDreamingFitnessData,
   AnkoleWebBrainControllerDreamingFitnessErrors,
   AnkoleWebBrainControllerDreamingFitnessResponses,
   AnkoleWebBrainControllerIndexData,
   AnkoleWebBrainControllerIndexErrors,
   AnkoleWebBrainControllerIndexResponses,
+  AnkoleWebBrainControllerLearnSourceData,
+  AnkoleWebBrainControllerLearnSourceErrors,
+  AnkoleWebBrainControllerLearnSourceResponses,
   AnkoleWebBrainControllerRestoreAuditData,
   AnkoleWebBrainControllerRestoreAuditErrors,
   AnkoleWebBrainControllerRestoreAuditResponses,
   AnkoleWebBrainControllerRestoreAuditsData,
   AnkoleWebBrainControllerRestoreAuditsErrors,
   AnkoleWebBrainControllerRestoreAuditsResponses,
+  AnkoleWebBrainControllerReviewCandidatesData,
+  AnkoleWebBrainControllerReviewCandidatesErrors,
+  AnkoleWebBrainControllerReviewCandidatesResponses,
   AnkoleWebBrainControllerRunDreamingData,
   AnkoleWebBrainControllerRunDreamingErrors,
   AnkoleWebBrainControllerRunDreamingResponses,
@@ -125,6 +164,12 @@ import type {
   AnkoleWebBrainControllerShowResponses,
   AnkoleWebBrainControllerSourceData,
   AnkoleWebBrainControllerSourceErrors,
+  AnkoleWebBrainControllerSourceIndexData,
+  AnkoleWebBrainControllerSourceIndexErrors,
+  AnkoleWebBrainControllerSourceIndexResponses,
+  AnkoleWebBrainControllerSourceRawData,
+  AnkoleWebBrainControllerSourceRawErrors,
+  AnkoleWebBrainControllerSourceRawResponses,
   AnkoleWebBrainControllerSourceResponses,
   AnkoleWebCodexAccountControllerCreateData,
   AnkoleWebCodexAccountControllerCreateErrors,
@@ -150,6 +195,9 @@ import type {
   AnkoleWebIdentityProviderControllerRunSyncData,
   AnkoleWebIdentityProviderControllerRunSyncErrors,
   AnkoleWebIdentityProviderControllerRunSyncResponses,
+  AnkoleWebPrincipalControllerIndexData,
+  AnkoleWebPrincipalControllerIndexErrors,
+  AnkoleWebPrincipalControllerIndexResponses,
   AnkoleWebScheduleControllerCancelCheckbackData,
   AnkoleWebScheduleControllerCancelCheckbackResponses,
   AnkoleWebScheduleControllerCreateCronData,
@@ -260,6 +308,37 @@ export type Options<
 }
 
 /**
+ * Download AIGateway vision file content
+ */
+export const ankoleWebAiGatewayFilesControllerContent = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayFilesControllerContentData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayFilesControllerContentResponses,
+  AnkoleWebAiGatewayFilesControllerContentErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebAiGatewayFilesControllerContentResponses,
+    AnkoleWebAiGatewayFilesControllerContentErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'aiGatewayBearer',
+        scheme: 'bearer',
+        type: 'http'
+      },
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/ai-gateway/files/{file_id}/content',
+    ...options
+  })
+
+/**
  * Download one file from a worker filesystem root
  */
 export const ankoleWebWorkerFileControllerDownload = <ThrowOnError extends boolean = false>(
@@ -354,6 +433,68 @@ export const ankoleWebScheduleControllerPauseCron = <ThrowOnError extends boolea
       }
     ],
     url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/pause',
+    ...options
+  })
+
+/**
+ * Delete an AIGateway vision file
+ */
+export const ankoleWebAiGatewayFilesControllerDelete = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayFilesControllerDeleteData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayFilesControllerDeleteResponses,
+  AnkoleWebAiGatewayFilesControllerDeleteErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).delete<
+    AnkoleWebAiGatewayFilesControllerDeleteResponses,
+    AnkoleWebAiGatewayFilesControllerDeleteErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'aiGatewayBearer',
+        scheme: 'bearer',
+        type: 'http'
+      },
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/ai-gateway/files/{file_id}',
+    ...options
+  })
+
+/**
+ * Retrieve an AIGateway vision file
+ */
+export const ankoleWebAiGatewayFilesControllerShow = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayFilesControllerShowData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayFilesControllerShowResponses,
+  AnkoleWebAiGatewayFilesControllerShowErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebAiGatewayFilesControllerShowResponses,
+    AnkoleWebAiGatewayFilesControllerShowErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'aiGatewayBearer',
+        scheme: 'bearer',
+        type: 'http'
+      },
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/ai-gateway/files/{file_id}',
     ...options
   })
 
@@ -488,7 +629,7 @@ export const ankoleWebScheduleControllerCreateCron = <ThrowOnError extends boole
   })
 
 /**
- * Read one subagent delegation and its event timeline
+ * Read one subagent delegation and its runtime Turn trajectory
  */
 export const ankoleWebSubagentDelegationControllerShow = <ThrowOnError extends boolean = false>(
   options: Options<AnkoleWebSubagentDelegationControllerShowData, ThrowOnError>
@@ -532,6 +673,28 @@ export const ankoleWebBrainControllerShow = <ThrowOnError extends boolean = fals
       }
     ],
     url: '/api/v1/brain/entries/{id}',
+    ...options
+  })
+
+/**
+ * Download the immutable bytes of one explicitly retained Brain source
+ */
+export const ankoleWebBrainControllerSourceRaw = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebBrainControllerSourceRawData, ThrowOnError>
+): RequestResult<AnkoleWebBrainControllerSourceRawResponses, AnkoleWebBrainControllerSourceRawErrors, ThrowOnError> =>
+  (options.client ?? client).get<
+    AnkoleWebBrainControllerSourceRawResponses,
+    AnkoleWebBrainControllerSourceRawErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/brain/sources/{document_id}/raw',
     ...options
   })
 
@@ -612,6 +775,32 @@ export const ankoleWebWorkerFileControllerUpload = <ThrowOnError extends boolean
       'Content-Type': null,
       ...options.headers
     }
+  })
+
+/**
+ * Start one Agent learning run for an already retained source
+ */
+export const ankoleWebBrainControllerLearnSource = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebBrainControllerLearnSourceData, ThrowOnError>
+): RequestResult<
+  AnkoleWebBrainControllerLearnSourceResponses,
+  AnkoleWebBrainControllerLearnSourceErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebBrainControllerLearnSourceResponses,
+    AnkoleWebBrainControllerLearnSourceErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/brain/sources/{document_id}/learning-runs',
+    ...options
   })
 
 /**
@@ -723,6 +912,73 @@ export const ankoleWebScheduleControllerResumeCron = <ThrowOnError extends boole
     ],
     url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/resume',
     ...options
+  })
+
+/**
+ * List AIGateway vision files
+ */
+export const ankoleWebAiGatewayFilesControllerIndex = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebAiGatewayFilesControllerIndexData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayFilesControllerIndexResponses,
+  AnkoleWebAiGatewayFilesControllerIndexErrors,
+  ThrowOnError
+> =>
+  (options?.client ?? client).get<
+    AnkoleWebAiGatewayFilesControllerIndexResponses,
+    AnkoleWebAiGatewayFilesControllerIndexErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'aiGatewayBearer',
+        scheme: 'bearer',
+        type: 'http'
+      },
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/ai-gateway/files',
+    ...options
+  })
+
+/**
+ * Upload an AIGateway vision file
+ */
+export const ankoleWebAiGatewayFilesControllerCreate = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayFilesControllerCreateData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayFilesControllerCreateResponses,
+  AnkoleWebAiGatewayFilesControllerCreateErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebAiGatewayFilesControllerCreateResponses,
+    AnkoleWebAiGatewayFilesControllerCreateErrors,
+    ThrowOnError
+  >({
+    ...formDataBodySerializer,
+    security: [
+      {
+        key: 'aiGatewayBearer',
+        scheme: 'bearer',
+        type: 'http'
+      },
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/ai-gateway/files',
+    ...options,
+    headers: {
+      'Content-Type': null,
+      ...options.headers
+    }
   })
 
 /**
@@ -1008,6 +1264,63 @@ export const ankoleWebIdentityProviderControllerAdapters = <ThrowOnError extends
   })
 
 /**
+ * List retained Brain sources for one owner
+ */
+export const ankoleWebBrainControllerSourceIndex = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebBrainControllerSourceIndexData, ThrowOnError>
+): RequestResult<
+  AnkoleWebBrainControllerSourceIndexResponses,
+  AnkoleWebBrainControllerSourceIndexErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebBrainControllerSourceIndexResponses,
+    AnkoleWebBrainControllerSourceIndexErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/brain/sources',
+    ...options
+  })
+
+/**
+ * Retain immutable bytes from a URL, file, or pasted text
+ */
+export const ankoleWebBrainControllerCreateSource = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebBrainControllerCreateSourceData, ThrowOnError>
+): RequestResult<
+  AnkoleWebBrainControllerCreateSourceResponses,
+  AnkoleWebBrainControllerCreateSourceErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebBrainControllerCreateSourceResponses,
+    AnkoleWebBrainControllerCreateSourceErrors,
+    ThrowOnError
+  >({
+    ...formDataBodySerializer,
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/brain/sources',
+    ...options,
+    headers: {
+      'Content-Type': null,
+      ...options.headers
+    }
+  })
+
+/**
  * Retrieve a stored stateful OpenResponses response
  */
 export const ankoleWebAiGatewayControllerRetrieveResponse = <ThrowOnError extends boolean = false>(
@@ -1222,6 +1535,32 @@ export const ankoleWebIdentityProviderControllerRunSync = <ThrowOnError extends 
   })
 
 /**
+ * Read one AIGateway conversation
+ */
+export const ankoleWebAiGatewayConversationControllerShow = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayConversationControllerShowData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayConversationControllerShowResponses,
+  AnkoleWebAiGatewayConversationControllerShowErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebAiGatewayConversationControllerShowResponses,
+    AnkoleWebAiGatewayConversationControllerShowErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/ai-gateway/conversations/{conversation_id}',
+    ...options
+  })
+
+/**
  * List active agents
  */
 export const ankoleWebAgentControllerIndex = <ThrowOnError extends boolean = false>(
@@ -1366,6 +1705,28 @@ export const ankoleWebSignalBindingControllerAdapters = <ThrowOnError extends bo
   })
 
 /**
+ * List active principals
+ */
+export const ankoleWebPrincipalControllerIndex = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebPrincipalControllerIndexData, ThrowOnError>
+): RequestResult<AnkoleWebPrincipalControllerIndexResponses, AnkoleWebPrincipalControllerIndexErrors, ThrowOnError> =>
+  (options?.client ?? client).get<
+    AnkoleWebPrincipalControllerIndexResponses,
+    AnkoleWebPrincipalControllerIndexErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/principals',
+    ...options
+  })
+
+/**
  * Remove one recurring schedule
  */
 export const ankoleWebScheduleControllerRemoveCron = <ThrowOnError extends boolean = false>(
@@ -1502,7 +1863,33 @@ export const ankoleWebSignalBindingControllerDelete = <ThrowOnError extends bool
   })
 
 /**
- * Resolve a Brain src citation to its mirrored original message
+ * List deterministic Brain review candidates
+ */
+export const ankoleWebBrainControllerReviewCandidates = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebBrainControllerReviewCandidatesData, ThrowOnError>
+): RequestResult<
+  AnkoleWebBrainControllerReviewCandidatesResponses,
+  AnkoleWebBrainControllerReviewCandidatesErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebBrainControllerReviewCandidatesResponses,
+    AnkoleWebBrainControllerReviewCandidatesErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/brain/review-candidates',
+    ...options
+  })
+
+/**
+ * Resolve a Brain source inside one owner's visible stores
  */
 export const ankoleWebBrainControllerSource = <ThrowOnError extends boolean = false>(
   options: Options<AnkoleWebBrainControllerSourceData, ThrowOnError>
@@ -1691,6 +2078,32 @@ export const ankoleWebSignalBindingControllerPutBinding = <ThrowOnError extends 
       'Content-Type': 'application/json',
       ...options.headers
     }
+  })
+
+/**
+ * List AIGateway conversations
+ */
+export const ankoleWebAiGatewayConversationControllerIndex = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebAiGatewayConversationControllerIndexData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayConversationControllerIndexResponses,
+  AnkoleWebAiGatewayConversationControllerIndexErrors,
+  ThrowOnError
+> =>
+  (options?.client ?? client).get<
+    AnkoleWebAiGatewayConversationControllerIndexResponses,
+    AnkoleWebAiGatewayConversationControllerIndexErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/ai-gateway/conversations',
+    ...options
   })
 
 /**
@@ -1967,6 +2380,32 @@ export const ankoleWebAiGatewayControllerEmbeddings = <ThrowOnError extends bool
   })
 
 /**
+ * Read the MISSION, SOUL, and DESIGN documents for one agent
+ */
+export const ankoleWebAgentLibraryControllerIndex = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAgentLibraryControllerIndexData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAgentLibraryControllerIndexResponses,
+  AnkoleWebAgentLibraryControllerIndexErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebAgentLibraryControllerIndexResponses,
+    AnkoleWebAgentLibraryControllerIndexErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/library-documents',
+    ...options
+  })
+
+/**
  * List agent computer workers
  */
 export const ankoleWebAgentComputerWorkerControllerIndex = <ThrowOnError extends boolean = false>(
@@ -2096,6 +2535,62 @@ export const ankoleWebSubagentDelegationControllerCancel = <ThrowOnError extends
     ],
     url: '/api/v1/delegations/{delegation_id}/cancel',
     ...options
+  })
+
+/**
+ * List the messages of one AIGateway conversation
+ */
+export const ankoleWebAiGatewayConversationControllerMessages = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayConversationControllerMessagesData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayConversationControllerMessagesResponses,
+  AnkoleWebAiGatewayConversationControllerMessagesErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebAiGatewayConversationControllerMessagesResponses,
+    AnkoleWebAiGatewayConversationControllerMessagesErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/ai-gateway/conversations/{conversation_id}/messages',
+    ...options
+  })
+
+/**
+ * Replace one agent MISSION, SOUL, or DESIGN document
+ */
+export const ankoleWebAgentLibraryControllerUpdate = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAgentLibraryControllerUpdateData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAgentLibraryControllerUpdateResponses,
+  AnkoleWebAgentLibraryControllerUpdateErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).put<
+    AnkoleWebAgentLibraryControllerUpdateResponses,
+    AnkoleWebAgentLibraryControllerUpdateErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/library-documents/{document_kind}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
   })
 
 /**

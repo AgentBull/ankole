@@ -37,10 +37,13 @@ AIGateway models are grouped by capability kind:
 - `embedding`;
 - `rerank`;
 - `web_search`;
-- `web_fetch`.
+- `web_fetch`;
+- `image_generate`.
 
-The registry must leave room for future capability kinds such as
-`image_generate` and `asr`, but those are not part of the v1 runtime surface.
+The registry must leave room for future capability kinds such as `asr`, but
+providers do not declare capabilities until they have a real request path.
+`image_generate` is currently declared only by OpenRouter and is consumed by
+the Responses `image_generation` hosted tool; it is not a worker function tool.
 
 Capability kind is part of model resolution. An LLM alias and a rerank alias may
 have the same short name only when the caller's endpoint makes the capability
@@ -82,6 +85,11 @@ Built-in embedding and rerank provider kinds:
 
 - `openrouter`;
 - `jina`.
+
+Built-in image-generation provider kinds:
+
+- `openrouter`, through its stable `/images` API and separate image model and
+  endpoint catalogs.
 
 Built-in web search and extraction provider kinds:
 
@@ -165,9 +173,11 @@ Model bindings connect an agent-visible model selector to a provider instance
 and upstream model id. LLM bindings preserve the existing `primary`, `light`,
 and `heavy` variants. Embedding, rerank, web search, and web fetch defaults
 are first-class profile slots named `embedding`, `rerank`, `web_search`, and
-`web_fetch`; they live in the same `agents.options["ai_agent"]["models"]` map
-as the LLM profiles. Their public selectors are `embedding.default`,
-`rerank.default`, `web_search.default`, and `web_fetch.default`.
+`web_fetch`. Image generation has an optional `image_generate` profile. These
+profiles live in the same `agents.options["ai_agent"]["models"]` map as the
+LLM profiles. Their public selectors are `embedding.default`,
+`rerank.default`, `web_search.default`, `web_fetch.default`, and
+`image_generate.default`.
 
 The binding map is owned by `Ankole.AIAgent.ModelProfiles`, because profiles
 configure worker behavior rather than the gateway itself. A `coding` profile
@@ -249,6 +259,11 @@ is:
 - `PUT /api/v1/ai-gateway/providers/:provider_id`;
 - `DELETE /api/v1/ai-gateway/providers/:provider_id`;
 - `GET /api/v1/ai-gateway/models`;
+- `POST /api/v1/ai-gateway/files`;
+- `GET /api/v1/ai-gateway/files`;
+- `GET /api/v1/ai-gateway/files/:file_id`;
+- `GET /api/v1/ai-gateway/files/:file_id/content`;
+- `DELETE /api/v1/ai-gateway/files/:file_id`;
 - `POST /api/v1/ai-gateway/responses`;
 - `GET /api/v1/ai-gateway/responses/:response_id`;
 - `POST /api/v1/ai-gateway/responses/compact`;
@@ -266,21 +281,29 @@ shape. HTTP SSE responses use `text/event-stream`, include an `event:` field
 matching each event body's `type`, stream output item/content lifecycle events
 when output is present, and end with the literal `data: [DONE]` sentinel.
 
-Streaming response normalization is native-kernel owned. Elixir provider modules
-still choose the provider, apply credentials, select endpoint/transport, and
-prepare headers. The Rust `UniversalAIClient` then owns model request body
+Provider-facing streaming normalization is native-kernel owned. Elixir provider
+modules still choose the provider, apply credentials, select endpoint/transport,
+and prepare headers. The Rust `UniversalAIClient` owns model request body
 encoding and the live data plane: upstream HTTP SSE, AWS eventstream, or
 upstream WebSocket reads; provider response resolution; OpenResponses
-event/resource normalization; downstream-ready SSE bytes or WebSocket text
-payloads; demand credit; cancellation; and timeout handling.
+event/resource normalization; demand credit; cancellation; and timeout
+handling.
+
+Each normalized stream then has one control-plane owner,
+`AIGateway.ResponseStream`. It is the only process that receives Kernel events
+and owns generated-image persistence, public versus durable projections,
+stateful terminal commits, tool-call limits, cancellation, and hosted-tool
+telemetry. Only guarded, transport-neutral event maps leave that owner. The HTTP
+SSE and WebSocket modules request credit and encode those maps; they do not
+reconstruct AIGateway semantics.
 
 The HTTP SSE route waits for native `:ready` before sending `200` and
 `text/event-stream` headers. A pre-ready upstream failure therefore returns an
-ordinary HTTP error response. After ready, native midstream failures are encoded
-as OpenResponses `error` plus `response.failed` chunks, then the downstream
-terminal signal is sent. There is no Elixir streaming decoder fallback in the
-AIGateway runtime; provider modules do not implement response normalization or
-stream-message decoding.
+ordinary HTTP error response. After ready, midstream failures become a guarded
+OpenResponses failure before the downstream terminal signal is sent. There is
+no provider-specific streaming decoder fallback in the AIGateway runtime;
+provider modules do not implement response normalization or stream-message
+decoding.
 
 HTTP transport uses reqwest clients with gzip, Brotli, and zstd decompression
 enabled according to the prepared spec. HTTP/2 versus HTTP/1.1 is negotiated by
@@ -392,6 +415,48 @@ contract.
 AIGateway should not add Ankole-only top-level fields to these public bodies.
 Gateway trace data belongs in logs, telemetry, or durable message metadata.
 
+### Image generation hosted tool
+
+Responses accepts the OpenAI `image_generation` hosted-tool request and event
+contract. Worker code uses the official OpenAI SDK's `files` and `responses`
+resources directly; it does not register an `image_generate` function tool or
+translate an Ankole-specific result.
+
+The public tool is gateway-owned. Elixir validates the complete public tool,
+resolves the `image_generate` profile and a definitive OpenRouter image
+endpoint, and resolves subject-scoped file and generated-image references.
+The Rust `HostedResponsesExecutor` replaces the public tool only in the
+provider-facing main-model request with a random strict private function. It
+intercepts that function, calls OpenRouter's stable `/images` API, emits the
+public `image_generation_call` lifecycle, adds only a compact private tool
+result to canonical main-model history, and continues the same main model.
+Private function names, ids, arguments, provider tags, costs, and intermediate
+main-model terminal events never enter the public Response stream.
+
+The image model is independent of `Response.model`. Omitting
+`tools[].model` uses `image_generate.default`; an explicit model changes only
+the model on that same OpenRouter connection. Endpoint selection pins one
+catalog-declared `provider_tag`, disables fallback, requires declared
+parameters, and rejects unsupported values instead of silently dropping them.
+Only the image request uses the image provider; the main model remains the
+resolved LLM profile.
+
+The Files subset accepts `purpose=vision` multipart uploads and implements
+create, list, retrieve, content, and delete with OpenAI object and pagination
+shapes. `file_*` and `ig_*` references are scoped to the authenticated
+Principal. External HTTP(S) image URLs are passed through without a gateway
+download; local ids and data URLs are validated and expanded to provider-ready
+data URLs before dispatch.
+
+`ImageStreamPersistence` owns this invariant for both non-streaming JSON and the
+per-response stream owner: generated bytes are persisted before a completed
+image output item or terminal event is released to HTTP, SSE, or WebSocket
+clients. The public projection retains the base64 result, while stored message
+JSON contains the item id and `result: null`; retrieval hydrates the base64 from
+the artifact row. Stateful images are linked to the owning message, stateless
+images expire after 30 days, and uploaded files expire only when the caller
+supplies `expires_after`.
+
 ## Protocol Positioning
 
 Ankole AIGateway is a superset of OpenResponses. It also borrows a small set of
@@ -480,6 +545,19 @@ Compaction bodies live in `ai_gateway_compaction_artifacts`, not in
 | `conversation_id` | Nullable. Filled for stateful/checkpoint compaction; null for standalone artifacts. |
 | `content` (jsonb) | Versioned artifact body: summary, canonical `response.compaction.output`, retained tail, and usage. |
 
+Uploaded vision files and generated images live in `ai_gateway_artifacts`, not
+in `ai_gateway_messages`:
+
+| Column | Meaning |
+| --- | --- |
+| `id` (uuid) | UUIDv7 rendered as `file_#{id}` for uploads or `ig_#{id}` for generated images. |
+| `subject_uid` | Owning Principal; every read, delete, and reference resolution filters on it. |
+| `message_id` | Nullable owner message for stateful generated images. |
+| `kind` | `uploaded_file` or `generated_image`. |
+| `purpose`, `filename`, `mime_type` | OpenAI file metadata and the sniffed image type. |
+| `byte_size`, `sha256`, `payload` | Bounded binary payload and integrity metadata. Payload is excluded from ordinary queries. |
+| `expires_at` | Optional upload expiry or the stateless generated-image retention deadline. |
+
 `content` holds both sides of one run: the request-side input items and the
 model output items live in the same array, in one row. A two-round tool loop
 therefore produces rows like:
@@ -503,9 +581,9 @@ One call, one row. Multiple output items from one call are elements of the same
 `content` array, never separate rows. Streaming deltas are never written to the
 log; only the terminal state of a run lands in `content` (see Live Delivery).
 
-`content` must stay JSON-safe. Text, data URLs, base64 strings, provider file
+`content` must stay JSON-safe. Text, caller-supplied data URLs, provider file
 ids, file/image URLs, durable file refs, MIME types, and filenames are fine.
-Process objects and raw byte buffers are not. Item content parts such as
+Generated image base64 and raw byte buffers are not stored there. Item content parts such as
 `input_text`, `input_image`, `input_file`, and `output_text` are stored as
 sent. An unsupported multimodal item is either kept opaque-but-JSON-safe with a
 restricted replay path, or rejected as unsupported. It is never silently
@@ -794,16 +872,16 @@ old work is marked cancelled or superseded in the summary.
 
 ## Live Delivery
 
-While a provider call streams, AIGateway publishes live chunk events and
-terminal events as in-process messages (Phoenix.PubSub — the standard Elixir
-publish/subscribe primitive). Live chunks are preview signals. They are never
-written to `ai_gateway_messages`, and no database notification mechanism is
-involved.
+While a provider call streams, its `AIGateway.ResponseStream` sends guarded
+OpenResponses event batches directly to the requesting transport. For stateful
+responses it also publishes typed preview events through Phoenix.PubSub after
+the same guard. Live chunks are preview signals. They are never written to
+`ai_gateway_messages`, and no database notification mechanism is involved.
 
 Two consumers subscribe:
 
-- the worker's WebSocket connection receives the chunks as OpenResponses event
-  frames;
+- the worker's WebSocket connection receives the guarded batches as
+  OpenResponses event frames;
 - SignalsGateway's `AIReplyPreview` process filters conversation-scoped events
   by opaque metadata and uses deltas to send and edit the provider-visible
   preview message. A Response terminal event does not terminate the preview or
@@ -1009,15 +1087,16 @@ Stateful contract tests must cover:
 
 ## Known Limits And Extension Points
 
-These are deliberate extension points. None of them is built; each one has a
-defined place in the current design:
+These are deliberate extension points beyond the implemented
+`image_generation` hosted tool. Each one has a defined place in the current
+design:
 
-- Hosted server-side tools. When AIGateway later executes tools itself (named
-  with extension slugs such as `ankole:web_search`, `ankole:file_search`,
-  `ankole:workspace_search`), their calls and results also become items in
-  `ai_gateway_messages.content`, rendered through the same OpenResponses item
-  shapes. A hosted tool must support multi-step result feedback into the model,
-  recording the full item sequence — not a single injected result.
+- Additional hosted server-side tools. `image_generation` already executes in
+  AIGateway/Kernel, feeds a private result back into the main model, stores image
+  bytes in `ai_gateway_artifacts`, and exposes only OpenAI Responses items and
+  events. Future hosted tools such as file or workspace search must reuse that
+  multi-step executor contract instead of injecting one synthetic result; their
+  durable binary payloads likewise stay outside `ai_gateway_messages.content`.
 - Named branches. Branching already exists through explicit
   `previous_response_id`. A branch-naming projection can be added later without
   touching the log schema, because the graph is the only truth.

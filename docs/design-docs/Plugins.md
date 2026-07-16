@@ -170,6 +170,11 @@ Plugin code must not read bootstrap environment variables to simulate
 AppConfigure resolution. Host-owned operations go through the owning subsystem's
 Elixir API instead of becoming ad hoc plugin-side database writes.
 
+One plugin may contribute separate declarations to multiple host subsystems.
+Each declaration stays within its consumer's contract: a signal adapter may
+also implement an Agent Library Skill enablement provider, but Library semantics
+do not become fields on the SignalsGateway adapter definition.
+
 ## Adding Subsystem Contracts
 
 Concrete adapter contracts belong to the subsystem that consumes them. When a

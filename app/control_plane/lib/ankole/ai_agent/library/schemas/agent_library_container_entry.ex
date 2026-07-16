@@ -14,9 +14,9 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentLibraryContainerEntry do
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
-  # The only agent-owned files implemented by this table are the persona docs
+  # The only agent-owned files implemented by this table are the runtime docs
   # seeded per agent. Skill overlays are semantic rows in `agent_skill_overlays`.
-  @source_kinds ~w(soul mission)
+  @source_kinds ~w(soul mission design)
 
   schema "agent_library_container_entries" do
     belongs_to(:agent, Principal,

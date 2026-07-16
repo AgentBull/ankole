@@ -3,33 +3,60 @@ import {
   brainCursorPage,
   buildMetadataOperations,
   canReturnBrainCursor,
+  defaultBrainOwnerUID,
   nextBrainCursor,
   normalizeAliases,
   parsePropertyDrafts,
   previousBrainCursor,
   propertiesToDrafts,
-  setBrainFilter,
-  sourceDocumentIDs
+  setBrainFilter
 } from './brain-editor-model'
 
 describe('Brain editor model', () => {
+  test('defaults to an agent owner before falling back to another Principal', () => {
+    expect(
+      defaultBrainOwnerUID([
+        { uid: 'human-one', type: 'human' },
+        { uid: 'agent-one', type: 'agent' }
+      ])
+    ).toBe('agent-one')
+    expect(defaultBrainOwnerUID([{ uid: 'human-one', type: 'human' }])).toBe('human-one')
+    expect(defaultBrainOwnerUID([])).toBe('')
+  })
+
   test('emits only changed structured metadata operations', () => {
     expect(
       buildMetadataOperations(
         {
           id: 'entry-1',
+          name: 'Old name',
+          type: 'topic',
           summary: 'Old summary',
           aliases: ['Alpha'],
           properties: { stage: 'draft', stale: true },
           lock_version: 4
         },
         {
+          name: 'Current name',
+          type: 'policy',
           summary: 'Current summary',
           aliases: ['Alpha', ' A ', 'Beta'],
           properties: { stage: 'current', score: 3 }
         }
       )
     ).toEqual([
+      {
+        operation: 'set_name',
+        entry_id: 'entry-1',
+        name: 'Current name',
+        expected_entry_lock_version: 4
+      },
+      {
+        operation: 'set_type',
+        entry_id: 'entry-1',
+        type: 'policy',
+        expected_entry_lock_version: 4
+      },
       {
         operation: 'set_summary',
         entry_id: 'entry-1',
@@ -72,13 +99,8 @@ describe('Brain editor model', () => {
     expect(parsePropertyDrafts([{ key: 'active', value: '{' }])).toMatchObject({ ok: false, key: 'active' })
   })
 
-  test('normalizes aliases and extracts unique source document addresses', () => {
+  test('normalizes aliases', () => {
     expect(normalizeAliases([' Alpha ', '', 'Alpha', 'Beta'])).toEqual(['Alpha', 'Beta'])
-    expect(
-      sourceDocumentIDs(
-        'First (src:signal-gateway-entry:abc-123), repeat src:signal-gateway-entry:abc-123 and src:signal-gateway-entry:def_456.'
-      )
-    ).toEqual(['signal-gateway-entry:abc-123', 'signal-gateway-entry:def_456'])
   })
 
   test('keeps a stable cursor history for next and previous page navigation', () => {
@@ -115,5 +137,12 @@ describe('Brain editor model', () => {
     expect(audit.get('audit_cursor')).toBeNull()
     expect(audit.get('audit_cursor_history')).toBeNull()
     expect(audit.get('cursor')).toBe('list-page')
+  })
+
+  test('switching the owner keeps other filters and resets the old owner cursor', () => {
+    const params = new URLSearchParams('owner=human-one&store=public&q=policy&cursor=page-two&cursor_history=~')
+    const next = setBrainFilter(params, 'owner', 'agent-two')
+
+    expect(next.toString()).toBe('owner=agent-two&store=public&q=policy')
   })
 })

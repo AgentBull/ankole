@@ -40,6 +40,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
   @type handler :: (map() -> term()) | pid()
   @mandatory_call_timeout_ms 5_000
   @default_rpc_timeout_ms 60_000
+  @router_retry_base_ms 250
+  @router_retry_max_ms 5_000
 
   @doc """
   Starts the broker.
@@ -158,16 +160,29 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
 
   @impl true
   def init(opts) do
-    state = %{local_routes: %{}, router: nil, router_endpoint: nil, rpc_waiters: %{}}
+    state = %{
+      local_routes: %{},
+      router: nil,
+      router_endpoint: nil,
+      router_config: nil,
+      router_retry_attempt: 0,
+      router_retry_timer: nil,
+      rpc_waiters: %{}
+    }
 
     # Bind the ROUTER in a continuation, not inline in init/1: binding is a
     # blocking NIF call, and deferring it keeps the supervisor's start_link fast
     # and lets a bind failure be logged (see handle_continue) instead of
     # crash-looping the whole actor-runtime supervisor at boot.
     case Keyword.get(opts, :router) do
-      nil -> {:ok, state}
-      false -> {:ok, state}
-      router_opts -> {:ok, state, {:continue, {:start_router, router_opts}}}
+      nil ->
+        {:ok, state}
+
+      false ->
+        {:ok, state}
+
+      router_opts ->
+        {:ok, %{state | router_config: router_opts}, {:continue, :start_router}}
     end
   end
 
@@ -182,16 +197,32 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
   end
 
   @impl true
+  def handle_call({:start_router, _endpoint, _opts}, _from, %{router: router} = state)
+      when not is_nil(router) do
+    {:reply, {:ok, state.router_endpoint}, state}
+  end
+
   def handle_call({:start_router, endpoint, opts}, _from, state) do
-    case start_router_in_state(endpoint, opts, state) do
-      {:ok, state} -> {:reply, {:ok, state.router_endpoint}, state}
-      {:error, reason} -> {:reply, {:error, reason}, state}
+    state =
+      state
+      |> cancel_router_retry()
+      |> Map.merge(%{
+        router_config: Keyword.put(opts, :endpoint, endpoint),
+        router_retry_attempt: 0
+      })
+
+    case start_configured_router(state) do
+      {:ok, state} ->
+        {:reply, {:ok, state.router_endpoint}, state}
+
+      {:error, reason, state} ->
+        {:reply, {:error, reason}, schedule_router_retry(state, reason)}
     end
   end
 
   @impl true
   def handle_call(:stop_router, _from, %{router: nil} = state) do
-    {:reply, :ok, state}
+    {:reply, :ok, disable_router(state)}
   end
 
   def handle_call(:stop_router, _from, %{router: router} = state) do
@@ -201,7 +232,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
         :ok
       end
 
-    {:reply, reply, %{state | router: nil, router_endpoint: nil}}
+    {:reply, reply, disable_router(state)}
   end
 
   @impl true
@@ -251,29 +282,26 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
   end
 
   @impl true
-  def handle_continue({:start_router, router_opts}, state) do
-    endpoint = Keyword.fetch!(router_opts, :endpoint)
-    opts = Keyword.delete(router_opts, :endpoint)
-
-    # A failed bind at boot logs and leaves the broker running with no router:
-    # the process stays up so operators can retry via start_router/2 (e.g. after
-    # freeing the port), rather than crash-looping the whole runtime supervisor.
-    # With no router, send_mandatory/2 reports :unknown_route, which the caller
-    # treats as worker staleness — outbound turns stay durable and retryable.
-    case start_router_in_state(endpoint, opts, state) do
+  def handle_continue(:start_router, state) do
+    case start_configured_router(state) do
       {:ok, state} ->
         {:noreply, state}
 
-      {:error, reason} ->
-        Logging.error(
-          "runtime_fabric.router_start_failed",
-          "runtime fabric router start failed",
-          %{
-            reason: inspect(reason)
-          }
-        )
+      {:error, reason, state} ->
+        {:noreply, schedule_router_retry(state, reason)}
+    end
+  end
 
+  @impl true
+  def handle_info(:retry_router_start, state) do
+    state = %{state | router_retry_timer: nil}
+
+    case start_configured_router(state) do
+      {:ok, state} ->
         {:noreply, state}
+
+      {:error, reason, state} ->
+        {:noreply, schedule_router_retry(state, reason)}
     end
   end
 
@@ -285,7 +313,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
   # metadata for the route. `key_revision` is an auth-boundary fact even though
   # the current global worker key only has revision 1.
   def handle_info({:runtime_fabric_router_received, route, envelope_json}, state) do
-    handle_router_received(route, nil, nil, envelope_json, state)
+    handle_router_received_safely(route, nil, nil, envelope_json, state)
   end
 
   def handle_info(
@@ -293,7 +321,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
          authenticated_key_revision, envelope_json},
         state
       ) do
-    handle_router_received(
+    handle_router_received_safely(
       route,
       normalize_auth_worker_id(authenticated_worker_id),
       normalize_auth_key_revision(authenticated_key_revision),
@@ -351,10 +379,53 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
     end
   end
 
+  @impl true
+  def terminate(_reason, %{router: nil}), do: :ok
+
+  def terminate(_reason, %{router: router}) do
+    # The Rustler resource also monitors this process, but stopping here keeps
+    # graceful and callback-driven exits deterministic. Both paths are
+    # intentionally idempotent so an unexpected Broker failure releases the
+    # bind before its supervisor starts the replacement child.
+    try do
+      _result = RuntimeFabric.router_stop(router)
+      _result = WorkerAdmission.mark_all_routes_unusable(:router_stopped)
+      :ok
+    rescue
+      _exception -> :ok
+    catch
+      _kind, _reason -> :ok
+    end
+  end
+
   # Entry point for every inbound envelope. RuntimeFabric owns the shared ROUTER
   # route; worker-originated RPC requests are dispatched on the control-plane
   # side, while worker RPC replies resolve pending control-plane callers. The
   # remaining body types are actor lane facts/events.
+  defp handle_router_received_safely(
+         route,
+         authenticated_worker_id,
+         authenticated_key_revision,
+         envelope_json,
+         state
+       ) do
+    handle_router_received(
+      route,
+      authenticated_worker_id,
+      authenticated_key_revision,
+      envelope_json,
+      state
+    )
+  rescue
+    exception ->
+      log_inbound_dispatch_failure(route, :error, exception, __STACKTRACE__)
+      {:noreply, state}
+  catch
+    kind, reason ->
+      log_inbound_dispatch_failure(route, kind, reason, __STACKTRACE__)
+      {:noreply, state}
+  end
+
   defp handle_router_received(
          route,
          authenticated_worker_id,
@@ -385,6 +456,17 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
     end
   end
 
+  defp log_inbound_dispatch_failure(route, kind, reason, stacktrace) do
+    Logging.error(
+      "runtime_fabric.inbound_dispatch_failed",
+      "runtime fabric inbound dispatch failed",
+      %{
+        route: route,
+        reason: Exception.format(kind, reason, stacktrace)
+      }
+    )
+  end
+
   # Delivers to a local (test) route handler. A handler may be a 1-arity function
   # (called synchronously) or a pid (gets an `{:actor_lane, envelope}` message),
   # so tests can assert on either a return value or a received message.
@@ -411,6 +493,80 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
       :error ->
         router_send_mandatory(state.router, route, envelope)
     end
+  end
+
+  defp start_configured_router(%{router: router} = state) when not is_nil(router) do
+    {:ok, reset_router_retry(state)}
+  end
+
+  defp start_configured_router(%{router_config: nil} = state) do
+    {:ok, reset_router_retry(state)}
+  end
+
+  defp start_configured_router(%{router_config: router_config} = state) do
+    endpoint = Keyword.fetch!(router_config, :endpoint)
+    opts = Keyword.delete(router_config, :endpoint)
+
+    case start_router_in_state(endpoint, opts, state) do
+      {:ok, state} -> {:ok, reset_router_retry(state)}
+      {:error, reason} -> {:error, reason, state}
+    end
+  end
+
+  defp schedule_router_retry(%{router_retry_timer: timer} = state, _reason)
+       when not is_nil(timer),
+       do: state
+
+  defp schedule_router_retry(state, reason) do
+    retry_in_ms = router_retry_delay(state.router_retry_attempt)
+
+    Logging.error(
+      "runtime_fabric.router_start_failed",
+      "runtime fabric router start failed",
+      %{
+        reason: inspect(reason),
+        retry_attempt: state.router_retry_attempt + 1,
+        retry_in_ms: retry_in_ms
+      }
+    )
+
+    timer = Process.send_after(self(), :retry_router_start, retry_in_ms)
+
+    %{
+      state
+      | router_retry_attempt: state.router_retry_attempt + 1,
+        router_retry_timer: timer
+    }
+  end
+
+  defp router_retry_delay(attempt) do
+    multiplier = Integer.pow(2, min(attempt, 5))
+    min(@router_retry_base_ms * multiplier, @router_retry_max_ms)
+  end
+
+  defp reset_router_retry(state) do
+    state
+    |> cancel_router_retry()
+    |> Map.merge(%{router_retry_attempt: 0, router_retry_timer: nil})
+  end
+
+  defp cancel_router_retry(%{router_retry_timer: nil} = state), do: state
+
+  defp cancel_router_retry(%{router_retry_timer: timer} = state) do
+    Process.cancel_timer(timer, async: true, info: false)
+    %{state | router_retry_timer: nil}
+  end
+
+  defp disable_router(state) do
+    state
+    |> cancel_router_retry()
+    |> Map.merge(%{
+      router: nil,
+      router_endpoint: nil,
+      router_config: nil,
+      router_retry_attempt: 0,
+      router_retry_timer: nil
+    })
   end
 
   # Starts the single production ROUTER owned by this broker. Keeping the socket

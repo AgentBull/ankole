@@ -26,7 +26,7 @@ export const rpcMethods = {
   subagentDelegationList: 'subagent.delegation.list',
   subagentDelegationSteer: 'subagent.delegation.steer',
   subagentDelegationStop: 'subagent.delegation.stop',
-  subagentDelegationEventAppend: 'subagent.delegation.event.append',
+  subagentDelegationTurnUpsert: 'subagent.delegation.turn.upsert',
   subagentDelegationStatusUpdate: 'subagent.delegation.status.update',
   memorySearch: 'memory_search',
   memoryBrowse: 'memory_browse',
@@ -34,6 +34,10 @@ export const rpcMethods = {
   memoryUpdate: 'memory_update',
   memoryHealthCheck: 'memory_health_check',
   scheduleCheckBackLaterCreate: 'schedule.check_back_later.create',
+  scheduleCheckBackLaterList: 'schedule.check_back_later.list',
+  scheduleCheckBackLaterGet: 'schedule.check_back_later.get',
+  scheduleCheckBackLaterUpdate: 'schedule.check_back_later.update',
+  scheduleCheckBackLaterCancel: 'schedule.check_back_later.cancel',
   scheduleCronList: 'schedule.cron.list',
   scheduleCronGet: 'schedule.cron.get',
   scheduleCronRuns: 'schedule.cron.runs',
@@ -73,7 +77,7 @@ export const rpcOperationMeta = {
   [rpcMethods.subagentDelegationList]: { scope: 'turn', effect: 'read' },
   [rpcMethods.subagentDelegationSteer]: { scope: 'turn', effect: 'write' },
   [rpcMethods.subagentDelegationStop]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.subagentDelegationEventAppend]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.subagentDelegationTurnUpsert]: { scope: 'turn', effect: 'write' },
   [rpcMethods.subagentDelegationStatusUpdate]: { scope: 'turn', effect: 'write' },
   [rpcMethods.memorySearch]: { scope: 'turn', effect: 'read' },
   [rpcMethods.memoryBrowse]: { scope: 'turn', effect: 'read' },
@@ -81,6 +85,10 @@ export const rpcOperationMeta = {
   [rpcMethods.memoryUpdate]: { scope: 'turn', effect: 'write' },
   [rpcMethods.memoryHealthCheck]: { scope: 'turn', effect: 'read' },
   [rpcMethods.scheduleCheckBackLaterCreate]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.scheduleCheckBackLaterList]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.scheduleCheckBackLaterGet]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.scheduleCheckBackLaterUpdate]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.scheduleCheckBackLaterCancel]: { scope: 'turn', effect: 'write' },
   [rpcMethods.scheduleCronList]: { scope: 'turn', effect: 'read' },
   [rpcMethods.scheduleCronGet]: { scope: 'turn', effect: 'read' },
   [rpcMethods.scheduleCronRuns]: { scope: 'turn', effect: 'read' },
@@ -196,6 +204,7 @@ export type AgentConversationContext = {
   }
   soul?: string
   mission?: string
+  design?: string
   /** Exact system instructions captured by the first stored Response in this conversation. */
   system_prompt_snapshot?: string
   brain_snapshot?: RuntimeBrainSnapshot
@@ -224,6 +233,21 @@ export type ScheduleCheckBackLaterCreateRequest = TurnScopedRPCRequest & {
   context_summary?: string
   quiet_success?: boolean
   schedule: JSONObject
+  reply_route: JSONObject
+}
+
+export type ScheduleCheckBackLaterListRequest = TurnScopedRPCRequest & {
+  limit?: number
+}
+
+export type ScheduleCheckBackLaterTargetRequest = TurnScopedRPCRequest & {
+  scheduled_event_id: string
+}
+
+export type ScheduleCheckBackLaterUpdateRequest = ScheduleCheckBackLaterTargetRequest & {
+  tool_call_id: string
+  idempotency_key: string
+  updates: JSONObject
   reply_route: JSONObject
 }
 
@@ -475,8 +499,10 @@ export type CodexAccountAuthUpdateResponse = {
 }
 
 export type SubagentDelegationStatus = 'queued' | 'running' | 'waiting_on_user' | 'succeeded' | 'failed' | 'stopped'
+export type SubagentDelegationRuntime = 'task_worker' | 'deep_research'
+export type DeepResearchMode = 'general' | 'forecast' | 'retrospect'
 
-export type SubagentDelegationCreateRequest = TurnScopedRPCRequest & {
+type SubagentDelegationCreateBase = TurnScopedRPCRequest & {
   tool_call_id: string
   title: string
   task: string
@@ -487,22 +513,47 @@ export type SubagentDelegationCreateRequest = TurnScopedRPCRequest & {
   metadata?: JSONObject
 }
 
-export type SubagentDelegationGetRequest = TurnScopedRPCRequest & {
+export type SubagentDelegationCreateRequest =
+  | (SubagentDelegationCreateBase & {
+      runtime?: 'task_worker'
+      mode?: never
+      source_delegation_id?: never
+      actual_outcome?: never
+    })
+  | (SubagentDelegationCreateBase & {
+      runtime: 'deep_research'
+      mode?: 'general' | 'forecast'
+      source_delegation_id?: never
+      actual_outcome?: never
+    })
+  | (SubagentDelegationCreateBase & {
+      runtime: 'deep_research'
+      mode: 'retrospect'
+      source_delegation_id: string
+      actual_outcome?: boolean
+    })
+
+type SubagentDelegationByIDRequest = TurnScopedRPCRequest & {
   delegation_id: string
+}
+
+export type SubagentDelegationGetRequest = SubagentDelegationByIDRequest & {
+  trajectory_limit?: number
+  trajectory_cursor?: string
 }
 
 export type SubagentDelegationListRequest = TurnScopedRPCRequest
 
-export type SubagentDelegationSteerRequest = SubagentDelegationGetRequest & {
+export type SubagentDelegationSteerRequest = SubagentDelegationByIDRequest & {
   text?: string
   answers?: Record<string, string | string[]>
 }
 
-export type SubagentDelegationStopRequest = SubagentDelegationGetRequest & {
+export type SubagentDelegationStopRequest = SubagentDelegationByIDRequest & {
   reason?: string
 }
 
-export type SubagentDelegationResponse = {
+type SubagentDelegationResponseBase = {
   request_id: string
   delegation_id: string
   agent_uid: string
@@ -511,7 +562,6 @@ export type SubagentDelegationResponse = {
   tool_call_id?: string
   status: SubagentDelegationStatus
   runtime_thread_id?: string
-  runtime: 'task_worker'
   codex_account_id: string
   title: string
   task: string
@@ -526,44 +576,215 @@ export type SubagentDelegationResponse = {
   result?: JSONObject
   error?: JSONObject
   metadata?: JSONObject
-  last_event_seq?: number
+  execution?: SubagentExecution
   attempt_history?: Array<{
     attempt: number
-    event_types: string[]
+    turn_statuses: SubagentTurnStatus[]
     summary?: string
   }>
   result_ref?: JSONObject
 }
 
-export type SubagentDelegationSummary = Pick<
-  SubagentDelegationResponse,
-  'delegation_id' | 'title' | 'status' | 'runtime' | 'attempts' | 'queued_at' | 'started_at' | 'completed_at'
->
+type SourceForecast = {
+  delegation_id: string
+  title: string
+  result: JSONObject
+  completed_at?: string
+}
+
+export type SubagentDelegationResponse =
+  | (SubagentDelegationResponseBase & {
+      runtime: 'task_worker'
+      mode?: never
+      source_delegation_id?: never
+      actual_outcome?: never
+      source_forecast?: never
+    })
+  | (SubagentDelegationResponseBase & {
+      runtime: 'deep_research'
+      mode: 'general' | 'forecast'
+      source_delegation_id?: never
+      actual_outcome?: never
+      source_forecast?: never
+    })
+  | (SubagentDelegationResponseBase & {
+      runtime: 'deep_research'
+      mode: 'retrospect'
+      source_delegation_id: string
+      actual_outcome?: boolean
+      source_forecast?: SourceForecast
+    })
+
+export type SubagentDelegationSummary = {
+  delegation_id: string
+  title: string
+  status: SubagentDelegationStatus
+  runtime: SubagentDelegationRuntime
+  mode?: DeepResearchMode
+  attempts: number
+  queued_at?: string
+  started_at?: string
+  completed_at?: string
+}
 
 export type SubagentDelegationListResponse = {
   request_id: string
   delegations: SubagentDelegationSummary[]
 }
 
-export type SubagentDelegationAuditEvent = {
-  seq: number
-  direction: string
-  event_type: string
-  payload: JSONObject
-  redaction?: JSONObject
-  occurred_at?: string
+export type SubagentTurnStatus = 'in_progress' | 'completed' | 'failed' | 'interrupted'
+export type SubagentTurnKind = 'agent' | 'compaction'
+
+export type SubagentTurnTrajectoryContentPart = JSONObject & {
+  type: string
 }
 
-export type SubagentDelegationEventAppendRequest = TurnScopedRPCRequest & {
+export type SubagentTurnTrajectoryToolCall = JSONObject & {
+  id: string
+  type: 'function'
+  function: JSONObject & {
+    name: string
+    arguments: string
+  }
+}
+
+export type SubagentTurnTrajectoryMessage =
+  | (JSONObject & {
+      id?: string
+      role: 'user' | 'developer'
+      content: string | SubagentTurnTrajectoryContentPart[]
+      metadata?: JSONObject
+    })
+  | (JSONObject & {
+      id?: string
+      role: 'assistant'
+      content: string
+      tool_calls?: SubagentTurnTrajectoryToolCall[]
+      metadata?: JSONObject
+    })
+  | (JSONObject & {
+      id?: string
+      role: 'tool'
+      tool_call_id: string
+      name: string
+      content: string
+      metadata?: JSONObject
+    })
+
+export type SubagentTurnTrajectoryMetadata = JSONObject & {
+  redacted?: boolean
+  content_truncated?: boolean
+  max_bytes?: number
+  omitted_items?: number
+  omitted_messages?: number
+}
+
+export type SubagentTurnTrajectory = JSONObject & {
+  format: 'ankole_chatml'
+  version: 1
+  messages: SubagentTurnTrajectoryMessage[]
+  metadata?: SubagentTurnTrajectoryMetadata
+}
+
+export type SubagentTurnUsageBreakdown = JSONObject & {
+  total_tokens: number
+  input_tokens: number
+  cached_input_tokens: number
+  output_tokens: number
+  reasoning_output_tokens: number
+}
+
+export type SubagentTurnUsage = JSONObject & {
+  thread_total: SubagentTurnUsageBreakdown
+  last_model_call: SubagentTurnUsageBreakdown
+  model_context_window?: number
+}
+
+export type SubagentTurnPlan = JSONObject & {
+  explanation?: string
+  steps: Array<
+    JSONObject & {
+      step: string
+      status: 'pending' | 'in_progress' | 'completed'
+    }
+  >
+}
+
+export type SubagentTurnToolUsage = JSONObject & {
+  name: string
+  calls: number
+}
+
+export type SubagentTurnActiveItem = JSONObject & {
+  id: string
+  name: string
+}
+
+export type SubagentTurnProgress = JSONObject & {
+  completed_items: number
+  tool_calls: number
+  tools_used: SubagentTurnToolUsage[]
+  files_changed: string[]
+  plan?: SubagentTurnPlan
+  active_item?: SubagentTurnActiveItem
+}
+
+export type SubagentExecution = {
+  attempt: number
+  current?: {
+    runtime_turn_id: string
+    kind: SubagentTurnKind
+    status: SubagentTurnStatus
+  }
+  lead_turn_number: number
+  threads: { total: number; child: number }
+  turns: { lead: number; child: number; compaction: number; active: number }
+  progress: Omit<SubagentTurnProgress, 'active_item'> & {
+    active_items: Array<{ scope: 'lead' | 'child'; name: string }>
+  }
+  usage?: SubagentTurnUsage
+  trajectory_page: SubagentTurnTrajectory & { next_cursor?: string }
+  updated_at: string
+}
+
+export type SubagentDelegationTurn = {
+  id?: string
+  attempt: number
+  runtime_thread_id: string
+  runtime_turn_id: string
+  kind: SubagentTurnKind
+  status: SubagentTurnStatus
+  revision: number
+  trajectory: SubagentTurnTrajectory
+  progress: SubagentTurnProgress
+  usage?: SubagentTurnUsage | null
+  error: JSONObject
+  started_at: string
+  completed_at?: string
+  inserted_at?: string
+  updated_at?: string
+}
+
+export type SubagentDelegationTurnUpsertRequest = TurnScopedRPCRequest & {
   delegation_id: string
-  events: SubagentDelegationAuditEvent[]
+  attempt: number
+  runtime_thread_id: string
+  runtime_turn_id: string
+  kind: SubagentTurnKind
+  status: SubagentTurnStatus
+  revision: number
+  trajectory: SubagentTurnTrajectory
+  progress: SubagentTurnProgress
+  usage?: SubagentTurnUsage
+  error?: JSONObject
+  started_at: string
+  completed_at?: string
 }
 
-export type SubagentDelegationEventResponse = {
+export type SubagentDelegationTurnUpsertResponse = {
   request_id: string
   delegation_id: string
-  events: Array<{ seq: number; event_id: string }>
-  last_event_seq?: number
+  turn: SubagentDelegationTurn
 }
 
 export type SubagentDelegationStatusUpdateRequest = TurnScopedRPCRequest & {
@@ -627,9 +848,9 @@ export type RPCSchemaByMethod = {
     request: SubagentDelegationStopRequest
     response: SubagentDelegationResponse
   }
-  [rpcMethods.subagentDelegationEventAppend]: {
-    request: SubagentDelegationEventAppendRequest
-    response: SubagentDelegationEventResponse
+  [rpcMethods.subagentDelegationTurnUpsert]: {
+    request: SubagentDelegationTurnUpsertRequest
+    response: SubagentDelegationTurnUpsertResponse
   }
   [rpcMethods.subagentDelegationStatusUpdate]: {
     request: SubagentDelegationStatusUpdateRequest
@@ -641,6 +862,10 @@ export type RPCSchemaByMethod = {
   [rpcMethods.memoryUpdate]: { request: MemoryUpdateRequest; response: JSONObject }
   [rpcMethods.memoryHealthCheck]: { request: MemoryHealthCheckRequest; response: JSONObject }
   [rpcMethods.scheduleCheckBackLaterCreate]: { request: ScheduleCheckBackLaterCreateRequest; response: JSONObject }
+  [rpcMethods.scheduleCheckBackLaterList]: { request: ScheduleCheckBackLaterListRequest; response: JSONObject }
+  [rpcMethods.scheduleCheckBackLaterGet]: { request: ScheduleCheckBackLaterTargetRequest; response: JSONObject }
+  [rpcMethods.scheduleCheckBackLaterUpdate]: { request: ScheduleCheckBackLaterUpdateRequest; response: JSONObject }
+  [rpcMethods.scheduleCheckBackLaterCancel]: { request: ScheduleCheckBackLaterTargetRequest; response: JSONObject }
   [rpcMethods.scheduleCronList]: { request: ScheduleCronListRequest; response: JSONObject }
   [rpcMethods.scheduleCronGet]: { request: ScheduleCronTargetRequest; response: JSONObject }
   [rpcMethods.scheduleCronRuns]: { request: ScheduleCronRunsRequest; response: JSONObject }

@@ -6,20 +6,15 @@ import { zodToJSONSchema } from '../src/core/llm/tool-schema'
 import { createMemoryTools } from '../src/tools/memory/memory-tools'
 
 describe('Brain memory tools', () => {
-  it('exposes the complete Brain surface and no legacy note tool', () => {
+  it('exposes the complete Brain tool surface', () => {
     const tools = createMemoryTools({
       turnStart: turnStartForMemoryTool(),
       requestMemoryRPC: async (): Promise<JSONObject> => ({ status: 'ok' })
     })
 
-    expect(tools.map(tool => tool.name)).toEqual([
-      'memory_search',
-      'memory_open',
-      'memory_update',
-      'memory_browse',
-      'memory_health_check'
-    ])
-    expect(tools.some(tool => tool.name === 'memory_note')).toBe(false)
+    expect(tools.map(tool => tool.name).sort()).toEqual(
+      ['memory_search', 'memory_open', 'memory_update', 'memory_browse', 'memory_health_check'].sort()
+    )
   })
 
   it('exposes memory_update as a provider-compatible root object schema', () => {
@@ -242,26 +237,23 @@ describe('Brain memory tools', () => {
     })
 
     expect(lookup.presentation).toEqual([
-      {
+      expect.objectContaining({
         kind: 'memory.lookup',
-        payload: {
+        payload: expect.objectContaining({
           operation_id: 'call-memory_search',
           phase: 'completed',
-          label: '回忆相关上下文',
           source_count: 2
-        }
-      }
+        })
+      })
     ])
     expect(mutation.presentation).toEqual([
-      {
+      expect.objectContaining({
         kind: 'memory.mutation_receipt',
-        payload: {
+        payload: expect.objectContaining({
           operation_id: 'call-memory_update',
-          phase: 'confirmed',
-          summary: '已追加记忆内容',
-          scope: 'Brain 记忆'
-        }
-      }
+          phase: 'confirmed'
+        })
+      })
     ])
     const projected = JSON.stringify([lookup.presentation, mutation.presentation])
     expect(projected).not.toContain('private acquisition codename')

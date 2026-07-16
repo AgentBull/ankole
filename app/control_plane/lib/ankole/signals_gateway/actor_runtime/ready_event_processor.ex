@@ -65,6 +65,18 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor do
           Keyword.put_new(opts, :profile, "light")
         )
 
+      %ActorEvent{type: "brain.source.learn"} = event ->
+        TurnLifecycle.start_worker_turn(
+          actor_key,
+          event,
+          Keyword.update(
+            opts,
+            :request_context,
+            %{"tool_profile" => "brain_source_learning"},
+            &Map.put(&1, "tool_profile", "brain_source_learning")
+          )
+        )
+
       %ActorEvent{} = event ->
         TurnLifecycle.start_worker_turn(actor_key, event, opts)
     end

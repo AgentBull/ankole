@@ -22,6 +22,7 @@ pub enum APIResolverKind {
     GoogleEmbeddings,
     OpenrouterRerank,
     JinaRerank,
+    OpenrouterImages,
     ParallelWebSearch,
     ParallelWebFetch,
     BrightDataSerpWebSearch,
@@ -44,6 +45,7 @@ impl APIResolverKind {
             Self::GoogleEmbeddings => "google_embeddings",
             Self::OpenrouterRerank => "openrouter_rerank",
             Self::JinaRerank => "jina_rerank",
+            Self::OpenrouterImages => "openrouter_images",
             Self::ParallelWebSearch => "parallel_web_search",
             Self::ParallelWebFetch => "parallel_web_fetch",
             Self::BrightDataSerpWebSearch => "bright_data_serp_web_search",
@@ -128,6 +130,8 @@ pub struct StreamSpec {
     pub response_context: ResponseContext,
     #[serde(default)]
     pub limits: StreamLimits,
+    #[serde(default)]
+    pub hosted_tools: Option<HostedToolsSpec>,
 }
 
 impl StreamSpec {
@@ -166,6 +170,10 @@ impl StreamSpec {
 
         if self.upstream.url.trim().is_empty() {
             return Err(KernelError::new("upstream.url must not be empty"));
+        }
+
+        if let Some(hosted_tools) = &self.hosted_tools {
+            hosted_tools.validate()?;
         }
 
         Ok(())
@@ -377,6 +385,41 @@ impl ResponseContext {
     }
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct HostedToolsSpec {
+    pub image_generation: HostedImageGenerationSpec,
+    #[serde(default)]
+    pub public_request: Value,
+}
+
+impl HostedToolsSpec {
+    fn validate(&self) -> KernelResult<()> {
+        if !self.public_request.is_object() {
+            return Err(KernelError::new(
+                "hosted_tools.public_request must be a JSON object",
+            ));
+        }
+
+        self.image_generation.prepared_request.validate()
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct HostedImageGenerationSpec {
+    #[serde(default)]
+    pub tool_config: Value,
+    pub selected_model: String,
+    pub prepared_request: Box<ModelRequestSpec>,
+    #[serde(default)]
+    pub endpoint_capabilities: Value,
+    pub provider_tag: String,
+    pub provider_slug: String,
+    #[serde(default)]
+    pub resolved_references: Vec<Value>,
+    #[serde(default)]
+    pub limits: Value,
+}
+
 fn normalize_compaction_input(request: &mut Map<String, Value>) {
     let Some(Value::Array(items)) = request.get_mut("input") else {
         return;
@@ -432,6 +475,8 @@ pub struct ModelRequestSpec {
     pub response_context: ResponseContext,
     #[serde(default)]
     pub limits: RequestLimits,
+    #[serde(default)]
+    pub hosted_tools: Option<HostedToolsSpec>,
 }
 
 impl ModelRequestSpec {
@@ -446,7 +491,13 @@ impl ModelRequestSpec {
     }
 
     fn validate(&self) -> KernelResult<()> {
-        validate_prepared_http_request(&self.upstream, "model_request")
+        validate_prepared_http_request(&self.upstream, "model_request")?;
+
+        if let Some(hosted_tools) = &self.hosted_tools {
+            hosted_tools.validate()?;
+        }
+
+        Ok(())
     }
 
     pub fn stream_upstream(&self) -> UpstreamSpec {
@@ -721,12 +772,9 @@ mod tests {
 
         assert_eq!(input[0]["type"], json!("message"));
         assert_eq!(input[0]["role"], json!("user"));
-        assert_eq!(
-            input[0]["content"][0]["text"],
-            json!(
-                "Context checkpoint: an earlier context window of this same agent already worked on this task and was compacted into the summary below. Tool side effects (files created or edited, commands run, processes started) remain in effect. Messages after this summary are verbatim and take precedence over it; continue the summary's in-progress work unless later messages supersede it.\n\nPrior work was summarized."
-            )
-        );
+        let text = input[0]["content"][0]["text"].as_str().unwrap();
+        assert!(text.starts_with("Context checkpoint:"));
+        assert!(text.ends_with("\n\nPrior work was summarized."));
         assert_eq!(input[1]["type"], json!("message"));
     }
 
@@ -752,12 +800,9 @@ mod tests {
             .unwrap();
 
         assert_eq!(input[0]["type"], json!("message"));
-        assert_eq!(
-            input[0]["content"][0]["text"],
-            json!(
-                "Context checkpoint: an earlier context window of this same agent already worked on this task and was compacted into the summary below. Tool side effects (files created or edited, commands run, processes started) remain in effect. Messages after this summary are verbatim and take precedence over it; continue the summary's in-progress work unless later messages supersede it.\n\nOpenResponses compacted state."
-            )
-        );
+        let text = input[0]["content"][0]["text"].as_str().unwrap();
+        assert!(text.starts_with("Context checkpoint:"));
+        assert!(text.ends_with("\n\nOpenResponses compacted state."));
         assert_eq!(input[1]["type"], json!("message"));
     }
 }

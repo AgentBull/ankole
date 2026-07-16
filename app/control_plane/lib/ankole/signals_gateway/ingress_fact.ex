@@ -22,6 +22,8 @@ defmodule Ankole.SignalsGateway.IngressFact do
     :source_event_id,
     :signal_channel_id,
     :source_entry_id,
+    :reply_to_source_entry_id,
+    :reply_to,
     :provider_thread_id,
     :channel_kind,
     :reply_mode,
@@ -116,6 +118,7 @@ defmodule Ankole.SignalsGateway.IngressFact do
     |> normalize_map_field(:channel_metadata)
     |> normalize_map_field(:channel_raw_payload)
     |> normalize_map_field(:formatted_content)
+    |> normalize_map_field(:reply_to)
     |> normalize_list_field(:attachments)
     |> normalize_list_field(:links)
     |> normalize_map_field(:author)

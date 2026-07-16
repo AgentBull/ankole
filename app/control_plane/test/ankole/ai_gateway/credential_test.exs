@@ -93,21 +93,19 @@ defmodule Ankole.AIGateway.CredentialTest do
     assert get_in(envelope, ["body", "rpc_error", "details_json"]) == %{"agent_uid" => ""}
   end
 
-  test "RuntimeFabric no longer exposes provider credential resolution as a public RPC" do
+  test "RuntimeFabric rejects RPC methods outside the declared contract" do
     %{principal: agent} = agent_fixture()
     {route, turn} = assign_worker_route(agent.uid, "signal-channel:no-provider-secret-rpc")
 
     assert {:ok, envelope} =
              RPCLane.handle_request(
                %{
-                 "request_id" => "old-credential-rpc",
-                 "method" => "ai_gateway_provider.resolve_credential",
+                 "request_id" => "unknown-method-rpc",
+                 "method" => "definitely.not_a_declared_method",
                  "payload_json" => %{
                    "turn" => turn,
                    "agent_uid" => agent.uid,
-                   "session_id" => "signal-channel:no-provider-secret-rpc",
-                   "profile" => "primary",
-                   "purpose" => "ai_turn"
+                   "session_id" => "signal-channel:no-provider-secret-rpc"
                  }
                },
                route

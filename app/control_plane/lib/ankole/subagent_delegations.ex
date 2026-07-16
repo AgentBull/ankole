@@ -1,24 +1,29 @@
 defmodule Ankole.SubagentDelegations do
   @moduledoc """
-  Durable subagent delegation work items and trajectory events.
+  Durable subagent delegation work items and normalized runtime-turn trajectories.
 
   This module is the stable context facade. PostgreSQL owns work lifecycle and
-  audit truth; the internal modules keep dispatch, lifecycle transitions,
-  control actions, queries, and audit persistence as separate responsibilities.
+  trajectory truth; the internal modules keep dispatch, lifecycle transitions,
+  control actions, queries, and turn persistence as separate responsibilities.
   """
 
   alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SubagentDelegations.Audit
   alias Ankole.SubagentDelegations.Control
   alias Ankole.SubagentDelegations.Dispatch
   alias Ankole.SubagentDelegations.Lifecycle
   alias Ankole.SubagentDelegations.Queries
+  alias Ankole.SubagentDelegations.Retention
+  alias Ankole.SubagentDelegations.Turns
 
   @doc "Creates one durable work item and its isolated dispatch event atomically."
   defdelegate create_with_dispatch(attrs), to: Dispatch
 
   @doc false
   defdelegate claim_attempt_in_tx(repo, delegation_id, agent_uid, expected_attempt),
+    to: Lifecycle
+
+  @doc false
+  defdelegate claim_continuation_in_tx(repo, delegation_id, agent_uid, expected_attempt),
     to: Lifecycle
 
   @doc false
@@ -38,7 +43,12 @@ defmodule Ankole.SubagentDelegations do
   def commit_status_with_wakeup(delegation_id, agent_uid, attrs, opts \\ []),
     do: Lifecycle.commit_status_with_wakeup(delegation_id, agent_uid, attrs, opts)
 
-  defp fail_audit_rejection_in_tx(repo, delegation_id, agent_uid, %DateTime{} = now) do
+  defp fail_turn_persistence_rejection_in_tx(
+         repo,
+         delegation_id,
+         agent_uid,
+         %DateTime{} = now
+       ) do
     with {:ok, result} <-
            Lifecycle.commit_status_after_runtime_prefix_in_tx(
              repo,
@@ -47,12 +57,18 @@ defmodule Ankole.SubagentDelegations do
              %{
                "status" => "failed",
                "error" => %{
-                 "code" => "audit_persistence_rejected",
-                 "summary" => "Delegation audit persistence was rejected by the control plane."
+                 "code" => "turn_persistence_rejected",
+                 "summary" =>
+                   "Delegation Turn trajectory persistence was rejected by the control plane."
                }
              },
              now,
-             nil
+             nil,
+             %{
+               "code" => "turn_persistence_rejected",
+               "summary" =>
+                 "The control plane interrupted this runtime Turn after rejecting its checkpoint."
+             }
            ),
          {:ok, :ok} <-
            Dispatch.complete_all_open_events_in_tx(repo, delegation_id, agent_uid, now) do
@@ -64,10 +80,10 @@ defmodule Ankole.SubagentDelegations do
   def compensate_turn_error_in_tx(
         repo,
         %ActorEvent{agent_uid: agent_uid, session_id: "subagent:" <> delegation_id},
-        %{"details_json" => %{"error_code" => "subagent_audit_persistence_rejected"}},
+        %{"details_json" => %{"error_code" => "subagent_turn_persistence_rejected"}},
         %DateTime{} = now
       ) do
-    fail_audit_rejection_in_tx(repo, delegation_id, agent_uid, now)
+    fail_turn_persistence_rejection_in_tx(repo, delegation_id, agent_uid, now)
   end
 
   def compensate_turn_error_in_tx(_repo, %ActorEvent{}, _reason, %DateTime{}),
@@ -99,33 +115,30 @@ defmodule Ankole.SubagentDelegations do
   @doc "Projects a delegation into the named Console API contract."
   defdelegate console_projection(delegation), to: Queries
 
-  @doc "Projects one trajectory event into the Console timeline contract."
-  defdelegate console_event_projection(event), to: Queries
-
   @doc "Durably requests cancellation without trusting worker-local state."
   defdelegate request_stop(delegation_id, attrs), to: Control
 
   @doc "Journals a cross-worker steering command for one delegation."
   defdelegate request_steer(delegation_id, attrs), to: Control
 
-  @doc "Appends one trajectory event after deterministic secret redaction."
-  defdelegate append_event(attrs), to: Audit
+  @doc false
+  defdelegate upsert_turn_from_worker(delegation_id, agent_uid, attrs, turn_ref, route),
+    to: Turns,
+    as: :upsert_from_worker
 
-  @doc "Appends one ordered trajectory event batch atomically."
-  defdelegate append_events(delegation_id, agent_uid, events), to: Audit
+  @doc "Lists normalized runtime turns for one delegation."
+  defdelegate list_turns(delegation_id, opts \\ []), to: Turns, as: :list_for_delegation
+
+  @doc "Projects one complete runtime turn for Console."
+  defdelegate console_turn_projection(turn), to: Turns, as: :console_projection
 
   @doc false
-  defdelegate append_worker_events(delegation_id, agent_uid, events, turn_ref, route),
-    to: Audit
+  defdelegate cleanup_expired_workspaces(now \\ DateTime.utc_now(:microsecond)), to: Retention
 
   @doc "Fetches one delegation for an agent."
   defdelegate get_delegation_for_agent(delegation_id, agent_uid), to: Queries, as: :get_for_agent
 
-  @doc "Fetches one delegation with its latest trajectory sequence."
-  defdelegate get_delegation_summary_for_agent(delegation_id, agent_uid),
-    to: Queries,
-    as: :get_summary_for_agent
-
-  @doc "Lists trajectory events for one delegation in sequence order."
-  defdelegate list_events(delegation_id), to: Queries
+  @doc "Fetches one delegation with its orchestrator-facing execution projection."
+  def get_delegation_summary_for_agent(delegation_id, agent_uid, opts \\ []),
+    do: Queries.get_summary_for_agent(delegation_id, agent_uid, opts)
 end

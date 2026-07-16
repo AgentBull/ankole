@@ -35,6 +35,7 @@ import type {
   AiGatewayProviderItem as AIGatewayProviderItem,
   AiGatewayProviderKindItem as AIGatewayProviderKindItem
 } from '../api/generated/types.gen'
+import { localizedText } from '../../common/config-fields'
 import i18n from '../../common/i18n'
 import { requestErrorMessage } from '../../common/request-errors'
 import {
@@ -509,7 +510,7 @@ function initialOptions(
 }
 
 function providerKindLabel(kind: AIGatewayProviderKindItem): string {
-  return kind.label.en ?? kind.label['en-US'] ?? kind.label.default ?? kind.provider_kind
+  return localizedText(kind.label, i18n.language) ?? kind.provider_kind
 }
 
 function settingValidationMessage(field: string, error: SettingValidationError): string {

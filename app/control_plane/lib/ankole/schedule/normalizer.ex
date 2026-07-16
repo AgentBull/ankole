@@ -4,6 +4,7 @@ defmodule Ankole.Schedule.Normalizer do
   alias Ankole.Schedule.Attrs
   alias Ankole.Schedule.Planner
   alias Ankole.Schedule.Schemas.CronSchedule
+  alias Ankole.Schedule.Schemas.ScheduledEvent
 
   @max_reason_length 2_000
   @max_check_length 4_000
@@ -13,12 +14,36 @@ defmodule Ankole.Schedule.Normalizer do
   def checkback_attrs(attrs, now, opts) do
     attrs = Attrs.normalize_external_attrs(attrs)
 
-    with {:ok, timezone} <-
-           Planner.schedule_timezone(Attrs.map_value(attrs, "schedule"), attrs, opts),
-         {:ok, due_at} <-
-           Planner.parse_checkback_due(Attrs.map_value(attrs, "schedule"), timezone, now, opts),
-         :ok <- Planner.validate_bounds(due_at, now, opts),
-         {:ok, reason} <- Attrs.bounded_text(attrs, "reason", @max_reason_length),
+    with {:ok, due_at, timezone, schedule} <- normalize_checkback_schedule(attrs, now, opts) do
+      build_checkback_attrs(attrs, due_at, timezone, schedule, now)
+    end
+  end
+
+  @spec checkback_replacement_attrs(ScheduledEvent.t(), map(), DateTime.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def checkback_replacement_attrs(%ScheduledEvent{} = existing, attrs, now, opts) do
+    attrs = Attrs.normalize_external_attrs(attrs)
+
+    source_provenance =
+      case Attrs.map_value(attrs, "source_provenance") do
+        value when is_map(value) -> Map.put(value, "replaces_scheduled_event_id", existing.id)
+        _value -> %{"replaces_scheduled_event_id" => existing.id}
+      end
+
+    merged_attrs =
+      existing
+      |> existing_checkback_values()
+      |> Map.merge(attrs)
+      |> Map.put("source_provenance", source_provenance)
+
+    with {:ok, due_at, timezone, schedule} <-
+           replacement_checkback_schedule(existing, attrs, now, opts) do
+      build_checkback_attrs(merged_attrs, due_at, timezone, schedule, now)
+    end
+  end
+
+  defp build_checkback_attrs(attrs, due_at, timezone, schedule, now) do
+    with {:ok, reason} <- Attrs.bounded_text(attrs, "reason", @max_reason_length),
          {:ok, check} <- Attrs.bounded_text(attrs, "check", @max_check_length),
          {:ok, context_summary} <-
            Attrs.optional_bounded_text(attrs, "context_summary", @max_context_summary_length),
@@ -57,11 +82,46 @@ defmodule Ankole.Schedule.Normalizer do
            "quiet_success" => quiet_success,
            "due_at" => DateTime.to_iso8601(due_at),
            "timezone" => timezone,
-           "schedule" => Attrs.map_value(attrs, "schedule") || %{}
+           "schedule" => schedule
          },
          last_fire_error: %{}
        }}
     end
+  end
+
+  defp normalize_checkback_schedule(attrs, now, opts) do
+    schedule = Attrs.map_value(attrs, "schedule")
+
+    with {:ok, timezone} <- Planner.schedule_timezone(schedule, attrs, opts),
+         {:ok, due_at} <- Planner.parse_checkback_due(schedule, timezone, now, opts),
+         :ok <- Planner.validate_bounds(due_at, now, opts) do
+      {:ok, due_at, timezone, schedule}
+    end
+  end
+
+  defp replacement_checkback_schedule(existing, attrs, now, opts) do
+    case Map.has_key?(attrs, "schedule") do
+      true ->
+        normalize_checkback_schedule(attrs, now, opts)
+
+      false ->
+        schedule =
+          get_in(existing.wake_payload || %{}, ["schedule"]) ||
+            %{"at" => DateTime.to_iso8601(existing.due_at), "timezone" => existing.timezone}
+
+        {:ok, existing.due_at, existing.timezone, schedule}
+    end
+  end
+
+  defp existing_checkback_values(%ScheduledEvent{} = event) do
+    wake_payload = event.wake_payload || %{}
+
+    %{
+      "reason" => Map.get(wake_payload, "reason"),
+      "check" => Map.get(wake_payload, "check"),
+      "context_summary" => Map.get(wake_payload, "context_summary"),
+      "quiet_success" => Map.get(wake_payload, "quiet_success") == true
+    }
   end
 
   @spec cron_schedule_attrs(map(), DateTime.t(), keyword()) :: {:ok, map()} | {:error, term()}

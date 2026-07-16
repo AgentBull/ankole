@@ -49,6 +49,7 @@ defmodule Ankole.SignalsGateway.FactNormalizer do
          source_event_id: source_event_id,
          signal_channel_id: signal_channel_id,
          source_entry_id: source_entry_id,
+         reply_to_source_entry_id: optional_text(input, :reply_to_source_entry_id),
          provider_thread_id: optional_text(input, :provider_thread_id),
          channel_kind: channel_kind,
          reply_mode:
@@ -194,8 +195,8 @@ defmodule Ankole.SignalsGateway.FactNormalizer do
   #   1. mirror_only: caller asked to only record, never wake the agent.
   #   2. a recognized /slash command in addressed text → command.* actor event.
   #   3. an adapter-supplied explicit actor_event_type (non-IM sources).
-  #   4. a DM, or a group message that explicitly @-addresses the agent → a
-  #      normal addressed message.
+  #   4. a DM, structured group mention, or reply resolved to the current agent
+  #      → a normal addressed message.
   #   5. an unaddressed group message → defer to the binding's group policy.
 
   defp action_session_id(input) do

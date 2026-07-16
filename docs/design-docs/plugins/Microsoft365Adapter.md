@@ -152,14 +152,22 @@ Channel activities carry `conversation.id` in the form
 
 - `signal_channel_id = "teams:" <> URI-encoded base conversation id` (the part
   before `;messageid=`);
-- `provider_thread_id = "teams:{base}:{threadRootId}"`;
+- `provider_thread_id = "teams:{base}:{threadRootId}"` when the conversation id
+  carries a `;messageid=` thread segment (channel posts and their replies), nil
+  for personal and group chats — never the activity's own id, which would
+  fragment the inbound-batch key per message;
+- `reply_to_source_entry_id = activity.replyToId` when present; because Teams
+  can omit that field on inbound channel replies, the adapter falls back to the
+  parsed thread root only when it differs from the current `activity.id`;
 - `source_entry_id = activity.id`.
 
-Personal chats are explicit; group and channel messages are explicit only when
-a mention entity targets the bot (`mentioned.id == recipient.id` — resolved
-per activity, no runtime identity call needed). The bot's own `<at>` mention
-markup is stripped from visible text; other mentions become structured mention
-data. Bot senders (`28:` ids) are ignored.
+Personal chats are explicit. The adapter marks group and channel messages
+explicit when a mention entity targets the bot (`mentioned.id == recipient.id`
+— resolved per activity, no runtime identity call needed); SignalsGateway also
+marks them explicit when their normalized reply target resolves to the current
+agent's output. The bot's own `<at>` mention markup is stripped from visible
+text; other mentions become structured mention data. Bot senders (`28:` ids)
+are ignored.
 
 By default Teams delivers only @bot messages in group chats and channels. The
 `observe_all` and `may_intervene` modes additionally require the Teams app

@@ -13,6 +13,7 @@ defmodule Ankole.Ecto.JSONPayload do
           :unsupported_atom
           | :unsupported_struct
           | :unsupported_runtime_value
+          | :unsupported_nul_byte
           | :non_string_map_key
           | :invalid_json_map
           | :json_encode_failed
@@ -34,9 +35,16 @@ defmodule Ankole.Ecto.JSONPayload do
 
   def normalize(%_struct{}, _opts), do: {:error, :unsupported_struct}
 
-  def normalize(value, _opts)
-      when is_binary(value) or is_number(value) or is_boolean(value) or is_nil(value),
-      do: {:ok, value}
+  def normalize(value, _opts) when is_binary(value) do
+    if :binary.match(value, <<0>>) == :nomatch do
+      {:ok, value}
+    else
+      {:error, :unsupported_nul_byte}
+    end
+  end
+
+  def normalize(value, _opts) when is_number(value) or is_boolean(value) or is_nil(value),
+    do: {:ok, value}
 
   # Reject non-nil/boolean atoms instead of stringifying them: an atom round-trips
   # out of JSONB as a string, so silently accepting one would let durable state
@@ -132,7 +140,7 @@ defmodule Ankole.Ecto.JSONPayload do
     end
   end
 
-  defp normalize_key(key) when is_binary(key), do: {:ok, key}
+  defp normalize_key(key) when is_binary(key), do: normalize(key)
   defp normalize_key(key) when is_atom(key), do: {:ok, Atom.to_string(key)}
   defp normalize_key(_key), do: {:error, :non_string_map_key}
 

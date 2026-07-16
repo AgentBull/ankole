@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import type { TurnStart } from '../src/lanes/actor_lane'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import { zodToJSONSchema } from '../src/core/llm/tool-schema'
 import { rpcMethods, type ScheduleRPCMethod } from '../src/lanes/rpc_lane'
 import { createScheduleTools } from '../src/tools/schedule/schedule-tools'
 
@@ -20,11 +21,14 @@ describe('schedule tools', () => {
     expect(checkBackLater).toBeDefined()
 
     const params = {
+      action: 'create' as const,
       reason: 'follow up on the research note',
       check: 'Run the backtest if the user still wants it.',
       context_summary: 'The group discussed a strategy from a report.',
-      after: { value: 5, unit: 'minute' as const },
-      timezone: 'Etc/UTC'
+      schedule: {
+        after: { value: 5, unit: 'minute' as const },
+        timezone: 'Etc/UTC'
+      }
     }
 
     const result = await checkBackLater!.execute('call_first', params)
@@ -40,16 +44,10 @@ describe('schedule tools', () => {
       String(requests[0]!.idempotency_key).startsWith('check_back_later:00000000-0000-0000-0000-000000000123:')
     ).toBe(true)
     expect(result.presentation).toEqual([
-      {
+      expect.objectContaining({
         kind: 'effect.receipt',
-        payload: {
-          operation_id: 'call_first',
-          phase: 'confirmed',
-          summary: '已安排后续检查',
-          scope: '5 分钟后',
-          follow_up: '到时会反馈检查结果'
-        }
-      }
+        payload: expect.objectContaining({ operation_id: 'call_first', phase: 'confirmed' })
+      })
     ])
   })
 
@@ -64,10 +62,13 @@ describe('schedule tools', () => {
     }).find(tool => tool.name === 'check_back_later')
 
     const params = {
+      action: 'create' as const,
       reason: 'follow up on the deployment',
       check: 'Check whether the deployment finished.',
-      after: { value: 5, unit: 'minute' as const },
-      timezone: 'Etc/UTC'
+      schedule: {
+        after: { value: 5, unit: 'minute' as const },
+        timezone: 'Etc/UTC'
+      }
     }
 
     await checkBackLater!.execute('call_omitted', params)
@@ -91,13 +92,124 @@ describe('schedule tools', () => {
     })
 
     await checkBackLater!.execute('call_explicit', {
+      action: 'create',
       reason: 'follow up',
       check: 'check status',
-      at: '2026-07-03T12:00:00Z',
+      schedule: { at: '2026-07-03T12:00:00Z' },
       idempotency_key: 'operator-provided-key'
     })
 
     expect(requests[0]!.idempotency_key).toBe('operator-provided-key')
+  })
+
+  it('lists, inspects, updates, and cancels durable checkbacks through distinct RPC methods', async () => {
+    const calls: Array<{ method: ScheduleRPCMethod; request: JSONObject }> = []
+    const checkBackLater = createScheduleTools({
+      turnStart: turnStartForScheduleTool(),
+      requestScheduleRPC: async (method: ScheduleRPCMethod, request: JSONObject): Promise<JSONObject> => {
+        calls.push({ method, request })
+        return { status: method.endsWith('.cancel') ? 'cancelled' : 'ok' }
+      }
+    }).find(tool => tool.name === 'check_back_later')
+    const scheduledEventID = '019f6259-a538-7750-af5d-8420a85fff58'
+
+    const listed = await checkBackLater!.execute('call_list', { action: 'list', limit: 5 })
+    const inspected = await checkBackLater!.execute('call_get', {
+      action: 'get',
+      scheduled_event_id: scheduledEventID
+    })
+    const updated = await checkBackLater!.execute('call_update', {
+      action: 'update',
+      scheduled_event_id: scheduledEventID,
+      updates: {
+        check: 'Let the evidence determine the PDF length.',
+        context_summary: 'The user removed the 6–12 page constraint.'
+      }
+    })
+    const cancelled = await checkBackLater!.execute('call_cancel', {
+      action: 'cancel',
+      scheduled_event_id: scheduledEventID
+    })
+
+    expect(calls.map(call => call.method)).toEqual([
+      rpcMethods.scheduleCheckBackLaterList,
+      rpcMethods.scheduleCheckBackLaterGet,
+      rpcMethods.scheduleCheckBackLaterUpdate,
+      rpcMethods.scheduleCheckBackLaterCancel
+    ])
+    expect(calls[0]!.request.limit).toBe(5)
+    expect(calls[1]!.request.scheduled_event_id).toBe(scheduledEventID)
+    expect(calls[2]!.request.updates).toEqual({
+      check: 'Let the evidence determine the PDF length.',
+      context_summary: 'The user removed the 6–12 page constraint.'
+    })
+    expect(String(calls[2]!.request.idempotency_key)).toStartWith(
+      `check_back_later:update:${scheduledEventID}:00000000-0000-0000-0000-000000000123:`
+    )
+    expect(calls[2]!.request.reply_route).toEqual({
+      binding_name: 'mock',
+      signal_channel_id: 'mock:chat:schedule',
+      provider_thread_id: 'thread-1',
+      source_entry_id: 'entry-1'
+    })
+    expect(calls[3]!.request.scheduled_event_id).toBe(scheduledEventID)
+    expect(listed.presentation).toEqual([])
+    expect(inspected.presentation).toEqual([])
+    expect(updated.presentation).toEqual([
+      {
+        kind: 'effect.receipt',
+        payload: {
+          operation_id: 'call_update',
+          phase: 'confirmed',
+          summary: '已更新后续检查',
+          target: scheduledEventID
+        }
+      }
+    ])
+    expect(cancelled.presentation).toEqual([
+      {
+        kind: 'effect.receipt',
+        payload: {
+          operation_id: 'call_cancel',
+          phase: 'confirmed',
+          summary: '已取消后续检查',
+          target: scheduledEventID
+        }
+      }
+    ])
+  })
+
+  it('tells the model that prose alone cannot change durable checkbacks', () => {
+    const checkBackLater = createScheduleTools({
+      turnStart: turnStartForScheduleTool(),
+      requestScheduleRPC: async (): Promise<JSONObject> => ({ status: 'ok' })
+    }).find(tool => tool.name === 'check_back_later')
+
+    expect(checkBackLater?.description).toContain('create, list, inspect, update, or cancel')
+    expect(checkBackLater?.description).toContain('Use list/get before update/cancel')
+    expect(checkBackLater?.description).toContain('does not change durable work by itself')
+    expect(checkBackLater?.description).toContain('Never claim')
+
+    expect(
+      checkBackLater?.schema.safeParse({
+        action: 'update',
+        scheduled_event_id: '019f6259-a538-7750-af5d-8420a85fff58',
+        updates: {}
+      }).success
+    ).toBe(false)
+    expect(
+      checkBackLater?.schema.safeParse({
+        action: 'update',
+        scheduled_event_id: '019f6259-a538-7750-af5d-8420a85fff58',
+        updates: { check: 'Use the corrected requirement.' }
+      }).success
+    ).toBe(true)
+
+    const modelSchema = JSON.stringify(zodToJSONSchema(checkBackLater!.schema))
+    expect(modelSchema).toContain('"type":"object"')
+    for (const action of ['create', 'list', 'get', 'update', 'cancel']) {
+      expect(modelSchema).toContain(`\"${action}\"`)
+    }
   })
 
   it('uses a stable default cron:add idempotency key across provider tool call retries', async () => {

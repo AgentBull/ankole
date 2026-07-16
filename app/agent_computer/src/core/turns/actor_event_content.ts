@@ -58,8 +58,11 @@ export async function actorEventUserContent(
  * the worker cannot fetch provider-owned blobs directly.
  */
 async function actorEventImageParts(payload: JSONObject | undefined, workspaceRoot: string): Promise<ImageContent[]> {
-  const attachments = arrayPath(payload, ['data', 'entry', 'attachments'])
-  const paths = attachments.flatMap(visionEligibleAttachmentPath).slice(0, VISION_MAX_IMAGES_PER_TURN)
+  const attachments = [
+    ...arrayPath(payload, ['data', 'entry', 'attachments']),
+    ...arrayPath(payload, ['data', 'entry', 'reply_to', 'attachments'])
+  ]
+  const paths = [...new Set(attachments.flatMap(visionEligibleAttachmentPath))].slice(0, VISION_MAX_IMAGES_PER_TURN)
   const parts: ImageContent[] = []
 
   for (const path of paths) {

@@ -49,6 +49,194 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDispatchTest do
     assert persisted.attempts == 1
   end
 
+  test "explicit steer resumes a settled delegation after prior execution attempts" do
+    %{principal: agent} = agent_fixture()
+    route = unique_route()
+    :ok = Broker.register_local_worker(route, self())
+    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    assert {:ok, _worker} = admit_worker(route)
+
+    delegation = create_delegation!(agent.uid, "settled-resume")
+    assert :ok = SubagentDelegations.complete_open_dispatch(delegation.id, agent.uid)
+
+    from(row in Ankole.SubagentDelegations.Schemas.Delegation, where: row.id == ^delegation.id)
+    |> Repo.update_all(
+      set: [
+        status: "succeeded",
+        attempts: 3,
+        runtime_thread_id: "thread-settled-resume",
+        completed_at: DateTime.utc_now(:microsecond)
+      ]
+    )
+
+    assert {:ok, %{delegation: %{status: "queued"}}} =
+             SubagentDelegations.request_steer(delegation.id, %{
+               "agent_uid" => agent.uid,
+               "text" => "Continue in the same session.",
+               "request_id" => "settled-resume"
+             })
+
+    actor_key = %{agent_uid: agent.uid, session_id: "subagent:#{delegation.id}"}
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             ReadyEventProcessor.process_ready_event_for_actor(actor_key,
+               now: DateTime.utc_now(:microsecond),
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert_receive {:actor_lane, envelope}, 200
+    turn_start = envelope["body"]["turn_start"]
+    assert turn_start["request_context"]["attempts"] == 4
+
+    persisted = SubagentDelegations.get_delegation_for_agent(delegation.id, agent.uid)
+    assert persisted.status == "running"
+    assert persisted.attempts == 4
+    assert persisted.runtime_thread_id == "thread-settled-resume"
+  end
+
+  test "Turn checkpoints accept identical retries and reject divergent equal revisions" do
+    %{principal: agent} = agent_fixture()
+    route = unique_route()
+    :ok = Broker.register_local_worker(route, self())
+    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    assert {:ok, _worker} = admit_worker(route)
+
+    delegation = create_delegation!(agent.uid, "turn-revision")
+    actor_key = %{agent_uid: agent.uid, session_id: "subagent:#{delegation.id}"}
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             ReadyEventProcessor.process_ready_event_for_actor(actor_key,
+               now: DateTime.add(delegation.queued_at, 1, :second),
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert_receive {:actor_lane, envelope}, 200
+
+    assert {:ok, turn_ref} =
+             Ankole.SignalsGateway.ActorRuntime.TurnRef.from_request(%{
+               "turn" => envelope["body"]["turn_start"]["turn"]
+             })
+
+    assert SubagentDelegations.get_delegation_for_agent(delegation.id, agent.uid).attempts == 1
+
+    now = DateTime.utc_now(:microsecond)
+
+    attrs = %{
+      "attempt" => 1,
+      "runtime_thread_id" => "thread-revision",
+      "runtime_turn_id" => "turn-revision",
+      "kind" => "agent",
+      "status" => "in_progress",
+      "revision" => 0,
+      "trajectory" => %{
+        "format" => "ankole_chatml",
+        "version" => 1,
+        "messages" => [%{"role" => "user", "content" => "Original task"}]
+      },
+      "progress" => empty_turn_progress(),
+      "usage" => nil,
+      "error" => %{},
+      "started_at" => now
+    }
+
+    assert {:ok, first} =
+             SubagentDelegations.upsert_turn_from_worker(
+               delegation.id,
+               agent.uid,
+               attrs,
+               turn_ref,
+               route
+             )
+
+    assert {:ok, retried} =
+             SubagentDelegations.upsert_turn_from_worker(
+               delegation.id,
+               agent.uid,
+               attrs,
+               turn_ref,
+               route
+             )
+
+    assert retried.id == first.id
+
+    divergent =
+      put_in(
+        attrs,
+        ["trajectory", "messages"],
+        [%{"role" => "user", "content" => "Different payload at the same revision"}]
+      )
+
+    assert {:error, :subagent_turn_revision_conflict} =
+             SubagentDelegations.upsert_turn_from_worker(
+               delegation.id,
+               agent.uid,
+               divergent,
+               turn_ref,
+               route
+             )
+  end
+
+  test "Turn checkpoints persist native Codex child threads under the root delegation" do
+    %{principal: agent} = agent_fixture()
+    route = unique_route()
+    :ok = Broker.register_local_worker(route, self())
+    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    assert {:ok, _worker} = admit_worker(route)
+
+    delegation = create_delegation!(agent.uid, "child-turn")
+    actor_key = %{agent_uid: agent.uid, session_id: "subagent:#{delegation.id}"}
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             ReadyEventProcessor.process_ready_event_for_actor(actor_key,
+               now: DateTime.add(delegation.queued_at, 1, :second),
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert_receive {:actor_lane, envelope}, 200
+
+    assert {:ok, turn_ref} =
+             Ankole.SignalsGateway.ActorRuntime.TurnRef.from_request(%{
+               "turn" => envelope["body"]["turn_start"]["turn"]
+             })
+
+    assert {:ok, %{delegation: anchored}} =
+             SubagentDelegations.commit_status_with_wakeup(delegation.id, agent.uid, %{
+               "status" => "running",
+               "runtime_thread_id" => "thread-root"
+             })
+
+    assert anchored.runtime_thread_id == "thread-root"
+    now = DateTime.utc_now(:microsecond)
+
+    assert {:ok, child_turn} =
+             SubagentDelegations.upsert_turn_from_worker(
+               delegation.id,
+               agent.uid,
+               %{
+                 "attempt" => 1,
+                 "runtime_thread_id" => "thread-child",
+                 "runtime_turn_id" => "turn-child",
+                 "kind" => "agent",
+                 "status" => "completed",
+                 "revision" => 0,
+                 "trajectory" => %{
+                   "format" => "ankole_chatml",
+                   "version" => 1,
+                   "messages" => [%{"role" => "assistant", "content" => "Challenge complete."}]
+                 },
+                 "progress" => empty_turn_progress(),
+                 "usage" => nil,
+                 "error" => %{},
+                 "started_at" => now,
+                 "completed_at" => now
+               },
+               turn_ref,
+               route
+             )
+
+    assert child_turn.runtime_thread_id == "thread-child"
+  end
+
   test "waiting for user releases the worker assignment and the agent running slot" do
     %{principal: agent} = agent_fixture()
     route = unique_route()
@@ -71,6 +259,60 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDispatchTest do
              Ankole.SignalsGateway.ActorRuntime.TurnRef.from_request(%{
                "turn" => envelope["body"]["turn_start"]["turn"]
              })
+
+    assert {:ok, %{delegation: %{status: "running"}}} =
+             SubagentDelegations.commit_status_with_wakeup(
+               delegation.id,
+               agent.uid,
+               %{"status" => "running", "runtime_thread_id" => "thread-waiting"},
+               turn_ref: turn_ref,
+               worker_route: route
+             )
+
+    completed_at = DateTime.utc_now(:microsecond)
+
+    assert {:ok, _turn} =
+             SubagentDelegations.upsert_turn_from_worker(
+               delegation.id,
+               agent.uid,
+               %{
+                 "attempt" => 1,
+                 "runtime_thread_id" => "thread-waiting",
+                 "runtime_turn_id" => "turn-waiting",
+                 "kind" => "agent",
+                 "status" => "interrupted",
+                 "revision" => 0,
+                 "trajectory" => %{
+                   "format" => "ankole_chatml",
+                   "version" => 1,
+                   "messages" => [
+                     %{"role" => "user", "content" => "Ask when information is missing."},
+                     %{
+                       "role" => "assistant",
+                       "content" => "",
+                       "metadata" => %{"status" => "pending_user_input"},
+                       "tool_calls" => [
+                         %{
+                           "id" => "request-user-input",
+                           "type" => "function",
+                           "function" => %{
+                             "name" => "request_user_input",
+                             "arguments" => ~s({"questions":[]})
+                           }
+                         }
+                       ]
+                     }
+                   ]
+                 },
+                 "progress" => empty_turn_progress(),
+                 "usage" => nil,
+                 "error" => %{"code" => "request_user_input"},
+                 "started_at" => completed_at,
+                 "completed_at" => completed_at
+               },
+               turn_ref,
+               route
+             )
 
     assert {:ok, %{delegation: waiting}} =
              SubagentDelegations.commit_status_with_wakeup(
@@ -151,6 +393,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDispatchTest do
     assert {:ok, status_turn_ref} =
              Ankole.SignalsGateway.ActorRuntime.TurnRef.from_request(%{"turn" => turn_ref})
 
+    assert {:ok, %{delegation: %{status: "running"}}} =
+             SubagentDelegations.commit_status_with_wakeup(
+               delegation.id,
+               agent.uid,
+               %{"status" => "running", "runtime_thread_id" => "thread-durable-steer"},
+               turn_ref: status_turn_ref,
+               worker_route: route
+             )
+
     assert {:error, :subagent_pending_steer} =
              SubagentDelegations.commit_status_with_wakeup(
                delegation.id,
@@ -168,6 +419,37 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDispatchTest do
              ActorRuntime.handle_turn_accepted(%{
                "turn_accepted" => %{"turn" => mailbox["turn"]}
              })
+
+    completed_at = DateTime.utc_now(:microsecond)
+
+    assert {:ok, _turn} =
+             SubagentDelegations.upsert_turn_from_worker(
+               delegation.id,
+               agent.uid,
+               %{
+                 "attempt" => 1,
+                 "runtime_thread_id" => "thread-durable-steer",
+                 "runtime_turn_id" => "turn-durable-steer",
+                 "kind" => "agent",
+                 "status" => "completed",
+                 "revision" => 0,
+                 "trajectory" => %{
+                   "format" => "ankole_chatml",
+                   "version" => 1,
+                   "messages" => [
+                     %{"role" => "user", "content" => "Complete the delegated task."},
+                     %{"role" => "assistant", "content" => "Done"}
+                   ]
+                 },
+                 "progress" => empty_turn_progress(),
+                 "usage" => nil,
+                 "error" => %{},
+                 "started_at" => completed_at,
+                 "completed_at" => completed_at
+               },
+               status_turn_ref,
+               route
+             )
 
     assert {:ok, %{delegation: %{status: "succeeded"}}} =
              SubagentDelegations.commit_status_with_wakeup(
@@ -259,22 +541,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDispatchTest do
     assert second_envelope["body"]["turn_start"]["request_context"]["attempts"] == 2
 
     assert {:error, :worker_not_assigned_to_turn} =
-             SubagentDelegations.append_worker_events(
+             SubagentDelegations.upsert_turn_from_worker(
                delegation.id,
                agent.uid,
-               [
-                 %{
-                   "seq" => 0,
-                   "direction" => "process",
-                   "event_type" => "late_old_attempt",
-                   "payload" => %{"must_not_persist" => true}
-                 }
-               ],
+               %{},
                stale_turn_ref,
                stale_route
              )
 
-    assert SubagentDelegations.list_events(delegation.id) == []
+    assert SubagentDelegations.list_turns(delegation.id) == []
 
     assert {:error, :worker_not_assigned_to_turn} =
              SubagentDelegations.commit_status_with_wakeup(
@@ -323,6 +598,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDispatchTest do
                "turn_accepted" => %{"turn" => first_turn_ref}
              })
 
+    assert {:ok, %{delegation: anchored}} =
+             SubagentDelegations.commit_status_with_wakeup(delegation.id, agent.uid, %{
+               "status" => "running",
+               "runtime_thread_id" => "thread-existing"
+             })
+
+    assert anchored.runtime_thread_id == "thread-existing"
+
     assert {:ok, %{command_event: steer_event}} =
              SubagentDelegations.request_steer(delegation.id, %{
                "agent_uid" => agent.uid,
@@ -369,6 +652,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDispatchTest do
 
     assert recovery["request_context"]["attempts"] == 2
     refute Map.has_key?(recovery["request_context"], "pending_steering")
+
+    assert SubagentDelegations.get_delegation_for_agent(delegation.id, agent.uid).runtime_thread_id ==
+             "thread-existing"
 
     assert_receive {:actor_lane, replay_envelope}, 200
 
@@ -647,7 +933,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDispatchTest do
            )
   end
 
-  test "retryable audit infrastructure failures exhaust delegation attempts with a parent wakeup" do
+  test "retryable Turn persistence failures exhaust delegation attempts with a parent wakeup" do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
     route = unique_route()
@@ -655,7 +941,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDispatchTest do
     on_exit(fn -> Broker.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
 
-    delegation = create_delegation!(agent.uid, "audit-exhaustion")
+    delegation = create_delegation!(agent.uid, "turn-persistence-exhaustion")
     actor_key = %{agent_uid: agent.uid, session_id: "subagent:#{delegation.id}"}
 
     retry_at =
@@ -676,15 +962,47 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDispatchTest do
 
         failure_time = DateTime.add(ready_at, 1, :second)
 
+        if expected_attempt == 3 do
+          assert {:ok, active_turn_ref} =
+                   Ankole.SignalsGateway.ActorRuntime.TurnRef.from_request(%{
+                     "turn" => turn_ref
+                   })
+
+          assert {:ok, _turn} =
+                   SubagentDelegations.upsert_turn_from_worker(
+                     delegation.id,
+                     agent.uid,
+                     %{
+                       "attempt" => expected_attempt,
+                       "runtime_thread_id" => "thread-exhausted",
+                       "runtime_turn_id" => "turn-exhausted",
+                       "kind" => "agent",
+                       "status" => "in_progress",
+                       "revision" => 0,
+                       "trajectory" => %{
+                         "format" => "ankole_chatml",
+                         "version" => 1,
+                         "messages" => [%{"role" => "user", "content" => "Continue the task."}]
+                       },
+                       "progress" => empty_turn_progress(),
+                       "usage" => nil,
+                       "error" => %{},
+                       "started_at" => failure_time
+                     },
+                     active_turn_ref,
+                     route
+                   )
+        end
+
         assert {:ok, %{status: :turn_failed, retry_available_at: retry_available_at}} =
                  ActorRuntime.handle_turn_error(
                    %{
                      "turn_error" => %{
                        "turn" => turn_ref,
                        "code" => "worker_turn_failed",
-                       "message" => "Subagent audit persistence failed",
+                       "message" => "Subagent Turn persistence failed",
                        "details_json" => %{
-                         "error_code" => "subagent_audit_persistence_failed",
+                         "error_code" => "subagent_turn_persistence_failed",
                          "retryable" => true
                        }
                      }
@@ -704,6 +1022,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDispatchTest do
     assert failed.status == "failed"
     assert failed.error["code"] == "attempts_exhausted"
 
+    exhausted_turn =
+      Repo.get_by!(Ankole.SubagentDelegations.Schemas.Turn,
+        delegation_id: delegation.id,
+        runtime_turn_id: "turn-exhausted"
+      )
+
+    assert exhausted_turn.status == "interrupted"
+    assert exhausted_turn.error["code"] == "attempts_exhausted"
+
     assert Repo.get_by!(Ankole.SignalsGateway.ActorEvent,
              agent_uid: agent.uid,
              session_id: delegation.session_id,
@@ -711,7 +1038,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDispatchTest do
            )
   end
 
-  test "explicit audit rejection fails the delegation and wakes the parent atomically" do
+  test "explicit Turn persistence rejection fails the delegation and wakes the parent atomically" do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
     route = unique_route()
@@ -719,7 +1046,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDispatchTest do
     on_exit(fn -> Broker.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
 
-    delegation = create_delegation!(agent.uid, "audit-rejected")
+    delegation = create_delegation!(agent.uid, "turn-persistence-rejected")
     actor_key = %{agent_uid: agent.uid, session_id: "subagent:#{delegation.id}"}
     now = DateTime.add(delegation.queued_at, 1, :second)
 
@@ -732,15 +1059,45 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDispatchTest do
     assert_receive {:actor_lane, envelope}, 200
     turn_ref = envelope["body"]["turn_start"]["turn"]
 
+    assert {:ok, active_turn_ref} =
+             Ankole.SignalsGateway.ActorRuntime.TurnRef.from_request(%{"turn" => turn_ref})
+
+    checkpoint_at = DateTime.utc_now(:microsecond)
+
+    assert {:ok, _turn} =
+             SubagentDelegations.upsert_turn_from_worker(
+               delegation.id,
+               agent.uid,
+               %{
+                 "attempt" => 1,
+                 "runtime_thread_id" => "thread-rejected",
+                 "runtime_turn_id" => "turn-rejected",
+                 "kind" => "agent",
+                 "status" => "in_progress",
+                 "revision" => 0,
+                 "trajectory" => %{
+                   "format" => "ankole_chatml",
+                   "version" => 1,
+                   "messages" => [%{"role" => "user", "content" => "Run the delegated task."}]
+                 },
+                 "progress" => empty_turn_progress(),
+                 "usage" => nil,
+                 "error" => %{},
+                 "started_at" => checkpoint_at
+               },
+               active_turn_ref,
+               route
+             )
+
     assert {:ok, %{status: :subagent_failed, subagent_failure: %{delegation: failed}}} =
              ActorRuntime.handle_turn_error(
                %{
                  "turn_error" => %{
                    "turn" => turn_ref,
                    "code" => "worker_turn_failed",
-                   "message" => "Subagent audit persistence was rejected",
+                   "message" => "Subagent Turn persistence was rejected",
                    "details_json" => %{
-                     "error_code" => "subagent_audit_persistence_rejected",
+                     "error_code" => "subagent_turn_persistence_rejected",
                      "retryable" => false
                    }
                  }
@@ -749,7 +1106,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDispatchTest do
              )
 
     assert failed.status == "failed"
-    assert failed.error["code"] == "audit_persistence_rejected"
+    assert failed.error["code"] == "turn_persistence_rejected"
+
+    rejected_turn =
+      Repo.get_by!(Ankole.SubagentDelegations.Schemas.Turn,
+        delegation_id: delegation.id,
+        runtime_turn_id: "turn-rejected"
+      )
+
+    assert rejected_turn.status == "interrupted"
+    assert rejected_turn.error["code"] == "turn_persistence_rejected"
 
     assert %DateTime{} =
              Repo.get!(Ankole.SignalsGateway.ActorEvent, turn_ref["actor_event_id"]).completed_at
@@ -835,5 +1201,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SubagentDispatchTest do
              })
 
     delegation
+  end
+
+  defp empty_turn_progress do
+    %{
+      "completed_items" => 0,
+      "tool_calls" => 0,
+      "tools_used" => [],
+      "files_changed" => []
+    }
   end
 end

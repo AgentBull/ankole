@@ -2,7 +2,15 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
   @moduledoc false
 
   alias Ankole.{Logging, Principals, WorkerFiles}
-  alias Ankole.Plugins.Microsoft365Adapter.{AdaptiveCard, Config, Conversations, Emoji, MapHelpers}
+
+  alias Ankole.Plugins.Microsoft365Adapter.{
+    AdaptiveCard,
+    Config,
+    Conversations,
+    Emoji,
+    MapHelpers
+  }
+
   alias Ankole.SignalsGateway.{AdapterContext, Ingress}
   alias MicrosoftOpenAPI.BotConnector
 
@@ -43,7 +51,10 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
 
   @spec normalize_message_receive(map(), map()) ::
           {:ok, map()} | {:ignore, atom()} | {:error, term()}
-  def normalize_message_receive(activity, %{context: %AdapterContext{}, config: config} = consumer)
+  def normalize_message_receive(
+        activity,
+        %{context: %AdapterContext{}, config: config} = consumer
+      )
       when is_map(activity) do
     from = MapHelpers.fetch_map(activity, "from", %{})
 
@@ -72,7 +83,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
          :ok <- material_message?(text, attachments),
          {:ok, attachments} <- maybe_materialize_attachments(attachments, activity, consumer) do
       base_conversation_id = Conversations.base_conversation_id(conversation_id)
-      thread_root = Conversations.thread_root(conversation_id) || activity_id
+      thread_root = Conversations.thread_root(conversation_id)
       conversation_type = conversation_type(activity)
       external_id = author_external_id(from)
       namespace = Config.namespace(config)
@@ -96,8 +107,8 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
          source_event_id: activity_id,
          source_entry_id: activity_id,
          signal_channel_id: Conversations.signal_channel_id(base_conversation_id),
-         provider_thread_id:
-           Conversations.provider_thread_id(base_conversation_id, thread_root),
+         reply_to_source_entry_id: reply_target_id(activity, thread_root, activity_id),
+         provider_thread_id: Conversations.provider_thread_id(base_conversation_id, thread_root),
          channel: %{
            kind: channel_kind(conversation_type),
            reply_mode: :entry,
@@ -110,7 +121,8 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
                "tenant_id" => tenant_id(activity),
                "team_id" => team_id(activity)
              }),
-           raw_payload: MapHelpers.compact_map(MapHelpers.fetch_map(activity, "conversation", %{}))
+           raw_payload:
+             MapHelpers.compact_map(MapHelpers.fetch_map(activity, "conversation", %{}))
          },
          text: text,
          formatted_content: if(text, do: %{"format" => "markdown", "body" => text}, else: %{}),
@@ -151,11 +163,24 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
     end
   end
 
+  defp reply_target_id(activity, thread_root, activity_id) do
+    case MapHelpers.optional_text(activity, "replyToId") do
+      reply_to_id when is_binary(reply_to_id) and reply_to_id != activity_id ->
+        reply_to_id
+
+      _missing_or_self when is_binary(thread_root) and thread_root != activity_id ->
+        thread_root
+
+      _missing_or_self ->
+        nil
+    end
+  end
+
   defp emit_removed(consumer, activity) do
     with {:ok, activity_id} <- required_text(activity, "id"),
          {:ok, conversation_id} <- conversation_id(activity) do
       base_conversation_id = Conversations.base_conversation_id(conversation_id)
-      thread_root = Conversations.thread_root(conversation_id) || activity_id
+      thread_root = Conversations.thread_root(conversation_id)
 
       input = %{
         source_event_id: "deleted:" <> activity_id,
@@ -305,7 +330,9 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
   defp ignored_sender?(activity, _config) do
     from = MapHelpers.fetch_map(activity, "from", %{})
     from_id = MapHelpers.optional_text(from, "id") || ""
-    recipient_id = activity |> MapHelpers.fetch_map("recipient", %{}) |> MapHelpers.optional_text("id")
+
+    recipient_id =
+      activity |> MapHelpers.fetch_map("recipient", %{}) |> MapHelpers.optional_text("id")
 
     String.starts_with?(from_id, "28:") or
       (is_binary(recipient_id) and from_id == recipient_id) or
@@ -343,7 +370,8 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
             "id" => mentioned_id,
             "key" => key,
             "user_id" => subject_id,
-            "name" => mention_name(namespace, subject_id, MapHelpers.optional_text(mentioned, "name")),
+            "name" =>
+              mention_name(namespace, subject_id, MapHelpers.optional_text(mentioned, "name")),
             "targets_current_agent" => current?,
             "agent_uid" => if(current?, do: consumer.context.agent_uid)
           }
@@ -542,7 +570,9 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
   end
 
   defp conversation_id(activity) do
-    case activity |> MapHelpers.fetch_map("conversation", %{}) |> MapHelpers.optional_text("id") do
+    case activity
+         |> MapHelpers.fetch_map("conversation", %{})
+         |> MapHelpers.optional_text("id") do
       nil -> {:error, {:missing, "conversation.id"}}
       id -> {:ok, id}
     end
@@ -565,7 +595,9 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
 
   defp tenant_id(activity) do
     get_in(activity, ["channelData", "tenant", "id"]) ||
-      activity |> MapHelpers.fetch_map("conversation", %{}) |> MapHelpers.optional_text("tenantId")
+      activity
+      |> MapHelpers.fetch_map("conversation", %{})
+      |> MapHelpers.optional_text("tenantId")
   end
 
   defp team_id(activity), do: get_in(activity, ["channelData", "team", "id"])

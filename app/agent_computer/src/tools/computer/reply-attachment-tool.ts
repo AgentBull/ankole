@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../../core'
 import { jsonToolResult } from '../../core/tool-result'
 import { insideWorkspace, resolveWorkspacePath } from '../../core/workspace-paths'
+import { compactActivityPath } from '../activity-summary'
 import type { ComputerToolContext } from './context'
 
 const ReplyAttachmentParams = z.object({
@@ -41,6 +42,10 @@ export function createReplyAttachmentTool(
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
+    describeActivity: params => {
+      const path = compactActivityPath(params.path)
+      return path ? `准备交付文件：${path}` : '准备交付文件'
+    },
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<ReplyAttachmentDetails>> {
       const computer = await context.getComputer(signal)
       const buffer = await computer.readFileToBuffer({ path: params.path }, { signal })

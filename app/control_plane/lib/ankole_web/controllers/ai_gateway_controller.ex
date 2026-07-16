@@ -9,8 +9,7 @@ defmodule AnkoleWeb.AIGatewayController do
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.AIGateway
-  alias Ankole.Kernel.UniversalAIClient
-  alias AnkoleWeb.AIGatewaySSELimit
+  alias Ankole.AIGateway.OpenAIError
   alias OpenAPISpex.Schema
 
   @json_object %Schema{type: :object, additionalProperties: true}
@@ -251,48 +250,43 @@ defmodule AnkoleWeb.AIGatewayController do
 
   defp stream_response(conn, subject_uid, request) do
     case AIGateway.open_sse_stream(subject_uid, request) do
-      {:ok, stream, meta} ->
+      {:ok, stream, _meta} ->
         conn =
           conn
           |> put_resp_header("content-type", "text/event-stream")
           |> put_resp_header("cache-control", "no-cache")
           |> send_chunked(200)
 
-        stream_native_sse_chunks(conn, stream, AIGatewaySSELimit.new(request, meta))
+        stream_sse_events(conn, stream)
 
       {:error, reason} ->
         error(conn, reason)
     end
   end
 
-  defp stream_native_sse_chunks(conn, stream, limit_state) do
-    case UniversalAIClient.read(stream, 1) do
+  defp stream_sse_events(conn, stream) do
+    case AIGateway.read_response_stream(stream, 1) do
       :ok ->
         receive do
-          {:universal_ai_client, ref, :chunk, _seq, :sse, chunk} when ref == stream.ref ->
-            {limit_state, limit_action} = AIGatewaySSELimit.observe(limit_state, chunk)
-
-            case Plug.Conn.chunk(conn, chunk) do
+          {:ai_gateway_response_stream, ref, :events, events, :continue}
+          when ref == stream.ref ->
+            case chunk_all(conn, Enum.map(events, &encode_sse_event/1)) do
               {:ok, conn} ->
-                continue_or_stop_sse(conn, stream, limit_state, limit_action)
+                stream_sse_events(conn, stream)
 
-              {:error, _reason} ->
-                _ = UniversalAIClient.cancel(stream)
+              {:error, conn} ->
+                _ = AIGateway.cancel_response_stream(stream, "sse_client_disconnected")
                 conn
             end
 
-          {:universal_ai_client, ref, :chunk, _seq, _kind, _chunk} when ref == stream.ref ->
-            _ = UniversalAIClient.cancel(stream)
-            conn
+          {:ai_gateway_response_stream, ref, :events, events, {:terminal, _outcome}}
+          when ref == stream.ref ->
+            chunks = Enum.map(events, &encode_sse_event/1) ++ [done_sse_chunk()]
 
-          {:universal_ai_client, ref, :done, _summary} when ref == stream.ref ->
-            conn
-
-          {:universal_ai_client, ref, :error, _error} when ref == stream.ref ->
-            conn
-
-          {:universal_ai_client, ref, :aborted} when ref == stream.ref ->
-            conn
+            case chunk_all(conn, chunks) do
+              {:ok, conn} -> conn
+              {:error, conn} -> conn
+            end
         end
 
       {:error, _reason} ->
@@ -300,18 +294,24 @@ defmodule AnkoleWeb.AIGatewayController do
     end
   end
 
-  defp continue_or_stop_sse(conn, stream, limit_state, :continue),
-    do: stream_native_sse_chunks(conn, stream, limit_state)
+  defp chunk_all(conn, chunks) do
+    Enum.reduce_while(chunks, {:ok, conn}, fn chunk, {:ok, conn} ->
+      case Plug.Conn.chunk(conn, chunk) do
+        {:ok, conn} -> {:cont, {:ok, conn}}
+        {:error, _reason} -> {:halt, {:error, conn}}
+      end
+    end)
+  end
 
-  defp continue_or_stop_sse(conn, stream, _limit_state, {:stop, incomplete_chunk}) do
-    _ = UniversalAIClient.cancel(stream)
+  defp encode_sse_event(%{"type" => type} = event),
+    do: "event: #{type}\ndata: #{Ankole.JSON.encode!(event)}\n\n"
 
-    with {:ok, conn} <- Plug.Conn.chunk(conn, incomplete_chunk),
-         {:ok, conn} <- Plug.Conn.chunk(conn, AIGatewaySSELimit.done_chunk()) do
-      conn
-    else
-      {:error, _reason} -> conn
-    end
+  defp done_sse_chunk, do: "data: [DONE]\n\n"
+
+  defp error(conn, %OpenAIError{} = error) do
+    conn
+    |> put_status(error.status)
+    |> json(OpenAIError.envelope(error))
   end
 
   defp error(conn, reason) do

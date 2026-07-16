@@ -370,6 +370,31 @@ defmodule Ankole.KernelTest do
              RuntimeFabric.router_send_mandatory(router, "missing-worker", turn_start_envelope())
   end
 
+  test "runtime fabric router releases its bind when the BEAM owner dies" do
+    test_pid = self()
+
+    owner_pid =
+      spawn(fn ->
+        {:ok, router} =
+          RuntimeFabric.router_start("tcp://127.0.0.1:*", self(),
+            worker_auth_key: "test-token",
+            poll_interval_ms: 1
+          )
+
+        send(test_pid, {:owned_router_started, router, RuntimeFabric.router_endpoint(router)})
+        Process.sleep(:infinity)
+      end)
+
+    owner_monitor = Process.monitor(owner_pid)
+    assert_receive {:owned_router_started, _owned_router, endpoint}, 1_000
+
+    Process.exit(owner_pid, :kill)
+    assert_receive {:DOWN, ^owner_monitor, :process, ^owner_pid, :killed}, 1_000
+
+    assert {:ok, replacement} = start_router_eventually(endpoint, 200)
+    on_exit(fn -> RuntimeFabric.router_stop(replacement) end)
+  end
+
   test "authz helpers evaluate snapshots without host database access" do
     assert NativeKernel.authz_validate_condition(~s(principal.type == "human"))
     assert NativeKernel.authz_validate_resource_pattern("workspace:**")
@@ -897,6 +922,24 @@ defmodule Ankole.KernelTest do
   defp status_reason(200), do: "OK"
   defp status_reason(429), do: "Too Many Requests"
   defp status_reason(_status), do: "Status"
+
+  defp start_router_eventually(endpoint, attempts) when attempts > 0 do
+    case RuntimeFabric.router_start(endpoint, self(),
+           worker_auth_key: "test-token",
+           poll_interval_ms: 1
+         ) do
+      {:ok, router} ->
+        {:ok, router}
+
+      {:error, _reason} ->
+        receive do
+        after
+          10 -> start_router_eventually(endpoint, attempts - 1)
+        end
+    end
+  end
+
+  defp start_router_eventually(_endpoint, 0), do: {:error, :router_bind_not_released}
 
   defp actor_turn_ref do
     %{

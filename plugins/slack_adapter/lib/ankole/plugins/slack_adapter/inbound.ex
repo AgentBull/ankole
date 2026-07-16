@@ -114,7 +114,6 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
            ),
          {:ok, attachments} <- maybe_materialize_attachments(attachments, message, consumer) do
       channel_kind = channel_kind(message)
-      thread_ts = MapHelpers.optional_text(message, "thread_ts") || source_entry_id
       namespace = Map.get(config, "platformSubjectNamespace", "slack-main")
       signal_channel_id = signal_channel_id(slack_channel_id)
 
@@ -131,7 +130,8 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
          source_event_id: event.id || source_entry_id,
          source_entry_id: source_entry_id,
          signal_channel_id: signal_channel_id,
-         provider_thread_id: provider_thread_id(slack_channel_id, thread_ts),
+         reply_to_source_entry_id: reply_target_id(message, source_entry_id),
+         provider_thread_id: message_thread_id(slack_channel_id, message),
          channel: %{
            kind: channel_kind,
            reply_mode: :entry,
@@ -200,7 +200,8 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
         source_event_id: event.id || "deleted:#{source_entry_id}",
         source_entry_id: source_entry_id,
         signal_channel_id: signal_channel_id(slack_channel_id),
-        provider_thread_id: provider_thread_id(slack_channel_id, source_entry_id),
+        provider_thread_id:
+          message_thread_id(slack_channel_id, Map.get(message, "previous_message") || %{}),
         channel: %{kind: channel_kind(message), reply_mode: :entry, raw_payload: message},
         metadata: %{"provider" => "slack", "event_type" => event.type},
         raw_payload: event.raw || %{},
@@ -552,6 +553,26 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
 
   defp provider_thread_id(channel, thread_ts),
     do: "slack:#{URI.encode(channel)}:#{URI.encode(thread_ts)}"
+
+  # provider_thread_id names the thread that already contains the message, so
+  # only threaded replies (and thread broadcasts) carry one. Falling back to the
+  # message's own ts would give every top-level message its own inbound-batch
+  # key, so same-sender bursts could never merge.
+  defp message_thread_id(slack_channel_id, message) when is_map(message) do
+    source_entry_id = MapHelpers.optional_text(message, "ts")
+
+    case MapHelpers.optional_text(message, "thread_ts") do
+      thread_ts when is_nil(thread_ts) or thread_ts == source_entry_id -> nil
+      thread_ts -> provider_thread_id(slack_channel_id, thread_ts)
+    end
+  end
+
+  defp reply_target_id(message, source_entry_id) do
+    case MapHelpers.optional_text(message, "thread_ts") do
+      thread_ts when is_nil(thread_ts) or thread_ts == source_entry_id -> nil
+      thread_ts -> thread_ts
+    end
+  end
 
   defp required_text(map, key) do
     case MapHelpers.optional_text(map, key) do

@@ -15,7 +15,9 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
   @plan_statuses ~w(pending in_progress completed cancelled)
   @activity_phases ~w(pending running completed failed)
   @action_types ~w(button form)
+  @interaction_statuses ~w(pending answered superseded)
   @result_kinds ~w(table chart image artifact metrics)
+  @trigger_context_kinds ~w(subagent_failure)
 
   @max_thought_chars 4_000
   @max_plan_items 24
@@ -29,6 +31,8 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
   @max_table_rows 20
   @max_chart_series 6
   @max_chart_points 40
+  @max_trigger_title_chars 160
+  @max_trigger_summary_chars 800
 
   @type t :: %{String.t() => term()}
 
@@ -69,7 +73,12 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
     |> Map.put("results", normalize_results(value(presentation, "results")))
     |> Map.put("receipts", normalize_receipts(value(presentation, "receipts")))
     |> Map.put("actions", normalize_actions(value(presentation, "actions")))
+    |> maybe_put(
+      "trigger_context",
+      normalize_trigger_context(value(presentation, "trigger_context"))
+    )
     |> Map.put("meta", normalize_meta(value(presentation, "meta")))
+    |> normalize_interaction_status(value(presentation, "interaction_status"))
     |> remove_thought_unless_working()
   end
 
@@ -126,6 +135,28 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
   def apply_event(presentation, _kind, _payload), do: normalize(presentation)
 
   @doc """
+  Projects the internal event that triggered a visible Agent turn into bounded
+  renderer context. The projection is deterministic and never model-authored.
+  """
+  @spec project_trigger(t(), String.t(), map()) :: t()
+  def project_trigger(presentation, "subagent.delegation.failed", payload)
+      when is_map(payload) do
+    presentation = normalize(presentation)
+    data = value(payload, "data")
+
+    trigger_context =
+      normalize_trigger_context(%{
+        "kind" => "subagent_failure",
+        "title" => value(data, "title"),
+        "summary" => value(data, "result_summary")
+      })
+
+    maybe_put(presentation, "trigger_context", trigger_context)
+  end
+
+  def project_trigger(presentation, _event_type, _payload), do: normalize(presentation)
+
+  @doc """
   Returns the bounded crash-recovery projection. Original reasoning is never
   durable presentation truth.
   """
@@ -170,6 +201,45 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
 
   @spec terminal_state?(t()) :: boolean()
   def terminal_state?(presentation), do: normalize(presentation)["state"] in @terminal_states
+
+  @doc """
+  Projects one terminal reply-interaction result into the visible presentation.
+
+  The durable interaction state is provider-neutral. Renderers only receive the
+  resulting locked controls and terminal status; they never decide whether an
+  answer still counts.
+  """
+  @spec resolve_interaction(t(), String.t(), map() | nil) :: t()
+  def resolve_interaction(presentation, status, answer \\ nil)
+
+  def resolve_interaction(presentation, status, answer)
+      when status in ["answered", "superseded"] do
+    presentation = normalize(presentation)
+
+    if presentation["state"] == "awaiting_input" and presentation["actions"] != [] do
+      option_id = if is_map(answer), do: value(answer, "option_id")
+
+      actions =
+        Enum.map(presentation["actions"], fn action ->
+          action
+          |> Map.put("disabled", true)
+          |> maybe_put_selected(status, option_id)
+        end)
+
+      if presentation["interaction_status"] == status and presentation["actions"] == actions do
+        presentation
+      else
+        presentation
+        |> Map.put("actions", actions)
+        |> Map.put("interaction_status", status)
+        |> bump_revision()
+      end
+    else
+      presentation
+    end
+  end
+
+  def resolve_interaction(presentation, _status, _answer), do: normalize(presentation)
 
   defp apply_phase(presentation, payload) do
     revision = revision(payload)
@@ -322,6 +392,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
       |> Map.put("state", "awaiting_input")
       |> Map.put("prompt", prompt)
       |> Map.put("actions", actions)
+      |> Map.put("interaction_status", "pending")
       |> Map.delete("thought")
       |> put_revision(payload)
     end
@@ -363,6 +434,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
         "items" => items,
         "summary" => plan_summary(items)
       }
+      |> maybe_put("folded", optional_boolean(value(plan, "folded")))
     end
   end
 
@@ -588,8 +660,9 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
         type = normalize_in(value(action, "type"), @action_types, nil)
         id = bounded_optional_text(value(action, "id"), 80)
         label = bounded_optional_text(value(action, "label"), 80)
+        fields = normalize_form_fields(value(action, "fields"))
 
-        if type && id && label do
+        if type && id && label && valid_action_fields?(type, fields) do
           [
             %{
               "type" => type,
@@ -621,7 +694,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
             |> maybe_put("revision", optional_non_negative_integer(value(action, "revision")))
             |> maybe_put("disabled", optional_boolean(value(action, "disabled")))
             |> maybe_put("selected", optional_boolean(value(action, "selected")))
-            |> maybe_put("fields", normalize_form_fields(value(action, "fields")))
+            |> maybe_put("fields", fields)
           ]
         else
           []
@@ -641,7 +714,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
       field when is_map(field) ->
         id = bounded_optional_text(value(field, "id"), 80)
         label = bounded_optional_text(value(field, "label"), 80)
-        type = normalize_in(value(field, "type"), ~w(input select date), nil)
+        type = normalize_in(value(field, "type"), ~w(input), nil)
 
         if id && label && type do
           [
@@ -651,6 +724,15 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
               "type" => type,
               "required" => value(field, "required") == true
             }
+            |> maybe_put(
+              "placeholder",
+              bounded_optional_text(value(field, "placeholder"), 240)
+            )
+            |> maybe_put("multiline", optional_boolean(value(field, "multiline")))
+            |> maybe_put(
+              "max_length",
+              bounded_positive_integer(value(field, "max_length"), 1_000)
+            )
           ]
         else
           []
@@ -681,6 +763,53 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
   end
 
   defp normalize_meta(_meta), do: %{}
+
+  defp normalize_trigger_context(context) when is_map(context) do
+    kind = normalize_in(value(context, "kind"), @trigger_context_kinds, nil)
+    title = bounded_single_line_text(value(context, "title"), @max_trigger_title_chars)
+
+    if kind && title do
+      %{
+        "kind" => kind,
+        "title" => title
+      }
+      |> maybe_put(
+        "summary",
+        bounded_single_line_text(value(context, "summary"), @max_trigger_summary_chars)
+      )
+    end
+  end
+
+  defp normalize_trigger_context(_context), do: nil
+
+  defp valid_action_fields?("button", _fields), do: true
+  defp valid_action_fields?("form", [%{"type" => "input"}]), do: true
+  defp valid_action_fields?(_type, _fields), do: false
+
+  defp normalize_interaction_status(
+         %{"state" => "awaiting_input", "actions" => [_ | _]} = presentation,
+         status
+       ) do
+    Map.put(
+      presentation,
+      "interaction_status",
+      normalize_in(status, @interaction_statuses, "pending")
+    )
+  end
+
+  defp normalize_interaction_status(presentation, _status),
+    do: Map.delete(presentation, "interaction_status")
+
+  defp maybe_put_selected(action, "answered", option_id) when is_binary(option_id) do
+    Map.put(action, "selected", action["selected_option_id"] == option_id)
+  end
+
+  defp maybe_put_selected(action, _status, _option_id), do: Map.delete(action, "selected")
+
+  defp bounded_positive_integer(value, max) when is_integer(value) and value > 0,
+    do: min(value, max)
+
+  defp bounded_positive_integer(_value, _max), do: nil
 
   defp optional_boolean(value) when is_boolean(value), do: value
   defp optional_boolean(_value), do: nil
@@ -801,6 +930,22 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
     case bounded_text(value, max_chars) |> String.trim() do
       "" -> nil
       text -> text
+    end
+  end
+
+  defp bounded_single_line_text(value, max_chars) do
+    value
+    |> to_safe_string()
+    |> String.replace(~r/\s+/u, " ")
+    |> String.trim()
+    |> case do
+      "" ->
+        nil
+
+      text ->
+        if String.length(text) <= max_chars,
+          do: text,
+          else: String.slice(text, 0, max_chars - 1) <> "…"
     end
   end
 

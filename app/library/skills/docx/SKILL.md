@@ -1,8 +1,9 @@
 ---
 name: docx
-description: "Use this skill any time a .docx file is involved -- as input, output, or both. This OfficeCLI-backed skill covers creating, reading, editing, and updating Word documents, reports, letters, memos, proposals, templates, tracked changes, comments, headers/footers, and tables of contents."
+description: "Use this skill for local .docx files as input or output. This OfficeCLI-backed skill creates, reads, edits, and validates Word files; it does not operate Lark Docs URLs or cloud document tokens, which belong to lark-office-suite."
 default_enabled: true
 category: productivity
+long_running: true
 tags: [docx, document, word, officecli]
 metadata:
   upstream: https://github.com/iOfficeAI/OfficeCLI/tree/v1.0.129/skills/officecli-docx
@@ -11,6 +12,8 @@ metadata:
 ---
 
 # OfficeCLI DOCX Skill
+
+For visual styling, use `design-md` when the user requests the internal design system or VIS, skip it when they opt out or choose another style instead, and treat it as optional when no style source is specified.
 
 ## Setup
 
